@@ -162,6 +162,7 @@
 # include <ShapeFix_Shell.hxx>
 # include <ShapeFix_Solid.hxx>
 # include <ShapeFix_Shape.hxx>
+# include <ShapeAnalysis_ShapeTolerance.hxx>
 # include <ShapeFix_ShapeTolerance.hxx>
 # include <ShapeUpgrade_ShellSewing.hxx>
 # include <ShapeUpgrade_RemoveInternalWires.hxx>
@@ -800,6 +801,40 @@ TopoDS_Shape TopoShape::findShape(TopAbs_ShapeEnum type, int idx) const {
     return _Cache->findShape(_Shape,type,idx);
 }
 
+/// The largest tolerance in a shape: its own and that of all that bounds it
+static double largestTolerance(const TopoDS_Shape &shape)
+{
+    return shape.IsNull() ? 0.0 : ShapeAnalysis_ShapeTolerance().Tolerance(shape, 1);
+}
+
+std::vector<TopoShape> TopoShape::searchSubShapeNear(
+        const TopoShape &subshape, std::vector<std::string> *names, double factor,
+        Data::SearchOptions options, double tol, double atol) const
+{
+    std::vector<TopoShape> res;
+    if (subshape.isNull() || this->isNull() || !(factor > 0.0) || !(tol > 0.0))
+        return res;
+    const double had = std::max(tol, largestTolerance(subshape.getShape()));
+    // The widest any element here could be allowed, to gather them; each is
+    // then held to its own
+    const double widest = factor * std::max(had, largestTolerance(getShape()));
+    if (widest <= tol)
+        return res;
+    std::vector<std::string> found;
+    const auto elements = searchSubShape(subshape, &found, options, widest, atol * (widest / tol));
+    for (std::size_t i = 0; i < elements.size() && i < found.size(); ++i) {
+        const double own = factor * std::max(had, largestTolerance(elements[i].getShape()));
+        if (own < widest
+                && elements[i].searchSubShape(
+                        subshape, nullptr, options, own, atol * (own / tol)).empty())
+            continue;
+        res.push_back(elements[i]);
+        if (names)
+            names->push_back(found[i]);
+    }
+    return res;
+}
+
 std::vector<TopoShape> TopoShape::searchSubShape(
         const TopoShape &subshape, std::vector<std::string> *names,
         Data::SearchOptions options, double tol, double atol) const
@@ -916,6 +951,18 @@ std::vector<TopoShape> TopoShape::searchSubShape(
         std::unique_ptr<Geometry> g;
         bool isLine = false;
         bool isPlane = false;
+        // A straight edge is a line however it is written: a feature made
+        // again may hand back a line as a B-spline of degree 1 between the
+        // same two points (in realthunder/FreeCAD#474 three edges of a
+        // helix's end face came back so, and the face, there vertex for
+        // vertex, was not found again for the sketches attached to it).
+        auto isStraight = [](const Geometry &geo) {
+            if (geo.isDerivedFrom(GeomLine::getClassTypeId())
+                    || geo.isDerivedFrom(GeomLineSegment::getClassTypeId()))
+                return true;
+            auto curve = freecad_cast<const GeomCurve*>(&geo);
+            return curve && curve->isLinear();
+        };
 
         std::vector<TopoDS_Shape> vertices;
         TopoShape wire;
@@ -930,8 +977,7 @@ std::vector<TopoShape> TopoShape::searchSubShape(
             if(!g)
                 return res;
             if (shapeType == TopAbs_EDGE)
-                isLine = (g->isDerivedFrom(GeomLine::getClassTypeId())
-                            || g->isDerivedFrom(GeomLineSegment::getClassTypeId()));
+                isLine = isStraight(*g);
             else
                 isPlane = g->isDerivedFrom(GeomPlane::getClassTypeId());
         }
@@ -944,8 +990,7 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                 // For lines, don't compare geometry, just check the
                 // vertices below instead, because the exact same edge
                 // may have different geometrical representation.
-                if (!g2->isDerivedFrom(GeomLine::getClassTypeId())
-                        && !g2->isDerivedFrom(GeomLineSegment::getClassTypeId()))
+                if (!isStraight(*g2))
                     return false;
             } else if (isPlane && !strict) {
                 // For planes, don't compare geometry either, so that
@@ -1039,8 +1084,7 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                         }
                         bool isLine = false;
                         gp_Pnt pt1, pt2;
-                        if (g->isDerivedFrom(GeomLine::getClassTypeId())
-                                || g->isDerivedFrom(GeomLineSegment::getClassTypeId()))
+                        if (isStraight(*g))
                         {
                             pt1 = BRep_Tool::Pnt(TopExp::FirstVertex(TopoDS::Edge(e)));
                             pt2 = BRep_Tool::Pnt(TopExp::LastVertex(TopoDS::Edge(e)));
@@ -1059,8 +1103,7 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                                     break;
                             }
                             if (isLine) {
-                                if(g1->isDerivedFrom(GeomLine::getClassTypeId())
-                                        || g1->isDerivedFrom(GeomLineSegment::getClassTypeId()))
+                                if(isStraight(*g1))
                                 {
                                     auto p1 = BRep_Tool::Pnt(TopExp::FirstVertex(TopoDS::Edge(e1)));
                                     auto p2 = BRep_Tool::Pnt(TopExp::LastVertex(TopoDS::Edge(e1)));

@@ -115,3 +115,6 @@ from PartDesignTests.TestInvoluteGear import TestInvoluteGear
 from PartDesignTests.TestTopologicalNamingProblem import TestTopologicalNamingProblem
 from PartDesignTests.TestNameEncoding import TestNameEncoding, TestNameEncodingAcrossDocuments
 from PartDesignTests.TestNameStability import TestNameStability
+from PartDesignTests.TestReferenceSearch import TestReferenceSearch
+from PartDesignTests.TestEarlierPlacement import TestEarlierPlacement
+from PartDesignTests.TestTwinReferences import TestTwinReferences

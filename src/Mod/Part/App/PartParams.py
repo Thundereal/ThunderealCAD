@@ -186,6 +186,23 @@ Params = [
         "fork.",
         on_change=True),
     # The long form, kept here; the documentation shown is the short one below.
+    # A reference names an element of a shape. When the shape is made again
+    # and the name is gone, the element is looked for where it was, to 1e-7.
+    # A feature made again by another build may put the same element a
+    # little off (realthunder/FreeCAD#474: edges of a swept helix 4e-7 from
+    # where the file has them), so an element not found is looked for once
+    # more, this many times the tolerance of the shapes: the larger of the
+    # tolerance the element had and the tolerance of the element found, each
+    # with its edges and vertices, and never less than the 1e-7 of the first
+    # look. What is found is taken only when it is the one element there. 0
+    # turns the second look off.
+    ParamFloat("ReferenceSearchTolerance", 10.0,
+        "How far from its place a referenced element may be found once its name\n"
+        "is gone, as a multiple of the shape tolerance: the larger of the\n"
+        "tolerance the element had and that of the element found. Tried only\n"
+        "after the exact search fails, and taken only when one element matches.\n"
+        "0 turns it off."),
+    # The long form, kept here; the documentation shown is the short one below.
     # Report a shape operation whose input shapes carry no element map, so
     # the result cannot be named either. This is off by default because an
     # absent element map is frequently correct -- program generated and

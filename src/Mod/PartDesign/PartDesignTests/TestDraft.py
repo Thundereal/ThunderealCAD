@@ -692,6 +692,23 @@ class TestDraft(unittest.TestCase):
             self.assertEqual(len(draft.Shape.Faces), 9, angle)
             draft.Shape.check(True)
 
+    def testDraftNewEventsAtOneLevel(self):
+        # An L, its six vertical edges filleted 1 (the inner one concave),
+        # drafted inward at 30 deg about its bottom. Its arms are 10 wide and
+        # close over at one level, and at that level the plane at the inner
+        # corner narrows to nothing beside the concave fillet too. The chain
+        # closes over along its arms and not round the corner: refused, and
+        # for that reason. Which of two events at one level was taken first
+        # turned on the last bit of its level, and on Linux the corner's was:
+        # refused as a face vanishing, where macOS said this.
+        shape = Part.makeBox(30, 10, 10).fuse(Part.makeBox(10, 25, 10)).removeSplitter()
+        shape = shape.makeFillet(1, [e for e in shape.Edges
+                                     if abs(e.Vertexes[0].Z - e.Vertexes[1].Z) > 1])
+        draft = self.makeDraftOn(shape, self.planeAt("Y", 0), self.planeAt("Z", 0), "New",
+                                 angle=-30)
+        self.assertIn("Invalid", draft.State)
+        self.assertIn("closes over along part of its outline only", draft.getStatusString())
+
     def tearDown(self):
         #closing doc
         FreeCAD.closeDocument("PartDesignTestDraft")

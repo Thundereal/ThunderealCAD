@@ -744,20 +744,25 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
             followMissed = true;
         return false;
     }
+    // Regenerating for a new map version ('reverse'), the old element is
+    // looked up by its number in the shape the feature had and found again
+    // by geometry. A reference that says already what the new map says is
+    // not one written against that shape: it was set since. A property
+    // that mirrors another (Support and AttachmentSupport, UpToFace and
+    // UpToShape) is pasted the other's value as soon as that one is
+    // brought up to date, and brought up to date itself in the same pass:
+    // its new number, read as an old one, was moved once more, and pasted
+    // back (a pad whose sketch's wire now starts an edge later: Face4 to
+    // Face3, right, then Face3 to Face2, and the sketch on it failed).
+    if (reverse && !missing && !unnamed && !shadow.first.empty() && shadow == elementName) {
+        holdShadowIDs(shadow, geo, shadowElement(shadow), false, hasher);
+        return false;
+    }
     // Nor searched where the feature has not the shape it was written
     // against: its old element is a number in that branch's shape, and
     // looked up by position in a shape of this feature it is some other
     // element.
-    //
-    // Nor where the reference already reads against this shape: the name finds
-    // the element at the number the reference holds. Its number is no position
-    // in the shape before, and searched there it is some other element. A
-    // sketch's AttachmentSupport is one, written by its Support as that was
-    // put right just before (AttachExtension): a face a recompute moved from
-    // Face3 to Face2 was then looked up as the old Face2.
-    const bool current = reverse && !missing && shadow.first.size() && shadow == elementName;
-    if ((feature == geo || restoring) && (missing || reverse) && !current
-            && following != Following::Mark) {
+    if ((feature == geo || restoring) && (missing || reverse) && following != Following::Mark) {
         // If the referenced element is missing, or we are generating element
         // map for the first time, or we are re-generating the element map due
         // to version change, i.e. 'reverse', try search by geometry first

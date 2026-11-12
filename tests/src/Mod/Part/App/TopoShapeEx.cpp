@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <TColgp_Array2OfPnt.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
+#include <TColStd_HArray1OfReal.hxx>
 #include <gtest/gtest.h>
 #include "src/App/InitApplication.h"
 #include <Mod/Part/App/Geometry.h>
@@ -19,7 +23,11 @@
 #include <BRepAdaptor_CompCurve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <ShapeFix_ShapeTolerance.hxx>
+#include <BRep_Builder.hxx>
+#include <TopoDS_Compound.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -29,11 +37,14 @@
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <Geom_Circle.hxx>
+#include <Geom_CylindricalSurface.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
+#include <GeomAPI_Interpolate.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <Geom_BezierSurface.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <gp_Circ.hxx>
 #include <gp_Pln.hxx>
 #include <ShapeFix_Wireframe.hxx>
 #include <ShapeBuild_ReShape.hxx>
@@ -1359,6 +1370,280 @@ TEST_F(TopoShapeExpansionTest, searchSubShapeCylinderFace)
     // Assert
     ASSERT_EQ(names.size(), 1);
     EXPECT_EQ(names[0], "Face1");
+}
+
+// The same search finds a face whose arc is written another way: the same
+// circle with its angle counted from another direction, or the other way
+// round.  A feature made again may give that (the arc of a pad's top in
+// realthunder/FreeCAD#333 came back a quarter turn on), and the face is
+// the same face; the arc's complement, with the same ends, is not.
+TEST_F(TopoShapeExpansionTest, searchSubShapeArcWrittenAnotherWay)
+{
+    // Arrange
+    const double r = 6;
+    const double quarter = std::numbers::pi / 2;
+    auto slice = [&](const gp_Ax2& axes, double first, double last) {
+        TopoDS_Edge arc = BRepBuilderAPI_MakeEdge(gp_Circ(axes, r), first, last).Edge();
+        TopoDS_Edge in = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(r, 0, 0)).Edge();
+        TopoDS_Edge out = BRepBuilderAPI_MakeEdge(gp_Pnt(0, r, 0), gp_Pnt(0, 0, 0)).Edge();
+        TopoDS_Wire wire = BRepBuilderAPI_MakeWire(in, arc, out).Wire();
+        return std::make_pair(TopoShape(BRepBuilderAPI_MakeFace(wire).Face()), arc);
+    };
+    const gp_Pnt o(0, 0, 0);
+    auto [face, arc] = slice(gp_Ax2(o, gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), 0, quarter);
+    auto [turned, arcTurned] = slice(gp_Ax2(o, gp_Dir(0, 0, 1), gp_Dir(0, 1, 0)), -quarter, 0);
+    auto [flipped, arcFlipped]
+        = slice(gp_Ax2(o, gp_Dir(0, 0, -1), gp_Dir(1, 0, 0)), 3 * quarter, 4 * quarter);
+    const gp_Circ circleTurned(gp_Ax2(o, gp_Dir(0, 0, 1), gp_Dir(0, 1, 0)), r);
+    TopoDS_Edge rest = BRepBuilderAPI_MakeEdge(circleTurned, 0, 3 * quarter).Edge();
+    std::unique_ptr<Geometry> g(Geometry::fromShape(arc));
+    std::unique_ptr<Geometry> gTurned(Geometry::fromShape(arcTurned));
+    std::unique_ptr<Geometry> gFlipped(Geometry::fromShape(arcFlipped));
+    std::unique_ptr<Geometry> gRest(Geometry::fromShape(rest));
+    for (auto* other : {&turned, &flipped}) {
+        std::vector<std::string> names;
+        // Act
+        other->searchSubShape(face, &names, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+        // Assert
+        ASSERT_EQ(names.size(), 1);
+        EXPECT_EQ(names[0], "Face1");
+    }
+    EXPECT_TRUE(g->isSame(*gTurned, 1e-7, 1e-10));
+    EXPECT_TRUE(g->isSame(*gFlipped, 1e-7, 1e-10));
+    EXPECT_FALSE(g->isSame(*gRest, 1e-7, 1e-10));
+}
+
+// And a face of a cylinder written another way: the same cylinder with its
+// axis the other way round and its origin moved along it (in
+// realthunder/FreeCAD#363 a cut's hole and a pocket's wall came back so).
+// A cylinder beside it, or of another radius, is not the same.
+TEST_F(TopoShapeExpansionTest, searchSubShapeCylinderWrittenAnotherWay)
+{
+    // Arrange
+    const double pi = std::numbers::pi;
+    const gp_Dir x(1, 0, 0);
+    Handle(Geom_CylindricalSurface) up
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), x), 2);
+    Handle(Geom_CylindricalSurface) down
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, 7), gp_Dir(0, 0, -1), x), 2);
+    Handle(Geom_CylindricalSurface) beside
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 1e-3, 0), gp_Dir(0, 0, 1), x), 2);
+    Handle(Geom_CylindricalSurface) wider
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), x), 2.001);
+    TopoShape face {BRepBuilderAPI_MakeFace(up, 0, pi, 0, 5, 1e-7).Face()};
+    TopoShape other {BRepBuilderAPI_MakeFace(down, pi, 2 * pi, 2, 7, 1e-7).Face()};
+    std::vector<std::string> names;
+    // Act
+    other.searchSubShape(face, &names, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    // Assert
+    ASSERT_EQ(names.size(), 1);
+    EXPECT_EQ(names[0], "Face1");
+    EXPECT_TRUE(GeomCylinder(up).isSame(GeomCylinder(down), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomCylinder(up).isSame(GeomCylinder(beside), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomCylinder(up).isSame(GeomCylinder(wider), 1e-7, 1e-10));
+}
+
+// And an edge on a B-spline written another way: the same points with the
+// parameter running otherwise along them, so the poles and the knots differ
+// (in realthunder/FreeCAD#363 the curves where a cylinder cuts another came
+// back so, 9e-7 off in their poles and 1e-9 as curves). A curve that leaves
+// it between the same ends is not the same.
+TEST_F(TopoShapeExpansionTest, searchSubShapeBSplineWrittenAnotherWay)
+{
+    // Arrange: a helix interpolated at 41 points, three times -- evenly
+    // spaced; spaced unevenly; and on a radius that swells by 2e-6 midway
+    const double pi = std::numbers::pi;
+    const int count = 41;
+    const double sweep = 0.5;
+    auto helix = [&](double shift, double swell) {
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, count);
+        Handle(TColStd_HArray1OfReal) params = new TColStd_HArray1OfReal(1, count);
+        for (int i = 0; i < count; ++i) {
+            const double s = double(i) / (count - 1);
+            const double angle = sweep * s + shift * std::sin(3 * pi * s);
+            const double radius = 10 + swell * std::sin(pi * s);
+            points->SetValue(
+                i + 1,
+                gp_Pnt(radius * std::cos(angle), radius * std::sin(angle), 3 * angle)
+            );
+            params->SetValue(i + 1, s);
+        }
+        GeomAPI_Interpolate interpolate(points, params, false, 1e-9);
+        interpolate.Perform();
+        return interpolate.Curve();
+    };
+    Handle(Geom_BSplineCurve) even = helix(0, 0);
+    Handle(Geom_BSplineCurve) uneven = helix(1e-5, 0);
+    Handle(Geom_BSplineCurve) swollen = helix(0, 2e-6);
+    double poleDistance = 0;
+    for (int i = 1; i <= even->NbPoles(); ++i) {
+        poleDistance = std::max(poleDistance, even->Pole(i).Distance(uneven->Pole(i)));
+    }
+    TopoShape edge {BRepBuilderAPI_MakeEdge(even).Edge()};
+    TopoShape other {BRepBuilderAPI_MakeEdge(uneven).Edge()};
+    std::vector<std::string> names;
+    // Act
+    other.searchSubShape(edge, &names, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    // Assert
+    ASSERT_EQ(even->NbPoles(), uneven->NbPoles());
+    EXPECT_GT(poleDistance, 1e-5);
+    ASSERT_EQ(names.size(), 1);
+    EXPECT_EQ(names[0], "Edge1");
+    EXPECT_TRUE(GeomBSplineCurve(even).isSame(GeomBSplineCurve(uneven), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(uneven).isSame(GeomBSplineCurve(even), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomBSplineCurve(even).isSame(GeomBSplineCurve(swollen), 1e-7, 1e-10));
+}
+
+// Nor does the make of a B-spline say where it runs, or the way it is run:
+// the same curve with its degree raised, and reversed, is found again, alone
+// and at the tolerance it is off by (in realthunder/FreeCAD#474 an edge of a
+// swept helix has 21 poles of degree 11 in the file and 34 of degree 9 made
+// again, 4e-7 off, and another comes back reversed).
+TEST_F(TopoShapeExpansionTest, searchSubShapeBSplineOfAnotherMakeOrDirection)
+{
+    // Arrange: a helix interpolated at 41 points; the same with its degree
+    // raised; reversed; and on a radius 4e-7 larger with its degree raised
+    const int count = 41;
+    auto helix = [&](double radius) {
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, count);
+        for (int i = 0; i < count; ++i) {
+            const double angle = 0.5 * i / (count - 1);
+            points->SetValue(
+                i + 1,
+                gp_Pnt(radius * std::cos(angle), radius * std::sin(angle), 3 * angle)
+            );
+        }
+        GeomAPI_Interpolate interpolate(points, false, 1e-9);
+        interpolate.Perform();
+        return interpolate.Curve();
+    };
+    Handle(Geom_BSplineCurve) plain = helix(10);
+    Handle(Geom_BSplineCurve) raised = Handle(Geom_BSplineCurve)::DownCast(plain->Copy());
+    raised->IncreaseDegree(plain->Degree() + 2);
+    Handle(Geom_BSplineCurve) reversed = Handle(Geom_BSplineCurve)::DownCast(plain->Reversed());
+    Handle(Geom_BSplineCurve) off = helix(10 + 4e-7);
+    off->IncreaseDegree(plain->Degree() + 2);
+    TopoShape edge {BRepBuilderAPI_MakeEdge(plain).Edge()};
+    auto found = [&](const Handle(Geom_BSplineCurve) & curve, double tol) {
+        TopoShape other {BRepBuilderAPI_MakeEdge(curve).Edge()};
+        std::vector<std::string> names;
+        other.searchSubShape(edge, &names, Data::SearchOption::CheckGeometry, tol, 1e-10);
+        return names.size();
+    };
+    // Act, Assert
+    ASSERT_GT(raised->NbPoles(), plain->NbPoles());
+    EXPECT_EQ(found(raised, 1e-7), 1);
+    EXPECT_EQ(found(reversed, 1e-7), 1);
+    EXPECT_EQ(found(off, 1e-7), 0);
+    EXPECT_EQ(found(off, 1e-5), 1);
+    EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(raised), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(raised).isSame(GeomBSplineCurve(plain), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(reversed), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(off), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(off), 1e-5, 1e-10));
+}
+
+// The second look for an element not found in place: as far off as the
+// tolerance of the two elements says, times a factor (PartParams
+// ReferenceSearchTolerance where a reference is looked for).
+TEST_F(TopoShapeExpansionTest, searchSubShapeNearGoesByTheShapesTolerance)
+{
+    // Arrange: a helix, the same 4e-6 further out, and one far from both
+    const int count = 41;
+    auto helix = [&](double radius) {
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, count);
+        for (int i = 0; i < count; ++i) {
+            const double angle = 0.5 * i / (count - 1);
+            points->SetValue(
+                i + 1,
+                gp_Pnt(radius * std::cos(angle), radius * std::sin(angle), 3 * angle)
+            );
+        }
+        GeomAPI_Interpolate interpolate(points, false, 1e-9);
+        interpolate.Perform();
+        return BRepBuilderAPI_MakeEdge(interpolate.Curve()).Edge();
+    };
+    auto withTolerance = [](TopoDS_Shape shape, double tolerance) {
+        ShapeFix_ShapeTolerance().SetTolerance(shape, tolerance);
+        return shape;
+    };
+    auto found = [](const TopoDS_Shape& in, const TopoDS_Shape& sought, double factor) {
+        std::vector<std::string> names;
+        TopoShape(in).searchSubShapeNear(TopoShape(sought), &names, factor);
+        return names;
+    };
+    const std::vector<std::string> none;
+    const std::vector<std::string> first {"Edge1"};
+
+    // Act, Assert: both at the kernel's 1e-7, the edge 4e-6 off is beyond
+    // ten times that, and within a hundred times
+    EXPECT_EQ(found(helix(10 + 4e-6), helix(10), 10), none);
+    EXPECT_EQ(found(helix(10 + 4e-6), helix(10), 100), first);
+    EXPECT_EQ(found(helix(10 + 4e-6), helix(10), 0), none);
+    // either one of tolerance 1e-6 puts it within ten times
+    EXPECT_EQ(found(helix(10 + 4e-6), withTolerance(helix(10), 1e-6), 10), first);
+    EXPECT_EQ(found(withTolerance(helix(10 + 4e-6), 1e-6), helix(10), 10), first);
+    // and one in place is found whatever the tolerance
+    EXPECT_EQ(found(helix(10), helix(10), 10), first);
+
+    // an element is held to its own tolerance, not to the largest of the
+    // shape it is in: a loose edge elsewhere lets nothing nearer in
+    BRep_Builder builder;
+    TopoDS_Compound both;
+    builder.MakeCompound(both);
+    builder.Add(both, helix(10 + 4e-6));
+    builder.Add(both, withTolerance(helix(20), 1e-3));
+    EXPECT_EQ(found(both, helix(10), 10), none);
+    EXPECT_EQ(found(both, withTolerance(helix(10), 1e-6), 10), first);
+}
+
+// And a straight edge written as a B-spline of degree 1: a line is found
+// again as that spline and the spline as the line, alone and as an edge of
+// a face (in realthunder/FreeCAD#474 three edges of a helix's end face came
+// back so, and the sketches on the face lost it).
+TEST_F(TopoShapeExpansionTest, searchSubShapeLineWrittenAsBSpline)
+{
+    // Arrange: a rectangle of lines, and the same of splines of degree 1
+    const gp_Pnt corners[] = {gp_Pnt(0, 0, 0), gp_Pnt(4, 0, 0), gp_Pnt(4, 2, 0), gp_Pnt(0, 2, 0)};
+    BRepBuilderAPI_MakeWire lines;
+    BRepBuilderAPI_MakeWire splines;
+    for (int i = 0; i < 4; ++i) {
+        const gp_Pnt& from = corners[i];
+        const gp_Pnt& to = corners[(i + 1) % 4];
+        lines.Add(BRepBuilderAPI_MakeEdge(from, to).Edge());
+        TColgp_Array1OfPnt poles(1, 2);
+        poles.SetValue(1, from);
+        poles.SetValue(2, to);
+        TColStd_Array1OfReal knots(1, 2);
+        knots.SetValue(1, 0);
+        knots.SetValue(2, 1);
+        TColStd_Array1OfInteger mults(1, 2);
+        mults.Init(2);
+        Handle(Geom_BSplineCurve) spline = new Geom_BSplineCurve(poles, knots, mults, 1);
+        splines.Add(BRepBuilderAPI_MakeEdge(spline).Edge());
+    }
+    TopoShape lineFace {BRepBuilderAPI_MakeFace(lines.Wire()).Face()};
+    TopoShape splineFace {BRepBuilderAPI_MakeFace(splines.Wire()).Face()};
+    std::vector<std::string> inSplines;
+    std::vector<std::string> inLines;
+    std::vector<std::string> edgeInSplines;
+    // Act
+    splineFace.searchSubShape(lineFace, &inSplines, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    lineFace.searchSubShape(splineFace, &inLines, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    splineFace.searchSubShape(
+        lineFace.getSubTopoShape(TopAbs_EDGE, 2),
+        &edgeInSplines,
+        Data::SearchOption::CheckGeometry,
+        1e-7,
+        1e-10
+    );
+    // Assert
+    ASSERT_EQ(inSplines.size(), 1);
+    EXPECT_EQ(inSplines[0], "Face1");
+    ASSERT_EQ(inLines.size(), 1);
+    EXPECT_EQ(inLines[0], "Face1");
+    ASSERT_EQ(edgeInSplines.size(), 1);
+    EXPECT_EQ(edgeInSplines[0], "Edge2");
 }
 
 TEST_F(TopoShapeExpansionTest, makEShellInvalid)

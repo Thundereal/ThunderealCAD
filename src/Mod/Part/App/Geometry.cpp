@@ -2320,6 +2320,37 @@ PyObject* GeomBSplineCurve::getPyObject()
     return new BSplineCurvePy(freecad_cast<GeomBSplineCurve*>(this->clone()));
 }
 
+// Whether a B-spline lies on another: each of its spans is sampled, as many
+// points as fix a span of its degree, and every one is within tol of the
+// other curve.
+static bool isBSplineOn(
+    const Handle(Geom_BSplineCurve) & curve,
+    const Handle(Geom_BSplineCurve) & other,
+    double tol
+)
+{
+    const int samples = curve->Degree() + 1;
+    const gp_Pnt start = other->StartPoint();
+    const gp_Pnt end = other->EndPoint();
+    GeomAPI_ProjectPointOnCurve proj;
+    for (int i = curve->FirstUKnotIndex(); i < curve->LastUKnotIndex(); ++i) {
+        const double u1 = curve->Knot(i);
+        const double u2 = curve->Knot(i + 1);
+        for (int j = 0; j < samples; ++j) {
+            const gp_Pnt pt = curve->Value(u1 + (u2 - u1) * (j + 0.5) / samples);
+            proj.Init(pt, other);
+            if (proj.NbPoints() > 0 && proj.LowerDistance() <= tol) {
+                continue;
+            }
+            // no foot of a perpendicular past an end of the other curve
+            if (pt.Distance(start) > tol && pt.Distance(end) > tol) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool GeomBSplineCurve::isSame(const Geometry& _other, double tol, double atol) const
 {
     if (_other.getTypeId() != getTypeId()) {
@@ -2335,26 +2366,57 @@ bool GeomBSplineCurve::isSame(const Geometry& _other, double tol, double atol) c
     auto& other = dynamic_cast<const GeomBSplineCurve&>(_other);
     (void)atol;
 
-    if (countPoles() != other.countPoles() || countKnots() != other.countKnots()
-        || getDegree() != other.getDegree() || isPeriodic() != other.isPeriodic()) {
+    if (isPeriodic() != other.isPeriodic()) {
         return false;
     }
 
+    // Written the same way, pole for pole and knot for knot?
+    bool same = countPoles() == other.countPoles() && countKnots() == other.countKnots()
+        && getDegree() == other.getDegree();
     double tol2 = tol * tol;
-    for (int i = 1, c = countPoles(); i <= c; ++i) {
+    for (int i = 1, c = countPoles(); same && i <= c; ++i) {
         if (myCurve->Pole(i).SquareDistance(other.myCurve->Pole(i)) > tol2
             || fabs(myCurve->Weight(i) - other.myCurve->Weight(i)) > tol) {
-            return false;
+            same = false;
         }
     }
-
-
-    for (int i = 1, c = countKnots(); i <= c; ++i) {
+    for (int i = 1, c = countKnots(); same && i <= c; ++i) {
         if (fabs(myCurve->Knot(i) - other.myCurve->Knot(i)) > tol) {
-            return false;
+            same = false;
         }
     }
-    return true;
+    if (same) {
+        return true;
+    }
+
+    // Poles and knots say how the curve is written, not where it runs. An
+    // intersection made again comes back approximated with its knots a few
+    // 1e-7 from where they were, and its poles with them, on the same points:
+    // in realthunder/FreeCAD#363 the two curves where a cylinder cuts another
+    // differed by 9e-7 in their poles and by 1e-9 as curves, and the face
+    // between them was not found again. Nor does the make say it: in
+    // realthunder/FreeCAD#474 an edge of a swept helix is written with 21
+    // poles of degree 11 in the file and with 34 of degree 9 made again, the
+    // same curve to 4e-7. Two B-splines that start and end together are the
+    // same when each runs on the other -- whichever way each is run: an edge
+    // of that model where a pad meets the helix comes back reversed.
+    const gp_Pnt start = myCurve->StartPoint();
+    const gp_Pnt end = myCurve->EndPoint();
+    const gp_Pnt otherStart = other.myCurve->StartPoint();
+    const gp_Pnt otherEnd = other.myCurve->EndPoint();
+    const bool along = start.SquareDistance(otherStart) <= tol2
+        && end.SquareDistance(otherEnd) <= tol2;
+    const bool against = start.SquareDistance(otherEnd) <= tol2
+        && end.SquareDistance(otherStart) <= tol2;
+    if (!along && !against) {
+        return false;
+    }
+    try {
+        return isBSplineOn(myCurve, other.myCurve, tol) && isBSplineOn(other.myCurve, myCurve, tol);
+    }
+    catch (Standard_Failure&) {
+        return false;
+    }
 }
 
 
@@ -2613,9 +2675,6 @@ bool GeomTrimmedCurve::isSame(const Geometry& _other, double tol, double atol) c
     double u, v, u1, v1;
     getRange(u, v);
     other.getRange(u1, v1);
-    if (fabs(u - u1) > tol || fabs(v - v1) > tol) {
-        return false;
-    }
 
     Handle(Geom_Curve) basis = myCurve->BasisCurve();
     Handle(Geom_Curve) basis1 = other.myCurve->BasisCurve();
@@ -2625,10 +2684,26 @@ bool GeomTrimmedCurve::isSame(const Geometry& _other, double tol, double atol) c
 
     std::unique_ptr<Geometry> b(makeFromCurve(basis));
     std::unique_ptr<Geometry> b1(makeFromCurve(basis1));
-    if (b && b1 && b->isSame(*b1, tol, atol)) {
+    if (!b || !b1 || !b->isSame(*b1, tol, atol)) {
+        return false;
+    }
+    if (fabs(u - u1) <= tol && fabs(v - v1) <= tol) {
         return true;
     }
-    return false;
+    if (!basis->IsKind(STANDARD_TYPE(Geom_Circle))) {
+        return false;
+    }
+    // An arc of a circle is its circle and where it runs, not the parameters
+    // it runs between: those follow the circle's X direction and sense, which
+    // say nothing of its points (GeomCircle::isSame). Two arcs of one circle
+    // with the same ends, in either order, are the same arc or each other's
+    // complement, which the middle tells.
+    const double tol2 = tol * tol;
+    const gp_Pnt s = basis->Value(u), e = basis->Value(v), m = basis->Value((u + v) / 2);
+    const gp_Pnt s1 = basis1->Value(u1), e1 = basis1->Value(v1), m1 = basis1->Value((u1 + v1) / 2);
+    return m.SquareDistance(m1) <= tol2
+        && ((s.SquareDistance(s1) <= tol2 && e.SquareDistance(e1) <= tol2)
+            || (s.SquareDistance(e1) <= tol2 && e.SquareDistance(s1) <= tol2));
 }
 
 bool GeomTrimmedCurve::intersectBasisCurves(
@@ -3080,9 +3155,18 @@ bool GeomCircle::isSame(const Geometry& _other, double tol, double atol) const
         return false;
     }
 
-    (void)atol;
+    // The same circle is the same points: its centre, its radius and the
+    // line of its axis. Where its angle is counted from (the X direction)
+    // and which way round (the axis' sense) are how it is written down, and
+    // a feature made again may write its circle another way (an arc of a
+    // pad's top came back with its X direction a quarter turn on, and the
+    // face it bounds was not found again by its geometry).
     auto& other = static_cast<const GeomCircle&>(_other);
-    return GeomConic::isSame(other, tol, atol) && fabs(getRadius() - other.getRadius()) <= tol;
+    Handle(Geom_Circle) circle = Handle(Geom_Circle)::DownCast(handle());
+    Handle(Geom_Circle) circle2 = Handle(Geom_Circle)::DownCast(other.handle());
+    return fabs(getRadius() - other.getRadius()) <= tol
+        && Base::DistanceP2(getLocation(), other.getLocation()) <= tol * tol
+        && circle->Axis().Direction().IsParallel(circle2->Axis().Direction(), atol);
 }
 
 // -------------------------------------------------
@@ -5711,10 +5795,22 @@ bool GeomCylinder::isSame(const Geometry& _other, double tol, double atol) const
         return false;
     }
 
-    (void)atol;
+    // The same cylinder is the same points: its radius and the line of its
+    // axis. Where along that line its origin lies, which way the axis points
+    // and where its angle is counted from are how it is written down, and a
+    // feature made again may write it another way (GeomCircle::isSame): a
+    // cut's hole came back with its axis the other way round, a pocket's
+    // wall with its origin moved along the axis, and neither face was found
+    // again by its geometry.
     auto& other = static_cast<const GeomCylinder&>(_other);
-    return GeomElementarySurface::isSame(other, tol, atol)
-        && fabs(getRadius() - other.getRadius()) <= tol;
+    Handle(Geom_CylindricalSurface) cyl = Handle(Geom_CylindricalSurface)::DownCast(handle());
+    Handle(Geom_CylindricalSurface) cyl2
+        = Handle(Geom_CylindricalSurface)::DownCast(other.handle());
+    const gp_Ax1 axis = cyl->Axis();
+    const gp_Ax1 axis2 = cyl2->Axis();
+    return fabs(getRadius() - other.getRadius()) <= tol
+        && axis.Direction().IsParallel(axis2.Direction(), atol)
+        && gp_Lin(axis).SquareDistance(axis2.Location()) <= tol * tol;
 }
 
 

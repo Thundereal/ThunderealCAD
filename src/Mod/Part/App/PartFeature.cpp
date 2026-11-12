@@ -1791,6 +1791,18 @@ void Feature::onBeforeChange(const App::Property *prop) {
                 _shapeVersions.insert(_shapeVersions.begin(), std::move(version));
             }
         }
+        // Held, the shape set now is one no reference was resolved against,
+        // and that is so from this announcement on, not from the end of
+        // onChanged(): on its way there the placement the new shape brings
+        // is written to Placement, which sets the shape once more. That
+        // second announcement found nothing flagged, retained the new shape
+        // as a generation and moved every healthy referrer onto it; found
+        // there by position, each reference kept its number in a shape
+        // numbered otherwise (realthunder/FreeCAD#474: four sketches on a
+        // helix's end face, Face1 in the file and Face17 made again, stayed
+        // on Face1, a side of the helix: "No planar face").
+        if (_holdingReferences && prop == getPropertyOfGeometry())
+            _heldShapeChange = true;
     }
     GeoFeature::onBeforeChange(prop);
 }
@@ -2151,6 +2163,23 @@ static void searchLiveShape(const PropertyPartShape *propShape,
 {
     TopoShape newShape = propShape->getShape();
     newShape.searchSubShape(sub, &names, options, tol, atol);
+    if (names.empty()) {
+        // Not there to the tolerance.  A feature made again by another
+        // build may put the same element a little off -- in
+        // realthunder/FreeCAD#474 the spline edges of a swept helix come
+        // back 4e-7 from where the file has them, and the search is at
+        // 1e-7 -- so look once more, as far off as the shapes themselves
+        // say a thing may be: ReferenceSearchTolerance (10 unless set) times
+        // the larger of the tolerance the element had and the tolerance of
+        // the element found.  What is found is taken only where it is the
+        // one element there: two that close cannot be told apart, and the
+        // reference stays missing.
+        std::vector<std::string> loose;
+        newShape.searchSubShapeNear(sub, &loose, PartParams::getReferenceSearchTolerance(),
+                                    options, tol, atol);
+        if (loose.size() == 1)
+            names = std::move(loose);
+    }
     if (names.empty()) {
         // Can't find any shape with the same geometry. But in
         // case the new shape has only one sub-shape with the

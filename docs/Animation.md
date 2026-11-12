@@ -953,7 +953,20 @@ Phase 4, built so far (2026-11-12):
 - The curve editor (3edee73b72): the timeline's Curves mode, keys
   dragged in time and value, Bezier handles dragged Free (Alt mirrors).
   Each drag one undo step.
-- Strips (section 7) next.
+- Strips (41c6e29972): a track of kind "Strip" names the child Animation
+  and carries its start (At, After, With, Click), offset, scale, repeat,
+  reverse and blend. The Animation evaluates its own tracks, then each
+  strip's tracks at the strip's time, by layer, through its own rest
+  values. Before its start a strip plays nothing, after its end it holds.
+  Add composes on a whole property's track only (scalars added, a turn
+  composed, a direction left), onto the rest value when nothing below
+  wrote that frame; a part track of an Add strip replaces -- reading a
+  piece of a rest copy goes through the live object. The player stops at
+  On click starts. A strip playing its parent is refused; nesting stops
+  at eight.
+- Phase 4 is done. Left for later: Squad for rotations if Bezier on the
+  components ever shows, Aligned handles kept in line by the curve
+  editor (it makes a dragged handle Free).
 | 4 | Bezier handles in a curve editor; camera track; strips (section 7) | |
 | 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache if needed | |
 

@@ -1,6 +1,6 @@
 # Animation -- key frames for any property
 
-Status: design, nothing built (2026-11-12). Branch `Animation`, from `main`
+Status: design, nothing built (2026-11-12; object model, section 3, elaborated the same day). Branch `Animation`, from `main`
 3dd48e3f6d.
 
 The goal: animate any property of any object -- a placement, a pad's
@@ -9,7 +9,7 @@ frames and a choice of interpolation per key, play it in the 3D view, scrub
 it, record it by posing the model, and export it as video or to the web
 viewer. One mechanism, not one per workbench.
 
-## 0. Summary of the decisions proposed
+## 0. Summary of the design
 
 1. **An `App::Animation` object holds tracks; a track holds keys.** A track
    is aimed at one property, or one part of one (`Box.Placement`,
@@ -47,7 +47,8 @@ viewer. One mechanism, not one per workbench.
    way of working -- pose the model, capture -- over a model where every
    property keeps its own key times.
 
-The rest of the document is why, and how.
+Items 1, 2 and the name were confirmed by the user on 2026-11-12, with
+time in seconds (section 12). The rest of the document is why, and how.
 
 ## 1. What the old branch did
 
@@ -193,98 +194,344 @@ What we take from them:
 6. Storyboards (Fusion) and the NLA (Blender) are the same thing at
    different depths: several animations, placed in time. That is phase 4.
 
-## 3. The model
+## 3. The object model
 
-### 3.1 Objects
+Decided by the user, 2026-11-12: the CAD rule for rest values (section 5),
+one property for all tracks, time in seconds, the name `App::Animation`.
+
+### 3.1 The pieces at a glance
 
 ```
-App::Animation                  (DocumentObject; Gui::ViewProviderAnimation)
-  Tracks     PropertyAnimationTracks   every track and key (3.3)
-  Time       PropertyTime   s   current time; Output, NoModify, not logged
-  Start, End PropertyTime   s   play range; End defaults to the last key
-  FrameRate  PropertyFloat      30; playback in real time drops frames,
-                                export renders every one
-  Loop       Enumeration        Once, Loop, PingPong
-  Speed      PropertyFloat      1.0
-  Recompute  Enumeration        Touched (default), Never (view only), Full
-  Active     Bool               evaluated when Time changes (5.2)
-  Exclude    StringList         paths Record never keys (old ExcludeProperties)
+App::Document
+ +- App::Animation "Anim"                 the only document object of the feature
+ |    Tracks   App::PropertyAnimationTracks    every track and key, one value
+ |      track 1  Property  Box.Placement             keys at 0, 2, 5 s
+ |      track 2  Property  Pad.Length                keys at 1, 3 s
+ |      track 3  Property  Box.ViewObject.Transparency
+ |      track 4  Camera    view 1                    (a Gui handler, 3.6)
+ |    Time Start End FrameRate Speed Loop Recompute Exclude Active   saved
+ |    Recording                                                        transient
+ |    (runtime, never saved: the rest store, the resolved targets)    (3.7)
+ +- Gui::ViewProviderAnimation            tree item; double click activates
+
+Gui, one per process
+ +- Gui::AnimationTimeline                a dock window, so it can be an overlay (3.10)
+ +- Gui::AnimationPlayer                  the wall clock: steps the active document's
+ |                                        active Animation while playing
+ +- Gui::CameraTrackHandler               handles tracks of kind "Camera"
 ```
 
-A document may hold several Animations, like Fusion's storyboards or
-SOLIDWORKS' studies. One is active per document at a time, and switching
-puts the displaced values back (5.2). Strips that place animations inside
-another are section 7.
+Only the Animation is a document object. Tracks and keys are values
+inside one of its properties:
+- They have no names in the document, no tree items and no view
+  providers.
+- They have no transactions of their own: an edit of a key is an edit of
+  `Anim.Tracks`.
+- They do have ids that stay the same across edits, undo and save, so the
+  timeline's selection and a Python reference survive an undo.
 
-### 3.2 Track
+### 3.2 `App::Animation`
+
+| Property | Type | Status | Meaning |
+|---|---|---|---|
+| `Tracks` | `PropertyAnimationTracks` | | 3.3 |
+| `Time` | `PropertyTime` (s) | NoModify, NoRecompute | The time shown. Setting it evaluates (section 4). NoModify keeps a scrub out of the undo stack and the transaction log and does not mark the document modified, as for `Visibility` (TransactionLogDesign sec 2.4). Saved, so a file opens where it was left |
+| `Start`, `End` | `PropertyTime` | | The play range. `End` 0 means the last key's time |
+| `FrameRate` | Float, frames per second | | 30. Playing and snapping use it; keys are not tied to it |
+| `Speed` | Float | | 1. Playback only |
+| `Loop` | Enumeration | | Once, Loop, PingPong |
+| `Recompute` | Enumeration | | Touched (default), Never (view only: the old `NoRecompute`), Full |
+| `Exclude` | StringList | | Paths that Record never keys (the old `ExcludeProperties`); `*` patterns allowed |
+| `Active` | Bool | NoModify | At most one per document. Setting it on clears it on the others, and they put their rest values back first. Only the active one evaluates |
+| `Recording` | Bool | Transient, NoPersist | Record (section 6). Off on open |
+
+There is no `Playing` property, unlike the old branch. Playing is the
+clock's business, in the Gui (3.9); the document knows only the time.
+
+What App provides headless:
+- `evaluate(t)` writes every track's value at `t`;
+- `value(track, t)` evaluates without writing;
+- `activate()` and `deactivate()`, which restores the rest values;
+- `frames()` yields each frame time of the range at `FrameRate`, the export
+  loop, with no clock involved.
+
+Every key edit is a method of `Tracks`, as follows.
+
+`execute()` does nothing. The Animation is never touched by its tracks
+and is never part of its targets' dependency graph.
+
+### 3.3 `App::PropertyAnimationTracks`
+
+A `PropertyXLinkContainer`, the base under the expression engine. It
+gives rename and relabel handling, cross-document targets and deleted-object
+notices without writing them again. Every target object is registered
+as a dependency with `LinkScope::Hidden` -- `hiddenref()`'s scope, which
+makes no edge in the dependency graph. So:
+
+- An expression that reads `Anim.Time` from an object the Animation drives
+  is not a cycle.
+- Recomputing a target never recomputes the Animation, nor the reverse.
+- The document knows the Animation refers to its targets: deleting a
+  target notifies the property (`onBreakLink`), and copying the Animation
+  into another document re-points the paths as expressions are
+  re-pointed.
+
+The value is `std::vector<Track>` in the timeline's order (the user can
+reorder), plus the next free track id.
+
+Edits are methods, each one atomic: `aboutToSetValue()`, change, then
+`hasSetValue()`:
+
+```
+int  addTrack(const ObjectIdentifier &target, kind = "Property");   // -> id
+void removeTrack(int id);
+int  setKey(int track, double t, const AnimValue *v = nullptr,      // -> key id
+            const KeyOptions *opts = nullptr);   // null value: the target's current one
+void removeKey(int track, int key);
+void moveKeys(const std::vector<KeyRef> &, double dt);   // a drag in the timeline
+void setInterp(const std::vector<KeyRef> &, Interp, const Easing * = nullptr);
+void setHandles(KeyRef, Handle left, Handle right);
+void setTrackOptions(int track, const TrackOptions &);
+```
+
+Each call from a command or a finished drag is one undo step. That
+follows the fork's rule that an edit's steps are one undo
+(MultiViewEdit.md 12.11).
+
+`copyBeforeChange()` copies the vector, and `isSame()` compares it. A
+thousand keys is tens of kilobytes. The transaction log stores the
+property's value whole; rows per track can come later if large animations
+need them.
+
+Saved inside the Animation's object element:
+
+```xml
+<Property name="Tracks" type="App::PropertyAnimationTracks">
+  <Tracks nextId="5">
+    <Track id="1" kind="Property" target="Box.Placement" valueType="App::PropertyPlacement"
+           before="Constant" after="Constant" rotation="Shortest">
+      <Key id="1" t="0" interp="Bezier" v="0 0 0 0 0 0 1"
+           left="AutoClamped" right="AutoClamped"/>
+      <Key id="2" t="2" interp="Easing" easing="Bounce" mode="Out"
+           amplitude="1" period="0.3" overshoot="1.70158" v="0 0 50 0 0 0.7071 0.7071"/>
+    </Track>
+    <Track id="2" kind="Property" target="Pad.Length" valueType="Quantity" unit="mm">
+      <Key id="1" t="1" interp="Linear" v="10"/>
+      <Key id="2" t="3" interp="Linear" v="40"/>
+    </Track>
+    <Track id="3" kind="Property" target="Link.LinkedObject" valueType="App::PropertyXLink">
+      <Key id="1" t="0" interp="Constant"><Value><![CDATA[...the property's own XML...]]></Value></Key>
+    </Track>
+  </Tracks>
+</Property>
+```
+
+The numbers are written with the same round-trip precision as
+`PropertyFloat`. A stepped key carries its property's own `Save` text, so
+any type can be stepped, a Python one included.
+
+### 3.4 Track
 
 ```
 struct Track {
-    ObjectIdentifier target;   // Box.Placement, Box.Placement.Base.z,
-                               // Box.ViewObject.Transparency, Pad.Length
+    int id;                    // stable, never reused in the document
+    std::string kind;          // "Property" (App) or a registered handler (3.6)
+    ObjectIdentifier target;   // Property kind: Box.Placement, Pad.Length,
+                               // Box.Placement.Base.z, Box.ViewObject.Transparency
+    std::string handlerData;   // other kinds: what the handler needs (the camera's view)
+    std::string valueType;     // the target's type when first keyed, and a unit for Quantity
     std::string label;         // optional, shown in the timeline
-    bool mute = false;         // not evaluated
-    bool lock = false;         // keys not editable
-    Extrap before, after;      // Constant | Linear | Cycle | CycleOffset | PingPong
-    RotationMode rotation;     // Shortest | Turns | Euler (3.5), rotation tracks only
-    std::vector<Key> keys;     // sorted by time, one key per time
+    bool mute = false, lock = false;
+    Extrap before = Constant, after = Constant;   // Constant | Linear | Cycle | CycleOffset | PingPong
+    RotationMode rotation = Shortest;             // Shortest | Turns | Euler (3.12)
+    std::vector<Key> keys;     // sorted by time
+    int nextKeyId;
 };
 ```
 
-**Addressing by `ObjectIdentifier`** gives these for free, all of them
-already used by expressions:
+**One track per target, and no overlap.** A property is animated whole
+(`Box.Placement`) or by parts (`Box.Placement.Base.z`,
+`Box.Placement.Rotation.Angle`), not both. Adding a track that overlaps an
+existing one is refused with the existing track's name. Blender allows
+only per-component channels and so never meets the question; refusing is
+the rule with no surprises.
 
-- renames: the relabel and rename handling expressions get;
-- sub-paths: `Placement.Rotation.Angle`, `Placement.Base.z`,
-  `Constraints.Width`, a spreadsheet cell `Sheet.A1`;
-- view properties through the `ViewObject` pseudo-path
-  (`ObjectIdentifier.cpp:1567`);
-- other documents.
+**A track's state** is computed when the track is resolved, and is shown
+in the timeline and to Python:
 
-Resolving uses `getPathValue`/`setPathValue`. For a whole property, a track
-writes through the property itself, so the property's own type decides how
-it interpolates; that is the fast path. For a sub-path, the track's values
-are of the sub-path's type: a number or a `Quantity`.
+| State | When | What evaluation does |
+|---|---|---|
+| Ok | The target resolves and matches `valueType` | writes |
+| Unresolved | The object is deleted, the document is closed, or the dynamic property was removed | skips. The track is kept; an undo of the deletion resolves it again. "Remove unresolved tracks" cleans up |
+| Mismatch | The property now has another type | skips; re-keying converts or the user removes it |
+| Driven | The property is bound to an expression | skips: the expression wins (3.11) |
+| Solved | The target is a placement an Assembly solves | skips, with the reason (3.11) |
 
-**A track adds no dependency edge.** Its target path is held the way a
-hidden reference is (`hiddenref()`), so an expression that reads
-`Anim.Time` from a target the Animation drives is not a cycle. The
-Animation is not recomputed; it writes.
-
-**An expression wins over a track.** A property bound to an expression is
-not keyed: inserting a key there is refused and Record skips it. To drive
-such a property over time, write the expression in terms of `Anim.Time`.
-SOLIDWORKS and Inventor do the same with a driven dimension.
-
-### 3.3 Key and storage
+### 3.5 Key
 
 ```
 struct Key {
-    double time;
-    Value value;               // 3.4
-    Interp interp;             // Constant | Linear | Bezier | Easing | Python
-    Easing easing;             // type (Sine..Bounce), mode (In|Out|InOut|OutIn),
-                               // amplitude, period, overshoot (old defaults 1, 0.3, 1.70158)
-    Handle left, right;        // Bezier: type AutoClamped|Auto|Vector|Aligned|Free,
-                               // offsets (dt, dv[]) per component
-    std::string python;        // Python: a callable's dotted name or expression in t
+    int id;                     // stable within its track
+    double t;                   // seconds; keys closer than 1e-6 s are the same time
+    AnimValue v;                // 3.12 for what the numbers are
+    Interp interp = Linear;     // for the span to the next key:
+                                // Constant | Linear | Bezier | Easing | Python
+    Easing easing;              // type Sine..Bounce, mode In|Out|InOut|OutIn,
+                                // amplitude 1, period 0.3, overshoot 1.70158 (the old defaults)
+    Handle left, right;         // Bezier: AutoClamped|Auto|Vector|Aligned|Free,
+                                // dt (s) and dv per scalar component; Auto* computed, not stored
+    std::string python;         // Python: an expression in u, or a callable's dotted name
+};
+
+struct AnimValue {
+    std::vector<double> nums;   // the target type's numbers (3.12)
+    std::string text;           // a stepped key: the property's own saved text
 };
 ```
 
-`interp` and its parameters govern the span from this key to the next, as
-in Blender. That is also how SOLIDWORKS sets a mode on a key point.
+The default interpolation for a new key is the Animation's preference
+(`Linear`), and Record uses it. Bezier handles on quaternion groups are
+not stored: the curve through them is squad's, worked out from the
+neighbouring keys. Free handles on rotations would need a handle on the
+sphere, which no CAD user asked for.
 
-`PropertyAnimationTracks` holds `std::vector<Track>`.
-- It saves as XML inside the Animation, one element per track and key.
-- Editing it goes through its API (add, move or delete keys, set
-  interpolation), which wraps `aboutToSetValue`/`hasSetValue`. So key edits
-  are ordinary undoable transactions, logged as one property's value.
-- `copyBeforeChange` is a copy of the vector; at thousands of keys that is
-  well under a millisecond.
-- The transaction log sees one value. It could later store tracks as rows
-  of their own if large animations make that worthwhile.
+Moving a key onto the time of another key of the same track replaces it,
+as in Blender. The timeline snaps to frames, but the model does not:
+a key at 1.0333 s stays there when the frame rate changes.
 
-### 3.4 Values: how a property type is animated
+### 3.6 Track kinds other than properties
+
+Some things animated are not properties of a document object. The camera
+is the one needed now, and an Assembly simulation run played as a track
+is a later one. For these, App holds the keys and a registered handler
+reads and writes the value:
+
+```
+class AnimationTrackHandler {   // App, registered by kind name
+    virtual bool layout(const Track &, AnimLayout &) const = 0;
+    virtual bool read(const Track &, AnimValue &) const = 0;      // the current value
+    virtual bool write(const Track &, const AnimValue &) = 0;     // under AnimatedWrites
+    virtual std::string describe(const Track &) const = 0;        // timeline label
+};
+```
+
+The Gui registers "Camera" (section 8). In a headless process no handler
+is registered, so camera tracks are Unresolved: skipped, kept and saved.
+
+### 3.7 Runtime state, never saved
+
+- **The rest store**: track id to the value its target had before this
+  Animation's first write since it was activated (section 5).
+  - Filled lazily, so activating costs nothing.
+  - Emptied by `deactivate()`, which writes the values back and then
+    recomputes.
+  - A track added while active stores its target's rest value when it
+    first writes.
+- **The resolved targets**: per track, the object, the property and the
+  path components. Cleared on a Hidden-dependency notice, on a dynamic
+  property's removal, and on a change to `Tracks`.
+- **The last evaluated time**, so an unchanged `Time` does not evaluate
+  twice.
+
+### 3.8 What happens when
+
+| Event | Effect |
+|---|---|
+| A key is added, moved or deleted | One transaction on `Tracks`; the Animation re-evaluates at `Time` if active |
+| Undo or redo of a key edit | `Tracks` restored; the timeline keeps its selection by key id; re-evaluates |
+| Any other undo or redo while active | Stops first (rest values back), then undoes: undo works on the design (5.2) |
+| A target object is deleted | Its tracks become Unresolved; its rest entry is dropped |
+| The deletion is undone | They resolve again |
+| A target's document closes | Unresolved; nothing to put back |
+| Save while active | Stop with recompute, save, re-activate at `Time`. The recompute is what makes it right: a saved Pad must hold a shape of its saved Length, not of the animated one |
+| The Animation is deleted | Deactivates first, so the design is as it was |
+| The Animation's document closes | Nothing written back; the file was saved with rest values anyway |
+| The file is opened | Tracks restored and resolved after the document's restore; an `Active` Animation evaluates once at `Time` |
+| The Animation is copied to another document | Paths re-pointed as expressions are; targets left in the first document become cross-document |
+| Another Animation is activated | This one deactivates first |
+
+### 3.9 Gui objects
+
+- **`Gui::ViewProviderAnimation`**: the old icons; no children in the
+  tree, because keys are not objects. Double click, or `setEdit` Default,
+  makes the Animation active and raises the timeline. That is all its
+  "edit" is: no task dialog is opened (3.10). The context menu has
+  Activate, Play, Record, Stop and Remove unresolved tracks.
+- **`Gui::AnimationTimeline`**: a dock window registered with the
+  `DockWindowManager`, so the fork's overlay mode applies to it like any
+  other dock. It shows the active Animation of the active document, or a
+  "no animation, create one" line.
+  - Phase 3 contents: transport buttons, the time ruler and scrub bar,
+    the range, a row per track with its keys (a dope sheet), and a side
+    panel for the selected keys' interpolation and easing.
+  - Phase 4 adds the curve editor.
+- **`Gui::AnimationPlayer`**: one per process, holding a timer at
+  `FrameRate`.
+  - Playing advances `Time` by the wall clock times `Speed`, and skips
+    ahead when a frame overruns.
+  - Pausing stops the clock and keeps the pose.
+  - Stopping puts the rest values back (`deactivate()`), by the rule of
+    5.2. The Animation stays the document's chosen one for the timeline;
+    the next scrub or Play activates it again.
+  - One player per process, and one Animation playing at a time.
+- **Property editor**: a row whose path a track targets is marked with
+  key at this time, between keys, or changed and not keyed. Its context
+  menu has Insert key, Delete key and Clear track (section 6).
+
+### 3.10 The timeline is not the Animation's task panel
+
+A task panel was the first thought, and it would be the natural FreeCAD
+idiom for "editing an object". It does not fit, for four reasons:
+
+1. **One task dialog per process.** The fork shows at most one dialog at
+   a time (TaskPanelPerView.md sec 8), because there is one active
+   transaction. With the timeline holding the dialog, no other could open:
+   - a sketch,
+   - a Pad's panel,
+   - the transform dragger's panel.
+
+   Posing the model under Record needs exactly those.
+2. **A dialog is one transaction until OK or Cancel.** The timeline stays
+   open for an hour of work. Its key edits are each an undo step, and
+   Cancel rolling back an hour of keys would be wrong.
+3. **Playback and scrubbing are wanted beside everything else**, including
+   while another object is in edit, as in every tool of section 2.
+4. **Shape.** A timeline wants the window's width under the 3D view, the
+   bottom dock area. The task panel lives in the combo view or at the
+   side of its view.
+
+On point 4 of the open questions: agreed, a dock window can be an overlay
+like any other, so there is no choice to make. It is a dock window.
+
+When per-owner transactions land (`origin/Transaction`) and several dialogs
+may be open at once, the same timeline widget can also be offered as a
+task page, if wanted. Nothing in the model depends on where it is shown.
+
+### 3.11 Expressions, Assembly and Links
+
+- **Expressions win.** A property bound to an expression is not keyed:
+  insert key is refused with the reason, Record skips it, and an existing
+  track turns Driven. To animate it, write the expression in terms of
+  `Anim.Time`. That is SOLIDWORKS' and Inventor's rule for driven
+  dimensions.
+- **Assembly.**
+  - A part's Placement that an Assembly solves is overwritten at the
+    next solve, so a track on it is Solved and skipped, with "key a
+    joint instead". This is Inventor's rule that a constraint blocks
+    animating its component.
+  - Joint values (a Distance joint's offset, a Revolute's angle) are
+    ordinary Float/Quantity properties. They are keyed like any other,
+    and `Recompute` Touched runs the solver per frame.
+  - A grounded part, or one in an assembly whose solving is off, is not
+    Solved.
+- **Links.** A Link's Placement is the Link's own property, so a track
+  animates that instance and leaves the linked object and its other
+  instances alone. A link array's element is keyed by its index sub-path
+  (`Array.PlacementList[3]`).
+- **Spreadsheets.** A cell is a sub-path (`Sheet.Length`, an alias), so a
+  spreadsheet-driven model is animated by keying one cell.
+
+### 3.12 Values: how a property type is animated
 
 The animation codec is added to `App::Property`:
 
@@ -304,8 +551,8 @@ virtual void setAnimValue(const std::vector<double> &);
 | Integer | Scalar 1 | rounded on write |
 | Vector, VectorDistance, Position | Scalar 3 | |
 | Direction | Quaternion-free: slerp on the sphere | as the old `interpolate()` |
-| Rotation | Quaternion 4 | 3.5 |
-| Placement | Scalar 3 + Quaternion 4 | position along the curve, rotation 3.5 |
+| Rotation | Quaternion 4 | 3.13 |
+| Placement | Scalar 3 + Quaternion 4 | position along the curve, rotation 3.13 |
 | Color | Colour 4 | linear in stored sRGB by default (CAD expectation) |
 | Material (diffuse, transparency...) | Colour and Scalar groups | through the material's own sub-paths |
 | Lists of the above | per element, same size only | different sizes: stepped |
@@ -318,7 +565,7 @@ Python: a Link that swaps its target at 2 s is a step track.
 `Property::interpolate(from, to, t)` (in the tree, unused) becomes a
 default written over the codec, so whatever calls it later still works.
 
-### 3.5 Rotations
+### 3.13 Rotations
 
 The trap is old and the same everywhere. A quaternion slerp takes the
 shortest way, so it cannot turn a part 720 deg between two keys. Euler
@@ -527,22 +774,30 @@ And the driver form needs nothing new:
 
 | Phase | Content | Tested by |
 |---|---|---|
-| 1 | Codec on the property types of 3.4; `interpolate()` over it; easing and Bezier evaluation; rotation modes | C++ unit tests: values at known times, against closed forms |
+| 1 | Codec on the property types of 3.12; `interpolate()` over it; easing and Bezier evaluation; rotation modes | C++ unit tests: values at known times, against closed forms |
 | 2 | `App::Animation`, `PropertyAnimationTracks` (save, restore, undo of key edits), `AnimatedWrites`, rest values, Python API, `Time` in expressions | Python suite, headless; the transaction log suite stays green; save while active writes the rest values |
 | 3 | Gui: a timeline panel (play, pause, stop, previous and next key, scrub, range, frame rate, keys per track), insert key and key markers in the property editor, Record; the old branch's icons and command names | GUI tests under the offscreen and Windows hidden-desktop harnesses |
 | 4 | Bezier handles in a curve editor; camera track; strips (section 7) | |
 | 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache if needed | |
 
-## 12. Open, for the user to decide
+## 12. Decided, and still open
 
-1. **Rest values (section 5).** CAD's rule (proposed): playing never edits
-   the design and a save writes the rest values. Or Blender's: the
-   evaluated value is the value, saved as it stands.
-2. **Storage (3.3).** One property holding every track (proposed), or the
-   old object per key frame, which shows keys in the tree but costs a
-   transaction per key on large animations.
-3. **Time in seconds (proposed) or in frames.**
-4. **Where the timeline lives.** A dock panel under the 3D view (proposed),
-   or an overlay panel like the fork's other overlays.
-5. **The name.** `App::Animation` as before. Tracks and keys need no
-   document objects of their own.
+Decided by the user, 2026-11-12:
+
+1. Rest values: the CAD rule, as section 5 has it.
+2. Storage: one property holding every track (3.3).
+3. Time in seconds.
+4. The timeline is a dock window; any dock can be an overlay, so there is
+   nothing to choose. It is not the Animation's task panel (3.10).
+5. The name: `App::Animation`.
+
+Still open, from the object model (section 3), each with the proposal:
+
+1. **Whole or by parts, not both** (3.4): a track on `Box.Placement` and
+   one on `Box.Placement.Base.z` cannot coexist.
+2. **Solved placements are skipped** (3.11): a part an Assembly solves is
+   animated through its joints, not its Placement.
+3. **A design edit while active** (5.2): with Record off, editing an
+   animated property changes its rest value, and the view shows the
+   animated value again at the next evaluation.
+4. **Stop puts the rest values back** (3.9); Pause keeps the pose.

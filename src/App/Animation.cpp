@@ -919,7 +919,8 @@ bool Animation::resolve(const AnimationTrack& track, Target& target) const
     if (!obj || !obj->isAttachedToDocument() || obj->isRemoving()) {
         return false;
     }
-    auto prop = track.target.getProperty();
+    int ptype = 0;
+    auto prop = track.target.getProperty(&ptype);
     if (!prop) {
         return false;
     }
@@ -929,7 +930,20 @@ bool Animation::resolve(const AnimationTrack& track, Target& target) const
     target.prop = prop;
     auto comps = track.target.getPropertyComponents(1);
     target.depth = static_cast<int>(comps.size());
-    if (prop == &obj->ViewObject && !comps.empty() && comps[0].isSimple()) {
+    // ViewObject is a pseudo property of a path (ObjectIdentifier answers
+    // the object's Label in its place); the other pseudo ones, _shape and
+    // the like, are no values to animate
+    bool viewObject = prop == &obj->ViewObject;
+    if (ptype != 0) {
+        viewObject = track.target.getPropertyComponent(0).getName() == "ViewObject";
+        if (!viewObject) {
+            return false;
+        }
+    }
+    if (viewObject) {
+        if (comps.empty() || !comps[0].isSimple()) {
+            return false;
+        }
         // A view provider's property: the property itself, for its codec
         // and its rest value, not the Python object that reaches it
         Base::PyGILStateLocker lock;
@@ -946,6 +960,7 @@ bool Animation::resolve(const AnimationTrack& track, Target& target) const
         target.container = container;
         target.prop = vprop;
         target.depth = static_cast<int>(comps.size()) - 1;
+        target.pathProp = nullptr;
     }
     target.state = AnimationTrackState::Ok;
     if (target.depth == 0 && !track.valueType.empty()) {
@@ -1019,7 +1034,8 @@ int Animation::trackOf(const ObjectIdentifier& path, bool create)
         Base::PyGILStateLocker lock;
         Py::Object value;
         try {
-            value = pyObjectFromAny(target.pathProp->getPathValue(path));
+            value = pyObjectFromAny(target.pathProp ? target.pathProp->getPathValue(path)
+                                                     : path.getValue(true));
         }
         catch (Py::Exception&) {
             Base::PyException::ThrowException();
@@ -1087,7 +1103,9 @@ bool Animation::readValue(const AnimationTrack& track, const Target& target, PyO
             temp->setPyObject(value);
         }
         else {
-            Py::Object v = pyObjectFromAny(target.pathProp->getPathValue(track.target));
+            Py::Object v = pyObjectFromAny(target.pathProp
+                                               ? target.pathProp->getPathValue(track.target)
+                                               : track.target.getValue(true));
             temp->setPyObject(v.ptr());
         }
         return temp->getAnimValue(track.layout, key.key.v);
@@ -1262,7 +1280,14 @@ void Animation::writeTrack(const AnimationTrack& track, const Target& target, do
     Base::PyGILStateLocker lock;
     try {
         Py::Object v(temp->getPyObject(), true);
-        target.pathProp->setPathValue(track.target, pyObjectToAny(v));
+        // A view provider's piece through the path itself: its owner's
+        // path rules are the document object's
+        if (target.pathProp) {
+            target.pathProp->setPathValue(track.target, pyObjectToAny(v));
+        }
+        else {
+            track.target.setValue(pyObjectToAny(v));
+        }
     }
     catch (Py::Exception&) {
         Base::PyException::ThrowException();

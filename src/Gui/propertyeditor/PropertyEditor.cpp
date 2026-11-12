@@ -59,6 +59,9 @@
 #include "PropertyModel.h"
 #include "PropertyView.h"
 #include "ViewProviderDocumentObject.h"
+#include "AnimationTimeline.h"
+#include "BitmapFactory.h"
+#include <App/Animation.h>
 
 
 FC_LOG_LEVEL_INIT("PropertyView", true, true)
@@ -748,6 +751,9 @@ enum MenuAction {
     MA_EvalOnRestore,
     MA_CopyOnChange,
     MA_MaterialEdit,
+    MA_InsertKey,
+    MA_DeleteKey,
+    MA_ClearTrack,
 };
 
 namespace {
@@ -805,7 +811,9 @@ void PropertyEditor::contextMenuEvent(QContextMenuEvent *ev) {
         }
     });
 
-    QPoint pos(QCursor::pos());
+    // Where the event says: the cursor's for a click, the item's for the
+    // menu key or a script
+    QPoint pos(ev->globalPos());
     std::vector<QAction*> hiddenActions;
     QAction *showAll = Action::addCheckBox(&menu, tr("Show all"), PropertyView::showAll());
 #if QT_VERSION < QT_VERSION_CHECK(5,14,0)
@@ -867,6 +875,44 @@ void PropertyEditor::contextMenuEvent(QContextMenuEvent *ev) {
             setCurrentIndex(contextIndex);
             menu.addAction(tr("Expression..."))->setData(QVariant(MA_Expression));
         }
+    }
+
+    // Animation keys on the property, or the piece of it, the row shows
+    // (docs/Animation.md sec 6)
+    std::string animPath;
+    App::Document* animDoc = nullptr;
+    if(props.size() == 1) {
+        auto item = static_cast<PropertyItem*>(contextIndex.internalPointer());
+        auto prop = props.begin()->getProperty();
+        if(item && prop && !prop->isReadOnly()
+                && !prop->testStatus(App::Property::Immutable)
+                && !(prop->getType() & (App::Prop_ReadOnly | App::Prop_Output))
+                && !prop->isDerivedFrom(App::PropertyExpressionEngine::getClassTypeId())) {
+            animPath = Gui::animationPath(*prop, item->isBound() ? &item->boundPath() : nullptr);
+            auto container = prop->getContainer();
+            if (auto obj = Base::freecad_dynamic_cast<App::DocumentObject>(container))
+                animDoc = obj->getDocument();
+            else if (auto vp = Base::freecad_dynamic_cast<ViewProviderDocumentObject>(container))
+                animDoc = vp->getObject() ? vp->getObject()->getDocument() : nullptr;
+            if (animDoc && Base::freecad_dynamic_cast<App::Animation>(container))
+                animPath.clear();
+        }
+    }
+    if(!animPath.empty() && animDoc) {
+        menu.addSeparator();
+        menu.addAction(BitmapFactory().iconFromTheme("AnimationKeyFrame"),
+                       tr("Insert key"))->setData(QVariant(MA_InsertKey));
+        if(auto anim = Gui::activeAnimation(animDoc)) {
+            try {
+                auto state = anim->keyState(anim->parsePath(animPath));
+                if(state == App::Animation::KeyState::Keyed)
+                    menu.addAction(tr("Delete key"))->setData(QVariant(MA_DeleteKey));
+                if(state != App::Animation::KeyState::None)
+                    menu.addAction(tr("Clear track"))->setData(QVariant(MA_ClearTrack));
+            } catch (Base::Exception &) {
+            }
+        }
+        menu.addSeparator();
     }
 
     auto action = menu.addAction(tr("Add property"));
@@ -968,6 +1014,42 @@ void PropertyEditor::contextMenuEvent(QContextMenuEvent *ev) {
                             Command::runCommand(Command::Doc,prop->getFullName(true).c_str());
                     }
                 }
+            }
+            break;
+        }
+        case MA_InsertKey:
+        case MA_DeleteKey:
+        case MA_ClearTrack: {
+            int which = action->data().toInt();
+            App::AutoTransaction committer(which == MA_InsertKey ? "Insert key"
+                    : (which == MA_DeleteKey ? "Delete key" : "Clear track"));
+            try {
+                auto anim = Gui::activeAnimation(animDoc);
+                if (!anim && which == MA_InsertKey) {
+                    anim = Base::freecad_dynamic_cast<App::Animation>(
+                            animDoc->addObject("App::Animation", "Animation"));
+                    Gui::chooseAnimation(anim);
+                }
+                if (!anim)
+                    break;
+                auto path = anim->parsePath(animPath);
+                if (which == MA_InsertKey) {
+                    anim->keyNow(path);
+                    Gui::DockWnd::AnimationTimeline::showTimeline();
+                } else {
+                    auto track = anim->Tracks.findTrack(path);
+                    if (!track)
+                        break;
+                    if (which == MA_ClearTrack)
+                        anim->Tracks.removeTrack(track->id);
+                    else {
+                        int i = track->find(anim->Time.getValue());
+                        if (i >= 0)
+                            anim->Tracks.removeKey(track->id, track->keys[i].id);
+                    }
+                }
+            } catch (Base::Exception &e) {
+                e.ReportException();
             }
             break;
         }

@@ -436,6 +436,7 @@ SET(Command_CPP_SRCS
     CommandView.cpp
     CommandStructure.cpp
     CommandLink.cpp
+    CommandAnimation.cpp
     CommandPyImp.cpp
     ShortcutManager.cpp
     CommandCompleter.cpp
@@ -762,6 +763,7 @@ SET(Dock_Windows_CPP_SRCS
     PropertyView.cpp
     ReportView.cpp
     TransactionLogView.cpp
+    AnimationTimeline.cpp
     PieMenu.cpp
     ToolBox.cpp
     Tree.cpp
@@ -779,6 +781,7 @@ SET(Dock_Windows_HPP_SRCS
     PropertyView.h
     ReportView.h
     TransactionLogView.h
+    AnimationTimeline.h
     PieMenu.h
     ToolBox.h
     Tree.h
@@ -1121,6 +1124,7 @@ SET(Viewprovider_CPP_SRCS
     AxisOriginPyImp.cpp
     AxisOrigin.cpp
     ViewProviderSavedView.cpp
+    ViewProviderAnimation.cpp
 )
 SET(Viewprovider_SRCS
     ${Viewprovider_CPP_SRCS}
@@ -1169,6 +1173,7 @@ SET(Viewprovider_SRCS
     TaskLinkArray.h
     AxisOrigin.h
     ViewProviderSavedView.h
+    ViewProviderAnimation.h
 )
 SOURCE_GROUP("View3D\\Viewprovider" FILES ${Viewprovider_SRCS})
 

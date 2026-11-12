@@ -68,6 +68,7 @@
 #include <Gui/VectorListEditor.h>
 #include <Gui/ViewProviderDocumentObject.h>
 #include <Gui/PrefWidgets.h>
+#include <Gui/AnimationTimeline.h>
 
 
 using namespace Gui::PropertyEditor;
@@ -764,6 +765,19 @@ QVariant PropertyItem::data(int column, int role) const
             return QVariant::fromValue(QColor(0xcc,0x33,0x33));
 
         if (role == Qt::BackgroundRole || role == Qt::ForegroundRole) {
+            // An animated property's mark (docs/Animation.md sec 6): keyed
+            // at the time shown, animated, or changed and not keyed. A
+            // sub-item names its piece by the path it is bound to.
+            const PropertyItem* owner = this;
+            while (owner && owner->propertyItems.empty())
+                owner = owner->parentItem;
+            if (owner && owner->propertyItems.size() == 1) {
+                QColor mark = Gui::animationKeyMark(*owner->propertyItems.front(),
+                                                    isBound() ? &getPath() : nullptr);
+                if (mark.isValid())
+                    return role == Qt::BackgroundRole ? QVariant::fromValue(mark)
+                                                      : QVariant::fromValue(QColor(0,0,0));
+            }
             if(PropertyView::showAll()
                 && propertyItems.size() == 1
                 && propertyItems.front()->testStatus(App::Property::PropDynamic)

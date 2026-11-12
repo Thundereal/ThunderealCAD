@@ -570,6 +570,7 @@ std::list<std::string> Workbench::listCommandbars() const
     qApp->translate("Workbench", "Visibility");
     qApp->translate("Workbench", "&View");
     qApp->translate("Workbench", "&Tools");
+    qApp->translate("Workbench", "Animation");
     qApp->translate("Workbench", "&Macro");
     qApp->translate("Workbench", "&Windows");
     qApp->translate("Workbench", "&On-line help");
@@ -777,8 +778,14 @@ MenuItem* StdWorkbench::setupMenuBar() const
           << "Separator"
           << "Std_ShareDocument"
           << "Std_ViewScreenShot"
-          << "Std_SaveView"
-          << "Std_ViewLoadImage"
+          << "Std_SaveView";
+    auto animation = new MenuItem(tool);
+    animation->setCommand("Animation");
+    *animation << "Std_AnimationNew" << "Std_AnimationTimeline" << "Separator"
+               << "Std_AnimationPlay" << "Std_AnimationPause" << "Std_AnimationStop"
+               << "Std_AnimationStart" << "Std_AnimationPrev" << "Std_AnimationNext"
+               << "Separator" << "Std_AnimationRecord" << "Std_AnimationNewFrame";
+    *tool << "Std_ViewLoadImage"
           << "Std_SceneInspector"
           << "Std_DependencyGraph"
           << "Std_ExportDependencyGraph"
@@ -931,6 +938,7 @@ DockWindowItems* StdWorkbench::setupDockWindows() const
     root->addDockWidget("Std_ReportView", Qt::BottomDockWidgetArea, true, true);
     root->addDockWidget("Std_PythonView", Qt::BottomDockWidgetArea, true, true);
     root->addDockWidget("Std_TransactionLogView", Qt::BottomDockWidgetArea, false, true);
+    root->addDockWidget("Std_AnimationTimeline", Qt::BottomDockWidgetArea, false, true);
 
     //Dagview through parameter.
     ParameterGrp::handle group = App::GetApplication().GetUserParameter().

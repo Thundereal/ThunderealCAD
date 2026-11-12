@@ -118,6 +118,7 @@
 #include "ReportViewParams.h"
 #include "SelectionView.h"
 #include "TransactionLogView.h"
+#include "AnimationTimeline.h"
 #include "Splashscreen.h"
 #include "ToolBarManager.h"
 #include "ToolBoxManager.h"
@@ -929,6 +930,7 @@ void MainWindow::setupDockWindows()
     setupPythonConsole();
     setupSelectionView();
     setupTransactionLogView();
+    setupAnimationTimeline();
 
     initDockWindows(false);
 }
@@ -960,6 +962,23 @@ bool MainWindow::setupTransactionLogView()
 
         DockWindowManager* pDockMgr = DockWindowManager::instance();
         pDockMgr->registerDockWindow("Std_TransactionLogView", view);
+        return true;
+    }
+
+    return false;
+}
+
+bool MainWindow::setupAnimationTimeline()
+{
+    // The animation timeline (docs/Animation.md 3.9): a dock, so an overlay
+    // like any other
+    if (d->hiddenDockWindows.find("Std_AnimationTimeline") == std::string::npos) {
+        auto view = new DockWnd::AnimationTimeline(this);
+        view->setObjectName
+            (QStringLiteral(QT_TRANSLATE_NOOP("QDockWidget","Animation")));
+
+        DockWindowManager* pDockMgr = DockWindowManager::instance();
+        pDockMgr->registerDockWindow("Std_AnimationTimeline", view);
         return true;
     }
 

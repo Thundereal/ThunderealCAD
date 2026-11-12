@@ -269,6 +269,10 @@ public:
     }
     DocumentObjectExecReturn* execute() override;
     PyObject* getPyObject() override;
+    const char* getViewProviderName() const override
+    {
+        return "Gui::ViewProviderAnimation";
+    }
 
     /// Make this the document's active Animation and evaluate at Time
     void activate();

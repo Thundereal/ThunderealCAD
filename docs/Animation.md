@@ -349,12 +349,27 @@ struct Track {
 };
 ```
 
-**One track per target, and no overlap.** A property is animated whole
-(`Box.Placement`) or by parts (`Box.Placement.Base.z`,
-`Box.Placement.Rotation.Angle`), not both. Adding a track that overlaps an
-existing one is refused with the existing track's name. Blender allows
-only per-component channels and so never meets the question; refusing is
-the rule with no surprises.
+**One track per target; whole and parts may both be there** (user,
+2026-11-12). A property can have a track on all of it (`Box.Placement`) and
+tracks on parts of it (`Box.Placement.Base.z`,
+`Box.Placement.Rotation.Angle`) at once. That lets a box follow keyed poses
+while its height runs on a curve of its own. Two tracks on the same path
+are not allowed; a second one is the first.
+
+**Parts apply after the whole**, the shorter path first, then the longer
+ones in turn. So `Placement`, then `Placement.Rotation`, then
+`Placement.Rotation.Angle`; parts of the same length (`Base.x`, `Base.z`)
+do not overlap, and their order does not matter.
+- At time t, the whole track's value is evaluated, each part's value
+  replaces its piece of it, and the result is written to the property
+  once (section 4).
+- Where a part has no key yet or is muted, the whole track's piece stands.
+- A part that turns its piece's value outside the whole one's -- `Angle`
+  over a whole `Rotation` -- keeps the whole's axis and replaces the
+  angle. Each part replaces exactly what its path names, nothing more.
+
+The timeline shows part tracks indented under the whole track of the same
+property, or under the property's name when there is no whole track.
 
 **A track's state** is computed when the track is resolved, and is shown
 in the timeline and to Python:
@@ -420,8 +435,10 @@ is registered, so camera tracks are Unresolved: skipped, kept and saved.
 
 ### 3.7 Runtime state, never saved
 
-- **The rest store**: track id to the value its target had before this
-  Animation's first write since it was activated (section 5).
+- **The rest store**: property to the value it had before this
+  Animation's first write to it since activation (section 5). It is kept by
+  property, not by track, because a whole track and its part tracks write
+  the same property.
   - Filled lazily, so activating costs nothing.
   - Emptied by `deactivate()`, which writes the values back and then
     recomputes.
@@ -612,8 +629,12 @@ scalar track and needs none of this.
      component: Blender's 2D F-curve. Quaternions use squad.
    - Python calls the callable with `u`, inside the expression sandbox
      rules.
-3. Write the value with `setAnimValue` or `setPathValue`, inside
-   `App::AnimatedWrites`. A write equal to the current value does nothing,
+3. Group the tracks by property. For each property, start from the whole
+   track's value if there is one, else from the property's current value.
+   Apply its part tracks in path order (3.4), then write the property ONCE
+   with `setAnimValue`, or `setPathValue` for a sub-path with no codec,
+   inside `App::AnimatedWrites`. One write per property per frame means one
+   `onChanged` and one touch, however many tracks it has. A write equal to the current value does nothing,
    by the value-equality short-circuit `hasSetValue` already has.
 4. Recompute by the `Recompute` mode:
    - Touched (the default) recomputes what the writes touched.
@@ -696,7 +717,16 @@ evaluates once after the document is restored.
   made to a property while Record is on keys it at `Time` on the active
   Animation. That is the old capture by posing, with each property keeping
   its own key times. Dragging with the transform dragger keys the Placement
-  at the end of the drag, not at every mouse move. Skipped:
+  at the end of the drag, not at every mouse move.
+
+  Where a property has a whole track and part tracks, a change keys the
+  whole track, and also each part track whose piece changed, with that
+  piece's new value. Without the second, the parts applied after the whole
+  would undo the pose just recorded: a box dragged up while `Base.z` has a
+  track of its own would drop back to the curve's height. A property with
+  part tracks only keys those whose piece changed.
+
+  Skipped:
   - Output, Transient and NoPersist properties;
   - writes under `AnimatedWrites` and `DerivedViewWrites`;
   - the Animation's `Exclude` list.
@@ -808,8 +838,7 @@ Decided by the user, 2026-11-12:
    rest value; the view shows the animated value again at the next
    evaluation (5.2).
 8. Stop puts the rest values back; Pause keeps the pose (3.9).
+9. A property may have a whole track and part tracks at once; the parts
+   apply after the whole, shorter path first (3.4).
 
-Still open:
-
-1. **Whole or by parts, not both** (3.4): a track on `Box.Placement` and
-   one on `Box.Placement.Base.z` cannot coexist.
+Nothing else is open in the object model.

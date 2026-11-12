@@ -364,8 +364,8 @@ in the timeline and to Python:
 | Ok | The target resolves and matches `valueType` | writes |
 | Unresolved | The object is deleted, the document is closed, or the dynamic property was removed | skips. The track is kept; an undo of the deletion resolves it again. "Remove unresolved tracks" cleans up |
 | Mismatch | The property now has another type | skips; re-keying converts or the user removes it |
-| Driven | The property is bound to an expression | skips: the expression wins (3.11) |
-| Solved | The target is a placement an Assembly solves | skips, with the reason (3.11) |
+| Driven | The property is bound to an expression | writes, and warns (3.11) |
+| Solved | The target is a placement an Assembly solves | writes, and warns (3.11) |
 
 ### 3.5 Key
 
@@ -509,21 +509,34 @@ task page, if wanted. Nothing in the model depends on where it is shown.
 
 ### 3.11 Expressions, Assembly and Links
 
-- **Expressions win.** A property bound to an expression is not keyed:
-  insert key is refused with the reason, Record skips it, and an existing
-  track turns Driven. To animate it, write the expression in terms of
-  `Anim.Time`. That is SOLIDWORKS' and Inventor's rule for driven
-  dimensions.
-- **Assembly.**
-  - A part's Placement that an Assembly solves is overwritten at the
-    next solve, so a track on it is Solved and skipped, with "key a
-    joint instead". This is Inventor's rule that a constraint blocks
-    animating its component.
-  - Joint values (a Distance joint's offset, a Revolute's angle) are
-    ordinary Float/Quantity properties. They are keyed like any other,
-    and `Recompute` Touched runs the solver per frame.
-  - A grounded part, or one in an assembly whose solving is off, is not
-    Solved.
+- **A conflict is warned, never skipped** (user, 2026-11-12). Two cases
+  have something else writing the same property:
+  - **Driven:** the property is bound to an expression.
+  - **Solved:** it is the Placement of a part an Assembly solves.
+
+  In both, keys are inserted, Record keys it, and evaluation writes the
+  animated value as for any track. The conflict is shown in orange:
+  - on the track's row in the timeline, with the reason as its tooltip;
+  - on the property's row in the property editor;
+  - for Driven, on the expression itself: its row, and the expression
+    editor when it is opened.
+
+  What the user then sees follows from the order of the writes:
+  - **Driven.** With `Recompute` Never, the animated value shows. With
+    Touched or Full, the recompute evaluates the expression afterwards,
+    so the expression's value shows. To animate a driven property for
+    good, write the expression in terms of `Anim.Time`, as SOLIDWORKS and
+    Inventor drive a driven dimension.
+  - **Solved.** The solver starts from the current placements. Along a
+    part's free degrees of freedom the animated placement stays, as a
+    drag would. Along constrained ones the solver puts it back. So keying
+    a solved part's Placement moves it where its joints let it move,
+    which is useful in itself. To move it along a constrained degree of
+    freedom, key the joint's value instead.
+- **Joint values** (a Distance joint's offset, a Revolute's angle) are
+  ordinary Float/Quantity properties. They are keyed like any other, and
+  `Recompute` Touched runs the solver per frame. A grounded part, or one
+  in an assembly whose solving is off, is not Solved.
 - **Links.** A Link's Placement is the Link's own property, so a track
   animates that instance and leaves the linked object and its other
   instances alone. A link array's element is keyed by its index sub-path
@@ -686,7 +699,6 @@ evaluates once after the document is restored.
   at the end of the drag, not at every mouse move. Skipped:
   - Output, Transient and NoPersist properties;
   - writes under `AnimatedWrites` and `DerivedViewWrites`;
-  - properties bound to an expression;
   - the Animation's `Exclude` list.
 - **Key all changed**: keys every property changed since the last key time,
   in one step. That is the old "new key frame" command.
@@ -790,14 +802,14 @@ Decided by the user, 2026-11-12:
 4. The timeline is a dock window; any dock can be an overlay, so there is
    nothing to choose. It is not the Animation's task panel (3.10).
 5. The name: `App::Animation`.
+6. A conflicting track (Driven, Solved) is written and warned in orange,
+   never skipped (3.11).
+7. With Record off, editing an animated property while active changes its
+   rest value; the view shows the animated value again at the next
+   evaluation (5.2).
+8. Stop puts the rest values back; Pause keeps the pose (3.9).
 
-Still open, from the object model (section 3), each with the proposal:
+Still open:
 
 1. **Whole or by parts, not both** (3.4): a track on `Box.Placement` and
    one on `Box.Placement.Base.z` cannot coexist.
-2. **Solved placements are skipped** (3.11): a part an Assembly solves is
-   animated through its joints, not its Placement.
-3. **A design edit while active** (5.2): with Record off, editing an
-   animated property changes its rest value, and the view shows the
-   animated value again at the next evaluation.
-4. **Stop puts the rest values back** (3.9); Pause keeps the pose.

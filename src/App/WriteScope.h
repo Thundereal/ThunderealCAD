@@ -58,7 +58,8 @@ enum : unsigned
     Undo = 1U << 1,
     /// Changes what the owner's file holds: a folder save writes it again
     Dirty = 1U << 2,
-    /// Marks the Gui document modified
+    /// An edit: Document::signalEdited, on which the Gui marks its document
+    /// modified
     Modified = 1U << 3,
     /// Is keyed by an Animation that is recording
     Key = 1U << 4,
@@ -68,7 +69,7 @@ enum : unsigned
 /// What is written
 struct WriteTraits
 {
-    /// A touch of the owner, not a property write
+    /// A touch of the owner or a purge of it, not a property write
     bool touch = false;
     /// A view provider's property
     bool view = false;

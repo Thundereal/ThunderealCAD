@@ -3383,6 +3383,7 @@ void Document::onChangedProperty(const DocumentObject *Who, const Property *What
         }
     }
     signalChangedObject(*Who, *What);
+    noteChanged(*What);
 }
 
 void Document::setTransactionMode(int iMode)
@@ -4151,6 +4152,23 @@ unsigned Document::touchEffects() const
     WriteTraits t;
     t.touch = true;
     return writeEffectsOf(WriteScope::causes(), t);
+}
+
+void Document::noteChanged(const Property& what)
+{
+    if (writeEffects(what) & WriteEffect::Modified)
+        signalEdited(*this);
+}
+
+void Document::noteTouched(const DocumentObject& obj, bool purged)
+{
+    const unsigned fx = touchEffects();
+    if (purged)
+        signalPurgeTouchedObject(obj);
+    else
+        signalTouchedObject(obj);
+    if (fx & WriteEffect::Modified)
+        signalEdited(*this);
 }
 
 void Document::noteSavedChange(const TransactionalObject* who)
@@ -18836,7 +18854,7 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
         // either way, and only a value that really moved goes any further.
         obj->StatusBits.set(ObjectStatus::Enforce);
         obj->StatusBits.set(ObjectStatus::Touch);
-        signalTouchedObject(*obj);
+        noteTouched(*obj);
     }
 
 #if 0
@@ -18962,7 +18980,7 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
                         inObjIt->StatusBits.set(ObjectStatus::Enforce);
                         inObjIt->StatusBits.set(ObjectStatus::Touch);
                         if (obj->getDocument())
-                            obj->getDocument()->signalTouchedObject(*obj);
+                            obj->getDocument()->noteTouched(*obj);
                     }
 
                     // give the object a chance to revert the above touching,

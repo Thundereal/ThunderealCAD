@@ -729,7 +729,7 @@ set of effects, and each listener reads its own bit of it:
 | `Step` -- opens an undo step when none is open | `Document::_checkTransaction` |
 | `Undo` -- is recorded in the open step, and so in the log's row | `Document::onBeforeChangeProperty` |
 | `Dirty` -- changes the owner's file; a folder save writes it again | `Document::noteSavedChange` |
-| `Modified` -- marks the Gui document modified | `Gui::Document`, `ViewProviderDocumentObject` |
+| `Modified` -- an edit: `Document::signalEdited`, the one thing a change marks the Gui document modified on | `Document::noteChanged`, `noteTouched` |
 | `Key` -- is keyed by Record | `Animation::onBeforeRecord`, `onRecord` |
 
 Who writes is a set of causes. Two are scopes, `App::WriteScope(cause)`:
@@ -753,12 +753,18 @@ What is written is the property's traits: a view provider's, never saved,
 | `Transacting`, `Restoring`, `Recompute` | x | x | x | x | |
 | `Animation` | | | | | |
 | `DeferredLoad` | | | | | |
-| a touch | | | | x | |
-| a touch under `Animation` | | | | | |
+| a touch or a purge | | | | x | |
+| a touch or a purge under `Animation` | | | | | |
 
 `Step` and `Undo` under `Transacting` are what the table says of the
 write; the document itself opens and records nothing while it puts values
 back. `Dirty` under `Restoring` is likewise dropped by `noteSavedChange`.
+
+A touch is no change to the object's file though the touch state is
+saved: it is written in the document's own file, among what that says of
+each object, which every save writes. Marking it `Dirty` was tried and
+made a folder save write every object a recompute had passed
+(`FolderSaveCases`).
 
 Under the `Animation` scope, then, a property write:
 - opens no transaction and puts nothing on the undo stack;

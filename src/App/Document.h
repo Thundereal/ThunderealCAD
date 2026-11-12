@@ -258,6 +258,11 @@ public:
     fastsignals::signal<void (const App::DocumentObject&)> signalTouchedObject;
     /// signal on DocumentObject::purgeTouched()
     fastsignals::signal<void (const App::DocumentObject&)> signalPurgeTouchedObject;
+    /** An edit: a write or a touch that is one by the table of
+     * App/WriteScope.h (the Modified effect). What the Gui marks its
+     * document modified on, and nothing else of a write does.
+     */
+    fastsignals::signal<void (const App::Document&)> signalEdited;
     /// signal on relabeled Object
     fastsignals::signal<void (const App::DocumentObject&)> signalRelabelObject;
     /// signal on activated Object
@@ -1433,8 +1438,18 @@ public:
      * The one place a write is classified; ask it, do not test for a cause.
      */
     unsigned writeEffects(const Property& what) const;
-    /// The same for a touch of one of its objects
+    /// The same for a touch of one of its objects, or a purge of it
     unsigned touchEffects() const;
+    /** `what` -- an object's property, or a view provider's -- was written:
+     * says signalEdited when the write is an edit. An object's own writes
+     * get here by themselves; a view provider calls it.
+     */
+    void noteChanged(const Property& what);
+    /** `obj` was touched, or purged: said with signalTouchedObject or
+     * signalPurgeTouchedObject, and -- the state being saved -- as an edit,
+     * unless an Animation made it. Every touch goes through here.
+     */
+    void noteTouched(const DocumentObject& obj, bool purged = false);
     /// Schema version this document asks to be written with -- the user's
     /// cap, validated against the writable list.
     long getSaveSchemaVersion() const;

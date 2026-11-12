@@ -37,6 +37,9 @@ unsigned writeEffectsOf(unsigned causes, const WriteTraits& t)
     // Played, not edited: in no step, no change to the file (a save writes
     // the rest values), not keyed
     const bool animated = (causes & WriteCause::Animation) != 0;
+    // The touch state is saved, so a touch is an edit -- but in the
+    // document's own file, among what it says of each object, which every
+    // save writes: the object's file holds its properties and is as it was
     if (t.touch) {
         return animated ? 0U : unsigned(WriteEffect::Modified);
     }

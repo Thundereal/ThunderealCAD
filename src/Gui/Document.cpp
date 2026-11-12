@@ -55,7 +55,6 @@
 
 #include <App/Actor.h>
 #include <App/AutoTransaction.h>
-#include <App/WriteScope.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/DocumentParams.h>
@@ -499,6 +498,7 @@ struct DocumentP
     Connection connectNewObject;
     Connection connectDelObject;
     Connection connectCngObject;
+    Connection connectEdited;
     Connection connectRenObject;
     AdvancedConnection connectActObject;
     Connection connectSaveDocument;
@@ -581,6 +581,13 @@ Document::Document(App::Document* pcDocument,Application * app)
         (std::bind(&Gui::Document::slotDeletedObject, this, sp::_1));
     d->connectCngObject = pcDocument->signalChangedObject.connect
         (std::bind(&Gui::Document::slotChangedObject, this, sp::_1, sp::_2));
+    // Which writes and touches are edits is App's to say, once
+    // (App/WriteScope.h): the one place a change marks the document modified
+    d->connectEdited = pcDocument->signalEdited.connect(
+        [this](const App::Document&) {
+            if (!isModified())
+                setModified(true);
+        });
     d->connectRenObject = pcDocument->signalRelabelObject.connect
         (std::bind(&Gui::Document::slotRelabelObject, this, sp::_1));
     d->connectActObject = pcDocument->signalActivatedObject.connect
@@ -745,6 +752,7 @@ Document::~Document()
     d->connectNewObject.disconnect();
     d->connectDelObject.disconnect();
     d->connectCngObject.disconnect();
+    d->connectEdited.disconnect();
     d->connectRenObject.disconnect();
     d->connectActObject.disconnect();
     d->connectSaveDocument.disconnect();
@@ -2334,15 +2342,8 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
             signalChangedObject(static_cast<ViewProviderDocumentObject&>(*viewProvider), Prop);
     }
 
-    // a property of an object has changed. Its ViewObject is its view
-    // provider saying one of its own did, which is no edit while that is
-    // fitted to the model (ViewProviderDocumentObject::onChanged())
-    // An Animation's write is played, not edited (docs/Animation.md sec
-    // 5.1). Which writes are edits is App's to say (App/WriteScope.h)
-    if(!isModified() && (getDocument()->writeEffects(Prop) & App::WriteEffect::Modified)) {
-        FC_LOG(Prop.getFullName() << " modified");
-        setModified(true);
-    }
+    // That it marks the document modified is said by App
+    // (Document::signalEdited), not decided here
 
     getMainWindow()->updateActions(true);
 }
@@ -2456,12 +2457,6 @@ void Document::slotSkipRecompute(const App::Document& doc, const std::vector<App
 void Document::slotTouchedObject(const App::DocumentObject &Obj)
 {
     getMainWindow()->updateActions(true);
-    // An Animation's write touches what it writes, and the recompute that
-    // follows purges it: played, not edited (docs/Animation.md sec 5.1)
-    if(!isModified() && (getDocument()->touchEffects() & App::WriteEffect::Modified)) {
-        FC_LOG(Obj.getFullName() << (Obj.isTouched()?" touched":" purged"));
-        setModified(true);
-    }
     if (Obj.isTouched()) {
         auto it = d->_ViewProviderMap.find(&Obj);
         if (it !=d->_ViewProviderMap.end())

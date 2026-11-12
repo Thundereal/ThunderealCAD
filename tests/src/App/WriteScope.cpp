@@ -137,8 +137,12 @@ TEST(WriteEffects, aDeferredLoadsValueIsNoChange)
     EXPECT_EQ(fx(C::DeferredLoad, "u"), 0U);
 }
 
-TEST(WriteEffects, aTouchMarksTheDocumentModified)
+TEST(WriteEffects, aTouchIsAnEditButLeavesTheObjectsFileAlone)
 {
+    // The touch state is saved in the document's own file, which every
+    // save writes; a folder save keeps the object's (Document.py's
+    // FolderSaveCases count on it: a recompute touches and purges all it
+    // passes)
     EXPECT_EQ(fx(C::Edit, "t"), unsigned(E::Modified));
     EXPECT_EQ(fx(C::Recompute, "t"), unsigned(E::Modified));
     EXPECT_EQ(fx(C::ViewFit, "t"), unsigned(E::Modified));
@@ -227,6 +231,37 @@ TEST_F(WriteScopeTest, theDocumentClassifiesAWriteFromItsScopesAndTheProperty)
     obj()->Integer.setStatus(App::Property::NoModify, false);
     obj()->Integer.setStatus(App::Property::Transient, true);
     EXPECT_EQ(doc()->writeEffects(obj()->Integer), All & ~E::Dirty);
+}
+
+TEST_F(WriteScopeTest, anEditIsSaidOnceByTheDocument)
+{
+    int edits = 0;
+    auto conn = doc()->signalEdited.connect([&](const App::Document&) { ++edits; });
+    obj()->Integer.setValue(3);
+    EXPECT_GT(edits, 0);
+    edits = 0;
+    obj()->purgeTouched();
+    EXPECT_EQ(edits, 1);
+    edits = 0;
+    obj()->touch();
+    EXPECT_EQ(edits, 1);
+    obj()->purgeTouched();
+    edits = 0;
+    {
+        // Played: neither the write nor the touch it makes is an edit
+        App::WriteScope animated(C::Animation);
+        obj()->Integer.setValue(4);
+        obj()->touch();
+        obj()->purgeTouched();
+        EXPECT_EQ(edits, 0);
+    }
+    obj()->Integer.setStatus(App::Property::NoModify, true);
+    obj()->purgeTouched();
+    edits = 0;
+    obj()->Integer.setValue(5);
+    // NoModify: no edit, though it marks its object touched as it goes
+    EXPECT_EQ(edits, 0);
+    conn.disconnect();
 }
 
 TEST_F(WriteScopeTest, anAnimatedWriteIsInNoStepAndAnEditInsideItIs)

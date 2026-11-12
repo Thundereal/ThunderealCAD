@@ -931,11 +931,13 @@ Phase 3, built (2026-11-12), and what is left of it:
 - The user manual: thundereal-manual `core/animation` (screenshots and two
   videos, made on macOS in a real window) and the help page
   thundereal-help `pages/Animation.md`.
-- Left: GUI tests in `tests/gui` (the manual's scripts drive every part of
-  the panel, but as media, not as assertions); the `I` key over the
-  property editor; the Driven mark on the property editor's row and in the
-  expression editor (the timeline has it); Record of view provider
-  properties (Insert key keys them).
+- Then (3d7ec1623a): `tests/gui/animation-timeline.py`, 29 checks; `I`
+  over the property editor; a Driven or Solved row's name dark orange;
+  Record of view provider properties -- only the property the change was
+  made to, not what it set in turn, a Legacy name (Part's Transparency)
+  included; `Gui::Document::slotTouchedObject` no longer marks the
+  document modified for an animated write's touch.
+- Left: the Driven mark inside the expression editor.
 | 4 | Bezier handles in a curve editor; camera track; strips (section 7) | |
 | 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache if needed | |
 

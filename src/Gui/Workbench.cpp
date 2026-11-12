@@ -785,7 +785,7 @@ MenuItem* StdWorkbench::setupMenuBar() const
                << "Std_AnimationPlay" << "Std_AnimationPause" << "Std_AnimationStop"
                << "Std_AnimationStart" << "Std_AnimationPrev" << "Std_AnimationNext"
                << "Separator" << "Std_AnimationRecord" << "Std_AnimationNewFrame"
-               << "Std_AnimationKeyCamera";
+               << "Std_AnimationKeyCamera" << "Separator" << "Std_AnimationAddStrip";
     *tool << "Std_ViewLoadImage"
           << "Std_SceneInspector"
           << "Std_DependencyGraph"

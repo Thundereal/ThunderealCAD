@@ -311,6 +311,17 @@ void AnimationPlayer::tick()
     // played late
     double t = startTime + clock.elapsed() / 1000.0 * a->Speed.getValue();
     bool done = false;
+    // A presentation: playing stops at the start of an On click strip, and
+    // Play goes on from there (docs/Animation.md sec 7)
+    double prev = a->Time.getValue();
+    for (double cp : a->clickPoints()) {
+        if (prev < cp - App::Anim::TimeEpsilon && t >= cp - App::Anim::TimeEpsilon) {
+            t = cp;
+            a->Time.setValue(t);
+            pause();
+            return;
+        }
+    }
     switch (a->Loop.getValue()) {
     case 1:  // Loop
         if (t > end) {
@@ -377,6 +388,10 @@ public:
         App::AnimationTrackState state;
         bool mute;
         std::vector<Key> keys;
+        bool strip = false;     ///< a strip: a bar from begin to end
+        double begin = 0;
+        double end = 0;
+        QString barText;
     };
 
     void rebuild()
@@ -394,9 +409,19 @@ public:
         }
         // A part under its whole: by path, which puts Box.Placement before
         // Box.Placement.Base.z; otherwise the timeline's order
+        // Strips last, in their order, which is what places them
         std::stable_sort(tracks.begin(), tracks.end(), [](auto a, auto b) {
+            bool sa = a->kind == "Strip";
+            bool sb = b->kind == "Strip";
+            if (sa || sb) {
+                return !sa && sb;
+            }
             return a->pathString() < b->pathString();
         });
+        std::map<int, App::Animation::StripSpan> spans;
+        for (auto& span : anim->stripSpans()) {
+            spans[span.track] = span;
+        }
         std::set<std::pair<int, int>> still;
         std::vector<std::string> wholes;
         for (auto t : tracks) {
@@ -449,6 +474,39 @@ public:
                 if (selected.count({t->id, k.id})) {
                     still.insert({t->id, k.id});
                 }
+            }
+            if (t->kind == "Strip") {
+                row.strip = true;
+                auto it = spans.find(t->id);
+                auto child = it != spans.end() ? it->second.child : nullptr;
+                row.label = tr2("Strip: %1").arg(
+                    QString::fromUtf8(child ? child->Label.getValue() : t->strip.child.c_str()));
+                if (it != spans.end()) {
+                    row.begin = it->second.start;
+                    row.end = it->second.end;
+                }
+                QString text = QString::fromUtf8(child ? child->Label.getValue() : "");
+                const auto& st = t->strip;
+                if (st.reverse) {
+                    text += tr2(", reversed");
+                }
+                if (st.repeat > 1) {
+                    text += tr2(", x%1").arg(st.repeat);
+                }
+                if (st.scale != 1.0) {
+                    text += tr2(", at %1 speed").arg(1.0 / st.scale, 0, 'g', 3);
+                }
+                if (st.blend == App::AnimationStrip::Add) {
+                    text += tr2(", added");
+                }
+                if (st.start == App::AnimationStrip::Click) {
+                    text += tr2(", on click");
+                }
+                row.barText = text;
+                row.tip = tr2("Strip: %1\nStarts %2, %3 to %4 s").arg(
+                    QString::fromUtf8(t->strip.child.c_str()),
+                    QString::fromUtf8(App::toString(st.start)),
+                    QString::number(row.begin, 'g', 4), QString::number(row.end, 'g', 4));
             }
             rows.push_back(std::move(row));
         }
@@ -605,6 +663,22 @@ public:
             if (curves) {
                 continue;
             }
+            if (row.strip && row.end > row.begin) {
+                double shift = (stripDrag && dragTrack == row.track) ? dragDt : 0.0;
+                QRectF bar(xOf(row.begin + shift), y + 3, (row.end - row.begin) * scale(),
+                           rowHeight - 6);
+                QColor fill(0x8e, 0x6c, 0xc8);
+                if (row.mute) {
+                    fill.setAlpha(90);
+                }
+                p.setPen(QPen(fill.darker(140), 1));
+                p.setBrush(fill);
+                p.drawRoundedRect(bar, 4, 4);
+                p.setPen(Qt::white);
+                p.drawText(bar.adjusted(6, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft,
+                           p.fontMetrics().elidedText(row.barText, Qt::ElideRight,
+                                                      std::max(0, int(bar.width()) - 10)));
+            }
             for (auto& k : row.keys) {
                 bool sel = selected.count({row.track, k.id}) > 0;
                 double t = k.t + (sel && dragging ? dragDt : 0.0);
@@ -734,6 +808,17 @@ public:
             scrubTo(pos.x(), ev->modifiers());
             return;
         }
+        int stripRow = rowAt(pos.y());
+        if (stripRow >= 0 && rows[stripRow].strip && pos.x() >= gutter()
+            && pos.x() >= xOf(rows[stripRow].begin) && pos.x() <= xOf(rows[stripRow].end)) {
+            stripDrag = true;
+            dragTrack = rows[stripRow].track;
+            dragFrom = rows[stripRow].begin;
+            dragDt = 0;
+            dragging = false;
+            mode = Drag;
+            return;
+        }
         auto key = keyAt(pos);
         if (key.first >= 0) {
             bool add = ev->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier);
@@ -797,6 +882,22 @@ public:
     {
         if (curves && grab.key >= 0) {
             curveRelease(ev);
+            return;
+        }
+        if (stripDrag) {
+            auto anim = owner->animation();
+            auto t = anim ? anim->Tracks.getTrack(dragTrack) : nullptr;
+            if (t && dragging && std::fabs(dragDt) > App::Anim::TimeEpsilon) {
+                App::AutoTransaction guard(QT_TRANSLATE_NOOP("Command", "Move strip"));
+                App::AnimationTrack o = *t;
+                o.strip.offset += dragDt;
+                anim->Tracks.setTrackOptions(dragTrack, o);
+            }
+            stripDrag = false;
+            mode = None;
+            dragging = false;
+            dragDt = 0;
+            update();
             return;
         }
         if (mode == Drag && dragging && std::fabs(dragDt) > App::Anim::TimeEpsilon) {
@@ -903,7 +1004,7 @@ public:
         }
         QMenu menu;
         int r = rowAt(ev->pos().y());
-        if (ev->pos().x() < gutter()) {
+        if (ev->pos().x() < gutter() || (r >= 0 && rows[r].strip)) {
             if (r < 0) {
                 return;
             }
@@ -982,11 +1083,112 @@ public:
                        tr2("Delete keys"), [this] { deleteSelected(); });
     }
 
+    void stripMenu(QMenu& menu, int trackId)
+    {
+        auto anim = owner->animation();
+        auto track = anim->Tracks.getTrack(trackId);
+        auto change = [anim, trackId](const char* name, auto&& edit) {
+            auto t = anim->Tracks.getTrack(trackId);
+            if (!t) {
+                return;
+            }
+            App::AutoTransaction guard(name);
+            try {
+                App::AnimationTrack o = *t;
+                edit(o.strip, o);
+                anim->Tracks.setTrackOptions(trackId, o);
+            }
+            catch (Base::Exception& e) {
+                e.ReportException();
+            }
+        };
+        const auto& st = track->strip;
+        QMenu* start = menu.addMenu(tr2("Starts"));
+        const std::pair<App::AnimationStrip::Start, QString> starts[] = {
+            {App::AnimationStrip::After, tr2("After the strip before")},
+            {App::AnimationStrip::With, tr2("With the strip before")},
+            {App::AnimationStrip::Click, tr2("On click: playing stops here")},
+            {App::AnimationStrip::At, tr2("At a time of its own")}};
+        for (auto& s : starts) {
+            auto mode = s.first;
+            auto a = start->addAction(s.second, [=] {
+                change(QT_TRANSLATE_NOOP("Command", "Strip start"),
+                       [=](App::AnimationStrip& o, App::AnimationTrack&) {
+                           // Where it lies now, kept: At takes the time as its offset
+                           if (mode == App::AnimationStrip::At) {
+                               for (auto& span : anim->stripSpans()) {
+                                   if (span.track == trackId) {
+                                       o.offset = span.start;
+                                   }
+                               }
+                           }
+                           else if (o.start == App::AnimationStrip::At) {
+                               o.offset = 0;
+                           }
+                           o.start = mode;
+                       });
+            });
+            a->setCheckable(true);
+            a->setChecked(st.start == mode);
+        }
+        QMenu* blend = menu.addMenu(tr2("Blend"));
+        for (auto b : {App::AnimationStrip::Replace, App::AnimationStrip::Add}) {
+            auto a = blend->addAction(
+                b == App::AnimationStrip::Add ? tr2("Add: on top of what is below")
+                                              : tr2("Replace"),
+                [=] {
+                    change(QT_TRANSLATE_NOOP("Command", "Strip blend"),
+                           [=](App::AnimationStrip& o, App::AnimationTrack&) { o.blend = b; });
+                });
+            a->setCheckable(true);
+            a->setChecked(st.blend == b);
+        }
+        QMenu* repeat = menu.addMenu(tr2("Repeat"));
+        for (int n : {1, 2, 3, 4, 5, 10}) {
+            auto a = repeat->addAction(QString::number(n), [=] {
+                change(QT_TRANSLATE_NOOP("Command", "Strip repeat"),
+                       [=](App::AnimationStrip& o, App::AnimationTrack&) { o.repeat = n; });
+            });
+            a->setCheckable(true);
+            a->setChecked(st.repeat == n);
+        }
+        QMenu* speed = menu.addMenu(tr2("Speed"));
+        for (double s : {0.25, 0.5, 1.0, 2.0, 4.0}) {
+            auto a = speed->addAction(QStringLiteral("%1 x").arg(s), [=] {
+                change(QT_TRANSLATE_NOOP("Command", "Strip speed"),
+                       [=](App::AnimationStrip& o, App::AnimationTrack&) { o.scale = 1.0 / s; });
+            });
+            a->setCheckable(true);
+            a->setChecked(std::fabs(st.scale - 1.0 / s) < 1e-9);
+        }
+        auto rev = menu.addAction(tr2("Reverse"), [=] {
+            change(QT_TRANSLATE_NOOP("Command", "Strip reverse"),
+                   [](App::AnimationStrip& o, App::AnimationTrack&) { o.reverse = !o.reverse; });
+        });
+        rev->setCheckable(true);
+        rev->setChecked(st.reverse);
+        auto mute = menu.addAction(tr2("Mute"), [=] {
+            change(QT_TRANSLATE_NOOP("Command", "Mute strip"),
+                   [](App::AnimationStrip&, App::AnimationTrack& o) { o.mute = !o.mute; });
+        });
+        mute->setCheckable(true);
+        mute->setChecked(track->mute);
+        menu.addSeparator();
+        menu.addAction(BitmapFactory().iconFromTheme("edit-delete"), tr2("Remove strip"), [=] {
+            App::AutoTransaction guard(QT_TRANSLATE_NOOP("Command", "Remove strip"));
+            anim->Tracks.removeTrack(trackId);
+        });
+    }
+
     void trackMenu(QMenu& menu, int trackId)
     {
         auto anim = owner->animation();
         auto track = anim->Tracks.getTrack(trackId);
         if (!track) {
+            return;
+        }
+        if (track->kind == "Strip") {
+            stripMenu(menu, trackId);
             return;
         }
         using namespace App::Anim;
@@ -1453,6 +1655,8 @@ public:
     double dragFrom = 0;
     double dragDt = 0;
     bool dragging = false;
+    bool stripDrag = false;
+    int dragTrack = -1;
     static constexpr int rulerHeight = 22;
     static constexpr int rowHeight = 20;
     static constexpr double keySize = 5.5;

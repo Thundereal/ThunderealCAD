@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <sstream>
 #include <set>
 #include <unordered_map>
@@ -27,6 +28,7 @@
 #include <Base/PlacementPy.h>
 #include <Base/QuantityPy.h>
 #include <Base/Reader.h>
+#include <Base/Rotation.h>
 #include <Base/RotationPy.h>
 #include <Base/Tools.h>
 #include <Base/VectorPy.h>
@@ -59,6 +61,8 @@ const char* HandleNames[] = {"AutoClamped", "Auto", "Vector", "Aligned", "Free"}
 const char* ExtrapNames[] = {"Constant", "Linear", "Cycle", "CycleOffset", "PingPong"};
 const char* RotationNames[] = {"Shortest", "Turns", "Euler"};
 const char* StateNames[] = {"Ok", "Unresolved", "Mismatch", "Driven", "Solved"};
+const char* BlendNames[] = {"Replace", "Add"};
+const char* StartNames[] = {"At", "After", "With", "Click"};
 const char* LoopModes[] = {"Once", "Loop", "PingPong", nullptr};
 const char* RecomputeModes[] = {"Touched", "Never", "Full", nullptr};
 
@@ -208,6 +212,26 @@ const char* App::toString(AnimationTrackState state)
     return nameOf(StateNames, state);
 }
 
+const char* App::toString(AnimationStrip::Blend blend)
+{
+    return nameOf(BlendNames, blend);
+}
+
+const char* App::toString(AnimationStrip::Start start)
+{
+    return nameOf(StartNames, start);
+}
+
+void App::fromString(const char* name, AnimationStrip::Blend& blend)
+{
+    blend = enumOf<AnimationStrip::Blend>(BlendNames, name, "strip blend");
+}
+
+void App::fromString(const char* name, AnimationStrip::Start& start)
+{
+    start = enumOf<AnimationStrip::Start>(StartNames, name, "strip start");
+}
+
 #define ANIM_NAMES(_type, _names, _what)                                                       \
     const char* App::Anim::nameOf(_type value)                                                 \
     {                                                                                          \
@@ -237,6 +261,9 @@ std::string AnimationTrack::pathString() const
 {
     if (kind == "Property") {
         return target.toString();
+    }
+    if (kind == "Strip") {
+        return kind + ":" + strip.child;
     }
     return handlerData.empty() ? kind : kind + ":" + handlerData;
 }
@@ -279,7 +306,8 @@ bool AnimationTrack::operator==(const AnimationTrack& o) const
     return id == o.id && kind == o.kind && target == o.target && handlerData == o.handlerData
         && valueType == o.valueType && unit == o.unit && label == o.label && mute == o.mute
         && lock == o.lock && before == o.before && after == o.after && rotation == o.rotation
-        && layout == o.layout && keys == o.keys && nextKeyId == o.nextKeyId;
+        && layout == o.layout && keys == o.keys && nextKeyId == o.nextKeyId
+        && strip == o.strip;
 }
 
 // --------------------------------------------------------------------------
@@ -530,6 +558,11 @@ void PropertyAnimationTracks::setTrackOptions(int trackId, const AnimationTrack&
     t.lock = o.lock;
     t.before = o.before;
     t.after = o.after;
+    if (t.kind == "Strip") {
+        auto child = t.strip.child;
+        t.strip = o.strip;
+        t.strip.child = child;  // a strip's Animation is the strip
+    }
     if (t.rotation != o.rotation || t.layout != o.layout) {
         // A new rotation mode comes with the keys' numbers in it
         t.rotation = o.rotation;
@@ -551,7 +584,14 @@ bool PropertyAnimationTracks::layoutOf(const std::string& valueType, RotationMod
 void PropertyAnimationTracks::updateDeps()
 {
     std::map<DocumentObject*, bool> deps;
+    auto owner = freecad_dynamic_cast<DocumentObject>(getContainer());
     for (auto& t : _tracks) {
+        if (t.kind == "Strip" && owner && owner->getDocument()) {
+            if (auto child = owner->getDocument()->getObject(t.strip.child.c_str())) {
+                deps[child] = true;  // Hidden as the targets are
+            }
+            continue;
+        }
         if (t.kind != "Property") {
             continue;
         }
@@ -640,6 +680,13 @@ void PropertyAnimationTracks::Save(Base::Writer& writer) const
         if (t.lock) {
             s << " lock=\"1\"";
         }
+        if (t.kind == "Strip") {
+            auto& st = t.strip;
+            s << " child=\"" << encodeAttribute(st.child) << "\" start=\"" << toString(st.start)
+              << "\" offset=\"" << number(st.offset) << "\" scale=\"" << number(st.scale)
+              << "\" repeat=\"" << st.repeat << "\" reverse=\"" << (st.reverse ? 1 : 0)
+              << "\" blend=\"" << toString(st.blend) << "\"";
+        }
         s << " before=\"" << nameOf(ExtrapNames, t.before) << "\" after=\""
           << nameOf(ExtrapNames, t.after) << "\" rotation=\"" << nameOf(RotationNames, t.rotation)
           << "\" layout=\"" << layoutText(t.layout) << "\" nextKeyId=\"" << t.nextKeyId
@@ -714,6 +761,16 @@ void PropertyAnimationTracks::Restore(Base::XMLReader& reader)
         t.handlerData = reader.getAttribute("handler", "");
         t.mute = reader.getAttributeAsInteger("mute", "0") != 0;
         t.lock = reader.getAttributeAsInteger("lock", "0") != 0;
+        if (t.kind == "Strip") {
+            auto& st = t.strip;
+            st.child = reader.getAttribute("child", "");
+            fromString(reader.getAttribute("start", "After"), st.start);
+            st.offset = reader.getAttributeAsFloat("offset", "0");
+            st.scale = reader.getAttributeAsFloat("scale", "1");
+            st.repeat = static_cast<int>(reader.getAttributeAsInteger("repeat", "1"));
+            st.reverse = reader.getAttributeAsInteger("reverse", "0") != 0;
+            fromString(reader.getAttribute("blend", "Replace"), st.blend);
+        }
         t.before = enumOf<Extrap>(ExtrapNames, reader.getAttribute("before", "Constant"),
                                   "extrapolation");
         t.after = enumOf<Extrap>(ExtrapNames, reader.getAttribute("after", "Constant"),
@@ -926,6 +983,15 @@ ObjectIdentifier Animation::parsePath(const std::string& path) const
 bool Animation::resolve(const AnimationTrack& track, Target& target) const
 {
     target = Target();
+    if (track.kind == "Strip") {
+        auto doc = getDocument();
+        auto child = doc ? doc->getObject(track.strip.child.c_str()) : nullptr;
+        if (child && child->isDerivedFrom(Animation::getClassTypeId()) && child != this) {
+            target.state = AnimationTrackState::Ok;
+            return true;
+        }
+        return false;
+    }
     if (track.kind != "Property") {
         if (AnimationTrackHandler::get(track.kind)) {
             target.state = AnimationTrackState::Ok;
@@ -1662,6 +1728,136 @@ double Animation::nextKeyTime(bool forward) const
     return best;
 }
 
+void Animation::writeTrackAdd(const AnimationTrack& track, const Target& target, double t,
+                              const Property& from)
+{
+    Curve curve;
+    track.makeCurve(curve);
+    std::vector<double> value;
+    std::vector<double> cur;
+    if (!curve.evaluate(t, value) || !from.getAnimValue(track.layout, cur)
+        || cur.size() != value.size()) {
+        writeTrack(track, target, t);
+        return;
+    }
+    const auto& base = track.keys.front().key.v;
+    std::size_t i = 0;
+    for (auto& g : track.layout.groups) {
+        auto n = static_cast<std::size_t>(g.size);
+        if (g.kind == Kind::Scalar || g.kind == Kind::Colour) {
+            for (std::size_t j = i; j < i + n; ++j) {
+                cur[j] += value[j] - base[j];
+            }
+        }
+        else if (g.kind == Kind::Quaternion) {
+            // The turn from the first key to now, after what is below
+            Base::Rotation q(value[i], value[i + 1], value[i + 2], value[i + 3]);
+            Base::Rotation q0(base[i], base[i + 1], base[i + 2], base[i + 3]);
+            Base::Rotation c(cur[i], cur[i + 1], cur[i + 2], cur[i + 3]);
+            Base::Rotation r = (q * q0.inverse()) * c;
+            r.getValue(cur[i], cur[i + 1], cur[i + 2], cur[i + 3]);
+        }
+        // A direction is not added to: what is below stands
+        i += n;
+    }
+    if (target.depth == 0) {
+        target.prop->setAnimValue(track.layout, cur);
+    }
+}
+
+std::vector<Animation::StripSpan> Animation::stripSpans() const
+{
+    std::vector<StripSpan> res;
+    // A file whose strips play each other: no deeper than this
+    static thread_local int depth = 0;
+    if (depth > 8) {
+        return res;
+    }
+    struct Deeper
+    {
+        Deeper()
+        {
+            ++depth;
+        }
+        ~Deeper()
+        {
+            --depth;
+        }
+    } deeper;
+    auto doc = getDocument();
+    double prevStart = Start.getValue();
+    double prevEnd = Start.getValue();
+    for (auto& t : Tracks.getValues()) {
+        if (t.kind != "Strip") {
+            continue;
+        }
+        auto child = doc ? freecad_dynamic_cast<Animation>(doc->getObject(t.strip.child.c_str()))
+                         : nullptr;
+        if (!child || child == this) {
+            continue;
+        }
+        StripSpan span;
+        span.track = t.id;
+        span.child = child;
+        span.childStart = child->Start.getValue();
+        span.length = std::max(0.0, child->endTime() - span.childStart);
+        switch (t.strip.start) {
+        case AnimationStrip::At:
+            span.start = t.strip.offset;
+            break;
+        case AnimationStrip::With:
+            span.start = prevStart + t.strip.offset;
+            break;
+        default:
+            span.start = prevEnd + t.strip.offset;
+            break;
+        }
+        span.end = span.start
+            + span.length * std::max(1e-9, t.strip.scale) * std::max(1, t.strip.repeat);
+        if (span.length > TimeEpsilon) {
+            res.push_back(span);
+        }
+        prevStart = span.start;
+        prevEnd = span.end;
+    }
+    return res;
+}
+
+std::vector<double> Animation::clickPoints() const
+{
+    std::vector<double> res;
+    for (auto& span : stripSpans()) {
+        auto t = Tracks.getTrack(span.track);
+        if (t && t->strip.start == AnimationStrip::Click) {
+            res.push_back(span.start);
+        }
+    }
+    return res;
+}
+
+int Animation::addStrip(Animation* child, const AnimationStrip& options)
+{
+    if (!child || child == this || child->getDocument() != getDocument()) {
+        FC_THROWM(Base::ValueError, "a strip is another Animation of the same document");
+    }
+    // A strip of a strip of this one would play this one inside itself
+    std::vector<const Animation*> todo {child};
+    for (std::size_t i = 0; i < todo.size() && i < 64; ++i) {
+        for (auto& span : todo[i]->stripSpans()) {
+            if (span.child == this) {
+                FC_THROWM(Base::ValueError, child->getFullName() << " plays " << getFullName());
+            }
+            todo.push_back(span.child);
+        }
+    }
+    AnimationTrack track;
+    track.kind = "Strip";
+    track.valueType = "Strip";
+    track.strip = options;
+    track.strip.child = child->getNameInDocument();
+    return Tracks.addTrack(std::move(track));
+}
+
 void Animation::evaluate()
 {
     evaluateAt(Time.getValue());
@@ -1685,49 +1881,103 @@ void Animation::evaluateAt(double t)
     {
         const AnimationTrack* track;
         Target target;
+        double time;   ///< in the time of the Animation the track is of
+        int layer;     ///< 0 this one's own, then each strip's in turn
+        bool add;      ///< of an Add strip
     };
-    // Grouped by property, in the timeline's order; in a group the whole
-    // track first, then the parts, shorter paths first (docs/Animation.md 3.4)
+    // Grouped by property, in the timeline's order; in a group by layer --
+    // this Animation's own tracks, then each strip's -- and in a layer the
+    // whole track first, then the parts, shorter paths first
+    // (docs/Animation.md 3.4, 7)
     std::vector<std::vector<Item>> groups;
     std::map<const Property*, std::size_t> index;
-    for (auto& track : Tracks.getValues()) {
-        if (track.mute || track.keys.empty()) {
-            continue;
-        }
-        Item item {&track, {}};
-        if (!resolve(track, item.target)) {
-            continue;
-        }
-        if (track.kind != "Property") {
-            auto handler = AnimationTrackHandler::get(track.kind);
-            Curve curve;
-            track.makeCurve(curve);
-            std::vector<double> nums;
-            if (handler && curve.evaluate(t, nums)) {
-                try {
-                    handler->write(*this, track, nums);
+    int layers = 0;
+    std::function<void(const Animation*, double, int, bool, int)> collect =
+        [&](const Animation* owner, double time, int layer, bool add, int depth) {
+            for (auto& track : owner->Tracks.getValues()) {
+                if (track.mute || track.keys.empty() || track.kind == "Strip") {
+                    continue;
                 }
-                catch (Base::Exception& e) {
-                    FC_ERR(getFullName() << ": " << handler->describe(track) << ": " << e.what());
+                Item item {&track, {}, time, layer, add};
+                if (!resolve(track, item.target)) {
+                    continue;
                 }
+                if (track.kind != "Property") {
+                    auto handler = AnimationTrackHandler::get(track.kind);
+                    Curve curve;
+                    track.makeCurve(curve);
+                    std::vector<double> nums;
+                    if (handler && curve.evaluate(time, nums)) {
+                        try {
+                            handler->write(*this, track, nums);
+                        }
+                        catch (Base::Exception& e) {
+                            FC_ERR(getFullName() << ": " << handler->describe(track) << ": "
+                                                 << e.what());
+                        }
+                    }
+                    continue;
+                }
+                auto res = index.emplace(item.target.prop, groups.size());
+                if (res.second) {
+                    groups.emplace_back();
+                }
+                groups[res.first->second].push_back(std::move(item));
             }
-            continue;
-        }
-        auto res = index.emplace(item.target.prop, groups.size());
-        if (res.second) {
-            groups.emplace_back();
-        }
-        groups[res.first->second].push_back(std::move(item));
-    }
+            // Its strips, each at its own time; one of them before its start
+            // plays nothing, after its end holds its last pose
+            if (depth > 8) {
+                return;
+            }
+            for (auto& span : owner->stripSpans()) {
+                auto st = owner->Tracks.getTrack(span.track);
+                if (!st || st->mute || span.child == this || time < span.start - TimeEpsilon) {
+                    continue;
+                }
+                double local = (time - span.start) / std::max(1e-9, st->strip.scale);
+                double total = span.length * std::max(1, st->strip.repeat);
+                double phase;
+                if (local >= total) {
+                    phase = span.length;
+                }
+                else {
+                    phase = std::fmod(local, span.length);
+                }
+                if (st->strip.reverse) {
+                    phase = span.length - phase;
+                }
+                collect(span.child, span.childStart + phase, ++layers,
+                        st->strip.blend == AnimationStrip::Add, depth + 1);
+            }
+        };
+    collect(this, t, 0, false, 0);
     for (auto& group : groups) {
         std::stable_sort(group.begin(), group.end(), [](const Item& a, const Item& b) {
-            return a.target.depth < b.target.depth;
+            return a.layer != b.layer ? a.layer < b.layer : a.target.depth < b.target.depth;
         });
         auto& first = group.front().target;
         Rest& rest = restOf(first);
+        // The rest value as it stands before this frame's writes, for an
+        // Add strip to add to
+        std::unique_ptr<Property> restValue;
+        for (auto& item : group) {
+            if (item.add) {
+                restValue.reset(rest.rest->Copy());
+                break;
+            }
+        }
+        bool written = false;
         for (auto& item : group) {
             try {
-                writeTrack(*item.track, item.target, t);
+                if (item.add && item.target.depth == 0 && !item.track->stepped()) {
+                    // Onto what is below this frame, or onto the rest value
+                    writeTrackAdd(*item.track, item.target, item.time,
+                                  written ? *item.target.prop : *restValue);
+                }
+                else {
+                    writeTrack(*item.track, item.target, item.time);
+                }
+                written = true;
             }
             catch (Base::Exception& e) {
                 FC_ERR(getFullName() << ": track " << item.track->target.toString() << ": "
@@ -1843,6 +2093,9 @@ double Animation::endTime() const
         if (!t.keys.empty()) {
             end = std::max(end, t.keys.back().key.t);
         }
+    }
+    for (auto& span : stripSpans()) {
+        end = std::max(end, span.end);
     }
     return end;
 }

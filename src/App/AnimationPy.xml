@@ -104,6 +104,33 @@ keys are converted.</UserDocu>
         <UserDocu>nextKeyTime(forward=True) -> float: the time of the next key after Time on any track (or before, forward False); Time when there is none</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="addStrip" Keyword="true">
+      <Documentation>
+        <UserDocu>addStrip(animation, start='After', offset=0, scale=1, repeat=1, reverse=False, blend='Replace') -> str
+
+Play another Animation as a strip of this one (docs/Animation.md sec 7).
+start: 'At' (at offset), 'After' (offset after the strip before ends),
+'With' (offset after the strip before starts), or 'Click' (as After, and
+playing stops there until played on: a presentation).
+blend: 'Replace', or 'Add' (its change from its first key added to what is
+below, a whole property's track). Returns the strip's path, 'Strip:Name'.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setStrip" Keyword="true">
+      <Documentation>
+        <UserDocu>setStrip(animation, **options): change a strip's options, as addStrip takes them</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="strips">
+      <Documentation>
+        <UserDocu>strips() -> list of dict: each strip, its options and where it lies (Begin, End)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="clickPoints">
+      <Documentation>
+        <UserDocu>clickPoints() -> list of float: where playing stops for a click</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="activate">
       <Documentation>
         <UserDocu>activate(): make this the document's active Animation and evaluate at Time</UserDocu>

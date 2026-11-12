@@ -420,6 +420,63 @@ bool StdCmdAnimationNewFrame::isActive()
     return Selection().size() > 0;
 }
 
+DEF_STD_CMD_A(StdCmdAnimationAddStrip)
+
+StdCmdAnimationAddStrip::StdCmdAnimationAddStrip()
+    : Command("Std_AnimationAddStrip")
+{
+    sGroup = "Animation";
+    sMenuText = QT_TR_NOOP("Add as strips");
+    sToolTipText = QT_TR_NOOP("Play the Animations selected in the timeline's Animation, one "
+                              "after another: strips to place, repeat, reverse and add");
+    sWhatsThis = "Std_AnimationAddStrip";
+    sStatusTip = sToolTipText;
+    sPixmap = "Animation";
+    eType = 0;
+}
+
+namespace
+{
+std::vector<App::Animation*> selectedAnimations(App::Animation* except)
+{
+    std::vector<App::Animation*> res;
+    for (auto& sel : Selection().getSelectionEx()) {
+        auto anim = freecad_dynamic_cast<App::Animation>(sel.getObject());
+        if (anim && anim != except && std::find(res.begin(), res.end(), anim) == res.end()) {
+            res.push_back(anim);
+        }
+    }
+    return res;
+}
+}  // namespace
+
+void StdCmdAnimationAddStrip::activated(int)
+{
+    auto anim = current();
+    auto children = selectedAnimations(anim);
+    if (!anim || children.empty()) {
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Add strips"));
+    try {
+        for (auto child : children) {
+            anim->addStrip(child, App::AnimationStrip());
+        }
+        commitCommand();
+    }
+    catch (Base::Exception& e) {
+        e.ReportException();
+        abortCommand();
+    }
+    DockWnd::AnimationTimeline::showTimeline();
+}
+
+bool StdCmdAnimationAddStrip::isActive()
+{
+    auto anim = current();
+    return anim && !selectedAnimations(anim).empty();
+}
+
 DEF_STD_CMD_A(StdCmdAnimationKeyCamera)
 
 StdCmdAnimationKeyCamera::StdCmdAnimationKeyCamera()
@@ -473,6 +530,7 @@ void CreateAnimationCommands()
     registerAnimationCamera();
     CommandManager& mgr = Application::Instance->commandManager();
     mgr.addCommand(new StdCmdAnimationKeyCamera());
+    mgr.addCommand(new StdCmdAnimationAddStrip());
     mgr.addCommand(new StdCmdAnimationNew());
     mgr.addCommand(new StdCmdAnimationTimeline());
     mgr.addCommand(new StdCmdAnimationPlay());

@@ -23,6 +23,9 @@ A document with a cylinder, its Height keyed 10 mm at 0 s and 40 mm at
     key at 2 s dragged up with Shift: its value up by what the drag spans,
     its time kept, one undo step; the key at 0 s's right handle dragged
     up: Free, and the curve at 0.5 s higher;
+  - strips: two Animations selected, Add as strips: two strips, one after
+    the other; the second's bar dragged 0.5 s right: its offset 0.5, one
+    undo step; made On click, Play stops at its start;
   - Key the camera, isometric at 0 s and from the top at 1 s: a Camera
     track; at 0.5 s the view's orientation is halfway on the shortest arc
     between them; Stop puts the camera back as it was before.
@@ -364,6 +367,47 @@ def run():
         curvesButton.setChecked(False)
         anim.removeTrack("Post.Radius")
         pump(0.2)
+
+        # Strips
+        a1 = doc.addObject("App::Animation", "A1")
+        a1.addKey("Post.Height", 0.0, 10.0)
+        a1.addKey("Post.Height", 0.5, 20.0)
+        a2 = doc.addObject("App::Animation", "A2")
+        a2.addKey("Post.Height", 0.0, 20.0)
+        a2.addKey("Post.Height", 0.5, 30.0)
+        for track in [t["Path"] for t in anim.Tracks]:
+            anim.removeTrack(track)
+        Gui.Selection.clearSelection()
+        Gui.Selection.addSelection(a1)
+        Gui.Selection.addSelection(a2)
+        pump(0.2)
+        Gui.runCommand("Std_AnimationAddStrip")
+        pump(0.4)
+        spans = [(s["Child"], s["Begin"], s["End"]) for s in anim.strips()]
+        check("Add as strips: one after the other", spans == [("A1", 0.0, 0.5), ("A2", 0.5, 1.0)],
+              spans)
+        Gui.Selection.clearSelection()
+        layout = Layout(view, anim)
+        layout.range = lambda: (0.0 - 0.04, 1.0 + 0.04)
+        undo = doc.UndoCount
+        row = 1  # A2's bar, under A1's
+        a = QtCore.QPoint(layout.x(0.75), 22 + row * 20 + 10)
+        drag(view, a, QtCore.QPoint(layout.x(1.25), a.y()))
+        offsets = [s["Offset"] for s in anim.strips()]
+        check("a strip's bar dragged: its offset", abs(offsets[1] - 0.5) < 1.0 / 30 + 1e-9,
+              offsets)
+        check("one undo step for the strip", doc.UndoCount == undo + 1, (undo, doc.UndoCount))
+        anim.setStrip(a2, start="Click")
+        anim.Time = 0.0
+        Gui.runCommand("Std_AnimationPlay")
+        pump(2.0)
+        points = anim.clickPoints()
+        check("playing stops at a click point", points and abs(anim.Time.Value - points[0]) < 1e-6
+              and not mw.findChild(QtCore.QObject) is None, (points, anim.Time))
+        Gui.runCommand("Std_AnimationStop")
+        for track in [t["Path"] for t in anim.Tracks]:
+            anim.removeTrack(track)
+        pump(0.3)
 
         # The camera
         view3d = Gui.ActiveDocument.ActiveView

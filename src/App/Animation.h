@@ -83,6 +83,43 @@ enum class AnimationTrackState : std::uint8_t
 
 AppExport const char* toString(AnimationTrackState state);
 
+/** Another Animation placed in this one's time (docs/Animation.md sec 7):
+ * a track of kind "Strip", no keys of its own
+ */
+struct AppExport AnimationStrip
+{
+    enum Blend : std::uint8_t
+    {
+        Replace,  ///< its values written over what is below
+        Add,      ///< its change from its first key added to what is below
+    };
+    enum Start : std::uint8_t
+    {
+        At,     ///< at `offset`
+        After,  ///< `offset` after the strip before it ends (the first: after Start)
+        With,   ///< `offset` after the strip before it starts
+        Click,  ///< as After, and playing stops there for a click: a presentation
+    };
+    std::string child;  ///< the Animation played, by its name in the document
+    double offset = 0;
+    double scale = 1;   ///< its time stretched by
+    int repeat = 1;
+    bool reverse = false;
+    Blend blend = Replace;
+    Start start = After;
+
+    bool operator==(const AnimationStrip& o) const
+    {
+        return child == o.child && offset == o.offset && scale == o.scale && repeat == o.repeat
+            && reverse == o.reverse && blend == o.blend && start == o.start;
+    }
+};
+
+AppExport const char* toString(AnimationStrip::Blend blend);
+AppExport const char* toString(AnimationStrip::Start start);
+AppExport void fromString(const char* name, AnimationStrip::Blend& blend);
+AppExport void fromString(const char* name, AnimationStrip::Start& start);
+
 struct AppExport AnimationTrack
 {
     int id = 0;                   ///< stable, never reused in the document
@@ -100,6 +137,7 @@ struct AppExport AnimationTrack
     Anim::Layout layout;          ///< from valueType and rotation; empty: stepped
     std::vector<AnimationKey> keys;  ///< sorted by time, one per time
     int nextKeyId = 1;
+    AnimationStrip strip;            ///< kind "Strip"
 
     bool stepped() const
     {
@@ -177,7 +215,7 @@ public:
     void setInterp(const std::vector<AnimationKeyRef>& keys, Anim::Interp interp,
                    const Anim::Easing* easing = nullptr);
     void setHandles(AnimationKeyRef key, const Anim::Handle& left, const Anim::Handle& right);
-    /// Label, mute, lock, extrapolation and rotation mode of `options`
+    /// Label, mute, lock, extrapolation, rotation mode and a strip's options of `options`
     void setTrackOptions(int track, const AnimationTrack& options);
 
     PyObject* getPyObject() override;
@@ -310,8 +348,25 @@ public:
     Py::Object value(int track, double t) const;
     /// The state of `track` now
     AnimationTrackState state(int track) const;
-    /// The end of the range: End, or the last key's time when End is 0
+    /// The end of the range: End, or the last key's or strip's end when End is 0
     double endTime() const;
+
+    /// Where a strip lies in this Animation's time
+    struct StripSpan
+    {
+        int track = 0;
+        Animation* child = nullptr;
+        double start = 0;       ///< here, seconds
+        double end = 0;         ///< here: start + length x scale x repeat
+        double childStart = 0;  ///< the child's own Start
+        double length = 0;      ///< the child's own range
+    };
+    /// The strips in order, placed; a strip whose Animation is gone is left out
+    std::vector<StripSpan> stripSpans() const;
+    /// Where playing stops for a click: the starts of the On click strips
+    std::vector<double> clickPoints() const;
+    /// Make `child` a strip of this one; returns its track
+    int addStrip(Animation* child, const AnimationStrip& options);
     /// Each frame's time from Start to endTime() at FrameRate
     std::vector<double> frames() const;
 
@@ -385,6 +440,9 @@ private:
     bool readValue(const AnimationTrack& track, const Target& target, PyObject* value,
                    AnimationKey& key) const;
     void writeTrack(const AnimationTrack& track, const Target& target, double t);
+    /// A track of an Add strip: its change from its first key added to `from`
+    void writeTrackAdd(const AnimationTrack& track, const Target& target, double t,
+                       const Property& from);
     Rest& restOf(const Target& target);
     void dropRest(const DocumentObject* obj, const Property* prop);
     void connectDocument();

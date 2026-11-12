@@ -397,6 +397,102 @@ class TestAnimation(unittest.TestCase):
         self.assertEqual(len(self.anim.Tracks), 0)
         self.assertAlmostEqual(self.obj.F, 1.0)
 
+    # -- strips -------------------------------------------------------------
+
+    def strips(self):
+        a1 = self.doc.addObject("App::Animation", "A1")
+        a1.addKey("Obj.F", 0.0, 0.0)
+        a1.addKey("Obj.F", 1.0, 10.0)
+        a2 = self.doc.addObject("App::Animation", "A2")
+        a2.addKey("Obj.F", 0.0, 10.0)
+        a2.addKey("Obj.F", 2.0, 20.0)
+        return a1, a2
+
+    def testStripsInSequence(self):
+        a1, a2 = self.strips()
+        self.anim.addStrip(a1)
+        self.anim.addStrip(a2)  # After: when the first ends
+        spans = [(s["Begin"], s["End"]) for s in self.anim.strips()]
+        self.assertEqual(spans, [(0.0, 1.0), (1.0, 3.0)])
+        self.assertEqual(self.anim.frames()[-1], 3.0)
+        self.anim.Time = 0.5
+        self.assertAlmostEqual(self.obj.F, 5.0)
+        self.anim.Time = 1.5
+        self.assertAlmostEqual(self.obj.F, 12.5)
+        self.anim.Time = 4.0
+        self.assertAlmostEqual(self.obj.F, 20.0)  # the last pose held
+        self.anim.stop()
+        self.assertAlmostEqual(self.obj.F, 1.0)
+
+    def testStripWith(self):
+        a1, a2 = self.strips()
+        self.anim.addStrip(a1)
+        self.anim.addStrip(a2, start="With", offset=0.5)
+        self.assertEqual([s["Begin"] for s in self.anim.strips()], [0.0, 0.5])
+        self.anim.Time = 0.25
+        self.assertAlmostEqual(self.obj.F, 2.5)  # the second not started
+        self.anim.Time = 1.0
+        self.assertAlmostEqual(self.obj.F, 12.5)  # the second over the first
+
+    def testStripTiming(self):
+        a1, _ = self.strips()
+        self.anim.addStrip(a1, reverse=True)
+        self.anim.Time = 0.25
+        self.assertAlmostEqual(self.obj.F, 7.5)
+        self.anim.setStrip(a1, reverse=False, scale=2.0)
+        self.assertEqual(self.anim.strips()[0]["End"], 2.0)
+        self.anim.Time = 0.5
+        self.assertAlmostEqual(self.obj.F, 2.5)
+        self.anim.setStrip(a1, scale=1.0, repeat=3)
+        self.assertEqual(self.anim.strips()[0]["End"], 3.0)
+        self.anim.Time = 2.25
+        self.assertAlmostEqual(self.obj.F, 2.5)
+
+    def testStripAdd(self):
+        # This one's own: the part slides 100 along x in 2 s
+        self.anim.addKey("Obj.P", 0.0, App.Placement())
+        self.anim.addKey("Obj.P", 2.0, App.Placement(App.Vector(100, 0, 0), App.Rotation()))
+        # A strip added on top: a hop of 5 up and back, and a quarter turn
+        hop = self.doc.addObject("App::Animation", "Hop")
+        hop.addKey("Obj.P", 0.0, App.Placement())
+        hop.addKey("Obj.P", 0.5, App.Placement(App.Vector(0, 0, 5),
+                                               App.Rotation(App.Vector(0, 0, 1), 90)))
+        hop.addKey("Obj.P", 1.0, App.Placement())
+        self.anim.addStrip(hop, start="At", blend="Add")
+        self.anim.Time = 0.5
+        self.assertAlmostEqual(self.obj.P.Base.x, 25.0)
+        self.assertAlmostEqual(self.obj.P.Base.z, 5.0)
+        self.assertAlmostEqual(math.degrees(self.obj.P.Rotation.Angle), 90.0, places=5)
+        self.anim.Time = 1.5
+        self.assertAlmostEqual(self.obj.P.Base.x, 75.0)
+        self.assertAlmostEqual(self.obj.P.Base.z, 0.0)
+        # Alone, an Add strip adds to the rest value
+        self.anim.removeTrack("Obj.P")
+        self.obj.P = App.Placement(App.Vector(1, 2, 3), App.Rotation())
+        self.anim.Time = 0.5
+        self.assertTrue(self.obj.P.Base.isEqual(App.Vector(1, 2, 8), 1e-9), self.obj.P.Base)
+        self.anim.Time = 0.25
+        self.anim.Time = 0.5  # and does not pile up frame after frame
+        self.assertTrue(self.obj.P.Base.isEqual(App.Vector(1, 2, 8), 1e-9), self.obj.P.Base)
+
+    def testClickPointsAndSave(self):
+        a1, a2 = self.strips()
+        self.anim.addStrip(a1)
+        self.anim.addStrip(a2, start="Click", offset=0.5, repeat=2, blend="Replace")
+        self.assertEqual(self.anim.clickPoints(), [1.5])
+        before = self.anim.strips()
+        self.reopen()
+        self.assertEqual(self.anim.strips(), before)
+        self.assertEqual(self.anim.state("Strip:A2"), "Ok")
+
+    def testStripCycleRefused(self):
+        a1, a2 = self.strips()
+        a1.addStrip(a2)
+        with self.assertRaises(Exception):
+            a2.addStrip(a1)
+        with self.assertRaises(Exception):
+            a1.addStrip(a1)
+
     def testErrors(self):
         with self.assertRaises(Exception):
             self.anim.addKey("Nothing.F", 0.0)

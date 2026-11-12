@@ -18,6 +18,8 @@
 #include <Base/PyWrapParseTupleAndKeywords.h>
 
 #include "Animation.h"
+#include "Document.h"
+#include "DocumentObjectPy.h"
 
 // inclusion of the generated files (generated out of AnimationPy.xml)
 #include "AnimationPy.h"
@@ -69,6 +71,15 @@ int trackOfPath(Animation* anim, const char* path, bool create)
     std::string s(path);
     auto colon = s.find(':');
     std::string kind = s.substr(0, colon);
+    if (kind == "Strip" && colon != std::string::npos) {
+        std::string child = s.substr(colon + 1);
+        for (auto& t : anim->Tracks.getValues()) {
+            if (t.kind == "Strip" && t.strip.child == child) {
+                return t.id;
+            }
+        }
+        FC_THROWM(Base::ValueError, "no strip of " << child);
+    }
     if (AnimationTrackHandler::get(kind)) {
         return anim->handlerTrackOf(kind, colon == std::string::npos ? std::string()
                                                                       : s.substr(colon + 1),
@@ -430,6 +441,148 @@ PyObject* AnimationPy::nextKeyTime(PyObject* args)
     {
         return Py::new_reference_to(
             Py::Float(getAnimationPtr()->nextKeyTime(PyObject_IsTrue(forward) != 0)));
+    }
+    PY_CATCH
+}
+
+namespace
+{
+
+/// The options of addStrip and setStrip, onto `strip`
+void stripOptions(PyObject* kwds, AnimationStrip& strip)
+{
+    if (!kwds) {
+        return;
+    }
+    Py::Dict d(kwds);
+    for (auto it = d.begin(); it != d.end(); ++it) {
+        std::string key = Py::String((*it).first).as_std_string();
+        Py::Object v((*it).second);
+        if (key == "start") {
+            fromString(Py::String(v).as_std_string().c_str(), strip.start);
+        }
+        else if (key == "blend") {
+            fromString(Py::String(v).as_std_string().c_str(), strip.blend);
+        }
+        else if (key == "offset") {
+            strip.offset = Py::Float(v);
+        }
+        else if (key == "scale") {
+            strip.scale = Py::Float(v);
+            if (strip.scale <= 0) {
+                FC_THROWM(Base::ValueError, "a strip's scale is above 0");
+            }
+        }
+        else if (key == "repeat") {
+            strip.repeat = std::max(1, static_cast<int>(Py::Long(v)));
+        }
+        else if (key == "reverse") {
+            strip.reverse = PyObject_IsTrue(v.ptr()) != 0;
+        }
+        else {
+            FC_THROWM(Base::TypeError, "no strip option '" << key << "'");
+        }
+    }
+}
+
+Animation* childOf(Animation* anim, PyObject* obj)
+{
+    App::DocumentObject* o = nullptr;
+    if (PyObject_TypeCheck(obj, &DocumentObjectPy::Type)) {
+        o = static_cast<DocumentObjectPy*>(obj)->getDocumentObjectPtr();
+    }
+    else if (PyUnicode_Check(obj)) {
+        o = anim->getDocument()->getObject(PyUnicode_AsUTF8(obj));
+    }
+    auto child = freecad_dynamic_cast<Animation>(o);
+    if (!child) {
+        FC_THROWM(Base::TypeError, "an Animation, or its name, expected");
+    }
+    return child;
+}
+
+}  // namespace
+
+PyObject* AnimationPy::addStrip(PyObject* args, PyObject* kwds)
+{
+    PyObject* obj;
+    if (!PyArg_ParseTuple(args, "O", &obj)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto anim = getAnimationPtr();
+        AnimationStrip strip;
+        stripOptions(kwds, strip);
+        int id = anim->addStrip(childOf(anim, obj), strip);
+        return Py::new_reference_to(Py::String(anim->Tracks.getTrack(id)->pathString()));
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::setStrip(PyObject* args, PyObject* kwds)
+{
+    PyObject* obj;
+    if (!PyArg_ParseTuple(args, "O", &obj)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto anim = getAnimationPtr();
+        auto child = childOf(anim, obj);
+        int id = trackOfPath(anim, ("Strip:" + std::string(child->getNameInDocument())).c_str(),
+                             false);
+        AnimationTrack t = *anim->Tracks.getTrack(id);
+        stripOptions(kwds, t.strip);
+        if (!(t == *anim->Tracks.getTrack(id))) {
+            anim->Tracks.setTrackOptions(id, t);
+        }
+        Py_Return;
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::strips(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto anim = getAnimationPtr();
+        Py::List list;
+        for (auto& span : anim->stripSpans()) {
+            auto t = anim->Tracks.getTrack(span.track);
+            Py::Dict d;
+            d.setItem("Path", Py::String(t->pathString()));
+            d.setItem("Child", Py::String(t->strip.child));
+            d.setItem("Start", Py::String(toString(t->strip.start)));
+            d.setItem("Offset", Py::Float(t->strip.offset));
+            d.setItem("Scale", Py::Float(t->strip.scale));
+            d.setItem("Repeat", Py::Long(t->strip.repeat));
+            d.setItem("Reverse", Py::Boolean(t->strip.reverse));
+            d.setItem("Blend", Py::String(toString(t->strip.blend)));
+            d.setItem("Begin", Py::Float(span.start));
+            d.setItem("End", Py::Float(span.end));
+            list.append(d);
+        }
+        return Py::new_reference_to(list);
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::clickPoints(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        Py::List list;
+        for (double t : getAnimationPtr()->clickPoints()) {
+            list.append(Py::Float(t));
+        }
+        return Py::new_reference_to(list);
     }
     PY_CATCH
 }

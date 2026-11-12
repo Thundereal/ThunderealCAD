@@ -62,11 +62,26 @@ Py::Object easingTuple(const Anim::Easing& e)
                       Py::Float(e.amplitude), Py::Float(e.period), Py::Float(e.overshoot));
 }
 
+/// The track `path` names: a property's, or a handler's ("Camera",
+/// "Camera:<view>") when the part before a colon is a handler's kind
+int trackOfPath(Animation* anim, const char* path, bool create)
+{
+    std::string s(path);
+    auto colon = s.find(':');
+    std::string kind = s.substr(0, colon);
+    if (AnimationTrackHandler::get(kind)) {
+        return anim->handlerTrackOf(kind, colon == std::string::npos ? std::string()
+                                                                      : s.substr(colon + 1),
+                                    create);
+    }
+    return anim->trackOf(anim->parsePath(s), create);
+}
+
 int keyIndex(const AnimationTrack& track, double t)
 {
     int i = track.find(t);
     if (i < 0) {
-        FC_THROWM(Base::IndexError, "no key at " << t << " s on " << track.target.toString());
+        FC_THROWM(Base::IndexError, "no key at " << t << " s on " << track.pathString());
     }
     return i;
 }
@@ -107,7 +122,7 @@ PyObject* AnimationPy::addKey(PyObject* args, PyObject* kwds)
         if (i == Anim::Interp::Python) {
             FC_THROWM(Base::NotImplementedError, "a Python interpolation");
         }
-        int track = anim->trackOf(anim->parsePath(path), true);
+        int track = trackOfPath(anim, path, true);
         int id = anim->setKey(track, t, value, (interp || hasEasing) ? &i : nullptr,
                               hasEasing ? &e : nullptr);
         return Py::new_reference_to(Py::Long(id));
@@ -125,7 +140,7 @@ PyObject* AnimationPy::removeKey(PyObject* args)
     PY_TRY
     {
         auto anim = getAnimationPtr();
-        auto track = anim->Tracks.getTrack(anim->trackOf(anim->parsePath(path), false));
+        auto track = anim->Tracks.getTrack(trackOfPath(anim, path, false));
         anim->Tracks.removeKey(track->id, track->keys[keyIndex(*track, t)].id);
         Py_Return;
     }
@@ -143,7 +158,7 @@ PyObject* AnimationPy::moveKey(PyObject* args)
     PY_TRY
     {
         auto anim = getAnimationPtr();
-        auto track = anim->Tracks.getTrack(anim->trackOf(anim->parsePath(path), false));
+        auto track = anim->Tracks.getTrack(trackOfPath(anim, path, false));
         int i = keyIndex(*track, t);
         anim->Tracks.moveKeys({{track->id, track->keys[i].id}}, to - track->keys[i].key.t);
         Py_Return;
@@ -165,7 +180,7 @@ PyObject* AnimationPy::setInterp(PyObject* args, PyObject* kwds)
     PY_TRY
     {
         auto anim = getAnimationPtr();
-        auto track = anim->Tracks.getTrack(anim->trackOf(anim->parsePath(path), false));
+        auto track = anim->Tracks.getTrack(trackOfPath(anim, path, false));
         Anim::Interp i;
         Anim::fromName(interp, i);
         if (i == Anim::Interp::Python) {
@@ -191,7 +206,7 @@ PyObject* AnimationPy::addTrack(PyObject* args)
     PY_TRY
     {
         auto anim = getAnimationPtr();
-        return Py::new_reference_to(Py::Long(anim->trackOf(anim->parsePath(path), true)));
+        return Py::new_reference_to(Py::Long(trackOfPath(anim, path, true)));
     }
     PY_CATCH
 }
@@ -205,7 +220,7 @@ PyObject* AnimationPy::removeTrack(PyObject* args)
     PY_TRY
     {
         auto anim = getAnimationPtr();
-        anim->Tracks.removeTrack(anim->trackOf(anim->parsePath(path), false));
+        anim->Tracks.removeTrack(trackOfPath(anim, path, false));
         Py_Return;
     }
     PY_CATCH
@@ -220,11 +235,11 @@ PyObject* AnimationPy::track(PyObject* args)
     PY_TRY
     {
         auto anim = getAnimationPtr();
-        auto t = anim->Tracks.getTrack(anim->trackOf(anim->parsePath(path), false));
+        auto t = anim->Tracks.getTrack(trackOfPath(anim, path, false));
         Py::Dict d;
         d.setItem("Id", Py::Long(t->id));
         d.setItem("Kind", Py::String(t->kind));
-        d.setItem("Path", Py::String(t->target.toString()));
+        d.setItem("Path", Py::String(t->pathString()));
         d.setItem("ValueType", Py::String(t->valueType));
         d.setItem("Unit", Py::String(t->unit));
         d.setItem("Label", Py::String(t->label));
@@ -281,7 +296,7 @@ PyObject* AnimationPy::setTrack(PyObject* args, PyObject* kwds)
     PY_TRY
     {
         auto anim = getAnimationPtr();
-        int id = anim->trackOf(anim->parsePath(path), false);
+        int id = trackOfPath(anim, path, false);
         if (rotation) {
             Anim::RotationMode mode;
             Anim::fromName(rotation, mode);
@@ -328,7 +343,7 @@ PyObject* AnimationPy::keys(PyObject* args)
     PY_TRY
     {
         auto anim = getAnimationPtr();
-        auto t = anim->Tracks.getTrack(anim->trackOf(anim->parsePath(path), false));
+        auto t = anim->Tracks.getTrack(trackOfPath(anim, path, false));
         Py::List list;
         for (auto& k : t->keys) {
             list.append(Py::TupleN(Py::Float(k.key.t), anim->value(t->id, k.key.t),
@@ -349,7 +364,7 @@ PyObject* AnimationPy::value(PyObject* args)
     PY_TRY
     {
         auto anim = getAnimationPtr();
-        int id = anim->trackOf(anim->parsePath(path), false);
+        int id = trackOfPath(anim, path, false);
         return Py::new_reference_to(anim->value(id, t));
     }
     PY_CATCH
@@ -364,7 +379,7 @@ PyObject* AnimationPy::state(PyObject* args)
     PY_TRY
     {
         auto anim = getAnimationPtr();
-        int id = anim->trackOf(anim->parsePath(path), false);
+        int id = trackOfPath(anim, path, false);
         return Py::new_reference_to(Py::String(App::toString(anim->state(id))));
     }
     PY_CATCH
@@ -379,6 +394,11 @@ PyObject* AnimationPy::keyNow(PyObject* args)
     PY_TRY
     {
         auto anim = getAnimationPtr();
+        std::string s(path);
+        if (AnimationTrackHandler::get(s.substr(0, s.find(':')))) {
+            int id = trackOfPath(anim, path, true);
+            return Py::new_reference_to(Py::Long(anim->setKey(id, anim->Time.getValue())));
+        }
         return Py::new_reference_to(Py::Long(anim->keyNow(anim->parsePath(path))));
     }
     PY_CATCH

@@ -233,6 +233,14 @@ int AnimationTrack::depth() const
     return std::max(0, target.numSubComponents() - 1);
 }
 
+std::string AnimationTrack::pathString() const
+{
+    if (kind == "Property") {
+        return target.toString();
+    }
+    return handlerData.empty() ? kind : kind + ":" + handlerData;
+}
+
 int AnimationTrack::find(double t) const
 {
     auto it = std::lower_bound(keys.begin(), keys.end(), t - TimeEpsilon,
@@ -816,7 +824,7 @@ PyObject* PropertyAnimationTracks::getPyObject()
         Py::Dict d;
         d.setItem("Id", Py::Long(t.id));
         d.setItem("Kind", Py::String(t.kind));
-        d.setItem("Path", Py::String(t.target.toString()));
+        d.setItem("Path", Py::String(t.pathString()));
         d.setItem("ValueType", Py::String(t.valueType));
         d.setItem("Label", Py::String(t.label));
         d.setItem("Mute", Py::Boolean(t.mute));
@@ -1083,6 +1091,32 @@ int Animation::trackOf(const ObjectIdentifier& path, bool create)
     return Tracks.addTrack(std::move(track));
 }
 
+int Animation::handlerTrackOf(const std::string& kind, const std::string& hint, bool create)
+{
+    auto handler = AnimationTrackHandler::get(kind);
+    if (!handler) {
+        FC_THROWM(Base::RuntimeError, "no handler of " << kind << " tracks here");
+    }
+    std::string data = handler->newTrackData(hint);
+    for (auto& t : Tracks.getValues()) {
+        if (t.kind == kind && t.handlerData == data) {
+            return t.id;
+        }
+    }
+    if (!create) {
+        FC_THROWM(Base::ValueError, "no " << kind << " track " << data);
+    }
+    AnimationTrack track;
+    track.kind = kind;
+    track.handlerData = data;
+    track.valueType = kind;
+    if (!handler->layout(track, track.layout)) {
+        FC_THROWM(Base::ValueError, "no " << kind << " track " << data);
+    }
+    track.rotation = track.layout.rotation;
+    return Tracks.addTrack(std::move(track));
+}
+
 bool Animation::readValue(const AnimationTrack& track, const Target& target, PyObject* value,
                           AnimationKey& key) const
 {
@@ -1134,7 +1168,38 @@ int Animation::setKey(int trackId, double t, PyObject* value, const Interp* inte
         FC_THROWM(Base::IndexError, "no animation track " << trackId);
     }
     if (track->kind != "Property") {
-        FC_THROWM(Base::NotImplementedError, "keys of a " << track->kind << " track");
+        auto handler = AnimationTrackHandler::get(track->kind);
+        if (!handler) {
+            FC_THROWM(Base::RuntimeError, "no handler of " << track->kind << " tracks here");
+        }
+        AnimationKey key;
+        key.key.t = t;
+        int i = track->find(t);
+        if (i >= 0) {
+            key.key = track->keys[i].key;
+            key.key.v.clear();
+        }
+        if (value && value != Py_None) {
+            Base::PyGILStateLocker lock;
+            Py::Sequence seq(value);
+            for (Py_ssize_t j = 0; j < seq.size(); ++j) {
+                key.key.v.push_back(static_cast<double>(Py::Float(seq[j])));
+            }
+        }
+        else if (!handler->read(*this, *track, key.key.v)) {
+            FC_THROWM(Base::RuntimeError, "cannot read " << handler->describe(*track));
+        }
+        if (static_cast<int>(key.key.v.size()) != track->layout.size()) {
+            FC_THROWM(Base::ValueError, handler->describe(*track) << " takes "
+                                        << track->layout.size() << " numbers");
+        }
+        if (interp) {
+            key.key.interp = *interp;
+        }
+        if (easing) {
+            key.key.easing = *easing;
+        }
+        return Tracks.setKey(trackId, std::move(key));
     }
     Target target;
     if (!resolve(*track, target)) {
@@ -1639,7 +1704,12 @@ void Animation::evaluateAt(double t)
             track.makeCurve(curve);
             std::vector<double> nums;
             if (handler && curve.evaluate(t, nums)) {
-                handler->write(track, nums);
+                try {
+                    handler->write(*this, track, nums);
+                }
+                catch (Base::Exception& e) {
+                    FC_ERR(getFullName() << ": " << handler->describe(track) << ": " << e.what());
+                }
             }
             continue;
         }
@@ -1704,6 +1774,19 @@ void Animation::deactivate(bool recompute)
 {
     auto doc = getDocument();
     _pending = false;
+    // A handler's tracks keep their own rest: a camera put back
+    for (auto& track : Tracks.getValues()) {
+        if (track.kind != "Property") {
+            if (auto handler = AnimationTrackHandler::get(track.kind)) {
+                try {
+                    handler->deactivate(*this, track);
+                }
+                catch (Base::Exception& e) {
+                    e.ReportException();
+                }
+            }
+        }
+    }
     if (_rest.empty()) {
         return;
     }
@@ -1791,6 +1874,19 @@ Py::Object Animation::value(int trackId, double t) const
     }
     if (track->keys.empty()) {
         return Py::None();
+    }
+    if (track->kind != "Property") {
+        Curve curve;
+        track->makeCurve(curve);
+        std::vector<double> nums;
+        if (!curve.evaluate(t, nums)) {
+            return Py::None();
+        }
+        Py::Tuple res(nums.size());
+        for (std::size_t i = 0; i < nums.size(); ++i) {
+            res.setItem(i, Py::Float(nums[i]));
+        }
+        return res;
     }
     Target target;
     bool resolved = resolve(*track, target);

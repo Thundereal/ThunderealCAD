@@ -107,6 +107,9 @@ struct AppExport AnimationTrack
     }
     /// The count of components after the property: 0 for a whole track
     int depth() const;
+    /// How Python and the timeline name it: the target's path, or
+    /// "Camera:<data>" for a handler's track
+    std::string pathString() const;
     /// Index of the key at `t`, or -1
     int find(double t) const;
     /// Index of the key with `id`, or -1
@@ -227,10 +230,27 @@ class AppExport AnimationTrackHandler
 {
 public:
     virtual ~AnimationTrackHandler() = default;
+    /// The layout of a track's numbers, from its handler data
     virtual bool layout(const AnimationTrack& track, Anim::Layout& layout) const = 0;
-    virtual bool read(const AnimationTrack& track, std::vector<double>& nums) const = 0;
-    virtual bool write(const AnimationTrack& track, const std::vector<double>& nums) = 0;
+    /// The value now, to key, for `anim`'s track
+    virtual bool read(const Animation& anim, const AnimationTrack& track,
+                      std::vector<double>& nums) const = 0;
+    /// Show `nums`; the first write after activation keeps what it replaces
+    virtual bool write(Animation& anim, const AnimationTrack& track,
+                       const std::vector<double>& nums) = 0;
+    /// The timeline's label
     virtual std::string describe(const AnimationTrack& track) const = 0;
+    /// The handler data for a new track; `hint` is what the caller named
+    virtual std::string newTrackData(const std::string& hint) const
+    {
+        return hint;
+    }
+    /// Put back what the first write replaced: the Animation stops
+    virtual void deactivate(Animation& anim, const AnimationTrack& track)
+    {
+        (void)anim;
+        (void)track;
+    }
 
     static void registerHandler(const char* kind, std::shared_ptr<AnimationTrackHandler> handler);
     static AnimationTrackHandler* get(const std::string& kind);
@@ -300,6 +320,12 @@ public:
     /// The track on `path`, made if missing and `create`; throws when the
     /// target cannot be keyed
     int trackOf(const ObjectIdentifier& path, bool create);
+    /** The track of a handler's `kind` (docs/Animation.md 3.6) whose data
+     * is the handler's for `hint` -- for "Camera", a 3D view -- made if
+     * missing and `create`. Throws when no handler of the kind is
+     * registered, as in a process with no GUI.
+     */
+    int handlerTrackOf(const std::string& kind, const std::string& hint, bool create);
     /** Key `track` at `t` with `value`, or with the target's current value
      * when `value` is null or None. A key already at `t` is replaced and
      * keeps its id. Returns the key's id.

@@ -18,7 +18,10 @@ A document with a cylinder, its Height keyed 10 mm at 0 s and 40 mm at
     Transparency;
   - I over the property editor's Radius row keys the Radius; bound to an
     expression too, the row's name turns dark orange (written twice);
-  - none of the scrubbing and playing marks the document modified.
+  - none of the scrubbing and playing marks the document modified;
+  - Key the camera, isometric at 0 s and from the top at 1 s: a Camera
+    track; at 0.5 s the view's orientation is halfway on the shortest arc
+    between them; Stop puts the camera back as it was before.
 
 Runs offscreen as well: nothing here reads the 3D view's pixels.
 """
@@ -132,6 +135,10 @@ def run():
     try:
         App.ParamGet("User parameter:BaseApp/Preferences/Document").SetBool(
             "AutoSaveEnabled", False)
+        # A view's turn to a standard view is animated otherwise, and goes on
+        # moving the camera after the animation's write
+        App.ParamGet("User parameter:BaseApp/Preferences/View").SetBool(
+            "UseNavigationAnimations", False)
         mw = Gui.getMainWindow()
         mw.resize(1300, 900)
         doc = App.newDocument("AnimationTimeline")
@@ -305,6 +312,36 @@ def run():
         pump(0.3)
         check("a recorded pose is no design edit", abs(post.Height.Value - 10) < 1e-9, post.Height)
         check("nor a recorded view", post.ViewObject.Transparency == 0, post.ViewObject.Transparency)
+
+        # The camera
+        view3d = Gui.ActiveDocument.ActiveView
+        anim.Time = 0.0
+        Gui.runCommand("Std_AnimationStop")
+        view3d.viewIsometric()
+        pump(0.3)
+        iso = view3d.getCameraOrientation()
+        Gui.runCommand("Std_AnimationKeyCamera")
+        anim.Time = 1.0
+        view3d.viewTop()
+        pump(0.3)
+        top = view3d.getCameraOrientation()
+        Gui.runCommand("Std_AnimationKeyCamera")
+        cams = [t for t in anim.Tracks if t["Kind"] == "Camera"]
+        check("Key the camera makes a Camera track",
+              len(cams) == 1 and len(cams[0]["Keys"]) == 2, cams)
+        view3d.viewFront()
+        pump(0.2)
+        front = view3d.getCameraOrientation()
+        anim.Time = 0.5
+        pump(0.3)
+        half = view3d.getCameraOrientation()
+        want = iso.slerp(top, 0.5)
+        check("at 0.5 s the camera is halfway", half.isSame(want, 1e-4)
+              or half.isSame(App.Rotation(*[-c for c in want.Q]), 1e-4), (half.Q, want.Q))
+        Gui.runCommand("Std_AnimationStop")
+        pump(0.3)
+        back = view3d.getCameraOrientation()
+        check("Stop puts the camera back", back.isSame(front, 1e-4), (back.Q, front.Q))
         App.closeDocument(doc.Name)
     except Exception:
         note("ABORT\n" + traceback.format_exc())

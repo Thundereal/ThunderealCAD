@@ -395,14 +395,14 @@ public:
         // A part under its whole: by path, which puts Box.Placement before
         // Box.Placement.Base.z; otherwise the timeline's order
         std::stable_sort(tracks.begin(), tracks.end(), [](auto a, auto b) {
-            return a->target.toString() < b->target.toString();
+            return a->pathString() < b->pathString();
         });
         std::set<std::pair<int, int>> still;
         std::vector<std::string> wholes;
         for (auto t : tracks) {
             Row row;
             row.track = t->id;
-            std::string path = t->target.toString();
+            std::string path = t->pathString();
             row.depth = 0;
             for (auto& w : wholes) {
                 if (path.compare(0, w.size() + 1, w + ".") == 0) {
@@ -414,6 +414,11 @@ public:
             if (row.depth == 0) {
                 wholes.push_back(path);
                 row.label = QString::fromUtf8(path.c_str());
+            }
+            if (t->kind != "Property") {
+                if (auto handler = App::AnimationTrackHandler::get(t->kind)) {
+                    row.label = QString::fromUtf8(handler->describe(*t).c_str());
+                }
             }
             if (!t->label.empty()) {
                 row.label = QString::fromUtf8(t->label.c_str());
@@ -1018,7 +1023,13 @@ public:
         menu.addAction(tr2("Key at the current time"), [=] {
             App::AutoTransaction guard(QT_TRANSLATE_NOOP("Command", "Insert key"));
             try {
-                anim->keyNow(anim->Tracks.getTrack(trackId)->target);
+                auto t = anim->Tracks.getTrack(trackId);
+                if (t->kind == "Property") {
+                    anim->keyNow(t->target);
+                }
+                else {
+                    anim->setKey(trackId, anim->Time.getValue());
+                }
             }
             catch (Base::Exception& e) {
                 e.ReportException();
@@ -1099,6 +1110,8 @@ AnimationTimeline::AnimationTimeline(QWidget* parent)
     recordButton->setCheckable(true);
     cmdButton("Std_AnimationNewFrame", "AnimationNewFrame",
               tr("Key the selected objects' placements at the current time"));
+    cmdButton("Std_AnimationKeyCamera", "camera-photo",
+              tr("Key the 3D view's camera at the current time"));
     bar->addSpacing(8);
 
     auto spin = [&](const QString& label, const QString& tip, double min, double max,

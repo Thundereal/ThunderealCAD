@@ -437,6 +437,7 @@ SET(Command_CPP_SRCS
     CommandStructure.cpp
     CommandLink.cpp
     CommandAnimation.cpp
+    AnimationCamera.cpp
     CommandPyImp.cpp
     ShortcutManager.cpp
     CommandCompleter.cpp

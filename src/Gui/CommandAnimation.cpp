@@ -31,7 +31,9 @@
 #include "AnimationTimeline.h"
 #include "Application.h"
 #include "Command.h"
+#include "MainWindow.h"
 #include "Selection/Selection.h"
+#include "MDIView.h"
 
 using namespace Gui;
 
@@ -418,12 +420,59 @@ bool StdCmdAnimationNewFrame::isActive()
     return Selection().size() > 0;
 }
 
+DEF_STD_CMD_A(StdCmdAnimationKeyCamera)
+
+StdCmdAnimationKeyCamera::StdCmdAnimationKeyCamera()
+    : Command("Std_AnimationKeyCamera")
+{
+    sGroup = "Animation";
+    sMenuText = QT_TR_NOOP("Key the camera");
+    sToolTipText = QT_TR_NOOP("Key the active 3D view's camera at the current time: the "
+                              "animation then flies the view");
+    sWhatsThis = "Std_AnimationKeyCamera";
+    sStatusTip = sToolTipText;
+    sPixmap = "camera-photo";
+    eType = 0;
+}
+
+void StdCmdAnimationKeyCamera::activated(int)
+{
+    auto view = getMainWindow()->activeWindow();
+    std::string name = view ? view->getPersistentName() : std::string();
+    openCommand(QT_TRANSLATE_NOOP("Command", "Key the camera"));
+    auto anim = currentOrNew();
+    if (!anim) {
+        abortCommand();
+        return;
+    }
+    try {
+        int track = anim->handlerTrackOf("Camera", name, true);
+        anim->setKey(track, anim->Time.getValue());
+        commitCommand();
+    }
+    catch (Base::Exception& e) {
+        e.ReportException();
+        abortCommand();
+    }
+    DockWnd::AnimationTimeline::showTimeline();
+}
+
+bool StdCmdAnimationKeyCamera::isActive()
+{
+    return App::GetApplication().getActiveDocument() != nullptr
+        && getMainWindow()->activeWindow() != nullptr;
+}
+
 namespace Gui
 {
 
+void registerAnimationCamera();
+
 void CreateAnimationCommands()
 {
+    registerAnimationCamera();
     CommandManager& mgr = Application::Instance->commandManager();
+    mgr.addCommand(new StdCmdAnimationKeyCamera());
     mgr.addCommand(new StdCmdAnimationNew());
     mgr.addCommand(new StdCmdAnimationTimeline());
     mgr.addCommand(new StdCmdAnimationPlay());

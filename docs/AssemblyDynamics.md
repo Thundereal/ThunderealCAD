@@ -4708,6 +4708,153 @@ Phase D1 is under way (2026-10-28):
     within a tenth of its mean over the turn, the mean under 50 N). The
     rest hold: TestFlexibleBody 21, TestDynamics 90, TestJointFriction 4,
     TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 16 (2026-11-12): two flexible parts touching each other
+  anywhere -- the last of step 12's limits; such a pair is no longer
+  refused.
+  - **A load's side A on a mesh of its own** (`ContactLoad::flexibleA`,
+    `onMeshA`, `forcesOnA`). Of two flexible parts touched anywhere the
+    set's first is A, the second B. A's points are placed on A's surface and
+    follow its modes as B's do (`FlexibleContact::place()` and `refresh()`
+    by side, `loadsA`); `ComputeQ()` takes A's point and speed from A's mesh
+    and leaves A's force out of the bodies' load, and A's part takes it on
+    its reduced coordinates, T_A' (-f) (`IntLoadResidual_F()`). The
+    coupling is in B's block: each flexible A's reduced variables follow
+    B's and the bodies' there (`setVariables()`, `Part`), and a point adds
+    T_B' h T_B, -T_B' h T_A and its transpose, and T_A' h T_A
+    (`LoadKRMMatrices()`). The readers of a point's speed -- the contact's
+    substep, a contact found late, the patches' approach -- take A's from
+    its surface too (`speedOnA()`).
+  - That alone ran, and wrong: the rod of step 13 on its plate made
+    flexible too, held all along its underside (mesh 4), took 826 s for its
+    0.1 s, 706 frames, the force from 20.2 to 43.7 N, its mean 34.9, where
+    the rigid plate has 42.5 to 46.7 in 6 s. At t = 0 it was right (44.66
+    N), the terms above all there by a trace, and the sides swapped gave
+    the same numbers. Three things, each from a trace of every point of
+    every detection (its face, its triangles, its normal against each
+    triangle's own, its depth):
+    - **The curved face's point was not moved to where the face is deepest
+      when the curved face is A's.** Of each detection's points 95% were on
+      a curved face of the rod against a flat triangle of the plate, the
+      normal the plate's (`Point::face` 2), and step 13's move
+      (`Surface::farthest()`) was B's against a face of A alone: the rod's
+      middle sat 55 to 90 um clear on its quarter triangles, its ends alone
+      pressing. Now a flexible A's curved face against a flat face of B
+      goes to its farthest towards B, B's point slid along with it and
+      placed after (`placeOnFlexibles()`: each point's side that moves the
+      other's first). Not against a curved face of another flexible part.
+    - **One point in twenty had the rod's facet's own normal**, 10 to 17
+      deg off the plate's and turning with the rod: the pair of triangles
+      parted least along the rod's triangle where the plate's lay to one
+      side of it. A point between a curved face of one part and a flat
+      face of the other is the flat face's now, within 45 deg: its normal
+      that face's own, the flat side's point under the curved side's on its
+      plane (`flatFaces()`, before the patches).
+    - **One detection in twenty was two patches, each with the set's
+      spring**: the rows of the facets' corners either side of the rod's
+      line, no quarter of the one sharing a corner with the other's -- 80
+      to 95 N for 41. A curved face's quarter meets its neighbours by its
+      face's corners (`FlexibleContact::faceKeys()`, `patchesOf()`), on a
+      load of two flexible parts.
+    With these the first 10 ms ran in 6.2 s for 24.9, always one patch, but
+    from 33 to 47 N: the rod's middle still had no pressing point.
+    - **A triangle gone through the other's surface was "apart" from it**
+      (`satApart()`). The plain test of two triangles took each at its grown
+      place alone -- grown by the envelope and, on a flexible part, its
+      faces' bulge, 0.09 mm here -- so the rod's triangles along its line,
+      0.05 mm into the plate, lay 0.04 mm past the plate's top and were
+      proven apart, 41.6 um for a threshold of 6: of the 73 triangles of the
+      rod with points at the first detection, 5 reached its line, all at
+      its ends, and the 68 mid rod were the ones clear of the plate. A
+      triangle reaches now from its grown place back through its own and
+      the safe margin behind it (0.1 mm, `safeMargin`), the skin the
+      penetrations stay in. A box or a hull is a solid and never had it:
+      the rigid plate's points were on the line. The first detection then
+      has 376 points, 220 pressing, for 127 and 8.
+  - Three more, the pair's first limits, each from the same trace:
+    - **A part past the edge of another's flat face.** A point under a
+      flat face of one part, the normal that face's own, is under the face
+      -- of that one and the flat ones it meets at a convex edge
+      (`FlexibleContact::facesAbout()`, `edgeFaces`, as the part is at
+      rest) -- it is least deep under that faces the other part's surface
+      there, within 45 deg of that surface's triangle's normal the other
+      way and within the margin and the surface's bulge; one outside
+      through any of them, through the one it is farthest out of
+      (`flatFaces()`): step 14's rule for a rigid box, of a mesh's faces.
+      The rod on a plate from x = 5 to 35, both flexible, had a node 0.04
+      mm past the plate's end and 0.05 under its top taken through the
+      end, a patch of its own with the set's spring, 40 N along the rod:
+      over the turn 35.2 to 130.2 N, its mean 55.8, in 195 s; now 39.6 to
+      47.1, its mean 45.3, in 26 s (the rigid plate's 41.7 to 47.3). Where
+      none of the faces faces the other's surface -- that one's triangle a
+      side of its own, an edge on an edge -- the point is left as found:
+      with the least deep of them all taken then, two strips crossed, both
+      flexible, pressed 0.58 N sideways for 0.92 down.
+    - **Two flat faces meeting at their edges** are that same rule's. A
+      strip 200 x 20 x 2 turned 0.06 rad down onto the free end of a second
+      strip 20 x 100 x 2 across under it, clamped at its far end, both
+      flexible (mesh 8, 1000 N/mm, no friction): the force leaned 0.22 to
+      0.69 of its size along the lower strip, a side face's points a patch
+      of their own; now 0.027 at the end, the lower strip's own slope, one
+      patch, 9.80 N for a rigid lower strip's 14.06.
+    - **Two rounds.** A flexible part's shapes' convex cylinders and
+      spheres are kept as they ride its carrier at rest
+      (`FlexibleContact::rounds`), and each curved face of its surface
+      whose nodes are all on one is that round's (`matchRounds()`). A
+      point between two curved faces has B's go to its face's nearest A's
+      round's axis or centre, as against a rigid round (step 15,
+      `deepestOnFace()`), the round where A's mesh has it now
+      (`roundAt()`): its radius its own, a cylinder's axis the round's at
+      rest turned as the face's corners have turned, its centre where the
+      face's six nodes are all the radius from it. A's goes against B's
+      round where A's own face is of none. The other part's point, set on
+      its round's surface, is placed there as set (`ContactLoad::given`):
+      its offset from the face's point, not from the flat triangle's --
+      from the triangle's the rod's points were up to 0.034 mm outside the
+      rod, a roller's 0.044, and the depths read 0.05 to 0.094 mm for 0.05.
+      The rod on a roller R 5 held at both ends, both flexible: on their
+      quarter triangles the run did not end in 18 minutes; now 504 frames
+      in 112 s, over the turn 43.47 to 45.26 N, its mean 44.29 (a rigid
+      roller's 42.0 to 46.7).
+    A face walked into from a curved one's edge (step 15) took a flat
+    face's edge nodes for its first corner, which stands for them in
+    `Surface`: they are at its edges' middles now.
+  - Numbers (mesh 4, the rod R 5 x 40 turned once in 0.1 s, 0.05 mm into
+    the plate, 1000 N/mm, no friction). Both flexible: 504 frames in 21.8
+    s, over the turn 43.76 to 47.21 N, its mean 46.1. The set's groups
+    swapped, the plate A and the rod B: the same to 0.04 N, 20.3 s. The
+    rigid rod on the flexible plate 49.08 N throughout, as it was. Every
+    probe of steps 12 to 15 as it was, frame for frame: the two bars on
+    both laws, the roller and the plate at mesh 4 and 2, the plate's edge.
+    (Later the same day the box ran the plate in 36 s, this commit and the
+    one before it alike.)
+  - Limits.
+    - Two curved faces neither of a cylinder or a sphere of its part's
+      shapes -- a tooth's flank, a torus -- stay on their quarter
+      triangles, each facet's own normal; so do hollow rounds.
+    - A point slid or set by the other part's is placed on the triangle
+      it was found on, its offset from it rigid: past that triangle's edge
+      it is not handed to the next one.
+    - A flat face's neighbours are those across its own convex edges: at
+      a corner where three faces meet, the third is not looked at.
+    - Friction between two flexible parts is run, not checked: the two
+      strips with a friction of 0.3 press 9.85 N at the end for 9.80
+      without, as straight; the friction's own force is against no closed
+      form yet.
+    - Two rounds cost five times the plate, 112 s for 22: each point's
+      round is found again at each detection.
+    - `satApart()`'s skin is every mesh triangle's, a rigid mesh's too. A
+      rigid mesh's flat faces are large triangles, and the pair's
+      threshold goes by their size: TestContact.test_mesh_on_mesh rested
+      before as it does now.
+  - Tests: TestFlexibleBody.test_round_on_flexible_plate (the rod on the
+    plate, both flexible: within a tenth of its mean over the turn, the
+    mean under 50 N, the run under 120 s -- 46.1 N, from 43.76 to 47.21),
+    test_round_past_flexible_edge (the plate from 5 to 35: within 15% of
+    its mean), test_round_on_flexible_roller (over 0.03 to 0.045 s of the
+    turn, within a tenth) and test_strip_on_flexible_strip (the two
+    strips, to 0.035 s: 2.3 to 3.3 N at the end, rising, leaning under
+    0.05 of it). The rest hold: TestFlexibleBody 25, TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

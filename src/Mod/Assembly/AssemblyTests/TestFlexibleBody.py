@@ -677,9 +677,13 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertGreater(sum(1 for f in after if f > 0), len(after) // 2)
         self.assertLess(max(after), 0.1 * blow)
 
-    def stripOnBars(self, formula, end, step, bars=True, gap=0.05, rise=1.0):
+    def stripOnBars(self, formula, end, step, bars=True, gap=0.05, rise=1.0, lower=False):
         """A strip 200 x 20 x 2 hinged at an end to a grounded mount, its
         hinge turned by a Position motion (formula, rad), without gravity.
+        lower: in place of the bars a second strip 20 x 100 x 2 across under
+        it 110 to 130 mm from the hinge, gap under it, clamped at its far end
+        by a fixed joint to a grounded block, flexible and touched anywhere
+        too, their contact without friction.
         With bars, a grounded bar across it 120 mm from the hinge, gap under
         it, and another 195 mm out, rise over it, each in a contact set of
         its own with the strip, flexible and touched anywhere; without, the
@@ -696,7 +700,23 @@ class TestFlexibleBody(unittest.TestCase):
         JointObject.GroundedJoint(ground, mount)
         strip = self.box("Strip", (200, 20, 2), (10, 0, 0))
         placed = []
-        if bars:
+        if lower:
+            across = self.box("Lower", (20, 100, 2), (120, -80, -2 - gap))
+            block = self.box("Block", (20, 10, 10), (120, -90, -6 - gap))
+            held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBlock")
+            JointObject.GroundedJoint(held, block)
+            self.doc.recompute()
+            at = plc(130, -80, -1 - gap)
+            clamp = self.joints.newObject("App::FeaturePython", "Fixed")
+            JointObject.Joint(clamp, JointObject.JointTypes.index("Fixed"))
+            clamp.Detach1 = True
+            clamp.Detach2 = True
+            clamp.Reference1 = (block, ["Face4"])
+            clamp.Reference2 = (across, ["Face3"])
+            clamp.Placement1 = block.Placement.inverse().multiply(at)
+            clamp.Placement2 = across.Placement.inverse().multiply(at)
+            placed.append(across)
+        elif bars:
             for name, x, z in (("Under", 130, -5 - gap), ("Over", 205, 7 + rise)):
                 bar = self.assembly.newObject("Part::Cylinder", name)
                 bar.Radius = 5
@@ -723,6 +743,10 @@ class TestFlexibleBody(unittest.TestCase):
             contact.StiffnessFrom = "Value"
             contact.Stiffness = 1000.0
             contact.Exponent = 1.0
+            if lower:
+                contact.FrictionFrom = "Value"
+                contact.StaticFriction = 0.0
+                contact.DynamicFriction = 0.0
         sim = self.study(end, step)
         sim.GravityEnabled = False
         sim.Elements = contacts
@@ -737,8 +761,60 @@ class TestFlexibleBody(unittest.TestCase):
             body.MeshSize = 8.0
             FlexibleBodies.prepare(body)
             self.assertNotIn(FlexibleBodies.CONTACT, body.InterfaceFrames)
+            if lower:
+                other = FlexibleBodies.makeFlexibleBody(self.assembly, placed[0])
+                other.MeshSize = 8.0
+                FlexibleBodies.prepare(other)
         self.doc.recompute()
         return strip, body, contacts, self.assembly.generateSimulation(sim)
+
+    def test_strip_on_flexible_strip(self):
+        """Two flexible parts' flat faces meeting at their edges (D4b step
+        16): test_bent_between_bars_anywhere's strip turned down onto the
+        free end of a second strip across under it, clamped at its far end,
+        both flexible and touched anywhere. A point under a flat face is
+        under the one, of that face and its neighbours at a convex edge, it
+        is least deep under that faces the other part's surface
+        (flatFaces()): the strips press each other straight, the force's
+        lean the lower strip's own slope. Before, an edge of one in a side
+        face of the other was a patch of its own, and the force leaned 25 to
+        35 deg along the lower strip"""
+        strip, _, _, status = self.stripOnBars("0.1*time", 0.01, 0.005, bars=False)
+        self.assertEqual(status, 0)
+        self.assembly.updateForFrame(self.assembly.numberOfFrames() - 1)
+        down = strip.Placement.multVec(App.Vector(200, 10, 1)).z < 1.0
+        self.renew()
+        turn, end = 0.06, 0.1
+        formula = "%g*(time/%g)*(time/%g)*(3 - 2*time/%g)" % (
+            turn if down else -turn,
+            end,
+            end,
+            end,
+        )
+        # A quarter of the turn: the strips met at 8 ms, 2.8 N between them
+        # at 35
+        _, _, contacts, status = self.stripOnBars(formula, 0.035, 5e-4, True, lower=True)
+        self.assertEqual(status, 0)
+        results = self.assembly.getSimulationResults()
+        values = [
+            c["Values"]
+            for c in results["Channels"]
+            if c["Quantity"] == "ContactNormalForce" and c["Name"] == contacts[0].Name
+        ]
+        self.assertEqual(len(values), 1)
+        late = [v * 1e-3 for v in values[0][-20:]]
+        pressing = [abs(v.z) for v in late]
+        leaning = [math.hypot(v.x, v.y) / abs(v.z) for v in late]
+        print("strip on a flexible strip: at the end %.4g N, leaning at most %.3g of it"
+              % (pressing[-1], max(leaning)))
+        self.assertGreater(pressing[-1], 2.3)
+        self.assertLess(pressing[-1], 3.3)
+        # Rising with the turn, no frame under the one before by a fiftieth
+        # of the last
+        for before, after in zip(pressing, pressing[1:]):
+            self.assertGreater(after, before - 0.02 * pressing[-1])
+        self.assertGreater(pressing[-1], pressing[0])
+        self.assertLess(max(leaning), 0.05)
 
     def test_bent_between_bars_anywhere(self):
         """A flexible part is touched where it is, however far it has bent
@@ -853,10 +929,54 @@ class TestFlexibleBody(unittest.TestCase):
         from 32 to 46 N as the rod turned, its run 157 s for 14"""
         self.roundTurned("a round on a roller", 55, -10, roller=True)
 
-    def roundTurned(self, name, length, start, roller=False):
+    def test_round_on_flexible_plate(self):
+        """Two flexible parts touching anywhere (D4b step 16): the rod of
+        test_round_anywhere on the plate made flexible too, held all along
+        its underside. Each point between the rod's curved face and the
+        plate's flat one takes the plate's normal and goes to the rod's
+        face's deepest (flatFaces(), FlexibleContact::place()), and a
+        triangle gone through the other's surface is not apart from it
+        (satApart()): before, the rod's triangles along its line gave no
+        points, the force ran from 20 to 44 N and the run took 826 s"""
+        import time
+
+        start = time.perf_counter()
+        self.roundTurned("a round on a flexible plate", 55, -10, flexiblePlate=True)
+        self.assertLess(time.perf_counter() - start, 120.0)
+
+    def test_round_past_flexible_edge(self):
+        """A flexible part past the edge of another's flat face (D4b step
+        16): test_round_past_edge's plate, its ends under the rod, flexible
+        too. A node of the rod just past the plate's end, under its top, is
+        under the top, not through the end (flatFaces()): taken through the
+        end it was a patch of its own, 40 N along the rod, and the force
+        over the turn ran from 35 to 130 N"""
+        self.roundTurned(
+            "a round past a flexible edge", 30, 5, flexiblePlate=True, within=0.15
+        )
+
+    def test_round_on_flexible_roller(self):
+        """Two flexible parts' rounds on each other (D4b step 16):
+        test_round_on_roller's roller flexible too, held at both its ends.
+        The rod's face is of its round, the round where the rod's mesh has
+        it (FlexibleContact::roundAt()), and the roller's point goes to its
+        face's nearest that round's axis as against a rigid one; on their
+        quarter triangles the run did not end in 18 minutes. Over 0.03 to
+        0.045 s of the turn, a quarter of it"""
+        self.roundTurned(
+            "a round on a flexible roller", 55, -10, roller=True, flexiblePlate=True, until=0.045
+        )
+
+    def roundTurned(
+        self, name, length, start, roller=False, flexiblePlate=False, within=0.1, until=0.1
+    ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
-        tenth of its mean over the turn, the mean under a rigid rod's 50 N"""
+        tenth ('within') of its mean over the turn, the mean under a rigid
+        rod's 50 N. flexiblePlate: the plate flexible too, held all along its
+        underside by a fixed joint to a grounded base -- the roller, at both
+        its ends by fixed joints to grounded blocks. until: the run's end, of
+        the turn's 0.1 s"""
         import CommandCreateContact
 
         mount = self.box("Mount", (10, 20, 20), (-10, -10, -10))
@@ -873,8 +993,47 @@ class TestFlexibleBody(unittest.TestCase):
             plate.Placement = plc(start, 0, -10 + 0.05, App.Vector(0, 1, 0), 90)
         else:
             plate = self.box("Plate", (length, 20, 5), (start, -10, -10 + 0.05))
-        held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
-        JointObject.GroundedJoint(held, plate)
+        if flexiblePlate and roller:
+            self.doc.recompute()
+            for k, x in enumerate((start, start + length)):
+                block = self.box(
+                    "Block%d" % k, (10, 20, 20), (x - 10 if k == 0 else x, -10, -20 + 0.05)
+                )
+                held = self.joints.newObject(
+                    "Assembly::GroundedJointPython", "GroundedBlock%d" % k
+                )
+                JointObject.GroundedJoint(held, block)
+                self.doc.recompute()
+                face = next(
+                    "Face%d" % (i + 1)
+                    for i, f in enumerate(plate.Shape.Faces)
+                    if f.Surface.__class__.__name__ == "Plane" and abs(f.CenterOfMass.x - x) < 1e-6
+                )
+                at = plc(x, 0, -10 + 0.05)
+                clamp = self.joints.newObject("App::FeaturePython", "Fixed%d" % k)
+                JointObject.Joint(clamp, JointObject.JointTypes.index("Fixed"))
+                clamp.Detach1 = True
+                clamp.Detach2 = True
+                clamp.Reference1 = (block, ["Face2" if k == 0 else "Face1"])
+                clamp.Reference2 = (plate, [face])
+                clamp.Placement1 = block.Placement.inverse().multiply(at)
+                clamp.Placement2 = plate.Placement.inverse().multiply(at)
+        elif flexiblePlate:
+            base = self.box("Base", (length, 20, 5), (start, -10, -15 + 0.05))
+            held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+            JointObject.GroundedJoint(held, base)
+            self.doc.recompute()
+            under = self.joints.newObject("App::FeaturePython", "Fixed")
+            JointObject.Joint(under, JointObject.JointTypes.index("Fixed"))
+            under.Detach1 = True
+            under.Detach2 = True
+            under.Reference1 = (base, ["Face6"])
+            under.Reference2 = (plate, ["Face5"])
+            under.Placement1 = plc(length / 2.0, 10, 5)
+            under.Placement2 = plc(length / 2.0, 10, 0)
+        else:
+            held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
+            JointObject.GroundedJoint(held, plate)
         self.doc.recompute()
         # Its end face at x = 0
         end = next(
@@ -899,7 +1058,7 @@ class TestFlexibleBody(unittest.TestCase):
         contact.FrictionFrom = "Value"
         contact.StaticFriction = 0.0
         contact.DynamicFriction = 0.0
-        sim = self.study(0.1, 2e-4)
+        sim = self.study(until, 2e-4)
         sim.GravityEnabled = False
         sim.Elements = [contact]
         motion = sim.newObject("Assembly::Motion", "Motion")
@@ -910,6 +1069,10 @@ class TestFlexibleBody(unittest.TestCase):
         body = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
         body.MeshSize = 4.0
         FlexibleBodies.prepare(body)
+        if flexiblePlate:
+            other = FlexibleBodies.makeFlexibleBody(self.assembly, plate)
+            other.MeshSize = 4.0
+            FlexibleBodies.prepare(other)
         self.doc.recompute()
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         results = self.assembly.getSimulationResults()
@@ -920,15 +1083,15 @@ class TestFlexibleBody(unittest.TestCase):
         ]
         self.assertEqual(len(values), 1)
         turning = [
-            v.Length * 1e-3 for t, v in zip(results["Times"], values[0]) if 0.03 <= t <= 0.1
+            v.Length * 1e-3 for t, v in zip(results["Times"], values[0]) if 0.03 <= t <= until
         ]
         mean = sum(turning) / len(turning)
         print("%s: over the turn %.4g N, from %.4g to %.4g"
               % (name, mean, min(turning), max(turning)))
         self.assertGreater(mean, 35.0)
         self.assertLess(mean, 50.0)
-        self.assertGreater(min(turning), 0.9 * mean)
-        self.assertLess(max(turning), 1.1 * mean)
+        self.assertGreater(min(turning), (1.0 - within) * mean)
+        self.assertLess(max(turning), (1.0 + within) * mean)
 
     def renew(self):
         """A new document for a second run, as setUp's"""

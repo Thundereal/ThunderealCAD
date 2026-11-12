@@ -30,7 +30,8 @@ scratchpad, following the `DrawBrokenView` convention of not committing
 them.  **Section 6.3 restates the three models so every number here can
 be reproduced without them.**
 
-**Resuming?  Start at section 8**, the state of the main task: T0 is
+**Resuming?  The open task is section 9** (unstable indices in element
+names, handoff 2026-11-12).  For TechDraw, start at section 8: T0 is
 built and T1 is next.  Section 7 is the pre-task, complete for the
 `Shape` property -- it re-plans that work around versioned base shapes
 held as dynamic properties on the referenced feature, closes section
@@ -2819,3 +2820,176 @@ declares the references correct and moves on.
 need to: the projected geometry is rebuilt on every recompute, and what
 had to persist -- the name a *reference* was made against -- persists on
 the referring object instead, which is where a reader will look for it.
+
+
+## 9. Unstable indices in element names (handoff, 2026-11-12)
+
+Next session's task, as the user put it: "take a deep look at the element
+naming algorithm to reduce as much as possible the amount of unstable
+indices in element names."  Nothing in this section is built.  It records
+what was found and measured on 2026-11-12, an inventory of where a number
+enters a mapped name, and where to start.
+
+### 9.1 How it was found
+
+The user's question, on taking OCCT `05c89fa705` (`ac01b0d63e`,
+`BRepOffset_MakeOffset::JoinEdgePieces`: the pieces of an edge that the
+second way to a thick solid left are joined into one): "why reference by
+number when we have shadow element names for tracking".  A reference is
+held by its mapped name, and the index is only a fallback.  But a mapped
+name can itself hold a position, and then the name follows that position,
+not the element.
+
+Measured on realthunder/FreeCAD#360's plate
+(`~/works/sw/occt/tests/fork/thickness/models/issue360_plate.brep`):
+PartDesign Thickness, Face5 removed, 4 inward, Arc join, Intersection on.
+The old OCCT, without the join, gives 642 edges and 496 vertices; the new
+one gives 438 and 292, at the same volume, 38747.1395.  A reference was
+made to every edge under the old library, the file saved, then opened and
+recomputed under the new one:
+
+| what the reference found | count | the old name |
+| --- | --- | --- |
+| the same edge | 344 | 284 by history, 60 `;:U` |
+| missing (`?EdgeN`), shown as an error | 220 | 184 `;:U`, 36 by history |
+| **another edge, no error** | **76** | **all `;:U`** |
+| the joined edge that holds it | 2 | `;:U` |
+
+No reference named by history ever landed on a wrong edge.  The 36
+history-named ones that went missing were pieces whose joined edge took a
+sibling's name.  A wrong edge is worse than a missing one: sec 7's stored
+generations and `Part::Feature::getRelatedElements()` are asked only for a
+name that is missing.  A name that resolves is trusted, and nothing
+compares its geometry with the generation it was made against.
+
+The name kinds on the plate's edges:
+
+| | edges | `;:U<n>` | `;:M/G/MG<n>` | other |
+| --- | --- | --- | --- | --- |
+| without the join | 642 | 322 | 50 | 270 |
+| with the join | 438 | 138 | 30 | 270 |
+
+So even with the fix, a third of a thick solid's edges are named by
+position.
+
+This OCCT case did no harm to users.  The second way is unreleased
+(`75bce7e802`, 2026-11-10), so no user's file holds those pieces.  The
+weakness is general, though.  Any operation whose edges OCCT gives no
+history for names them by position, and anything that changes how many
+of them a face has re-targets their references: a kernel change, or the
+user's own edit upstream.
+
+### 9.2 Where a number enters a name
+
+All of it is in `TopoShape::makESHAPE` (`src/Mod/Part/App/TopoShapeEx.cpp`,
+from ~4412) unless noted.  The positions are from this tree, 2026-11-12.
+
+1. **The history pass, `;:M<n>` / `;:G<n>` / `;:MG<n>`** (~4766).  When
+   one source element is reported Modified or Generated into several
+   results, each result gets the source's name plus `n`, its place in a
+   `TopExp_Explorer` walk of the result (~4580).  There are two existing
+   stabilisers: the first coplanar face gets `INT_MIN+1` (written `00`),
+   and the first parallel face gets `INT_MIN` (written `0`).  These keep
+   an extrusion's top and bottom stable when holes are added.  Every other
+   case is positional.
+2. **The reverse pass, `;:U<n>`** (~4786-4860).  An unnamed lower element
+   is named from ONE named upper element, with `n` its place among that
+   upper element's still-unnamed lower elements in `TopExp::MapShapes`
+   order.  Where several uppers name it, the first in sorted order wins
+   (`#ifndef FC_ELEMENT_MAP_ALL`).  This is the case measured in 9.1.
+3. **The forward pass, `;:L(...)`** (~4862-4950).  An unnamed upper element
+   is named from ALL its named lower elements, sorted, the first as the
+   base and up to four more in the postfix.  No index, and stable while
+   the lower names are.  But it applies only when every lower element is
+   named (`names.clear()` on the first unnamed one), and the cap of four
+   means two faces sharing the same first five sorted edge names would
+   collide.
+4. **Duplicates, `;D<n>`** (`ComplexGeoData::renameDuplicateElement`,
+   `src/App/ElementMap.cpp` ~2329).  When two elements end up with one
+   name, the later ones get the count.  This is order-dependent by
+   construction (`FC_RANDOMIZE_DUPLICATE_INDEX` exists to flush out code
+   that relies on it).
+5. **`;:I<n>`**, a child's place in a compound or link array
+   (`PartFeature.cpp` ~630, ~1508; `Link.cpp` ~1732).  This position is
+   meant: the index IS the child's identity in an array.  Probably out of
+   scope, but confirm.
+6. **Inputs with no element map**: a plain `Part::Feature` shape, an
+   import, a `.brep`.  Their elements are named `Face345` and so on, pure
+   position, and every name derived from them inherits that.  Primitives
+   were fixed by role (`docs/PrimitiveNames.md`).  Imports were not, and
+   cannot be in general.  Unverified: the `#1f:159` at the head of the
+   plate's names looks like such an input name held as a hasher id plus
+   an index.  Check `StringID::toString` before relying on that reading.
+
+### 9.3 Ideas to weigh, none ruled
+
+- **Name a `;:U` element from every named upper it has, not one.**  An
+  edge between two named faces would be named by the pair, with an index
+  only among the edges that pair shares (usually one, so no index).  It
+  then survives other edges on either face being added, removed or
+  joined.  A vertex would take the same treatment with its edges or
+  faces.  `FC_ELEMENT_MAP_ALL` already gives multiple names; look at why
+  it is off before reusing it.
+- **Order the `;:M/G<n>` siblings by something intrinsic**: their own
+  lower-element names (as the forward pass does), or geometry (centre
+  along the source's parameter), instead of explorer order.
+- **Lift the forward pass's "every lower element named" condition**, and
+  look at the cap of four.
+- **A guard for what stays positional**: when a reference resolves by a
+  name holding a position, compare its geometry with the stored
+  generation (sec 7).  If it differs and exactly one other element
+  matches, the reference was re-targeted.  Show it the way the found-again
+  references are shown (`Gui/Utils.cpp` `RefoundReference`), never
+  silently.  `13266c5b84` on thundereal/LinkVibe (not merged here) adds a
+  one-match geometry search at 1e-5; build on it, do not add a second one.
+
+### 9.4 Constraints that bind any change
+
+- **The element-map naming is released** (Link builds have used it for
+  years).  A changed algorithm changes the names of existing files'
+  elements, and their references go missing on the first recompute.  The
+  user's rule (2026-11-11, sheet metal memory): an automatic fix is safe
+  only when the shape is unchanged, and at load it is (the stored shape),
+  so a geometry search can carry old names over silently.  Anything else
+  is marked and fixed visibly in the edit panel.  Whether a naming change
+  needs an element map version, and how old files are carried, is the
+  user's call.  Ask in prose, with a recommendation.
+- **Pass-on name steps are deliberate** (memory, ruled 2026-10-11): the
+  plain tag step on a passed-on element stays, because colour tracing
+  needs it.
+- Sheet metal stores its own numbers (`WallNumbers`/`BendNumbers`, keyed
+  by edge names via `edgeKeys()`).  Any rename moves those keys, and
+  `SheetMetalNames.py` runs in every sheet metal tearDown to catch it.
+- Tests first, with the before-score in the commit, and every gate run
+  frozen and unfrozen (`~/.cache/lv-merge/gates-lv.sh`).
+
+### 9.5 Reproducing 9.1, and the first step
+
+Scratch in `~/.cache/sm-audit/`:
+
+- `plate360-refs.py`: `REFS_STEP=make` builds the plate's thickness, gives
+  an `App::FeaturePython` a `PropertyLinkSubListGlobal` to every edge, and
+  saves `p360-refs.FCStd`.  `REFS_STEP=check` opens it, recomputes, and
+  sorts each reference into same / missing / wrong / joined by the old
+  edge's midpoint and length, split by name kind.
+- `occt-nojoin/libTKOffset.so.8.0.1` is TKOffset built from
+  `BRepOffset_MakeOffset.{cxx,hxx}` as they stood before `ac01b0d63e`.
+  Load it with `LD_PRELOAD`.  `LD_LIBRARY_PATH` does not work, because
+  FreeCAD's libs carry RPATH, which outranks it.
+- `plate360-dump.py` / `p360-{old,new}.json` list each edge's name,
+  length, ends and middle.
+
+Mapped names cannot be compared as text across processes or documents:
+`#7:2`, `:H110d` and the like are document-local hasher ids.  Compare by
+saving and reopening, as `plate360-refs.py` does.
+
+**First step:** generalise that harness before changing anything.  Take a
+corpus: PartDesign's test models, the thickness suite's models, sheet
+metal parts, a filleted and patterned body.  Make a reference to every
+face, edge and vertex.  Then perturb something upstream that changes the
+element count on the referenced faces: add or remove a hole in the
+sketch, change a thickness or pad length, flip a fillet radius.  Count
+same / missing / wrong by name kind (9.2's six).  That table is the
+before-score.  The goal is to drive the "wrong" column to zero and shrink
+the positional kinds.  Then take the kinds in order of their share of
+"wrong".

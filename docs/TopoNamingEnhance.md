@@ -2993,3 +2993,240 @@ same / missing / wrong by name kind (9.2's six).  That table is the
 before-score.  The goal is to drive the "wrong" column to zero and shrink
 the positional kinds.  Then take the kinds in order of their share of
 "wrong".
+
+### 9.6 The harness, built (2026-11-12)
+
+`scripts/name-stability/`: `harness.py` (the library), `cases.py` (the
+corpus), `run.py` (the driver FreeCADCmd runs) and `run.sh [out] [case]`.
+It runs in a user home of its own; `NAMES_FREEZE=0` runs it with
+`ImmutableShapeValues` off.
+
+A case builds a model.  Every face, edge and vertex of every feature gets
+a reference (`App::PropertyLinkSubList` on a holder object), one upstream
+change is made, the document is recomputed, and each reference is sorted
+by what it found.  **The truth is the geometry**: an element whose
+geometry is in the new shape unchanged (a vertex's point; an edge's ends,
+middle and length; a face's centre, area, box and edge count) is still
+that element, whatever its name says.
+
+| the old geometry | the reference | counted as |
+| --- | --- | --- |
+| is still there | names it | same |
+| is still there | names nothing | lost |
+| is still there | names another element | **WRONG** |
+| is not there | names nothing | gone |
+| is not there | names an element sharing ground with it | follows |
+| is not there | names an element sharing none | elsewhere |
+
+`elsewhere` is not a verdict.  Where the change moves an element, nothing
+here knows where it went, so the corpus keeps to changes that leave most
+of a model where it was: a hole more, a feature more, one tool moved.  The
+score is `WRONG`, then `lost`.
+
+Each reference is counted twice.  *The reference*: what the property
+holds after the recompute, with everything that looks for a missing name
+(sec 7's generations, `getRelatedElements()`) having run.  *The name
+alone*: the old mapped name looked up in the new shape and nothing else.
+The first is what the user gets inside one session; the second is the
+naming.  In one session the two differ only in `lost`: the ladder found
+every lost name again here, because the shape of the generation before is
+at hand.  Across a save and a kernel change it does not (9.1's 220).
+
+A name is sorted by its own step and by the nearest step in its chain
+that holds a position:
+
+| | the step |
+| --- | --- |
+| `U` | the reverse pass: one upper element and a place among its unnamed ones |
+| `Mn` | one of several results of one source, with its number |
+| `M1` | the number-less first of several (found by its numbered siblings) |
+| `I` | a place in a pattern or an array, which is meant |
+| `D` | one of several elements of one name |
+| `L` | the forward pass: named from its lower elements, no number |
+| `hist` | modified or generated, alone or at a fixed place (`0`, `00`) |
+| `pass` | passed on with the plain tag step |
+| `B`, `Bn` | 9.9's prototype: all its upper elements; `Bn` with a number |
+
+The corpus is 16 models and 36 changes: plates with holes, fillets,
+chamfers and drafts in chains; pockets on faces; linear, polar, mirrored
+and multi-transform patterns; a revolution with a groove; a pipe; a hole
+feature; sheet metal; Part workbench cuts, fuses, fillets, chamfers and a
+thickness; #360's plate hollowed, and the same plate (a `.brep`, no
+names) pocketed.  A body and a solid body are not scored: they show their
+tip's shape under their own tag, so every name of theirs changes when a
+feature is added (95 of 95 on the sheet metal case), which is another
+matter than a number in a name.
+
+### 9.7 The before-score (2026-11-12, `b6e7c69184`)
+
+7336 references.  The same frozen and unfrozen, and run to run.
+
+| the nearest step holding a position | same | name lost | **WRONG** | all |
+| --- | --- | --- | --- | --- |
+| none | 3367 | 225 | | 4030 |
+| `U` | 1543 | 71 | **189** | 2160 |
+| `I` | 410 | 4 | | 570 |
+| `Mn` | 239 | 35 | | 414 |
+| `M1` | 120 | 9 | **2** | 162 |
+| all | 5679 | 344 | **191** | 7336 |
+
+- **191 references name a wrong element, 189 of them through a `;:U`
+  step.**  29% of all names stand on one.  117 are on #360's plate, 74 on
+  models that started with names.  The other two are one edge cut in
+  pieces whose order changed.
+- No `D` name appeared at all, and no `;:K` number.
+- The dress-ups are where a user meets it.  A fillet, a chamfer, a draft
+  and a thickness report their faces modified and say nothing of the
+  edges round them, so those edges are `Face;:U<n>`: a hole added to a
+  sketch re-targets 8 of a drafted block's 102 references, a notch 39 of
+  404 on an L-shaped block with three dress-ups.  In one case the fillet
+  after the draft went invalid: its own edge references were among them.
+- 139 of the 344 lost names are `L` names, all on the plate (9.8, 2).
+
+### 9.8 What the deep look found
+
+1. **The reverse pass names an element from one upper element and a
+   number, where it has two or three.**  An unnamed edge lies between two
+   faces, and both are named in nearly every case; a vertex is where three
+   meet.  Counted on the corpus as built (`~/.cache/name-audit/sim.py`):
+   of 402 `U` edges, 251 hold a number today; named by the set of their
+   named faces, 324 are alone in their set and need none, and all 263 `U`
+   vertices are.  The 78 that are not alone are on the plate, and have
+   only one named face (2).  It is what `docs/PrimitiveNames.md` already
+   does by hand: "an edge by the faces it is between, a vertex by the
+   faces that meet in it".
+2. **Faces the kernel gives no history for.**  On the plate, 78 of the
+   thick solid's 116 side walls come back as new faces that
+   `BRepOffset_MakeOffset` reports neither modified nor generated (the
+   other 38 pass as they are).  They are the input's walls: same surface,
+   trimmed.  With no history they are named last, by the forward pass,
+   from their own edges -- so the name changes when any of those edges'
+   names does (139 lost), and until then they are no upper element for
+   the edges between them and the rim (those 78 edges in 1).
+3. **Which of two results is the first.**  One source cut into pieces
+   gives `;:M`, `;:M2`, ... in the order the kernel lists them.  A second
+   groove on a turned part re-listed the pieces of a profile edge, and
+   `;:M` became another piece.  Small here (2 wrong, 44 lost), and no
+   cheap answer: a piece named by what is round it changes its name at
+   every edit near it, where a number changes only with the order.  For
+   an edge the order along the source's curve is intrinsic and could
+   replace the kernel's; for a face nothing so plain exists.  Not
+   prototyped.
+4. **The same element passed on in one run and remade in the other.**
+   What is left lost on the plate after 9.9 (116): a wall that the kernel
+   passes untouched at one thickness and remakes, identical, at another is
+   `pass` in one and `;:M` in the other.  An element remade with the same
+   geometry and the same bounds could keep the passed-on name.  Not
+   prototyped.
+
+### 9.9 Two prototypes, measured
+
+In `TopoShape::makESHAPE`, each behind an environment switch read once,
+so one binary gives all four columns.  **Not committed**: the patch is
+`~/.cache/name-audit/prototype.patch` (163 lines).
+
+- **A, `FC_NAME_UPPER_SET`.**  The reverse pass already collects every
+  named upper element of an unnamed lower one, then keeps the first.  A
+  keeps them all: the first in sorted order is the base, the rest are
+  hashed into the postfix as the history pass does its other sources, and
+  a number is given only among elements with the very same set.
+  `Face;:U<n>;FLT` becomes `Face;:B#<the others>;FLT`, or `;:B2#...` for
+  the second of a set.
+- **B, `FC_NAME_SAME_GEOM`.**  After the history pass and before the
+  reverse pass: a face with no name yet whose surface is the very surface
+  of exactly one input face (the same `Geom_Surface` handle and location,
+  no tolerance involved) is that face modified; an edge on the very curve
+  of one input edge, within its range, is that edge modified.  Pieces are
+  numbered after the ones the maker itself reported.
+
+| | references | **WRONG** | name lost | names with no position in them | `U`/`Bn` names |
+| --- | --- | --- | --- | --- | --- |
+| before | 7336 | **191** | 344 | 4030 (55%) | 2160 |
+| A | 7386 | **121** | 334 | 5898 (80%) | 162 |
+| B | 7386 | **75** | 233 | 4200 (57%) | 2040 |
+| A and B | 7386 | **2** | 219 | 6052 (82%) | 8 |
+
+(50 more references with either: the fillet that went invalid in 9.7
+stays valid.)  A alone clears every model that started with names (74 to
+2) and leaves the plate as it was (119); B alone clears the plate and
+leaves the dress-ups; together 2 are left, both finding 3.  Of the 219
+names still lost, 116 are finding 4, 45 finding 3.
+
+The Part (444) and Sketcher (182) Python suites pass with both switched
+on, and PartDesign (1048) but for two, `SheetMetalNames.py` in every
+sheet metal tearDown included.  The two are
+`TestNameEncoding.testForkFileKeepsItsReferences` and
+`testUpstreamFileKeepsItsReferences`: a stored file (one this fork wrote,
+one upstream 1.1.4 wrote) is opened, both pads of every body are
+lengthened **before anything is recomputed**, and a fillet's and a
+chamfer's edge reference must still be found.  Each holds a `;:U` name;
+the new naming has no such name, and the edge has moved, so the geometry
+cannot find it: `?Edge23`.  (With the first try of A, which still spelled
+`;:U`, both passed -- by the old name resolving, right or wrong.)  This
+is the case 9.10's item 3 turns on.
+
+**An older file, measured** (`~/.cache/name-audit/migrate.py`): every
+corpus model saved by the old naming with a reference to every element,
+then opened with A and B on and every feature made again, nothing
+changed.  1318 of 7103 names change, and all 7103 references name the
+element they were made on: the shape is the same, so the search by
+geometry finds each one (`auto change element reference`).
+
+**The first try of A got 5 of those wrong, and the reason binds any
+change to the naming.**  It still wrote `;:U` and `;:U2` where an element
+has one named upper element only, and those spellings were, in the old
+file, the names of other elements.  A name that resolves is trusted, so
+the reference moved and nothing looked further.  **A new scheme must
+never spell a name the old one could have given to another element**:
+hence `;:B`, a postfix the old naming never wrote, and B's pieces
+numbered after the kernel's own.
+
+### 9.10 To rule
+
+Nothing here is decided; the naming is released (9.4).
+
+1. **A: the set name.**  Recommended.  It is where 189 of 191 come from,
+   it is general (any operation, any kernel), and it is the rule the
+   primitives already follow.  Open in it: the postfix letter (`;:B` is
+   the prototype's); and whether a vertex is named from its edges, as
+   now, or from its faces directly -- shorter, and free of an edge's tie
+   number, but a wire has no faces.
+2. **B: history from shared geometry, or the same in the kernel.**  B is
+   in FreeCAD and covers every maker that remakes a face on its surface.
+   The other way is to make `BRepOffset_MakeOffset` report those walls
+   (the fork's own second way, `75bce7e802`, is where they are remade),
+   which mends one maker and keeps FreeCAD out of guessing.  They do not
+   exclude each other; B first is the recommendation, because the
+   handle test cannot be wrong about which surface a face lies on, and
+   it is measured.
+3. **How an older file is carried.**  Three ways, the first
+   recommended.
+   - *The version, and the prompt.*  `OpCodes::Version` 15 to 16, the
+     fork's way for names "of an older making" (`docs/PrimitiveNames.md`
+     sec 5): the file asks for its migration recompute at load, and on it
+     every reference follows by geometry, as measured above.  Not
+     covered, as it never was: a model edited before that first
+     recompute -- the two tests in 9.9, which would then recompute before
+     they edit, as the prompt has the user do.
+   - *The old name kept as a second name.*  The element map holds more
+     than one name for an element, and saves them.  The reverse pass can
+     still compute `Face;:U<n>` and give it to the element behind the new
+     name, and a reference that resolves through it is rewritten to the
+     first name.  No prompt, and the two tests pass as they are.  The
+     cost: the map grows by one name for each such element (about a sixth
+     of all names here), the old pass stays in the code for good, an old
+     reference is as weak as it was until its first recompute, and it
+     does not reach the elements B renames.  Not prototyped.
+   - *A version per object*, the old naming kept for old objects: two
+     namings alive for good.  Not recommended.
+4. **Upstream.**  Upstream FreeCAD names by this same algorithm, so
+   today a file moves between the two with its names intact.  After A
+   and B a file from upstream is an older file (item 3), and a file
+   saved here, recomputed upstream, gets upstream's names back and its
+   `;:B` references go through upstream's own recovery.  If that matters
+   more than the 189, A and B stop here; if A proves itself, it is worth
+   offering upstream.
+5. **Findings 3 and 4**: after the above, by their share (2 wrong, 161
+   lost).
+6. **A guard for what stays positional** (9.3's last idea) is still
+   worth having for `Bn`, `Mn` and `M1` names, on `13266c5b84`.

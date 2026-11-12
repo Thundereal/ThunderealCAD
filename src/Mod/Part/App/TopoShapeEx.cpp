@@ -162,6 +162,7 @@
 # include <ShapeFix_Shell.hxx>
 # include <ShapeFix_Solid.hxx>
 # include <ShapeFix_Shape.hxx>
+# include <ShapeAnalysis_ShapeTolerance.hxx>
 # include <ShapeFix_ShapeTolerance.hxx>
 # include <ShapeUpgrade_ShellSewing.hxx>
 # include <ShapeUpgrade_RemoveInternalWires.hxx>
@@ -796,6 +797,40 @@ TopoDS_Shape TopoShape::findShape(const char *name) const {
 TopoDS_Shape TopoShape::findShape(TopAbs_ShapeEnum type, int idx) const {
     INIT_SHAPE_CACHE();
     return _Cache->findShape(_Shape,type,idx);
+}
+
+/// The largest tolerance in a shape: its own and that of all that bounds it
+static double largestTolerance(const TopoDS_Shape &shape)
+{
+    return shape.IsNull() ? 0.0 : ShapeAnalysis_ShapeTolerance().Tolerance(shape, 1);
+}
+
+std::vector<TopoShape> TopoShape::searchSubShapeNear(
+        const TopoShape &subshape, std::vector<std::string> *names, double factor,
+        Data::SearchOptions options, double tol, double atol) const
+{
+    std::vector<TopoShape> res;
+    if (subshape.isNull() || this->isNull() || !(factor > 0.0) || !(tol > 0.0))
+        return res;
+    const double had = std::max(tol, largestTolerance(subshape.getShape()));
+    // The widest any element here could be allowed, to gather them; each is
+    // then held to its own
+    const double widest = factor * std::max(had, largestTolerance(getShape()));
+    if (widest <= tol)
+        return res;
+    std::vector<std::string> found;
+    const auto elements = searchSubShape(subshape, &found, options, widest, atol * (widest / tol));
+    for (std::size_t i = 0; i < elements.size() && i < found.size(); ++i) {
+        const double own = factor * std::max(had, largestTolerance(elements[i].getShape()));
+        if (own < widest
+                && elements[i].searchSubShape(
+                        subshape, nullptr, options, own, atol * (own / tol)).empty())
+            continue;
+        res.push_back(elements[i]);
+        if (names)
+            names->push_back(found[i]);
+    }
+    return res;
 }
 
 std::vector<TopoShape> TopoShape::searchSubShape(

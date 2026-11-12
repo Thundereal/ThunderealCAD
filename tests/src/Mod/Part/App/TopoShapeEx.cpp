@@ -22,6 +22,9 @@
 #include <BRepAdaptor_CompCurve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <ShapeFix_ShapeTolerance.hxx>
+#include <BRep_Builder.hxx>
+#include <TopoDS_Compound.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -1534,6 +1537,60 @@ TEST_F(TopoShapeExpansionTest, searchSubShapeBSplineOfAnotherMakeOrDirection)
     EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(reversed), 1e-7, 1e-10));
     EXPECT_FALSE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(off), 1e-7, 1e-10));
     EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(off), 1e-5, 1e-10));
+}
+
+// The second look for an element not found in place: as far off as the
+// tolerance of the two elements says, times a factor (PartParams
+// ReferenceSearchTolerance where a reference is looked for).
+TEST_F(TopoShapeExpansionTest, searchSubShapeNearGoesByTheShapesTolerance)
+{
+    // Arrange: a helix, the same 4e-6 further out, and one far from both
+    const int count = 41;
+    auto helix = [&](double radius) {
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, count);
+        for (int i = 0; i < count; ++i) {
+            const double angle = 0.5 * i / (count - 1);
+            points->SetValue(
+                i + 1,
+                gp_Pnt(radius * std::cos(angle), radius * std::sin(angle), 3 * angle)
+            );
+        }
+        GeomAPI_Interpolate interpolate(points, false, 1e-9);
+        interpolate.Perform();
+        return BRepBuilderAPI_MakeEdge(interpolate.Curve()).Edge();
+    };
+    auto withTolerance = [](TopoDS_Shape shape, double tolerance) {
+        ShapeFix_ShapeTolerance().SetTolerance(shape, tolerance);
+        return shape;
+    };
+    auto found = [](const TopoDS_Shape& in, const TopoDS_Shape& sought, double factor) {
+        std::vector<std::string> names;
+        TopoShape(in).searchSubShapeNear(TopoShape(sought), &names, factor);
+        return names;
+    };
+    const std::vector<std::string> none;
+    const std::vector<std::string> first {"Edge1"};
+
+    // Act, Assert: both at the kernel's 1e-7, the edge 4e-6 off is beyond
+    // ten times that, and within a hundred times
+    EXPECT_EQ(found(helix(10 + 4e-6), helix(10), 10), none);
+    EXPECT_EQ(found(helix(10 + 4e-6), helix(10), 100), first);
+    EXPECT_EQ(found(helix(10 + 4e-6), helix(10), 0), none);
+    // either one of tolerance 1e-6 puts it within ten times
+    EXPECT_EQ(found(helix(10 + 4e-6), withTolerance(helix(10), 1e-6), 10), first);
+    EXPECT_EQ(found(withTolerance(helix(10 + 4e-6), 1e-6), helix(10), 10), first);
+    // and one in place is found whatever the tolerance
+    EXPECT_EQ(found(helix(10), helix(10), 10), first);
+
+    // an element is held to its own tolerance, not to the largest of the
+    // shape it is in: a loose edge elsewhere lets nothing nearer in
+    BRep_Builder builder;
+    TopoDS_Compound both;
+    builder.MakeCompound(both);
+    builder.Add(both, helix(10 + 4e-6));
+    builder.Add(both, withTolerance(helix(20), 1e-3));
+    EXPECT_EQ(found(both, helix(10), 10), none);
+    EXPECT_EQ(found(both, withTolerance(helix(10), 1e-6), 10), first);
 }
 
 // And a straight edge written as a B-spline of degree 1: a line is found

@@ -23,11 +23,21 @@ V = FreeCAD.Vector
 
 
 class TestReferenceSearch(unittest.TestCase):
+    SETTING = "ReferenceSearchTolerance"
+
     def setUp(self):
+        # At the setting's default, whatever this user has
+        self.Params = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/Part")
+        self.Had = self.Params.GetFloat(self.SETTING, -1.0)
+        self.Params.RemFloat(self.SETTING)
         self.Doc = FreeCAD.newDocument("PartDesignTestReferenceSearch")
 
     def tearDown(self):
         FreeCAD.closeDocument(self.Doc.Name)
+        if self.Had < 0:
+            self.Params.RemFloat(self.SETTING)
+        else:
+            self.Params.SetFloat(self.SETTING, self.Had)
 
     @staticmethod
     def spline(swell):
@@ -91,10 +101,27 @@ class TestReferenceSearch(unittest.TestCase):
         self.assertEqual(after, before)
 
     def testFoundALittleOff(self):
-        """4e-7 off midway: not there to 1e-7, and the one edge there to 1e-5"""
+        """4e-7 off midway: not there to 1e-7, and the one edge there within
+        ten times the 1e-7 the pad's edges have for a tolerance"""
         before, after = self.redrawn(4e-7)
         self.assertEqual(after, before)
 
     def testMissingFurtherOff(self):
+        """5e-6 off is fifty times the tolerance of the edges"""
+        before, after = self.redrawn(5e-6)
+        self.assertEqual(after, "?" + before)
+
+    def testSettingWidens(self):
+        self.Params.SetFloat(self.SETTING, 100.0)
+        before, after = self.redrawn(5e-6)
+        self.assertEqual(after, before)
+
+    def testSettingWidensNoFurther(self):
+        self.Params.SetFloat(self.SETTING, 100.0)
         before, after = self.redrawn(2e-5)
+        self.assertEqual(after, "?" + before)
+
+    def testSettingTurnsItOff(self):
+        self.Params.SetFloat(self.SETTING, 0.0)
+        before, after = self.redrawn(4e-7)
         self.assertEqual(after, "?" + before)

@@ -2128,11 +2128,15 @@ static void searchLiveShape(const PropertyPartShape *propShape,
         // build may put the same element a little off -- in
         // realthunder/FreeCAD#474 the spline edges of a swept helix come
         // back 4e-7 from where the file has them, and the search is at
-        // 1e-7 -- so look once more a hundred times looser, and take what
-        // is found only where it is the one element there: two that close
-        // cannot be told apart, and the reference stays missing.
+        // 1e-7 -- so look once more, as far off as the shapes themselves
+        // say a thing may be: ReferenceSearchTolerance (10 unless set) times
+        // the larger of the tolerance the element had and the tolerance of
+        // the element found.  What is found is taken only where it is the
+        // one element there: two that close cannot be told apart, and the
+        // reference stays missing.
         std::vector<std::string> loose;
-        newShape.searchSubShape(sub, &loose, options, tol * 100.0, atol * 100.0);
+        newShape.searchSubShapeNear(sub, &loose, PartParams::getReferenceSearchTolerance(),
+                                    options, tol, atol);
         if (loose.size() == 1)
             names = std::move(loose);
     }

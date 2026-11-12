@@ -4624,6 +4624,47 @@ Phase D1 is under way (2026-10-28):
   - The manual's page (`assembly/simulation/flexible-contact`) has the rod
     turned on the plate, mesh 4: over the turn 42.1 to 46.7 N, the median
     45.0; the run of 0.1 s, 504 frames, 10.5 s.
+- Built, D4b step 14 (2026-11-12): a flexible part past a box's edge.
+  - **A point of a flexible part's surface in a box or a hull is under the
+    face it is least deep under that faces the surface**
+    (`leastDeepFace()`), not the face Bullet found it under. Bullet's face
+    is the whole mesh triangle's way out of the solid: the rod of step 13
+    on a plate from x = 5 to 35, its ends under the rod, had points 0.036
+    mm under the top taken through the plate's end, 0.124 mm in along the
+    rod (a trace, each point leaning off the plate's normal or deeper than
+    0.07 mm). Over the turn the force ran from 35 to 126 N, its mean 54.9
+    for the whole plate's 44.9, the run 45.5 s. Three steps, each found by
+    the probe:
+    - the least deep face of all: the triangle's point Bullet gives can be
+      above the top and inside the end, so the face a point is outside of
+      is its face, the curved face's point it goes to then under the top
+      or not -- with only the points inside taken, 53.5 N and 114 at most;
+    - of the faces within 45 deg of facing the surface -- the mesh
+      triangle's outward normal, the other way: the end's points least
+      deep through the end, 0.041 mm in and 0.049 under the top, made a
+      patch of their own, its spring the set's, 40 N along the rod on top
+      of the 46, at the plate's edge where it is the edge in the rod's
+      round that presses -- 46.5 N, 62.8 at most;
+    - only of the faces within the margin (0.1 mm, which the penetrations
+      stay under) and the face's bulge of the point: without that the rod's
+      end faces, their normal along the rod, took the plate's far ends,
+      45 and 50 mm in, for theirs, and the rod on the whole plate pressed
+      it at 18 kN on average, 52 kN at most, its 0.1 s in 2819 s.
+    The rod past the plate's ends now 41.7 to 47.3 N over the turn, its
+    mean 45.1, in 4.3 to 8.5 s; on the whole plate as before, 42.5 to 46.7
+    (mesh 4) and 42.4 to 46.7 (mesh 2). The strip between two bars (step
+    12): its forces as they were, to the digit.
+  - Only a flexible part's points (`ShapeOn::flexible`), and only where A
+    is a box or a hull with its features; a rigid mesh's are Bullet's as
+    before.
+  - Limits as step 13 left them, but for the box's edge: against a round
+    the point stays on its quarter facet; two flexible parts touching
+    anywhere are still refused.
+  - Tests: TestFlexibleBody.test_round_past_edge (the rod on the plate
+    from 5 to 35: within a tenth of its mean over the turn, the mean under
+    50 N), sharing test_round_anywhere's rod (`roundTurned()`). The rest
+    hold: TestFlexibleBody 20, TestDynamics 90, TestJointFriction 4,
+    TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

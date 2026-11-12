@@ -832,6 +832,22 @@ class TestFlexibleBody(unittest.TestCase):
         force ran from 0 to 104 N as they rolled by, the plate lost each
         time. On the faces it holds within a tenth over the turn, under the
         50 N of a rigid rod pressed 0.05 mm"""
+        self.roundTurned("a round anywhere", 55, -10)
+
+    def test_round_past_edge(self):
+        """A flexible part running on past the edge of a box it presses into
+        (D4b step 14): the rod of test_round_anywhere on a plate from x = 5
+        to 35, its ends under the rod. Bullet took the plate's end faces for
+        points of the rod 0.036 mm under its top, 0.124 mm in along the rod,
+        and the force ran from 35 to 126 N; each such point is under the face
+        it is least deep under that faces the rod's surface (leastDeepFace()),
+        and it holds as on the whole plate"""
+        self.roundTurned("a round past an edge", 30, 5)
+
+    def roundTurned(self, name, length, start):
+        """test_round_anywhere's rod turned on a plate 'length' long from x =
+        'start': the force within a tenth of its mean over the turn, the mean
+        under a rigid rod's 50 N"""
         import CommandCreateContact
 
         mount = self.box("Mount", (10, 20, 20), (-10, -10, -10))
@@ -841,7 +857,7 @@ class TestFlexibleBody(unittest.TestCase):
         rod.Radius = 5
         rod.Height = 40
         rod.Placement = plc(0, 0, 0, App.Vector(0, 1, 0), 90)
-        plate = self.box("Plate", (55, 20, 5), (-10, -10, -10 + 0.05))
+        plate = self.box("Plate", (length, 20, 5), (start, -10, -10 + 0.05))
         held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
         JointObject.GroundedJoint(held, plate)
         self.doc.recompute()
@@ -892,8 +908,8 @@ class TestFlexibleBody(unittest.TestCase):
             v.Length * 1e-3 for t, v in zip(results["Times"], values[0]) if 0.03 <= t <= 0.1
         ]
         mean = sum(turning) / len(turning)
-        print("a round anywhere: over the turn %.4g N, from %.4g to %.4g"
-              % (mean, min(turning), max(turning)))
+        print("%s: over the turn %.4g N, from %.4g to %.4g"
+              % (name, mean, min(turning), max(turning)))
         self.assertGreater(mean, 35.0)
         self.assertLess(mean, 50.0)
         self.assertGreater(min(turning), 0.9 * mean)

@@ -3188,6 +3188,8 @@ struct ShapeOn
     // triangles collision detection has of them (Surface::bulge()), a point
     // that far off a triangle touching
     double bulge = 0.0;
+    // Whether it is a flexible part's surface (leastDeepFace())
+    bool flexible = false;
     // For Hertz's law (patchStiffness()): a sphere's radius, the material's
     // E / (1 - nu^2), the radius of the ball of the solid's volume, and the
     // surface's curvature tensor at each vertex of its mesh, a mesh's or a
@@ -3350,6 +3352,108 @@ bool hasFace(const ShapeOn& on, const ch::ChCollisionShape* shape, const ch::ChV
         }
     }
     return false;
+}
+
+// A point of a flexible part's surface in a box or a hull 'on' A, found
+// under one of its faces, the bodies at a and b: put under the face it is
+// least deep under that faces the part's surface there -- within 45 deg of
+// the mesh triangle's own normal, the other way -- A's point on that face;
+// one outside the solid through any face, through the face it is farthest
+// out of. Bullet's face is the triangle's way out of the solid, all of it: a
+// rod sunk 0.05 mm into a plate's top and running on past its end had points
+// 0.036 mm under the top taken through the end, 0.124 mm in along the rod,
+// and pressed 126 N for 46. Found on the flat triangle such a point can be
+// above the top, inside the end: the top its face, the curved face's point
+// it goes to then (FlexibleContact::place()) under it or not. And the end's
+// points least deep through it were a patch of their own, its spring the
+// set's: 40 N along the rod on top of the 46, at the plate's edge, where it
+// is the edge in the rod's round that presses. Only a face within 'within'
+// of the point faces it so -- the margin, which the penetrations stay under,
+// and the face's bulge out of its triangles: nearer the least deep face, it
+// is the solid's edge the point is at. Farther, the solid's face it is under
+// is not the surface's, as a rod's end is under a plate's top: the rod's end
+// faces took the plate's ends for theirs, 45 and 50 mm in, and the rod turned
+// on the plate pressed it at 52 kN for 46 N. The faces' planes in the
+// features are all grown alike, if at all: their differences are the
+// solid's, each point's distance off a face its distance off Bullet's face
+// and the difference.
+void leastDeepFace(const ShapeOn& on,
+                   const ch::ChFrame<>& a,
+                   const ch::ChFrame<>& b,
+                   double within,
+                   ContactLoad::Point& point)
+{
+    if (!on.features || !point.shapeB
+        || point.shapeB->GetType() != ch::ChCollisionShape::Type::MESHTRIANGLE) {
+        return;
+    }
+    const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(point.shapeB);
+    const ch::ChFramed frame = on.frame >> *on.body;
+    ch::ChVector3d surface = frame.TransformDirectionParentToLocal(b.TransformDirectionLocalToParent(
+        ch::Vcross(*triangle->V2 - *triangle->V1, *triangle->V3 - *triangle->V1)));
+    const double area = surface.Length();
+    if (!(area > 0.0)) {
+        return;
+    }
+    surface /= area;
+    const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
+    const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
+    const double across = ch::Vdot(point.normal, pB - pA);
+    const ch::ChVector3d local = frame.TransformPointParentToLocal(pB);
+    const ch::ChVector3d found = frame.TransformDirectionParentToLocal(point.normal);
+    struct Face
+    {
+        ch::ChVector3d normal;
+        double off = 0.0;
+    };
+    std::vector<Face> faces;
+    int own = -1;
+    double closest = -2.0;
+    for (int f = 0; f < on.features->m_faces.size(); ++f) {
+        const cbtScalar* plane = on.features->m_faces[f].m_plane;
+        const ch::ChVector3d n(plane[0], plane[1], plane[2]);
+        const double length = n.Length();
+        if (!(length > 0.0)) {
+            continue;
+        }
+        faces.push_back({n / length, (ch::Vdot(n, local) + plane[3]) / length});
+        const double along = ch::Vdot(n, found) / length;
+        if (along > closest) {
+            closest = along;
+            own = static_cast<int>(faces.size()) - 1;
+        }
+    }
+    if (own < 0 || !(closest > 1.0 - 1e-8)) {
+        return;
+    }
+    // Each face's distance, the solid's
+    const double shift = across - faces[static_cast<std::size_t>(own)].off;
+    int out = -1;
+    int facing = -1;
+    int any = -1;
+    auto off = [&](int f) {
+        return faces[static_cast<std::size_t>(f)].off + shift;
+    };
+    for (int f = 0; f < static_cast<int>(faces.size()); ++f) {
+        if (off(f) > 0.0 && (out < 0 || off(f) > off(out))) {
+            out = f;
+        }
+        if (any < 0 || off(f) > off(any)) {
+            any = f;
+        }
+        if (-ch::Vdot(faces[static_cast<std::size_t>(f)].normal, surface) > std::cos(pi / 4.0)
+            && off(f) >= -within && (facing < 0 || off(f) > off(facing))) {
+            facing = f;
+        }
+    }
+    const int best = out >= 0 ? out : facing >= 0 ? facing : any;
+    if (best < 0 || best == own) {
+        return;
+    }
+    const ch::ChVector3d normal =
+        frame.TransformDirectionLocalToParent(faces[static_cast<std::size_t>(best)].normal);
+    point.normal = normal;
+    point.onA = a.TransformPointParentToLocal(pB - normal * off(best));
 }
 
 bool inLine(const ch::ChVector3d& inner, const ch::ChVector3d& bore);
@@ -8366,6 +8470,13 @@ Status ChronoSession::simulateDynamics(
                     }
                     else if (a && hasFace(*a, point.shapeA, point.normal)) {
                         point.face = 1;
+                        if (b && b->flexible) {
+                            leastDeepFace(*a,
+                                          *load.GetBodyA(),
+                                          *load.GetBodyB(),
+                                          reach + b->bulge,
+                                          point);
+                        }
                     }
                 }
                 if (point.face) {
@@ -8770,6 +8881,7 @@ Status ChronoSession::simulateDynamics(
                     where.source = shape.frame;
                     where.envelope = envelope;
                     where.bulge = bulge;
+                    where.flexible = true;
                     where.modulus = shape.modulus;
                     const auto& vertices = flexible->mesh->GetCoordsVertices();
                     const auto& triangles = flexible->mesh->GetIndicesVertexes();

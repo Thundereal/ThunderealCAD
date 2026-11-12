@@ -46,6 +46,7 @@
 #include <Base/Tools.h>
 
 #include "PropertyStandard.h"
+#include "AnimationCurve.h"
 #include "Application.h"
 #include "Document.h"
 #include "DocumentObject.h"
@@ -168,14 +169,6 @@ void PropertyInteger::setPathValue(const ObjectIdentifier &path, const App::any 
         setValue(boost::math::round(App::any_cast<const Quantity &>(value).getValue()));
     else
         throw bad_cast();
-}
-
-void PropertyInteger::interpolate(const Property &from, const Property &to, float t)
-{
-    auto fromValue = dynamic_cast<const PropertyInteger&>(from)._lValue;
-    auto toValue = dynamic_cast<const PropertyInteger&>(to)._lValue;
-    if (fromValue != toValue)
-        setValue(boost::math::round((toValue - fromValue) * t + fromValue));
 }
 
 //**************************************************************************
@@ -905,13 +898,6 @@ void PropertyIntegerList::Paste(const Property &from)
     setValues(dynamic_cast<const PropertyIntegerList&>(from).getValues());
 }
 
-void PropertyIntegerList::interpolateValue(int index, const long &from, const long &to, float t)
-{
-    if (from != to) {
-        set1Value(index, boost::math::round((to - from) * t + from));
-    }
-}
-
 //**************************************************************************
 //**************************************************************************
 // PropertyIntPairList
@@ -1263,14 +1249,6 @@ bool PropertyFloat::isSame(const Property &other) const
         && getValue() == static_cast<const PropertyFloat&>(other).getValue();
 }
 
-void PropertyFloat::interpolate(const Property &from, const Property &to, float t)
-{
-    auto fromValue = dynamic_cast<const PropertyFloat&>(from)._dValue;
-    auto toValue = dynamic_cast<const PropertyFloat&>(to)._dValue;
-    if (fromValue != toValue)
-        setValue((toValue - fromValue) * t + fromValue);
-}
-
 //**************************************************************************
 //**************************************************************************
 // PropertyFloatConstraint
@@ -1573,13 +1551,6 @@ void PropertyFloatList::Paste(const Property &from)
     setValues(dynamic_cast<const PropertyFloatList&>(from).getValues());
 }
 
-void PropertyFloatList::interpolateValue(int index, const double &from, const double &to, float t)
-{
-    if (from != to) {
-        set1Value(index, (to - from) * t + from);
-    }
-}
-
 //**************************************************************************
 //**************************************************************************
 // _PropertyFloatList (single precision float list)
@@ -1647,13 +1618,6 @@ Property *_PropertyFloatList::Copy(void) const
 void _PropertyFloatList::Paste(const Property &from)
 {
     setValues(dynamic_cast<const _PropertyFloatList&>(from).getValues());
-}
-
-void _PropertyFloatList::interpolateValue(int index, const float &from, const float &to, float t)
-{
-    if (from != to) {
-        set1Value(index, (to - from) * t + from);
-    }
 }
 
 //**************************************************************************
@@ -2837,20 +2801,6 @@ bool PropertyColor::isSame(const Property &other) const
         && this->getValue() == static_cast<const PropertyColor&>(other).getValue();
 }
 
-void PropertyColor::interpolate(const Property &from, const Property &to, float t)
-{
-    auto fromValue = dynamic_cast<const PropertyColor&>(from)._cCol;
-    auto toValue = dynamic_cast<const PropertyColor&>(to)._cCol;
-    if (fromValue != toValue) {
-        Color c;
-        c.r = (toValue.r - fromValue.r) * t + fromValue.r;
-        c.g = (toValue.g - fromValue.g) * t + fromValue.g;
-        c.b = (toValue.b - fromValue.b) * t + fromValue.b;
-        c.a = (toValue.a - fromValue.a) * t + fromValue.a;
-        setValue(c);
-    }
-}
-
 //**************************************************************************
 // PropertyColorList
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -2978,18 +2928,6 @@ Property *PropertyColorList::Copy() const
 void PropertyColorList::Paste(const Property &from)
 {
     setValues(dynamic_cast<const PropertyColorList&>(from).getValues());
-}
-
-void PropertyColorList::interpolateValue(int index, const Color &from, const Color &to, float t)
-{
-    if (from != to) {
-        Color c;
-        c.r = (to.r - from.r) * t + from.r;
-        c.g = (to.g - from.g) * t + from.g;
-        c.b = (to.b - from.b) * t + from.b;
-        c.a = (to.a - from.a) * t + from.a;
-        set1Value(index, c);
-    }
 }
 
 //**************************************************************************
@@ -6023,4 +5961,216 @@ void PropertyPersistentObject::setValue(const char *type) {
     if(type[0])
         _pObject.reset(static_cast<Base::Persistence*>(Base::Type::createInstanceByName(type)));
     hasSetValue();
+}
+
+//**************************************************************************
+// The animation codec (docs/Animation.md 3.12)
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+namespace {
+
+bool oneScalar(Anim::Layout &layout)
+{
+    layout.clear();
+    layout.add(Anim::Kind::Scalar, 1);
+    return true;
+}
+
+bool scalarList(Anim::Layout &layout, int count, int perElement)
+{
+    layout.clear();
+    layout.add(Anim::Kind::Scalar, count * perElement);
+    return true;
+}
+
+bool colourList(Anim::Layout &layout, int count)
+{
+    layout.clear();
+    for (int i = 0; i < count; ++i)
+        layout.add(Anim::Kind::Colour);
+    return true;
+}
+
+void colourNumbers(const Base::Color &c, std::vector<double> &values)
+{
+    values.insert(values.end(), {double(c.r), double(c.g), double(c.b), double(c.a)});
+}
+
+Base::Color colourOf(const double *v)
+{
+    Base::Color c;
+    c.r = float(v[0]);
+    c.g = float(v[1]);
+    c.b = float(v[2]);
+    c.a = float(v[3]);
+    return c;
+}
+
+template<class T>
+T clampTo(T v, const T &lower, const T &upper)
+{
+    return v < lower ? lower : (upper < v ? upper : v);
+}
+
+} // namespace
+
+bool PropertyInteger::getAnimLayout(Anim::Layout &layout) const
+{
+    return oneScalar(layout);
+}
+
+bool PropertyInteger::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    values.assign(1, static_cast<double>(_lValue));
+    return true;
+}
+
+bool PropertyInteger::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    if (values.size() != 1)
+        return false;
+    setValue(std::lround(values[0]));
+    return true;
+}
+
+bool PropertyIntegerConstraint::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    if (values.size() != 1)
+        return false;
+    long v = std::lround(values[0]);
+    if (auto c = getConstraints())
+        v = clampTo(v, c->LowerBound, c->UpperBound);
+    setValue(v);
+    return true;
+}
+
+bool PropertyIntegerList::getAnimLayout(Anim::Layout &layout) const
+{
+    return scalarList(layout, getSize(), 1);
+}
+
+bool PropertyIntegerList::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    values.assign(getValues().begin(), getValues().end());
+    return true;
+}
+
+bool PropertyIntegerList::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    std::vector<long> v;
+    v.reserve(values.size());
+    for (double d : values)
+        v.push_back(std::lround(d));
+    setValues(std::move(v));
+    return true;
+}
+
+bool PropertyFloat::getAnimLayout(Anim::Layout &layout) const
+{
+    return oneScalar(layout);
+}
+
+bool PropertyFloat::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    values.assign(1, _dValue);
+    return true;
+}
+
+bool PropertyFloat::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    if (values.size() != 1)
+        return false;
+    setValue(values[0]);
+    return true;
+}
+
+bool PropertyFloatConstraint::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    if (values.size() != 1)
+        return false;
+    double v = values[0];
+    if (auto c = getConstraints())
+        v = clampTo(v, c->LowerBound, c->UpperBound);
+    setValue(v);
+    return true;
+}
+
+bool PropertyFloatList::getAnimLayout(Anim::Layout &layout) const
+{
+    return scalarList(layout, getSize(), 1);
+}
+
+bool PropertyFloatList::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    values = getValues();
+    return true;
+}
+
+bool PropertyFloatList::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    setValues(values);
+    return true;
+}
+
+bool _PropertyFloatList::getAnimLayout(Anim::Layout &layout) const
+{
+    return scalarList(layout, getSize(), 1);
+}
+
+bool _PropertyFloatList::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    values.assign(getValues().begin(), getValues().end());
+    return true;
+}
+
+bool _PropertyFloatList::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    setValues(std::vector<float>(values.begin(), values.end()));
+    return true;
+}
+
+bool PropertyColor::getAnimLayout(Anim::Layout &layout) const
+{
+    return colourList(layout, 1);
+}
+
+bool PropertyColor::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    values.clear();
+    colourNumbers(_cCol, values);
+    return true;
+}
+
+bool PropertyColor::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    if (values.size() != 4)
+        return false;
+    setValue(colourOf(values.data()));
+    return true;
+}
+
+bool PropertyColorList::getAnimLayout(Anim::Layout &layout) const
+{
+    return colourList(layout, getSize());
+}
+
+bool PropertyColorList::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    values.clear();
+    values.reserve(getValues().size() * 4);
+    for (const auto &c : getValues())
+        colourNumbers(c, values);
+    return true;
+}
+
+bool PropertyColorList::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    if (values.size() % 4)
+        return false;
+    std::vector<Base::Color> v;
+    v.reserve(values.size() / 4);
+    for (std::size_t i = 0; i < values.size(); i += 4)
+        v.push_back(colourOf(values.data() + i));
+    setValues(std::move(v));
+    return true;
 }

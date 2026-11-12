@@ -640,6 +640,7 @@ SOURCE_GROUP("Document" FILES ${Document_SRCS})
 
 # The property stuff
 SET(Properties_CPP_SRCS
+    AnimationCurve.cpp
     DynamicProperty.cpp
     Property.cpp
     PropertyContainer.cpp
@@ -655,6 +656,7 @@ SET(Properties_CPP_SRCS
     PropertyExpressionEngine.cpp
 )
 SET(Properties_HPP_SRCS
+    AnimationCurve.h
     DynamicProperty.h
     ObjectIdentifier.h
     Property.h

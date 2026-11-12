@@ -55,6 +55,10 @@ namespace App
 
 class PropertyContainer;
 class ObjectIdentifier;
+namespace Anim
+{
+struct Layout;
+}
 
 /** Base class of all properties
  * This is the father of all properties. Properties are objects which are used
@@ -403,13 +407,42 @@ public:
      */
     virtual std::shared_ptr<void> holdForOffThread() const { return {}; }
 
-    /// Set value by interpolate between two values
-    virtual void interpolate(const Property &from, const Property &to, float t) {
-        (void)from;
-        (void)to;
-        (void)t;
-        THROW(Base::NotImplementedError);
+    /** @name The animation codec (docs/Animation.md 3.12)
+     *
+     * A property that can be animated says what numbers its value is made of
+     * and reads and writes its value as those numbers; curves run on the
+     * numbers (App/AnimationCurve.h). One that cannot -- strings, links,
+     * shapes -- answers false and is stepped from key to key.
+     */
+    //@{
+    /** Fill in the groups of `layout` for the current value. The caller sets
+     * `layout.rotation` first; a rotation is written in that mode. Lists
+     * depend on their size. False: not animated by numbers.
+     */
+    virtual bool getAnimLayout(Anim::Layout &layout) const {
+        (void)layout;
+        return false;
     }
+    /// The current value as the numbers of `layout`
+    virtual bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const {
+        (void)layout;
+        (void)values;
+        return false;
+    }
+    /// Set the value from the numbers of `layout`, as an ordinary change
+    virtual bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) {
+        (void)layout;
+        (void)values;
+        return false;
+    }
+    //@}
+
+    /** Set the value between those of `from` and `to` by `t` (0 gives from, 1
+     * gives to), through the animation codec. Stepped where the type has no
+     * codec or the two values do not have the same layout: `from` below one
+     * half, `to` from it on.
+     */
+    virtual void interpolate(const Property &from, const Property &to, float t);
 
     /// Called when a child property has changed value
     virtual void hasSetChildValue(Property &) {}
@@ -858,14 +891,6 @@ public:
         guard.tryInvoke();
     }
 
-    virtual void interpolateValue(int index, const_reference from, const_reference to, float t) {
-        (void)index;
-        (void)from;
-        (void)to;
-        (void)t;
-        THROW(Base::NotImplementedError);
-    }
-
     virtual unsigned int getMemSize (void) const override {
         return static_cast<unsigned int>(_lValueList.size() * sizeof(T));
     }
@@ -887,19 +912,6 @@ public:
         if(count)
             setValues(std::move(vals));
         return count;
-    }
-
-    void interpolate(const Property &from, const Property &to, float t) override
-    {
-#undef min
-        const auto &fromList = dynamic_cast<const this_type &>(from);
-        const auto &toList = dynamic_cast<const this_type&>(to);
-        atomic_change guard(*this, false);
-        int count = std::min(getSize(), std::min(fromList.getSize(), toList.getSize()));
-        for (int i=0; i<count; ++i) {
-            interpolateValue(i, fromList[i], toList[i], t);
-        }
-        guard.tryInvoke();
     }
 
 protected:

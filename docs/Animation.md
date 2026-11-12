@@ -405,10 +405,11 @@ struct AnimValue {
 ```
 
 The default interpolation for a new key is the Animation's preference
-(`Linear`), and Record uses it. Bezier handles on quaternion groups are
-not stored: the curve through them is squad's, worked out from the
-neighbouring keys. Free handles on rotations would need a handle on the
-sphere, which no CAD user asked for.
+(`Linear`), and Record uses it. Bezier handles on direction and quaternion
+groups are not stored: they are always computed (Auto), and the curve runs
+on the components and is normalised, as Blender does (3.13). Free handles
+on rotations would need a handle on the sphere, which no CAD user asked
+for.
 
 Moving a key onto the time of another key of the same track replaces it,
 as in Blender. The timeline snaps to frames, but the model does not:
@@ -563,24 +564,32 @@ task page, if wanted. Nothing in the model depends on where it is shown.
 
 ### 3.12 Values: how a property type is animated
 
-The animation codec is added to `App::Property`:
+The animation codec is added to `App::Property` (built, phase 1;
+`App/AnimationCurve.h` has the layout):
 
 ```
-struct AnimLayout {                 // what the numbers are
-    enum Kind { Scalar, Angle, Quaternion, Colour, Step };
-    std::vector<std::pair<Kind,int>> groups;   // e.g. Placement: {Scalar,3},{Quaternion,4}
+namespace App::Anim {
+enum class Kind { Scalar, Direction, Quaternion, Colour };
+struct Group { Kind kind; int size; };
+struct Layout {
+    RotationMode rotation;      // asked for by the caller: how a rotation is written
+    std::vector<Group> groups;  // e.g. Placement: {Scalar 3}, {Quaternion 4}
 };
-virtual bool getAnimLayout(AnimLayout &) const { return false; }   // false: stepped
-virtual void getAnimValue(std::vector<double> &) const;
-virtual void setAnimValue(const std::vector<double> &);
+}
+virtual bool getAnimLayout(Anim::Layout &) const;     // false: stepped
+virtual bool getAnimValue(const Anim::Layout &, std::vector<double> &) const;
+virtual bool setAnimValue(const Anim::Layout &, const std::vector<double> &);
 ```
+
+There is no Angle kind: an angle is a scalar in degrees, and nothing
+blends it differently. Stepped is the absence of a codec, not a kind.
 
 | Property | Layout | Notes |
 |---|---|---|
-| Float, Quantity (Length, Angle, Percent...) | Scalar 1 (Angle for angles) | Constraint and bounds are applied when the value is set |
-| Integer | Scalar 1 | rounded on write |
+| Float, Quantity (Length, Angle...) | Scalar 1 | FloatConstraint and QuantityConstraint clamp to their bounds on write |
+| Integer, IntegerConstraint, Percent | Scalar 1 | rounded on write; the constrained ones clamp |
 | Vector, VectorDistance, Position | Scalar 3 | |
-| Direction | Quaternion-free: slerp on the sphere | as the old `interpolate()` |
+| Direction | Direction 3 | slerp on the sphere, as the old `interpolate()` |
 | Rotation | Quaternion 4 | 3.13 |
 | Placement | Scalar 3 + Quaternion 4 | position along the curve, rotation 3.13 |
 | Color | Colour 4 | linear in stored sRGB by default (CAD expectation) |
@@ -592,8 +601,10 @@ A stepped key holds the property's value as its own XML text (the type's
 `Save`/`Restore`). That covers every property type, even one written in
 Python: a Link that swaps its target at 2 s is a step track.
 
-`Property::interpolate(from, to, t)` (in the tree, unused) becomes a
-default written over the codec, so whatever calls it later still works.
+`Property::interpolate(from, to, t)` (in the tree, unused) is now the base
+class's, written over the codec; the fourteen per-type overrides are gone.
+Where the type has no codec, or the two values' layouts differ (lists of
+different sizes), it steps: `from` below one half, `to` from it on.
 
 ### 3.13 Rotations
 
@@ -602,9 +613,12 @@ shortest way, so it cannot turn a part 720 deg between two keys. Euler
 angles can, but pass through gimbal lock. A rotation track therefore picks
 its mode:
 
-- **Shortest** (default): slerp between keys. Bezier uses squad, its
-  quaternion equivalent, through the neighbouring keys. This is what glTF
-  plays.
+- **Shortest** (default): slerp between keys. Bezier runs on the four
+  components and normalises, after each key's quaternion is turned to the
+  side of the one before (`q` and `-q` are one rotation), so a span never
+  goes round the far side. That is Blender's way. Squad, the true spline on
+  the sphere, can replace it if the difference ever shows. Slerp is what
+  glTF plays.
 - **Turns**: the key's axis-angle is kept unwrapped (an angle of 720 deg is
   two turns), and the angle is interpolated as a scalar about an
   interpolated axis. This is what a "spin the shaft 10 turns" key needs. On
@@ -621,12 +635,18 @@ scalar track and needs none of this.
 
 1. For each track not muted, find the span holding `t` with a binary search
    on the key times. Outside the keys, apply the track's extrapolation.
+   Linear goes on along the straight line through the two end keys,
+   whatever their interpolation; CycleOffset adds the last key's change over
+   the first for scalars and colours, composes it for quaternions, and
+   leaves directions cycling.
 2. Evaluate the span:
    - Constant takes the left key's value.
    - Linear and Easing compute `u = (t - t0) / (t1 - t0)`, ease it, and
      blend per group: lerp for scalars and colours, slerp for quaternions.
    - Bezier solves the curve's x(s) = t for s, then evaluates y(s) per
-     component: Blender's 2D F-curve. Quaternions use squad.
+     component: Blender's 2D F-curve. Directions and quaternions are
+     normalised after (3.13). Handles that reach past each other in time are
+     shortened together, so the curve stays a function of time.
    - Python calls the callable with `u`, inside the expression sandbox
      rules.
 3. Group the tracks by property. For each property, start from the whole

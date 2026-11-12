@@ -41,6 +41,7 @@
 #include "ComplexGeoData.h"
 #include "Document.h"
 #include "PropertyGeo.h"
+#include "AnimationCurve.h"
 #include "TransactionValue.h"
 
 #include "Document.h"
@@ -223,21 +224,6 @@ bool PropertyVector::getPyPathValue(const ObjectIdentifier &path, Py::Object &re
     return true;
 }
 
-static inline Base::Vector3d _interpolate(const Base::Vector3d &from, const Base::Vector3d &to, float t)
-{
-    return Base::Vector3d((to.x - from.x) * t + from.x,
-                          (to.y - from.y) * t + from.y,
-                          (to.z - from.z) * t + from.z);
-}
-
-void PropertyVector::interpolate(const Property &from, const Property &to, float t)
-{
-    auto fromValue = dynamic_cast<const PropertyVector&>(from).getValue();
-    auto toValue = dynamic_cast<const PropertyVector&>(to).getValue();
-    if (fromValue != toValue)
-        setValue(_interpolate(fromValue, toValue, t));
-}
-
 //**************************************************************************
 // PropertyVectorDistance
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -279,18 +265,6 @@ TYPESYSTEM_SOURCE(App::PropertyDirection , App::PropertyVector)
 PropertyDirection::PropertyDirection() = default;
 
 PropertyDirection::~PropertyDirection() = default;
-
-void PropertyDirection::interpolate(const Property &from, const Property &to, float t)
-{
-    auto fromValue = dynamic_cast<const PropertyDirection&>(from).getValue();
-    auto toValue = dynamic_cast<const PropertyDirection&>(to).getValue();
-    Base::Rotation rot(fromValue, toValue);
-    Base::Vector3d axis;
-    double angle;
-    rot.getRawValue(axis,angle);
-    rot.setValue(axis, angle*t);
-    setValue(rot.multVec(fromValue));
-}
 
 //**************************************************************************
 // PropertyVectorList
@@ -401,13 +375,6 @@ unsigned int PropertyVectorList::getMemSize () const
     return static_cast<unsigned int>(this->getValues().size() * sizeof(Base::Vector3d));
 }
 
-void PropertyVectorList::interpolateValue(int index, const Base::Vector3d &from, const Base::Vector3d &to, float t)
-{
-    if (from != to) {
-        set1Value(index, _interpolate(from, to, t));
-    }
-}
-
 //**************************************************************************
 // _PropertyVectorList
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -485,16 +452,6 @@ void _PropertyVectorList::Paste(const Property &from)
 unsigned int _PropertyVectorList::getMemSize (void) const
 {
     return static_cast<unsigned int>(this->getValues().size() * sizeof(Base::Vector3f));
-}
-
-void _PropertyVectorList::interpolateValue(int index, const Base::Vector3f &from, const Base::Vector3f &to, float t)
-{
-    if (from != to) {
-        Base::Vector3f v((to.x - from.x) * t + from.x,
-                         (to.y - from.y) * t + from.y,
-                         (to.z - from.z) * t + from.z);
-        set1Value(index, v);
-    }
 }
 
 //**************************************************************************
@@ -1127,20 +1084,6 @@ void PropertyPlacement::Paste(const Property &from)
     hasSetValue();
 }
 
-static inline Base::Placement _interpolate(const Base::Placement from, const Base::Placement to, float t)
-{
-    return Base::Placement(_interpolate(from.getPosition(), to.getPosition(), t),
-                           Base::Rotation::slerp(from.getRotation(), to.getRotation(), t));
-}
-
-void PropertyPlacement::interpolate(const Property &from, const Property &to, float t)
-{
-    const auto &fromValue = dynamic_cast<const PropertyPlacement&>(from).getValue();
-    const auto &toValue = dynamic_cast<const PropertyPlacement&>(to).getValue();
-    if (fromValue != toValue)
-        setValue(_interpolate(fromValue, toValue, t));
-}
-
 //**************************************************************************
 // PropertyPlacementList
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1271,13 +1214,6 @@ void PropertyPlacementList::Paste(const Property &from)
 unsigned int PropertyPlacementList::getMemSize () const
 {
     return static_cast<unsigned int>(this->getValues().size() * sizeof(Base::Placement));
-}
-
-void PropertyPlacementList::interpolateValue(int index, const Base::Placement &from, const Base::Placement &to, float t)
-{
-    if (from != to) {
-        set1Value(index, _interpolate(from, to, t));
-    }
 }
 
 //**************************************************************************
@@ -1533,13 +1469,6 @@ void PropertyRotation::Paste(const Property &from)
     hasSetValue();
 }
 
-void PropertyRotation::interpolate(const Property &from, const Property &to, float t)
-{
-    const auto &fromValue = dynamic_cast<const PropertyRotation&>(from).getValue();
-    const auto &toValue = dynamic_cast<const PropertyRotation&>(to).getValue();
-    if (fromValue != toValue)
-        setValue(Base::Rotation::slerp(fromValue, toValue, t));
-}
 // ------------------------------------------------------------
 
 TYPESYSTEM_SOURCE_ABSTRACT(App::PropertyGeometry , App::Property)
@@ -1619,4 +1548,223 @@ void PropertyComplexGeoData::afterRestore()
         }
     }
     PropertyGeometry::afterRestore();
+}
+
+//**************************************************************************
+// The animation codec (docs/Animation.md 3.12)
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+namespace {
+
+void placementLayout(Anim::Layout &layout)
+{
+    layout.add(Anim::Kind::Scalar, 3);
+    layout.addRotation();
+}
+
+void placementNumbers(const Base::Placement &pla, Anim::RotationMode mode,
+                      std::vector<double> &values)
+{
+    const auto &pos = pla.getPosition();
+    values.insert(values.end(), {pos.x, pos.y, pos.z});
+    Anim::rotationToNumbers(pla.getRotation(), mode, values);
+}
+
+int placementOf(const double *v, Anim::RotationMode mode, Base::Placement &pla)
+{
+    Base::Rotation rot;
+    int n = 3 + Anim::rotationFromNumbers(v + 3, mode, rot);
+    pla = Base::Placement(Base::Vector3d(v[0], v[1], v[2]), rot);
+    return n;
+}
+
+template<class Vec>
+void vectorNumbers(const std::vector<Vec> &list, std::vector<double> &values)
+{
+    values.clear();
+    values.reserve(list.size() * 3);
+    for (const auto &v : list)
+        values.insert(values.end(), {double(v.x), double(v.y), double(v.z)});
+}
+
+template<class Vec>
+bool vectorsOf(const std::vector<double> &values, std::vector<Vec> &list)
+{
+    if (values.size() % 3)
+        return false;
+    using F = decltype(Vec().x);
+    list.clear();
+    list.reserve(values.size() / 3);
+    for (std::size_t i = 0; i < values.size(); i += 3)
+        list.emplace_back(F(values[i]), F(values[i + 1]), F(values[i + 2]));
+    return true;
+}
+
+} // namespace
+
+bool PropertyVector::getAnimLayout(Anim::Layout &layout) const
+{
+    layout.clear();
+    layout.add(Anim::Kind::Scalar, 3);
+    return true;
+}
+
+bool PropertyVector::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    values.assign({_cVec.x, _cVec.y, _cVec.z});
+    return true;
+}
+
+bool PropertyVector::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    if (values.size() != 3)
+        return false;
+    setValue(values[0], values[1], values[2]);
+    return true;
+}
+
+bool PropertyDirection::getAnimLayout(Anim::Layout &layout) const
+{
+    layout.clear();
+    layout.add(Anim::Kind::Direction);
+    return true;
+}
+
+bool PropertyDirection::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    Base::Vector3d v = getValue();
+    if (v.Length() > 0)
+        v.Normalize();
+    values.assign({v.x, v.y, v.z});
+    return true;
+}
+
+bool PropertyDirection::setAnimValue(const Anim::Layout &layout, const std::vector<double> &values)
+{
+    return PropertyVector::setAnimValue(layout, values);
+}
+
+bool PropertyVectorList::getAnimLayout(Anim::Layout &layout) const
+{
+    layout.clear();
+    layout.add(Anim::Kind::Scalar, 3 * getSize());
+    return true;
+}
+
+bool PropertyVectorList::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    vectorNumbers(getValues(), values);
+    return true;
+}
+
+bool PropertyVectorList::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    std::vector<Base::Vector3d> list;
+    if (!vectorsOf(values, list))
+        return false;
+    setValues(std::move(list));
+    return true;
+}
+
+bool _PropertyVectorList::getAnimLayout(Anim::Layout &layout) const
+{
+    layout.clear();
+    layout.add(Anim::Kind::Scalar, 3 * getSize());
+    return true;
+}
+
+bool _PropertyVectorList::getAnimValue(const Anim::Layout &, std::vector<double> &values) const
+{
+    vectorNumbers(getValues(), values);
+    return true;
+}
+
+bool _PropertyVectorList::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    std::vector<Base::Vector3f> list;
+    if (!vectorsOf(values, list))
+        return false;
+    setValues(std::move(list));
+    return true;
+}
+
+bool PropertyPlacement::getAnimLayout(Anim::Layout &layout) const
+{
+    layout.clear();
+    placementLayout(layout);
+    return true;
+}
+
+bool PropertyPlacement::getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const
+{
+    values.clear();
+    placementNumbers(_cPos, layout.rotation, values);
+    return true;
+}
+
+bool PropertyPlacement::setAnimValue(const Anim::Layout &layout, const std::vector<double> &values)
+{
+    if (static_cast<int>(values.size()) != layout.size() || values.size() < 6)
+        return false;
+    Base::Placement pla;
+    placementOf(values.data(), layout.rotation, pla);
+    setValue(pla);
+    return true;
+}
+
+bool PropertyPlacementList::getAnimLayout(Anim::Layout &layout) const
+{
+    layout.clear();
+    for (int i = 0; i < getSize(); ++i)
+        placementLayout(layout);
+    return true;
+}
+
+bool PropertyPlacementList::getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const
+{
+    values.clear();
+    for (const auto &pla : getValues())
+        placementNumbers(pla, layout.rotation, values);
+    return true;
+}
+
+bool PropertyPlacementList::setAnimValue(const Anim::Layout &layout, const std::vector<double> &values)
+{
+    if (static_cast<int>(values.size()) != layout.size())
+        return false;
+    std::vector<Base::Placement> list;
+    for (std::size_t i = 0; i < values.size();) {
+        Base::Placement pla;
+        int n = placementOf(values.data() + i, layout.rotation, pla);
+        if (n <= 3)
+            return false;
+        list.push_back(pla);
+        i += n;
+    }
+    setValues(std::move(list));
+    return true;
+}
+
+bool PropertyRotation::getAnimLayout(Anim::Layout &layout) const
+{
+    layout.clear();
+    layout.addRotation();
+    return true;
+}
+
+bool PropertyRotation::getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const
+{
+    values.clear();
+    Anim::rotationToNumbers(_rot, layout.rotation, values);
+    return true;
+}
+
+bool PropertyRotation::setAnimValue(const Anim::Layout &layout, const std::vector<double> &values)
+{
+    if (static_cast<int>(values.size()) != layout.size() || values.size() < 3)
+        return false;
+    Base::Rotation rot;
+    Anim::rotationFromNumbers(values.data(), layout.rotation, rot);
+    setValue(rot);
+    return true;
 }

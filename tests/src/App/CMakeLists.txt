@@ -37,6 +37,20 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/XLinkSnapshot.cpp
 )
 
+# The curves of an animation track and the animation codec of the property
+# types (docs/Animation.md sec 3.12, 4): App alone, with Qt Core for checking
+# the easing against QEasingCurve.
+add_executable(Animation_tests_run ${CMAKE_CURRENT_SOURCE_DIR}/Animation.cpp)
+target_include_directories(Animation_tests_run PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+    ${Python3_INCLUDE_DIRS}
+    ${XercesC_INCLUDE_DIRS}
+    ${QtCore_INCLUDE_DIRS})
+target_link_libraries(Animation_tests_run gtest_main FreeCADApp FreeCADBase ${QtCore_LIBRARIES})
+add_test(NAME Animation_tests_run COMMAND Animation_tests_run)
+
 # The deferred archive-entry restore (docs/DocumentLoad.md §14) is App's own
 # machinery -- park, serve, cancel, flush -- and is tested with a stand-in
 # property rather than Part's shape, so the suite links no geometry kernel.

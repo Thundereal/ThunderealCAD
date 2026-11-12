@@ -938,6 +938,22 @@ Phase 3, built (2026-11-12), and what is left of it:
   included; `Gui::Document::slotTouchedObject` no longer marks the
   document modified for an animated write's touch.
 - Left: the Driven mark inside the expression editor.
+
+Phase 4, built so far (2026-11-12):
+- The camera track (4173274215, `Gui/AnimationCamera.cpp`): the handler
+  interface of 3.6 now takes the Animation (`read`, `write`,
+  `deactivate`) and names new tracks (`newTrackData`). A key is the point
+  looked at (S3), the orientation (Q4), the distance and the size (S2):
+  the camera stands back from the interpolated point, so it turns about
+  it. The data is "View1/ortho": the view by persistent name, and the
+  kind of camera the size means. Rest: the camera before the first
+  frame, or where the user moved it since (the handler's own written /
+  rest pair, the lazy rule of 5.2). Python names a handler's track by its
+  kind, "Camera" or "Camera:View1/ortho".
+- The curve editor (3edee73b72): the timeline's Curves mode, keys
+  dragged in time and value, Bezier handles dragged Free (Alt mirrors).
+  Each drag one undo step.
+- Strips (section 7) next.
 | 4 | Bezier handles in a curve editor; camera track; strips (section 7) | |
 | 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache if needed | |
 

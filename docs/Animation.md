@@ -1050,6 +1050,16 @@ Phase 5, built so far (2026-11-12):
 - Not done: the renderer's clock following `Time` during export
   (section 9) -- the engine has no setter for its clock yet, so water and
   fire in an exported video run on wall time.
+- Not done: streaming of `Time` with the web viewer playing placement
+  and visibility tracks by itself. A served document's animation reaches
+  the viewer today as the scene updates each frame's writes make. The
+  viewer side is wasm, which the box this was built on (mini) has no
+  toolchain for, so it was not started blind. The glTF exporter's baked
+  samples are the data such a clip would carry.
+- Not built: the frame cache -- "if needed", and nothing measured yet
+  says it is.
+- The manual (thundereal-manual `core/animation`, "Exporting", with
+  `export.py` and its media) and the help page have the export.
 
 ## 12. Decided, and still open
 

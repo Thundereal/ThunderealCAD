@@ -417,14 +417,13 @@ TopoDS_Shape Helix::generateHelixPath(const TopLoc_Location& invObjLoc, double s
 
     // Into the coordinates the profile and the base are moved to, by the
     // same move: execute()'s, from positionByPrevious(). Not by the
-    // feature's Placement as it stands -- a helix of this fork's earlier
-    // files is stored with its sketch's placement, which the feature no
-    // longer takes (it is made where the body is and its Placement follows
-    // the shape): moved by that one, the path of the first recompute after
-    // opening lay a quarter turn from its profile, and the helix came out
-    // wound about the sketch's normal, a tenth of its volume
-    // (realthunder/FreeCAD#474). Made again it was right, the Placement
-    // having followed the first shape.
+    // feature's Placement as it stands, which is the move only for a
+    // feature that takes one (isPlacedByPrevious()). While a helix of this
+    // fork's earlier files, stored with its sketch's placement, was made
+    // again as one that takes none, moving by the stored one laid the path
+    // of the first recompute after opening a quarter turn from its profile,
+    // and the helix came out wound about the sketch's normal, a tenth of
+    // its volume (realthunder/FreeCAD#474).
     path.Move(invObjLoc);
 
     return path;

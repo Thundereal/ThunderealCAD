@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 """A reference whose element has lost its name is looked for by geometry,
-and once more a hundred times looser where it is not there to 1e-7.
+and once more, as far off as the tolerance of the shapes allows, where it
+is not there to 1e-7.
 
 A feature made again by another build may put the same element a little
 off: in the model of realthunder/FreeCAD issue #474 the spline edges of a
@@ -9,8 +10,10 @@ swept helix come back 4e-7 from where the file has them, written with other
 poles, and one where a pad meets the helix reversed. Three datum lines and
 a fillet lost their edges to it.
 
-What the looser search finds is taken only where it is the one element
-there, and what is further off than 1e-5 stays missing.
+The second look goes the Part preference ReferenceSearchTolerance (10 unless
+set, 0 for none) times the larger of the tolerance the element had and that
+of the element found. What it finds is taken only where it is the one
+element there.
 """
 
 import math

@@ -91,6 +91,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestInvoluteGear.py
     PartDesignTests/TestTopologicalNamingProblem.py
     PartDesignTests/TestNameEncoding.py
+    PartDesignTests/TestEarlierPlacement.py
     PartDesignTests/TestReferenceSearch.py
     PartDesignTests/TestTwinReferences.py
 )

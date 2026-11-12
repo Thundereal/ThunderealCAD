@@ -4665,6 +4665,49 @@ Phase D1 is under way (2026-10-28):
     50 N), sharing test_round_anywhere's rod (`roundTurned()`). The rest
     hold: TestFlexibleBody 20, TestDynamics 90, TestJointFriction 4,
     TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 15 (2026-11-12): a flexible part's round on a rigid one.
+  - **Against a sphere or a cylinder's side, a point of a flexible part's
+    curved face is the face's point nearest the round's centre or axis**
+    (`deepestOnFace()`), its normal out through it from there, turning with
+    the part (`Point::face` 2); A's point the round's surface that way.
+    Before, it kept the quarter triangle's normal and its place under the
+    round: a rod touching a roller at a slant to its quarter reads a
+    facet's R t^2 off, about the 0.05 mm it is pressed. The rod of step 13
+    on a grounded roller R 5 along it, 0.05 mm into its round, 1000 N/mm:
+    over the turn 31.9 to 45.8 N (mesh 4), 35.3 to 45.9 (mesh 2), the runs
+    157 and 225 s. Four steps, each from a trace of every point (how it
+    was placed, its depth, its angle round the rod, its normal):
+    - the face's point nearest the axis's point at the point's own station
+      (Gauss and Newton on the face's area coordinates): 37.2 to 45.9 N --
+      a point whose nearest is in the next face stopped at its own face's
+      edge and slid along it, a slanted edge, so that the way along the rod
+      read as gap: normals 0.08 along the rod, 0.01 mm of 0.04;
+    - measured square to the axis, the station held by a millionth: 5 to
+      50 N -- a step along the axis all but unbounded, and the points fell
+      into the faces' far corners, 1.4 mm clear;
+    - the station held by a tenth, each step at most a fifth of the face and
+      halved until nearer: 40.2 to 47.5 N, 13 s -- left, the points held at
+      an edge, 0.02 mm deep where the faces beside them read 0.045, pulling
+      their patch's depth down;
+    - across the edge into the face there, three faces at most
+      (`Surface::across()`, each face's neighbour across each edge; a flat
+      face's edges' nodes at their middles): 42.0 to 46.7 N (mesh 4), 40.5
+      to 46.2 (mesh 2), the runs 6.3 and 8.7 s. On the plate, 42.5 to 46.7.
+  - `Surface::faceCoordinates()`, a triangle's point in its face's area
+    coordinates, which `onFace()` takes now too.
+  - Only a curved face's points against a round of A with no round of B
+    (`Point::roundA`, not `roundB`); a flat face's triangle is its face.
+    The plate, its edge and the strip between two bars as they were, to
+    the digit.
+  - Limits: two flexible parts touching each other anywhere are still
+    refused (step 13's sizing). A round's cap, and a hollow round -- a bore
+    round a flexible pin, whose deepest is farthest from its axis -- are as
+    before; a hull's or a mesh's round face (`ShapeOn::rounds`) is taken as
+    its whole sphere or cylinder, its angles' range not looked at.
+  - Tests: TestFlexibleBody.test_round_on_roller (the rod on the roller:
+    within a tenth of its mean over the turn, the mean under 50 N). The
+    rest hold: TestFlexibleBody 21, TestDynamics 90, TestJointFriction 4,
+    TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

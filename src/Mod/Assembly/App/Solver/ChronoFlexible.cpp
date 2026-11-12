@@ -51,6 +51,7 @@
 #include <cstring>
 #include <deque>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <numbers>
 #include <stdexcept>
@@ -585,6 +586,29 @@ ChronoFlexible::Surface::Surface(const Flexible& flexible)
             most = std::max(most, (place.at - flat).Length());
         }
     }
+    // Each face's neighbour across each of its edges, by the edge's corners
+    neighbours.assign(faces.size(), {-1, -1, -1});
+    std::map<std::pair<Id, Id>, std::int64_t> sharing;
+    for (std::size_t f = 0; f < faces.size(); ++f) {
+        for (int e = 0; e < 3; ++e) {
+            const Id u = faces[f][static_cast<std::size_t>(e)];
+            const Id v = faces[f][static_cast<std::size_t>((e + 1) % 3)];
+            const auto key = std::make_pair(std::min(u, v), std::max(u, v));
+            const auto [it, added] = sharing.emplace(key, static_cast<std::int64_t>(f));
+            if (!added && it->second >= 0) {
+                const auto g = static_cast<std::size_t>(it->second);
+                neighbours[f][static_cast<std::size_t>(e)] = it->second;
+                for (int k = 0; k < 3; ++k) {
+                    const Id a = faces[g][static_cast<std::size_t>(k)];
+                    const Id b = faces[g][static_cast<std::size_t>((k + 1) % 3)];
+                    if (std::make_pair(std::min(a, b), std::max(a, b)) == key) {
+                        neighbours[g][static_cast<std::size_t>(k)] = static_cast<std::int64_t>(f);
+                    }
+                }
+                it->second = -1;
+            }
+        }
+    }
     // The grid: cells twice the triangles' mean edge, at most 2e6 of them
     low = ch::ChVector3d(std::numeric_limits<double>::max());
     ch::ChVector3d high(-std::numeric_limits<double>::max());
@@ -649,27 +673,37 @@ void ChronoFlexible::Surface::onFace(std::size_t i,
         place.weights[2] = w[2];
     }
     else {
-        // The face's area coordinates at the piece's corners, its nodes'
-        static const std::array<std::array<double, 3>, 6> at {{{1.0, 0.0, 0.0},
-                                                               {0.0, 1.0, 0.0},
-                                                               {0.0, 0.0, 1.0},
-                                                               {0.5, 0.5, 0.0},
-                                                               {0.0, 0.5, 0.5},
-                                                               {0.5, 0.0, 0.5}}};
-        static const std::array<std::array<int, 3>, 4> quarters {
-            {{0, 3, 5}, {3, 1, 4}, {5, 4, 2}, {3, 4, 5}}};
-        std::array<double, 3> L {0.0, 0.0, 0.0};
-        for (int k = 0; k < 3; ++k) {
-            for (int j = 0; j < 3; ++j) {
-                L[j] += w[k] * at[quarters[piece][k]][j];
-            }
-        }
-        place.weights = shape(L);
+        place.weights = shape(faceCoordinates(i, w));
     }
     place.at = ch::VNULL;
     for (int k = 0; k < 6; ++k) {
         place.at += points[f[k]] * place.weights[k];
     }
+}
+
+std::array<double, 3> ChronoFlexible::Surface::faceCoordinates(std::size_t i,
+                                                               const std::array<double, 3>& w) const
+{
+    const auto piece = pieces[i].second;
+    if (piece > 3) {
+        return w;
+    }
+    // The face's area coordinates at the piece's corners, its nodes'
+    static const std::array<std::array<double, 3>, 6> at {{{1.0, 0.0, 0.0},
+                                                           {0.0, 1.0, 0.0},
+                                                           {0.0, 0.0, 1.0},
+                                                           {0.5, 0.5, 0.0},
+                                                           {0.0, 0.5, 0.5},
+                                                           {0.5, 0.0, 0.5}}};
+    static const std::array<std::array<int, 3>, 4> quarters {
+        {{0, 3, 5}, {3, 1, 4}, {5, 4, 2}, {3, 4, 5}}};
+    std::array<double, 3> L {0.0, 0.0, 0.0};
+    for (int k = 0; k < 3; ++k) {
+        for (int j = 0; j < 3; ++j) {
+            L[j] += w[k] * at[quarters[piece][k]][j];
+        }
+    }
+    return L;
 }
 
 std::array<double, 6> ChronoFlexible::Surface::shape(const std::array<double, 3>& L)

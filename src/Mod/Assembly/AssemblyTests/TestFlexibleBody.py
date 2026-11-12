@@ -844,10 +844,19 @@ class TestFlexibleBody(unittest.TestCase):
         and it holds as on the whole plate"""
         self.roundTurned("a round past an edge", 30, 5)
 
-    def roundTurned(self, name, length, start):
+    def test_round_on_roller(self):
+        """A flexible part's round on a rigid round (D4b step 15): the rod of
+        test_round_anywhere on a grounded roller R 5 along it, 0.05 mm into
+        its round. Each point goes to its face's point nearest the roller's
+        axis, across into the next face where that is beyond its own
+        (deepestOnFace()); on the quarter triangles' normals the force ran
+        from 32 to 46 N as the rod turned, its run 157 s for 14"""
+        self.roundTurned("a round on a roller", 55, -10, roller=True)
+
+    def roundTurned(self, name, length, start, roller=False):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
-        'start': the force within a tenth of its mean over the turn, the mean
-        under a rigid rod's 50 N"""
+        'start', or on a roller R 5 along it that long: the force within a
+        tenth of its mean over the turn, the mean under a rigid rod's 50 N"""
         import CommandCreateContact
 
         mount = self.box("Mount", (10, 20, 20), (-10, -10, -10))
@@ -857,7 +866,13 @@ class TestFlexibleBody(unittest.TestCase):
         rod.Radius = 5
         rod.Height = 40
         rod.Placement = plc(0, 0, 0, App.Vector(0, 1, 0), 90)
-        plate = self.box("Plate", (length, 20, 5), (start, -10, -10 + 0.05))
+        if roller:
+            plate = self.assembly.newObject("Part::Cylinder", "Roller")
+            plate.Radius = 5
+            plate.Height = length
+            plate.Placement = plc(start, 0, -10 + 0.05, App.Vector(0, 1, 0), 90)
+        else:
+            plate = self.box("Plate", (length, 20, 5), (start, -10, -10 + 0.05))
         held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
         JointObject.GroundedJoint(held, plate)
         self.doc.recompute()

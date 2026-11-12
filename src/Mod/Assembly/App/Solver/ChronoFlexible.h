@@ -115,6 +115,8 @@ public:
     // The point of triangle i at weights w on its corners, on its face:
     // place's nodes and weights, and its point at rest
     void onFace(std::size_t i, const std::array<double, 3>& w, Place& place) const;
+    // That point's area coordinates on its face (a flat face's, w)
+    std::array<double, 3> faceCoordinates(std::size_t i, const std::array<double, 3>& w) const;
     // Whether triangle i is a quarter of a curved face; that face's nodes
     bool curved(std::size_t i) const
     {
@@ -123,6 +125,20 @@ public:
     const std::array<Id, 6>& faceOf(std::size_t i) const
     {
         return faces[pieces[i].first];
+    }
+    // Triangle i's face, by its number; a face's nodes by its number; and the
+    // face across its edge e -- (0 1), (1 2), (2 0) -- or -1 where none is
+    std::size_t faceIndex(std::size_t i) const
+    {
+        return pieces[i].first;
+    }
+    const std::array<Id, 6>& face(std::size_t f) const
+    {
+        return faces[f];
+    }
+    std::int64_t across(std::size_t f, int e) const
+    {
+        return neighbours[f][static_cast<std::size_t>(e)];
     }
     // The six-node triangle's shape functions at area coordinates L
     static std::array<double, 6> shape(const std::array<double, 3>& L);
@@ -159,6 +175,7 @@ private:
     // 0 to 3 a quarter (Surface()), 4 the whole: a flat face, its edges'
     // nodes at their middles, or one whose edges' nodes are not near them
     std::vector<std::array<Id, 6>> faces;
+    std::vector<std::array<std::int64_t, 3>> neighbours;
     std::vector<std::pair<std::uint32_t, std::uint8_t>> pieces;
     std::vector<std::array<Id, 3>> corners;
     double most = 0.0;

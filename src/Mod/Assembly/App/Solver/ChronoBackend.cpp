@@ -1369,6 +1369,15 @@ private:
 };
 
 #ifdef ASSEMBLY_WITH_CHRONO_MODAL
+bool deepestOnFace(const ShapeOn& round,
+                   const ch::ChFrame<>& body,
+                   const ch::ChFrame<>& carrier,
+                   const std::array<ch::ChVector3d, 6>& x,
+                   std::array<double, 3>& L,
+                   ch::ChVector3d& normal,
+                   ch::ChVector3d& onRound,
+                   int& leaving);
+
 // A contact anywhere on a flexible part (D4b): the part's contact shapes ride
 // one of its interfaces' boundary bodies, the carrier, on which collision
 // detection finds their points, and each point found is put on the mesh's
@@ -1564,6 +1573,87 @@ public:
                             moved -= n * ch::Vdot(n, moved);
                             auto& onA = load.points[i].onA;
                             onA += load.GetBodyA()->GetRot().RotateBack(moved);
+                        }
+                    }
+                    // Against a sphere or a cylinder's side, the face's point
+                    // deepest in it, the normal through the round's centre or
+                    // axis (deepestOnFace()), turning with the part
+                    // (Point::face, 2)
+                    else if (surface->curved(it->second) && load.points[i].roundA
+                             && !load.points[i].roundB) {
+                        auto& point = load.points[i];
+                        const auto& nodesOf = surface->faceOf(it->second);
+                        std::array<ch::ChVector3d, 6> x;
+                        for (int k = 0; k < 6; ++k) {
+                            x[k] = first[vertexOf[nodesOf[k]]];
+                        }
+                        std::array<double, 3> L =
+                            surface->faceCoordinates(it->second, inOrder);
+                        ch::ChVector3d normal;
+                        ch::ChVector3d onRound;
+                        // Across an edge the deepest is beyond, into the face
+                        // there, three at most: a point held at its own
+                        // face's edge, 0.02 mm deep where the faces beside
+                        // it were 0.045, pulled its patch's depth down and
+                        // the rod's force on a roller with it, 40 N for 47
+                        std::size_t faceNow = surface->faceIndex(it->second);
+                        int leaving = -1;
+                        bool found = false;
+                        for (int walk = 0; walk < 4; ++walk) {
+                            found = deepestOnFace(*point.roundA,
+                                                  *load.GetBodyA(),
+                                                  *carrier,
+                                                  x,
+                                                  L,
+                                                  normal,
+                                                  onRound,
+                                                  leaving);
+                            const std::int64_t next =
+                                found && leaving >= 0 && walk < 3
+                                ? surface->across(faceNow, leaving)
+                                : -1;
+                            if (next < 0) {
+                                break;
+                            }
+                            // The edge's point in the next face's terms
+                            const auto& from = surface->face(faceNow);
+                            const auto& to = surface->face(static_cast<std::size_t>(next));
+                            std::array<double, 3> there {0.0, 0.0, 0.0};
+                            for (int k = 0; k < 2; ++k) {
+                                const int c = (leaving + k) % 3;
+                                for (int j = 0; j < 3; ++j) {
+                                    if (to[static_cast<std::size_t>(j)]
+                                        == from[static_cast<std::size_t>(c)]) {
+                                        there[static_cast<std::size_t>(j)] =
+                                            L[static_cast<std::size_t>(c)];
+                                    }
+                                }
+                            }
+                            const double sum = there[0] + there[1] + there[2];
+                            if (!(sum > 0.0)) {
+                                break;
+                            }
+                            for (double& w : there) {
+                                w /= sum;
+                            }
+                            faceNow = static_cast<std::size_t>(next);
+                            L = there;
+                            // A flat face's edges' nodes are not the mesh's:
+                            // at its edges' middles
+                            for (int k = 0; k < 6; ++k) {
+                                const int v = vertexOf[to[static_cast<std::size_t>(k)]];
+                                x[k] = v >= 0 ? first[v]
+                                    : (x[(k - 3)] + x[(k - 2) % 3]) * 0.5;
+                            }
+                        }
+                        if (found) {
+                            on.nodes = surface->face(faceNow);
+                            on.weights = ChronoFlexible::Surface::shape(L);
+                            on.offset = ch::VNULL;
+                            point.normal = normal;
+                            point.face = 2;
+                            point.normalOn = carrier->TransformDirectionParentToLocal(normal);
+                            point.onA = load.GetBodyA()->TransformPointParentToLocal(onRound);
                         }
                     }
                     continue;
@@ -3455,6 +3545,170 @@ void leastDeepFace(const ShapeOn& on,
     point.normal = normal;
     point.onA = a.TransformPointParentToLocal(pB - normal * off(best));
 }
+
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+/** The point of a flexible part's curved face deepest in a sphere's or a
+ * cylinder's side 'round', on its body at 'body': the face's point nearest
+ * the round's centre, or its axis -- held, by a tenth of a weight, as far
+ * along the axis as the face's point at L is: a round lying along the
+ * part's face is as near it all along, and its points stay where collision
+ * detection spread them. The face by its six nodes x and the point by its
+ * area coordinates L, both in the carrier's frame ('carrier'); L moved there
+ * by Gauss and Newton's steps on the face, each held on it -- 'leaving' the
+ * edge (0 1, 1 2, 2 0: 0, 1, 2) it stops on with the next step still out
+ * across it, for the face there (FlexibleContact::place()), or -1 -- at most a fifth
+ * of it, and halved until it is nearer: with the hold a millionth, a step
+ * along the axis was all but unbounded, and its points fell into the face's
+ * far corners, 1.4 mm clear, and the rod's force on a roller ran down to 5
+ * N for 45. A tenth of a weight, then, on the station. Where the
+ * deepest is in the next face, the point stops on the edge, its point
+ * nearest the axis: measured to the axis's point at its own station, square
+ * to the axis -- held at the station it came from, it slid along a face's
+ * slanted edge, and the way along the rod read as gap, 0.01 mm of 0.04. The
+ * normal from the round's centre or axis out through it, absolute, and the
+ * round's surface that way, absolute. The quarter triangle's normal and its
+ * point under the round leave a rod touching a roller at a slant to the
+ * quarter a facet's R t^2 off -- R 5 at a 4 mm mesh, about as deep as the
+ * 0.05 mm it is pressed. False where the round is neither, or hollow (a
+ * bore's deepest is farthest from its axis), or its cap is what is near, or
+ * the face runs through the centre or the axis.
+ */
+bool deepestOnFace(const ShapeOn& round,
+                   const ch::ChFrame<>& body,
+                   const ch::ChFrame<>& carrier,
+                   const std::array<ch::ChVector3d, 6>& x,
+                   std::array<double, 3>& L,
+                   ch::ChVector3d& normal,
+                   ch::ChVector3d& onRound,
+                   int& leaving)
+{
+    leaving = -1;
+    const bool ball = round.ball > 0.0;
+    if ((!ball && !(round.radius > 0.0)) || round.concave) {
+        return false;
+    }
+    const ch::ChFramed frame = round.frame >> body;
+    const ch::ChVector3d centre = carrier.TransformPointParentToLocal(frame.GetPos());
+    const ch::ChVector3d axis =
+        ball ? ch::VNULL : carrier.TransformDirectionParentToLocal(frame.GetRotMat().GetAxisZ());
+    auto point = [&](double s, double t) {
+        const auto w = ChronoFlexible::Surface::shape({1.0 - s - t, s, t});
+        ch::ChVector3d p = ch::VNULL;
+        for (int k = 0; k < 6; ++k) {
+            p += x[k] * w[k];
+        }
+        return p;
+    };
+    // A vector's part square to the axis
+    auto square = [&](const ch::ChVector3d& v) {
+        return v - axis * ch::Vdot(axis, v);
+    };
+    double s = L[1];
+    double t = L[2];
+    const double along = ch::Vdot(axis, point(s, t) - centre);
+    if (!ball && std::abs(along) > round.half) {
+        return false;
+    }
+    constexpr double hold = 0.1;
+    // How far the point at s t is from the round, as the steps take it
+    auto miss = [&](double u, double v) {
+        const ch::ChVector3d d = point(u, v) - centre;
+        const double off = ch::Vdot(axis, d) - along;
+        return square(d).Length2() + hold * off * off;
+    };
+    for (int step = 0; step < 16; ++step) {
+        const double l = 1.0 - s - t;
+        // The face's way along s and t there: the shape functions' rates
+        const double ds[6] = {
+            -(4.0 * l - 1.0), 4.0 * s - 1.0, 0.0, 4.0 * (l - s), 4.0 * t, -4.0 * t};
+        const double dt[6] = {
+            -(4.0 * l - 1.0), 0.0, 4.0 * t - 1.0, -4.0 * s, 4.0 * s, 4.0 * (l - t)};
+        ch::ChVector3d xs = ch::VNULL;
+        ch::ChVector3d xt = ch::VNULL;
+        for (int k = 0; k < 6; ++k) {
+            xs += x[k] * ds[k];
+            xt += x[k] * dt[k];
+        }
+        const ch::ChVector3d d = point(s, t) - centre;
+        const ch::ChVector3d r = square(d);
+        const ch::ChVector3d ps = square(xs);
+        const ch::ChVector3d pt = square(xt);
+        const double as = ch::Vdot(axis, xs);
+        const double at = ch::Vdot(axis, xt);
+        const double off = ch::Vdot(axis, d) - along;
+        const double a = ch::Vdot(ps, ps) + hold * as * as;
+        const double b = ch::Vdot(ps, pt) + hold * as * at;
+        const double c = ch::Vdot(pt, pt) + hold * at * at;
+        const double det = a * c - b * b;
+        if (!(det > 1e-30)) {
+            break;
+        }
+        const double gs = ch::Vdot(ps, r) + hold * as * off;
+        const double gt = ch::Vdot(pt, r) + hold * at * off;
+        double us = -(c * gs - b * gt) / det;
+        double ut = -(a * gt - b * gs) / det;
+        const double longest = std::max(std::abs(us), std::abs(ut));
+        if (longest > 0.2) {
+            us *= 0.2 / longest;
+            ut *= 0.2 / longest;
+        }
+        // Onto the face: past its long edge, square back onto it, then into
+        // its corners' range; halved until nearer
+        auto onFace = [](double u, double v) {
+            if (u + v > 1.0) {
+                const double over = 0.5 * (u + v - 1.0);
+                u -= over;
+                v -= over;
+            }
+            u = std::clamp(u, 0.0, 1.0);
+            return std::array<double, 2> {u, std::clamp(v, 0.0, 1.0 - u)};
+        };
+        const double now = miss(s, t);
+        std::array<double, 2> next = onFace(s + us, t + ut);
+        int halved = 0;
+        while (miss(next[0], next[1]) >= now && halved < 12) {
+            us *= 0.5;
+            ut *= 0.5;
+            next = onFace(s + us, t + ut);
+            ++halved;
+        }
+        if (!(miss(next[0], next[1]) < now)) {
+            // Held by an edge, the step out across it
+            constexpr double on = 1e-9;
+            double most = 1e-6;
+            if (t <= on && ut < -most) {
+                most = -ut;
+                leaving = 0;
+            }
+            if (s + t >= 1.0 - on && us + ut > most) {
+                most = us + ut;
+                leaving = 1;
+            }
+            if (s <= on && us < -most) {
+                leaving = 2;
+            }
+            break;
+        }
+        const bool still = std::abs(next[0] - s) + std::abs(next[1] - t) < 1e-12;
+        s = next[0];
+        t = next[1];
+        if (still) {
+            break;
+        }
+    }
+    const ch::ChVector3d d = point(s, t) - centre;
+    const ch::ChVector3d out = square(d);
+    const double apart = out.Length();
+    if (!(apart > 1e-12) || (!ball && std::abs(ch::Vdot(axis, d)) > round.half)) {
+        return false;
+    }
+    L = {1.0 - s - t, s, t};
+    normal = carrier.TransformDirectionLocalToParent(out / apart);
+    onRound = carrier.TransformPointLocalToParent(centre + axis * ch::Vdot(axis, d))
+        + normal * (ball ? round.ball : round.radius);
+    return true;
+}
+#endif
 
 bool inLine(const ch::ChVector3d& inner, const ch::ChVector3d& bore);
 bool rimFarthest(const ch::ChVector3d& cap,

@@ -40,6 +40,7 @@
 
 #include "Transactions.h"
 #include "Actor.h"
+#include "Animation.h"
 #include "PropertyLinks.h"
 
 #include "Application.h"
@@ -887,7 +888,14 @@ void TransactionObject::setProperty(const Property* pcProp)
         // changed since, `Touched` aside, means a fresh copy: the cached one
         // is shared with the log's worker and is not written to.
         auto cached = TransactionCopyCache::take(pcProp->getID());
-        if (cached.copy && cached.copy->getTypeId() == pcProp->getTypeId()
+        // A property an Animation is playing held its rest value, the
+        // design's, before this edit; the pose on show is no value of the
+        // document's (docs/Animation.md sec 5.2)
+        if (auto rest = Animation::restValueOf(*pcProp)) {
+            data.property = rest->Copy();
+            data.property->setStatusValue(pcProp->getStatus());
+        }
+        else if (cached.copy && cached.copy->getTypeId() == pcProp->getTypeId()
                 && cached.status == TransactionCopyCache::statusOf(*pcProp)) {
             // FC_TXNLOG_CHECK_COPIES: the copy must still be the live value,
             // or a write escaped aboutToSetValue (sec 23.6).

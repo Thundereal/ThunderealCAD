@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenerateModel xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="generateMetaModel_Module.xsd">
+  <PythonExport
+      Father="DocumentObjectPy"
+      Name="AnimationPy"
+      Twin="Animation"
+      TwinPointer="Animation"
+      Include="App/Animation.h"
+      Namespace="App"
+      FatherInclude="App/DocumentObjectPy.h"
+      FatherNamespace="App">
+    <Documentation>
+      <Author Licence="LGPL" Name="Zheng Lei" EMail="realthunder.dev@gmail.com" />
+      <UserDocu>Key frame animation of any property (docs/Animation.md).
+
+A path names a property as an expression does, relative to the Animation:
+'Box.Placement', 'Box.Placement.Base.z', 'Box.ViewObject.Transparency'.
+Setting Time evaluates the tracks and makes this the document's active
+Animation; stop() puts the design back.</UserDocu>
+    </Documentation>
+    <Methode Name="addKey" Keyword="true">
+      <Documentation>
+        <UserDocu>addKey(path, time, value=None, interp=None, easing=None) -> int
+
+Key the property at path at time (seconds) with value, or with its current
+value when value is None, making the track if there is none. A key already
+at that time is replaced. Returns the key's id.
+
+interp: 'Constant', 'Linear', 'Bezier' or 'Easing', for the span that
+leaves the key.
+easing: a type name ('Quad', 'Cubic', 'Quart', 'Quint', 'Sine', 'Expo',
+'Circ', 'Elastic', 'Back', 'Bounce'), or a tuple (type, mode[, amplitude,
+period, overshoot]) with mode 'In', 'Out', 'InOut' or 'OutIn'. Giving it
+makes interp 'Easing' unless interp says otherwise.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="removeKey">
+      <Documentation>
+        <UserDocu>removeKey(path, time): remove the key at time of the track on path</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="moveKey">
+      <Documentation>
+        <UserDocu>moveKey(path, time, newTime): move a key in time; one at newTime is replaced</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setInterp" Keyword="true">
+      <Documentation>
+        <UserDocu>setInterp(path, time, interp, easing=None): the interpolation of the span leaving the key at time</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="addTrack">
+      <Documentation>
+        <UserDocu>addTrack(path) -> int: a track with no keys on path; its id</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="removeTrack">
+      <Documentation>
+        <UserDocu>removeTrack(path): remove the track on path and its keys</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="track">
+      <Documentation>
+        <UserDocu>track(path) -> dict: the track on path, its options, state and keys</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setTrack" Keyword="true">
+      <Documentation>
+        <UserDocu>setTrack(path, label=None, mute=None, lock=None, extrapolation=None, rotation=None)
+
+extrapolation: (before, after), each 'Constant', 'Linear', 'Cycle',
+'CycleOffset' or 'PingPong'.
+rotation: 'Shortest', 'Turns' or 'Euler', how a rotation is keyed; the
+keys are converted.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="keys">
+      <Documentation>
+        <UserDocu>keys(path) -> list of (time, value, interp)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="value">
+      <Documentation>
+        <UserDocu>value(path, time) -> the track's value at time, written nowhere</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="state">
+      <Documentation>
+        <UserDocu>state(path) -> 'Ok', 'Unresolved', 'Mismatch', 'Driven' or 'Solved'</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="activate">
+      <Documentation>
+        <UserDocu>activate(): make this the document's active Animation and evaluate at Time</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="stop">
+      <Documentation>
+        <UserDocu>stop(): put the rest values back and recompute; Active goes off, and the next Time set turns it on again</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="evaluate">
+      <Documentation>
+        <UserDocu>evaluate(): write every track's value at Time</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="frames">
+      <Documentation>
+        <UserDocu>frames() -> list of the frame times from Start to End at FrameRate</UserDocu>
+      </Documentation>
+    </Methode>
+    <CustomAttributes />
+  </PythonExport>
+</GenerateModel>

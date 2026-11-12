@@ -235,7 +235,7 @@ inside one of its properties:
 | Property | Type | Status | Meaning |
 |---|---|---|---|
 | `Tracks` | `PropertyAnimationTracks` | | 3.3 |
-| `Time` | `PropertyTime` (s) | NoModify, NoRecompute | The time shown. Setting it evaluates (section 4). NoModify keeps a scrub out of the undo stack and the transaction log and does not mark the document modified, as for `Visibility` (TransactionLogDesign sec 2.4). Saved, so a file opens where it was left |
+| `Time` | `PropertyTime` (s) | NoModify, NoRecompute | The time shown. Setting it to another time evaluates (section 4); a write of the time already shown is no change to any property (`Property::hasSetValue` drops it), so `activate()` is the way to evaluate at it. NoModify keeps a scrub out of the undo stack and the transaction log and does not mark the document modified, as for `Visibility` (TransactionLogDesign sec 2.4). Saved, so a file opens where it was left |
 | `Start`, `End` | `PropertyTime` | | The play range. `End` 0 means the last key's time |
 | `FrameRate` | Float, frames per second | | 30. Playing and snapping use it; keys are not tied to it |
 | `Speed` | Float | | 1. Playback only |
@@ -329,6 +329,22 @@ Saved inside the Animation's object element:
 The numbers are written with the same round-trip precision as
 `PropertyFloat`. A stepped key carries its property's own `Save` text, so
 any type can be stepped, a Python one included.
+
+Built, phase 2 (`App/Animation.{h,cpp}`), with these differences:
+- Each `<Track>` also carries `layout` ("S3 Q4": the groups of numbers) and
+  `count`. The layout cannot always be derived from `valueType`: a list's
+  depends on its length, and a list whose length has changed since is
+  then `Mismatch`.
+- A stepped key's text is an attribute, `text="..."`, encoded, rather than
+  CDATA, which the text itself may contain.
+- Edits are the methods above with explicit values (`setKey(track, key)`);
+  reading the target's current value is the Animation's (`Animation::
+  setKey(track, t, value)`), which resolves the path.
+- Not yet re-pointed: a track's path when its object is copied into
+  another document (`CopyOnImportExternal`), when a link replaces it in a
+  group (`CopyOnLinkReplace`), or when a path names an object by label and
+  the label changes. Paths name objects by their name, which does not
+  change, so only the first matters soon.
 
 ### 3.4 Track
 
@@ -446,8 +462,13 @@ is registered, so camera tracks are Unresolved: skipped, kept and saved.
   - A track added while active stores its target's rest value when it
     first writes.
 - **The resolved targets**: per track, the object, the property and the
-  path components. Cleared on a Hidden-dependency notice, on a dynamic
-  property's removal, and on a change to `Tracks`.
+  path components. Built, phase 2: resolved afresh at each evaluation --
+  a few name lookups per track, microseconds -- so there is no cache to
+  invalidate; one comes if large animations show the cost.
+- **The last written value** of each property, beside its rest value.
+  Whether the property still holds it tells whether anybody else wrote it
+  since -- an edit, an undo, a recompute -- and so whether its value now is
+  the design's and becomes the new rest value (5.2).
 - **The last evaluated time**, so an unchanged `Time` does not evaluate
   twice.
 
@@ -457,14 +478,14 @@ is registered, so camera tracks are Unresolved: skipped, kept and saved.
 |---|---|
 | A key is added, moved or deleted | One transaction on `Tracks`; the Animation re-evaluates at `Time` if active |
 | Undo or redo of a key edit | `Tracks` restored; the timeline keeps its selection by key id; re-evaluates |
-| Any other undo or redo while active | Stops first (rest values back), then undoes: undo works on the design (5.2) |
+| Any other undo or redo while active | Undoes the design without stopping: a transaction records an animated property's rest value as its value before an edit (5.2), so an undo puts the design back, and the next evaluation shows the pose again |
 | A target object is deleted | Its tracks become Unresolved; its rest entry is dropped |
 | The deletion is undone | They resolve again |
 | A target's document closes | Unresolved; nothing to put back |
 | Save while active | Stop with recompute, save, re-activate at `Time`. The recompute is what makes it right: a saved Pad must hold a shape of its saved Length, not of the animated one |
 | The Animation is deleted | Deactivates first, so the design is as it was |
 | The Animation's document closes | Nothing written back; the file was saved with rest values anyway |
-| The file is opened | Tracks restored and resolved after the document's restore; an `Active` Animation evaluates once at `Time` |
+| The file is opened | Tracks restored and resolved after the document's restore; an `Active` Animation evaluates once at `Time`, when the document is whole (`signalFinishRestoreDocument`) |
 | The Animation is copied to another document | Paths re-pointed as expressions are; targets left in the first document become cross-document |
 | Another Animation is activated | This one deactivates first |
 
@@ -488,9 +509,10 @@ is registered, so camera tracks are Unresolved: skipped, kept and saved.
   - Playing advances `Time` by the wall clock times `Speed`, and skips
     ahead when a frame overruns.
   - Pausing stops the clock and keeps the pose.
-  - Stopping puts the rest values back (`deactivate()`), by the rule of
-    5.2. The Animation stays the document's chosen one for the timeline;
-    the next scrub or Play activates it again.
+  - Stopping puts the rest values back, by the rule of 5.2, and turns
+    `Active` off (built, phase 2: `stop()`), so a file saved stopped opens
+    stopped. The timeline keeps the Animation as its chosen one; the next
+    scrub or Play activates it again.
   - One player per process, and one Animation playing at a time.
 - **Property editor**: a row whose path a track targets is marked with
   key at this time, between keys, or changed and not keyed. Its context
@@ -656,6 +678,17 @@ scalar track and needs none of this.
    inside `App::AnimatedWrites`. One write per property per frame means one
    `onChanged` and one touch, however many tracks it has. A write equal to the current value does nothing,
    by the value-equality short-circuit `hasSetValue` already has.
+
+   Built, phase 2, the parts differ: the whole track is written with
+   `setAnimValue`, then each part with `setPathValue`, in path order -- one
+   write per track rather than per property. Composing the parts on a copy
+   first needs the path's unit rules (an angle in degrees, `Yaw` that a
+   Python rotation has no attribute for) applied to a value with no owner;
+   `PropertyPlacement::setPathValue()` has them only on the live property.
+   A part's value goes through a scratch property of its own type
+   (`PropertyQuantity` with the part's unit, `PropertyFloat`,
+   `PropertyVector`, `PropertyRotation`, `PropertyPlacement`), so it has the
+   same codec as a whole track.
 4. Recompute by the `Recompute` mode:
    - Touched (the default) recomputes what the writes touched.
    - Never (the old `NoRecompute`) updates only the view. That is right for
@@ -709,8 +742,29 @@ That is its *rest* value, the design's.
   moment. The document is saved as it would be with the animation stopped;
   the pose comes back right after. That is the rule of every CAD tool
   above, and it keeps an animation from quietly moving the design.
-- **Undo** while active stops the animation first, so undo acts on the
-  design.
+- **Undo** while active acts on the design. It does not stop the
+  animation: when a transaction first records an animated property, it
+  records the rest value as the value before the edit, not the pose on
+  show (`Animation::restValueOf()`, called by
+  `TransactionObject::setProperty()`). Undoing the edit then puts the
+  design's value back, and the redo step it makes records the edit. Built,
+  phase 2.
+
+How the rest value follows the design, without a signal per property:
+each property keeps, beside its rest value, the value the last evaluation
+wrote. At the next evaluation, a property that no longer holds that value
+was written by somebody else -- an edit, an undo, a recompute, a script
+with no transaction -- and its value now becomes the rest value. A
+transaction recording the property clears the written value, since what
+follows is the design's. This works the same for a view provider's
+property, which App sees no signal for.
+
+Known gap: a property already recorded in an open transaction and then
+animated in the same transaction (a script that edits a placement and sets
+`Time` before committing) commits the pose as the value after. The undo
+stack is right -- its inverse copies the rest value -- but the transaction
+log's row holds the pose. Committing before playing avoids it; a fix
+needs a hook at the commit.
 
 A **user edit to an animated property** while the animation is active:
 - With Record on, it keys the value at the current time (section 6).
@@ -814,20 +868,39 @@ camera track plays only in the view it was keyed in, or in the export view.
 
 ## 10. Python
 
+Built, phase 2 (`App/AnimationPy.xml`; tests in `Mod/Test/TestAnimation.py`):
+
 ```python
 anim = doc.addObject("App::Animation", "Anim")
-anim.addKey("Box.Placement", 0.0)                       # the current value
+anim.addKey("Box.Placement", 0.0)                       # the current value; -> key id
 anim.addKey("Box.Placement", 2.0, App.Placement(App.Vector(0, 0, 50), App.Rotation()),
             interp="Bezier")
-anim.addKey("Box.ViewObject.Transparency", 1.0, 80, interp="Easing",
-            easing=("Bounce", "Out"))
+anim.addKey("Box.ViewObject.Transparency", 1.0, 80,
+            easing=("Bounce", "Out"))                   # easing makes interp "Easing"
 anim.addKey("Pad.Length", 3.0, "40 mm")
+anim.addKey("Box.Placement.Base.z", 1.0, 20)            # a part: applied after the whole
 anim.setInterp("Box.Placement", 0.0, "Constant")
-anim.track("Box.Placement").Extrapolation = ("Constant", "Cycle")
-anim.Time = 1.5                                         # evaluates
-anim.value("Box.Placement", 1.5)                        # evaluate without writing
-anim.stop()                                             # rest values back
+anim.moveKey("Box.Placement", 2.0, 2.5)
+anim.removeKey("Pad.Length", 3.0)
+anim.setTrack("Box.Placement", extrapolation=("Constant", "Cycle"),
+              rotation="Turns", label="lid", mute=False, lock=False)   # keys converted
+anim.track("Box.Placement")      # dict: Id, Path, ValueType, State, Keys (Numbers or Text) ...
+anim.keys("Box.Placement")       # [(time, value, interp), ...]
+anim.state("Box.Placement")      # 'Ok' | 'Unresolved' | 'Mismatch' | 'Driven' | 'Solved'
+anim.Time = 1.5                  # evaluates, and makes this the active Animation
+anim.value("Box.Placement", 1.5) # evaluates without writing
+anim.frames()                    # [Start, Start + 1/FrameRate, ..., End]
+anim.stop()                      # rest values back, Active off
 ```
+
+The track's options are a method, not attributes of a track object, so a
+track has no Python object to keep alive across an undo. `Tracks` reads as
+a list of dicts and is not written from Python. Not yet: the `Python`
+interpolation (a callable per span), and `Solved` detection, which needs
+the Assembly's view of which parts it solves (both phase 3). Stepped keys
+hold the property's own XML, which serves every type that saves itself
+inline; a type that saves to a file of its own in the archive (a shape)
+is not one to step.
 
 And the driver form needs nothing new:
 `Gear2.setExpression(".Placement.Rotation.Angle", "-2 * Anim.Time * 30 deg")`.

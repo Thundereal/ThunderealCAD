@@ -110,6 +110,22 @@ public:
 };
 
 
+/** A write an Animation makes as it plays (docs/Animation.md sec 5.1). While
+ * one of these lives, a property write opens no transaction and goes into
+ * none that is open, is no change to the file, is not logged (the log
+ * forgets what it holds for the property, as for any write in no
+ * transaction), and does not mark the Gui document modified.
+ */
+class AppExport AnimatedWrites {
+public:
+    AnimatedWrites();
+    ~AnimatedWrites();
+    AnimatedWrites(const AnimatedWrites&) = delete;
+    AnimatedWrites& operator=(const AnimatedWrites&) = delete;
+    static bool active();
+};
+
+
 /** Helper class to lock a transaction from being closed or aborted.
  *
  * The helper class is used to protect some critical transaction from being

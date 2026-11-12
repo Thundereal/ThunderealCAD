@@ -3350,13 +3350,17 @@ void Document::onBeforeChangeProperty(const TransactionalObject *Who, const Prop
         if (obj && obj->testStatus(ObjectStatus::Restore))
             return;
     }
+    // An Animation's write is no edit (docs/Animation.md sec 5.1): in no
+    // step, open or not, and no change to the file, which a save writes
+    // with the rest values anyway.
+    const bool animated = AnimatedWrites::active();
     // A value the file does not hold changes nothing in it (sec 38.14).
-    if (!(What->getType() & (Prop_Transient | Prop_NoPersist))
+    if (!animated && !(What->getType() & (Prop_Transient | Prop_NoPersist))
             && !What->testStatus(Property::Transient) && !What->testStatus(Property::PropNoPersist))
         noteSavedChange(Who);
     // Bookkeeping -- a compatibility name put on an object (sec 36.7) --
     // is no step and in no step that is open.
-    if(!d->rollback && !d->bookkeeping) {
+    if(!d->rollback && !d->bookkeeping && !animated) {
         _checkTransaction(nullptr, What, __LINE__);
         if (d->activeUndoTransaction)
             d->activeUndoTransaction->addObjectChange(Who, What);
@@ -3368,7 +3372,7 @@ void Document::onBeforeChangeProperty(const TransactionalObject *Who, const Prop
     // An undo, a replay or a checkout puts recorded values back, which the
     // log follows itself.
     if (d->transactionLog && !isPerformingTransaction()
-            && (d->bookkeeping || !d->activeUndoTransaction))
+            && (d->bookkeeping || animated || !d->activeUndoTransaction))
         d->transactionLog->forgetValue(*What);
 }
 

@@ -118,6 +118,23 @@ bool DerivedViewWrites::active()
     return _DerivedViewWrites > 0;
 }
 
+static int _AnimatedWrites;
+
+AnimatedWrites::AnimatedWrites()
+{
+    ++_AnimatedWrites;
+}
+
+AnimatedWrites::~AnimatedWrites()
+{
+    --_AnimatedWrites;
+}
+
+bool AnimatedWrites::active()
+{
+    return _AnimatedWrites > 0;
+}
+
 void AutoTransaction::close(bool abort) {
     if(tid || abort) {
         GetApplication().closeActiveTransaction(abort,abort?0:tid);

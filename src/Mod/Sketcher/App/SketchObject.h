@@ -1049,6 +1049,10 @@ public:  // geometry extension functionalities for single element sketch object 
 
     void changeConstraintAfterDeletingGeo(Constraint* constr, const int deletedGeoId) const;
 
+    /// The name of the Part::GeometryDoubleExtension a simplified external
+    /// curve carries: how far it may be from the curve it stands for
+    static constexpr const char *SimplifiedWithin = "SimplifiedWithin";
+
 protected:
 
     bool simplifyBSpline(Part::GeomBSplineCurve *bspline, const std::string &key);

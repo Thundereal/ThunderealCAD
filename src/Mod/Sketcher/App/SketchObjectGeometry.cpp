@@ -26,6 +26,7 @@
 #include <cmath>
 #include <vector>
 
+#include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -98,6 +99,7 @@
 #include <Base/Console.h>
 #include <Base/Vector3D.h>
 #include <Mod/Part/App/DatumFeature.h>
+#include <Mod/Part/App/GeometryDefaultExtension.h>
 #include <Mod/Part/App/BodyBase.h>
 #include <Mod/Part/App/PartParams.h>
 #include <Mod/Part/App/PartPyCXX.h>
@@ -1799,6 +1801,21 @@ int SketchObject::getVertexIndexGeoPos(int GeoId, PointPos PosId) const
 
 Part::TopoShape SketchObject::getEdge(const Part::Geometry *geo, const char *name) const {
     Part::TopoShape shape(geo->toShape());
+    // A curve simplified from the one it stands for says how far it may be
+    // from it (simplifyBSpline()), and so does its edge.
+    if (geo->hasExtension(std::string(SimplifiedWithin))) {
+        auto ext = std::static_pointer_cast<const Part::GeometryDoubleExtension>(
+            geo->getExtension(std::string(SimplifiedWithin)).lock());
+        const TopoDS_Shape &edge = shape.getShape();
+        if (ext && ext->getValue() > Precision::Confusion() && !edge.IsNull()
+            && edge.ShapeType() == TopAbs_EDGE) {
+            BRep_Builder builder;
+            builder.UpdateEdge(TopoDS::Edge(edge), ext->getValue());
+            for (TopExp_Explorer exp(edge, TopAbs_VERTEX); exp.More(); exp.Next()) {
+                builder.UpdateVertex(TopoDS::Vertex(exp.Current()), ext->getValue());
+            }
+        }
+    }
     shape.setElementName(Data::IndexedName::fromConst("Edge", 1),
                          Data::MappedName::fromRawData(name));
     TopTools_IndexedMapOfShape vmap;

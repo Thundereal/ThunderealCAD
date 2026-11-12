@@ -133,11 +133,26 @@ TopTools_ListOfShape Part::FaceMakerBuildFace::splitSelfIntersecting(
             );
             Standard_Real prev = first;
             TopTools_ListOfShape fragments;
+            // A piece is known no better than the edge it is cut from: an
+            // edge that says how far it may be from what it stands for (a
+            // sketch's simplified reference curve, realthunder/FreeCAD#617)
+            // must not come out of the split at the default 1e-7.
+            auto piece = [&fragments, &edge](const TopoDS_Edge& made) {
+                const double edgeTol = BRep_Tool::Tolerance(edge);
+                if (edgeTol > BRep_Tool::Tolerance(made)) {
+                    BRep_Builder builder;
+                    builder.UpdateEdge(made, edgeTol);
+                    for (TopExp_Explorer exp(made, TopAbs_VERTEX); exp.More(); exp.Next()) {
+                        builder.UpdateVertex(TopoDS::Vertex(exp.Current()), edgeTol);
+                    }
+                }
+                fragments.Append(made);
+            };
             for (Standard_Real p : params) {
                 if (p - prev > tol) {
                     BRepBuilderAPI_MakeEdge me(curve, prev, p);
                     if (me.IsDone()) {
-                        fragments.Append(me.Edge());
+                        piece(me.Edge());
                     }
                     prev = p;
                 }
@@ -145,7 +160,7 @@ TopTools_ListOfShape Part::FaceMakerBuildFace::splitSelfIntersecting(
             if (last - prev > tol) {
                 BRepBuilderAPI_MakeEdge me(curve, prev, last);
                 if (me.IsDone()) {
-                    fragments.Append(me.Edge());
+                    piece(me.Edge());
                 }
             }
             if (fragments.Size() > 0) {

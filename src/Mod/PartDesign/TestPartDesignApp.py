@@ -101,4 +101,5 @@ from PartDesignTests.TestTopologicalNamingProblem import TestTopologicalNamingPr
 from PartDesignTests.TestNameEncoding import TestNameEncoding, TestNameEncodingAcrossDocuments
 from PartDesignTests.TestReferenceSearch import TestReferenceSearch
 from PartDesignTests.TestEarlierPlacement import TestEarlierPlacement
+from PartDesignTests.TestIntersectionProfile import TestIntersectionProfile
 from PartDesignTests.TestTwinReferences import TestTwinReferences

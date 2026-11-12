@@ -98,6 +98,7 @@
 #include <Base/Console.h>
 #include <Base/Vector3D.h>
 #include <Mod/Part/App/DatumFeature.h>
+#include <Mod/Part/App/GeometryDefaultExtension.h>
 #include <Mod/Part/App/BodyBase.h>
 #include <Mod/Part/App/PartParams.h>
 #include <Mod/Part/App/PartPyCXX.h>
@@ -3437,8 +3438,29 @@ bool SketchObject::simplifyBSpline(Part::GeomBSplineCurve *bspline, const std::s
         if (bspline->getDegree() > maxDegree) {
             std::string err;
             try {
+                Handle(Geom_BSplineCurve) before =
+                    Handle(Geom_BSplineCurve)::DownCast(bspline->handle());
                 bspline->approximate(ExternalBSplineTolerance.getValue(), 20,
                                      ExternalBSplineMaxDegree.getValue(), GeomAbs_C0);
+                // How far the simpler curve is from the one it stands for,
+                // for the edge made of it to say so (getEdge()). An edge at
+                // the default 1e-7 that is 6e-5 off the face it was cut from
+                // crosses that face dozens of times, and a pad built on it
+                // was fused to nothing (realthunder/FreeCAD#617).
+                Handle(Geom_BSplineCurve) after =
+                    Handle(Geom_BSplineCurve)::DownCast(bspline->handle());
+                if (!before.IsNull() && !after.IsNull() && before != after) {
+                    const double first = after->FirstParameter();
+                    const double last = after->LastParameter();
+                    const int count = std::max(200, 20 * after->NbKnots());
+                    double off = 0.0;
+                    for (int i = 0; i <= count; ++i) {
+                        const double t = first + (last - first) * i / count;
+                        off = std::max(off, before->Value(t).Distance(after->Value(t)));
+                    }
+                    bspline->setExtension(std::make_unique<Part::GeometryDoubleExtension>(
+                        1.1 * off, SimplifiedWithin));
+                }
                 return true;
             } catch (Base::Exception &e) {
                 err = e.what();

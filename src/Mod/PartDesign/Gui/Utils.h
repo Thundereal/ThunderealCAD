@@ -127,11 +127,17 @@ struct RefoundReference
     App::DocumentObject *object = nullptr;
     std::string was;
     std::string now;
+    /// Not a reference that was missing: one whose name has become another
+    /// element's while the element it was on is still there, unchanged
+    /// (App::ShadowSub::elsewhere, docs/TopoNamingEnhance.md sec 9.12).
+    /// 'was' is the element the name finds now, 'now' the one it was on.
+    /// Taken and shown the same way.
+    bool byPlace = false;
 };
 /// The colour such a reference is marked in where it is listed
 QColor refoundColor();
 /// What its row's, its cell's or its label's tip says
-QString refoundTip(const std::string &was);
+QString refoundTip(const std::string &was, bool byPlace = false);
 /// What a panel's line says of those it found, empty for none
 QString refoundNote(const std::vector<RefoundReference> &found);
 /// Their elements selected in the view, on the features they are of: in

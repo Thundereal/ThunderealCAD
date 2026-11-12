@@ -1208,6 +1208,25 @@ PyObject * DocumentObjectPy::getParents(PyObject *args) const{
     } PY_CATCH
 }
 
+PyObject *DocumentObjectPy::getReferencesElsewhere(PyObject *args) const
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+
+    PY_TRY {
+        Py::List list;
+        for (const auto &ref : PropertyLinkBase::getReferencesElsewhere(getDocumentObjectPtr())) {
+            Py::Tuple tuple(4);
+            tuple.setItem(0, Py::String(ref.prop->getName() ? ref.prop->getName() : ""));
+            tuple.setItem(1, Py::asObject(ref.object->getPyObject()));
+            tuple.setItem(2, Py::String(ref.sub));
+            tuple.setItem(3, Py::String(ref.elsewhere));
+            list.append(tuple);
+        }
+        return Py::new_reference_to(list);
+    } PY_CATCH
+}
+
 PyObject *DocumentObjectPy::adjustRelativeLinks(PyObject *args) {
     PyObject *pyobj;
     PyObject *recursive = Py_True;

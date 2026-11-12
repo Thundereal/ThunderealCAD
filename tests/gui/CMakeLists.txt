@@ -383,6 +383,12 @@ fc_add_gui_test(GuiDressUpListSort_tests_run dressup-list-sort.py
 # not taken silently; OK keeps it, Cancel leaves it missing.
 fc_add_gui_test(GuiDressUpRefoundEdge_tests_run dressup-refound-edge.py
                 --timeout 200)
+# And one that was not missing: a reference whose name has become another
+# element's in a recompute, the element it was on still there (the guard of
+# docs/TopoNamingEnhance.md sec 9.12). The panel takes that element, shown
+# the same way.
+fc_add_gui_test(GuiDressUpMovedReference_tests_run dressup-moved-reference.py
+                --timeout 200)
 # And the other PartDesign panels that look a lost reference up by name: a
 # pad's face, a draft's plane, a pipe's spine. A list takes every element
 # that answers, one that holds a single element only where one does.

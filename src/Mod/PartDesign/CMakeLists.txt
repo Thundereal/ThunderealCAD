@@ -109,6 +109,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestTopologicalNamingProblem.py
     PartDesignTests/TestNameEncoding.py
     PartDesignTests/TestNameStability.py
+    PartDesignTests/TestReferenceGuard.py
     PartDesignTests/TestEarlierPlacement.py
     PartDesignTests/TestReferenceSearch.py
     PartDesignTests/TestTwinReferences.py

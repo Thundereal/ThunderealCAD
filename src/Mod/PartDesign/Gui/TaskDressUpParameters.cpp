@@ -314,7 +314,7 @@ QString TaskDressUpParameters::withRefound(QTreeWidgetItem *row, const QString &
     for (const auto &found : refound) {
         if (getGeometryItemText(row) != found.now.c_str())
             continue;
-        const QString was = PartDesignGui::refoundTip(found.was);
+        const QString was = PartDesignGui::refoundTip(found.was, found.byPlace);
         return tip.isEmpty() || tip.startsWith(was) ? (tip.isEmpty() ? was : tip)
                                                     : was + QStringLiteral("\n") + tip;
     }

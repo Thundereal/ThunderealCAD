@@ -2109,8 +2109,14 @@ QColor refoundColor()
     return QColor(0xb0, 0x70, 0x00);
 }
 
-QString refoundTip(const std::string &was)
+QString refoundTip(const std::string &was, bool byPlace)
 {
+    if (byPlace)
+        return QObject::tr("Was %1 by its name, which is another element's since the last "
+                           "recompute: this is the element the reference was on, found where "
+                           "it was when this panel opened. "
+                           "OK keeps it, Cancel leaves the reference as it was.")
+                .arg(QString::fromStdString(was));
     return QObject::tr("Was %1: found again by its name when this panel opened. "
                        "OK keeps it, Cancel leaves the reference as it was.")
             .arg(QString::fromStdString(was));
@@ -2120,25 +2126,37 @@ QString refoundNote(const std::vector<RefoundReference> &found)
 {
     // each as "Edge8 is now Edge10", one that became several as
     // "Edge13 is now Edge13, Edge17"
-    QStringList said;
+    QStringList said, moved;
     std::vector<std::string> done;
     for (const auto &first : found) {
+        if (first.byPlace) {
+            moved << QObject::tr("%1 in place of %2").arg(QString::fromStdString(first.now),
+                                                          QString::fromStdString(first.was));
+            continue;
+        }
         if (std::find(done.begin(), done.end(), first.was) != done.end())
             continue;
         done.push_back(first.was);
         QStringList now;
         for (const auto &other : found) {
-            if (other.object == first.object && other.was == first.was)
+            if (!other.byPlace && other.object == first.object && other.was == first.was)
                 now << QString::fromStdString(other.now);
         }
         said << QObject::tr("%1 is now %2").arg(QString::fromStdString(first.was),
                                                 now.join(QStringLiteral(", ")));
     }
-    if (said.isEmpty())
+    QStringList notes;
+    if (!said.isEmpty())
+        notes << QObject::tr("Found again by name: %1.").arg(said.join(QStringLiteral("; ")));
+    if (!moved.isEmpty())
+        notes << QObject::tr("A name had become another element's; the element the reference "
+                             "was on is taken, found where it was: %1.")
+                         .arg(moved.join(QStringLiteral("; ")));
+    if (notes.isEmpty())
         return QString();
-    return QObject::tr("Found again by name: %1. Selected in the view and marked here: check, "
-                       "then OK keeps it, Cancel leaves the reference as it was.")
-            .arg(said.join(QStringLiteral("; ")));
+    notes << QObject::tr("Selected in the view and marked here: check, "
+                         "then OK keeps it, Cancel leaves the reference as it was.");
+    return notes.join(QStringLiteral(" "));
 }
 
 void selectRefound(const std::vector<RefoundReference> &found, bool add)
@@ -2235,6 +2253,30 @@ bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &p
             element = baseShape.getSubShape(ref.c_str());
         }catch(...) {}
         if(!element.isNull())  {
+            // A name that has become another element's since the reference
+            // was made, the element it was on still there (the guard of
+            // docs/TopoNamingEnhance.md sec 9.12): that element is taken,
+            // and told to the panel as one found again is.
+            std::string there;
+            if (!sub.elsewhere.empty()) {
+                App::ShadowSub resolved;
+                App::GeoFeature::resolveElement(base, sub.elsewhere.c_str(), resolved, true,
+                        App::GeoFeature::ElementNameType::Export);
+                if (!resolved.first.empty() && !resolved.second.empty()
+                        && !Data::hasMissingElement(resolved.second.c_str())
+                        && resolved.second != refs.back()
+                        && subSet.insert(resolved.first).second
+                        && subSet.insert(resolved.second).second)
+                    there = resolved.second;
+            }
+            if (!there.empty()) {
+                FC_WARN("element reference in " << prop.getFullName() << ": " << refs.back()
+                        << " -> " << there << ", the element it was on");
+                if (refound)
+                    refound->push_back({base, refs.back(), there, true});
+                refs.back() = there;
+                touched = true;
+            }
             auto item = new QTreeWidgetItem(treeWidget);
             item->setText(0, QString::fromStdString(refs.back()));
             setGeometryItemText(item, refs.back());
@@ -2263,7 +2305,7 @@ bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &p
             item->setText(0, QString::fromStdString(indexedName));
             setGeometryItemText(item, indexedName);
             if (refound)
-                refound->push_back({base, was, indexedName});
+                refound->push_back({base, was, indexedName, false});
             if(!popped) {
                 refs.pop_back();
                 touched = true;

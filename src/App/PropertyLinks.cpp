@@ -651,6 +651,129 @@ void PropertyLinkBase::restoreLabelReference(const DocumentObject *obj,
     subname = newSub + sub;
 }
 
+/** The guard on a reference that resolves (docs/TopoNamingEnhance.md sec
+ * 9.12). The target has just changed its shape and the reference's name is
+ * still one of its names. A name that holds a place -- the second of two
+ * results, the first of several -- may by now be the name of another
+ * element, and nothing said so: the reference moved, silently. Here the
+ * element the reference was on is looked for in the new shape by its
+ * geometry, as a missing one is. Where it is still there, unchanged, as one
+ * element, and that is not the element the name finds, the reference has
+ * been moved off it: said in the report, and kept with the reference
+ * (ShadowSub::elsewhere) for the panel that shows it. The reference itself
+ * goes on by its name: a shape that changed is no ground for moving it
+ * unseen (ruled 2026-11-11).
+ */
+void PropertyLinkBase::doubtElementReference(GeoFeature *geo, DocumentObject *obj,
+        const char *subname, const char *element, ShadowSub &shadow,
+        const ShadowSub &resolved)
+{
+    if (resolved.first.empty() || shadow.second.empty())
+        return;
+    // What is kept is saved with the reference: a change of it is a change
+    // to what the file holds
+    struct NoteKept
+    {
+        PropertyLinkBase *prop;
+        const std::string &kept;
+        std::string was;
+        ~NoteKept()
+        {
+            if (kept == was)
+                return;
+            auto owner = freecad_dynamic_cast<DocumentObject>(prop->getContainer());
+            if (owner && owner->getDocument())
+                owner->getDocument()->noteSavedChange(owner);
+        }
+    } noteKept {this, shadow.elsewhere, shadow.elsewhere};
+    // The element as the reference held it before this change, by number
+    const char *oldElement = Data::findElementName(shadow.second.c_str());
+    const char *newElement = Data::findElementName(resolved.second.c_str());
+    if (!oldElement || !oldElement[0] || Data::hasMissingElement(oldElement)
+            || !newElement || !newElement[0])
+        return;
+    std::string oldSub(subname, strlen(subname) - strlen(element));
+    oldSub += oldElement;
+    const auto &names = geo->searchElementCache(oldElement,
+            Data::SearchOption::CheckGeometry, 1e-7, 1e-10, this, obj, oldSub.c_str());
+    // Not there any more: it changed, and the name is all there is to go by.
+    // There as the element the name finds: nothing moved.
+    if (names.empty() || std::find(names.begin(), names.end(), newElement) != names.end()) {
+        // What was kept from before stays only while it still names an
+        // element other than this one
+        if (!shadow.elsewhere.empty()) {
+            ShadowSub kept;
+            const char *keptElement = nullptr;
+            GeoFeature::resolveElement(obj, shadow.elsewhere.c_str(), kept, true,
+                    GeoFeature::ElementNameType::Export, nullptr, &keptElement);
+            if (kept.first.empty() || GeoFeature::hasMissingElement(kept.second.c_str())
+                    || kept.second == resolved.second)
+                shadow.elsewhere.clear();
+        }
+        return;
+    }
+    // In several places: which of them it is cannot be told
+    if (names.size() != 1) {
+        shadow.elsewhere.clear();
+        return;
+    }
+    std::string there(subname, strlen(subname) - strlen(element));
+    there += names.front();
+    ShadowSub found;
+    GeoFeature::resolveElement(obj, there.c_str(), found, true,
+            GeoFeature::ElementNameType::Export);
+    shadow.elsewhere = found.first.empty() ? found.second : found.first;
+    FC_WARN(propertyName(this) << " element reference " << obj->getFullName() << " "
+            << resolved.first << " names " << newElement << " now, and the element it was on is "
+            << names.front() << ": the reference goes by the name; check it");
+}
+
+std::vector<PropertyLinkBase::ReferenceElsewhere>
+PropertyLinkBase::getReferencesElsewhere(const PropertyContainer *owner)
+{
+    std::vector<ReferenceElsewhere> res;
+    if (!owner)
+        return res;
+    auto add = [&res](const Property *prop, DocumentObject *obj, const std::string &sub,
+                      const ShadowSub &shadow) {
+        if (!obj || !obj->isAttachedToDocument() || shadow.elsewhere.empty())
+            return;
+        // As the target has it now; one it has no more is no answer
+        ShadowSub there;
+        GeoFeature::resolveElement(obj, shadow.elsewhere.c_str(), there, true,
+                GeoFeature::ElementNameType::Export);
+        if (there.first.empty() || there.second.empty()
+                || GeoFeature::hasMissingElement(there.second.c_str())
+                || there.second == sub || there.second == shadow.second)
+            return;
+        res.push_back({prop, obj, shadow.second.empty() ? sub : shadow.second, there.second});
+    };
+    std::vector<Property*> props;
+    owner->getPropertyList(props);
+    for (auto prop : props) {
+        if (auto link = freecad_dynamic_cast<PropertyLinkSub>(prop)) {
+            const auto &subs = link->getSubValues();
+            const auto &shadows = link->getShadowSubs();
+            for (size_t i = 0; i < subs.size() && i < shadows.size(); ++i)
+                add(prop, link->getValue(), subs[i], shadows[i]);
+        }
+        else if (auto list = freecad_dynamic_cast<PropertyLinkSubList>(prop)) {
+            const auto &objs = list->getValues();
+            const auto &subs = list->getSubValues();
+            const auto &shadows = list->getShadowSubs();
+            for (size_t i = 0; i < objs.size() && i < subs.size() && i < shadows.size(); ++i)
+                add(prop, objs[i], subs[i], shadows[i]);
+        }
+        else if (auto xlink = freecad_dynamic_cast<PropertyXLink>(prop)) {
+            const auto &subs = xlink->getSubValues();
+            const auto &shadows = xlink->getShadowSubs();
+            for (size_t i = 0; i < subs.size() && i < shadows.size(); ++i)
+                add(prop, xlink->getValue(), subs[i], shadows[i]);
+        }
+    }
+    return res;
+}
+
 bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         App::DocumentObject *obj, std::string &sub, ShadowSub &shadow,
         bool reverse, bool notify)
@@ -707,6 +830,8 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         && (testFlag(LinkRestoring)
             || (owner && owner->getDocument()
                       && owner->getDocument()->testStatus(Document::Restoring)));
+    if (!reverse && feature == geo && !missing && following == Following::No)
+        doubtElementReference(geo, obj, subname, element, shadow, elementName);
     if (!reverse) {
         // Missing by the lookup while restoring, it was there when the file
         // was saved: the target changed while this document was closed, and
@@ -2296,6 +2421,7 @@ void PropertyLinkSub::purgeTouched() {
 #define ATTR_SHADOW "shadow"
 #define ATTR_MAPPED "mapped"
 #define ATTR_SIDS "sids"
+#define ATTR_ELSEWHERE "elsewhere"
 #define ATTR_STORED "stored"
 
 /// Whether every id of 'sids' is one of 'hasher's
@@ -2321,6 +2447,11 @@ static void saveShadowIDs(Base::Writer &writer, const PropertyLinkBase::ShadowSu
                           const PropertyContainer *container)
 {
     StringHasherRef hasher = ownerHasher(container);
+    // Where the element the reference was on lies, while its name is
+    // another element's (doubtElementReference())
+    if (!shadow.elsewhere.empty())
+        writer.Stream() << "\" " ATTR_ELSEWHERE "=\""
+                        << Base::Persistence::encodeAttribute(shadow.elsewhere);
     const Data::ElementIDRefs *held = &shadow.sids;
     if (!shadow.stored.empty() && (!hasher || allOf(shadow.storedIds, hasher))) {
         writer.Stream() << "\" " ATTR_STORED "=\""
@@ -2353,6 +2484,10 @@ static void restoreShadowIDs(Base::XMLReader &reader, PropertyLinkBase::ShadowSu
     shadow.stored.clear();
     shadow.storedIds.clear();
     shadow.pending = false;
+    shadow.elsewhere.clear();
+    // Not from another copy of the file: its names are of another table
+    if (!RestoreStrings::current() && reader.hasAttribute(ATTR_ELSEWHERE))
+        shadow.elsewhere = reader.getAttribute(ATTR_ELSEWHERE);
     if (auto strings = RestoreStrings::current()) {
         // A value of another copy of the file (sec 30.16): the name was
         // taken into this table as it was read (importSubName), and the

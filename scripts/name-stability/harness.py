@@ -21,7 +21,7 @@ class Names:
 
     ID = re.compile(r"^#([0-9a-f]+)(?::([0-9a-f]+))?$")
     TAG = re.compile(r";:H(-?[0-9a-f]*)(?::([0-9a-f]+))?,(.)$")
-    OWN = re.compile(r"^;:(MG|M|G|U|L|I|C|X|R|B)(\d*)|^;(D)([0-9a-f]+)|^;(I)(\d+)")
+    OWN = re.compile(r"^;:(MG|M|G|U|L|I|C|X|R|B)(-?\d*)(?:-(\d+))?|^;(D)([0-9a-f]+)|^;(I)(\d+)")
     INPUT = re.compile(r"^(Face|Edge|Vertex|Wire|Shell|Solid)\d+$")
 
     def __init__(self, hasher):
@@ -64,15 +64,21 @@ class Names:
         m = self.OWN.match(own)
         if not m:
             return "op"
-        if m.group(3):
+        if m.group(4):
             return "D"
-        if m.group(5):
+        if m.group(6):
             return "I"
         k, n = m.group(1), m.group(2)
         if k in ("M", "G", "MG"):
             # '0' and '00' are the two fixed places (parallel, coplanar)
             if n in ("0", "00"):
                 return "hist"
+            # the last piece of an edge along its curve
+            if n == "-1":
+                return "Me"
+            # a piece between the ends, with how many pieces there are
+            if m.group(3):
+                return "Mk"
             if n:
                 return "Mn"
             return "M1" if (base, k) in self.numbered else "hist"
@@ -119,9 +125,11 @@ class Names:
         return res
 
     # U: a place among an upper element's unnamed ones.  Mn, M1: a place among
-    # one source's results (M1 the number-less first).  D: a place among
-    # elements of one name.  I: a place in a pattern or an array, which is meant.
-    POSITIONAL = ("U", "Bn", "Mn", "M1", "D", "I")
+    # the results of the same sources (M1 the number-less first).  Me, Mk: a
+    # piece of an edge, the last along its curve and one between the ends (the
+    # first is M1).  D: a place among elements of one name.  I: a place in a
+    # pattern or an array, which is meant.
+    POSITIONAL = ("U", "Bn", "Mn", "M1", "Me", "Mk", "D", "I")
 
     def own(self, name):
         return self.chain(name)[0]

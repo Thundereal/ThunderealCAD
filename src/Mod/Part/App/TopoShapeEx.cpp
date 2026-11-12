@@ -202,6 +202,9 @@
 #include <deque>
 #include <mutex>
 #include <set>
+#include <GeomAPI_ProjectPointOnCurve.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <unordered_map>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -4466,7 +4469,125 @@ struct NameInfo {
     int index;
     Data::ElementIDRefs sids;
     const char *shapetype;
+    // The input element this is the name of: the input shape, and the
+    // element's place in it
+    size_t input = 0;
+    int source = 0;
+    // The element's place among the elements of the very same sources: 1 the
+    // first or only one, 2 and on the next, -1 the last of an edge's pieces
+    // along its curve
+    int rank = 1;
+    // How many those are, where the name says so: of the pieces of an edge,
+    // those between the first and the last
+    int of = 0;
 };
+
+// Whether an element is another as it was: on the very surface or curve, at
+// the same location, with the same bounds; a vertex at the very point. No
+// tolerance but the parametric one on an edge's range.
+static bool isElementAsItWas(const TopoDS_Shape &was, const TopoDS_Shape &is)
+{
+    if (was.ShapeType() != is.ShapeType())
+        return false;
+    if (was.IsSame(is))
+        return true;
+    switch (was.ShapeType()) {
+    case TopAbs_VERTEX:
+        return BRep_Tool::Pnt(TopoDS::Vertex(was)).IsEqual(
+                BRep_Tool::Pnt(TopoDS::Vertex(is)), 0.0);
+    case TopAbs_EDGE: {
+        const TopoDS_Edge &a = TopoDS::Edge(was);
+        const TopoDS_Edge &b = TopoDS::Edge(is);
+        TopLoc_Location locA, locB;
+        double firstA, lastA, firstB, lastB;
+        auto curveA = BRep_Tool::Curve(a, locA, firstA, lastA);
+        auto curveB = BRep_Tool::Curve(b, locB, firstB, lastB);
+        if (curveA.IsNull() || curveB.IsNull()) {
+            // an edge shrunk to a point, by its point
+            return curveA.IsNull() && curveB.IsNull()
+                && BRep_Tool::Degenerated(a) && BRep_Tool::Degenerated(b)
+                && isElementAsItWas(TopExp::FirstVertex(a), TopExp::FirstVertex(b));
+        }
+        return curveA == curveB && locA.IsEqual(locB)
+            && std::fabs(firstA - firstB) <= Precision::PConfusion()
+            && std::fabs(lastA - lastB) <= Precision::PConfusion();
+    }
+    case TopAbs_FACE: {
+        TopLoc_Location locA, locB;
+        auto surfaceA = BRep_Tool::Surface(TopoDS::Face(was), locA);
+        auto surfaceB = BRep_Tool::Surface(TopoDS::Face(is), locB);
+        if (surfaceA.IsNull() || surfaceA != surfaceB || !locA.IsEqual(locB))
+            return false;
+        // The same bounds: edge for edge
+        TopTools_IndexedMapOfShape edgesA, edgesB;
+        TopExp::MapShapes(was, TopAbs_EDGE, edgesA);
+        TopExp::MapShapes(is, TopAbs_EDGE, edgesB);
+        if (edgesA.Extent() != edgesB.Extent())
+            return false;
+        auto curveOf = [](const TopoDS_Shape &edge) {
+            TopLoc_Location loc;
+            double first, last;
+            return static_cast<const Standard_Transient*>(
+                    BRep_Tool::Curve(TopoDS::Edge(edge), loc, first, last).get());
+        };
+        std::unordered_multimap<const Standard_Transient*, int> byCurve;
+        for (int i = 1; i <= edgesB.Extent(); ++i)
+            byCurve.emplace(curveOf(edgesB(i)), i);
+        for (int i = 1; i <= edgesA.Extent(); ++i) {
+            auto range = byCurve.equal_range(curveOf(edgesA(i)));
+            auto it = range.first;
+            for (; it != range.second; ++it) {
+                if (isElementAsItWas(edgesA(i), edgesB(it->second)))
+                    break;
+            }
+            if (it == range.second)
+                return false;
+            byCurve.erase(it);
+        }
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+// Where a piece of an edge lies along that edge's curve: the parameter of the
+// piece's middle on it.
+static bool pieceParameter(const TopoDS_Edge &source, const TopoDS_Edge &piece, double &param)
+{
+    TopLoc_Location locS, locP;
+    double firstS, lastS, firstP, lastP;
+    auto curveS = BRep_Tool::Curve(source, locS, firstS, lastS);
+    auto curveP = BRep_Tool::Curve(piece, locP, firstP, lastP);
+    if (curveS.IsNull() || curveP.IsNull())
+        return false;
+    if (curveS == curveP && locS.IsEqual(locP))
+        param = (firstP + lastP) / 2;
+    else {
+        // a piece on a curve of its own, by its middle's foot on the source's
+        Handle(Geom_Curve) placedS = BRep_Tool::Curve(source, firstS, lastS);
+        Handle(Geom_Curve) placedP = BRep_Tool::Curve(piece, firstP, lastP);
+        if (placedS.IsNull() || placedP.IsNull())
+            return false;
+        try {
+            GeomAPI_ProjectPointOnCurve foot(placedP->Value((firstP + lastP) / 2), placedS);
+            if (foot.NbPoints() == 0
+                    || foot.LowerDistance() > std::max(BRep_Tool::Tolerance(source),
+                                                       BRep_Tool::Tolerance(piece)))
+                return false;
+            param = foot.LowerDistanceParameter();
+        }
+        catch (Standard_Failure &) {
+            return false;
+        }
+    }
+    if (curveS->IsPeriodic()) {
+        // counted round from where the source starts
+        const double period = curveS->Period();
+        param = firstS + std::fmod(std::fmod(param - firstS, period) + period, period);
+    }
+    return true;
+}
 
 TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
         const std::vector<TopoShape> &shapes, const char *op)
@@ -4595,6 +4716,8 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
                     name_info.sids = sids;
                     name_info.index = k;
                     name_info.shapetype = info.shapetype;
+                    name_info.input = n;
+                    name_info.source = i;
                 }
                 if (k)
                     reportedModified[std::make_tuple(n, int(info.type), i)] = k;
@@ -4708,6 +4831,8 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
                         else
                             name_info.index = -k;
                         name_info.shapetype = info.shapetype;
+                        name_info.input = n;
+                        name_info.source = i;
                     }
                     key.shapetype -= shapeOffset;
                 }
@@ -4725,6 +4850,25 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
     // forward pass, from their neighbours (docs/TopoNamingEnhance.md sec 9).
     // The pieces are counted on from what the maker did report for the input
     // element, so that no name is one the maker's own history gives another.
+    auto modifiedFrom = [&](ShapeInfo &info, int j, size_t n, int i) {
+        const auto &other = shapes[n];
+        Data::ElementIDRefs sids;
+        Data::MappedName otherName = other.getMappedName(
+                Data::IndexedName::fromConst(info.shapetype, i), true, &sids);
+        if (Hasher && other.Hasher && Hasher != other.Hasher) {
+            Data::MappedName imported;
+            if (Hasher->importName(otherName, *other.Hasher, imported, sids, importMemo))
+                otherName = imported;
+        }
+        NameKey key(info.type, otherName);
+        key.tag = other.Tag;
+        auto &name_info = newNames[Data::IndexedName::fromConst(info.shapetype, j)][key];
+        name_info.sids = sids;
+        name_info.index = ++reportedModified[std::make_tuple(n, int(info.type), i)];
+        name_info.shapetype = info.shapetype;
+        name_info.input = n;
+        name_info.source = i;
+    };
     for (auto type : {TopAbs_FACE, TopAbs_EDGE}) {
         auto &info = *infoMap[type];
         std::vector<int> unnamed;
@@ -4787,21 +4931,223 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
             // from is not to be told
             if (!found || !unique)
                 continue;
-            const auto &other = shapes[found->shape];
-            Data::ElementIDRefs sids;
-            Data::MappedName otherName = other.getMappedName(
-                    Data::IndexedName::fromConst(info.shapetype, found->index), true, &sids);
-            if (Hasher && other.Hasher && Hasher != other.Hasher) {
-                Data::MappedName imported;
-                if (Hasher->importName(otherName, *other.Hasher, imported, sids, importMemo))
-                    otherName = imported;
+            modifiedFrom(info, j, found->shape, found->index);
+        }
+    }
+
+    // Whether a vertex of the result is a vertex of an input as it was: at
+    // the very point, and the end of an edge that is one of that vertex's
+    // edges as it was. The point alone is not enough: a mirror leaves the
+    // vertices in its plane where they were, and they are the mirror's all
+    // the same.
+    auto vertexAsItWas = [&](size_t n, int i, int j) {
+        const auto &other = shapes[n];
+        TopoDS_Shape was = other._Cache->getInfo(TopAbs_VERTEX).find(other._Shape, i);
+        TopoDS_Shape is = vinfo.find(j);
+        if (was.IsNull() || is.IsNull() || !isElementAsItWas(was, is))
+            return false;
+        for (int e : other.findAncestors(was, TopAbs_EDGE)) {
+            TopoDS_Shape edge = other._Cache->getInfo(TopAbs_EDGE).find(other._Shape, e);
+            for (int k : findAncestors(is, TopAbs_EDGE)) {
+                if (isElementAsItWas(edge, einfo.find(k)))
+                    return true;
             }
-            NameKey key(type, otherName);
-            key.tag = other.Tag;
-            auto &name_info = newNames[Data::IndexedName::fromConst(info.shapetype, j)][key];
-            name_info.sids = sids;
-            name_info.index = ++reportedModified[std::make_tuple(found->shape, int(type), found->index)];
-            name_info.shapetype = info.shapetype;
+        }
+        return false;
+    };
+
+    // The same for a vertex, which has no geometry to share but its point: a
+    // vertex with no history at the very point of one input vertex, and an
+    // end of one of its edges still (vertexAsItWas()), is that vertex
+    // (docs/TopoNamingEnhance.md sec 9.12).
+    {
+        auto &info = vinfo;
+        std::vector<int> unnamed;
+        for (int j=1; j<=info.count(); ++j) {
+            Data::IndexedName element = Data::IndexedName::fromConst(info.shapetype, j);
+            if (!getMappedName(element) && !newNames.count(element))
+                unnamed.push_back(j);
+        }
+        if (!unnamed.empty()) {
+            auto point = [](const TopoDS_Shape &s) {
+                gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(s));
+                return std::array<double, 3> {p.X(), p.Y(), p.Z()};
+            };
+            std::map<std::array<double, 3>, std::vector<std::pair<size_t, int>>> sources;
+            for (size_t n=0; n<shapes.size(); ++n) {
+                const auto &other = shapes[n];
+                if (!canMapElement(other))
+                    continue;
+                auto &otherMap = other._Cache->getInfo(TopAbs_VERTEX);
+                for (int i=1; i<=otherMap.count(); ++i)
+                    sources[point(otherMap.find(other._Shape, i))].emplace_back(n, i);
+            }
+            for (int j : unnamed) {
+                auto it = sources.find(point(info.find(j)));
+                if (it != sources.end() && it->second.size() == 1
+                        && vertexAsItWas(it->second.front().first, it->second.front().second, j))
+                    modifiedFrom(info, j, it->second.front().first, it->second.front().second);
+            }
+        }
+    }
+
+    // An element made again as it was is named as one passed on is
+    // (mapSubElement() above): the input element's names under its tag, with
+    // no step of this operation. A maker passes a wall on in one run and
+    // makes it again in the next, the same wall on the same surface with the
+    // same bounds, and the one was named "Face2" and the other "Face2;:M": a
+    // reference to it was lost at a change of a thickness that changed
+    // nothing of it (docs/TopoNamingEnhance.md sec 9.8 finding 4, sec 9.12).
+    // Only where the input element has this one result and nothing else is
+    // said of the result, and the input element is not in the result itself.
+    // And only for an input under a tag: with none -- a shape between two
+    // steps of one feature -- the name passed on is the input's bare one,
+    // which nothing tells from a number ("Wall1").
+    for (auto itName = newNames.begin(); itName != newNames.end();) {
+        const auto &element = itName->first;
+        auto &names = itName->second;
+        const auto &key = names.begin()->first;
+        const auto &name_info = names.begin()->second;
+        auto &info = element[0] == 'F' ? finfo : element[0] == 'E' ? einfo : vinfo;
+        bool passed = false;
+        if (names.size() == 1 && name_info.index == 1 && key.shapetype < 3
+                && name_info.shapetype[0] == element[0]
+                && shapes[name_info.input].Tag != 0)
+        {
+            const auto &other = shapes[name_info.input];
+            auto counted = reportedModified.find(
+                    std::make_tuple(name_info.input, int(info.type), name_info.source));
+            TopoDS_Shape was = other._Cache->getInfo(info.type).find(other._Shape, name_info.source);
+            if (counted != reportedModified.end() && counted->second == 1
+                    && !was.IsNull() && !info.find(was)
+                    && (info.type == TopAbs_VERTEX
+                            ? vertexAsItWas(name_info.input, name_info.source, element.getIndex())
+                            : isElementAsItWas(was, info.find(element.getIndex()))))
+            {
+                for (auto &v : other.getElementMappedNames(
+                            Data::IndexedName::fromConst(info.shapetype, name_info.source), true))
+                {
+                    auto &name = v.first;
+                    auto &sids = v.second;
+                    if (Hasher && other.Hasher && Hasher != other.Hasher) {
+                        Data::MappedName imported;
+                        if (Hasher->importName(name, *other.Hasher, imported, sids, importMemo))
+                            name = imported;
+                    }
+                    ss.str("");
+                    encodeElementName(element[0], name, ss, &sids, nullptr, other.Tag);
+                    setElementName(element, name, &sids);
+                    passed = true;
+                }
+            }
+        }
+        if (passed)
+            itName = newNames.erase(itName);
+        else
+            ++itName;
+    }
+
+    // What a name spells of an element's sources: the first, and up to four
+    // more, none of them of a high level where the first is not (the naming
+    // loop below).
+    auto spelledSources = [](std::map<NameKey,NameInfo> &names) {
+        std::vector<std::pair<const NameKey*, NameInfo*>> res;
+        for (auto &v : names) {
+            if (!res.empty() && v.first.shapetype >= 3 && res.front().first->shapetype < 3)
+                break;
+            res.emplace_back(&v.first, &v.second);
+            if (res.size() == 5)
+                break;
+        }
+        return res;
+    };
+
+    // The place of each element among the elements of the very same sources.
+    // A name held the place of its element in the list the maker gives for
+    // its first source, and of each further source in that source's list:
+    // one result more in a list, of whatever other sources, moved the numbers
+    // of all after it (docs/TopoNamingEnhance.md sec 9.8 finding 3, sec
+    // 9.12). The sources tell most results apart with no number at all -- a
+    // cut's edge is the one edge of this face and that one -- and where they
+    // do not, the number is counted among those they leave: in the maker's
+    // order, or, for the pieces of one edge, along that edge's curve.
+    {
+        struct Member {
+            Data::IndexedName element;
+            NameInfo *first = nullptr;
+            std::vector<int> order;
+            double param = 0.0;
+        };
+        std::map<std::string, std::vector<Member>> groups;
+        std::string group;
+        for (auto &v : newNames) {
+            group.clear();
+            Member member;
+            member.element = v.first;
+            for (auto &source : spelledSources(v.second)) {
+                const NameKey &key = *source.first;
+                const NameInfo &name_info = *source.second;
+                if (!member.first)
+                    member.first = source.second;
+                group += std::to_string(key.shapetype);
+                group += ',';
+                group += std::to_string(key.tag);
+                group += name_info.index == INT_MIN ? 'p' : name_info.index == INT_MIN+1 ? 'c'
+                       : name_info.index > 0 ? 'm' : 'g';
+                key.name.appendToBuffer(group);
+                group += '\n';
+                member.order.push_back(std::abs(name_info.index));
+            }
+            group += v.first.getType();
+            groups[group].push_back(std::move(member));
+        }
+        for (auto &v : groups) {
+            auto &members = v.second;
+            if (members.size() < 2)
+                continue;
+            // The pieces of one edge and nothing else: along its curve
+            bool along = members.front().element[0] == 'E'
+                      && members.front().order.size() == 1
+                      && members.front().first->index > 0
+                      && members.front().first->shapetype[0] == 'E';
+            if (along) {
+                const NameInfo &name_info = *members.front().first;
+                const auto &other = shapes[name_info.input];
+                TopoDS_Shape source = other._Cache->getInfo(TopAbs_EDGE).find(
+                        other._Shape, name_info.source);
+                for (auto &member : members) {
+                    if (source.IsNull()
+                            || !pieceParameter(TopoDS::Edge(source),
+                                    TopoDS::Edge(einfo.find(member.element.getIndex())),
+                                    member.param))
+                    {
+                        along = false;
+                        break;
+                    }
+                }
+            }
+            if (along) {
+                std::stable_sort(members.begin(), members.end(),
+                        [](const Member &a, const Member &b) { return a.param < b.param; });
+                // The first and the last hold an end of the edge and are
+                // told by it. One between them is told by nothing but its
+                // place, which is another piece's once one more is cut
+                // anywhere before it: it says how many there are as well, so
+                // that its name is then no name at all, and not another
+                // piece's.
+                const int count = static_cast<int>(members.size());
+                for (int i = 0; i < count; ++i) {
+                    members[i].first->rank = i == count - 1 ? -1 : i + 1;
+                    if (i > 0 && i < count - 1)
+                        members[i].first->of = count;
+                }
+            }
+            else {
+                std::stable_sort(members.begin(), members.end(),
+                        [](const Member &a, const Member &b) { return a.order < b.order; });
+                for (size_t i = 0; i < members.size(); ++i)
+                    members[i].first->rank = static_cast<int>(i) + 1;
+            }
         }
     }
 
@@ -4871,7 +5217,7 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
                         ss << '|';
                     auto &other_info = it->second;
                     std::ostringstream ss2;
-                    if(other_info.index!=1) {
+                    if(other_info.index<0) {
                         // 'K' marks the additional source shape of this
                         // generate (or modified) shape.
                         ss2 << elementMapPrefix() << 'K';
@@ -4880,13 +5226,12 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
                         else if(other_info.index == INT_MIN+1)
                             ss2 << "00";
                         else {
-                            // The same source shape may generate or modify
-                            // more than one shape. The index here marks the
-                            // position it is reported by OCC. Including the
-                            // index here is likely to degrade name stablilty,
-                            // but is unfortunately a necessity to avoid
-                            // duplicate names.
-                            ss2 << other_info.index;
+                            // Only whether the source generated or modified
+                            // this one: its place in the list the maker
+                            // gives for the source is no longer held here
+                            // (the ranks above tell apart what the sources
+                            // do not)
+                            ss2 << -1;
                         }
                     }
                     Data::MappedName other_name = other_key.name;
@@ -4926,8 +5271,11 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
                 ss << '0';
             else if(first_info.index == INT_MIN+1)
                 ss << "00";
-            else if(abs(first_info.index)>1)
-                ss << abs(first_info.index);
+            else if(first_info.rank != 1) {
+                ss << first_info.rank;
+                if (first_info.of)
+                    ss << '-' << first_info.of;
+            }
             ss << postfix;
             encodeElementName(element[0],first_name,ss,&sids,op,first_key.tag);
             setElementName(element,first_name,&sids);

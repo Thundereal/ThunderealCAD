@@ -1917,8 +1917,8 @@ void PropertyPartShape::afterRestore()
         // own, read after the document's XML: Restore() had the version and
         // no map, and took the shape for one with nothing to make again. So
         // a file upstream wrote was never asked for its recompute, whatever
-        // its version. Its names are of naming 15 where this build's are 16
-        // (docs/TopoNamingEnhance.md sec 9.11), and a reference to an edge
+        // its version. Its names are of naming 15 where this build's are of a
+        // later one (docs/TopoNamingEnhance.md sec 9.11), and a reference to an edge
         // named the old way is lost at the first edit that moves the edge
         // unless the shape is made again as it is first. Only the naming is
         // compared: the kernel and the map format upstream writes are other

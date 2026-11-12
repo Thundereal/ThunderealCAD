@@ -25,6 +25,9 @@
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <ShapeFix_ShapeTolerance.hxx>
 #include <BRep_Builder.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Tool.hxx>
+#include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -1827,7 +1830,7 @@ TEST_F(TopoShapeExpansionTest, makEBooleanCut)
             "Edge2",
             "Edge2;:M;CUT;:H2:7,E",
             "Edge3",
-            "Edge3;:M;CUT;:H2:7,E",
+            "Edge3;:H2,E",
             "Edge4",
             "Edge4;:M;CUT;:H2:7,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);CUT;:H1:1b,V",
@@ -1850,9 +1853,9 @@ TEST_F(TopoShapeExpansionTest, makEBooleanCut)
             "Vertex1",
             "Vertex2",
             "Vertex3",
-            "Vertex3;:M;CUT;:H2:7,V",
+            "Vertex3;:H2,V",
             "Vertex4",
-            "Vertex4;:M;CUT;:H2:7,V",
+            "Vertex4;:H2,V",
             "Vertex7",
             "Vertex8",
         }
@@ -1882,36 +1885,36 @@ TEST_F(TopoShapeExpansionTest, makEBooleanFuse)
             "Edge1",
             "Edge10;:G(Edge2;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge10;:H2,E",
-            "Edge10;:M2;FUS;:H1:8,E",
+            "Edge10;:M-1;FUS;:H1:9,E",
             "Edge10;:M;FUS;:H1:7,E",
             "Edge11",
-            "Edge11;:M2;FUS;:H2:8,E",
+            "Edge11;:M-1;FUS;:H2:9,E",
             "Edge11;:M;FUS;:H2:7,E",
             "Edge12",
-            "Edge12;:M2;FUS;:H2:8,E",
+            "Edge12;:M-1;FUS;:H2:9,E",
             "Edge12;:M;FUS;:H2:7,E",
             "Edge1;:H2,E",
             "Edge2",
-            "Edge2;:M2;FUS;:H2:8,E",
+            "Edge2;:M-1;FUS;:H2:9,E",
             "Edge2;:M;FUS;:H2:7,E",
             "Edge3",
             "Edge4",
-            "Edge4;:M2;FUS;:H2:8,E",
+            "Edge4;:M-1;FUS;:H2:9,E",
             "Edge4;:M;FUS;:H2:7,E",
             "Edge5;:H2,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge6;:H2,E",
-            "Edge6;:M2;FUS;:H1:8,E",
+            "Edge6;:M-1;FUS;:H1:9,E",
             "Edge6;:M;FUS;:H1:7,E",
             "Edge7",
             "Edge7;:H2,E",
             "Edge8;:G(Edge11;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge8;:H2,E",
-            "Edge8;:M2;FUS;:H1:8,E",
+            "Edge8;:M-1;FUS;:H1:9,E",
             "Edge8;:M;FUS;:H1:7,E",
             "Edge9;:G(Edge4;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge9;:H2,E",
-            "Edge9;:M2;FUS;:H1:8,E",
+            "Edge9;:M-1;FUS;:H1:9,E",
             "Edge9;:M;FUS;:H1:7,E",
             "Face1",
             "Face1;:M;FUS;:H2:7,F",
@@ -1923,10 +1926,10 @@ TEST_F(TopoShapeExpansionTest, makEBooleanFuse)
             "Face3;:M;FUS;:H1:7,F",
             "Face4",
             "Face4;:M;FUS;:H2:7,F",
-            "Face5;:M2(Face5;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face5;:M(Face5;:H2,F);FUS;:H1:14,F",
             "Face5;:M;FUS;:H1:7,F",
             "Face5;:M;FUS;:H2:7,F",
-            "Face6;:M2(Face6;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face6;:M(Face6;:H2,F);FUS;:H1:14,F",
             "Face6;:M;FUS;:H1:7,F",
             "Face6;:M;FUS;:H2:7,F",
             "Vertex1",
@@ -2318,38 +2321,38 @@ TEST_F(TopoShapeExpansionTest, makEGeneralFuse)
             "Edge1",
             "Edge10;:G(Edge2;K-1;:H2:4,E);GFS;:H1:1a,V",
             "Edge10;:H2,E",
-            "Edge10;:M2;GFS;:H1:8,E",
+            "Edge10;:M-1;GFS;:H1:9,E",
             "Edge10;:M;GFS;:H1:7,E",
             "Edge11",
-            "Edge11;:M2;GFS;:H2:8,E",
+            "Edge11;:M-1;GFS;:H2:9,E",
             "Edge11;:M;GFS;:H2:7,E",
             "Edge12",
-            "Edge12;:M2;GFS;:H2:8,E",
+            "Edge12;:M-1;GFS;:H2:9,E",
             "Edge12;:M;GFS;:H2:7,E",
             "Edge1;:H2,E",
             "Edge2",
-            "Edge2;:M2;GFS;:H2:8,E",
+            "Edge2;:M-1;GFS;:H2:9,E",
             "Edge2;:M;GFS;:H2:7,E",
             "Edge3",
-            "Edge3;:M;GFS;:H2:7,E",
+            "Edge3;:H2,E",
             "Edge4",
-            "Edge4;:M2;GFS;:H2:8,E",
+            "Edge4;:M-1;GFS;:H2:9,E",
             "Edge4;:M;GFS;:H2:7,E",
+            "Edge5",
             "Edge5;:H2,E",
-            "Edge5;:M;GFS;:H1:7,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);GFS;:H1:1b,V",
             "Edge6;:H2,E",
-            "Edge6;:M2;GFS;:H1:8,E",
+            "Edge6;:M-1;GFS;:H1:9,E",
             "Edge6;:M;GFS;:H1:7,E",
             "Edge7",
             "Edge7;:H2,E",
             "Edge8;:G(Edge11;K-1;:H2:4,E);GFS;:H1:1b,V",
             "Edge8;:H2,E",
-            "Edge8;:M2;GFS;:H1:8,E",
+            "Edge8;:M-1;GFS;:H1:9,E",
             "Edge8;:M;GFS;:H1:7,E",
             "Edge9;:G(Edge4;K-1;:H2:4,E);GFS;:H1:1a,V",
             "Edge9;:H2,E",
-            "Edge9;:M2;GFS;:H1:8,E",
+            "Edge9;:M-1;GFS;:H1:9,E",
             "Edge9;:M;GFS;:H1:7,E",
             "Face1",
             "Face1;:M2;GFS;:H2:8,F",
@@ -2365,10 +2368,10 @@ TEST_F(TopoShapeExpansionTest, makEGeneralFuse)
             "Face4",
             "Face4;:M2;GFS;:H2:8,F",
             "Face4;:M;GFS;:H2:7,F",
-            "Face5;:M2(Face5;K2;:H2:3,F);GFS;:H1:1a,F",
+            "Face5;:M(Face5;:H2,F);GFS;:H1:14,F",
             "Face5;:M;GFS;:H1:7,F",
             "Face5;:M;GFS;:H2:7,F",
-            "Face6;:M2(Face6;K2;:H2:3,F);GFS;:H1:1a,F",
+            "Face6;:M(Face6;:H2,F);GFS;:H1:14,F",
             "Face6;:M;GFS;:H1:7,F",
             "Face6;:M;GFS;:H2:7,F",
             "Vertex1",
@@ -2376,13 +2379,13 @@ TEST_F(TopoShapeExpansionTest, makEGeneralFuse)
             "Vertex2",
             "Vertex2;:H2,V",
             "Vertex3",
-            "Vertex3;:M;GFS;:H2:7,V",
+            "Vertex3;:H2,V",
             "Vertex4",
-            "Vertex4;:M;GFS;:H2:7,V",
+            "Vertex4;:H2,V",
+            "Vertex5",
             "Vertex5;:H2,V",
-            "Vertex5;:M;GFS;:H1:7,V",
+            "Vertex6",
             "Vertex6;:H2,V",
-            "Vertex6;:M;GFS;:H1:7,V",
             "Vertex7",
             "Vertex7;:H2,V",
             "Vertex8",
@@ -2414,36 +2417,36 @@ TEST_F(TopoShapeExpansionTest, makEFuse)
             "Edge1",
             "Edge10;:G(Edge2;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge10;:H2,E",
-            "Edge10;:M2;FUS;:H1:8,E",
+            "Edge10;:M-1;FUS;:H1:9,E",
             "Edge10;:M;FUS;:H1:7,E",
             "Edge11",
-            "Edge11;:M2;FUS;:H2:8,E",
+            "Edge11;:M-1;FUS;:H2:9,E",
             "Edge11;:M;FUS;:H2:7,E",
             "Edge12",
-            "Edge12;:M2;FUS;:H2:8,E",
+            "Edge12;:M-1;FUS;:H2:9,E",
             "Edge12;:M;FUS;:H2:7,E",
             "Edge1;:H2,E",
             "Edge2",
-            "Edge2;:M2;FUS;:H2:8,E",
+            "Edge2;:M-1;FUS;:H2:9,E",
             "Edge2;:M;FUS;:H2:7,E",
             "Edge3",
             "Edge4",
-            "Edge4;:M2;FUS;:H2:8,E",
+            "Edge4;:M-1;FUS;:H2:9,E",
             "Edge4;:M;FUS;:H2:7,E",
             "Edge5;:H2,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge6;:H2,E",
-            "Edge6;:M2;FUS;:H1:8,E",
+            "Edge6;:M-1;FUS;:H1:9,E",
             "Edge6;:M;FUS;:H1:7,E",
             "Edge7",
             "Edge7;:H2,E",
             "Edge8;:G(Edge11;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge8;:H2,E",
-            "Edge8;:M2;FUS;:H1:8,E",
+            "Edge8;:M-1;FUS;:H1:9,E",
             "Edge8;:M;FUS;:H1:7,E",
             "Edge9;:G(Edge4;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge9;:H2,E",
-            "Edge9;:M2;FUS;:H1:8,E",
+            "Edge9;:M-1;FUS;:H1:9,E",
             "Edge9;:M;FUS;:H1:7,E",
             "Face1",
             "Face1;:M;FUS;:H2:7,F",
@@ -2455,10 +2458,10 @@ TEST_F(TopoShapeExpansionTest, makEFuse)
             "Face3;:M;FUS;:H1:7,F",
             "Face4",
             "Face4;:M;FUS;:H2:7,F",
-            "Face5;:M2(Face5;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face5;:M(Face5;:H2,F);FUS;:H1:14,F",
             "Face5;:M;FUS;:H1:7,F",
             "Face5;:M;FUS;:H2:7,F",
-            "Face6;:M2(Face6;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face6;:M(Face6;:H2,F);FUS;:H1:14,F",
             "Face6;:M;FUS;:H1:7,F",
             "Face6;:M;FUS;:H2:7,F",
             "Vertex1",
@@ -2513,7 +2516,7 @@ TEST_F(TopoShapeExpansionTest, makECut)
             "Edge2",
             "Edge2;:M;CUT;:H2:7,E",
             "Edge3",
-            "Edge3;:M;CUT;:H2:7,E",
+            "Edge3;:H2,E",
             "Edge4",
             "Edge4;:M;CUT;:H2:7,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);CUT;:H1:1b,V",
@@ -2536,9 +2539,9 @@ TEST_F(TopoShapeExpansionTest, makECut)
             "Vertex1",
             "Vertex2",
             "Vertex3",
-            "Vertex3;:M;CUT;:H2:7,V",
+            "Vertex3;:H2,V",
             "Vertex4",
-            "Vertex4;:M;CUT;:H2:7,V",
+            "Vertex4;:H2,V",
             "Vertex7",
             "Vertex8",
         }
@@ -2662,47 +2665,215 @@ TEST_F(TopoShapeExpansionTest, makESHAPENumbersElementsOfTheSameUpperElements)
 // input element, is that element modified
 TEST_F(TopoShapeExpansionTest, makESHAPETakesAnInputElementsGeometryForHistory)
 {
-    // Arrange: a cube, and a copy that shares its geometry -- other faces and
-    // edges, on the cube's own surfaces and curves
+    // Arrange: a cube; a face on the surface of its first face, half of it,
+    // and an edge on the curve of its first edge, half of it
     auto [cube1, cube2] = CreateTwoCubes();
     TopoShape source {cube1, 1L};
-    TopoDS_Shape remade = BRepBuilderAPI_Copy(cube1, false).Shape();
+    TopLoc_Location loc;
+    const TopoDS_Face face1 = TopoDS::Face(source.getSubShape(TopAbs_FACE, 1));
+    double u1 {}, u2 {}, v1 {}, v2 {};
+    BRepTools::UVBounds(face1, u1, u2, v1, v2);
+    TopoDS_Shape halfFace = BRepBuilderAPI_MakeFace(
+                                BRep_Tool::Surface(face1, loc),
+                                u1,
+                                (u1 + u2) / 2,
+                                v1,
+                                v2,
+                                Precision::Confusion()
+    ).Shape();
+    double first {}, last {};
+    const TopoDS_Edge edge1 = TopoDS::Edge(source.getSubShape(TopAbs_EDGE, 1));
+    auto curve1 = BRep_Tool::Curve(edge1, loc, first, last);
+    TopoDS_Shape halfEdge = BRepBuilderAPI_MakeEdge(curve1, first, (first + last) / 2).Shape();
+    BRep_Builder builder;
+    TopoDS_Compound made;
+    builder.MakeCompound(made);
+    builder.Add(made, halfFace);
+    builder.Add(made, halfEdge);
     TopoShape result {2L};
     // Act: a maker with no history at all
-    result.makESHAPE(remade, TopoShape::Mapper(), {source}, "TST");
+    result.makESHAPE(made, TopoShape::Mapper(), {source}, "TST");
     auto elements = elementMap(result);
     // Assert
-    EXPECT_EQ(elements.size(), 26);
-    for (int i = 1; i <= 6; ++i) {
-        EXPECT_EQ(
-            elements[IndexedName("Face", i)].toString(),
-            "Face" + std::to_string(i) + ";:M;TST;:H1:7,F"
-        );
-    }
-    for (int i = 1; i <= 12; ++i) {
-        EXPECT_EQ(
-            elements[IndexedName("Edge", i)].toString(),
-            "Edge" + std::to_string(i) + ";:M;TST;:H1:7,E"
-        );
-    }
-    // a vertex has no geometry to share, and is named from its edges
-    for (int i = 1; i <= 8; ++i) {
-        EXPECT_NE(elements[IndexedName("Vertex", i)].toString().find(";:B("), std::string::npos);
-    }
+    EXPECT_EQ(elements[IndexedName("Face", 1)].toString(), "Face1;:M;TST;:H1:7,F");
+    EXPECT_EQ(
+        elements[IndexedName("Edge", result.findShape(halfEdge))].toString(),
+        "Edge1;:M;TST;:H1:7,E"
+    );
 
     // Arrange: the same surface under two input faces
     TopoShape face {TopoShape(cube1, 1L).getSubShape(TopAbs_FACE, 1), 1L};
     TopoShape twin {BRepBuilderAPI_Copy(face.getShape(), false).Shape(), 3L};
     TopoShape other {4L};
     // Act
-    other.makESHAPE(
-        BRepBuilderAPI_Copy(face.getShape(), false).Shape(),
-        TopoShape::Mapper(),
-        {face, twin},
-        "TST"
-    );
+    other.makESHAPE(halfFace, TopoShape::Mapper(), {face, twin}, "TST");
     // Assert: which of the two it came from is not to be told, and it is not
     EXPECT_TRUE(elementMap(other).empty());
+}
+
+// The three tests below: docs/TopoNamingEnhance.md sec 9.12.
+
+// An element made again as it was -- the same surface or curve and the same
+// bounds, another shape -- is named as the one passed on is
+TEST_F(TopoShapeExpansionTest, makESHAPENamesAnElementMadeAgainAsOnePassedOn)
+{
+    // Arrange: a cube, and a copy that shares its geometry
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape source {cube1, 1L};
+    TopoDS_Shape remade = BRepBuilderAPI_Copy(cube1, false).Shape();
+    TopoShape passed {2L};
+    TopoShape result {2L};
+    // Act: the cube itself, and the copy, each with no history
+    passed.makESHAPE(cube1, TopoShape::Mapper(), {source}, "TST");
+    result.makESHAPE(remade, TopoShape::Mapper(), {source}, "TST");
+    // Assert
+    auto expected = elementMap(passed);
+    EXPECT_EQ(expected.size(), 26);
+    EXPECT_EQ(expected[IndexedName("Face", 1)].toString(), "Face1;:H1,F");
+    EXPECT_EQ(elementMap(result), expected);
+}
+
+namespace
+{
+/// A maker that tells what it is told to
+struct ListMapper: TopoShape::Mapper
+{
+    std::vector<std::pair<TopoDS_Shape, std::vector<TopoDS_Shape>>> mod, gen;
+    const std::vector<TopoDS_Shape>& find(
+        const std::vector<std::pair<TopoDS_Shape, std::vector<TopoDS_Shape>>>& lists,
+        const TopoDS_Shape& s
+    ) const
+    {
+        _res.clear();
+        for (const auto& [from, to] : lists) {
+            if (s.IsSame(from)) {
+                _res = to;
+            }
+        }
+        return _res;
+    }
+    const std::vector<TopoDS_Shape>& modified(const TopoDS_Shape& s) const override
+    {
+        return find(mod, s);
+    }
+    const std::vector<TopoDS_Shape>& generated(const TopoDS_Shape& s) const override
+    {
+        return find(gen, s);
+    }
+};
+
+TopoDS_Compound compoundOf(const std::vector<TopoDS_Shape>& shapes)
+{
+    BRep_Builder builder;
+    TopoDS_Compound compound;
+    builder.MakeCompound(compound);
+    for (const auto& shape : shapes) {
+        builder.Add(compound, shape);
+    }
+    return compound;
+}
+}  // namespace
+
+// A result is numbered among the results of the very same sources, not by
+// its place in the list of one of them: a result more in that list, of other
+// sources, moves no name
+TEST_F(TopoShapeExpansionTest, makESHAPENumbersAResultAmongThoseOfTheSameSources)
+{
+    // Arrange: a cube's faces as the sources, five edges of their own as the
+    // results, and a sixth
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape source {cube1, 1L};
+    auto faces = source.getSubShapes(TopAbs_FACE);
+    std::vector<TopoDS_Shape> made;
+    for (int i = 1; i <= 6; ++i) {
+        made.push_back(BRepBuilderAPI_Copy(source.getSubShape(TopAbs_EDGE, i), true).Shape());
+    }
+    const TopoDS_Shape &a = made[0], &b = made[1], &c = made[2], &d = made[3], &e = made[4],
+                       &x = made[5];
+    ListMapper mapper;
+    mapper.gen = {{faces[0], {a, b, c}}, {faces[1], {b}}, {faces[2], {c}}, {faces[3], {d, e}}};
+    TopoShape result {2L};
+    // Act
+    result.makESHAPE(compoundOf({a, b, c, d, e}), mapper, {source}, "TST");
+    auto elements = elementMap(result);
+    auto name = [&](const TopoShape& shape, const TopoDS_Shape& edge) {
+        return elementMap(shape)[IndexedName("Edge", shape.findShape(edge))].toString();
+    };
+    // Assert: no number where the sources tell a result apart, one where
+    // they do not
+    EXPECT_EQ(name(result, a), "Face1;:G;TST;:H1:7,E");
+    EXPECT_TRUE(name(result, b).starts_with("Face1;:G(Face2")) << name(result, b);
+    EXPECT_TRUE(name(result, c).starts_with("Face1;:G(Face3")) << name(result, c);
+    EXPECT_EQ(name(result, d), "Face4;:G;TST;:H1:7,E");
+    EXPECT_EQ(name(result, e), "Face4;:G2;TST;:H1:8,E");
+
+    // Arrange: the first face makes one more, with the fifth, and lists it first
+    mapper.gen[0].second = {x, a, b, c};
+    mapper.gen.push_back({faces[4], {x}});
+    TopoShape more {2L};
+    // Act
+    more.makESHAPE(compoundOf({x, a, b, c, d, e}), mapper, {source}, "TST");
+    // Assert: the five are named as they were
+    for (const auto& edge : {a, b, c, d, e}) {
+        EXPECT_EQ(name(more, edge), name(result, edge));
+    }
+    EXPECT_TRUE(name(more, x).starts_with("Face1;:G(Face5")) << name(more, x);
+}
+
+// The pieces of an edge are numbered along its curve, whatever order the
+// maker lists them in. The piece at an end keeps its name whichever of them
+// is cut again; one between the ends says how many pieces there are, and has
+// another name when there are more
+TEST_F(TopoShapeExpansionTest, makESHAPENumbersThePiecesOfAnEdgeAlongItsCurve)
+{
+    // Arrange: an edge, and pieces of it on its own curve
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape source {TopoShape(cube1, 1L).getSubShape(TopAbs_EDGE, 1), 1L};
+    TopLoc_Location loc;
+    double first {}, last {};
+    auto curve = BRep_Tool::Curve(TopoDS::Edge(source.getShape()), loc, first, last);
+    auto piece = [&](double from, double to) {
+        return BRepBuilderAPI_MakeEdge(
+                   curve,
+                   first + from * (last - first),
+                   first + to * (last - first)
+        ).Shape();
+    };
+    auto name = [&](const TopoShape& shape, const TopoDS_Shape& edge) {
+        return elementMap(shape)[IndexedName("Edge", shape.findShape(edge))].toString();
+    };
+    const TopoDS_Shape head = piece(0, 0.3), tail = piece(0.3, 1);
+    ListMapper mapper;
+    mapper.mod = {{source.getShape(), {tail, head}}};
+    TopoShape two {2L};
+    // Act
+    two.makESHAPE(compoundOf({tail, head}), mapper, {source}, "TST");
+    // Assert
+    EXPECT_EQ(name(two, head), "Edge1;:M;TST;:H1:7,E");
+    EXPECT_EQ(name(two, tail), "Edge1;:M-1;TST;:H1:9,E");
+
+    // Arrange: the head cut again
+    const TopoDS_Shape head1 = piece(0, 0.1), head2 = piece(0.1, 0.3);
+    mapper.mod = {{source.getShape(), {head2, tail, head1}}};
+    TopoShape three {2L};
+    // Act
+    three.makESHAPE(compoundOf({head2, tail, head1}), mapper, {source}, "TST");
+    // Assert: the tail is the tail still
+    EXPECT_EQ(name(three, head1), "Edge1;:M;TST;:H1:7,E");
+    EXPECT_EQ(name(three, head2), "Edge1;:M2-3;TST;:H1:a,E");
+    EXPECT_EQ(name(three, tail), name(two, tail));
+
+    // Arrange: and the tail
+    const TopoDS_Shape tail1 = piece(0.3, 0.6), tail2 = piece(0.6, 1);
+    mapper.mod = {{source.getShape(), {tail2, head2, tail1, head1}}};
+    TopoShape four {2L};
+    // Act
+    four.makESHAPE(compoundOf({tail2, head2, tail1, head1}), mapper, {source}, "TST");
+    // Assert: the second of three is not the second of four
+    EXPECT_EQ(name(four, head1), name(three, head1));
+    EXPECT_EQ(name(four, head2), "Edge1;:M2-4;TST;:H1:a,E");
+    EXPECT_EQ(name(four, tail1), "Edge1;:M3-4;TST;:H1:a,E");
+    EXPECT_EQ(name(four, tail2), name(two, tail));
 }
 
 TEST_F(TopoShapeExpansionTest, makEChamfer)
@@ -2970,13 +3141,13 @@ TEST_F(TopoShapeExpansionTest, makESlice)
     EXPECT_TRUE(elementsMatch(
         result,
         {
+            "Face1;:G2;SLC;:H1:8,E;SLC;:H1:4,E",
             "Face1;:G2;SLC;:H1:8,V;SLC;:H1:4,V",
+            "Face1;:G3;SLC;:H1:8,E;SLC;:H1:4,E",
             "Face1;:G3;SLC;:H1:8,V;SLC;:H1:4,V",
+            "Face1;:G4;SLC;:H1:8,E;SLC;:H1:4,E",
             "Face1;:G4;SLC;:H1:8,V;SLC;:H1:4,V",
-            "Face1;:G5;SLC;:H1:8,E;SLC;:H1:4,E",
-            "Face1;:G6;SLC;:H1:8,E;SLC;:H1:4,E",
-            "Face1;:G7;SLC;:H1:8,E;SLC;:H1:4,E",
-            "Face1;:G8;SLC;:H1:8,E;SLC;:H1:4,E",
+            "Face1;:G;SLC;:H1:7,E;SLC;:H1:4,E",
             "Face1;:G;SLC;:H1:7,V;SLC;:H1:4,V",
         }
     ));
@@ -3006,30 +3177,30 @@ TEST_F(TopoShapeExpansionTest, makESlices)
     EXPECT_TRUE(elementsMatch(
         result,
         {
-            "Edge10;:G(Face1;K-2;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
-            "Edge10;:G(Face1;K-2;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
-            "Edge10;:G(Face1;K-2;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
-            "Edge11;:G(Face1;K-3;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
-            "Edge11;:G(Face1;K-3;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
-            "Edge11;:G(Face1;K-3;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
-            "Edge12;:G(Face1;K-4;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
-            "Edge12;:G(Face1;K-4;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
-            "Edge12;:G(Face1;K-4;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
+            "Edge10;:G(Face1;K-1;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
+            "Edge10;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
+            "Edge10;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
+            "Edge11;:G(Face1;K-1;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
+            "Edge11;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
+            "Edge11;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
+            "Edge12;:G(Face1;K-1;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
+            "Edge12;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
+            "Edge12;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
             "Edge9;:G(Face1;K-1;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
             "Edge9;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
             "Edge9;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
-            "Face1;:G5(Face3;K-1;:H1:4,F);SLC;:H1:1b,E;SLC;:H1:4,E",
-            "Face1;:G6(Face4;K-1;:H1:4,F);SLC;:H1:1b,E;SLC;:H1:4,E",
-            "Face1;:G7(Face5;K-1;:H1:4,F);SLC;:H1:1b,E;SLC;:H1:4,E",
-            "Face1;:G8(Face6;K-1;:H1:4,F);SLC;:H1:1b,E;SLC;:H1:4,E",
-            "Face3;:G(Face1;K-5;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
-            "Face3;:G(Face1;K-5;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
-            "Face4;:G(Face1;K-6;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
-            "Face4;:G(Face1;K-6;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
-            "Face5;:G(Face1;K-7;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
-            "Face5;:G(Face1;K-7;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
-            "Face6;:G(Face1;K-8;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
-            "Face6;:G(Face1;K-8;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
+            "Face1;:G(Face3;K-1;:H1:4,F);SLC;:H1:1a,E;SLC;:H1:4,E",
+            "Face1;:G(Face4;K-1;:H1:4,F);SLC;:H1:1a,E;SLC;:H1:4,E",
+            "Face1;:G(Face5;K-1;:H1:4,F);SLC;:H1:1a,E;SLC;:H1:4,E",
+            "Face1;:G(Face6;K-1;:H1:4,F);SLC;:H1:1a,E;SLC;:H1:4,E",
+            "Face3;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
+            "Face3;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
+            "Face4;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
+            "Face4;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
+            "Face5;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
+            "Face5;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
+            "Face6;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
+            "Face6;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
         }
     ));
     EXPECT_FALSE(subTopoShapes[0].getElementMap().empty());  // Changed with PR#12471. Probably will
@@ -3113,36 +3284,36 @@ TEST_F(TopoShapeExpansionTest, makETransformWithMap)
             "Edge1",
             "Edge10;:G(Edge2;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge10;:H2,E",
-            "Edge10;:M2;FUS;:H1:8,E",
+            "Edge10;:M-1;FUS;:H1:9,E",
             "Edge10;:M;FUS;:H1:7,E",
             "Edge11",
-            "Edge11;:M2;FUS;:H2:8,E",
+            "Edge11;:M-1;FUS;:H2:9,E",
             "Edge11;:M;FUS;:H2:7,E",
             "Edge12",
-            "Edge12;:M2;FUS;:H2:8,E",
+            "Edge12;:M-1;FUS;:H2:9,E",
             "Edge12;:M;FUS;:H2:7,E",
             "Edge1;:H2,E",
             "Edge2",
-            "Edge2;:M2;FUS;:H2:8,E",
+            "Edge2;:M-1;FUS;:H2:9,E",
             "Edge2;:M;FUS;:H2:7,E",
             "Edge3",
             "Edge4",
-            "Edge4;:M2;FUS;:H2:8,E",
+            "Edge4;:M-1;FUS;:H2:9,E",
             "Edge4;:M;FUS;:H2:7,E",
             "Edge5;:H2,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge6;:H2,E",
-            "Edge6;:M2;FUS;:H1:8,E",
+            "Edge6;:M-1;FUS;:H1:9,E",
             "Edge6;:M;FUS;:H1:7,E",
             "Edge7",
             "Edge7;:H2,E",
             "Edge8;:G(Edge11;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge8;:H2,E",
-            "Edge8;:M2;FUS;:H1:8,E",
+            "Edge8;:M-1;FUS;:H1:9,E",
             "Edge8;:M;FUS;:H1:7,E",
             "Edge9;:G(Edge4;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge9;:H2,E",
-            "Edge9;:M2;FUS;:H1:8,E",
+            "Edge9;:M-1;FUS;:H1:9,E",
             "Edge9;:M;FUS;:H1:7,E",
             "Face1",
             "Face1;:M;FUS;:H2:7,F",
@@ -3154,10 +3325,10 @@ TEST_F(TopoShapeExpansionTest, makETransformWithMap)
             "Face3;:M;FUS;:H1:7,F",
             "Face4",
             "Face4;:M;FUS;:H2:7,F",
-            "Face5;:M2(Face5;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face5;:M(Face5;:H2,F);FUS;:H1:14,F",
             "Face5;:M;FUS;:H1:7,F",
             "Face5;:M;FUS;:H2:7,F",
-            "Face6;:M2(Face6;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face6;:M(Face6;:H2,F);FUS;:H1:14,F",
             "Face6;:M;FUS;:H1:7,F",
             "Face6;:M;FUS;:H2:7,F",
             "Vertex1",
@@ -3224,36 +3395,36 @@ TEST_F(TopoShapeExpansionTest, makEGTransformWithMap)
             "Edge1",
             "Edge10;:G(Edge2;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge10;:H2,E",
-            "Edge10;:M2;FUS;:H1:8,E",
+            "Edge10;:M-1;FUS;:H1:9,E",
             "Edge10;:M;FUS;:H1:7,E",
             "Edge11",
-            "Edge11;:M2;FUS;:H2:8,E",
+            "Edge11;:M-1;FUS;:H2:9,E",
             "Edge11;:M;FUS;:H2:7,E",
             "Edge12",
-            "Edge12;:M2;FUS;:H2:8,E",
+            "Edge12;:M-1;FUS;:H2:9,E",
             "Edge12;:M;FUS;:H2:7,E",
             "Edge1;:H2,E",
             "Edge2",
-            "Edge2;:M2;FUS;:H2:8,E",
+            "Edge2;:M-1;FUS;:H2:9,E",
             "Edge2;:M;FUS;:H2:7,E",
             "Edge3",
             "Edge4",
-            "Edge4;:M2;FUS;:H2:8,E",
+            "Edge4;:M-1;FUS;:H2:9,E",
             "Edge4;:M;FUS;:H2:7,E",
             "Edge5;:H2,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge6;:H2,E",
-            "Edge6;:M2;FUS;:H1:8,E",
+            "Edge6;:M-1;FUS;:H1:9,E",
             "Edge6;:M;FUS;:H1:7,E",
             "Edge7",
             "Edge7;:H2,E",
             "Edge8;:G(Edge11;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge8;:H2,E",
-            "Edge8;:M2;FUS;:H1:8,E",
+            "Edge8;:M-1;FUS;:H1:9,E",
             "Edge8;:M;FUS;:H1:7,E",
             "Edge9;:G(Edge4;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge9;:H2,E",
-            "Edge9;:M2;FUS;:H1:8,E",
+            "Edge9;:M-1;FUS;:H1:9,E",
             "Edge9;:M;FUS;:H1:7,E",
             "Face1",
             "Face1;:M;FUS;:H2:7,F",
@@ -3265,10 +3436,10 @@ TEST_F(TopoShapeExpansionTest, makEGTransformWithMap)
             "Face3;:M;FUS;:H1:7,F",
             "Face4",
             "Face4;:M;FUS;:H2:7,F",
-            "Face5;:M2(Face5;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face5;:M(Face5;:H2,F);FUS;:H1:14,F",
             "Face5;:M;FUS;:H1:7,F",
             "Face5;:M;FUS;:H2:7,F",
-            "Face6;:M2(Face6;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face6;:M(Face6;:H2,F);FUS;:H1:14,F",
             "Face6;:M;FUS;:H1:7,F",
             "Face6;:M;FUS;:H2:7,F",
             "Vertex1",
@@ -3713,7 +3884,7 @@ TEST_F(TopoShapeExpansionTest, traceElement)
             "Edge2",
             "Edge2;:M;CUT;:H2:7,E",
             "Edge3",
-            "Edge3;:M;CUT;:H2:7,E",
+            "Edge3;:H2,E",
             "Edge4",
             "Edge4;:M;CUT;:H2:7,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);CUT;:H1:1b,V",
@@ -3736,9 +3907,9 @@ TEST_F(TopoShapeExpansionTest, traceElement)
             "Vertex1",
             "Vertex2",
             "Vertex3",
-            "Vertex3;:M;CUT;:H2:7,V",
+            "Vertex3;:H2,V",
             "Vertex4",
-            "Vertex4;:M;CUT;:H2:7,V",
+            "Vertex4;:H2,V",
             "Vertex7",
             "Vertex8",
         }

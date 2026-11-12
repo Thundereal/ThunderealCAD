@@ -1712,6 +1712,8 @@ AnimationTimeline::AnimationTimeline(QWidget* parent)
               tr("Key the selected objects' placements at the current time"));
     cmdButton("Std_AnimationKeyCamera", "camera-photo",
               tr("Key the 3D view's camera at the current time"));
+    cmdButton("Std_AnimationExport", "Std_Export",
+              tr("Export: a video, a GIF, an image sequence or an animated glTF"));
     bar->addSpacing(8);
     curvesButton = new QToolButton(this);
     curvesButton->setText(tr("Curves"));

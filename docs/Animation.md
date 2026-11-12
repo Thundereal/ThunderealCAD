@@ -1016,6 +1016,41 @@ Phase 4, built so far (2026-11-12):
 | 4 | Bezier handles in a curve editor; camera track; strips (section 7) | |
 | 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache if needed | |
 
+Phase 5, built so far (2026-11-12):
+- The shared exporter, `freecad.videoexport` (`src/Ext/freecad`):
+  `export(path, times, show, ...)` takes any time source -- the frame
+  times and a callable that brings the document to one -- saves the view
+  at each as a PNG (`compose` may paint over it), and encodes them: a
+  video (.mp4, .webm, .avi) by PyAV when it is installed and by an ffmpeg
+  executable otherwise, a GIF by Pillow or ffmpeg, and a path ending in
+  .png keeps the numbered frames. `exportAnimation(anim, path)` is the
+  Animation's: every frame of its range at its `FrameRate`, the animation
+  left as it was (stopped, or at the time it showed). The Assembly
+  simulation's Save Animation is now a caller: its own frame loop and
+  encoders are gone, its Results box and time overlay are its `compose`.
+- `Std_AnimationExport` (Tools > Animation, and the timeline's bar) asks
+  for a file and exports the current Animation.
+- glTF, `freecad.animationgltf.exportGltf(anim, path)`: the document's
+  shown objects as nodes, nested as the document nests them, meshed as
+  the view shows them (`freecad.gltfscene`, the pieces the Assembly's
+  exporter had, now shared). **Every channel is baked**: the Animation is
+  stepped through its frames and each node's placement written as LINEAR
+  samples, a visibility that switches as a STEP scale of 1 or 0 (glTF has
+  no visibility to animate). Baking is what makes strips, easing, Turns
+  and expression-driven placements come out right with no case for each;
+  the one-to-one mapping of LINEAR, STEP and Bezier keys in section 9 is
+  not done, and costs only file size. What does not fit is named in the
+  result's `Skipped`: an object whose shape the animation rebuilds
+  (exported as it rests), a colour or transparency that changes, camera
+  tracks.
+- Tests: `TestAnimation` (glTF channels and samples read back from the
+  file, what is skipped, the formats), `tests/gui/animation-export.py`
+  (12 checks: sequence, GIF, video, cancel, the animation left as it
+  was, not modified, the command).
+- Not done: the renderer's clock following `Time` during export
+  (section 9) -- the engine has no setter for its clock yet, so water and
+  fire in an exported video run on wall time.
+
 ## 12. Decided, and still open
 
 Decided by the user, 2026-11-12:

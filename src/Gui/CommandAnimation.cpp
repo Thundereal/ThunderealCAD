@@ -26,6 +26,7 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/GeoFeature.h>
+#include <Base/Interpreter.h>
 
 #include "Action.h"
 #include "AnimationTimeline.h"
@@ -520,6 +521,47 @@ bool StdCmdAnimationKeyCamera::isActive()
         && getMainWindow()->activeWindow() != nullptr;
 }
 
+DEF_STD_CMD_A(StdCmdAnimationExport)
+
+StdCmdAnimationExport::StdCmdAnimationExport()
+    : Command("Std_AnimationExport")
+{
+    sGroup = "Animation";
+    sMenuText = QT_TR_NOOP("Export animation...");
+    sToolTipText = QT_TR_NOOP("Save the animation as a video, a GIF, an image sequence or an "
+                              "animated glTF: every frame of its range, as the active 3D view "
+                              "shows it");
+    sWhatsThis = "Std_AnimationExport";
+    sStatusTip = sToolTipText;
+    sPixmap = "Std_Export";
+    eType = 0;
+}
+
+void StdCmdAnimationExport::activated(int)
+{
+    auto anim = current();
+    if (!anim || !anim->getDocument()) {
+        return;
+    }
+    // The exporter is Python's, shared with the Assembly simulation
+    // (freecad.videoexport, docs/Animation.md sec 9)
+    try {
+        Base::Interpreter().runStringArg(
+            "from freecad import videoexport as _fcve\n"
+            "_fcve.exportAnimationDialog(FreeCAD.getDocument('%s').getObject('%s'))",
+            anim->getDocument()->getName(),
+            anim->getNameInDocument());
+    }
+    catch (Base::Exception& e) {
+        e.ReportException();
+    }
+}
+
+bool StdCmdAnimationExport::isActive()
+{
+    return current() != nullptr;
+}
+
 namespace Gui
 {
 
@@ -530,6 +572,7 @@ void CreateAnimationCommands()
     registerAnimationCamera();
     CommandManager& mgr = Application::Instance->commandManager();
     mgr.addCommand(new StdCmdAnimationKeyCamera());
+    mgr.addCommand(new StdCmdAnimationExport());
     mgr.addCommand(new StdCmdAnimationAddStrip());
     mgr.addCommand(new StdCmdAnimationNew());
     mgr.addCommand(new StdCmdAnimationTimeline());

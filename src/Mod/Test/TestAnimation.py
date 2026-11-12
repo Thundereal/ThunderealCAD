@@ -493,6 +493,123 @@ class TestAnimation(unittest.TestCase):
         with self.assertRaises(Exception):
             a1.addStrip(a1)
 
+    # -- export ------------------------------------------------------------
+
+    def gltfScene(self):
+        try:
+            import Part  # noqa: F401
+        except ImportError:
+            self.skipTest("the glTF export meshes shapes with Part")
+        box = self.doc.addObject("Part::Box", "Box")
+        cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+        still = self.doc.addObject("Part::Sphere", "Still")
+        self.doc.recompute()
+        self.anim.FrameRate = 10
+        self.anim.addKey("Box.Placement", 0.0)
+        self.anim.addKey(
+            "Box.Placement", 1.0, App.Placement(App.Vector(0, 0, 50), App.Rotation())
+        )
+        self.anim.addKey("Cyl.Visibility", 0.0, True)
+        self.anim.addKey("Cyl.Visibility", 0.5, False)
+        return box, cyl, still
+
+    def readGltf(self, name):
+        import json
+        import struct
+
+        with open(name, "rb") as f:
+            gltf = json.load(f)
+        with open(os.path.splitext(name)[0] + ".bin", "rb") as f:
+            blob = f.read()
+
+        def values(index):
+            acc = gltf["accessors"][index]
+            view = gltf["bufferViews"][acc["bufferView"]]
+            width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}[acc["type"]]
+            flat = struct.unpack_from(
+                "<%df" % (acc["count"] * width), blob, view.get("byteOffset", 0)
+            )
+            return [flat[i : i + width] for i in range(0, len(flat), width)]
+
+        return gltf, values
+
+    def testGltfExport(self):
+        from freecad import animationgltf
+
+        box, cyl, _still = self.gltfScene()
+        folder = tempfile.mkdtemp(prefix="AnimGltf")
+        name = os.path.join(folder, "anim.gltf")
+        self.files += [name, os.path.join(folder, "anim.bin")]
+        done = animationgltf.exportGltf(self.anim, name)
+        self.assertEqual(done["Frames"], 11)
+        self.assertEqual(done["Animated"], 2)
+        self.assertEqual(done["Meshes"], 3)
+        self.assertEqual(done["Skipped"], [])
+        # The design is as it was, the animation stopped
+        self.assertFalse(self.anim.Active)
+        self.assertAlmostEqual(box.Placement.Base.z, 0.0)
+        self.assertTrue(cyl.Visibility)
+
+        gltf, values = self.readGltf(name)
+        nodes = {n["name"]: i for i, n in enumerate(gltf["nodes"])}
+        self.assertEqual(set(nodes), {self.doc.Name, "Box", "Cyl", "Still"})
+        anim = gltf["animations"][0]
+        by = {}
+        for ch in anim["channels"]:
+            sampler = anim["samplers"][ch["sampler"]]
+            by[(ch["target"]["node"], ch["target"]["path"])] = sampler
+        self.assertEqual(
+            set(by),
+            {
+                (nodes["Box"], "translation"),
+                (nodes["Box"], "rotation"),
+                (nodes["Cyl"], "scale"),
+            },
+        )
+        move = by[(nodes["Box"], "translation")]
+        self.assertEqual(move["interpolation"], "LINEAR")
+        times = [v[0] for v in values(move["input"])]
+        self.assertEqual(len(times), 11)
+        self.assertAlmostEqual(times[0], 0.0)
+        self.assertAlmostEqual(times[-1], 1.0, places=5)
+        # Metres, and halfway at the middle frame
+        z = [v[2] for v in values(move["output"])]
+        self.assertAlmostEqual(z[0], 0.0)
+        self.assertAlmostEqual(z[5], 0.025, places=5)
+        self.assertAlmostEqual(z[-1], 0.05, places=5)
+        hide = by[(nodes["Cyl"], "scale")]
+        self.assertEqual(hide["interpolation"], "STEP")
+        shown = [v[0] for v in values(hide["output"])]
+        self.assertEqual(shown, [1.0] * 5 + [0.0] * 6)
+
+    def testGltfExportSaysWhatItLeavesOut(self):
+        from freecad import animationgltf
+
+        box, _cyl, _still = self.gltfScene()
+        self.anim.addKey("Box.Height", 0.0, 10)
+        self.anim.addKey("Box.Height", 1.0, 30)
+        folder = tempfile.mkdtemp(prefix="AnimGltf")
+        name = os.path.join(folder, "anim.glb")
+        self.files.append(name)
+        done = animationgltf.exportGltf(self.anim, name)
+        self.assertEqual(len(done["Skipped"]), 1, done["Skipped"])
+        self.assertIn("Box", done["Skipped"][0])
+        self.assertIn("shape", done["Skipped"][0])
+        with open(name, "rb") as f:
+            self.assertEqual(f.read(4), b"glTF")
+        self.assertAlmostEqual(box.Height.Value, 10.0)
+
+    def testVideoFormats(self):
+        from freecad import videoexport
+
+        known = videoexport.formats()
+        self.assertEqual(known[-1], ("PNG image sequence", ".png"))
+        self.assertEqual(videoexport.frameName("/tmp/out.png", 7), "/tmp/out_00007.png")
+        with self.assertRaises(ValueError):
+            videoexport.encode("/tmp/out.xyz", ["a.png"], 10)
+        with self.assertRaises(ValueError):
+            videoexport.encode("/tmp/out.gif", [], 10)
+
     def testErrors(self):
         with self.assertRaises(Exception):
             self.anim.addKey("Nothing.F", 0.0)

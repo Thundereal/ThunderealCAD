@@ -163,6 +163,33 @@ bool AnimationClock::pinned(double *seconds)
     return true;
 }
 
+std::atomic<int> ExactDetail::holders{0};
+std::atomic<bool (*)()> ExactDetail::reason{nullptr};
+
+void ExactDetail::hold()
+{
+    holders.fetch_add(1, std::memory_order_relaxed);
+}
+
+void ExactDetail::release()
+{
+    if (holders.fetch_sub(1, std::memory_order_relaxed) <= 0)
+        holders.store(0, std::memory_order_relaxed);
+}
+
+bool ExactDetail::held()
+{
+    if (holders.load(std::memory_order_relaxed) > 0)
+        return true;
+    auto ask = reason.load(std::memory_order_relaxed);
+    return ask && ask();
+}
+
+void ExactDetail::also(bool (*ask)())
+{
+    reason.store(ask, std::memory_order_relaxed);
+}
+
 std::atomic<bool> FrameOutside::active{false};
 double FrameOutside::phaseMs[FrameOutside::PhaseCount] = {};
 

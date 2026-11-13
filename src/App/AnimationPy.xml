@@ -151,6 +151,20 @@ below, a whole property's track). Returns the strip's path, 'Strip:Name'.</UserD
         <UserDocu>frames() -> list of the frame times from Start to End at FrameRate</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="cacheInfo">
+      <Documentation>
+        <UserDocu>cacheInfo() -> dict: the frame cache (the Cache property). Times, the frames kept;
+OnDisk, those of them that are on disk only; Bytes, what memory holds of them, estimated;
+DiskBytes, what their files hold; Stored, how many frames were recomputed and kept;
+Replayed, how many were put back instead of recomputed; Spilled, how many were moved out
+of memory onto disk; Loaded, how many were read back</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="clearCache">
+      <Documentation>
+        <UserDocu>clearCache(): drop every frame the cache keeps</UserDocu>
+      </Documentation>
+    </Methode>
     <CustomAttributes />
   </PythonExport>
 </GenerateModel>

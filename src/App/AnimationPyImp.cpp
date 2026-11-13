@@ -632,6 +632,49 @@ PyObject* AnimationPy::evaluate(PyObject* args)
     PY_CATCH
 }
 
+PyObject* AnimationPy::cacheInfo(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto info = getAnimationPtr()->cacheInfo();
+        Py::Dict dict;
+        Py::List times;
+        for (double t : info.times) {
+            times.append(Py::Float(t));
+        }
+        Py::List disk;
+        for (double t : info.onDisk) {
+            disk.append(Py::Float(t));
+        }
+        dict.setItem("Times", times);
+        dict.setItem("OnDisk", disk);
+        dict.setItem("Bytes", Py::Long(static_cast<long>(info.bytes)));
+        dict.setItem("DiskBytes", Py::Long(static_cast<long>(info.diskBytes)));
+        dict.setItem("Stored", Py::Long(info.stored));
+        dict.setItem("Replayed", Py::Long(info.replayed));
+        dict.setItem("Spilled", Py::Long(info.spilled));
+        dict.setItem("Loaded", Py::Long(info.loaded));
+        return Py::new_reference_to(dict);
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::clearCache(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        getAnimationPtr()->clearCache();
+        Py_Return;
+    }
+    PY_CATCH
+}
+
 PyObject* AnimationPy::frames(PyObject* args)
 {
     if (!PyArg_ParseTuple(args, "")) {

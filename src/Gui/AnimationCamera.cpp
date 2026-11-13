@@ -46,6 +46,7 @@
 
 #include "Application.h"
 #include "Document.h"
+#include "Renderer/Renderer.h"
 #include "View3DInventor.h"
 #include "View3DInventorViewer.h"
 
@@ -259,6 +260,9 @@ namespace Gui
 void registerAnimationCamera()
 {
     App::AnimationTrackHandler::registerHandler("Camera", std::make_shared<CameraTrackHandler>());
+    // An Animation keeping its frames keeps the meshes they were shown
+    // with: exact ones (docs/Animation.md sec 4, "The frame cache")
+    Render::ExactDetail::also([]() { return App::Animation::cachingIn(); });
 }
 
 }  // namespace Gui

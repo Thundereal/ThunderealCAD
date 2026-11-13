@@ -352,6 +352,15 @@ void AnimationPlayer::tick()
         }
         break;
     }
+    // Keeping its frames: played frame by frame, so that each one shown
+    // is one that can be kept and shown again (docs/Animation.md sec 4)
+    double rate = a->FrameRate.getValue();
+    if (!done && rate > 0 && a->isCaching()) {
+        t = std::min(end, start + std::floor((t - start) * rate + 1e-6) / rate);
+        if (std::fabs(t - prev) < App::Anim::TimeEpsilon) {
+            return;  // the frame on show
+        }
+    }
     try {
         a->Time.setValue(t);
     }
@@ -631,6 +640,25 @@ public:
             p.drawLine(QPointF(x, rulerHeight - 6), QPointF(x, rulerHeight));
             p.drawText(QPointF(x + 3, rulerHeight - 7),
                        QString::number(t, 'g', 4) + QStringLiteral(" s"));
+        }
+        // The frames kept: a green line under the ruler, a piece a frame
+        if (anim && anim->isCaching() && anim->FrameRate.getValue() > 0) {
+            // ... and a blue one where the frame is on disk only
+            double half = 0.5 / anim->FrameRate.getValue();
+            auto info = anim->cacheInfo();
+            auto disk = info.onDisk.begin();
+            for (double t : info.times) {
+                bool spilled = disk != info.onDisk.end() && *disk == t;
+                if (spilled) {
+                    ++disk;
+                }
+                double x0 = std::max<double>(g, xOf(t - half));
+                double x1 = xOf(t + half);
+                if (x1 > x0) {
+                    p.fillRect(QRectF(x0, rulerHeight - 3, x1 - x0, 3),
+                               spilled ? QColor(0x40, 0x80, 0xd0) : QColor(0x3c, 0xa8, 0x54));
+                }
+            }
         }
         // The rows
         for (std::size_t i = 0; i < rows.size(); ++i) {

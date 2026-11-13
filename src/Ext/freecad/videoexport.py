@@ -239,6 +239,19 @@ def encode(path, files, fps, size=None):
     return encoder
 
 
+def _waitLoaded(Gui, timeout=600.0):
+    """Lets a document that is still filling its views finish (a
+    progressive load): its first frames would lack what has not arrived"""
+    import time
+
+    if not hasattr(Gui, "isBuildingVisuals"):
+        return
+    end = time.monotonic() + timeout
+    while Gui.isBuildingVisuals() and time.monotonic() < end:
+        Gui.updateGui()
+        time.sleep(0.01)
+
+
 def export(
     path,
     times,
@@ -251,6 +264,7 @@ def export(
     progress=None,
     frameSize=None,
     renderClock=True,
+    exactDetail=True,
 ):
     """Save the view over `times` as `path`.
 
@@ -271,6 +285,10 @@ def export(
     renderClock the renderer's time-animated effects (water, fire,
                 particles) are drawn at each frame's time, counted from
                 the first; False leaves them on the wall clock
+    exactDetail every shape is in a frame with its exact mesh: none coarse
+                because it was just rebuilt, none standing in as a box,
+                and a document still loading is waited for. False takes
+                the view as it draws
 
     -> {"Path", "Frames", "Size", "Encoder"}; for a sequence Path is its
     first frame.
@@ -306,7 +324,13 @@ def export(
     # clock of their own: pinned to each frame's time, they are in the file
     # as they are at that frame, however long the frame took to save
     pinned = Gui.renderClock() if hasattr(Gui, "renderClock") else None
+    # A shape the frame's step rebuilt would be shown coarse first and
+    # exact some frames later: held exact, it is meshed once, as it is saved
+    exact = exactDetail and hasattr(Gui, "setExactDetail")
+    detail = Gui.setExactDetail(True) if exact else False
     try:
+        if exact:
+            _waitLoaded(Gui)
         files = []
         for i, t in enumerate(times):
             if progress is not None and progress(i, count) is False:
@@ -333,6 +357,8 @@ def export(
     finally:
         if renderClock and hasattr(Gui, "setRenderClock"):
             Gui.setRenderClock(pinned)
+        if exact:
+            Gui.setExactDetail(detail)
         if temp:
             shutil.rmtree(temp, ignore_errors=True)
 

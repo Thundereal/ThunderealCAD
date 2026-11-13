@@ -1124,6 +1124,11 @@ unsigned ladderRungs()
 
 int PartGui::coarseTessellationLevel(App::Document *doc)
 {
+    // Somebody keeps or records what the frames show (an Animation's
+    // frame cache, an export): the mesh a shape is first shown with is
+    // the one that stays, so it is the exact one.
+    if (Render::ExactDetail::held())
+        return -1;
     // The environment variable is the whole-process override — set, it
     // decides for every view and any value outside the ladder means
     // "exact", so a recipe can also force the feature off with -1.

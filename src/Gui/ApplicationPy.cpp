@@ -200,6 +200,8 @@ static PyObject *sServeDevices(PyObject *self, PyObject *args);
 static PyObject *sServeDocument(PyObject *self, PyObject *args);
 static PyObject *sSetRenderClock(PyObject *self, PyObject *args);
 static PyObject *sRenderClock(PyObject *self, PyObject *args);
+static PyObject *sSetExactDetail(PyObject *self, PyObject *args);
+static PyObject *sExactDetail(PyObject *self, PyObject *args);
 static PyObject *sServeDropRequest(PyObject *self, PyObject *args);
 static PyObject *sServeGrants(PyObject *self, PyObject *args);
 static PyObject *sServeKickClient(PyObject *self, PyObject *args);
@@ -410,6 +412,20 @@ PyMethodDef Application::Methods[] = {
    "\n"
    "What setRenderClock() pinned the renderer's clock to; None when it\n"
    "runs on the wall clock."},
+  {"setExactDetail",          (PyCFunction) sSetExactDetail, METH_VARARGS,
+   "setExactDetail(on) -> bool, whether it was held before\n"
+   "\n"
+   "Hold exact detail, or let go of it. While held a shape built for\n"
+   "display is meshed exact up front instead of coarse first, is never\n"
+   "stood in for by its bounding box, and a scene update takes every\n"
+   "changed shape at once instead of over several frames. For whoever\n"
+   "keeps or records what the frames show: freecad.videoexport holds it\n"
+   "while it saves the frames. One hold for all of Python."},
+  {"exactDetail",             (PyCFunction) sExactDetail, METH_VARARGS,
+   "exactDetail() -> bool\n"
+   "\n"
+   "Whether exact detail is held by anybody: setExactDetail(), or an\n"
+   "active Animation with its Cache on."},
   {"serveDocument",           (PyCFunction) sServeDocument, METH_VARARGS,
    "serveDocument(doc, port=0) -> bool\n"
    "\n"
@@ -1437,6 +1453,31 @@ static PyObject* sSetRenderClock(PyObject * /*self*/, PyObject *args)
         return nullptr;
     Render::AnimationClock::pin(seconds);
     Py_RETURN_NONE;
+}
+
+static PyObject* sSetExactDetail(PyObject * /*self*/, PyObject *args)
+{
+    PyObject *on = Py_True;
+    if (!PyArg_ParseTuple(args, "O", &on))
+        return nullptr;
+    static bool holding = false;
+    const bool was = holding;
+    const bool want = PyObject_IsTrue(on) > 0;
+    if (want != holding) {
+        holding = want;
+        if (want)
+            Render::ExactDetail::hold();
+        else
+            Render::ExactDetail::release();
+    }
+    return Py::new_reference_to(Py::Boolean(was));
+}
+
+static PyObject* sExactDetail(PyObject * /*self*/, PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    return Py::new_reference_to(Py::Boolean(Render::ExactDetail::held()));
 }
 
 static PyObject* sRenderClock(PyObject * /*self*/, PyObject *args)

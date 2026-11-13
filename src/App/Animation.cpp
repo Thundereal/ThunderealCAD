@@ -18,12 +18,24 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
+#include <fstream>
 #include <functional>
 #include <sstream>
 #include <set>
 #include <unordered_map>
 
+#if defined(__APPLE__)
+# include <malloc/malloc.h>
+#elif defined(__GLIBC__)
+# include <malloc.h>
+#elif defined(_WIN32)
+# include <windows.h>
+# include <psapi.h>
+#endif
+
 #include <Base/Console.h>
+#include <Base/FileInfo.h>
 #include <Base/Interpreter.h>
 #include <Base/PlacementPy.h>
 #include <Base/QuantityPy.h>
@@ -42,6 +54,7 @@
 #include "Document.h"
 #include "PropertyContainerPy.h"
 #include "PropertyGeo.h"
+#include "TransactionValue.h"
 
 FC_LOG_LEVEL_INIT("Animation", true, true)
 
@@ -194,6 +207,13 @@ std::unordered_map<const Property*, Animation*>& restOwners()
 
 /// The Animations recording: a view provider's every change asks, so the
 /// answer when none is must cost nothing
+/// The active Animations that keep their frames (Animation::cachingIn())
+std::set<const Animation*>& cachers()
+{
+    static std::set<const Animation*> set;
+    return set;
+}
+
 std::set<Animation*>& recorders()
 {
     static std::set<Animation*> set;
@@ -928,6 +948,119 @@ struct Animation::Rest
     bool touched = false;               ///< whether obj was touched before
 };
 
+/// What the recompute of a frame wrote, to put back the next time
+struct Animation::Frame
+{
+    struct Value
+    {
+        DocumentObject* obj;
+        Property* prop;
+        std::unique_ptr<Property> value;
+    };
+    std::vector<Value> values;
+    /// Every object the frame's recompute could have dealt with: touched
+    /// before it, recomputed by it, or written by it. A replay stands only
+    /// when nothing outside these is touched.
+    std::set<DocumentObject*> scope;
+    /// Those of them the recompute left untouched
+    std::vector<DocumentObject*> clean;
+    std::size_t bytes = 0;
+    std::uint64_t used = 0;
+    double cost = 0;            ///< seconds its recompute took
+    bool measured = false;      ///< bytes is what the heap grew by, not an estimate
+    /// Where the values are on disk, once written there; they are in
+    /// memory as well unless `spilled`
+    std::string file;
+    std::size_t fileBytes = 0;
+    bool spilled = false;
+};
+
+namespace
+{
+
+double secondsNow()
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+void putSize(std::ostream& out, std::uint64_t n)
+{
+    out.write(reinterpret_cast<const char*>(&n), sizeof(n));
+}
+
+void putBytes(std::ostream& out, const std::string& bytes)
+{
+    putSize(out, bytes.size());
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+}
+
+bool getSize(std::istream& in, std::uint64_t& n)
+{
+    in.read(reinterpret_cast<char*>(&n), sizeof(n));
+    return in.good();
+}
+
+bool getBytes(std::istream& in, std::string& bytes, std::uint64_t most)
+{
+    std::uint64_t n = 0;
+    if (!getSize(in, n) || n > most) {
+        return false;
+    }
+    bytes.resize(n);
+    in.read(bytes.data(), static_cast<std::streamsize>(n));
+    return in.good() || (in.eof() && static_cast<std::uint64_t>(in.gcount()) == n);
+}
+
+/// What the process has allocated and not freed, or 0 where the platform
+/// does not say. What a frame kept really costs is the difference of two
+/// of these: a property's own getMemSize() counts a shape's geometry by
+/// the size of its classes, which leaves out its curves' poles, its
+/// pcurves, its mesh and its element map -- 15 KB said of a frame that
+/// holds 3 MB (docs/Animation.md sec 4).
+std::size_t heapInUse()
+{
+#if defined(__APPLE__)
+    malloc_statistics_t stats {};
+    malloc_zone_statistics(nullptr, &stats);
+    return stats.size_in_use;
+#elif defined(__GLIBC__)
+# if __GLIBC_PREREQ(2, 33)
+    auto info = mallinfo2();
+# else
+    auto info = mallinfo();
+# endif
+    return static_cast<std::size_t>(info.uordblks) + static_cast<std::size_t>(info.hblkhd);
+#elif defined(_WIN32)
+    PROCESS_MEMORY_COUNTERS_EX counters {};
+    if (GetProcessMemoryInfo(GetCurrentProcess(),
+                             reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
+                             sizeof(counters))) {
+        return static_cast<std::size_t>(counters.PrivateUsage);
+    }
+    return 0;
+#else
+    return 0;
+#endif
+}
+
+long cacheLimit(const char* name, long preset)
+{
+    return GetApplication()
+        .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Animation")
+        ->GetInt(name, preset);
+}
+
+}  // namespace
+
+/// What a frame's recompute does, as it does it
+struct Animation::Capture
+{
+    std::vector<std::pair<DocumentObject*, Property*>> written;
+    std::set<const Property*> seen;
+    std::set<DocumentObject*> scope;
+};
+
 PROPERTY_SOURCE(App::Animation, App::DocumentObject)
 
 Animation::Animation()
@@ -958,6 +1091,10 @@ Animation::Animation()
                       PropertyType(Prop_Transient | Prop_NoPersist | Prop_NoRecompute),
                       "Key every property changed");
     Recording.setStatus(Property::NoModify, true);
+    ADD_PROPERTY_TYPE(Cache, (false), "Animation", Prop_NoRecompute,
+                      "Keep what each frame recomputes to, and put it back the next\n"
+                      "time the frame is shown instead of recomputing it. Any change\n"
+                      "of the design drops the frames kept");
 }
 
 Animation::~Animation()
@@ -969,6 +1106,12 @@ Animation::~Animation()
         owners.erase(v.first);
     }
     recorders().erase(this);
+    cachers().erase(this);
+    for (auto& [index, frame] : _frames) {
+        if (!frame->file.empty()) {
+            Base::FileInfo(frame->file).deleteFile();
+        }
+    }
 }
 
 DocumentObjectExecReturn* Animation::execute()
@@ -1993,19 +2136,434 @@ void Animation::evaluateAt(double t)
     if (doc->testStatus(Document::Recomputing)) {
         return;
     }
-    switch (Recompute.getValue()) {
-    case RecomputeTouched:
-        doc->recompute();
-        break;
-    case RecomputeFull:
+    if (Recompute.getValue() == RecomputeFull) {
         for (auto obj : doc->getObjects()) {
             obj->touch();
         }
-        doc->recompute();
-        break;
-    default:
-        break;
     }
+    else if (Recompute.getValue() != RecomputeTouched) {
+        return;
+    }
+    long frame = 0;
+    if (!isCaching() || !frameAt(t, frame)) {
+        doc->recompute();
+        return;
+    }
+    if (replayFrame(frame)) {
+        return;
+    }
+    Capture capture;
+    for (auto obj : doc->getObjects()) {
+        if (obj->isTouched()) {
+            capture.scope.insert(obj);
+        }
+    }
+    int res = -1;
+    double began = secondsNow();
+    _capture = &capture;
+    try {
+        res = doc->recompute();
+    }
+    catch (...) {
+        _capture = nullptr;
+        throw;
+    }
+    _capture = nullptr;
+    if (res >= 0) {
+        storeFrame(frame, capture, secondsNow() - began);
+    }
+}
+
+bool Animation::isCaching() const
+{
+    return Cache.getValue() && Recompute.getValue() != RecomputeNever;
+}
+
+bool Animation::cachingIn(const Document* doc)
+{
+    for (auto anim : cachers()) {
+        if (!doc || anim->getDocument() == doc) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Animation::frameAt(double t, long& frame) const
+{
+    double rate = FrameRate.getValue();
+    if (rate <= 0) {
+        return false;
+    }
+    double at = (t - Start.getValue()) * rate;
+    frame = std::lround(at);
+    return std::fabs(at - static_cast<double>(frame)) < TimeEpsilon * rate;
+}
+
+bool Animation::replayFrame(long index)
+{
+    auto it = _frames.find(index);
+    if (it == _frames.end()) {
+        return false;
+    }
+    auto doc = getDocument();
+    Frame& frame = *it->second;
+    // Something is touched that this frame's recompute never met: what it
+    // kept is not the whole of what a recompute would do now
+    for (auto obj : doc->getObjects()) {
+        if (obj->isTouched() && !frame.scope.count(obj)) {
+            return false;
+        }
+    }
+    if (frame.spilled) {
+        if (!loadFrame(frame)) {
+            FC_WARN(getFullName() << ": frame " << index << " not read back from "
+                                  << frame.file);
+            dropFrame(index);
+            return false;
+        }
+    }
+    else {
+        for (auto& v : frame.values) {
+            try {
+                v.prop->Paste(*v.value);
+            }
+            catch (Base::Exception& e) {
+                FC_WARN(getFullName() << ": frame " << index << " not put back, "
+                                      << v.prop->getFullName() << ": " << e.what());
+                dropFrame(index);
+                return false;
+            }
+        }
+    }
+    for (auto obj : frame.clean) {
+        obj->purgeTouched();
+    }
+    frame.used = ++_cacheTick;
+    ++_cacheReplayed;
+    trimCache();
+    // The document now shares this frame's values with the cache, and
+    // gave up the ones it had: the next frame kept grows the heap by
+    // itself only if those are still held, which is not known
+    _cacheHeapMark = 0;
+    return true;
+}
+
+void Animation::dropFrame(long index)
+{
+    auto it = _frames.find(index);
+    if (it == _frames.end()) {
+        return;
+    }
+    Frame& frame = *it->second;
+    if (!frame.spilled) {
+        _cacheBytes -= std::min(_cacheBytes, frame.bytes);
+    }
+    if (!frame.file.empty()) {
+        _cacheDiskBytes -= std::min(_cacheDiskBytes, frame.fileBytes);
+        Base::FileInfo(frame.file).deleteFile();
+    }
+    _frames.erase(it);
+}
+
+std::string Animation::cacheDir() const
+{
+    auto doc = getDocument();
+    if (!doc || !getNameInDocument()) {
+        return {};
+    }
+    std::string dir = doc->TransientDir.getValue();
+    if (dir.empty()) {
+        return {};
+    }
+    dir += "/AnimationCache";
+    Base::FileInfo top(dir);
+    if (!top.exists() && !top.createDirectory()) {
+        return {};
+    }
+    dir += "/";
+    dir += getNameInDocument();
+    Base::FileInfo own(dir);
+    if (!own.exists() && !own.createDirectory()) {
+        return {};
+    }
+    return dir;
+}
+
+bool Animation::spillFrame(long index, Frame& frame)
+{
+    // Out of memory, onto disk: each value as a save would write it
+    // (App::captureValue, what the transaction log keeps a value as)
+    if (frame.spilled) {
+        return true;
+    }
+    if (frame.file.empty()) {
+        std::string dir = cacheDir();
+        auto doc = getDocument();
+        if (dir.empty() || !doc) {
+            return false;
+        }
+        double began = secondsNow();
+        CaptureConfig config(*doc);
+        config.blobs = nullptr;  // whole, in the frame's own file
+        std::string name = dir + "/" + std::to_string(index) + ".frame";
+        std::ofstream out(name, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            return false;
+        }
+        putSize(out, frame.values.size());
+        for (auto& v : frame.values) {
+            CapturedValue value = captureValue(config, *v.value);
+            if (!value.ok || !value.blobs.empty()) {
+                out.close();
+                Base::FileInfo(name).deleteFile();
+                return false;
+            }
+            putBytes(out, value.fragment);
+            putSize(out, value.attachments.size());
+            for (auto& a : value.attachments) {
+                putBytes(out, a.name);
+                putBytes(out, a.bytes);
+            }
+        }
+        out.flush();
+        if (!out) {
+            out.close();
+            Base::FileInfo(name).deleteFile();
+            return false;
+        }
+        frame.fileBytes = static_cast<std::size_t>(out.tellp());
+        out.close();
+        frame.file = name;
+        _cacheDiskBytes += frame.fileBytes;
+        _cacheDiskSeconds += secondsNow() - began;
+        _cacheDiskWork += frame.bytes;
+    }
+    for (auto& v : frame.values) {
+        v.value.reset();
+    }
+    frame.spilled = true;
+    _cacheBytes -= std::min(_cacheBytes, frame.bytes);
+    ++_cacheSpilled;
+    return true;
+}
+
+bool Animation::loadFrame(Frame& frame)
+{
+    double began = secondsNow();
+    std::ifstream in(frame.file, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    const std::uint64_t most = frame.fileBytes;
+    std::uint64_t count = 0;
+    if (!getSize(in, count) || count != frame.values.size()) {
+        return false;
+    }
+    std::vector<CapturedValue> values(count);
+    for (auto& value : values) {
+        std::uint64_t attachments = 0;
+        if (!getBytes(in, value.fragment, most) || !getSize(in, attachments)
+            || attachments > most) {
+            return false;
+        }
+        value.attachments.resize(attachments);
+        for (auto& a : value.attachments) {
+            if (!getBytes(in, a.name, most) || !getBytes(in, a.bytes, most)) {
+                return false;
+            }
+        }
+        value.ok = true;
+    }
+    in.close();
+    try {
+        RestoreBatch batch;
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            restoreValue(*frame.values[i].prop, values[i]);
+        }
+        batch.finish();
+    }
+    catch (Base::Exception& e) {
+        FC_WARN(getFullName() << ": " << e.what());
+        return false;
+    }
+    // In memory again, as the document has it now; the file stays good
+    for (auto& v : frame.values) {
+        v.value.reset(v.prop->Copy());
+        if (!v.value) {
+            return false;
+        }
+    }
+    frame.spilled = false;
+    _cacheBytes += frame.bytes;
+    _cacheDiskSeconds += secondsNow() - began;
+    _cacheDiskWork += frame.bytes;
+    ++_cacheLoaded;
+    return true;
+}
+
+void Animation::storeFrame(long index, Capture& capture, double cost)
+{
+    dropFrame(index);
+    auto frame = std::make_unique<Frame>();
+    frame->cost = cost;
+    for (auto& [obj, prop] : capture.written) {
+        if (!obj->isAttachedToDocument() || obj->isError()) {
+            return;  // not a frame to show again without saying why
+        }
+        std::unique_ptr<Property> copy(prop->Copy());
+        if (!copy) {
+            return;
+        }
+        frame->bytes += copy->getMemSize();
+        frame->values.push_back({obj, prop, std::move(copy)});
+        capture.scope.insert(obj);
+    }
+    for (auto obj : capture.scope) {
+        if (!obj->isAttachedToDocument()) {
+            return;
+        }
+        if (obj->isError()) {
+            return;
+        }
+        if (!obj->isTouched()) {
+            frame->clean.push_back(obj);
+        }
+    }
+    frame->scope = std::move(capture.scope);
+    frame->used = ++_cacheTick;
+    // What it holds, measured: the heap now against the heap when the
+    // frame before was kept. Between the two the document gave up that
+    // frame's values, which the cache holds on to, for this one's --
+    // growth by one frame, the meshes the views made of it included.
+    // Told only when nothing else moved the cache in between; otherwise
+    // the mean of the frames measured so far, and a frame kept before
+    // any was measured is put right once one is.
+    static const auto group = GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/Animation");
+    const bool measure = group->GetBool("CacheMeasure", true);
+    std::size_t heap = measure ? heapInUse() : 0;
+    if (heap && _cacheHeapMark && heap > _cacheHeapMark && !frame->values.empty()) {
+        frame->bytes = std::max(frame->bytes, heap - _cacheHeapMark);
+        frame->measured = true;
+        _cacheMeasured += frame->bytes;
+        if (++_cacheMeasuredFrames == 1) {
+            for (auto& [i, other] : _frames) {
+                if (!other->measured && !other->spilled && !other->values.empty()
+                    && other->bytes < frame->bytes) {
+                    _cacheBytes += frame->bytes - other->bytes;
+                    other->bytes = frame->bytes;
+                }
+            }
+        }
+    }
+    else if (_cacheMeasuredFrames && !frame->values.empty()) {
+        frame->bytes = std::max(frame->bytes, _cacheMeasured / _cacheMeasuredFrames);
+    }
+    _cacheBytes += frame->bytes;
+    _frames[index] = std::move(frame);
+    ++_cacheStored;
+    trimCache();
+    _cacheHeapMark = measure ? heapInUse() : 0;
+}
+
+void Animation::trimCache()
+{
+    // Two budgets (docs/Animation.md sec 4): what memory may hold, and
+    // what disk may. Over the first the frames shown longest ago go to
+    // disk -- or are dropped, where recomputing one is quicker than
+    // reading it back, or there is no disk to go to; over the second the
+    // ones longest ago on disk are dropped. The frame on show stays.
+    const std::size_t mb = 1024 * 1024;
+    std::size_t memory = static_cast<std::size_t>(std::max(1L, cacheLimit("CacheLimitMB", 512))) * mb;
+    std::size_t disk = static_cast<std::size_t>(std::max(0L, cacheLimit("CacheDiskLimitMB", 4096))) * mb;
+    // In bytes, for a test: frames small enough to make by the hundred
+    if (long bytes = cacheLimit("CacheLimitBytes", 0); bytes > 0) {
+        memory = static_cast<std::size_t>(bytes);
+    }
+    if (long bytes = cacheLimit("CacheDiskLimitBytes", -1); bytes >= 0) {
+        disk = static_cast<std::size_t>(bytes);
+    }
+    auto oldest = [this](bool spilled) {
+        long found = -1;
+        std::uint64_t used = _cacheTick;  // never the newest
+        for (auto& [index, frame] : _frames) {
+            if (frame->spilled == spilled && frame->used < used) {
+                used = frame->used;
+                found = index;
+            }
+        }
+        return found;
+    };
+    while (_cacheBytes > memory) {
+        long index = oldest(false);
+        if (index < 0) {
+            break;
+        }
+        Frame& frame = *_frames[index];
+        // What the disk has cost so far, a byte: is this one worth it?
+        static const auto group = GetApplication().GetParameterGroupByPath(
+            "User parameter:BaseApp/Preferences/Animation");
+        double trip = _cacheDiskWork > 0 && !group->GetBool("CacheDiskAlways", false)
+            ? _cacheDiskSeconds / static_cast<double>(_cacheDiskWork)
+                  * static_cast<double>(frame.bytes)
+            : 0.0;
+        if (disk == 0 || (frame.file.empty() && frame.cost < trip) || !spillFrame(index, frame)) {
+            dropFrame(index);
+        }
+    }
+    while (_cacheDiskBytes > disk) {
+        long index = oldest(true);
+        if (index < 0) {
+            // Only files of frames also in memory are left: those go
+            for (auto& [i, frame] : _frames) {
+                if (!frame->file.empty() && frame->used < _cacheTick) {
+                    _cacheDiskBytes -= std::min(_cacheDiskBytes, frame->fileBytes);
+                    Base::FileInfo(frame->file).deleteFile();
+                    frame->file.clear();
+                    frame->fileBytes = 0;
+                    if (_cacheDiskBytes <= disk) {
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+        dropFrame(index);
+    }
+}
+
+void Animation::clearCache()
+{
+    for (auto& [index, frame] : _frames) {
+        if (!frame->file.empty()) {
+            Base::FileInfo(frame->file).deleteFile();
+        }
+    }
+    _frames.clear();
+    _cacheBytes = 0;
+    _cacheDiskBytes = 0;
+    _cacheHeapMark = 0;
+}
+
+Animation::CacheInfo Animation::cacheInfo() const
+{
+    CacheInfo info;
+    double rate = FrameRate.getValue();
+    for (auto& v : _frames) {
+        double t = Start.getValue() + static_cast<double>(v.first) / std::max(1e-9, rate);
+        info.times.push_back(t);
+        if (v.second->spilled) {
+            info.onDisk.push_back(t);
+        }
+    }
+    info.bytes = _cacheBytes;
+    info.diskBytes = _cacheDiskBytes;
+    info.stored = _cacheStored;
+    info.replayed = _cacheReplayed;
+    info.spilled = _cacheSpilled;
+    info.loaded = _cacheLoaded;
+    return info;
 }
 
 void Animation::activate()
@@ -2188,6 +2746,23 @@ void Animation::connectDocument()
             _saving = true;
             deactivate(true);
         }
+        // A frame on disk names its element maps' strings by the ids the
+        // file's table has now, and a save may give that table up
+        std::vector<long> gone;
+        for (auto& [index, frame] : _frames) {
+            if (frame->spilled) {
+                gone.push_back(index);
+            }
+            else if (!frame->file.empty()) {
+                _cacheDiskBytes -= std::min(_cacheDiskBytes, frame->fileBytes);
+                Base::FileInfo(frame->file).deleteFile();
+                frame->file.clear();
+                frame->fileBytes = 0;
+            }
+        }
+        for (long index : gone) {
+            dropFrame(index);
+        }
     }));
     _conns.emplace_back(doc->signalFinishSave.connect([this](const Document&, const std::string&) {
         if (_saving) {
@@ -2202,7 +2777,16 @@ void Animation::connectDocument()
     };
     _conns.emplace_back(doc->signalUndo.connect(pending));
     _conns.emplace_back(doc->signalRedo.connect(pending));
+    _conns.emplace_back(doc->signalNewObject.connect([this](const DocumentObject&) {
+        clearCache();
+    }));
+    _conns.emplace_back(doc->signalRecomputedObject.connect([this](const DocumentObject& obj) {
+        if (_capture) {
+            _capture->scope.insert(const_cast<DocumentObject*>(&obj));
+        }
+    }));
     _conns.emplace_back(doc->signalDeletedObject.connect([this](const DocumentObject& obj) {
+        clearCache();
         if (&obj == this) {
             return;
         }
@@ -2223,7 +2807,23 @@ void Animation::connectDocument()
     _conns.emplace_back(doc->signalBeforeChangeObject.connect(
         [this](const DocumentObject& obj, const Property& prop) { onBeforeRecord(obj, prop); }));
     _conns.emplace_back(doc->signalChangedObject.connect(
-        [this](const DocumentObject& obj, const Property& prop) { onRecord(obj, prop); }));
+        [this](const DocumentObject& obj, const Property& prop) {
+            if (_capture) {
+                // What the frame's recompute writes: kept once it is over
+                if (&obj != this && _capture->seen.insert(&prop).second) {
+                    _capture->written.emplace_back(const_cast<DocumentObject*>(&obj),
+                                                   const_cast<Property*>(&prop));
+                }
+            }
+            else if (!_frames.empty() && !(WriteScope::causes() & WriteCause::Animation)
+                     && (&obj != this || &prop == &Tracks || &prop == &Start
+                         || &prop == &FrameRate || &prop == &Recompute || &prop == &Cache)) {
+                // The design changed, or what a frame is: nothing kept
+                // is what a recompute would give now
+                clearCache();
+            }
+            onRecord(obj, prop);
+        }));
     _conns.emplace_back(
         GetApplication().signalFinishRestoreDocument.connect([this](const Document& d) {
             if (&d == getDocument() && _pending) {
@@ -2231,7 +2831,10 @@ void Animation::connectDocument()
             }
         }));
     _conns.emplace_back(GetApplication().signalRemoveDynamicProperty.connect(
-        [this](const Property& prop) { dropRest(nullptr, &prop); }));
+        [this](const Property& prop) {
+            clearCache();
+            dropRest(nullptr, &prop);
+        }));
 }
 
 void Animation::onSettingDocument()
@@ -2243,6 +2846,15 @@ void Animation::onSettingDocument()
 void Animation::onChanged(const Property* prop)
 {
     DocumentObject::onChanged(prop);
+    if (prop == &Active || prop == &Cache || prop == &Recompute) {
+        // Before the frame this change evaluates is built for display
+        if (Active.getValue() && isCaching()) {
+            cachers().insert(this);
+        }
+        else {
+            cachers().erase(this);
+        }
+    }
     auto doc = getDocument();
     if (!doc || isRestoring() || doc->testStatus(Document::Restoring)) {
         return;
@@ -2303,6 +2915,8 @@ void Animation::onDocumentRestored()
 void Animation::unsetupObject()
 {
     recorders().erase(this);
+    cachers().erase(this);
+    clearCache();
     // Deleted: the design is put back as it was
     deactivate(true);
     _conns.clear();

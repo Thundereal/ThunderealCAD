@@ -599,6 +599,338 @@ class TestAnimation(unittest.TestCase):
             self.assertEqual(f.read(4), b"glTF")
         self.assertAlmostEqual(box.Height.Value, 10.0)
 
+    # -- the frame cache ---------------------------------------------------
+
+    def cacheScene(self, slow=0.0):
+        """Obj.G is twice Obj.F, by an execute that counts itself"""
+        import time
+
+        class Twice:
+            def __init__(self):
+                self.count = 0
+
+            def execute(self, obj):
+                self.count += 1
+                if slow:
+                    time.sleep(slow)
+                obj.G = obj.F * 2
+
+        self.obj.Proxy = Twice()
+        self.doc.recompute()
+        self.anim.FrameRate = 10
+        self.anim.addKey("Obj.F", 0.0, 0.0)
+        self.anim.addKey("Obj.F", 1.0, 10.0)
+        return self.obj.Proxy
+
+    def testCacheReplaysWhatAFrameRecomputedTo(self):
+        proxy = self.cacheScene()
+        self.anim.Cache = True
+        self.anim.activate()
+        times = self.anim.frames()
+        self.assertEqual(len(times), 11)
+        for t in times:
+            self.anim.Time = t
+            self.assertAlmostEqual(self.obj.G, 2 * self.obj.F)
+        info = self.anim.cacheInfo()
+        self.assertEqual(len(info["Times"]), 11)
+        self.assertEqual(info["Stored"], 11)
+        self.assertEqual(info["Replayed"], 0)
+        self.assertGreater(info["Bytes"], 0)
+        executed = proxy.count
+        undo = self.doc.UndoCount
+        for t in reversed(times):
+            self.anim.Time = t
+            self.assertAlmostEqual(self.obj.F, 10 * t)
+            self.assertAlmostEqual(self.obj.G, 20 * t)
+            self.assertNotIn("Touched", self.obj.State)
+        info = self.anim.cacheInfo()
+        self.assertEqual(info["Replayed"], 10)  # the last was on show already
+        self.assertEqual(info["Stored"], 11)
+        self.assertEqual(proxy.count, executed)  # nothing was recomputed
+        self.assertEqual(self.doc.UndoCount, undo)
+        # Stopping is a recompute of the design, as ever
+        self.anim.stop()
+        self.assertAlmostEqual(self.obj.F, 1.0)
+        self.assertAlmostEqual(self.obj.G, 2.0)
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+
+    def testCacheKeepsFramesOnly(self):
+        proxy = self.cacheScene()
+        self.anim.Cache = True
+        self.anim.activate()
+        self.anim.Time = 0.5
+        self.anim.Time = 0.55  # between two frames: recomputed, not kept
+        self.assertAlmostEqual(self.obj.G, 11.0)
+        self.assertEqual(self.anim.cacheInfo()["Times"], [0.0, 0.5])
+        self.anim.Time = 0.5  # put back
+        executed = proxy.count
+        self.anim.Time = 0.55  # recomputed again
+        self.assertGreater(proxy.count, executed)
+        self.assertEqual(self.anim.cacheInfo()["Replayed"], 1)
+
+    def testCacheOffKeepsNothing(self):
+        proxy = self.cacheScene()
+        for t in self.anim.frames():
+            self.anim.Time = t
+        executed = proxy.count
+        self.anim.Time = 0.5
+        self.assertGreater(proxy.count, executed)
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+        self.anim.Cache = True
+        self.anim.activate()
+        self.anim.Recompute = "Never"  # nothing is recomputed: nothing to keep
+        self.anim.Time = 0.4
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+
+    def testCacheDroppedByAnEditOfTheDesign(self):
+        proxy = self.cacheScene()
+        self.anim.Cache = True
+        self.anim.activate()
+        for t in self.anim.frames():
+            self.anim.Time = t
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        self.obj.L = 5.0  # an edit: nothing kept is known to stand
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+        executed = proxy.count
+        self.anim.Time = 0.3
+        self.assertGreater(proxy.count, executed)
+        self.assertEqual(self.anim.cacheInfo()["Times"], [0.3])
+        # A key moved is another animation
+        self.anim.addKey("Obj.F", 1.0, 20.0)
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 1)  # evaluated again, at 0.3
+        self.assertAlmostEqual(self.obj.G, 12.0)
+        self.anim.Time = 0.3
+        self.assertAlmostEqual(self.obj.G, 12.0)
+        self.anim.clearCache()
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+        # A new object, an undo
+        self.anim.Time = 0.3
+        self.doc.addObject("App::FeaturePython", "Other")
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+
+    def testCacheFrameReachedFromElsewhere(self):
+        # A frame kept when only one object changed on the way to it is not
+        # the whole answer when two differ: it is recomputed then
+        proxy = self.cacheScene()
+
+        class Thrice:
+            def execute(self, obj):
+                obj.G = obj.F * 3
+
+        other = self.doc.addObject("App::FeaturePython", "Other")
+        other.addProperty("App::PropertyFloat", "F")
+        other.addProperty("App::PropertyFloat", "G")
+        other.Proxy = Thrice()
+        self.doc.recompute()
+        self.anim.addKey("Other.F", 0.0, 0.0)
+        self.anim.addKey("Other.F", 0.5, 5.0)  # and held from there
+        self.anim.Cache = True
+        self.anim.activate()
+        for t in self.anim.frames():
+            self.anim.Time = t
+        for t in (0.1, 0.9, 0.2, 1.0, 0.0, 0.7, 0.4, 0.8, 0.3):
+            self.anim.Time = t
+            self.assertAlmostEqual(self.obj.G, 20 * t)
+            self.assertAlmostEqual(other.G, 3 * min(5.0, 10 * t))
+        self.assertGreater(self.anim.cacheInfo()["Replayed"], 0)
+        self.assertGreater(proxy.count, 0)
+
+    def testCacheKeepsAShapeWithItsMesh(self):
+        try:
+            import Part  # noqa: F401
+        except ImportError:
+            self.skipTest("shapes are Part's")
+        box = self.doc.addObject("Part::Box", "Box")
+        cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = box
+        cut.Tool = cyl
+        self.doc.recompute()
+        rest = cut.Shape.Volume
+        self.anim.FrameRate = 5
+        self.anim.addKey("Box.Height", 0.0, 10.0)
+        self.anim.addKey("Box.Height", 1.0, 20.0)
+        self.anim.Cache = True
+        self.anim.activate()
+        kept = []
+        for t in self.anim.frames():
+            self.anim.Time = t
+            cut.Shape.tessellate(0.1)  # as a view would
+            kept.append((cut.Shape, cut.Shape.Volume))
+        self.assertGreater(kept[-1][1], kept[0][1] * 1.5)
+        for k, ((shape, volume), t) in enumerate(zip(kept, self.anim.frames())):
+            self.anim.Time = t
+            self.assertAlmostEqual(cut.Shape.Volume, volume, 6)
+            self.assertAlmostEqual(box.Height.Value, 10 + 10 * t)
+            # The very shape, so the mesh it was shown with comes with it.
+            # Not the first: nothing was recomputed for it when the design
+            # was already there, so coming back to it is its first recompute
+            if k:
+                self.assertTrue(cut.Shape.isPartner(shape))
+        self.assertEqual(self.anim.cacheInfo()["Replayed"], len(kept) - 1)
+        self.anim.Time = 0.0
+        first = cut.Shape
+        self.anim.Time = self.anim.frames()[-1]
+        self.anim.Time = 0.0
+        self.assertTrue(cut.Shape.isPartner(first))
+        self.anim.stop()
+        self.assertAlmostEqual(cut.Shape.Volume, rest, 6)
+
+    def cacheLimits(self, memory=None, disk=None, always=False):
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Animation")
+        if always:
+            group.SetBool("CacheDiskAlways", True)
+        else:
+            group.RemBool("CacheDiskAlways")
+        # By each property's own count while a test sets limits in bytes:
+        # the heap's growth is the truth, and not the same twice
+        if memory is None:
+            group.RemBool("CacheMeasure")
+        else:
+            group.SetBool("CacheMeasure", False)
+        for name, value in (("CacheLimitBytes", memory), ("CacheDiskLimitBytes", disk)):
+            if value is None:
+                group.RemInt(name)
+            else:
+                group.SetInt(name, value)
+
+    def testCacheGoesToDiskOverItsMemory(self):
+        # Slow enough to recompute that a frame is worth a file: one that
+        # is quicker made again than read back is dropped instead
+        proxy = self.cacheScene(slow=0.01)
+        self.addCleanup(self.cacheLimits)
+        self.cacheLimits(memory=1 << 30)
+        self.anim.Cache = True
+        self.anim.activate()
+        one = self.anim.cacheInfo()["Bytes"]
+        self.assertGreater(one, 0)
+        self.cacheLimits(memory=3 * one + one // 2)  # three frames' worth
+        times = self.anim.frames()
+        for t in times:
+            self.anim.Time = t
+        info = self.anim.cacheInfo()
+        self.assertEqual(len(info["Times"]), 11)  # none lost
+        self.assertEqual(len(info["OnDisk"]), 8)
+        self.assertLessEqual(info["Bytes"], 3 * one + one // 2)
+        self.assertGreater(info["DiskBytes"], 0)
+        self.assertEqual(info["Spilled"], 8)
+        self.assertEqual(info["OnDisk"], times[:8])  # shown longest ago
+        files = os.path.join(self.doc.TransientDir, "AnimationCache", "Anim")
+        self.assertEqual(len(os.listdir(files)), 8)
+        executed = proxy.count
+        for t in times:
+            self.anim.Time = t
+            self.assertAlmostEqual(self.obj.F, 10 * t)
+            self.assertAlmostEqual(self.obj.G, 20 * t)
+            self.assertNotIn("Touched", self.obj.State)
+        info = self.anim.cacheInfo()
+        self.assertEqual(proxy.count, executed)  # read back, not recomputed
+        self.assertGreaterEqual(info["Loaded"], 8)
+        self.assertEqual(len(info["Times"]), 11)
+        self.assertLessEqual(info["Bytes"], 3 * one + one // 2)
+        # The disk has a budget as well: over it the oldest are dropped
+        self.cacheLimits(memory=3 * one + one // 2, disk=info["DiskBytes"] // 3)
+        self.anim.Time = times[5]
+        info = self.anim.cacheInfo()
+        self.assertLess(len(info["Times"]), 11)
+        self.assertLessEqual(info["DiskBytes"], info["DiskBytes"] // 3 * 3 + 1)
+        for t in times:
+            self.anim.Time = t
+            self.assertAlmostEqual(self.obj.G, 20 * t)
+        # No disk at all: what does not fit is dropped
+        self.anim.clearCache()
+        self.assertEqual(os.listdir(files), [])
+        self.cacheLimits(memory=3 * one + one // 2, disk=0)
+        for t in times:
+            self.anim.Time = t
+        info = self.anim.cacheInfo()
+        self.assertEqual(len(info["Times"]), 3)
+        self.assertEqual(info["OnDisk"], [])
+        self.assertEqual(os.listdir(files), [])
+        # An edit takes the files with the frames
+        self.cacheLimits(memory=3 * one + one // 2)
+        for t in times:
+            self.anim.Time = t
+        self.assertGreater(len(os.listdir(files)), 0)
+        self.obj.L = 6.0
+        self.assertEqual(os.listdir(files), [])
+        self.assertEqual(self.anim.cacheInfo()["DiskBytes"], 0)
+
+    def testCacheShapeBackFromDisk(self):
+        try:
+            import Part  # noqa: F401
+        except ImportError:
+            self.skipTest("shapes are Part's")
+        box = self.doc.addObject("Part::Box", "Box")
+        cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = box
+        cut.Tool = cyl
+        self.doc.recompute()
+        rest = cut.Shape.Volume
+        self.anim.FrameRate = 5
+        self.anim.addKey("Box.Height", 0.0, 10.0)
+        self.anim.addKey("Box.Height", 1.0, 20.0)
+        self.addCleanup(self.cacheLimits)
+        # The frame on show, and no more; to disk however quick the cut is
+        self.cacheLimits(memory=1, always=True)
+        self.anim.Cache = True
+        self.anim.activate()
+        kept = []
+        for t in self.anim.frames():
+            self.anim.Time = t
+            kept.append((cut.Shape.Volume, len(cut.Shape.Faces),
+                         cut.Shape.getElementName("Face1")))
+        info = self.anim.cacheInfo()
+        self.assertEqual(len(info["OnDisk"]), len(kept) - 1)
+        for (volume, faces, name), t in zip(kept, self.anim.frames()):
+            self.anim.Time = t
+            self.assertAlmostEqual(cut.Shape.Volume, volume, 6)
+            self.assertEqual(len(cut.Shape.Faces), faces)
+            self.assertEqual(cut.Shape.getElementName("Face1"), name)
+            self.assertTrue(cut.Shape.isValid())
+            self.assertAlmostEqual(box.Height.Value, 10 + 10 * t)
+            self.assertNotIn("Touched", cut.State)
+        info = self.anim.cacheInfo()
+        self.assertEqual(info["Stored"], len(kept) + 1)  # the first, come back to
+        self.assertGreaterEqual(info["Loaded"], len(kept) - 2)
+        self.anim.stop()
+        self.assertAlmostEqual(cut.Shape.Volume, rest, 6)
+
+    def testCacheCountsWhatAFrameReallyHolds(self):
+        try:
+            import Part  # noqa: F401
+        except ImportError:
+            self.skipTest("shapes are Part's")
+        box = self.doc.addObject("Part::Box", "Box")
+        tools = []
+        for i in range(9):
+            cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+            cyl.Radius = 0.4
+            cyl.Placement.Base = App.Vector(1 + 3 * (i % 3), 1 + 3 * (i // 3), -1)
+            tools.append(cyl)
+        tool = self.doc.addObject("Part::Compound", "Tool")
+        tool.Links = tools
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = box
+        cut.Tool = tool
+        self.doc.recompute()
+        self.anim.FrameRate = 10
+        self.anim.addKey("Box.Height", 0.0, 10.0)
+        self.anim.addKey("Box.Height", 1.0, 20.0)
+        own = cut.Shape.MemSize + box.Shape.MemSize  # what the properties say
+        self.anim.Cache = True
+        self.anim.activate()
+        for t in self.anim.frames():
+            self.anim.Time = t
+        info = self.anim.cacheInfo()
+        if info["Bytes"] <= 10 * own:
+            self.skipTest("the heap is not measured on this platform")
+        # A shape is its curves, its pcurves and its names as well: several
+        # times what its property counts, and the cache counts that
+        self.assertGreater(info["Bytes"], 10 * 5 * own)
+        self.assertLess(info["Bytes"], 10 * 2000 * own)
+
     def testVideoFormats(self):
         from freecad import videoexport
 

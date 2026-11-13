@@ -310,6 +310,7 @@ public:
     PropertyStringList Exclude;
     PropertyBool Active;
     PropertyBool Recording;
+    PropertyBool Cache;
 
     enum RecomputeMode
     {
@@ -369,6 +370,36 @@ public:
     int addStrip(Animation* child, const AnimationStrip& options);
     /// Each frame's time from Start to endTime() at FrameRate
     std::vector<double> frames() const;
+    /// The frame `t` is, when it is one: Start + frame / FrameRate
+    bool frameAt(double t, long& frame) const;
+
+    /** The frame cache (docs/Animation.md sec 4): with Cache on, what the
+     * recompute of a frame wrote is kept -- shapes with the meshes they
+     * were shown with, placements, whatever an expression set -- and the
+     * next time Time is that frame it is put back instead of recomputed.
+     * Any change of the design drops every frame. What memory holds is
+     * bounded (CacheLimitMB of Preferences/Animation, 512): over it the
+     * frames shown longest ago go to files in the document's transient
+     * directory, themselves bounded (CacheDiskLimitMB, 4096; 0 for none).
+     */
+    struct CacheInfo
+    {
+        std::vector<double> times;   ///< the frames kept, in order
+        std::vector<double> onDisk;  ///< those of them that are on disk only
+        std::size_t bytes = 0;       ///< what memory holds of them, estimated
+        std::size_t diskBytes = 0;   ///< what their files hold
+        long stored = 0;             ///< frames recomputed and kept, ever
+        long replayed = 0;           ///< frames put back instead, ever
+        long spilled = 0;            ///< frames moved out of memory onto disk, ever
+        long loaded = 0;             ///< frames read back from disk, ever
+    };
+    CacheInfo cacheInfo() const;
+    void clearCache();
+    /// Whether frames are kept: Cache, and a Recompute that recomputes
+    bool isCaching() const;
+    /// Whether an active Animation of `doc`, or of any document when
+    /// null, keeps its frames: the shapes shown are then meshed exact
+    static bool cachingIn(const Document* doc = nullptr);
 
     /// Parse `path` relative to this Animation
     ObjectIdentifier parsePath(const std::string& path) const;
@@ -447,6 +478,15 @@ private:
     void dropRest(const DocumentObject* obj, const Property* prop);
     void connectDocument();
     void evaluateAt(double t);
+    struct Frame;
+    struct Capture;
+    bool replayFrame(long frame);
+    void storeFrame(long frame, Capture& capture, double cost);
+    void dropFrame(long frame);
+    bool spillFrame(long index, Frame& frame);
+    bool loadFrame(Frame& frame);
+    std::string cacheDir() const;
+    void trimCache();
 
     std::map<const Property*, std::unique_ptr<Rest>> _rest;
     std::vector<fastsignals::scoped_connection> _conns;
@@ -454,6 +494,20 @@ private:
     bool _pending = false;
     bool _saving = false;
     bool _recordingKey = false;
+    std::map<long, std::unique_ptr<Frame>> _frames;
+    Capture* _capture = nullptr;
+    std::size_t _cacheBytes = 0;
+    std::size_t _cacheDiskBytes = 0;
+    double _cacheDiskSeconds = 0;       ///< spent writing and reading frames
+    std::size_t _cacheDiskWork = 0;     ///< the bytes that took
+    std::size_t _cacheHeapMark = 0;     ///< the heap when the last frame was kept
+    std::size_t _cacheMeasured = 0;     ///< bytes of the frames measured
+    std::size_t _cacheMeasuredFrames = 0;
+    long _cacheSpilled = 0;
+    long _cacheLoaded = 0;
+    std::uint64_t _cacheTick = 0;
+    long _cacheStored = 0;
+    long _cacheReplayed = 0;
     void onBeforeRecord(const DocumentObject& obj, const Property& prop, bool view = false);
     void onRecord(const DocumentObject& obj, const Property& prop, bool view = false);
 };

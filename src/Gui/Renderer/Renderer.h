@@ -1886,6 +1886,32 @@ private:
     static std::atomic<double> pinnedSeconds;
 };
 
+/// Exact detail, held: while anybody holds it, a shape built for display
+/// is tessellated exact up front instead of coarse first with the exact
+/// mesh following (Render_CoarseTessellation), is never stood in for by
+/// its bounding box, and a scene update captures every changed shape in
+/// the one publish instead of rationing them over frames
+/// (Render_CaptureBudgetMS). For whoever keeps or records what a frame
+/// shows: an Animation caching its frames keeps the meshes each was shown
+/// with, and an export saves a picture of each -- a frame that is coarse
+/// because it was just rebuilt is wrong in both (docs/Animation.md sec 4,
+/// "The frame cache"). What memory pressure orders is not held back: it
+/// is what keeps the process alive. Counted, process-wide.
+class RendererExport ExactDetail
+{
+public:
+    static void hold();
+    static void release();
+    static bool held();
+    /// One more reason it is held, asked each time: for what this library
+    /// cannot see (the document's Animation keeping its frames)
+    static void also(bool (*reason)());
+
+private:
+    static std::atomic<int> holders;
+    static std::atomic<bool (*)()> reason;
+};
+
 class RendererExport FrameOutside
 {
 public:

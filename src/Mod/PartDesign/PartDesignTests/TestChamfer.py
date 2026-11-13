@@ -206,6 +206,81 @@ class TestChamfer(unittest.TestCase):
         self.assertTrue(chamfer.FailedShape.isNull())
         self.assertAlmostEqual(chamfer.Shape.Volume, whole, places=6)
 
+    def testTheFirstSizeStaysOnItsFace(self):
+        # A chamfer of two sizes measures the first on the edge's first face,
+        # and which of an edge's two faces comes first is the order the
+        # kernel lists the shape's faces in, which a rebuild does not keep
+        # (realthunder/FreeCAD#580: OCCT 8.0.1 lists a pad's faces in another
+        # order than 7.x did, and a chamfer of 5 and 2 was made again with
+        # the 5 where it does not fit). The face is kept by name, in
+        # _FirstFaces.
+        import tempfile
+
+        body = self.Doc.addObject('PartDesign::Body', 'FaceBody')
+        box = body.newObject('PartDesign::AdditiveBox', 'FaceBox')
+        box.Length = box.Width = box.Height = 10.0
+        self.Doc.recompute()
+        shape = box.Shape
+        # an edge of the top, along x, and its two faces
+        index = [i for i, e in enumerate(shape.Edges)
+                 if all(abs(v.Point.z - 10.0) < 1e-7 and abs(v.Point.y) < 1e-7
+                        for v in e.Vertexes)][0]
+        edge = shape.Edges[index]
+        faces = [i for i, f in enumerate(shape.Faces) if any(e.isSame(edge) for e in f.Edges)]
+        self.assertEqual(len(faces), 2)
+        names = shape.ElementReverseMap
+        edgeName = names['Edge%d' % (index + 1)]
+        faceNames = [names['Face%d' % (i + 1)] for i in faces]
+        chamfer = body.newObject('PartDesign::Chamfer', 'FaceChamfer')
+        chamfer.Base = (box, ['Edge%d' % (index + 1)])
+        chamfer.ChamferType = 'Two distances'
+        chamfer.Size = 3.0
+        chamfer.Size2 = 1.0
+        self.Doc.recompute()
+        self.assertTrue(chamfer.isValid())
+        self.assertAlmostEqual(chamfer.Shape.Volume, 1000.0 - 15.0, places=6)
+        record = dict(chamfer._FirstFaces)
+        self.assertEqual(list(record), [edgeName])
+        self.assertIn(record[edgeName], faceNames)
+        other = [name for name in faceNames if name != record[edgeName]][0]
+        made = chamfer.Shape.CenterOfMass
+
+        # the other face on record, as when the faces come the other way
+        # round: the sizes change faces, and the record stays
+        chamfer._FirstFaces = {edgeName: other}
+        chamfer.touch()
+        self.Doc.recompute()
+        self.assertTrue(chamfer.isValid())
+        self.assertAlmostEqual(chamfer.Shape.Volume, 1000.0 - 15.0, places=6)
+        self.assertGreater((chamfer.Shape.CenterOfMass - made).Length, 1e-3)
+        self.assertEqual(dict(chamfer._FirstFaces), {edgeName: other})
+
+        # flipped, the first size is on the edge's other face: where it was
+        chamfer.FlipDirection = True
+        self.Doc.recompute()
+        self.assertLess((chamfer.Shape.CenterOfMass - made).Length, 1e-7)
+        self.assertEqual(dict(chamfer._FirstFaces), {edgeName: other})
+
+        # a face on record that is not the edge's gives way to its first
+        chamfer.FlipDirection = False
+        chamfer._FirstFaces = {edgeName: 'no such face'}
+        self.Doc.recompute()
+        self.assertLess((chamfer.Shape.CenterOfMass - made).Length, 1e-7)
+        self.assertEqual(dict(chamfer._FirstFaces), record)
+
+        # a file from before has no record: it is made of the file's own
+        # shape as the file is opened, before anything is made again
+        chamfer._FirstFaces = {}
+        path = os.path.join(tempfile.gettempdir(), 'PartDesignTestChamfer.FCStd')
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        try:
+            self.assertEqual(self.Doc.Name, 'PartDesignTestChamfer')
+            self.assertEqual(dict(self.Doc.getObject('FaceChamfer')._FirstFaces), record)
+        finally:
+            os.remove(path)
+
     def tearDown(self):
         #closing doc
         FreeCAD.closeDocument("PartDesignTestChamfer")

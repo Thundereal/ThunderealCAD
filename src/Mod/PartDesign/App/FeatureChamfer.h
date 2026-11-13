@@ -56,6 +56,9 @@ public:
     /// (Part::OCCTFilletFixLevel): the latest for an object made now, 0 for
     /// one a file from before brings
     App::PropertyInteger _FilletFixLevel;
+    /// The face each edge's first size is measured on, the edge's name to
+    /// the face's: see firstFaces()
+    App::PropertyMap _FirstFaces;
 
     /** @name methods override feature */
     //@{
@@ -83,6 +86,9 @@ protected:
 private:
     void migrateSelectedFaceRule(const Part::TopoShape &baseShape,
                                  const std::vector<Part::TopoShape> &edges);
+    void firstFaces(const Part::TopoShape &baseShape,
+                    const std::vector<Part::TopoShape> &edges,
+                    std::vector<Part::TopoShape::ChamferInfo> *info);
 
     std::vector<int> edgeIndices;
     /// ChamferInfo was read from the file being restored

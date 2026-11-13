@@ -1161,8 +1161,14 @@ Phase 5, built so far (2026-11-12):
   it is not: the manual's scene (five tracks, a cylinder rebuilt each
   frame, an expression on Time) evaluates in 0.95 ms a frame with
   `Recompute` Touched and 0.47 ms with Never, worst 1.9 ms, on mini; a
-  frame at 30 fps has 33 ms. A model whose recompute is slow is the case
-  for one, and there the export already steps frame by frame.
+  frame at 30 fps has 33 ms. That is a small scene and says nothing of a
+  heavy one: a plate whose thickness the Animation drives, holes cut
+  through it, takes 21 ms a frame with 16 holes and 77 ms with 64, and
+  with every edge filleted 60 ms and 272 ms (mini, in the GUI, the view's
+  update included). A second pass over the same frames is no faster --
+  nothing is kept today. So a parametric animation of a real part plays
+  at 4 to 15 frames a second, and the frame cache is what would make its
+  second pass and its scrubbing real time. Still not built.
 - The manual (thundereal-manual `core/animation`, "Exporting", with
   `export.py` and its media) and the help page have the export.
 

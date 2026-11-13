@@ -92,5 +92,5 @@ class TestIntersectionProfile(unittest.TestCase):
         self.pad((self.Cut, ["InternalFace1"]), True, 102168.09)
 
     def testPadOnTheSketchReversed(self):
-        # the face maker cuts each closed curve in two here
-        self.pad(self.Cut, True, 125058.45)
+        # both closed curves, each one edge
+        self.pad(self.Cut, True, 125066.03)

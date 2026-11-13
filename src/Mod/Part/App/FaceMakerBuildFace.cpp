@@ -86,6 +86,8 @@ TopTools_ListOfShape Part::FaceMakerBuildFace::splitSelfIntersecting(
 )
 {
     const Standard_Real tol = Precision::Confusion();
+    // how near the curve a point of its own intersection is
+    const Standard_Real onCurve = 100.0 * Precision::Confusion();
     TopTools_ListOfShape result;
 
     for (TopTools_ListIteratorOfListOfShape it(edges); it.More(); it.Next()) {
@@ -112,6 +114,15 @@ TopTools_ListOfShape Part::FaceMakerBuildFace::splitSelfIntersecting(
             for (int i = 1; i <= selfInt.NbPoints(); i++) {
                 Geom2dAPI_ProjectPointOnCurve proj(selfInt.Point(i), curve2d, first, last);
                 for (int j = 1; j <= proj.NbPoints(); j++) {
+                    // Only where the curve passes through the point. The
+                    // projection also gives the foot of every other normal
+                    // from the point to the curve, and a closed curve meets
+                    // itself at its seam: an oval that crosses nowhere was
+                    // cut in two at the foot opposite its seam, and a figure
+                    // of eight in eight.
+                    if (proj.Distance(j) > onCurve) {
+                        continue;
+                    }
                     Standard_Real p = proj.Parameter(j);
                     if (p - first > tol && last - p > tol) {
                         params.push_back(p);

@@ -4976,6 +4976,106 @@ Phase D1 is under way (2026-10-28):
     13 to 16 holds the motion's torque to none within the same (-0.0013 to
     0.0004 N R). The rest hold: TestFlexibleBody 28 (548 s), TestDynamics
     90, TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 18 (2026-11-13): hollow rounds -- a pin in a bore, one
+  of them flexible or both, step 16's limit -- and with them a round's
+  points thinned to one a place.
+  - **Where it stood.** Step 17's rod (R 5 x 40, mesh 4, turned once in
+    0.1 s, friction 0.3) in a block 55 x 20 x 20 with a bore R 5.5 along
+    it, the bore's wall 0.05 mm into the rod's underside. Both rigid: 50 N,
+    0.2998 N R. The rod flexible in the rigid block: not over in 10
+    minutes. The rod rigid in the block flexible, held all along its
+    underside: 47.6 N steady and 0.3018 N R, in 430 s.
+  - **A hollow round's deepest is the face's point farthest from its axis**
+    (`deepestOnFace()`, which refused one): the same steps the other way,
+    Newton's Hessian the other sign, the Gauss and Newton's still the
+    metric where that leaves no way down; the normal still out of the axis
+    through the point, and the load's the other way, from the hollow part
+    in (`place()`, `follow()`). The mesh's faces on a bore are its round's
+    too (`matchRounds()`; `roundAt()`'s centre out of the part there), so
+    of two flexible parts the pin's face goes into the bore's round.
+  - **3500 points on the one line.** A pair of triangles each gives its
+    points; the rod's triangles a third of the way round it, against each
+    of the bore's mesh's about them, all go to where the rod's face is
+    deepest -- a roller has 130. Each substep took 0.4 s, none unconverged:
+    the points, not the solver. The points slid into a round are thinned
+    after they are placed (`thinOut()`): one place is a patch's points, slid
+    on the same side, within a quarter of their face's first edge along the
+    round's axis and a whole edge across it -- a ball's, a quarter all
+    round. The places are gathered about their deepest points, and of a
+    place's points the middle one by depth is kept. Not the first found:
+    41.7 N for 44.5. Not the deepest: the same to a newton here, but it is
+    the place's outlier. And not the points slid towards a flat face, which
+    are held nowhere along a rod's line: thinned, the rod's force on a plate
+    ran from 39.5 to 46.3 N for 42.3 to 46.8. About 100 points then, the
+    solve a tenth of what it was.
+  - **Thinned, the strays weigh.** Three kinds, each from a dump of the
+    points kept:
+    - A third of them were 1 to 3 mm off the line, stopped at a face's
+      edge: `deepestOnFace()` read the edge it leaves by only once the
+      steps along the edge had stopped getting nearer, and a point slid
+      along its edge for its sixteen steps with the deepest across it. It
+      is read at each step now -- on an edge, Newton's step out across it by
+      a millionth of the face or more -- and the faces gone through are
+      eight at most, for three: at a mesh's node the way round is that
+      long.
+    - A cylinder's end. A point found past it was refused, and the wall's
+      points at a rod's two ends stayed on their flat triangles, which
+      stand in from a hollow face: 0.08 and 0.13 mm deep for 0.05. It is
+      held at the end's station now -- the rim of a pin's end on a bore's
+      wall is its side's line there -- and taken as the end's within a
+      twentieth of the radius: held by a tenth of a weight, a point is
+      microns off its station where the face leans along the axis.
+    - What is still left on a curved face's triangle, in a patch whose
+      others were slid into the round, is left out (`thinOut()`): one such
+      at a rod's rim, 0.7 mm off its triangle and 0.12 mm deep among
+      forty-six at 0.05, had the rigid rod press the flexible bore 53.8 N.
+  - **A slid point is on its part's round**, where its face is of one
+    (`ontoRound()`, from `place()`): its offset the way from the face's
+    point to the round the mesh has there (`roundAt()`), kept through the
+    substep. A quadratic face through nodes on a round stands in from it
+    between them. Measured on the rod's mesh (`faceerror.py`): its faces'
+    corners span 26.5 deg, 38.8 at most, and the faces are 0.21 um inside
+    the R 5 on the mean, 1.75 at most -- of the 50 pressed, 0.4%, and the
+    rod's force on a plate rose 0.2%. Not the plate's ripple, then, which
+    stays.
+  - Numbers (mesh 4, steps of 0.2 ms, friction 0.3, over 0.03 to 0.08 s).
+
+    | rod | under it | N | of N R | run | before |
+    |---|---|---|---|---|---|
+    | flexible | rigid plate | 44.92 (42.52 to 46.67) | 0.2987 | 8 s | 44.81, 0.2987 |
+    | flexible | flexible plate | 46.13 (45.05 to 47.03) | 0.2973 | 42 s | 46.02, 0.2972 |
+    | flexible | rigid roller | 45.64 (44.70 to 46.61) | 0.2974 | 6 s | 44.60, 0.2983, 10 s |
+    | flexible | flexible roller | 45.15 (44.69 to 45.58) | 0.2982 | 59 s | 44.71, 0.2978, 182 s |
+    | flexible | rigid bore | 45.53 (44.99 to 46.04) | 0.2988 | 140 s | not over in 600 s |
+    | rigid | flexible bore | 49.98 (49.98 to 49.98) | 0.2999 | 31 s | 47.56, 0.3018, 440 s |
+    | flexible | flexible bore | 45.50 (45.04 to 45.98) | 0.2984 | 276 s | -- |
+
+    The flexible rod presses 45.2 to 45.6 N on a roller and in a bore, rigid
+    or flexible; a rigid roller's ripple is 3.8% of the mean for 10.0 (44.88
+    to 46.60 N over the turn, 44.41 to 46.55 at mesh 2). Without friction,
+    both flexible: the plate 43.76 to 47.21 N, past its ends 39.51 to 47.25,
+    the roller 44.71 to 45.54 in 49 s (step 17's 44.09 to 45.37 in 136), the
+    two strips 9.80 N at the end as they were. The strip between two bars
+    as it was, frame for frame.
+  - Limits.
+    - A flexible rod in a rigid bore is 140 s for a roller's 6: the rigid
+      bore is a mesh, and every triangle of the rod is tried against each
+      of its triangles near it at each detection, 0.07 s.
+    - The points slid towards a flat face are not thinned: two flexible
+      parts' line on a flat face has a point for each pair of triangles.
+    - The flexible rod's force itself, 45 N of the rigid 50, is against no
+      closed form: it is one within 1% on a plate's edge, a roller and a
+      bore, rigid or flexible.
+    - A partial round's reach about its axis (a D shaft's) is not looked at
+      where a face's point is slid into it.
+    - Step 17's stand: within a substep a slid point stops at its face's
+      edges; sticking friction against no closed form.
+  - Tests: TestFlexibleBody.test_round_in_bore (the flexible rod in the
+    rigid bore over 0.03 to 0.045 s: 45.63 N, within a tenth, the motion's
+    torque none to 0.006 N R) and test_rigid_round_in_flexible_bore (the
+    rigid rod in the flexible bore with a friction of 0.3: 49.98 N steady,
+    0.2987 N R). The rest hold: TestFlexibleBody 30 (587 s), TestDynamics
+    90, TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

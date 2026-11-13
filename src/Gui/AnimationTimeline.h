@@ -83,6 +83,9 @@ public:
         return timer.isActive();
     }
     App::Animation* animation() const;
+    /// The count Loop folds into Time: where playing started plus the wall
+    /// clock times Speed; Time itself when paused
+    double rawTime() const;
 
 Q_SIGNALS:
     void stateChanged();

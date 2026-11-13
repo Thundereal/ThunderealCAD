@@ -435,6 +435,7 @@ void BGFXRenderer::Private::publishScene(const void *viewMatrix,
                                         pub.changed, pub.removed);
                 publishedObjects = std::move(entries);
                 server.publish(std::move(pub), publishGroup);
+                publishedVersion = publishVersion;
                 // This publish consulted builtLevel() for every
                 // ladder it wrote, so every level finished by the
                 // count taken above is now announced. A job that

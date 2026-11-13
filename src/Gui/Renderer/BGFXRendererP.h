@@ -10648,6 +10648,8 @@ public:
     int dumpFrames = 0;         ///< non-empty frames seen (dump delay)
     bool serveStarted = false;  ///< FC_BGFX_SERVE_SCENE start attempted
     bool scenePublished = false;///< at least one payload published
+    /// The manifest version of the last payload handed to the server
+    uint64_t publishedVersion = 0;
     /// SceneStreamServer::levelsBuilt() as of the last publish. The
     /// counter moving is what a finished level-generation job looks
     /// like from here, and the response is a republish — that is the

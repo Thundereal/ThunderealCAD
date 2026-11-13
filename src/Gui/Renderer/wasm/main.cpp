@@ -39,6 +39,7 @@
 #include "Page2D.h"
 #include "Page2DWire.h"
 #include "SceneDump.h"
+#include "MotionClip.h"
 #include "SceneLadder.h"
 #include "StandalonePlatform.h"
 
@@ -779,6 +780,15 @@ EM_JS(void, fcviewer_install_control, (), {
         var ok = _fcviewer_control_send(buf);
         _free(buf);
         return ok === 1;
+    };
+    // What the viewer is playing of the host's Animation
+    // (docs/Animation.md sec 9, "Streaming"), as an object.
+    window.fcviewerAnimationState = function() {
+        try {
+            return JSON.parse(UTF8ToString(_fcviewer_animation_state()));
+        } catch (e) {
+            return null;
+        }
     };
 });
 
@@ -5048,6 +5058,8 @@ static void updateOnViewLayout()
         fcviewer_onview_layout(spec.c_str());
 }
 
+static void tickClip();
+
 static void mainLoop()
 {
     const double frameNow = emscripten_get_now();
@@ -5150,6 +5162,9 @@ static void mainLoop()
     // handful of float compares on a settled scene; the skip still
     // saves the render.
     pumpFetchOnMove();
+    // An Animation playing here moves its draws before it is decided
+    // whether this frame is drawn: the move is what makes it one.
+    tickClip();
     if (s_dirtyFrames > 0) {
         --s_dirtyFrames;
     } else if (s_renderer && !s_renderer->isSceneDirty()
@@ -6639,6 +6654,235 @@ static void feedOverlays()
     s_overlayIds.swap(ovIds);
 }
 
+//////////////////////////////////////////////////////////////////////
+// An Animation played here (docs/Animation.md sec 9, "Streaming")
+//
+// The host bakes what its Animation does to each object into a clip and
+// says what its clock reads; this viewer then poses the draws of the
+// publish it holds by itself, every frame, and the host publishes none
+// for it. The draws are moved in place -- from where the publish has
+// them, which the host names by the Time it was taken at -- so a pick
+// and the selection drawn over them see what the canvas shows.
+
+static Render::MotionClip s_clip;
+static std::unordered_map<uint64_t, size_t> s_clipTracks;
+static Render::MotionClock s_clock;
+/// emscripten_get_now() when s_clock arrived
+static double s_clockAt = 0.0;
+/// What the host said of each recent publish: whether an Animation was
+/// posing it, and at what Time
+static std::map<uint64_t, std::pair<bool, double>> s_clipBases;
+
+/// A draw of s_snap.scene as the publish has it
+struct ClipRaw {
+    size_t draw = 0;
+    size_t track = 0;
+    float model[16];
+    bool identity = true;
+    float bboxMin[3];
+    float bboxMax[3];
+};
+static std::vector<ClipRaw> s_clipRaw;
+/// s_clipRaw is of the scene as it stands; false once it is assembled anew
+static bool s_clipRawValid = false;
+/// The draws are moved from where the publish has them
+static bool s_clipPosed = false;
+static double s_clipShown = 0.0;
+static unsigned s_clipPoses = 0;
+
+/// The scene was assembled again: its draws are where the publish has
+/// them, whatever was moved before
+static void clipSceneRebuilt()
+{
+    s_clipRawValid = false;
+    s_clipPosed = false;
+}
+
+static void clipCaptureRaw()
+{
+    s_clipRaw.clear();
+    s_clipRawValid = true;
+    s_clipPosed = false;
+    if (s_clipTracks.empty())
+        return;
+    for (size_t i = 0; i < s_snap.scene.size(); ++i) {
+        const Render::DrawCall &d = s_snap.scene[i];
+        auto it = d.objectKey ? s_clipTracks.find(d.objectKey) : s_clipTracks.end();
+        if (it == s_clipTracks.end())
+            continue;
+        ClipRaw raw;
+        raw.draw = i;
+        raw.track = it->second;
+        std::memcpy(raw.model, d.model, sizeof(raw.model));
+        raw.identity = d.identity;
+        std::memcpy(raw.bboxMin, d.bboxMin, sizeof(raw.bboxMin));
+        std::memcpy(raw.bboxMax, d.bboxMax, sizeof(raw.bboxMax));
+        s_clipRaw.push_back(raw);
+    }
+}
+
+static void clipRestoreRaw()
+{
+    if (!s_clipRawValid || !s_clipPosed)
+        return;
+    for (const ClipRaw &raw : s_clipRaw) {
+        if (raw.draw >= s_snap.scene.size())
+            continue;
+        Render::DrawCall &d = s_snap.scene[raw.draw];
+        std::memcpy(d.model, raw.model, sizeof(raw.model));
+        d.identity = raw.identity;
+        std::memcpy(d.bboxMin, raw.bboxMin, sizeof(raw.bboxMin));
+        std::memcpy(d.bboxMax, raw.bboxMax, sizeof(raw.bboxMax));
+    }
+    s_clipPosed = false;
+}
+
+/// Whether the publish held is one the clip can move the draws of
+static bool clipBase(double &time)
+{
+    auto it = s_clipBases.find(s_sceneVersion);
+    if (it == s_clipBases.end() || !it->second.first)
+        return false;
+    time = it->second.second;
+    return true;
+}
+
+static bool clipPlays()
+{
+    double base = 0.0;
+    return !s_clip.empty() && s_clock.clip == s_clip.id && s_clock.active
+        && clipBase(base);
+}
+
+static double clipTimeNow()
+{
+    return s_clock.timeAfter((emscripten_get_now() - s_clockAt) / 1000.0);
+}
+
+/// Move the clip's draws to where they are at \a time. In place, in
+/// s_snap.scene; the caller hands the scene to the renderer.
+static void clipPose(double time)
+{
+    double base = 0.0;
+    if (!clipBase(base))
+        return;
+    if (!s_clipRawValid)
+        clipCaptureRaw();
+    std::vector<double> moves(s_clip.keys.size() * 16);
+    std::vector<uint8_t> have(s_clip.keys.size(), 0);
+    for (const ClipRaw &raw : s_clipRaw) {
+        if (raw.draw >= s_snap.scene.size() || raw.track >= s_clip.keys.size())
+            continue;
+        double *x = &moves[raw.track * 16];
+        if (!have[raw.track]) {
+            have[raw.track] = s_clip.moveBetween(raw.track, base, time, x) ? 1 : 2;
+        }
+        if (have[raw.track] != 1)
+            continue;
+        Render::DrawCall &d = s_snap.scene[raw.draw];
+        std::memcpy(d.model, raw.model, sizeof(raw.model));
+        d.identity = raw.identity;
+        std::memcpy(d.bboxMin, raw.bboxMin, sizeof(raw.bboxMin));
+        std::memcpy(d.bboxMax, raw.bboxMax, sizeof(raw.bboxMax));
+        Render::Motion::moveDraw(d, x);
+    }
+    s_clipPosed = true;
+    s_clipShown = time;
+    ++s_clipPoses;
+}
+
+/// The scene to the renderer again, its draws moved; what is drawn over
+/// them follows
+static void clipResubmit()
+{
+    Render::DrawCallList draws = s_snap.scene;
+    s_renderer->setScene(std::move(draws));
+    s_feedJustSet = true;
+    if (!s_selIds.empty() || !s_sel.empty()) {
+        for (int id : s_selIds)
+            s_renderer->removeSelection(id);
+        s_selIds.clear();
+        rebuildSelection();
+        rebuildPeerSelection();
+    }
+    markDirty();
+}
+
+/// Once a frame, before it is decided whether one is drawn
+static void tickClip()
+{
+    if (!s_renderer || !s_haveScene)
+        return;
+    if (!clipPlays()) {
+        if (s_clipPosed) {
+            clipRestoreRaw();
+            clipResubmit();
+        }
+        return;
+    }
+    const double time = clipTimeNow();
+    if (s_clipPosed && s_clipRawValid && time == s_clipShown)
+        return;
+    clipPose(time);
+    clipResubmit();
+}
+
+/// {"cmd":"clip",...} (Render::MotionClip::toJson): the tracks to play,
+/// or none
+static void applyClip(const char *json)
+{
+    clipRestoreRaw();
+    Render::MotionClip clip;
+    if (!clip.fromJson(json))
+        std::printf("fcviewer: clip %u would not parse\n", clip.id);
+    s_clip = std::move(clip);
+    s_clipTracks.clear();
+    for (size_t i = 0; i < s_clip.keys.size(); ++i)
+        s_clipTracks[s_clip.keys[i]] = i;
+    s_clipRawValid = false;
+    std::printf("fcviewer: clip %u: %zu tracks, %u frames\n", s_clip.id,
+                s_clip.keys.size(), s_clip.frames);
+    markDirty();
+}
+
+/// {"cmd":"time",...} (Render::MotionClock::toJson): the host's clock,
+/// and which publish was taken at what Time
+static void applyClock(const char *json)
+{
+    s_clock.fromJson(json);
+    s_clockAt = emscripten_get_now();
+    if (s_clock.version) {
+        s_clipBases[s_clock.version] = {s_clock.baseActive, s_clock.baseTime};
+        while (s_clipBases.size() > 64)
+            s_clipBases.erase(s_clipBases.begin());
+    }
+    markDirty();
+}
+
+/// What is playing, for a page's script and the tests: JSON, valid until
+/// the next call
+extern "C" EMSCRIPTEN_KEEPALIVE const char *fcviewer_animation_state()
+{
+    static std::string out;
+    char buf[320];
+    double base = 0.0;
+    const bool based = clipBase(base);
+    std::snprintf(buf, sizeof(buf),
+                  "{\"clip\":%u,\"tracks\":%zu,\"frames\":%u,\"clock\":%u,"
+                  "\"active\":%s,\"playing\":%s,\"plays\":%s,\"time\":%.9g,"
+                  "\"base\":%.9g,\"based\":%s,\"poses\":%u,\"moved\":%zu,"
+                  "\"version\":%llu}",
+                  s_clip.id, s_clip.keys.size(), s_clip.frames, s_clock.clip,
+                  s_clock.active ? "true" : "false",
+                  s_clock.playing ? "true" : "false",
+                  clipPlays() ? "true" : "false", clipTimeNow(), base,
+                  based ? "true" : "false", s_clipPoses,
+                  s_clipPosed ? s_clipRaw.size() : size_t(0),
+                  (unsigned long long)s_sceneVersion);
+    out = buf;
+    return out.c_str();
+}
+
 /// Feed the loaded snapshot to the renderer; a first load also fits
 /// the camera (streamed updates keep the user's).
 static void applySnapshot(bool fit)
@@ -6720,6 +6964,14 @@ static void applySnapshot(bool fit)
                                   s_snap.hatch->width, s_snap.hatch->height);
     {
         DbgScope dbg(s_dbgSceneMs);
+        // An Animation playing here: the draws go to the renderer
+        // where the clip has them now, not where the publish does
+        if (!s_clipRawValid)
+            clipCaptureRaw();
+        if (clipPlays())
+            clipPose(clipTimeNow());
+        else
+            clipRestoreRaw();
         Render::DrawCallList draws = s_snap.scene;
         s_renderer->setScene(std::move(draws));
         s_feedJustSet = true;
@@ -6889,6 +7141,7 @@ static void commitSnapshot(Render::SceneSnapshot &&snap, uint64_t version)
     // by the first scene.
     bool first = !s_userCam;
     s_snap = std::move(snap);
+    clipSceneRebuilt();
     applySnapshot(first);
     // Only when there is nothing left to wait for. A publish is
     // committed on the first arrival that can be drawn, not on the
@@ -8301,6 +8554,8 @@ static bool assembleResolved(Render::SceneSnapshot &snap)
     // landed, a box on its bounds if it has not — so this runs per
     // arrival rather than once, and each pass refines the last.
     if (Render::applySceneObjects(snap, s_objects)) {
+        if (&snap == &s_snap)
+            clipSceneRebuilt();
         logStandIns(snap);
         if (s_streamDebug) {
             size_t coarse = 0;
@@ -9992,6 +10247,14 @@ static void handleControlMessage(const char *json)
 {
     if (handleCyclesControl(json))
         return;
+    if (std::strstr(json, "\"cmd\":\"clip\"")) {
+        applyClip(json);
+        return;
+    }
+    if (std::strstr(json, "\"cmd\":\"time\"")) {
+        applyClock(json);
+        return;
+    }
     if (std::strstr(json, "\"cmd\":\"dumpFrame\"")) {
         long id = 0, mode = -1;
         const char *p = std::strstr(json, "\"id\"");

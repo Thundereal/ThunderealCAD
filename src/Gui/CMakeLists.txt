@@ -1227,6 +1227,7 @@ SET(Inventor_CPP_SRCS
     SoFCSelection.cpp
     ObjectMetaFeed.cpp
     SceneServeSource.cpp
+    SceneServeClip.cpp
     SceneActors.cpp
     SandboxRemote.cpp
     SandboxServe.cpp
@@ -1299,6 +1300,7 @@ SET(Inventor_SRCS
     SoFCSelection.h
     ObjectMetaFeed.h
     SceneServeSource.h
+    SceneServeClip.h
     SceneActors.h
     SandboxRemote.h
     SandboxServe.h

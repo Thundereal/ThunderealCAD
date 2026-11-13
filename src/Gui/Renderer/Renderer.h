@@ -1266,6 +1266,18 @@ public:
         return false;
     }
 
+    /// The scene feed as it stands -- the draws publish() would
+    /// serialize -- or null when the backend does not keep one. What a
+    /// serve source reads an object's pose from while it bakes an
+    /// Animation's motion clip (docs/Animation.md sec 9, "Streaming").
+    /// Valid until the feed is next set.
+    virtual const DrawCallList *sceneFeed() const { return nullptr; }
+
+    /// The manifest version of the last publish() that went out, 0
+    /// before any: what a serve source names the publish by when it
+    /// says something about it on the control channel.
+    virtual uint64_t publishedVersion() const { return 0; }
+
     /// Which document group this renderer's publishes belong to on the
     /// scene-stream server (docs/MultiDocServe.md §3). Empty -- the
     /// default -- publishes into the server's default group, which is

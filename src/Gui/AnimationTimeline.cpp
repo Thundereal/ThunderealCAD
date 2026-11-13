@@ -246,6 +246,16 @@ App::Animation* AnimationPlayer::animation() const
     return freecad_dynamic_cast<App::Animation>(anim.getObject());
 }
 
+double AnimationPlayer::rawTime() const
+{
+    auto a = animation();
+    if (!a) {
+        return 0;
+    }
+    return timer.isActive() ? startTime + clock.elapsed() / 1000.0 * a->Speed.getValue()
+                            : a->Time.getValue();
+}
+
 void AnimationPlayer::play(App::Animation* a)
 {
     if (!a) {

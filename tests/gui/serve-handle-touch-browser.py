@@ -43,6 +43,7 @@ import functools
 import http.server
 import json as jsonlib
 import os
+import sys
 import subprocess
 import threading
 import time
@@ -54,6 +55,10 @@ from PySide import QtCore
 
 import wsclient
 from wsclient import free_port
+
+# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
+# bgfx OpenGL backend takes (docs/Testing.md).
+ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
 
 TOKEN = "touch-browser-invite"
 CLIENT = "touch-browser"
@@ -210,7 +215,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt(
             "AutoSaveTimeout", 0)
         FreeCAD.ParamGet(VIEW).SetInt("RenderCache", 3)
-        FreeCAD.ParamGet(VIEW + "/Render").SetString("Type", "bgfx - OpenGL")
+        FreeCAD.ParamGet(VIEW + "/Render").SetString("Type", ENGINE)
         gizmos = FreeCAD.ParamGet(GIZMOS)
         gizmos.SetInt("DefaultCoarseDragBehavior", 0)
         gizmos.SetBool("EnableCoarseSnap", True)

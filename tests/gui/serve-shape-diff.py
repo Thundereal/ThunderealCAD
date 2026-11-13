@@ -43,6 +43,7 @@ timeout), or by hand as `FreeCAD <this script>` with GT_OUT set and this
 directory on PYTHONPATH.
 """
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -53,6 +54,10 @@ import FreeCADGui
 from PySide import QtCore
 
 from wsclient import WS, free_port
+
+# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
+# bgfx OpenGL backend takes (docs/Testing.md).
+ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
 
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
@@ -110,7 +115,7 @@ def build():
         p.SetInt("AutoSaveTimeout", 0)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         doc = FreeCAD.newDocument(DOC, hidden=True)
         state["doc"] = doc
         doc.UndoMode = 1

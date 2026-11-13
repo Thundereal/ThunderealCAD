@@ -25,6 +25,7 @@ The drawing half is tests/gui/serve-animation-browser.py.
 import base64
 import json as jsonlib
 import os
+import sys
 import struct
 import threading
 import time
@@ -35,6 +36,10 @@ import FreeCADGui as Gui
 from PySide import QtCore, QtWidgets
 
 from wsclient import WS, free_port
+
+# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
+# bgfx OpenGL backend takes (docs/Testing.md).
+ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
 
 clock = time.perf_counter
 
@@ -135,7 +140,7 @@ def run():
         App.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt("AutoSaveTimeout", 0)
         App.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("RenderCache", 3)
         App.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         Gui.getMainWindow().resize(1300, 900)
         doc = App.newDocument(DOC)
         box = doc.addObject("Part::Box", "Box")

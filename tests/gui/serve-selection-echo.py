@@ -33,6 +33,7 @@ timeout); registered in ctest by tests/gui/CMakeLists.txt.
 """
 import base64
 import os
+import sys
 import socket
 import struct
 import threading
@@ -42,6 +43,10 @@ import traceback
 import FreeCAD
 import FreeCADGui
 from PySide import QtCore
+
+# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
+# bgfx OpenGL backend takes (docs/Testing.md).
+ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
 
 # time.monotonic() is GetTickCount64() on Windows through CPython 3.12,
 # 15.6 ms of resolution -- which reads every loopback echo below one
@@ -304,7 +309,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
             "RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         doc = FreeCAD.newDocument(DOC, hidden=True)
         state["doc"] = doc
         for i in range(3):

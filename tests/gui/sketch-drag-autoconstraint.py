@@ -45,6 +45,7 @@ timeout); registered in ctest by tests/gui/CMakeLists.txt.
 """
 import math
 import os
+import sys
 import threading
 import time
 import traceback
@@ -55,6 +56,10 @@ from PySide import QtCore
 
 import wsclient
 from wsclient import WS, free_port
+
+# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
+# bgfx OpenGL backend takes (docs/Testing.md).
+ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
 
 clock = time.perf_counter
 
@@ -255,7 +260,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
             "RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetBool(
             "ShowNaviCube", False)
         # The drag has to land where the pointer says: snapping would

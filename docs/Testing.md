@@ -1148,8 +1148,16 @@ asks for `bgfx - Metal` on macOS: a Qt widget's GL context there is 2.1
 (the compatibility profile Coin needs; macOS has nothing between that and
 core 3.2), below the 3.1 the bgfx OpenGL backend takes, so a view asked
 for `bgfx - OpenGL` is drawn by the render cache's own GL renderer and
-the backend counts no frame. The other scripts here still ask for
-`bgfx - OpenGL` and so run without the backend on a Mac. That used to
+the backend counts no frame. So does every script here that names a
+backend (`ENGINE` at its top), the 63 that used to ask for `bgfx - OpenGL`
+outright and so ran without the backend on a Mac; switched 2026-11-13 and
+run on mini, Metal against OpenGL: the same results, 59 clean, and three
+that fail alike on both -- camera-uplink-bench (no click answered with a
+push), serve-handle-touch-browser (the handle's menu is the view's) and
+serve-panel-two-users-browser (the second user's panel fields read None);
+sandbox-console-browser wants a build with the pyodide sandbox host. The
+browser scripts there want `node` on PATH as well as `NODE`,
+`PUPPETEER_PATH` and `CHROME` (most launch a bare `node`). That used to
 cost 5 s a picture -- `waitFrameComplete` and the frame dump each waited
 their quiet timeout out for a frame that would never be counted -- and a
 segfault at quit, the declined view swept through a bgfx that was not

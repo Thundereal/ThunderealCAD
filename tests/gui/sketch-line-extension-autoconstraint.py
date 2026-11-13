@@ -47,6 +47,11 @@ import os
 import threading
 import time
 import traceback
+import sys
+
+# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
+# bgfx OpenGL backend takes (docs/Testing.md).
+ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
 
 import FreeCAD
 import FreeCADGui
@@ -278,7 +283,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
             "RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetBool(
             "ShowNaviCube", False)
         # Driven by the pointer alone: an on-view parameter would take

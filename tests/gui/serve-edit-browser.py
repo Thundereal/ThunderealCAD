@@ -74,6 +74,7 @@ import functools
 import http.server
 import json as jsonlib
 import os
+import sys
 import subprocess
 import threading
 import time
@@ -85,6 +86,10 @@ from PySide import QtCore
 
 import wsclient
 from wsclient import free_port
+
+# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
+# bgfx OpenGL backend takes (docs/Testing.md).
+ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
 
 TOKEN = "edit-browser-invite"
 CLIENT = "edit-browser"
@@ -260,7 +265,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
             "RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         # The edited-edge colour, pure magenta: what the page counts to
         # see the edit overlay (scripts/edit-drive.js).
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetUnsigned(

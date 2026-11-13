@@ -21,6 +21,7 @@ One document, served empty, then given a box, then emptied again. Claims:
 Scored against the tree before the fix: the first, fourth and fifth fail.
 """
 import os
+import sys
 import threading
 import time
 import traceback
@@ -30,6 +31,10 @@ import FreeCADGui
 from PySide import QtCore
 
 from wsclient import WS, free_port
+
+# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
+# bgfx OpenGL backend takes (docs/Testing.md).
+ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
 
 clock = time.perf_counter
 
@@ -101,7 +106,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
             "RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         # The cube is an overlay of the serve source's own: with it on the
         # source always has something to state.
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetBool(

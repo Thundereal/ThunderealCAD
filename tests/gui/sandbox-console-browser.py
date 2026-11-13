@@ -27,6 +27,7 @@ on a box without libasound).
 
 import json
 import os
+import sys
 import shutil
 import socket
 import subprocess
@@ -37,6 +38,10 @@ import traceback
 import FreeCAD
 import FreeCADGui
 from PySide import QtCore
+
+# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
+# bgfx OpenGL backend takes (docs/Testing.md).
+ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
 
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
@@ -99,7 +104,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt("AutoSaveTimeout", 0)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL"
+            "Type", ENGINE
         )
         doc = FreeCAD.newDocument(DOC, hidden=True)
         box = doc.addObject("Part::Box", "Box")

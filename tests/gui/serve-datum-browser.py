@@ -31,6 +31,7 @@ import functools
 import http.server
 import json as jsonlib
 import os
+import sys
 import subprocess
 import threading
 import time
@@ -42,6 +43,10 @@ from PySide import QtCore
 
 import wsclient
 from wsclient import free_port
+
+# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
+# bgfx OpenGL backend takes (docs/Testing.md).
+ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
 
 # The browser acts on the document, so it is someone: the holder of an
 # invitation issued to its name (docs/TransactionLogJournal.md sec 30.6 U4, U6).
@@ -170,7 +175,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
             "RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         # The first dimension of a freehand sketch scales it; this is about
         # the editor
         FreeCAD.ParamGet(

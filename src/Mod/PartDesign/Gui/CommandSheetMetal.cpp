@@ -39,6 +39,7 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <BRepAdaptor_Surface.hxx>
 #include <TopoDS.hxx>
 
 #include <App/Document.h>
@@ -56,6 +57,7 @@
 #include <Gui/Selection.h>
 #include <Gui/SelectionObject.h>
 #include <Mod/Part/App/Part2DObject.h>
+#include <Mod/Part/App/PartFeature.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/FeatureSheetMetalFlatPattern.h>
@@ -69,6 +71,7 @@
 #include <Mod/PartDesign/App/SolidBody.h>
 
 #include "TaskSheetMetalCheck.h"
+#include "TaskSheetMetalStarter.h"
 #include "Utils.h"
 
 // Command.cpp's: recompute, look as the base, edit if it has a panel
@@ -123,6 +126,43 @@ App::DocumentObject* makeFeature(PartDesign::Body* body, const char* type, const
 }  // namespace
 
 //===========================================================================
+// PartDesign_SheetMetalStarter
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalStarter)
+
+CmdPartDesignSheetMetalStarter::CmdPartDesignSheetMetalStarter()
+    : Command("PartDesign_SheetMetalStarter")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Starter Shape");
+    sToolTipText = QT_TR_NOOP("An L, U, tub, hat or box in the active body, of ordinary\n"
+                              "features: a sketch, a base wall and its flanges");
+    sWhatsThis = "PartDesign_SheetMetalStarter";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalStarter";
+}
+
+void CmdPartDesignSheetMetalStarter::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    if (Gui::Control().activeDialog()) {
+        return;
+    }
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    Gui::Control().showDialog(new PartDesignGui::TaskDlgSheetMetalStarter(body));
+}
+
+bool CmdPartDesignSheetMetalStarter::isActive()
+{
+    return hasActiveDocument() && !Gui::Control().activeDialog();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalBaseWall
 //===========================================================================
 
@@ -174,6 +214,66 @@ void CmdPartDesignSheetMetalBaseWall::activated(int iMsg)
 }
 
 bool CmdPartDesignSheetMetalBaseWall::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
+// PartDesign_SheetMetalLoftedFlange
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalLoftedFlange)
+
+CmdPartDesignSheetMetalLoftedFlange::CmdPartDesignSheetMetalLoftedFlange()
+    : Command("PartDesign_SheetMetalLoftedFlange")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Lofted Flange");
+    sToolTipText = QT_TR_NOOP("A sheet lofted between the two selected sketches: a cone or a\n"
+                              "cylinder between two circles or arcs about one axis");
+    sWhatsThis = "PartDesign_SheetMetalLoftedFlange";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalLoftedFlange";
+}
+
+void CmdPartDesignSheetMetalLoftedFlange::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    // in the order picked: the profile, then the section
+    std::vector<App::DocumentObject*> sketches;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        App::DocumentObject* obj = sel.getObject();
+        if (obj && obj->isDerivedFrom<Part::Part2DObject>()
+            && std::find(sketches.begin(), sketches.end(), obj) == sketches.end()) {
+            sketches.push_back(obj);
+        }
+    }
+    if (sketches.size() != 2) {
+        warn(QT_TR_NOOP("Two sketches"),
+             QT_TR_NOOP("Select two sketches for the lofted flange, each a circle or an arc, "
+                        "on parallel planes about one axis."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Lofted Flange"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalLoftedFlange", "LoftedFlange");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat, std::ostringstream() << "Profile = " << getObjectCmd(sketches[0]));
+    Gui::cmdAppObject(feat, std::ostringstream() << "Section = " << getObjectCmd(sketches[1]));
+    FCMD_OBJ_HIDE(sketches[0]);
+    FCMD_OBJ_HIDE(sketches[1]);
+    finishFeature(this, feat);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalLoftedFlange::isActive()
 {
     return hasActiveDocument();
 }
@@ -1110,6 +1210,221 @@ bool CmdPartDesignSheetMetalCrossBreak::isActive()
 }
 
 //===========================================================================
+// PartDesign_SheetMetalForm
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalForm)
+
+CmdPartDesignSheetMetalForm::CmdPartDesignSheetMetalForm()
+    : Command("PartDesign_SheetMetalForm")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Form");
+    sToolTipText = QT_TR_NOOP("Presses a form into a wall at each point of a sketch: select\n"
+                              "the wall's face it rises out of and the sketch, and a face of a\n"
+                              "tool's shape to press that, else it is a dimple");
+    sWhatsThis = "PartDesign_SheetMetalForm";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalForm";
+}
+
+void CmdPartDesignSheetMetalForm::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    auto tip = body->Tip.getValue();
+    std::string face;
+    App::DocumentObject* positions = nullptr;
+    App::DocumentObject* tool = nullptr;
+    std::string toolFace;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        auto obj = sel.getObject();
+        if (!obj) {
+            continue;
+        }
+        if (obj->isDerivedFrom<Part::Part2DObject>()) {
+            positions = obj;
+            continue;
+        }
+        for (const auto& sub : sel.getSubNames()) {
+            if (!boost::starts_with(sub, "Face")) {
+                continue;
+            }
+            if (obj == tip && face.empty()) {
+                face = sub;
+            }
+            else if (obj != tip && !tool) {
+                tool = obj;
+                toolFace = sub;
+            }
+        }
+    }
+    if (face.empty() || !positions) {
+        warn(QT_TR_NOOP("Nothing to form"),
+             QT_TR_NOOP("Select the face of a wall on the body's tip the forms rise out of, or "
+                        "of a bend for a gusset, and a sketch of their points; and a face of a "
+                        "tool to press that, which sits on the wall."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Form"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalForm", "Form");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Face = (" << getObjectCmd(tip) << ", ['" << face << "'])");
+    Gui::cmdAppObject(feat, std::ostringstream() << "Positions = " << getObjectCmd(positions));
+    if (tool) {
+        Gui::cmdAppObject(feat,
+                          std::ostringstream() << "Tool = (" << getObjectCmd(tool) << ", ['"
+                                               << toolFace << "'])");
+    }
+    else {
+        // a bend's face, curved, takes a gusset across it; a wall's a dimple
+        const TopoDS_Shape picked =
+            Part::Feature::getTopoShape(tip).getSubShape(face.c_str(), true);
+        const bool curved = !picked.IsNull() && picked.ShapeType() == TopAbs_FACE
+            && BRepAdaptor_Surface(TopoDS::Face(picked)).GetType() == GeomAbs_Cylinder;
+        Gui::cmdAppObject(feat,
+                          std::ostringstream() << "Kind = '" << (curved ? "Gusset" : "Dimple")
+                                               << "'");
+    }
+    FCMD_OBJ_HIDE(positions);
+    finishFeature(this, feat, tip);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalForm::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
+// PartDesign_SheetMetalLocatingTabs
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalLocatingTabs)
+
+CmdPartDesignSheetMetalLocatingTabs::CmdPartDesignSheetMetalLocatingTabs()
+    : Command("PartDesign_SheetMetalLocatingTabs")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Locating Tabs");
+    sToolTipText = QT_TR_NOOP("Puts tabs on a wall's end, for slots in a part it stands on:\n"
+                              "select the wall's end face, across its thickness");
+    sWhatsThis = "PartDesign_SheetMetalLocatingTabs";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalLocatingTabs";
+}
+
+void CmdPartDesignSheetMetalLocatingTabs::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    auto tip = body->Tip.getValue();
+    std::string face;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        if (sel.getObject() != tip) {
+            continue;
+        }
+        for (const auto& sub : sel.getSubNames()) {
+            if (boost::starts_with(sub, "Face") && face.empty()) {
+                face = sub;
+            }
+        }
+    }
+    if (face.empty()) {
+        warn(QT_TR_NOOP("No end face"),
+             QT_TR_NOOP("Select the end face of a wall on the body's tip, across its "
+                        "thickness, for the tabs."));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Locating Tabs"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalLocatingTabs", "LocatingTabs");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat,
+                      std::ostringstream()
+                          << "Face = (" << getObjectCmd(tip) << ", ['" << face << "'])");
+    finishFeature(this, feat, tip);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalLocatingTabs::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
+// PartDesign_SheetMetalSlots
+//===========================================================================
+
+DEF_STD_CMD_A(CmdPartDesignSheetMetalSlots)
+
+CmdPartDesignSheetMetalSlots::CmdPartDesignSheetMetalSlots()
+    : Command("PartDesign_SheetMetalSlots")
+{
+    sAppModule = "PartDesign";
+    sGroup = QT_TR_NOOP("PartDesign");
+    sMenuText = QT_TR_NOOP("Slots");
+    sToolTipText = QT_TR_NOOP("Cuts slots in the active body for another part's tabs, a\n"
+                              "clearance all round: select the Locating Tabs");
+    sWhatsThis = "PartDesign_SheetMetalSlots";
+    sStatusTip = sToolTipText;
+    sPixmap = "PartDesign_SheetMetalSlots";
+}
+
+void CmdPartDesignSheetMetalSlots::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    PartDesign::Body* body = activeBody();
+    if (!body) {
+        return;
+    }
+    App::DocumentObject* tabs = nullptr;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        auto obj = sel.getObject();
+        if (obj && obj->isDerivedFrom(Base::Type::fromName("PartDesign::SheetMetalLocatingTabs"))) {
+            tabs = obj;
+            break;
+        }
+    }
+    if (!tabs) {
+        warn(QT_TR_NOOP("No tabs"),
+             QT_TR_NOOP("Select the Locating Tabs the slots are for, with the body to cut them "
+                        "in active."));
+        return;
+    }
+    auto tip = body->Tip.getValue();
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create Slots"));
+    auto feat = makeFeature(body, "PartDesign::SheetMetalSlots", "Slots");
+    if (!feat) {
+        abortCommand();
+        return;
+    }
+    Gui::cmdAppObject(feat, std::ostringstream() << "Tabs = " << getObjectCmd(tabs));
+    finishFeature(this, feat, tip);
+    commitUnlessEditing(this);
+}
+
+bool CmdPartDesignSheetMetalSlots::isActive()
+{
+    return hasActiveDocument();
+}
+
+//===========================================================================
 // PartDesign_SheetMetalFlatten
 //===========================================================================
 
@@ -1698,7 +2013,9 @@ bool CmdPartDesignSheetMetalFlatMarkings::isActive()
 void CreatePartDesignSheetMetalCommands()
 {
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
+    mgr.addCommand(new CmdPartDesignSheetMetalStarter());
     mgr.addCommand(new CmdPartDesignSheetMetalBaseWall());
+    mgr.addCommand(new CmdPartDesignSheetMetalLoftedFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalContourFlange());
     mgr.addCommand(new CmdPartDesignSheetMetalJoin());
@@ -1708,6 +2025,9 @@ void CreatePartDesignSheetMetalCommands()
     mgr.addCommand(new CmdPartDesignSheetMetalCornerClosure());
     mgr.addCommand(new CmdPartDesignSheetMetalRip());
     mgr.addCommand(new CmdPartDesignSheetMetalCrossBreak());
+    mgr.addCommand(new CmdPartDesignSheetMetalForm());
+    mgr.addCommand(new CmdPartDesignSheetMetalLocatingTabs());
+    mgr.addCommand(new CmdPartDesignSheetMetalSlots());
     mgr.addCommand(new CmdPartDesignSheetMetalCutout());
     mgr.addCommand(new CmdPartDesignSheetMetalFold());
     mgr.addCommand(new CmdPartDesignSheetMetalJog());

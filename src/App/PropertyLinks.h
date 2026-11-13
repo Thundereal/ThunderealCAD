@@ -456,6 +456,26 @@ public:
      * register for future update in case of geometry model update.
      */
     void _registerElementReference(App::DocumentObject *obj, std::string &sub, ShadowSub &shadow);
+    /** A reference that goes by its name while the element it was on lies
+     * elsewhere in its target (ShadowSub::elsewhere): the target, the
+     * element the reference names and the element it was on, both old
+     * style, as the target has them now.
+     */
+    struct ReferenceElsewhere
+    {
+        const Property *prop;
+        App::DocumentObject *object;
+        std::string sub;
+        std::string elsewhere;
+    };
+    /// Those of a container's link properties
+    static std::vector<ReferenceElsewhere> getReferencesElsewhere(
+            const App::PropertyContainer *owner);
+
+    /// Whether a reference that resolves has been moved off the element it
+    /// was on, noted in the shadow (ShadowSub::elsewhere)
+    void doubtElementReference(GeoFeature *geo, App::DocumentObject *obj, const char *subname,
+                               const char *element, ShadowSub &shadow, const ShadowSub &resolved);
 
     /** Helper function for breaking link properties
      *

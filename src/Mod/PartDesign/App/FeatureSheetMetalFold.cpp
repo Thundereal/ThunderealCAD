@@ -441,10 +441,15 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
                       "A " << noun << "'s line lies across no wall of the sheet");
         }
 
+        // numbered on from the highest the sheet has (storeModel() gives
+        // each the number it keeps)
         int walls = 0, bends = 0;
-        for (const Element& el : model.elements) {
-            ++(el.kind == Element::Kind::Wall ? walls : bends);
-        }
+        model.numbers(walls, bends);
+        // its pieces' faces are named by its own count (ownName())
+        const int wallsBefore = walls, bendsBefore = bends;
+        auto ownNamed = [&](const std::string& name) {
+            return SheetMetal::ownName(name, wallsBefore, bendsBefore);
+        };
         auto unique = [&](const char* prefix, int& count) {
             std::string name;
             do {
@@ -550,7 +555,7 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
             CylBend span = b;
             const bool same = b.frame.Direction().Dot(axis) > 0;
             span.frame.Translate(gp_Vec(axis) * (same ? d0 : d1));
-            return TopoShape(0, hasher).makEPrism(SheetMetal::bendSection(span, name),
+            return TopoShape(0, hasher).makEPrism(SheetMetal::bendSection(span, ownNamed(name)),
                                                   gp_Vec(span.frame.Direction()) * (d1 - d0));
         };
 
@@ -581,9 +586,12 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
                 if (!straight.IsDone()) {
                     THROWM(Base::CADKernelError, "A jog could not make its run");
                 }
+                int k = 0;
                 for (TopExp_Explorer it(straight.Shape(), TopAbs_FACE); it.More(); it.Next()) {
+                    TopoShape face(it.Current());
+                    SheetMetal::nameRest(face, ownNamed(runName) + "Run" + std::to_string(++k));
                     added.push_back(TopoShape(0, hasher)
-                                        .makEPrism(TopoShape(it.Current()), gp_Vec(up) * -T)
+                                        .makEPrism(face, gp_Vec(up) * -T)
                                         .makETransform(carry1));
                 }
             }
@@ -618,6 +626,8 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         for (TopoShape& piece : added) {
             piece.fixSolidOrientation();
             SheetMetal::storePCurves(piece);
+            // the fold's own, where the sides it parts keep the wall's names
+            piece.Tag = -getID();
         }
         AddSubShape.setValue(added.size() == 1 ? added.front()
                                                : TopoShape(0, hasher).makECompound(added));
@@ -661,8 +671,7 @@ App::DocumentObjectExecReturn* SheetMetalFold::execute()
         }
 
         Shape.setValue(result);
-        applyBendOverrides(model);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

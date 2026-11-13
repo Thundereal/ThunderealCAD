@@ -38,6 +38,7 @@
 #include "ReferenceSelection.h"
 #include "TaskFeatureParameters.h"
 #include "TaskTransformedMessages.h"
+#include "Utils.h"
 #include "ViewProviderTransformed.h"
 
 class QSplitter;
@@ -246,6 +247,9 @@ protected:
     int defaultMinimumHeight = 150;
 
     QLabel *labelMessage = nullptr;
+    /// The originals' elements found again by name when the panel opened,
+    /// said in the panel's line (slotDiagnosis())
+    std::vector<PartDesignGui::RefoundReference> refound;
     fastsignals::scoped_connection connMessage;
 
     QTimer *updateViewTimer = nullptr;

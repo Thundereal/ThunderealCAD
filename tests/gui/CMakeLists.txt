@@ -377,6 +377,24 @@ fc_add_gui_test(GuiOverlayListRowBandsInView_tests_run overlay-list-row-bands-in
 fc_add_gui_test(GuiDressUpListSort_tests_run dressup-list-sort.py
                 --timeout 200)
 
+# Ruled 2026-11-11 (docs/SheetMetal.md sec 12): a dress-up's reference found
+# again by name when its panel opens is taken where one element answers,
+# and shown -- the row marked, the element selected, a line in the panel --
+# not taken silently; OK keeps it, Cancel leaves it missing.
+fc_add_gui_test(GuiDressUpRefoundEdge_tests_run dressup-refound-edge.py
+                --timeout 200)
+# And one that was not missing: a reference whose name has become another
+# element's in a recompute, the element it was on still there (the guard of
+# docs/TopoNamingEnhance.md sec 9.12). The panel takes that element, shown
+# the same way.
+fc_add_gui_test(GuiDressUpMovedReference_tests_run dressup-moved-reference.py
+                --timeout 200)
+# And the other PartDesign panels that look a lost reference up by name: a
+# pad's face, a draft's plane, a pipe's spine. A list takes every element
+# that answers, one that holds a single element only where one does.
+fc_add_gui_test(GuiPdRefoundReferences_tests_run pd-refound-references.py
+                --timeout 300)
+
 # Entry 214, a crash on stage28: a group typed into a fillet's Group cell
 # filled the list anew inside Qt's commit of it, the row deleted under the
 # commit (heap corruption). The edge's row is changed in place now.
@@ -451,6 +469,12 @@ fc_add_gui_test(GuiDressUpGroupColorsKept_tests_run dressup-group-colors-kept.py
 # Entry 228: each fine undo step of a fillet's or chamfer's panel is named
 # for what it did.
 fc_add_gui_test(GuiPdUndoStepNames_tests_run pd-undo-step-names.py
+                --timeout 200)
+
+# OK of a PartDesign panel is a step of its own holding the recompute it
+# makes, not left empty by the edit's end before it; with nothing to make
+# again it is no step.
+fc_add_gui_test(GuiPdOkStep_tests_run pd-ok-step.py
                 --timeout 200)
 
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a

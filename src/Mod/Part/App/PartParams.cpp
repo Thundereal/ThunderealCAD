@@ -71,6 +71,7 @@ public:
     bool ImmutableShapeValues;
     double FilletPlateG0FallbackRatio;
     double FilletCornerSetbackFallback;
+    double ReferenceSearchTolerance;
     long WarnUnnamedInput;
     bool MapFaceColor;
     bool MapLineColor;
@@ -186,6 +187,8 @@ public:
         funcs["FilletPlateG0FallbackRatio"] = &PartParamsP::updateFilletPlateG0FallbackRatio;
         FilletCornerSetbackFallback = this->handle->GetFloat("FilletCornerSetbackFallback", 2.0);
         funcs["FilletCornerSetbackFallback"] = &PartParamsP::updateFilletCornerSetbackFallback;
+        ReferenceSearchTolerance = this->handle->GetFloat("ReferenceSearchTolerance", 10.0);
+        funcs["ReferenceSearchTolerance"] = &PartParamsP::updateReferenceSearchTolerance;
         WarnUnnamedInput = this->handle->GetInt("WarnUnnamedInput", 0);
         funcs["WarnUnnamedInput"] = &PartParamsP::updateWarnUnnamedInput;
         MapFaceColor = this->handle->GetBool("MapFaceColor", true);
@@ -397,6 +400,10 @@ public:
             self->FilletCornerSetbackFallback = v;
             PartParams::onFilletCornerSetbackFallbackChanged();
         }
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateReferenceSearchTolerance(PartParamsP *self) {
+        self->ReferenceSearchTolerance = self->handle->GetFloat("ReferenceSearchTolerance", 10.0);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateWarnUnnamedInput(PartParamsP *self) {
@@ -712,6 +719,13 @@ static const App::ParamRegistry::Registrar _PartParamsRegistrar({
 "Only fillets that fail without it change. 0 turns it off. Needs the OCCT\n"
 "fork.")
         .setOnChange(),
+    App::ParamInfo("Part", "PartParams", "User parameter:BaseApp/Preferences/Mod/Part", "ReferenceSearchTolerance", "ReferenceSearchTolerance", App::ParamInfo::Float, 10.0)
+        .setTitle("Reference Search Tolerance")
+        .setDoc("How far from its place a referenced element may be found once its name\n"
+"is gone, as a multiple of the shape tolerance: the larger of the\n"
+"tolerance the element had and that of the element found. Tried only\n"
+"after the exact search fails, and taken only when one element matches.\n"
+"0 turns it off."),
     App::ParamInfo("Part", "PartParams", "User parameter:BaseApp/Preferences/Mod/Part", "WarnUnnamedInput", "WarnUnnamedInput", App::ParamInfo::Int, 0)
         .setTitle("Warn Unnamed Input")
         .setDoc("Report shape operations whose inputs carry no element names, so the\n"
@@ -1657,6 +1671,38 @@ void PartParams::setFilletCornerSetbackFallback(const double &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void PartParams::removeFilletCornerSetbackFallback() {
     instance()->handle->RemoveFloat("FilletCornerSetbackFallback");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *PartParams::docReferenceSearchTolerance() {
+    return QT_TRANSLATE_NOOP("PartParams",
+"How far from its place a referenced element may be found once its name\n"
+"is gone, as a multiple of the shape tolerance: the larger of the\n"
+"tolerance the element had and that of the element found. Tried only\n"
+"after the exact search fails, and taken only when one element matches.\n"
+"0 turns it off.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const double & PartParams::getReferenceSearchTolerance() {
+    return instance()->ReferenceSearchTolerance;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const double & PartParams::defaultReferenceSearchTolerance() {
+    const static double def = 10.0;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void PartParams::setReferenceSearchTolerance(const double &v) {
+    instance()->handle->SetFloat("ReferenceSearchTolerance",v);
+    instance()->ReferenceSearchTolerance = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void PartParams::removeReferenceSearchTolerance() {
+    instance()->handle->RemoveFloat("ReferenceSearchTolerance");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

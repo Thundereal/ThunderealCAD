@@ -13,6 +13,7 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
 V = FreeCAD.Vector
@@ -24,7 +25,7 @@ class TestSheetMetalExtendWall(unittest.TestCase):
         self.Body = self.Doc.addObject("PartDesign::Body", "Body")
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def wall(self, points, closed=False, **props):
         sketch = self.Body.newObject("Sketcher::SketchObject", "Sketch")

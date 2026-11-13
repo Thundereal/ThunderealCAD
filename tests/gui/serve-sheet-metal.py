@@ -87,7 +87,9 @@ def serve_asked():
 
 
 COMMANDS = (
+    "PartDesign_SheetMetalStarter",
     "PartDesign_SheetMetalBaseWall",
+    "PartDesign_SheetMetalLoftedFlange",
     "PartDesign_SheetMetalFlange",
     "PartDesign_SheetMetalContourFlange",
     "PartDesign_SheetMetalJoin",
@@ -98,6 +100,9 @@ COMMANDS = (
     "PartDesign_SheetMetalCornerClosure",
     "PartDesign_SheetMetalRip",
     "PartDesign_SheetMetalCrossBreak",
+    "PartDesign_SheetMetalForm",
+    "PartDesign_SheetMetalLocatingTabs",
+    "PartDesign_SheetMetalSlots",
     "PartDesign_SheetMetalCutout",
     "PartDesign_SheetMetalFold",
     "PartDesign_SheetMetalJog",

@@ -132,6 +132,83 @@ class TestMirrored(unittest.TestCase):
             finally:
                 FreeCAD.closeDocument(doc.Name)
 
+    def _filletedPadMirrored(self, version=None, offset=None):
+        """A pad, a fillet round its top, and the pad mirrored, in a
+        document of its own: the volume on the original's side of the
+        plane, on the copy's, and the fillet's."""
+        doc = FreeCAD.newDocument("PartDesignTestMirroredFillet")
+        try:
+            return self._filletedPadMirroredIn(doc, version, offset)
+        finally:
+            FreeCAD.closeDocument(doc.Name)
+
+    def _filletedPadMirroredIn(self, doc, version, offset):
+        import Part
+        V = FreeCAD.Vector
+        body = doc.addObject("PartDesign::Body", "FilletedBody")
+        sketch = body.newObject("Sketcher::SketchObject", "FilletedSketch")
+        sketch.AttachmentSupport = (doc.getObject("XY_Plane"), [""])
+        sketch.MapMode = "FlatFace"
+        corners = [(5, 5), (25, 5), (25, 15), (5, 15)]
+        for (x0, y0), (x1, y1) in zip(corners, corners[1:] + corners[:1]):
+            sketch.addGeometry(Part.LineSegment(V(x0, y0, 0), V(x1, y1, 0)))
+        pad = body.newObject("PartDesign::Pad", "FilletedPad")
+        pad.Profile = sketch
+        pad.Length = 10
+        doc.recompute()
+        top = [
+            "Edge%d" % (i + 1)
+            for i, edge in enumerate(pad.Shape.Edges)
+            if all(abs(vertex.Point.z - 10) < 1e-9 for vertex in edge.Vertexes)
+        ]
+        fillet = body.newObject("PartDesign::Fillet", "PadFillet")
+        fillet.Base = (pad, top)
+        fillet.Radius = 2
+        doc.recompute()
+        mirrored = body.newObject("PartDesign::Mirrored", "PadMirrored")
+        mirrored.Originals = [pad]
+        mirrored.MirrorPlane = (doc.getObject("YZ_Plane"), [""])
+        if version is not None:
+            mirrored._Version = version
+        if offset is not None:
+            mirrored.TransformOffset = FreeCAD.Placement(offset, FreeCAD.Rotation())
+        doc.recompute()
+        self.assertIn("Up-to-date", mirrored.State)
+        shape = mirrored.Shape
+        originalSide = shape.common(Part.makeBox(100, 200, 100, V(0, -100, -50))).Volume
+        return originalSide, shape.Volume - originalSide, fillet.Shape.Volume
+
+    def testOriginalKeepsWhatCameAfterIt(self):
+        """The first instance of a pattern is the original, which the
+        support already holds as the features after it left it: made over
+        again, a pad mirrored after it was filleted lost its fillet."""
+        original, copy, filleted = self._filletedPadMirrored()
+        self.assertAlmostEqual(filleted, 1951.5634, 3)
+        self.assertAlmostEqual(original, filleted, 6)
+        self.assertAlmostEqual(copy, 2000, 6)
+
+    def testOffsetThatCannotMoveTheOriginal(self):
+        """An offset moves the copies. The original moves with them where
+        the history can be written again without it, which a fillet after
+        it rules out: it then stays, and is not added a second time 3 mm
+        further on."""
+        original, copy, filleted = self._filletedPadMirrored(offset=FreeCAD.Vector(0, 3, 0))
+        self.assertAlmostEqual(original, filleted, 6)
+        self.assertAlmostEqual(copy, 2000, 6)
+
+    def testEarlierPatternsStayAsMade(self):
+        """_Version says how a pattern was made. 3 and before left the
+        first instance out, as 5 does; 4 made it, and a file of those two
+        years keeps what it has."""
+        self.assertEqual(self.Doc.addObject("PartDesign::Mirrored", "Fresh")._Version, 5)
+        for version in (0, 2, 3):
+            original, copy, filleted = self._filletedPadMirrored(version)
+            self.assertAlmostEqual(original, filleted, 6, "version %d" % version)
+            self.assertAlmostEqual(copy, 2000, 6, "version %d" % version)
+        original, copy, filleted = self._filletedPadMirrored(4)
+        self.assertAlmostEqual(original, 2000, 6)
+        self.assertAlmostEqual(copy, 2000, 6)
+
     def tearDown(self):
         #closing doc
         FreeCAD.closeDocument("PartDesignTestMirrored")

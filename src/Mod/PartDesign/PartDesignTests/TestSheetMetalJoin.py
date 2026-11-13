@@ -14,6 +14,7 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
 V = FreeCAD.Vector
@@ -53,7 +54,7 @@ class TestSheetMetalJoin(unittest.TestCase):
         self.Plate = self.wall(V(0, 0, 0), V(1, 0, 0), V(0, 1, 0), 40, 20)
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def wall(self, origin, xdir, ydir, w, h):
         """A base wall w x h on the sketch at origin along xdir and ydir, its
@@ -223,16 +224,120 @@ class TestSheetMetalJoin(unittest.TestCase):
         self.Doc.removeObject(j.Name)
         self.Doc.recompute()
 
+    # Parallel walls (built 2026-11-11): two bends of 90 deg at the rule's
+    # radius and a run between them, across from the one wall to the other.
+    # The first edge's wall stays as it is, its bend starting at its end; the
+    # second is extended or trimmed to where its bend starts. The walls'
+    # facing skins are the bends' inner ones, 2 R apart at least: at just
+    # that, the one bend of a half turn.
+
+    def above(self, x, z, w=30):
+        """A plate parallel to the first, from x across w, its bottom skin at z"""
+        return self.wall(V(x, 0, z), V(1, 0, 0), V(0, 1, 0), w, 20)
+
+    def checkParallel(self, join, volume, bends=2):
+        self.checkValid(join)
+        self.assertAlmostEqual(join.Shape.Volume, volume, places=6)
+        flat = self.flat(join)
+        self.assertEqual(flat.BendCount, bends)
+        self.assertAlmostEqual(flat.FlatArea.Value, volume, places=5)
+
+    def testParallelFacing(self):
+        """A plate above, its end facing the first's across a gap of 10: the
+        run stands at x 41 to 42 from z 2 to 9, the upper plate extended 7 to
+        x 43"""
+        self.above(50, 10)
+        j = self.join(RIGHT, ((50, 0, 10), (50, 20, 10)))
+        self.checkParallel(j, 800 + 600 + 7 * 20 + 7 * 20 + 2 * QUARTER * 20)
+        self.checkBox(j.Shape, XMin=0, XMax=80, ZMin=0, ZMax=11)
+        shape = j.Shape
+        self.assertTrue(shape.isInside(V(41.5, 10, 5), 1e-9, True))
+        self.assertTrue(shape.isInside(V(46, 10, 10.5), 1e-9, True))
+        self.assertFalse(shape.isInside(V(45, 10, 0.5), 1e-9, True))
+        model = j.SheetModel["Elements"]
+        self.assertEqual(sorted(e["Kind"] for e in model), ["Bend", "Bend", "Wall", "Wall", "Wall"])
+        bends = [e for e in model if e["Kind"] == "Bend"]
+        for bend in bends:
+            self.assertAlmostEqual(bend["Angle"], 90, places=9)
+            self.assertAlmostEqual(bend["Radius"], 1, places=9)
+        run = [e["Name"] for e in model if e["Kind"] == "Wall"][2]
+        self.assertEqual(
+            [(b["Before"], b["After"]) for b in bends],
+            [(model[0]["Name"], run), (run, model[1]["Name"])],
+        )
+
+    def testParallelFacingEitherSkin(self):
+        """The edges on the walls' far skins: the same"""
+        self.above(50, 10)
+        j = self.join(RIGHT_BOTTOM, ((50, 0, 11), (50, 20, 11)))
+        self.checkParallel(j, 800 + 600 + 7 * 20 + 7 * 20 + 2 * QUARTER * 20)
+
+    def testParallelFacingOrder(self):
+        """The upper plate's edge first: it stays, the run at x 48 to 49, the
+        first plate extended 7 to x 47"""
+        self.above(50, 10)
+        j = self.join(((50, 0, 10), (50, 20, 10)), RIGHT)
+        self.checkParallel(j, 800 + 600 + 7 * 20 + 7 * 20 + 2 * QUARTER * 20)
+        shape = j.Shape
+        self.assertTrue(shape.isInside(V(48.5, 10, 5), 1e-9, True))
+        self.assertTrue(shape.isInside(V(45, 10, 0.5), 1e-9, True))
+        self.assertFalse(shape.isInside(V(46, 10, 10.5), 1e-9, True))
+
+    def testParallelFacingTrimmed(self):
+        """The upper plate from x 42, past where its bend starts at 43:
+        trimmed 1"""
+        self.above(42, 10)
+        j = self.join(RIGHT, ((42, 0, 10), (42, 20, 10)))
+        self.checkParallel(j, 800 + 600 - 1 * 20 + 7 * 20 + 2 * QUARTER * 20)
+
+    def testParallelStacked(self):
+        """A plate above ending where the first does, both ends the same
+        way: a U, its run at x 41 to 42"""
+        self.above(10, 10)
+        j = self.join(RIGHT, ((40, 0, 10), (40, 20, 10)))
+        self.checkParallel(j, 800 + 600 + 7 * 20 + 2 * QUARTER * 20)
+        self.checkBox(j.Shape, XMin=0, XMax=42, ZMin=0, ZMax=11)
+
+    def testParallelStackedShorter(self):
+        """The upper plate ending 5 short of the first: extended 5"""
+        self.above(5, 10)
+        j = self.join(RIGHT, ((35, 0, 10), (35, 20, 10)))
+        self.checkParallel(j, 800 + 600 + 5 * 20 + 7 * 20 + 2 * QUARTER * 20)
+        self.checkBox(j.Shape, XMax=42)
+
+    def testParallelHalfTurn(self):
+        """The facing skins 2 apart, twice the radius: one bend of a half
+        turn, no run"""
+        self.above(10, 3)
+        j = self.join(RIGHT, ((40, 0, 3), (40, 20, 3)))
+        self.checkParallel(j, 800 + 600 + 2 * QUARTER * 20, bends=1)
+        model = j.SheetModel["Elements"]
+        self.assertEqual([e["Kind"] for e in model], ["Wall", "Wall", "Bend"])
+        self.assertAlmostEqual(model[2]["Angle"], 180, places=9)
+        self.checkBox(j.Shape, XMax=42, ZMax=4)
+
+    def testParallelNarrower(self):
+        """The upper plate half as wide, at y 5 to 15: the bends and the run
+        10 wide, the first plate's end as it was beside them"""
+        self.wall(V(50, 5, 10), V(1, 0, 0), V(0, 1, 0), 30, 10)
+        j = self.join(RIGHT, ((50, 5, 10), (50, 15, 10)))
+        self.checkParallel(j, 800 + 300 + 7 * 10 + 7 * 10 + 2 * QUARTER * 10)
+        self.assertFalse(j.Shape.isInside(V(41.5, 2, 5), 1e-9, True))
+
     def testRefused(self):
-        """One edge; parallel walls; walls already joined; a trim taking all
-        of the wall; edges sharing no length"""
+        """One edge; walls in one plane; parallel walls nearer than two
+        bends take; walls already joined; a trim taking all of the wall;
+        edges sharing no length"""
         self.upright(49, 10)
         self.refused(RIGHT)
         self.refused(RIGHT, LEFT)
         self.refused(((49, 0, 10), (49, 20, 10)), ((50, 0, 30), (50, 20, 30)))
-        # a plate above, parallel to the first
-        self.wall(V(55, 0, 40), V(1, 0, 0), V(0, 1, 0), 20, 20)
-        self.refused(RIGHT, ((55, 0, 41), (55, 20, 41)))
+        # a plate beside the first, in its plane
+        self.wall(V(55, 0, 0), V(1, 0, 0), V(0, 1, 0), 20, 20)
+        self.refused(RIGHT, ((55, 0, 1), (55, 20, 1)))
+        # a plate above, its bottom skin 1.5 above the first's top
+        self.above(55, 2.5, w=20)
+        self.refused(RIGHT, ((55, 0, 2.5), (55, 20, 2.5)))
         # beyond the plate's left end: the plate trimmed back 47
         self.upright(-6, 10)
         self.refused(RIGHT, ((-6, 0, 10), (-6, 20, 10)))

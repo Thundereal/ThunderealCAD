@@ -16,12 +16,24 @@
   - Cancel on a new base wall takes it away;
   - the panel says its values in words (Material side, Outer sharp), a
     plate's Length, Reversed and Midplane greyed out, as the plate does not
-    use them, and a value set from Python while it is open shown in its box.
+    use them, and a value set from Python while it is open shown in its box;
+  - Starter Shape's panel: its kind, sizes and Centred, the shape shown as
+    it is set, a size too small said in red with nothing made and OK
+    refused; OK keeps ordinary features, one undo takes them away, Cancel
+    leaves nothing (M5, ruled 2026-11-06);
+  - Form's panel: its face, its kind, its points' sketch, its angle and way,
+    a dimple's sizes, a louver's, a bead's, a lance's, a drawn cutout's, a
+    flanged hole's, an emboss's and a gusset's, each kind's greyed out for the
+    others;
+  - Locating Tabs' panel and Slots': their sizes, a value set there the
+    feature's;
+    a size set there is the form's.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
 """
 
 import os
+import time
 import traceback
 
 import FreeCAD
@@ -103,6 +115,14 @@ def press(which):
 
 def accept():
     return press(QtWidgets.QDialogButtonBox.Ok)
+
+
+def wait(seconds):
+    """Events for that long: a panel that rebuilds on a timer"""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        QtWidgets.QApplication.processEvents()
+        time.sleep(0.02)
 
 
 def run():
@@ -782,6 +802,516 @@ def run():
             and [e["Name"] for e in crosses[0].SheetModel["Elements"] if "CrossBreak" in e]
             == ["Wall1"],
             crosses and (crosses[0].State, crosses[0].getStatusString()),
+        )
+
+        # -- Starter Shape: a shape of ordinary features, shown as it is set --
+        sbody = doc.addObject("PartDesign::Body", "StarterBody")
+        view.setActiveObject("pdbody", sbody)
+        doc.recompute()
+        FreeCADGui.Selection.clearSelection()
+        names = {o.Name for o in doc.Objects}
+
+        def made():
+            return [o for o in sbody.Group if o.Name not in names]
+
+        FEATURES = (
+            "Sketcher::SketchObject",
+            "PartDesign::SheetMetalBaseWall",
+            "PartDesign::SheetMetalFlange",
+        )
+
+        def size(obj):
+            # the exact box: shown, a shape has a mesh, which the default reads
+            box = obj.Shape.optimalBoundingBox(False)
+            return tuple(round(v, 6) for v in (box.XLength, box.YLength, box.ZLength))
+
+        FreeCADGui.runCommand("PartDesign_SheetMetalStarter")
+        wait(1.5)
+        w = panel() or {}
+        fields = ("Kind", "Length", "Width", "Height", "FlangeWidth", "Centered", "Message")
+        check(
+            "Starter Shape opens its panel: the kind, the sizes, centred",
+            all(n in w for n in fields),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        shown = made()
+        check(
+            "and shows the shape it would make",
+            [o.TypeId for o in shown][:2]
+            == ["Sketcher::SketchObject", "PartDesign::SheetMetalBaseWall"]
+            and sbody.Tip is not None
+            and sbody.Tip.TypeId == "PartDesign::SheetMetalFlange",
+            [o.Name for o in shown],
+        )
+        if all(n in w for n in fields):
+            w["Kind"].setCurrentText("Tub")
+            w["Length"].setProperty("rawValue", 60.0)
+            w["Width"].setProperty("rawValue", 40.0)
+            w["Height"].setProperty("rawValue", 20.0)
+            wait(2)
+            tip = sbody.Tip
+            bends = (
+                [e for e in tip.SheetModel["Elements"] if e["Kind"] == "Bend"]
+                if tip is not None and hasattr(tip, "SheetModel")
+                else []
+            )
+            check(
+                "set to a tub 60 by 40 by 20, it shows one",
+                tip is not None and size(tip) == (60, 40, 20) and len(bends) == 4,
+                tip and (tip.Name, size(tip), len(bends)),
+            )
+            w["Height"].setProperty("rawValue", 1.5)
+            wait(2)
+            message = w["Message"].text()
+            check(
+                "too low for its bends: said in red, nothing made",
+                "too low" in message and "red" in w["Message"].styleSheet() and made() == [],
+                (message, w["Message"].styleSheet(), [o.Name for o in made()]),
+            )
+            accept()
+            check("and OK refused", FreeCADGui.Control.activeDialog())
+            w["Height"].setProperty("rawValue", 20.0)
+            wait(2)
+            accept()
+            wait(0.5)
+            # the features: the body also holds the sheet's solid, rule and flat
+            kept = [o for o in made() if o.TypeId in FEATURES]
+            check(
+                "OK keeps it: ordinary features, the last the body's tip",
+                not FreeCADGui.Control.activeDialog()
+                and [o.TypeId for o in kept]
+                == ["Sketcher::SketchObject", "PartDesign::SheetMetalBaseWall"]
+                + ["PartDesign::SheetMetalFlange"]
+                and sbody.Tip == kept[-1]
+                and size(kept[-1]) == (60, 40, 20),
+                [o.Name for o in kept],
+            )
+            doc.undo()
+            doc.recompute()
+            pump()
+            check("one undo takes it all away", made() == [], [o.Name for o in made()])
+        else:
+            press(QtWidgets.QDialogButtonBox.Cancel)
+        FreeCADGui.runCommand("PartDesign_SheetMetalStarter")
+        wait(1.5)
+        opened = FreeCADGui.Control.activeDialog()
+        press(QtWidgets.QDialogButtonBox.Cancel)
+        wait(0.5)
+        check(
+            "Cancel leaves nothing",
+            opened and not FreeCADGui.Control.activeDialog() and made() == [],
+            [o.Name for o in made()],
+        )
+
+        # -- Form's panel: the face, the kind, the points, a dimple's sizes ---
+        fbody = doc.addObject("PartDesign::Body", "FormBody")
+        view.setActiveObject("pdbody", fbody)
+        fsketch = fbody.newObject("Sketcher::SketchObject", "FormSketch")
+        pts = [(0, 0), (40, 0), (40, 30), (0, 30)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            fsketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        fplate = fbody.newObject("PartDesign::SheetMetalBaseWall", "FormPlate")
+        fplate.Profile = fsketch
+        fpoints = fbody.newObject("Sketcher::SketchObject", "FormPoints")
+        fpoints.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        fpoints.addGeometry(Part.Point(V(20, 15, 0)))
+        doc.recompute()
+        fbody.Tip = fplate
+        top = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(fplate.Shape.Faces)
+            if abs(f.BoundBox.ZMin - 1) < 1e-7 and abs(f.BoundBox.ZMax - 1) < 1e-7
+        ]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, fplate.Name, top[0])
+        FreeCADGui.Selection.addSelection(doc.Name, fpoints.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalForm")
+        pump()
+        fforms = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalForm"]
+        w = panel() or {}
+        names = (
+            "Kind",
+            "Positions",
+            "Angle",
+            "Reversed",
+            "Diameter",
+            "Length",
+            "Width",
+            "Depth",
+            "Radius",
+            "FlankAngle",
+        )
+        check(
+            "Form opens its panel: its kind, points, angle, way and the built-ins' sizes",
+            fforms and all(n in w for n in names),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        if fforms and all(n in w for n in names):
+            w["Diameter"].setProperty("rawValue", 14.0)
+            pump(40)
+            doc.recompute()
+            check(
+                "a diameter set there is the dimple's",
+                abs(fforms[0].Diameter.Value - 14) < 1e-9 and "Invalid" not in fforms[0].State,
+                (fforms[0].Diameter, fforms[0].State),
+            )
+            check(
+                "a dimple greys out the louver's sizes",
+                not w["Length"].isEnabled() and not w["Width"].isEnabled(),
+            )
+            fforms[0].Kind = "Tool"
+            pump(40)
+            w = panel() or {}
+            check(
+                "a tool's form greys out the dimple's sizes",
+                "Diameter" in w and not w["Diameter"].isEnabled(),
+            )
+            fforms[0].Kind = "Louver"
+            pump(40)
+            doc.recompute()
+            # the panel greys out what the recompute made read only a moment after
+            pump(20)
+            w = panel() or {}
+            check(
+                "a louver: its sizes, the dimple's diameter greyed out; made at them",
+                "Length" in w
+                and w["Length"].isEnabled()
+                and w["Width"].isEnabled()
+                and not w["Diameter"].isEnabled()
+                and "Invalid" not in fforms[0].State,
+                (
+                    fforms[0].State,
+                    fforms[0].getStatusString(),
+                    {n: w[n].isEnabled() for n in ("Length", "Width", "Diameter") if n in w},
+                ),
+            )
+            fforms[0].Kind = "Bead"
+            fforms[0].Length = 24
+            fforms[0].Diameter = 6
+            pump(40)
+            doc.recompute()
+            pump(20)
+            w = panel() or {}
+            check(
+                "a bead: a dimple's sizes and a length, the louver's width greyed out",
+                "Length" in w
+                and w["Length"].isEnabled()
+                and w["Diameter"].isEnabled()
+                and not w["Width"].isEnabled()
+                and "Invalid" not in fforms[0].State,
+                (
+                    fforms[0].State,
+                    fforms[0].getStatusString(),
+                    {n: w[n].isEnabled() for n in ("Length", "Width", "Diameter") if n in w},
+                ),
+            )
+            fforms[0].Kind = "Lance"
+            fforms[0].Length = 20
+            pump(40)
+            doc.recompute()
+            pump(20)
+            w = panel() or {}
+            check(
+                "a lance: a length and a width, the flank angle and the diameter greyed out",
+                "FlankAngle" in w
+                and w["Length"].isEnabled()
+                and w["Width"].isEnabled()
+                and not w["FlankAngle"].isEnabled()
+                and not w["Diameter"].isEnabled()
+                and "Invalid" not in fforms[0].State,
+                (
+                    fforms[0].State,
+                    fforms[0].getStatusString(),
+                    {
+                        n: w[n].isEnabled()
+                        for n in ("Length", "Width", "Diameter", "FlankAngle")
+                        if n in w
+                    },
+                ),
+            )
+            for kind, size, used, unused in (
+                ("DrawnCutout", 12, ("Diameter", "Length", "FlankAngle"), ("Width",)),
+                ("FlangedHole", 8, ("Diameter", "Depth"), ("Length", "Width", "FlankAngle")),
+                ("Emboss", 12, ("Length", "Width", "CornerRadius", "FlankAngle"), ("Diameter",)),
+            ):
+                fforms[0].Kind = kind
+                fforms[0].Diameter = size
+                fforms[0].Length = size
+                pump(40)
+                doc.recompute()
+                pump(20)
+                w = panel() or {}
+                check(
+                    "a %s: %s, %s greyed out" % (kind, ", ".join(used), ", ".join(unused)),
+                    all(n in w for n in used + unused)
+                    and all(w[n].isEnabled() for n in used)
+                    and not any(w[n].isEnabled() for n in unused)
+                    and "Invalid" not in fforms[0].State,
+                    (
+                        fforms[0].State,
+                        fforms[0].getStatusString(),
+                        {n: w[n].isEnabled() for n in used + unused if n in w},
+                    ),
+                )
+            # a gusset's, though there is no bend here for it to cross
+            fforms[0].Kind = "Gusset"
+            pump(40)
+            doc.recompute()
+            pump(20)
+            w = panel() or {}
+            used, unused = ("Length", "Width", "FlankAngle", "Radius"), (
+                "Diameter",
+                "Depth",
+                "CornerRadius",
+                "Reversed",
+                "Angle",
+            )
+            check(
+                "a Gusset: %s, %s greyed out" % (", ".join(used), ", ".join(unused)),
+                all(n in w for n in used + unused)
+                and all(w[n].isEnabled() for n in used)
+                and not any(w[n].isEnabled() for n in unused),
+                {n: w[n].isEnabled() for n in used + unused if n in w},
+            )
+            fforms[0].Kind = "Dimple"
+            fforms[0].Diameter = 14
+            pump(20)
+        accept()
+        pump(20)
+        doc.recompute()
+        check(
+            "accepted, the plate has its dimple",
+            fforms
+            and "Invalid" not in fforms[0].State
+            and len(fforms[0].SheetModel.get("Forms", [])) == 1,
+            fforms and (fforms[0].State, fforms[0].getStatusString()),
+        )
+
+        # -- Locating Tabs' panel and Slots': their sizes, set there ---------
+        def sheetWall(wbody, name, corners, placement=None):
+            wsketch = wbody.newObject("Sketcher::SketchObject", name + "Sketch")
+            if placement:
+                wsketch.Placement = placement
+            for i in range(len(corners)):
+                a, b = corners[i], corners[(i + 1) % len(corners)]
+                wsketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+            made = wbody.newObject("PartDesign::SheetMetalBaseWall", name)
+            made.Profile = wsketch
+            doc.recompute()
+            return made
+
+        sbody = doc.addObject("PartDesign::Body", "SlotBody")
+        sheetWall(sbody, "SlotPlate", [(0, 0), (60, 0), (60, 40), (0, 40)])
+        tbody = doc.addObject("PartDesign::Body", "TabBody")
+        upright = sheetWall(
+            tbody,
+            "Upright",
+            [(10, 1), (50, 1), (50, 21), (10, 21)],
+            FreeCAD.Placement(V(0, 20, 0), FreeCAD.Rotation(V(1, 0, 0), 90)),
+        )
+        foot = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(upright.Shape.Faces)
+            if isinstance(f.Surface, Part.Plane)
+            and abs(f.BoundBox.ZMax - 1) < 1e-7
+            and f.normalAt(0, 0).isEqual(V(0, 0, -1), 1e-7)
+        ]
+        view.setActiveObject("pdbody", tbody)
+        FreeCADGui.Selection.clearSelection()
+        if foot:
+            FreeCADGui.Selection.addSelection(doc.Name, upright.Name, foot[0])
+        FreeCADGui.runCommand("PartDesign_SheetMetalLocatingTabs")
+        pump()
+        made = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalLocatingTabs"]
+        w = panel() or {}
+        names = ("Count", "Width", "Length", "Margin")
+        check(
+            "Locating Tabs opens its panel: the count, the width, the length and the margin",
+            made and all(n in w for n in names),
+            sorted(n for n in w if n[0].isupper()),
+        )
+        if made and all(n in w for n in names):
+            w["Count"].setValue(3)
+            pump(40)
+            doc.recompute()
+            check(
+                "a count set there is the tabs'",
+                made[0].Count == 3 and len(made[0].TabShape.Solids) == 3,
+                (made[0].Count, made[0].State),
+            )
+        accept()
+        pump(20)
+        view.setActiveObject("pdbody", sbody)
+        FreeCADGui.Selection.clearSelection()
+        if made:
+            FreeCADGui.Selection.addSelection(doc.Name, made[0].Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalSlots")
+        pump()
+        slots = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalSlots"]
+        w = panel() or {}
+        check(
+            "Slots opens its panel: the clearance",
+            slots and "Clearance" in w,
+            sorted(n for n in w if n[0].isupper()),
+        )
+        if slots and "Clearance" in w:
+            w["Clearance"].setProperty("rawValue", 0.2)
+            pump(40)
+            doc.recompute()
+            check(
+                "a clearance set there is the slots'",
+                abs(slots[0].Clearance.Value - 0.2) < 1e-9 and "Invalid" not in slots[0].State,
+                (slots[0].Clearance, slots[0].State, slots[0].getStatusString()),
+            )
+        accept()
+        pump(20)
+
+        # Lofted flange (M5): its panel its material side
+        lbody = doc.addObject("PartDesign::Body", "LoftBody")
+        view.setActiveObject("pdbody", lbody)
+        rounds = []
+        for name, r, z in (("Wide", 20, 0), ("Narrow", 10, 30)):
+            rsketch = lbody.newObject("Sketcher::SketchObject", name)
+            rsketch.Placement = FreeCAD.Placement(V(0, 0, z), FreeCAD.Rotation())
+            rsketch.addGeometry(Part.Circle(V(0, 0, 0), V(0, 0, 1), r))
+            rounds.append(rsketch)
+        doc.recompute()
+        FreeCADGui.Selection.clearSelection()
+        for rsketch in rounds:
+            FreeCADGui.Selection.addSelection(doc.Name, rsketch.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalLoftedFlange")
+        pump()
+        lofts = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalLoftedFlange"]
+        w = panel() or {}
+        check(
+            "Lofted Flange opens its panel: the material side",
+            lofts and "MaterialSide" in w,
+            sorted(n for n in w if n[:1].isupper()),
+        )
+        own = w.get("UseRuleRadius")
+        check(
+            "its panel the bends' radius, lines to lines: the rule's, its own greyed",
+            own is not None and own.isChecked() and "BendRadius" in w
+            and not w["BendRadius"].isEnabled(),
+            [(n, n in w and w[n].isEnabled()) for n in ("UseRuleRadius", "BendRadius")],
+        )
+        if lofts and "MaterialSide" in w:
+            w["MaterialSide"].setCurrentIndex(1)
+            pump(40)
+            doc.recompute()
+            zmin = lofts[0].Shape.BoundBox.ZMin
+            check(
+                "a side set there is the flange's: the sheet inside the sketches",
+                lofts[0].MaterialSide == "Inside" and zmin < -0.3,
+                (lofts[0].MaterialSide, zmin, lofts[0].State),
+            )
+        accept()
+        pump(20)
+
+        # -- the hem's panel: its relief, the rule's or its own as a flange's --
+        hbody = doc.addObject("PartDesign::Body", "HemBody")
+        view.setActiveObject("pdbody", hbody)
+        hplate = sheetWall(hbody, "HemPlate", [(100, 0), (140, 0), (140, 20), (100, 20)])
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, hplate.Name, edgeAt(hplate, 20, 1))
+        FreeCADGui.runCommand("PartDesign_SheetMetalHem")
+        pump()
+        hems = [o for o in doc.Objects if o.TypeId == "PartDesign::SheetMetalHem"]
+        hem = hems[-1] if hems else None
+        w = panel() or {}
+        relief = w.get("ReliefShape")
+        check(
+            "Hem's panel has its relief: the rule's, its width and depth greyed out",
+            hem is not None
+            and relief is not None
+            and hem.ReliefShape == "Rule"
+            and all(n in w and not w[n].isEnabled() for n in ("ReliefWidth", "ReliefDepth")),
+            [(n, n in w and w[n].isEnabled()) for n in ("ReliefShape", "ReliefWidth")],
+        )
+        if hem is not None and relief is not None:
+            relief.setCurrentIndex(1)
+            pump(20)
+            doc.recompute()
+            pump(10)
+            check(
+                "a shape of its own: the hem's, width and depth from the rule's, open",
+                hem.ReliefShape == "Rectangle"
+                and all(w[n].isEnabled() for n in ("ReliefWidth", "ReliefDepth"))
+                and abs(w["ReliefWidth"].property("rawValue") - 1) < 1e-9,
+                (hem.ReliefShape, w["ReliefWidth"].isEnabled(), hem.ReliefWidth),
+            )
+        accept()
+        pump(20)
+
+        # -- a reference lost to an edit before the feature: found again by
+        # its name when the panel opens, shown, and kept only with OK -------
+        rbody = doc.addObject("PartDesign::Body", "RefBody")
+        view.setActiveObject("pdbody", rbody)
+        rplate = sheetWall(rbody, "RefPlate", [(200, 0), (240, 0), (240, 20), (200, 20)])
+        left = [
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(rplate.Shape.Edges)
+            if all(abs(v.Point.x - 200) < 1e-7 and abs(v.Point.z - 1) < 1e-7 for v in e.Vertexes)
+        ]
+        early = rbody.newObject("PartDesign::SheetMetalFlange", "RefEarly")
+        early.Edges = (rplate, left[:1])
+        doc.recompute()
+        mid = rbody.newObject("PartDesign::SheetMetalFlange", "RefMid")
+        mid.Edges = (early, [edgeAt(early, 0, 1)])
+        doc.recompute()
+        made = "Invalid" not in mid.State
+        # the flange before it trims that edge: suppressed, the edge is another
+        early.Suppress = True
+        doc.recompute()
+        pump(10)
+        check(
+            "a flange on an edge the flange before it trims loses it with that one suppressed",
+            made and "Invalid" in mid.State and mid.Edges[1][0].startswith("?"),
+            (made, mid.State, mid.Edges[1]),
+        )
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.ActiveDocument.setEdit(mid.Name)
+        pump()
+        wait(0.3)
+        w = panel() or {}
+        edges = w.get("listEdges")
+        said = w.get("labelRefound")
+        row = edges.item(0) if edges is not None and edges.count() == 1 else None
+        lit = [
+            (o.ObjectName, list(o.SubElementNames)) for o in FreeCADGui.Selection.getSelectionEx()
+        ]
+        check(
+            "its panel finds the edge again by name: the feature made, the row marked and "
+            "saying what it was, a line saying so, the edge lit in the view",
+            row is not None
+            and not row.text().startswith("?")
+            and "Was" in row.toolTip()
+            and said is not None
+            and said.isVisible()
+            and row.text() in said.text()
+            and "Invalid" not in mid.State
+            and lit == [(early.Name, [row.text()])],
+            (row and (row.text(), row.toolTip()), said and said.text(), mid.State, lit),
+        )
+        press(QtWidgets.QDialogButtonBox.Cancel)
+        pump(20)
+        doc.recompute()
+        check(
+            "Cancel leaves the reference as it was, lost",
+            mid.Edges[1][0].startswith("?") and "Invalid" in mid.State,
+            (mid.Edges[1], mid.State),
+        )
+        FreeCADGui.ActiveDocument.setEdit(mid.Name)
+        pump()
+        wait(0.3)
+        accept()
+        pump(20)
+        doc.recompute()
+        check(
+            "OK keeps what was found",
+            not mid.Edges[1][0].startswith("?") and "Invalid" not in mid.State,
+            (mid.Edges[1], mid.State),
         )
     except Exception:
         note("ABORT:\n" + traceback.format_exc())

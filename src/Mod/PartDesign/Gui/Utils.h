@@ -24,6 +24,10 @@
 #define UTILS_H_CS5LK2ZQ
 
 #include <functional>
+#include <set>
+#include <string>
+#include <vector>
+#include <QColor>
 #include <QStringList>
 
 #include <Base/Vector3D.h>
@@ -111,7 +115,51 @@ void toggleShowOnTop(Gui::ViewProviderDocumentObject *vp,
                      const char *prop,
                      bool init = false);
 
-bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &prop, bool refresh);
+/** A reference a panel found again by its name's history when it was
+ * opened (Part::Feature::getRelatedElements()): the element the feature it
+ * is of has no more, as it was called, and the one that answers for it.
+ * Ruled 2026-11-11: taken in the panel, never in a recompute, and shown --
+ * marked where the panel lists it, selected in the view, said in a line --
+ * not taken silently; OK keeps it, Cancel leaves the reference missing.
+ */
+struct RefoundReference
+{
+    App::DocumentObject *object = nullptr;
+    std::string was;
+    std::string now;
+    /// Not a reference that was missing: one whose name has become another
+    /// element's while the element it was on is still there, unchanged
+    /// (App::ShadowSub::elsewhere, docs/TopoNamingEnhance.md sec 9.12).
+    /// 'was' is the element the name finds now, 'now' the one it was on.
+    /// Taken and shown the same way.
+    bool byPlace = false;
+};
+/// The colour such a reference is marked in where it is listed
+QColor refoundColor();
+/// What its row's, its cell's or its label's tip says
+QString refoundTip(const std::string &was, bool byPlace = false);
+/// What a panel's line says of those it found, empty for none
+QString refoundNote(const std::vector<RefoundReference> &found);
+/// Their elements selected in the view, on the features they are of: in
+/// place of the selection, or added to it
+void selectRefound(const std::vector<RefoundReference> &found, bool add = false);
+/** The elements that answer for a reference \a obj has no more, by its
+ * mapped name: none of \a used. A list's reference takes them all -- an
+ * edge a feature cut in two is its two halves; one that holds a single
+ * element (\a single) takes the answer only where there is one.
+ */
+std::vector<std::string> refoundAnswers(App::DocumentObject *obj, const std::string &mapped,
+                                        const std::set<std::string> &used, bool single);
+
+/** Fill a panel's list with a property's references. Filled for the first
+ * time (not refresh), a reference whose element the base has no more is
+ * looked up by its name's history and what answers taken in its place, all
+ * of it (refoundAnswers()); with no answer it is listed as missing. What
+ * was taken is told in refound, for the panel to show. Returns whether the
+ * property was changed.
+ */
+bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &prop, bool refresh,
+                                std::vector<RefoundReference> *refound = nullptr);
 QByteArray getGeometryItemText(QTreeWidgetItem *item);
 QByteArray getGeometryItemReference(QTreeWidgetItem *item);
 void setGeometryItemText(QTreeWidgetItem *item, const std::string &);

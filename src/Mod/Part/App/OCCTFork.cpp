@@ -307,6 +307,18 @@ bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
     return true;
 }
 
+typedef int (*FuncSetFilletFixLevel)(int);
+
+/// The calling thread's fillet fix level (the OCCT fork's
+/// ChFi3d_SetFixLevel): which of the fork's corrections to fillets and
+/// chamfers that give a different shape than before are made. Returns what
+/// was set before; -1 without the fork's function, where nothing is set.
+int setOCCTFilletFixLevel(int level)
+{
+    static const auto func = (FuncSetFilletFixLevel)lookUpTKFillet("ChFi3d_SetFixLevel");
+    return func ? func(level) : -1;
+}
+
 // --- TKOffset -------------------------------------------------------------
 
 typedef int (*FuncSetOffsetFixLevel)(int);

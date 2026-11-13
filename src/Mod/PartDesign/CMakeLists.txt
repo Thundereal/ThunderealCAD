@@ -7,6 +7,7 @@ endif(BUILD_GUI)
 set(PartDesign_Scripts
     __init__.py
     Init.py
+    SheetMetalStarter.py
     TestPartDesignApp.py
 )
 
@@ -90,8 +91,15 @@ set(PartDesign_TestScripts
     PartDesignTests/TestSheetMetalFlatMarkings.py
     PartDesignTests/TestSheetMetalFlatNotches.py
     PartDesignTests/TestSheetMetalCrossBreak.py
+    PartDesignTests/TestSheetMetalStarter.py
+    PartDesignTests/TestSheetMetalForm.py
+    PartDesignTests/TestSheetMetalTabSlot.py
+    PartDesignTests/TestSheetMetalLoftedFlange.py
     PartDesignTests/TestSheetMetalConvert.py
     PartDesignTests/SheetMetalFlatView.py
+    PartDesignTests/SheetMetalNames.py
+    PartDesignTests/TestSheetMetalFlatInBend.py
+    PartDesignTests/TestSheetMetalNames.py
     PartDesignTests/TestSheetMetalPart.py
     PartDesignTests/TestChainLocations.py
     PartDesignTests/TestDefeaturing.py
@@ -100,6 +108,11 @@ set(PartDesign_TestScripts
     PartDesignTests/TestInvoluteGear.py
     PartDesignTests/TestTopologicalNamingProblem.py
     PartDesignTests/TestNameEncoding.py
+    PartDesignTests/TestNameStability.py
+    PartDesignTests/TestReferenceGuard.py
+    PartDesignTests/TestEarlierPlacement.py
+    PartDesignTests/TestReferenceSearch.py
+    PartDesignTests/TestTwinReferences.py
 )
 
 set(PartDesign_TestFixtures
@@ -108,6 +121,7 @@ set(PartDesign_TestFixtures
     PartDesignTests/Fixtures/ModelFromV021.FCStd
     PartDesignTests/Fixtures/FaceRefs_v1-1-4.FCStd
     PartDesignTests/Fixtures/FaceRefs_fork_whole_names.FCStd
+    PartDesignTests/Fixtures/TwinRefs_map-1-15-70200.FCStd
 )
 
 set(PartDesign_GearScripts

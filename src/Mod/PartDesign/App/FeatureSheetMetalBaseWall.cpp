@@ -130,7 +130,12 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
             QT_TRANSLATE_NOOP("Exception", "The sheet has no rule"));
     }
     SheetMetal::Model model;
+    // numbered on from the highest of the sheet before it, if there is one
+    // (storeModel() gives each the number it keeps)
     int walls = 0, bends = 0;
+    if (auto before = findBefore(this)) {
+        before->SheetModel.getValue().numbers(walls, bends);
+    }
     SheetMetal::ProfileBuilder build(model, walls, bends);
     build.k = [rule](double angle, double radius) {
         return rule->modelK(angle, radius);
@@ -146,11 +151,9 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
             QT_TRANSLATE_NOOP("Exception", "The sheet has no thickness"));
     }
     try {
+        // the sheet before it, its walls and bends numbered on from above
         model = modelBefore(build.thickness);
         model.thickness = build.thickness;
-        for (const Element& e : model.elements) {
-            ++(e.kind == Element::Kind::Wall ? walls : bends);
-        }
 
         TopoShape base = getBaseShape(/*silent*/ true);
         auto invObjLoc = positionByPrevious();
@@ -210,13 +213,14 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
                     tube ? "A tube takes one closed line chain"
                          : "A profile wall takes one open line chain, or closed profiles"));
             }
-            auto points = SheetMetal::linePoints(TopoDS::Wire(wires.front().getShape()),
-                                                 tube ? "A tube" : "A profile wall");
+            const TopoDS_Wire wire = TopoDS::Wire(wires.front().getShape());
             if (tube) {
-                build.closedProfile(points, normal, side);
+                build.closedProfile(SheetMetal::linePoints(wire, "A tube"), normal, side);
             }
             else {
-                SheetMetal::dropStraight(points);
+                // its arcs rolled, bends of their own radius (M5)
+                auto points = SheetMetal::profilePoints(wire, "A profile wall", build.arcs);
+                SheetMetal::dropStraight(points, &build.arcs);
                 build.profile(points, normal, side);
             }
 
@@ -261,8 +265,7 @@ App::DocumentObjectExecReturn* SheetMetalBaseWall::execute()
             return App::DocumentObject::StdReturn;
         }
         Shape.setValue(makeBoolean(base, tool, true));
-        applyBendOverrides(model);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

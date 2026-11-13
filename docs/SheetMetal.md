@@ -445,7 +445,7 @@ its tracker, not ported.
 | **Extend wall** | A wall's end face pushed out by a length, or up to a face, with gaps and a clearance against walls it would meet. | B1 7 |
 | **Bend between walls** | Two edges picked, one at each wall's end, joined by a bend of the rule's radius; the walls trimmed or extended to meet it, over the length the edges share. Where two sheets of a part come together. Built in M2 as Join by Bend. | -- (Inventor Bend, Fusion Join by Bend, Creo Merge) |
 | **Rolled wall** | An open sketch of lines and arcs revolved or rolled into a cylindrical or conical sheet, its arcs developed exactly as a lofted flange's are. | -- (Inventor Contour Roll, CATIA Rolled Wall) |
-| **Starter shapes** | A parametric L, U, tub, hat or box as a first feature, made of base wall and flanges. | B1 1 |
+| **Starter shapes** | A parametric L, U, tub, hat or box as a first feature, made of base wall and flanges. Built in M5 (sec 12). | B1 1 |
 | **Lofted flange** | Between two profiles (a round to a square, a cone): developed exactly where the surface is a cone, cylinder or plane, and as conical facets where it is not, with the facet count a parameter. | -- (#603) |
 
 ### 5.2 Edges, corners and cuts
@@ -566,6 +566,8 @@ recompute; nothing kept):
     they cross); a square 2 on a side clears it, none leaves 0.35 mm^2. Hence the rule's
     `CornerReliefCover` (5.2's notes below), after which the default is clean.
   - `Relief`: a feature's own relief (not "Rule") narrower or shallower than the rule's.
+  - `Approximated` (2026-11-11): the faces cut in a bend otherwise than square to the sheet,
+    which the flat has approximately (risk 2).
   - `NoFlat`: why the flat cannot be laid.
 - Check Sheet (Sheet Metal tool bar): a panel of the bend table and the problems for the selected
   feature or solid, else the active body's sheet; a row picked selects its faces where they are
@@ -844,7 +846,7 @@ and not frozen.
   - The shape is a compound of the flat solid and one bend line per bend, along the bend's
     middle on the inner skin, named after the bend.
   - Refused by name for now: a face no element owns, a face of a bend that does not lie flat as a
-    plane (risk 2's approximation is still to come), a flat that does not close.
+    plane (risk 2's approximation: built 2026-11-11, sec 12), a flat that does not close.
   - The manufacturing properties of 5.4 (e827522697), read-only in a `Manufacturing` group:
     `FlatLength`, `FlatWidth` (its size on XY, the longer first), `FlatArea` (the blank's),
     `Thickness`, `MaterialName` (the rule's card), `BendCount`, `MaxBendAngle`, and
@@ -910,8 +912,12 @@ and not frozen.
   - `Gap1`, `Gap2` narrow the hem at the edge's ends, as a flange's; where it stops inside the
     wall's end with the wall cut back (`Inside`), the rule's bend relief is cut beside the fold
     and the fold stops at its sides in the model, as a flange's bend does. The relief's cuts are
-    `SheetMetal::reliefCuts()`, which the flange now uses too. The relief overridden per hem
-    is not built.
+    `SheetMetal::reliefCuts()`, which the flange now uses too. The relief overridden per hem:
+    built 2026-11-11, as a flange's -- `ReliefShape` (`Rule`, or the hem's own `Rectangle`,
+    `Obround`, `Tear`), `ReliefWidth`, `ReliefDepth`, read only under `Rule` and starting from
+    the rule's when a shape is chosen; in its panel; Check Sheet tells one smaller than the
+    rule's as it does a flange's. `TestSheetMetalHem` 21 (before, 16), `sheet-metal-panels.py`
+    99 (before, 97).
   - Two edges of one hem meeting at a corner are refused, as their folds would run into each
     other.
 - M2's corner closure, `PartDesign::SheetMetalCornerClosure` (5.2, ruled 2026-11-02), with
@@ -929,9 +935,14 @@ and not frozen.
     short of the first's inner skin and its bend the gap short of where the first's bend starts,
     so the bends never meet; `Underlap` the other way round. In the model each side's limits
     toward the corner (a miter's, a gap's) give way to the new ones.
-  - A gap's relief at the corner stays where it reaches below where the bends start (1 x 1 each
-    with the rule's defaults); filling it is not built. Oracle: `Butt` on an open corner is the
-    automatic miter's part less those two, with the same flat.
+  - A gap's relief at the corner reached below where the bends start (1 x 1 each with the
+    rule's defaults) and stayed; **filled, built 2026-11-11**: beside where each side ended
+    (an end square across it, a gap's), the wall again in the relief's own shape below the
+    bend's start -- its straight part and an obround's half circle, as `reliefCuts()` cut
+    them, from the relief of the feature that made the bend (its own, or the rule's; a tear
+    reaches no further than the bend) -- and no further than where the other side's bend
+    starts. Oracle: `Butt` on an open corner is the automatic miter's part, with the same
+    flat. `TestSheetMetalCornerClosure` 8 (before, 4).
 - M2's corner relief (5.2, ruled 2026-11-02: drawn in the flat, folded back), at every miter -- one
   flange's, a flange's against an earlier one, a corner closure's `Butt` -- from the rule:
   `CornerReliefShape` `Circle` (the default) of `CornerReliefSize` across, or `Square` of that
@@ -1626,6 +1637,594 @@ stored flat and this option do what it was for.
   feature's model or `Suppress` changing refreshes it, every feature after it and the body.
   `TestSheetMetalCrossBreak` (15,
   +4; before, the 4 errored), `sheet-metal-commands.py` (97, +7; before, 85 and 2 failing).
+- **Ruled 2026-11-06, M5's order and its forms:** starter shapes; forms (the mechanism and user
+  tools, then dimple, louver, bead, lance, drawn cutout, flanged hole, emboss, the gusset last);
+  tab and slot; the rolled wall; the lofted flange. A starter shape is ordinary features (a
+  sketch, a base wall, flanges), not a feature of its own. A form is an element of its own owned
+  by its wall, carried rigidly into the flat; one across a bend is refused but the gusset. The
+  flat object shows forms Formed, as an Outline or as a Centre mark, one setting for the flat and
+  its files, Outline first, on a `FORMS` layer. A user tool is any object with a shape (a Link
+  too) and a face of it that sits on the wall's skin, placed at a sketch's points and turned by
+  an angle, taken as the formed outside and hollowed to the thickness. The built-in forms are one
+  feature with a `Kind`, their sizes defaulting from the rule's thickness.
+- **Built 2026-11-06, M5's first item, starter shapes:** `PartDesign.makeStarterShape(body,
+  kind, length, width, height, FlangeWidth=5, Centered=True)` (Python, `SheetMetalStarter.py`:
+  the sketch is Sketcher's, which PartDesign's library does not link) makes an L, U, Tub, Hat or
+  Box of the outside sizes asked: a rectangle sketch with its `Length` and `Width` constraints
+  named, centred on the origin or from it, a base wall, one flange on the edges (L the far long
+  edge, U both long ones, the rest all four, mitered), `OuterSharp` and `MaterialInside` so the
+  sizes are the outside ones, and for a hat or a box a second flange, the lip: a hat's on the
+  legs' outer skins, bending out, `FlangeWidth` past them (its length the width and the rule's
+  thickness, by expression); a box's on their inner skins, bending in, `FlangeWidth` from their
+  outsides, each stopped square short of the corners, clear of its neighbour by the rule's gap. A
+  kind unknown or a size too small for the bends is refused, nothing left made. The Starter Shape
+  command (first on the tool bar, and in the Sheet Metal submenu beside Base Wall) opens a panel
+  of the kind, the sizes and Centred that makes the shape as it is set, in a transaction of its
+  own, a refusal said in red and OK refused; OK keeps it, made once more by the logged command,
+  one step to undo; Cancel takes it away. `TestSheetMetalStarter` (8; before, all errored),
+  `sheet-metal-panels.py` (+8; before, it aborted at the unknown command),
+  `sheet-metal-commands.py` (+2).
+- **Found with it, fixed 2026-11-06:** a flange bent in at an inside corner and mitered there (a
+  box's lip as one flange on the four inner edges, or one lip on a tub's leg) did not lie flat.
+  Not the miter's slant through the bend, as first thought: the edge, on the leg's inner skin,
+  is the short side of the leg's mitered end, and the bend and the cut-back under it were built
+  along the edge only, then stopped at the miter's plane. Over the leg's thickness the bend
+  stopped short of the miter, and the leg's end beyond the edge stood on to the top beside it, a
+  sharp prism fused to the bend's end, which the flat could not part. Now where the wall ends on
+  a plane through an end of the edge, what the flange adds and cuts runs on past that end as far
+  as the wall's other skin does (T (s . n) / (o . n), s the edge's skin's normal, n the plane's,
+  o the edge's way out at that end; 1 for a 45 deg miter), then
+  stops at the plane, so the bend takes the leg's whole end. From the outer edge (a hat's lip)
+  it runs on by nothing, its shape unchanged. `testInwardLipsMitered`,
+  `testInwardLipOnMiteredLeg` (before, both failed; `TestSheetMetalFlange` 52 of 54). The box's
+  lips still stop square, as a press could form them.
+- **Built 2026-11-06, M5's second item, forms (the mechanism, user tools, the dimple):**
+  `PartDesign::SheetMetalForm`, one feature a kind (`Tool`, `Dimple`; the rest of the built-in
+  set to come), a form at each free point of `Positions`, a sketch on `Face`, a wall's skin of
+  the feature it builds on, turned by `Angle` from the sketch's X, rising into the face if
+  `Reversed`. A user's tool is any solid and a plane face of it set on the skin, taken as the
+  form's outside and hollowed to the thickness with that face open (`MakeThickSolidByJoin`), the
+  hollow opened down through the wall; the dimple is two cones the thickness apart at
+  `FlankAngle`, its four bends rounded concentric (`Radius` inside, `Radius` and the thickness
+  outside), the thickness all through it. Each form is a `SheetMetal::Form` of the model, not an
+  element: owned by its wall, with its frame and what it takes of the part (a box or a circle in
+  its frame, down through the wall); a face lying wholly in one is its wall's for the flat and
+  the form's by name. So the code walking walls and bends is unchanged. The flat object's
+  `FormDisplay`: `Formed` (kept, moved with the wall), `Outline` (first; the form's faces left
+  out, the holes they leave in the skins closed, its outline on the skin it rises from drawn on
+  the top, `Form1Outline1`...) or `CentreMark` (a cross, `Form1Mark1`, `2`); the DXF and SVG on
+  `FORMS`, the flat's view a seventh kind. A form off its face, running off its wall, a dimple
+  that closes to a point or has no room inside, and bends that cannot be rounded are refused.
+  The Form command takes a wall's face of the tip and a sketch, and a tool's face for Kind Tool.
+  `TestSheetMetalForm` (12; before, all errored), `sheet-metal-commands.py` (102, +3),
+  `sheet-metal-panels.py` (82, +4).
+- **Built 2026-11-06, the louver, and the built-in forms sized from the thickness:** Kind
+  `Louver` of the form. The sheet is cut along one long side and the strip risen as a hood:
+  `Length` along the form's X, `Width` from its hinge to its opening, which faces the form's Y
+  (turned by `Angle` as any form), a plane ramp from the hinge's line on the face up to the lip
+  `Depth` above it, its ends drawn down to the face at `FlankAngle`, closed, the thickness all
+  through it, the plate beneath it open. Its outside lies under the three planes, the hollow
+  under the same planes the thickness in from them; the cut is a slit the rule's gap wide in
+  front of the lip, on past where the ends leave the face: cut as a line, the hood's ends and the
+  sheet before them were one solid near the face, and the bends there could not be rounded. Its
+  outside starts inside the wall, which holds all of it below the face: from the other skin its
+  foot split that skin, a sliver of it neither the wall's nor the form's, and the flat refused
+  it. Rounded in two steps, the ridges between the ramp and the ends first, concentric (`Radius`
+  inside, `Radius` and the thickness outside), then where the ramp and the ends leave the face,
+  on it and beneath, all of `Radius`: OCCT blends no corner beneath where the hinge's and an
+  end's bends, at `Radius` and the thickness, meet the inner ridge at `Radius`, in one step or
+  in any order of steps (tried). So those bends are a little thicker than the sheet, T (1 /
+  cos(a / 2) - 1) more at their middle, a the bend's angle (8% at 45 deg); the form is carried
+  rigidly into the flat, which it does not change. Refused: a size of 0, ends meeting before the
+  lip's height, no room inside for the thickness, a rule's gap of 0, bends that cannot be rounded.
+  The built-in forms' sizes start from the rule's thickness, once, when the feature takes its
+  rule (`Diameter` 10 T, `Depth` 2 T, `Radius` T, `Length` 20 T, `Width` 6 T; ruled with M5 and
+  missed with the dimple), a size set before then kept. The form's panel has the louver's sizes,
+  each kind's greyed out for the others. `TestSheetMetalForm` (17; before, 12), its five new
+  cases `testLouver`, `testLouverTurned`, `testLouverSharp`, `testLouverRefused`,
+  `testSizesFromThickness`; `sheet-metal-panels.py` (+3; before, 79 and 1 failing).
+- **Built 2026-11-06, the bead:** Kind `Bead` of the form, a dimple drawn out along the form's X:
+  `Length` end to end where it leaves the face, `Diameter` across, `Depth`, `Radius`,
+  `FlankAngle` as the dimple's. Its outside and its hollow are ruled between two stadia the
+  thickness apart (`BRepOffsetAPI_ThruSections`, ruled: its sides planes, its ends half cones,
+  exact), and its four bends, each a chain of two lines and two arcs, are rounded concentric as
+  the dimple's: unlike the louver's, they meet no corner. The dimple's rounding finds its bends by
+  their distance from the straight part's line, which for a dimple, no straight part, is its
+  axis. Its region is a box. Refused: no longer than it is wide (a dimple), closing to a point
+  first, no room inside, a size of 0. A bead along a sketch's line or arc, not straight at a
+  point: built 2026-11-11, below. `TestSheetMetalForm` (20; before, 17), `testBead`,
+  `testBeadTurned`,
+  `testBeadRefused`; `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
+- **Built 2026-11-06, the lance:** Kind `Lance` of the form, a louver whose ends are cut, not
+  drawn: the sheet cut on three sides, the tab between bent up along the fourth, its hinge, a
+  plane ramp to its end `Depth` above the face; `Length` along the form's X, `Width` from the
+  hinge to its end, `Radius` its hinge's; `FlankAngle` unused, greyed out. The cuts are slits the
+  rule's gap wide, the side ones through the wall from behind where the hinge's bend leaves the
+  face to the slit before the tab's end, so the hinge's bend ends on their faces: it is rounded
+  concentric (`Radius` on the face, `Radius` and the thickness beneath), the corners that held
+  the louver to its compromise not there. Refused: a size of 0, a tab too shallow to clear the
+  sheet (`Depth` the thickness over the cosine of its slope or less), a rule's gap of 0.
+  `TestSheetMetalForm` (23; before, 20), `testLance`, `testLanceSharp`, `testLanceRefused`;
+  `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
+- **Built 2026-11-06, the drawn cutout and the flanged hole:** each a dimple open at its top,
+  its hollow run on past the top so the floor is cut away, only its rim's bends rounded
+  (concentric). Kind `DrawnCutout`: `Diameter` across and `Length` end to end where it leaves
+  the face, round when they are equal and drawn out along the form's X as a bead when longer,
+  `Depth`, `FlankAngle`, `Radius`. Kind `FlangedHole`: a hole `Diameter` across, its rim drawn up
+  into a straight collar (`FlankAngle` 90 deg, its outside the thickness wider) `Depth` above the
+  face; `Length`, `Width` and `FlankAngle` greyed out. Refused: a drawn cutout shorter than it is
+  wide or with no room at its top for the thickness, a collar no higher than its bend (`Depth` at
+  most `Radius`), a size of 0. Found with it: the dimple family's outside started at the other
+  skin, splitting it, and at 60 deg the ring left beside the hollow was too thin for `owner()`
+  to find a point in, so the flat refused it ("Face10 is in no wall or bend"); the dimple's, at
+  45 deg, was wide enough to pass. It starts inside the wall now, as the louver's. The solid is
+  the same; the bottom skin is one face. `TestSheetMetalForm` (27; before, 23),
+  `testDrawnCutout`, `testDrawnCutoutLong`, `testFlangedHole`, `testDrawnRefused`;
+  `sheet-metal-panels.py` (+2; before, an abort at the unknown kind).
+- **Built 2026-11-06, the emboss:** Kind `Emboss` of the form, a flat-topped rounded rectangle
+  `Length` by `Width` where it leaves the face, its corners `CornerRadius` round there (new, 3 T
+  at first), raised `Depth` at `FlankAngle`, `Radius` its bends'. It is the dimple about a
+  rectangle, not a point: the dimple, the bead and the emboss are one shape about a point, a
+  line and a rectangle (`Dimple::s`, `t`), their outsides and hollows ruled between rounded
+  rectangles, their bends found by the distance from that core and rounded concentric. Refused:
+  corners not round, or rounder than half its width; corners closing at its slant before its top
+  (`CornerRadius` at most `Depth / tan(FlankAngle)`); no room inside; a size of 0. An emboss of a
+  sketch's profile, not a rounded rectangle at a point: built 2026-11-11, below.
+  `TestSheetMetalForm` (30; before, 7 errors), `testEmboss`, `testEmbossSharp`,
+  `testEmbossRefused`, and `testSizesFromThickness` now with `CornerRadius`;
+  `sheet-metal-panels.py` (+1; before, an abort at the unknown kind).
+- **Built 2026-11-11, a bead and an emboss drawn in the sketch** (the third limit listed):
+  what is drawn in `Positions`, beside its points. Kind `Bead`: each open chain of lines and
+  arcs, running on into each other, is a bead's path -- `Diameter` across along it, round past
+  its ends, `Length` and `Angle` unused. Kind `Emboss`: each closed chain is an emboss's
+  profile, where it leaves the face; its corners of two lines are rounded by `CornerRadius`,
+  a whole circle is one too. Both lie as drawn.
+  - One shape still: the dimple about a chain of lines and arcs (`Dimple::chain`, `Piece`),
+    as about a point, a line or a rectangle. The outline a distance from the chain
+    (`outlineOf()`) is the chain's own pieces, each line moved and each arc's radius changed,
+    which a chain with no corner allows: every distance gives the same edges in the same
+    order, so the solid ruled between two of them is planes and part cones, exact, and its
+    bends are found and rounded as the others' (`roundDimple()`, the distance from the chain
+    signed for a profile). No 2D offset of the kernel's.
+  - The frame is at the middle of what the form covers, the sketch's X its X; the form's
+    region in the model is the box about it, so for a bent path or an L it holds more than
+    the form, which only a face lying wholly in the box and not the form's would tell.
+  - Refused, by name: a path with a corner, or closed; a profile's corner at an arc, or a
+    corner with no `CornerRadius`; a side shorter than its corners take; an arc that closes
+    at the slant before the top (a path's rounder than the bead is wide, a profile's corner
+    rounder than `Depth / tan(FlankAngle)` allows); sides meeting, or a path turning back on
+    itself; a form running off its face, by its rim's outline (a plate's wall has no end in
+    the model); an edge that is neither a line nor an arc.
+  - Oracles: a bead along a line is the bead at its middle; along an arc, or a line and an
+    arc, the straight bead as long (Pappus: its section is the same either side of the
+    path); an emboss from the rounded rectangle drawn, or the rectangle drawn sharp with
+    `CornerRadius`, is the built-in one. `TestSheetMetalForm` 44 (before, 37: the seven that
+    make one; the two that refuse passed for want of the kind).
+- **Built 2026-11-06, the gusset, the last of the built-in forms** (its four points as recommended
+  and taken 2026-11-06): Kind `Gusset`, the only form across a bend. `Face` is a bend's; at each
+  point of `Positions`, its place along the bend's axis, a rib is pressed in from the bend's
+  outside, its face a plane across the inside corner `Length` along each wall from their virtual
+  sharp, `Width` wide there, its ends sloping back at `FlankAngle`, the thickness all through it,
+  open behind; `Depth`, `Angle` and `Reversed` greyed out. It is owned by the bend (`Form::wall` the
+  bend's index), its region a box in a frame at the sharp, Z into the corner. Its outside lies on
+  the walls' inner skins, not inside them as the louver's: the walls' material is on the skins'
+  other side, so the join splits no skin, and pushed in, the outside's corner stood out past the
+  bend's outer skin. Where the walls' virtual sharp is behind the bend's outer skin (R over about
+  2.4 T at 90 deg, or near 180 deg) the outside is clipped to it, what of the bend's corner sector
+  lies past R + T from its axis taken away: its corner stood out past the bend there, and its ends
+  left slivers behind it that would not round (`testGussetSharpBehindTheBend`, found trying angles
+  and radii). Rounded concentric in two steps, its outside's bends first (where its face and ends
+  leave the walls and the bend behind, and the ridges in front) of `Radius` and the thickness, then
+  its inside's of `Radius`; both at once, or the inside's first, OCCT does not round them (tried).
+  In the flat no wall carries it, and a bend's skins it crosses are notched, not holed, so the
+  louver's closing over does not serve: each gusset's box is put back as the bend and its walls
+  were, plain (`plainAtGussets()` in `SheetMetal/Flat.cpp`: the box cut away, the bend's and the
+  walls' sections run through it and fused in, the faces the box parted made one again, every edge
+  the part had kept so its coplanar ends stay apart), the faces named after a folded face each was
+  made of (the history), and its outline is its footprint on the skins it rises from, mapped through
+  each one's wall's placement or the bend's exact unrolling; its centre mark a cross on the bend's
+  inner skin. Formed shows its outline too. Anything else cut in its box is lost from the flat. The
+  Form command makes a gusset of a bend's (curved) face. Refused: a face no bend's, a bend of 0 or
+  180 deg, `Length` no more than R tan(A / 2) (not reaching past the bend), no room behind its face,
+  past a wall's end or off the bend's length, a size of 0. Found with it, the model's restore
+  refused a form on anything but a wall, so a saved gusset lost its forms (`PropertySheetModel`; a
+  wall's or a bend's now). `TestSheetMetalForm` (35; before, 30), `testGusset`,
+  `testGussetSharpBehindTheBend`, `testGussetSaveRestore`, `testGussetSharp`, `testGussetRefused`;
+  `sheet-metal-commands.py` (+1; before, a bend's face made a dimple, refused),
+  `sheet-metal-panels.py` (+1; before, an abort).
+- **Built 2026-11-06, M5's third item, tab and slot** (its design as recommended and taken
+  2026-11-06): two features, the tabbed part and the slotted one being two bodies, and a feature
+  changing only its own. Locating Tabs, `PartDesign::SheetMetalLocatingTabs`, in the tabbed part's
+  body: `Face` a wall's end face across its thickness, `Count` tabs (1 at least) `Width` wide along
+  it and `Length` out of it, the wall's thickness through, spread between `Margin` in from either
+  end, their middles evenly apart, one in the middle; they are the wall's (in its slab), lying flat
+  with it; `TabShape` holds them alone. Slots, `PartDesign::SheetMetalSlots`, in the slotted part's
+  body: `Tabs` a Locating Tabs in any body (a global link), its tabs moved from their body's
+  placement into this one's, each grown by `Clearance` all round (an offset, the Intersection join,
+  square), cut through the feature it builds on; a hidden `TabsBody` link to the tabs' body makes
+  the slots follow it moved, as they follow the tabs' count and sizes. The sizes start from the
+  rule's thickness, as a form's (`Width` 6 T, `Length` T, `Margin` 3 T). Refused: tabs on a skin or
+  anything but a wall's end, more than fit between the margins, a size of 0; slots of no tabs, or of
+  tabs that miss the part (nothing cut). Both walls of one sheet (a ripped corner closed by tabs) is
+  the same Slots later in that body; not tested yet. The commands, on the tool bar: an end face of
+  the tip selected makes Locating Tabs, the tabs selected Slots in the active body; their panels
+  have their sizes. `TestSheetMetalTabSlot` (6; before, 0), `sheet-metal-commands.py` (107, +4: the
+  tool bar twice, each command), `sheet-metal-panels.py` (94, +4), the browser's tool bar lists them
+  (`serve-toolbar-browser.py` 21, `serve-sheet-metal.py` 21).
+- **Built 2026-11-06, M5's fourth item, the rolled wall, its first step** (as recommended and taken
+  2026-11-06): an arc in a base wall's open profile, tangent to a line either side and turning less
+  than 180 deg, is a bend of its own radius, a cylinder about the arc's axis, unrolled exactly as
+  any bend; no element of a new kind. `SheetMetal::profilePoints()` reads the profile's lines and
+  arcs as corners, each arc at its lines' virtual sharp (R tan(sweep / 2) along its way in from its
+  start) with its radius as drawn, and `ProfileBuilder::arcs` carries that radius to the corner: the
+  bend's inner radius is the drawn one less the material's side of the sketch's line (the arc's
+  radius on the inner skin, Outside; the thickness less on the outer, Inside; half of it, Middle;
+  which skin by the way the arc turns), so the walls' straight parts are as drawn. A corner of two
+  lines keeps the radius (the rule's, or the wall's own `BendRadius`); an arc keeps its own.
+  Refused, saying which arc: one at either end of the chain, two with no line between, one not
+  tangent, one of 180 deg or more (split it in two), one too tight for the thickness on its side; a
+  tube's profile is still lines only. Not yet: arcs in a contour flange's chain, and the revolved,
+  conical wall, which waits for the conical element of the lofted flange. `TestSheetMetalBaseWall`
+  (19; before, 16): `testRolledArc`, `testRolledArcInside`, `testRolledAndSharp`,
+  `testRolledRefused`.
+- **Built 2026-11-07, M5's last item, the lofted flange, its first step, round to round** (the
+  three steps as recommended and taken 2026-11-07: round to round, lines to lines, mixed):
+  `PartDesign::SheetMetalLoftedFlange`, a `Profile` and a `Section` sketch, each one circle or
+  arc, on parallel planes about one axis, make a cone frustum, a cylinder where they are the same
+  size. It is one element of a new kind, `Kind::Cone`, a `SheetMetal::ConeBend` (`Fold.h`): its
+  frame on the axis, Z the way the cone opens (from the narrow end to the wide), X where the sheet
+  starts; the inner skin, the one facing the axis, through the circle of its radius in the frame's
+  XY plane at its half angle; the outer a thickness out, square to it; the sheet turning through
+  its angle. Its ends are cut square to the sheet (cones of their own), so they lie flat square to
+  the blank. `MaterialSide` puts the sketches on the inner skin (Outside, the default), the outer
+  (Inside) or the middle. Two arcs turn through the same angle; two circles leave a seam the
+  rule's `Gap` wide on the narrow circle, about its X. K is the rule's at the skin's curve across
+  the cone's line halfway along, `(r / cos(semiAngle))`, and the sweep.
+  - **Its development is exact:** a point at angle a from the start, t along the cone's line and
+    d under the inner skin goes to the plane touching the inner skin where the sheet starts
+    (`startFrame()`), the neutral cone (K T under the inner skin) unrolled onto it about its apex:
+    a sin(semiAngle) about the apex, at its distance from it, d under the plane -- every line
+    across the sheet stays square to it, the neutral surface keeps its area. A cylinder is the
+    limit, a rectangle. `Mapper::onCone()` lays a circle about the axis flat as the arc it is
+    exactly (a line for a cylinder); the rest go by `sampled()`.
+  - **A sheet of no wall lies on its cone:** the flat's root may be a cone joining no wall (the
+    flat object picks the first wall, else the first cone); `Model::placement()` refuses only a
+    bend as root.
+  - The model in Python: `Kind` `Cone`, `Radius`, `SemiAngle`, `Angle`, `KFactor`, `Center`,
+    `Axis`, `XDirection`; in the file a `<Cone>` element, read back as written.
+  - Its command, Lofted Flange, takes two sketches picked, the first the profile; its panel the
+    material side; it holds both sketches in the tree.
+  - Refused, saying why: an outline not one circle or arc (lines are the second step), the two
+    not on parallel planes, not about one axis, on one plane, one a circle and the other an arc,
+    arcs over different turns, a circle with no `Gap` for its seam, a narrow end too small for the
+    thickness on its side.
+  - Not yet: a cutout across the cone (`Refold` knows the cylinder's map only), a flange on its
+    seam's edges. A hole a pocket cuts through it at a slant does not lie flat ("does not lie
+    flat as a plane"), as through a cylindrical bend: neither is new, the face across the sheet
+    not square to it is neither upright nor ruled.
+  - `TestSheetMetalLoftedFlange` (10; before, 0 of 10): the frustum on each side, its flat at K
+    0.5 and 0.3 (its arcs about the apex, its sides the slant length, its turn the cone's times
+    sin(semiAngle), its volume the neutral surface's), a cylinder, two arcs over a half turn, the
+    seam's gap, the refusals, save and restore. `sheet-metal-commands.py` (111, +4) checks the
+    command, its place on the tool bar, one sketch making nothing and the sketches held;
+    `sheet-metal-panels.py` (96, +2) its panel.
+- **Built 2026-11-07, the lofted flange's second step, lines to lines, its first half: lines
+  that run each other's way** (the design recommended and taken 2026-11-07: a bend of the rule's
+  radius at each fold, the lines matched in order, the rims square to the sheet, a closed
+  outline's seam across the middle of the profile's first line). `Profile` and `Section` each a
+  chain of lines, as many in each, on parallel planes: each line of the profile with the
+  section's line in its place -- for closed chains, both turned counterclockwise about the axis,
+  the one running nearest the profile's first line's way first and on round from there; for open
+  ones, from the end that does that -- parallel to it, so the two span a plane, a facet. A
+  corner going on straight is no corner (`chainOf()` drops it).
+  - **Each facet is a wall,** its outline on its inner skin (the side facing the axis -- an open
+    chain's, away from where it turns, or off its right for one line) through the sheet: its
+    rims the sketched lines less the material's side (`MaterialSide` as for round), its ends
+    where its bends start, a prism of it the solid, so its rims are square to it. **Each corner a
+    `CylBend`,** of the rule's radius or `BendRadius` (`UseRuleRadius` off, as the base wall
+    has), tangent to the two facets' inner skins where the sheet turns in (convex) and their
+    outer ones where it turns out (an L's inner corner), its axis along the fold.
+  - **Each bend is made from its flat:** its strip in its own flat (`CylBend::toFlat()`'s frame)
+    from where facet before's rims meet its start to where facet after's meet its end, straight
+    between, taken onto its cylinders by `bendSolid()` -- its rims helices, square to the sheet,
+    which lie flat as straight lines exactly (`Mapper::onCylinder()` maps the pcurve). The flat
+    is straight lines all round, and keeps the folded volume at K 0.5.
+    `bendSolid()`'s curves are built to 1e-7 now (`BRepLib::BuildCurves3d`, 1e-5 by default),
+    which took the hopper's flat and folded volumes from 3.7e-5 apart to within 5e-6; the suite
+    is unmoved (942 both ways).
+  - **The seam:** a closed outline's first facet in two, the first wall its half after the seam,
+    the last its half before, a gap the rule's `Gap` wide square to the line from the middle of
+    the profile's first line to the middle of the section's; each half has a limit at its side
+    of it (they lie on one plane). An open chain needs none.
+  - Refused, saying why: lines in one sketch and round in the other ("the next step"), a line
+    and an arc in one sketch, chains of different counts, one closed and the other open, a line
+    with none running its way (the triangulated half, next), a line too short for its bends, a
+    closed outline with no `Gap`.
+  - `TestSheetMetalLoftedFlange` (23, +13; before, 1 of 13 -- the refusals, which the round step
+    already refused): a square duct (its volume and its flat's length exact, at K 0.5 and 0.3,
+    the seam's gap, Inside), the bends at their own radius and one too large for the lines, a
+    square to a rectangle on each side (the sketched line on the skin asked, the material where
+    it should be, the rim square to the sheet), its flat, the section drawn from another line or
+    the other way round, an L to a smaller L, an open U, the refusals. `sheet-metal-panels.py`
+    (97, +1) the panel's radius.
+- **Built 2026-11-07, the second step's other half: lines that do not run each other's way**
+  (as recommended and taken 2026-11-07: two triangles either side of the shorter diagonal, a
+  shallow bend along it). The builder now works on **rulings**, each from a corner of the profile
+  to one of the section: a pair of lines running one way gives the next ruling at both their
+  ends, a facet; a pair that does not, first its shorter diagonal, then both ends, two
+  triangles. Each face between two rulings is a wall, a triangle's outline its face's half-planes
+  on its inner skin (its sketched side, or the line through its corner the other side's way;
+  where it starts; where it ends) cut from a square about it; each ruling between two walls a
+  bend, as before. The faces round turn together through the whole turn of the outline (a square
+  to one turned 30 deg: corners of 58.2 deg, diagonals of 33.2).
+  - **Where folds meet at a corner of an outline** -- a triangle's corner, between a corner's
+    bend and a diagonal's, or the seam's -- their bends cannot both reach it: the triangle is cut
+    where its two bends' lines cross, and each bend's strip short of the other wall's side. A
+    point s into the strip folds the chord r sin(s / r) across, not s, so the cut's slope across
+    the strip is taken at the least that can be where that side leans back over the strip (R
+    sin(angle) / angle) and the most where it leans away (R + T): straight in the flat, so the
+    flat stays exact, and a small notch in the rim there (`clipBy()`). Without it a corner's bend
+    ran 0.17 past the seam's plane, through the wall beyond (the pieces' volumes, summed and
+    fused, apart by 7.6, then by 5e-6).
+  - **A bend's rims** (`Element::rims`, new): a bend's tube sector runs on along its axis, and at
+    such a corner the next bend's faces lie in it, so the flat laid them through the wrong bend
+    ("does not unroll into a closed outline"). Its strip's edges but its start and end, as planes
+    through its inner skin unrolled (`rimPoint()`: the angle times the radius, so a K given
+    later leaves them), bound what `Model::contains()` gives it. In Python `Rims`, in the file a
+    `rims` attribute, only where there are any.
+  - **The seam** of a closed chain whose first lines do not run one way goes along their
+    diagonal, cut where the two triangles' skins meet as a bend of no radius would, the gap
+    either side, each square to its own: cut where each skin meets the sketched line, Inside, the
+    two overlapped by 7.2.
+  - Lines a right angle or more apart are refused.
+  - A sweep, each valid, one solid, no two pieces overlapping, the flat within 1e-6 of the
+    folded volume: a square to one turned 5, 15, 30 and 40 deg on each side, at radius 3, a
+    hexagon turned 20, a rectangle to one turned, a tall one, one off centre.
+  - `TestSheetMetalLoftedFlange` (28, +5; before, 0 of 5): the turned square Outside and Inside
+    (its sketches on the sheet, its flat straight all round and its volume), a square to a
+    trapezoid, two of its lines running one way, an open line to one across it, the rims back
+    from the file. Straight is now told by the points (a cut across the sheet at a notch is a
+    B-spline of degree 1).
+- **Built 2026-11-07, the third step, mixed: round to lines** (as recommended and taken
+  2026-11-07: faceted with a count where not truly conical). One outline a circle or an arc, the
+  other a chain of lines: the round is cut into `Segments` chords all round (24 by default, 3 to
+  1000; an arc its share of them, at least one), corners on it from its X (a circle) or its
+  start (an arc), and lofted to the lines as lines are, by rulings: from the lines' first corner
+  and the round's nearest to it, each next ruling the shorter of the two, a step along both where
+  a chord runs a line's way (a facet). A square to a round so has a fan of six triangles from
+  each corner to its quarter of the round and a triangle on each line, a bend of the rule's
+  radius at every fold, the round's rim the chords within their sagitta of it. The seam: across
+  the middle of the first line, its triangle in two on one plane (its apex on the round). Two
+  open ones: from the round's end nearer the lines' start, no seam.
+  - **Each wall stops at its outline** (a limit square to it at every edge, for every lofted
+    wall): at a fan's corner the next triangles' faces lie in a wall's slab on its side of its
+    own bends, and the flat laid them through it.
+  - **A sheet that runs into itself is refused**: the pieces' volumes summed against the fused
+    solid's, apart by more than 1e-6 of it. A thick sheet cannot come to the point a corner has
+    on the material's side: a square to a round with the sheet inside the square (Inside, or
+    Middle) overlaps itself there, by 0.43 a corner Inside, 0.038 Middle (T 1), within 2.7 of
+    the corner -- "runs into itself where its folds meet at a corner: put the material on the
+    other side, or round the corner". Ruled 2026-11-08: a relief there instead (the entry
+    below); the refusal stays for a sheet the relief does not clear. No lines-to-lines case of
+    the sweeps meets it.
+  - A sweep, Outside, each valid, the flat within 2e-6 of the folded volume: a square to a round
+    at 8, 24 and 48 segments, at radius 3, low, off centre, wider than the square; a hexagon,
+    a rectangle, a round to a square.
+  - `TestSheetMetalLoftedFlange` (33, +5; before, 0 of 5): a square to a round (its counts, the
+    square on the sheet, the round's corners on it but where a line's triangle meets it, the
+    chords within their sagitta, the flat), fewer segments, a round to a square, a half round to
+    two lines, Inside refused and Outside made. Round to lines leaves the round step's refusals
+    ("not round"); closed to open is refused for lines instead.
+- **Built 2026-11-08, the lofted flange's corner relief** (recommended, and taken 2026-11-08,
+  in place of refusing a sheet that runs into itself). Where folds meet at a corner on the side
+  the sheet turns toward and its skin there is off the sketch (a square to a round, the sheet
+  inside the square or about it), the walls that run to a point there cross their sides short of
+  it. Each wall about the corner is cut where the last of those comes to its full width, square
+  to the sheet: one running to the point by a line its base's way, one along a line by a line
+  square to that line; the bends between follow their walls, so the flat stays exact, a notch at
+  each corner. The same at a round's point where a line's triangle comes to it, which a small
+  radius needs (0.3, Inside).
+  - **Only where it is needed:** the loft is built plain first, and with the reliefs only when
+    its pieces overlap. Nothing whose flat closed before changes: every test and sweep case that
+    passed comes out as it was.
+  - **The bar is now 1e-9 of the pieces' volume** (was 1e-6): 8 segments Middle overlaps by
+    0.005 in 9396 only, under the old bar, and its flat did not close. A sheet that does not
+    overlap comes out within 1e-11 of its pieces' volume (the sweeps' worst 1.6e-7 in 9676).
+  - The notch, a square to a round (60 to 20, 50 up, T 1, radius 1): the sheet clear of the
+    corner by 3.2 Inside, 2.4 Middle (2.8 and 2.1 at 8 segments, 6.5 and 5.7 at radius 3).
+  - A sweep, Inside and Middle, each valid and one solid, the flat within 1.8e-6 of the folded
+    volume: 8, 12, 24, 48 segments, radius 0.3 and 3, low, off centre, a hexagon, a triangle, a
+    rectangle, a round to a square, a round wider than the square. The lines-to-lines sweep
+    (squares turned 5 to 40 deg on all three sides, a hexagon, rectangles, tall, off centre)
+    and the mixed Outside one unchanged: none takes a relief.
+  - `TestSheetMetalLoftedFlange` (38, +6, one rewritten; before, 32 of 38): a square to a round
+    Inside and Middle, a round to a square Inside, 8 segments Inside and Middle, radius 0.3
+    Inside -- each exact, the corners clear, the square's lines on the sheet a tenth from them.
+- **Audited 2026-11-10, the element names** (asked 2026-11-10: "pay attention to toponaming,
+  e.g. check if tree item highlight of the feature only highlight the subshape of the feature";
+  the fixes approved the same day, with no element map version bumped: nothing is released).
+  Asked of every feature in every sheet metal test's document, 995 of them:
+  - **The tree highlight was the whole solid for most features.** A feature's highlight is
+    `Feature::getGeneratedIndices()`, the faces whose names say the feature made them. Lit, of
+    the faces each kind made: flange, contour flange, hem, join, bend cuts, extend wall, rip,
+    fold, jog, locating tabs 0 (of 4269 for the flange), corner closure 5%, form 63%, tab 65%,
+    convert 80% with 18 of the part before it; cutout and slots all, as a pocket. With none lit
+    the view lights everything, and a suppressed feature's ghost is empty. Two causes:
+    - *the test.* The default asks for a name ending in a generated step; these features build
+      their pieces and join them, so theirs end in the join's. Their faces did carry the
+      feature's tag. They now take the pad's test, a name tracing to the feature
+      (`Feature::isElementTraced()`, which `ProfileBased` used alone). A form adds the faces its
+      rounding made of an edge; a convert, which remakes the part, lights all of it.
+    - *no owner.* A piece made with tag 0 and cut or joined as it is gives what comes of it no
+      feature to trace to: the cuts of a flange, a hem, a join, a rip, a corner closure and an
+      extend wall (its wall cut back, its reliefs), a fold's and a jog's bends, the form's solids,
+      the tabs. Each is now the feature's before the boolean (`SheetMetal::toolOf()`, or its
+      `Tag`). A fold and a jog mark their bends and the jog's run only: the side they carry keeps
+      the wall's names, so a reference to a face of it holds, and it is not lit.
+  - **Elements with no name:** a shell converted (all of it: sewn of bare faces), the locating
+    tabs (bare prisms), a form's solids, a jog's run, a lofted flange's bends, and a corner of
+    every section (`namedFace()` named its face and edges only), which left a vertex of each
+    profile wall and the ends of each line of the flat object unnamed. `SheetMetal::nameRest()`
+    names what has none, by the piece's name and the element's place in it; no name was twice.
+  - **A bend added before a feature renamed every face the feature made.** The sheet numbers its
+    walls and bends on from those it has (`Bend2` is `Bend1` once the flange before it is
+    suppressed -- why the overrides' key, `BendKFactors`, is no name), and the pieces' faces
+    were named by that number. Measured on a plate with four flanges in a row, the first clear of
+    the others and suppressed: 41, 73 and 105 elements of the three after it renamed, of 41, 73
+    and 105 that stayed where they were; their references held because a name not found is
+    looked for by
+    where its element lay, which a change of its place at the same time would defeat. The
+    pieces are now named by the feature's own count (`SheetMetal::ownName()`: `Wall4` of a
+    feature the sheet had two walls before is `Wall2`): 0 renamed, and the references found by
+    name. The sheet's own names -- the bend table's, the flat's lines `Bend2`, `Bend2Part2` --
+    were still by its count; ruled and built 2026-11-11, the next item.
+  - **The sheet's own names hold (ruled 2026-11-11: "do not rename bend names, use a
+    monotonically growing index").** A wall or a bend takes the next number of its body the
+    first time its feature makes it, and keeps it: every sheet metal feature has `WallNumbers`
+    and `BendNumbers` (hidden, saved), the number of each wall and bend it makes in the order it
+    makes them. A feature builds as before, numbering on from the highest number the sheet
+    before it has (`Model::numbers()`, where it counted the elements), and
+    `SheetMetalExtension::storeModel()` -- every feature's one way to store its model now --
+    gives its own walls and bends the numbers it keeps, new ones where it has none: one above
+    every number of the sheet before it and of every sheet metal feature of the body,
+    suppressed or not. So a flange suppressed, put in or deleted before another renames
+    nothing of the other's, in the model, the bend table or on the flat's lines; a flange put
+    in between two takes `Bend3` where they are `Bend1` and `Bend2`; one made while the first
+    is suppressed takes `Bend3` too, and the first is `Bend1` when it is back. The numbers of a
+    sheet are then not 1 to its count, and not in the order of the tree.
+    - A number went with the wall's or bend's place among its feature's own, as its K did
+      (`BendKFactors`): a flange on two edges given a third first numbered the three by their
+      new order. **By the edge since 2026-11-11** (the first weak spot told): a flange's and a
+      hem's walls and bends go with the edge they are on -- `WallKeys`, `BendKeys` (hidden,
+      saved), the edge's reference and the place among that edge's own, beside each number
+      (`SheetMetalExtension::edgeKeys()`, from where each edge's elements start in the model;
+      a contour flange's several per edge the same way). The edges in another order, one
+      taken out or one put in first rename none of the others, and an edge put back has the
+      numbers it had. A wall or bend with no key (the other features', by the order made as
+      before), or whose key is not found because the edge's reference changed, takes the
+      numbers left over in order. And a bend's own K is keyed by the bend's number, 3 for
+      `Bend3`, no longer by its place, so it stays on its bend. The pieces' faces are still
+      named by the feature's own count, in the order made. `TestSheetMetalNames` 29 (before,
+      24): a flange's and a hem's edges reordered, one removed and put back, one added first,
+      the K on its bend.
+    - A feature holding a number the sheet before it has too (a copy of that feature) takes a
+      new one: no name is twice in a sheet.
+    - **No number is given twice (ruled 2026-11-11: "add a counter ... so no reuse happen",
+      as for object names, the transaction log taking a deletion back out of order).** A new
+      number is the next of the body's count of walls or of bends, and the count is the
+      file's, not the document's state: `Document::nextObjectCount(body, kind, floor)`, what
+      the file keeps of each object's counts by kind (TransactionLogJournal 39.5, built for
+      this beside a sketch's last geometry id; a table of its own in the log's store, with no
+      new layout version, nothing being released). It never goes down: not with an undo, a
+      feature deleted, a save and reopen, or another branch. So the last flange deleted and
+      another made, that one is `Bend3` where the first was `Bend2`; and the deletion taken
+      back from the log with the other left (`undoTransactionFromLog`) brings the first back
+      as `Bend2`, beside `Bend3`. What follows: a flange's panel cancelled has used a number,
+      as an object made and undone has used a name. Its floor is the highest number a feature
+      of the body holds, so a body whose count the file does not know (pasted from another
+      file, saved before this, a file saved with no history) starts above what it has.
+    - A convert numbers what it recognises in the order it finds them, kept the same way; a
+      part whose faces come in another order is numbered anew by place. A file saved before has
+      no numbers: each feature takes them as it next recomputes.
+    - The pieces' faces stay named by the feature's own count (`ownName()`), as above.
+    - **Forms too (2026-11-11):** `Form3` was the sheet's third form, so a form feature
+      suppressed before another renamed the other's forms, and their outlines and marks on
+      the flat. `FormNumbers`, the body's third count, the same way. Found with it by the
+      names check, which had only seen one form feature in a sheet: a second one lit the
+      first's rounded faces -- its highlight took any face a rounding made, and an earlier
+      form's passes through under the name it had. Now those tracing to the feature, and
+      those whose name's last step is the making (a rounding of an edge of the part it
+      builds on traces to that part). `TestSheetMetalForm.testNamesHold` (before, failing on
+      both counts).
+    - Tests: `TestSheetMetalNames`, 14 more (before, 0 of the 14): the model's names of a
+      flange, a flange on a flange, a hem, a contour flange, a fold and a jog with the flange
+      before them suppressed and back; the bend table's row; the flat's line; a bend's K asked
+      by its name; a flange made while the one before is suppressed, one put in before
+      another, the one before deleted, a number held twice, save and reopen. And 4 for the
+      count (before, 0 of the 4): the last flange deleted and another made; made, undone and
+      made again; deleted, saved, reopened and another made; deleted, another made and the
+      deletion taken back out of order.
+      `TestSheetMetalBendOverride.testKeyHoldsWhenEarlierBendsAreAdded` said the rename
+      (`Bend2` to `Bend3`); it now says `Bend2` stays and the new bend is `Bend3`.
+      A gtest of the numbers a model holds (`SheetMetalModel.numbers`).
+  - **Held as they were:** a recompute, a flange's length and angle, the wall wider and deeper,
+    save and reopen: no element renamed. A feature suppressed, or put in, before one that uses
+    an edge it trims loses that edge (`?Edge12`); a chamfer on an edge a pocket trims does the
+    same, the core's.
+  - **That lost edge, found again when the panel opens (ruled 2026-11-11: as a dress-up
+    does).** The core takes a reference whose name the shape has no more by a search for the
+    same geometry, alone: safe to do unasked, the shape not having changed. An edge trimmed
+    is another shape, so the reference is marked missing and the feature is in error, a
+    dress-up's and a sheet metal feature's alike. A dress-up's panel then, when it is opened
+    to edit, looks the name up by its history (`Part::Feature::getRelatedElements()`, in
+    `PartDesignGui::populateGeometryReferences()`) and takes what answers, in the panel's
+    transaction, with a warning in the log and nothing else said. The sheet metal panel does
+    the same now (`TaskSheetMetalParameters::findAgain()`), where one element of the list's
+    kind answers that no other reference has; several, or none, are left for the user to
+    pick. Measured: the flange on the plate's near edge, the flange before it suppressed, or
+    one put in before it that trims the edge's other end -- one answer each time, the right
+    edge.
+    - **Shown, not silent** (asked with the ruling): what was found is marked in its list,
+      amber, its tip saying what it was; lit in the view, selected on the feature built on;
+      and said in a line of the panel ("Found again by name: Edge3 is now Edge4 ..."). The
+      feature is recomputed with it, so the part shows what taking it gives. OK keeps it;
+      Cancel leaves the reference as it was, lost.
+    - **The dress-ups' panels the same (ruled 2026-11-11: "yes dress up do the same").**
+      `populateGeometryReferences()` took every element that answered, an edge cut in two as
+      its two halves, and said nothing. It takes one answer now, and tells the panel what it
+      took (`TaskDressUpParameters::refound`): the row amber, its tip saying what it was
+      before its own (`withRefound()`, which a fillet's and a chamfer's row tips go through),
+      the row selected and so its edge in the view, and the panel's message line saying it
+      under any error. Where two answer -- a pocket put in before a fillet, notching its
+      edge's middle -- the row stays missing for the user to pick. `dressup-refound-edge.py`,
+      new, 9 (before, 5: the three signs missing, and both halves taken).
+    - **An edge cut in two is its two halves again, and the other panels show what they take
+      (asked 2026-11-11: "restore split edge. and do the same auto fix visual for other
+      features").** One rule by what the reference holds (`PartDesignGui::refoundAnswers()`):
+      a list takes every element that answers and no other reference has, an edge or a face a
+      feature cut in two as its two parts; a reference that holds one element takes the answer
+      only where there is one, and stays missing where two answer. What is taken is a
+      `RefoundReference` (the object, what the element was, what it is now), and one set of
+      helpers in `Gui/Utils.cpp` shows it wherever it is listed: `refoundColor()` (the amber),
+      `refoundTip()`, `refoundNote()` (the panel's line, "Edge13 is now Edge13, Edge17" for
+      one that became two) and `selectRefound()` (selected beside the feature in edit, by the
+      path from what holds it). Who uses them:
+      - a dress-up's list (`populateGeometryReferences()`): all that answer, each row marked;
+      - a draft's neutral plane and pull direction (`populateRefElement()`): one element each,
+        the label amber with the tip, said and selected with the edges; the first of several
+        was taken before, silently;
+      - the sketch-based panels' references -- the profile's elements, a pad's or a pocket's
+        up-to faces, a revolution's up-to face, the start reference, a sweep's spine and
+        auxiliary spine (`LinkSubWidget`), a loft's and a sweep's sections
+        (`LinkSubListWidget`): the cell or the item amber, a line under the table or the list.
+        A table that holds one element (a revolution's up-to face, a start reference) is the
+        single rule, the rest the list's. Before, the first
+        element that answered was taken whatever else did, and the list widget looked for the
+        first lost element only, adding what it found past the lost one;
+      - a pattern's originals (`TaskTransformedParameters`, `OriginalSubs`): all that answer,
+        said in the panel's message line and selected.
+      The sheet metal panel keeps its one answer (`findAgain()`): a flange's edge cut in two
+      is two flanges, which is the user's to say.
+      `pd-refound-references.py`, new, 19 (before, 10): a pad up to a face, a draft's plane, a
+      sweep's spine, a spine cut in two (both halves), a pad's up-to face cut in two (both
+      parts), a draft's plane cut in two (none taken). `dressup-refound-edge.py` 11 (before,
+      8). Both frozen and not. The pattern's panel and the list widget are not under a GUI
+      check yet.
+    - **A primitive's element was never found again (fixed 2026-11-11, found taking the
+      manual's pictures).** A fillet on a box's edge, a pocket put in before it: nothing
+      answered, in any panel, where the same edge of a pad was found. A primitive's element
+      is named by its role alone (`RearT`, docs/PrimitiveNames.md), which tells no kind, and
+      `Part::Feature::getRelatedElements()` gave up on a name whose kind it could not read.
+      It looks through every kind for such a name now, each element's history followed as
+      its own kind's. `PrimitiveNamesBodyTest` +5 (before, 0 of the 5); PrimitiveNames.md
+      sec 6.
+    - `sheet-metal-panels.py` 103 (before, 101 and one failing, the script stopping there).
+  - Tests: `SheetMetalNames.py`, asked of every sheet metal test's document as it closes (28
+    files' `tearDown`): each feature's highlight is the faces off the skin it built on, all and
+    no other, and every element is named (before, 375 of 446 tests failing it); and
+    `TestSheetMetalNames` (6; before, 0 of 6): a flange, a flange on a flange, a hem, a contour
+    flange, a fold and a jog keep their faces' names with a flange before them suppressed.
+    PartDesign 987 OK frozen and not.
 - The undo bug found with the wrap frame is fixed (Part, `PropertyPartShape::setValue()`): the
   value an object had not read since the open was dropped before the change was announced, so
   the transaction's copy of what was there was the null shape. Announced first, whoever looks at
@@ -1705,9 +2304,67 @@ stored flat and this option do what it was for.
   to where the bend starts.
 - Its width is the length the two edges share along the bend. Where a wall runs past that, the
   rest stays as it was, with the bend relief beside the bend where the wall is trimmed under it.
-- Refused: a trim that cuts off something the wall carries, or takes all of the wall; parallel
-  walls (two bends between them, as Inventor offers, maybe later: a jog steps a wall); walls
+- Refused: a trim that cuts off something the wall carries, or takes all of the wall; walls
   already joined, as a loop does not lie flat without a rip; two edges sharing no length.
+  (Parallel walls were refused: built 2026-11-11, below.)
+- **Built 2026-11-11, parallel walls** (the fourth limit listed; Inventor's double bend at 90
+  deg, its fixed edge the first picked): two bends of 90 deg at the join's radius and a run
+  between them, a wall of the sheet, across from the one wall to the other. Still nothing is
+  set but the two edges, and their order now tells:
+  - the first edge's wall stays as it is, its bend starting at its end; the second wall is
+    extended or trimmed to where its bend starts (with the bend relief where it is trimmed and
+    runs on, as before);
+  - ends facing each other make an S, the second wall starting twice the radius and a
+    thickness past the first's end; ends the same way make a U, the second wall brought to
+    where the first ends;
+  - the walls' facing skins are the bends' inner ones. They are twice the radius apart at
+    least; at just that, ends the same way, there is no run and the join is the one bend of a
+    half turn. Nearer, and walls in one plane, are refused by name; facing ends just twice the
+    radius apart too, as the two bends would meet with no wall between them.
+  - Not built: the double bend's other ways of Inventor's -- both edges kept and the bends at
+    whatever angle joins them, 45 deg, and a full radius for walls further apart.
+  - `TestSheetMetalJoin` 19 (before, 11): facing, either skin, the other order, trimmed,
+    stacked, stacked and shorter, the half turn, narrower; each with its flat's area the
+    part's volume at K 0.5.
+- **Built 2026-11-11, risk 2: what is cut in a bend otherwise than square to the sheet** (the
+  fifth limit listed). A hole drilled straight through a bend, a countersink in one, a pocket
+  or a hole across the line where a bend starts did not lie flat ("does not lie flat as a
+  plane", "The flat does not close"): only a skin and a cut square to the sheet unroll
+  exactly. Measured before on a flange: a plain and a countersunk hole in the bend, a hole, a
+  countersink, a pocket and a slanted pocket across its line -- none of the six laid out.
+  - **A face across a bend's line is laid out in parts** (`partsOf()`): cut at the half planes
+    from each bend's axis through where the bend starts and where it ends, each part then by
+    its own wall or bend. Found by where the face's edges lie strictly in a bend of its wall
+    (a wall's slab runs on through its bends in the model, and its end's own faces touch the
+    bends' planes), or leave the bend that owns it. A round wall, a cylinder's or a cone's,
+    is cut along its own lines too, every 30 deg, so that no part of it in a bend turns far
+    from a plane. Only the face is cut, not the solid: the flat is sewn of the faces laid out.
+  - **A hole's wall wholly in a bend**, closed round on itself, has no outline that unrolls
+    (`Mapper::around()`): it is laid out in bands, four across the thickness, each ruled
+    between two curves round the hole through its points unrolled, taken along the lines of
+    its surface from the one rim to the other and broken where a rim's edges meet. The rims'
+    points are those of the rim's own curve, which the skin beside it shares.
+  - **A part of a face in a bend that is no plane and not square across the sheet** is a
+    surface filled to its outline unrolled, as a miter's slant with a relief was already, now
+    through points of the face too, and past its seam where the part has one in it.
+  - The exact ways are tried first, as before: a plane, a wall square across the sheet. A
+    miter's slant, ruled between its edges or filled to them, is as it was and is not listed.
+  - **Listed:** `FlatResult::approximated`, the folded faces laid out so, and Check Sheet's
+    `Approximated`, one line with those faces, saying to drill and countersink after bending.
+    A hole in a bend touches the bend's line, and `HoleNearBend` said "A hole is 6.875e-11
+    mm from Bend1's line": it says "A hole lies across Bend1's line, in the bend" now, its
+    value 0 (`testHoleInBendIsToldAsAcrossItsLine`; before, failing).
+  - How near: the blank's volume against the folded part's is within 0.02 mm^3 of 2.1 for a
+    hole 1.6 across through a bend of radius 5; 0.06 of 3.1 for its countersink, the cone
+    lying where the outer fibres are laid out 5.5 / 6 as long; 0.1 of 2.1 for the hole
+    through a bend of radius 1, across both its lines. That is the map's, not the fit's: a
+    cut that is not square to the sheet has no exact flat.
+  - Not done: a face closed round with a hole in it, or closed round another way than its
+    surface's U (a torus, a fillet round a hole in a bend), is still refused by name; cones
+    (a lofted flange's) take no part in the cutting.
+  - `TestSheetMetalFlatInBend` 9 (before, 2: the plain flange and a countersink in the wall):
+    the six above and a hole through a tight bend, each laid out, valid, its volume near the
+    folded part's, and listed once. All 503 sheet metal tests pass.
 
 **Ruled 2026-11-03, M2's wrap cutout:**
 - An option on the cutout, `Wrap`, not a tool of its own.

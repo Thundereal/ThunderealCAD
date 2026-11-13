@@ -31,6 +31,7 @@
 #include <QKeyEvent>
 #include <QTimer>
 
+#include <App/AutoTransaction.h>
 #include <App/PropertyGeo.h>
 #include <App/PropertyLinks.h>
 #include <Base/Tools.h>
@@ -811,6 +812,10 @@ bool TaskDlgFeatureParameters::accept() {
             THROWM(Base::TypeError, "Bad object processed in the feature dialog.")
         }
 
+        // OK's step stays open through the edit's end, which closes the
+        // edit's step, to the recompute below: that is what the step is for
+        // (entry 228). Closed as the lock ends.
+        App::TransactionLocker keepStep;
         resetOwnEdit();
 
         // The panel's own recompute leaves the feature touched, so the

@@ -37,6 +37,7 @@
 #include "Utils.h"
 #include <Base/Tools.h>
 #include <App/Application.h>
+#include <App/AutoTransaction.h>
 #include <App/DocumentObserver.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
@@ -563,15 +564,21 @@ bool TaskDlgBooleanParameters::accept()
         return false;
     }
     parameter->setupTransaction();
+    // The step open through the edit's end, which closes the edit's step,
+    // to the recompute it is for (TaskDlgFeatureParameters::accept())
     if (parameter->ownsItsSteps()) {
         // OK's work in the step just opened, as each change was a step;
         // this edit ended, of the several there may be
+        App::TransactionLocker keepStep;
         parameter->editSteps()->endEdit();
         Gui::cmdAppDocument(obj, "recompute()");
         return true;
     }
-    Gui::Command::doCommand(Gui::Command::Gui,"Gui.activeDocument().resetEdit()");
-    Gui::Command::doCommand(Gui::Command::Doc,"App.ActiveDocument.recompute()");
+    {
+        App::TransactionLocker keepStep;
+        Gui::Command::doCommand(Gui::Command::Gui,"Gui.activeDocument().resetEdit()");
+        Gui::Command::doCommand(Gui::Command::Doc,"App.ActiveDocument.recompute()");
+    }
     Gui::Command::commitCommand();
 
     return true;

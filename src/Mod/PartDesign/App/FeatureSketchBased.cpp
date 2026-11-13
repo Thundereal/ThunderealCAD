@@ -405,9 +405,30 @@ void ProfileBased::onDocumentRestored()
     }
 }
 
+void ProfileBased::Restore(Base::XMLReader &reader)
+{
+    FeatureAddSub::Restore(reader);
+    // A feature of this fork made since 2022-09 has no Placement: it is
+    // made where the body is, and its Placement follows its shape. One the
+    // file holds with a Placement was made before, when a feature took the
+    // Placement of what it was built on, and it keeps taking it. What reads
+    // that Placement stays as the file has it -- a sketch on a flat face of
+    // the feature picks its X axis among the feature's axes, and in
+    // realthunder/FreeCAD#474 a sketch lay a quarter turn from where it was
+    // drawn once its pad was made again unplaced, its constraints folding
+    // it flat. The version does not tell the two: it is 1 for both.
+    restoredPlaced = _ProfileBasedVersion.getValue() > 0
+            && !Placement.getValue().isIdentity();
+}
+
+bool ProfileBased::isPlacedByPrevious() const
+{
+    return _ProfileBasedVersion.getValue() <= 0 || restoredPlaced;
+}
+
 TopLoc_Location ProfileBased::positionByPrevious(void)
 {
-    if (_ProfileBasedVersion.getValue() > 0)
+    if (!isPlacedByPrevious())
         return TopLoc_Location();
     Part::Feature* feat = getBaseObject(/* silent = */ true);
     if (feat) {
@@ -429,7 +450,7 @@ TopLoc_Location ProfileBased::positionByPrevious(void)
 
 bool ProfileBased::shouldApplyPlacement()
 {
-    return _ProfileBasedVersion.getValue() <= 0;
+    return isPlacedByPrevious();
 }
 
 void ProfileBased::transformPlacement(const Base::Placement& transform)
@@ -1783,16 +1804,6 @@ void ProfileBased::handleChangedPropertyName(Base::XMLReader & reader, const cha
 
 bool ProfileBased::isElementGenerated(const TopoShape &shape, const Data::MappedName &name) const
 {
-    bool res = false;
-    shape.traceElement(name,
-        [&] (const Data::MappedName &, int, long tag2, long) {
-            if (std::abs(tag2) == this->getID()) {
-                res = true;
-                return true;
-            }
-            return false;
-        });
-
-    return res;
+    return isElementTraced(shape, name);
 }
 

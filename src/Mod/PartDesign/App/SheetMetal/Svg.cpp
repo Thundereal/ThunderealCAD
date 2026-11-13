@@ -133,6 +133,7 @@ void writeSVG(std::ostream& out, const FlatResult& flat, bool tangents)
         {"CROSS_BREAK", "fill=\"none\" stroke=\"#e08000\" stroke-dasharray=\"4 1 1 1\"", {}},
         {"GRAIN", "fill=\"none\" stroke=\"#208020\"", {}},
         {"MARKING", "fill=\"none\" stroke=\"#a020a0\"", {}},
+        {"FORMS", "fill=\"none\" stroke=\"#008080\" stroke-dasharray=\"3 1\"", {}},
         {"LABELS",
          "fill=\"#000000\" stroke=\"none\" font-family=\"sans-serif\" font-size=\"2.5\"",
          {}},
@@ -192,6 +193,11 @@ void writeSVG(std::ostream& out, const FlatResult& flat, bool tangents)
     }
     for (const TopoDS_Edge& e : flat.markings) {
         edge(layer("MARKING"), e);
+    }
+    for (const auto& form : flat.forms) {
+        for (const TopoDS_Edge& e : form.edges) {
+            edge(layer("FORMS"), e);
+        }
     }
 
     double x0, y0, z0, x1, y1, z1;

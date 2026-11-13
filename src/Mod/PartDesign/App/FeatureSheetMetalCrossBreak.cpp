@@ -139,7 +139,7 @@ App::DocumentObjectExecReturn* SheetMetalCrossBreak::execute()
         }
         // the solid as it was
         Shape.setValue(base);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

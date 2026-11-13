@@ -115,6 +115,11 @@ def run():
             actions is not None and base is not None and base.getAction()[0] in actions,
             [a.text() for a in actions or []],
         )
+        starter = FreeCADGui.Command.get("PartDesign_SheetMetalStarter")
+        check(
+            "and Starter Shape beside it",
+            starter is not None and starter.getAction()[0] in (actions or []),
+        )
         check("the Sheet Metal tool bar is there and not offered", hidden())
 
         doc = FreeCAD.newDocument(DOC)
@@ -1185,6 +1190,12 @@ def run():
             and toolbar() is not None
             and crossCmd.getAction()[0] in toolbar().actions(),
         )
+        check(
+            "Starter Shape is on the tool bar, first",
+            starter is not None
+            and toolbar() is not None
+            and toolbar().actions()[:1] == [starter.getAction()[0]],
+        )
         tip = body.Tip
         walls = [
             ("Face%d" % (i + 1), f)
@@ -1464,6 +1475,316 @@ def run():
         for name in [o.Name for o in (drawing, page, template)]:
             if doc.getObject(name) is not None:
                 doc.removeObject(name)
+        pump(20)
+
+        # Form: a face of a wall on the tip and a sketch of points on it make a
+        # dimple at each point (M5, ruled 2026-11-06)
+        formCmd = FreeCADGui.Command.get("PartDesign_SheetMetalForm")
+        check(
+            "Form is on the tool bar",
+            formCmd is not None
+            and toolbar() is not None
+            and formCmd.getAction()[0] in toolbar().actions(),
+        )
+        tip = body.Tip
+        walls = [
+            ("Face%d" % (i + 1), f)
+            for i, f in enumerate(tip.Shape.Faces)
+            if isinstance(f.Surface, Part.Plane)
+            and (tip.sheetElementOf("Face%d" % (i + 1)) or "").startswith("Wall")
+        ]
+        faceName, wallFace = max(walls, key=lambda w: w[1].Area)
+        centre = wallFace.CenterOfMass
+        normal = wallFace.normalAt(*wallFace.Surface.parameter(centre))
+        points = body.newObject("Sketcher::SketchObject", "FormPoints")
+        points.Placement = FreeCAD.Placement(centre, FreeCAD.Rotation(V(0, 0, 1), normal))
+        points.addGeometry(Part.Point(V(0, 0, 0)))
+        doc.recompute()
+        body.Tip = tip
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, tip.Name, faceName)
+        FreeCADGui.Selection.addSelection(doc.Name, points.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalForm")
+        pump(20)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        doc.recompute()
+        pump(20)
+        forms = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalForm"
+        ]
+        form = forms[0] if forms else None
+        if form is not None:
+            # small enough for whatever wall is the largest here
+            form.Diameter, form.Depth, form.Radius = 6, 2, 0.5
+            doc.recompute()
+            pump(20)
+        check(
+            "with a wall's face and a sketch of points selected it presses a dimple there",
+            form is not None
+            and "Invalid" not in form.State
+            and form.Kind == "Dimple"
+            and body.Tip == form
+            and [f["Name"] for f in form.SheetModel.get("Forms", [])] == ["Form1"]
+            and form.Shape.isValid(),
+            form and (form.State, form.getStatusString()),
+        )
+        check(
+            "and its view is the form's, the sketch hidden",
+            form is not None
+            and form.ViewObject.TypeId == "PartDesignGui::ViewProviderSheetMetalForm"
+            and not points.Visibility,
+            form and form.ViewObject.TypeId,
+        )
+        if form is not None:
+            body.removeObject(form)
+            doc.removeObject(form.Name)
+        body.removeObject(points)
+        doc.removeObject(points.Name)
+        doc.recompute()
+        pump(20)
+
+        # and a bend's face, curved, a gusset across the bend: on a bracket
+        # of its own, a plate and a leg, its bend plain (the part's bends
+        # here have cuts along them, or are hems)
+        gbody = doc.addObject("PartDesign::Body", "GussetBody")
+        view.setActiveObject("pdbody", gbody)
+        gsketch = gbody.newObject("Sketcher::SketchObject", "GussetSketch")
+        corners = [(0, 0), (40, 0), (40, 30), (0, 30)]
+        for i in range(4):
+            a, b = corners[i], corners[(i + 1) % 4]
+            gsketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        gplate = gbody.newObject("PartDesign::SheetMetalBaseWall", "GussetPlate")
+        gplate.Profile = gsketch
+        doc.recompute()
+        gleg = gbody.newObject("PartDesign::SheetMetalFlange", "GussetLeg")
+        gleg.Edges = (
+            gplate,
+            [
+                "Edge%d" % (i + 1)
+                for i, e in enumerate(gplate.Shape.Edges)
+                if all(abs(v.Point.y - 30) < 1e-7 and abs(v.Point.z - 1) < 1e-7 for v in e.Vertexes)
+            ][:1],
+        )
+        gleg.Length = 20
+        doc.recompute()
+        bends = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(gleg.Shape.Faces)
+            if isinstance(f.Surface, Part.Cylinder)
+            and (gleg.sheetElementOf("Face%d" % (i + 1)) or "").startswith("Bend")
+        ]
+        gpoints = gbody.newObject("Sketcher::SketchObject", "GussetPoints")
+        gpoints.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        gpoints.addGeometry(Part.Point(V(20, 5, 0)))
+        doc.recompute()
+        gbody.Tip = gleg
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        if bends:
+            FreeCADGui.Selection.addSelection(doc.Name, gleg.Name, bends[0])
+        FreeCADGui.Selection.addSelection(doc.Name, gpoints.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalForm")
+        pump(20)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        made = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalForm"
+        ]
+        gusset = made[0] if made else None
+        if gusset is not None:
+            gusset.Length, gusset.Width, gusset.Radius = 6, 3, 0.5
+            doc.recompute()
+            pump(20)
+        check(
+            "with a bend's face and a sketch of points it presses a gusset across the bend",
+            gusset is not None
+            and gusset.Kind == "Gusset"
+            and "Invalid" not in gusset.State
+            and [f["Wall"] for f in gusset.SheetModel.get("Forms", [])] == ["Bend1"],
+            gusset and (gusset.Kind, gusset.State, gusset.getStatusString()),
+        )
+        view.setActiveObject("pdbody", body)
+        pump(20)
+
+        # Locating Tabs and Slots (M5, ruled 2026-11-06): a plate, and an
+        # upright wall standing on it in a body of its own; tabs on the
+        # upright's foot, slots for them in the plate
+        def sheetWall(wbody, name, corners, placement=None):
+            wsketch = wbody.newObject("Sketcher::SketchObject", name + "Sketch")
+            if placement:
+                wsketch.Placement = placement
+            for i in range(len(corners)):
+                a, b = corners[i], corners[(i + 1) % len(corners)]
+                wsketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+            made = wbody.newObject("PartDesign::SheetMetalBaseWall", name)
+            made.Profile = wsketch
+            doc.recompute()
+            return made
+
+        pbody = doc.addObject("PartDesign::Body", "SlotBody")
+        slotPlate = sheetWall(pbody, "SlotPlate", [(0, 0), (60, 0), (60, 40), (0, 40)])
+        ubody = doc.addObject("PartDesign::Body", "TabBody")
+        upright = sheetWall(
+            ubody,
+            "Upright",
+            [(10, 1), (50, 1), (50, 21), (10, 21)],
+            FreeCAD.Placement(V(0, 20, 0), FreeCAD.Rotation(V(1, 0, 0), 90)),
+        )
+        for name in ("PartDesign_SheetMetalLocatingTabs", "PartDesign_SheetMetalSlots"):
+            cmd = FreeCADGui.Command.get(name)
+            check(
+                "%s is on the tool bar" % name.split("SheetMetal")[1],
+                cmd is not None
+                and toolbar() is not None
+                and cmd.getAction()[0] in toolbar().actions(),
+            )
+        foot = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(upright.Shape.Faces)
+            if isinstance(f.Surface, Part.Plane)
+            and abs(f.BoundBox.ZMax - 1) < 1e-7
+            and f.normalAt(0, 0).isEqual(V(0, 0, -1), 1e-7)
+        ]
+        view.setActiveObject("pdbody", ubody)
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        if foot:
+            FreeCADGui.Selection.addSelection(doc.Name, upright.Name, foot[0])
+        FreeCADGui.runCommand("PartDesign_SheetMetalLocatingTabs")
+        pump(20)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        doc.recompute()
+        made = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalLocatingTabs"
+        ]
+        tabs = made[0] if made else None
+        check(
+            "with a wall's end face selected it puts tabs on it, the body's tip",
+            tabs is not None
+            and "Invalid" not in tabs.State
+            and ubody.Tip == tabs
+            and len(tabs.TabShape.Solids) == 2
+            and tabs.ViewObject.TypeId == "PartDesignGui::ViewProviderSheetMetalLocatingTabs",
+            tabs and (tabs.State, tabs.getStatusString()),
+        )
+        view.setActiveObject("pdbody", pbody)
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        if tabs is not None:
+            FreeCADGui.Selection.addSelection(doc.Name, tabs.Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalSlots")
+        pump(20)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        doc.recompute()
+        made = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalSlots"
+        ]
+        slots = made[0] if made else None
+        check(
+            "with the tabs selected it cuts their slots in the active body",
+            slots is not None
+            and "Invalid" not in slots.State
+            and slots.Tabs == tabs
+            and pbody.Tip == slots
+            and slots.Shape.Volume < slotPlate.Shape.Volume - 1
+            and slots.ViewObject.TypeId == "PartDesignGui::ViewProviderSheetMetalSlots",
+            slots and (slots.State, slots.getStatusString()),
+        )
+        view.setActiveObject("pdbody", body)
+        pump(20)
+
+        # Lofted flange (M5): two sketches picked, a cone between them
+        loftCmd = FreeCADGui.Command.get("PartDesign_SheetMetalLoftedFlange")
+        check(
+            "Lofted Flange is on the tool bar",
+            loftCmd is not None
+            and toolbar() is not None
+            and loftCmd.getAction()[0] in toolbar().actions(),
+        )
+        lbody = doc.addObject("PartDesign::Body", "LoftBody")
+        view.setActiveObject("pdbody", lbody)
+        rounds = []
+        for name, r, z in (("Wide", 20, 0), ("Narrow", 10, 30)):
+            rsketch = lbody.newObject("Sketcher::SketchObject", name)
+            rsketch.Placement = FreeCAD.Placement(V(0, 0, z), FreeCAD.Rotation())
+            rsketch.addGeometry(Part.Circle(V(0, 0, 0), V(0, 0, 1), r))
+            rounds.append(rsketch)
+        doc.recompute()
+        pump()
+        before = [o.Name for o in doc.Objects]
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(doc.Name, rounds[0].Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalLoftedFlange")
+        pump(20)
+        check(
+            "with one sketch selected it makes nothing",
+            not [o for o in doc.Objects if o.Name not in before],
+            [o.Name for o in doc.Objects if o.Name not in before],
+        )
+        FreeCADGui.Selection.addSelection(doc.Name, rounds[1].Name)
+        FreeCADGui.runCommand("PartDesign_SheetMetalLoftedFlange")
+        pump(20)
+        if FreeCADGui.Control.activeDialog():
+            FreeCADGui.Control.closeDialog()
+            pump()
+        if FreeCADGui.ActiveDocument.getInEdit():
+            FreeCADGui.ActiveDocument.resetEdit()
+            pump()
+        doc.recompute()
+        made = [
+            o
+            for o in doc.Objects
+            if o.Name not in before and o.TypeId == "PartDesign::SheetMetalLoftedFlange"
+        ]
+        loft = made[0] if made else None
+        check(
+            "with two sketches selected it lofts the first to the second, the body's tip",
+            loft is not None
+            and "Invalid" not in loft.State
+            and loft.Profile and loft.Profile[0] == rounds[0]
+            and loft.Section == rounds[1]
+            and lbody.Tip == loft
+            and [e["Kind"] for e in loft.SheetModel["Elements"]] == ["Cone"]
+            and loft.ViewObject.TypeId == "PartDesignGui::ViewProviderSheetMetalLoftedFlange",
+            loft and (loft.State, loft.getStatusString()),
+        )
+        check(
+            "it holds both sketches in the tree, hidden",
+            loft is not None
+            and all(r in loft.ViewObject.claimChildren() for r in rounds)
+            and not any(r.Visibility for r in rounds),
+            loft and ([o.Name for o in loft.ViewObject.claimChildren()],
+                      [r.Visibility for r in rounds]),
+        )
+        view.setActiveObject("pdbody", body)
         pump(20)
 
         # Rip: a tube, which does not lie flat, cut open at a bend picked

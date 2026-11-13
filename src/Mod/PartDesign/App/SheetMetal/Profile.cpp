@@ -63,13 +63,96 @@ std::vector<gp_Pnt> linePoints(const TopoDS_Wire& wire, const std::string& what)
     return points;
 }
 
-void dropStraight(std::vector<gp_Pnt>& points)
+std::vector<gp_Pnt>
+profilePoints(const TopoDS_Wire& wire, const std::string& what, std::vector<double>& arcs)
+{
+    // each edge's ends and ways out of them, in the wire's order
+    struct Run
+    {
+        bool arc;
+        gp_Pnt from, to;
+        gp_Dir in, out;
+        double radius = 0, sweep = 0;
+    };
+    std::vector<Run> runs;
+    for (BRepTools_WireExplorer it(wire); it.More(); it.Next()) {
+        const TopoDS_Edge& edge = it.Current();
+        BRepAdaptor_Curve c(edge);
+        const bool arc = c.GetType() == GeomAbs_Circle;
+        if (!arc && c.GetType() != GeomAbs_Line) {
+            FC_THROWM(Base::ValueError, what << " is made of lines and arcs only");
+        }
+        double u0 = c.FirstParameter(), u1 = c.LastParameter();
+        if (edge.Orientation() == TopAbs_REVERSED) {
+            std::swap(u0, u1);
+        }
+        gp_Pnt p0, p1;
+        gp_Vec v0, v1;
+        c.D1(u0, p0, v0);
+        c.D1(u1, p1, v1);
+        if (edge.Orientation() == TopAbs_REVERSED) {
+            v0.Reverse();
+            v1.Reverse();
+        }
+        Run run {arc, p0, p1, gp_Dir(v0), gp_Dir(v1)};
+        if (arc) {
+            run.radius = c.Circle().Radius();
+            run.sweep = std::abs(u1 - u0);
+        }
+        runs.push_back(run);
+    }
+    if (runs.empty() || runs.front().arc || runs.back().arc) {
+        FC_THROWM(Base::ValueError,
+                  what << " starts or ends in an arc: an arc is rolled between two lines");
+    }
+    std::vector<gp_Pnt> points {runs.front().from};
+    arcs.assign(1, 0);
+    for (std::size_t i = 0; i < runs.size(); ++i) {
+        const Run& run = runs[i];
+        if (!run.arc) {
+            // a line's end, unless an arc follows: its corner is the arc's
+            const bool arcNext = i + 1 < runs.size() && runs[i + 1].arc;
+            if (!arcNext) {
+                points.push_back(run.to);
+                arcs.push_back(0);
+            }
+            continue;
+        }
+        const Run& before = runs[i - 1];
+        const Run& after = runs[i + 1];
+        if (after.arc) {
+            FC_THROWM(Base::ValueError,
+                      what << ": arcs " << i + 1 << " and " << i + 2
+                           << " meet with no line between; a line between two arcs");
+        }
+        if (run.sweep >= std::numbers::pi - Precision::Angular()) {
+            FC_THROWM(Base::ValueError,
+                      what << ": arc " << i + 1 << " turns 180 deg or more; split it in two");
+        }
+        if (!before.out.IsParallel(run.in, Precision::Angular()) || before.out.Dot(run.in) < 0
+            || !run.out.IsParallel(after.in, Precision::Angular()) || run.out.Dot(after.in) < 0) {
+            FC_THROWM(Base::ValueError,
+                      what << ": arc " << i + 1 << " is not tangent to the lines beside it");
+        }
+        // the lines' virtual sharp, as far along its way in from its start
+        // as R tan(sweep / 2)
+        const double back = run.radius * std::tan(run.sweep / 2);
+        points.push_back(run.from.Translated(gp_Vec(run.in) * back));
+        arcs.push_back(run.radius);
+    }
+    return points;
+}
+
+void dropStraight(std::vector<gp_Pnt>& points, std::vector<double>* arcs)
 {
     for (std::size_t i = 1; i + 1 < points.size();) {
         const gp_Vec a(points[i - 1], points[i]), b(points[i], points[i + 1]);
         if (a.Magnitude() > Precision::Confusion() && b.Magnitude() > Precision::Confusion()
             && a.IsParallel(b, Precision::Angular()) && a.Dot(b) > 0) {
             points.erase(points.begin() + static_cast<long>(i));
+            if (arcs && i < arcs->size()) {
+                arcs->erase(arcs->begin() + static_cast<long>(i));
+            }
         }
         else {
             ++i;
@@ -125,11 +208,26 @@ void ProfileBuilder::profileAt(const std::vector<gp_Pnt>& p, const gp_Dir& n, do
         l.push_back(n.Crossed(way));
     }
     const double b = a + thickness;
+    // each corner's inner radius: the radius, or an arc's as drawn on the
+    // sketch's line, from a to b along the left: the axis b + r to the left
+    // of the line on a left turn, a - r on a right one
+    std::vector<double> r(count, radius);
+    for (std::size_t j = 1; j < count; ++j) {
+        if (j < arcs.size() && arcs[j] > 0) {
+            r[j] = turn[j] > 0 ? arcs[j] - b : arcs[j] + a;
+            if (r[j] <= Precision::Confusion()) {
+                FC_THROWM(Base::ValueError,
+                          "The profile's arc " << arcs[j]
+                                               << " in radius is too tight for the thickness "
+                                                  "on its side of the sketch");
+            }
+        }
+    }
     // where each line's straight part starts and ends, and the bends' axes
     std::vector<gp_Pnt> start(p.begin(), p.end() - 1), end(p.begin() + 1, p.end());
     std::vector<gp_Pnt> center(count);
     for (std::size_t j = 1; j < count; ++j) {
-        const double offset = turn[j] > 0 ? b + radius : a - radius;
+        const double offset = turn[j] > 0 ? b + r[j] : a - r[j];
         const gp_Vec miter =
             (gp_Vec(l[j - 1]) + gp_Vec(l[j])) * (offset / (1 + d[j - 1].Dot(d[j])));
         center[j] = p[j].Translated(miter);
@@ -154,9 +252,9 @@ void ProfileBuilder::profileAt(const std::vector<gp_Pnt>& p, const gp_Dir& n, do
         const int wall = model.addWall(name, gp_Ax3(origin, l[i], d[i]));
         added.push_back(wall);
         faces.push_back(wallSection(origin, d[i], start[i].Distance(end[i]), l[i], thickness,
-                                    name));
+                                    ownName(name, wallsBefore, bendsBefore)));
         if (i > 0) {
-            bend(center[i], l[i - 1], n, turn[i], previous, wall);
+            bend(center[i], l[i - 1], n, turn[i], previous, wall, r[i]);
         }
         previous = wall;
     }
@@ -247,30 +345,30 @@ void ProfileBuilder::closedProfile(std::vector<gp_Pnt> p, const gp_Dir& n, int s
         walls[i] = model.addWall(name, gp_Ax3(origin, l[i], d[i]));
         added.push_back(walls[i]);
         faces.push_back(wallSection(origin, d[i], start[i].Distance(end[i]), l[i], thickness,
-                                    name));
+                                    ownName(name, wallsBefore, bendsBefore)));
     }
     for (std::size_t j = 0; j < count; ++j) {
-        bend(center[j], l[before(j)], n, turn[j], walls[before(j)], walls[j]);
+        bend(center[j], l[before(j)], n, turn[j], walls[before(j)], walls[j], radius);
     }
 }
 
 void ProfileBuilder::bend(const gp_Pnt& c, const gp_Dir& l, const gp_Dir& n, double turn,
-                          int before, int after)
+                          int before, int after, double r)
 {
     const bool left = turn > 0;
     CylBend bend;
     bend.frame = gp_Ax3(c, left ? n : n.Reversed(), left ? l.Reversed() : l);
-    bend.radius = radius;
+    bend.radius = r;
     bend.thickness = thickness;
     bend.angle = std::abs(turn);
-    bend.k = k(bend.angle, radius);
+    bend.k = k(bend.angle, r);
     const std::string name = nextBend();
     const int index = model.addBend(name, bend, before, after);
     added.push_back(index);
     if (firstBend < 0) {
         firstBend = index;
     }
-    faces.push_back(bendSection(bend, name));
+    faces.push_back(bendSection(bend, ownName(name, wallsBefore, bendsBefore)));
 }
 
 }  // namespace PartDesign::SheetMetal

@@ -416,6 +416,12 @@ class TestFilletSlivers(unittest.TestCase):
         # walking it crashed, when the freed memory had been reused
         holder = self.Body.Group[0]
         self.assertEqual(holder.TypeId, 'PartDesign::FeatureBase')
+        # Only counted: an entry left by a removed fillet is a dangling
+        # object, and reading it could crash where the count fails. Corners
+        # linked the holder again as the removal cleared it, the fillet stayed
+        # in its InList, and the next recompute crashed when the freed memory
+        # had been reused (rarely, so under load).
+        linked = len(holder.InList)
         for k in range(3):
             fillet = self.Body.newObject('PartDesign::Fillet', 'Fillet')
             fillet.Base = (self.Base, ['Edge1'])
@@ -426,6 +432,7 @@ class TestFilletSlivers(unittest.TestCase):
             self.assertTrue(fillet.isValid(), k)
             self.Body.removeObject(fillet)
             self.Doc.removeObject(fillet.Name)
+            self.assertEqual(len(holder.InList), linked, k)
             self.assertEqual(self.Body.Tip, holder, k)
             # the body's Group and Tip, nothing else
             self.assertEqual(holder.InList, [self.Body, self.Body], k)

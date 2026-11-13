@@ -70,6 +70,14 @@ PartDesignExport TopoDS_Edge arcEdge(const gp_Ax3& frame, double radius, double 
  */
 PartDesignExport Part::TopoShape bendSection(const CylBend& bend, const std::string& name);
 
+/** A cone's section in the half plane through its frame's X and Z, where
+ * the sheet starts, the slant length along the cone's line: the edges name
+ * + Inner, Rim2 (the far end, square to the sheet), Outer, Rim1 (at the
+ * frame's circle), to be turned about the axis through the cone's angle
+ */
+PartDesignExport Part::TopoShape coneSection(const ConeBend& cone, double length,
+                                             const std::string& name);
+
 /** A straight run's section: from start along a length, across by the
  * thickness; the edges name + Skin1 (at start, along), End, Skin2, Start
  */
@@ -125,17 +133,41 @@ PartDesignExport WallEdge wallEdge(const Part::TopoShape& base, const Model& mod
                                    const std::string& ref, const std::string& label);
 
 
+/** The name of a wall or a bend as a feature numbers it while it builds,
+ * Wall4 or Bend3, counted among the feature's own: with the highest numbers
+ * the sheet had before the feature (Model::numbers()), 2 and 2, Wall2 and
+ * Bend1. What the feature names its pieces' faces by, whatever numbers its
+ * walls and bends take in the sheet (SheetMetalExtension::storeModel()). One
+ * the sheet had before is BaseWall or BaseBend; any other name is as it is.
+ */
+PartDesignExport std::string ownName(const std::string& name, int walls, int bends);
+
+/** A name for each element of shape that has none: name, then F, E or V and
+ * the element's index in shape, so a piece built the same way is named the
+ * same way. For a piece of bare geometry before it is swept or joined: an
+ * element with no name gives what is made of it none, and a reference to
+ * that then holds by its index only.
+ */
+PartDesignExport void nameRest(Part::TopoShape& shape, const std::string& name);
+
+/** The shapes as one tool of the feature id's: each marked as that feature's,
+ * so what a boolean makes of them traces to it -- its tree highlight lights
+ * them (Feature::isElementTraced()). A shape made with no tag carries no
+ * owner into the names of what is cut or joined with it.
+ */
+PartDesignExport Part::TopoShape toolOf(long id, std::vector<Part::TopoShape> shapes);
+
 /** base less the cuts (a wall cut back under a bend, its relief), less any
  * piece they free (docs/SheetMetal.md sec 12, 2026-11-04): of what a solid
  * of base parts into, what pieces (the bends and walls added) stand on
  * stays, else its largest; the rest is scrap, as the cutter drops it from
  * the blank -- two reliefs at a corner, between them a flange's cut-back,
- * free the corner.
+ * free the corner. The cuts are the feature id's (toolOf()).
  */
 PartDesignExport Part::TopoShape cutDroppingScrap(const Part::TopoShape& base,
                                                   const std::vector<Part::TopoShape>& cuts,
                                                   const std::vector<Part::TopoShape>& pieces,
-                                                  const App::StringHasherRef& hasher);
+                                                  const App::StringHasherRef& hasher, long id);
 
 /// The faces of shape the wall owns lying on the plane
 PartDesignExport std::vector<TopoDS_Face>

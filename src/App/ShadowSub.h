@@ -110,6 +110,15 @@ struct ShadowSub : std::pair<std::string, std::string>
      * a link does.
      */
     std::string given;
+
+    /** Where the element this reference was on lies now, as a new style
+     * name of the target's, when the reference's own name has gone to
+     * another element (docs/TopoNamingEnhance.md sec 9.12). The reference
+     * keeps going by its name: this is for whoever shows the reference to
+     * say so, and to offer the element instead. Kept until the reference is
+     * set anew or names that element.
+     */
+    std::string elsewhere;
 };
 
 

@@ -96,8 +96,15 @@ TaskDraftParameters::TaskDraftParameters(ViewProviderDressUp *DressUpView,QWidge
         this, &TaskDraftParameters::onClearLine);
 
     setupTransaction();
-    bool touched = populateRefElement(&pcDraft->NeutralPlane, ui->linePlane, true);
-    touched |= populateRefElement(&pcDraft->PullDirection, ui->lineLine, true);
+    // a plane or a line found again by its name is shown with the edges
+    // (TaskDressUpParameters::showRefound())
+    PartDesignGui::RefoundReference plane, line;
+    bool touched = populateRefElement(&pcDraft->NeutralPlane, ui->linePlane, true, &plane);
+    touched |= populateRefElement(&pcDraft->PullDirection, ui->lineLine, true, &line);
+    for (const auto &found : {plane, line}) {
+        if (found.object)
+            refoundOther.push_back(found);
+    }
 
     ui->linePlane->installEventFilter(this);
     ui->lineLine->installEventFilter(this);

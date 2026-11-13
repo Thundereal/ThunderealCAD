@@ -2104,7 +2104,119 @@ bool importExternalElements(App::PropertyLinkSub &prop,
     return _MonitorInstance->importExternalObjects(prop, sobjs, report);
 }
 
-bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &prop, bool refresh)
+QColor refoundColor()
+{
+    return QColor(0xb0, 0x70, 0x00);
+}
+
+QString refoundTip(const std::string &was, bool byPlace)
+{
+    if (byPlace)
+        return QObject::tr("Was %1 by its name, which is another element's since the last "
+                           "recompute: this is the element the reference was on, found where "
+                           "it was when this panel opened. "
+                           "OK keeps it, Cancel leaves the reference as it was.")
+                .arg(QString::fromStdString(was));
+    return QObject::tr("Was %1: found again by its name when this panel opened. "
+                       "OK keeps it, Cancel leaves the reference as it was.")
+            .arg(QString::fromStdString(was));
+}
+
+QString refoundNote(const std::vector<RefoundReference> &found)
+{
+    // each as "Edge8 is now Edge10", one that became several as
+    // "Edge13 is now Edge13, Edge17"
+    QStringList said, moved;
+    std::vector<std::string> done;
+    for (const auto &first : found) {
+        if (first.byPlace) {
+            moved << QObject::tr("%1 in place of %2").arg(QString::fromStdString(first.now),
+                                                          QString::fromStdString(first.was));
+            continue;
+        }
+        if (std::find(done.begin(), done.end(), first.was) != done.end())
+            continue;
+        done.push_back(first.was);
+        QStringList now;
+        for (const auto &other : found) {
+            if (!other.byPlace && other.object == first.object && other.was == first.was)
+                now << QString::fromStdString(other.now);
+        }
+        said << QObject::tr("%1 is now %2").arg(QString::fromStdString(first.was),
+                                                now.join(QStringLiteral(", ")));
+    }
+    QStringList notes;
+    if (!said.isEmpty())
+        notes << QObject::tr("Found again by name: %1.").arg(said.join(QStringLiteral("; ")));
+    if (!moved.isEmpty())
+        notes << QObject::tr("A name had become another element's; the element the reference "
+                             "was on is taken, found where it was: %1.")
+                         .arg(moved.join(QStringLiteral("; ")));
+    if (notes.isEmpty())
+        return QString();
+    notes << QObject::tr("Selected in the view and marked here: check, "
+                         "then OK keeps it, Cancel leaves the reference as it was.");
+    return notes.join(QStringLiteral(" "));
+}
+
+void selectRefound(const std::vector<RefoundReference> &found, bool add)
+{
+    // Beside the feature in edit, in what holds it: the selection is by the
+    // path from there. (Not selectObjectOnTop(): the feature a panel's
+    // feature builds on is shown on top already, and that selects nothing
+    // of it.)
+    Gui::ViewProviderDocumentObject *parentVp = nullptr;
+    std::string path;
+    if (auto gdoc = Gui::Application::Instance->editDocument())
+        gdoc->getInEdit(&parentVp, &path);
+    if (parentVp) {
+        // less the feature in edit itself
+        auto dot = path.rfind('.', path.size() >= 2 ? path.size() - 2 : std::string::npos);
+        path = path.empty() || path.back() != '.' || dot == std::string::npos
+                ? std::string() : path.substr(0, dot + 1);
+    }
+    for (const auto &ref : found) {
+        if (!ref.object || !ref.object->isAttachedToDocument())
+            continue;
+        App::SubObjectT objT(ref.object, ref.now.c_str());
+        if (parentVp) {
+            App::SubObjectT inEdit(parentVp->getObject(),
+                    (path + ref.object->getNameInDocument() + "." + ref.now).c_str());
+            if (inEdit.getSubObject() == ref.object)
+                objT = std::move(inEdit);
+        }
+        // the first in place of the selection, unless added to it
+        if (!add)
+            Gui::Selection().clearSelection();
+        add = true;
+        Gui::Selection().addSelection(objT);
+    }
+}
+
+std::vector<std::string> refoundAnswers(App::DocumentObject *obj, const std::string &mapped,
+                                        const std::set<std::string> &used, bool single)
+{
+    std::vector<std::string> answers;
+    if (!obj || mapped.empty())
+        return answers;
+    std::string name, index;
+    for (auto &element : Part::Feature::getRelatedElements(obj, mapped.c_str())) {
+        name.clear();
+        element.name.appendToBuffer(name);
+        index.clear();
+        element.index.appendToStringBuffer(index);
+        if (used.count(name) || used.count(index)
+                || std::find(answers.begin(), answers.end(), index) != answers.end())
+            continue;
+        answers.push_back(index);
+    }
+    if (single && answers.size() != 1)
+        answers.clear();
+    return answers;
+}
+
+bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &prop, bool refresh,
+                                std::vector<RefoundReference> *refound)
 {
     treeWidget->clear();
     auto base = prop.getValue();
@@ -2141,6 +2253,30 @@ bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &p
             element = baseShape.getSubShape(ref.c_str());
         }catch(...) {}
         if(!element.isNull())  {
+            // A name that has become another element's since the reference
+            // was made, the element it was on still there (the guard of
+            // docs/TopoNamingEnhance.md sec 9.12): that element is taken,
+            // and told to the panel as one found again is.
+            std::string there;
+            if (!sub.elsewhere.empty()) {
+                App::ShadowSub resolved;
+                App::GeoFeature::resolveElement(base, sub.elsewhere.c_str(), resolved, true,
+                        App::GeoFeature::ElementNameType::Export);
+                if (!resolved.first.empty() && !resolved.second.empty()
+                        && !Data::hasMissingElement(resolved.second.c_str())
+                        && resolved.second != refs.back()
+                        && subSet.insert(resolved.first).second
+                        && subSet.insert(resolved.second).second)
+                    there = resolved.second;
+            }
+            if (!there.empty()) {
+                FC_WARN("element reference in " << prop.getFullName() << ": " << refs.back()
+                        << " -> " << there << ", the element it was on");
+                if (refound)
+                    refound->push_back({base, refs.back(), there, true});
+                refs.back() = there;
+                touched = true;
+            }
             auto item = new QTreeWidgetItem(treeWidget);
             item->setText(0, QString::fromStdString(refs.back()));
             setGeometryItemText(item, refs.back());
@@ -2148,6 +2284,13 @@ bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &p
         }
         FC_WARN("missing element reference in " << prop.getFullName() << ": " << ref);
         bool popped = false;
+        // Taken by its name's history, every element that answers and no
+        // other reference has: an edge a feature cut in two is its two
+        // halves. Told to the panel, which shows what was taken (ruled
+        // 2026-11-11: not silently).
+        std::string was = refs.back();
+        if (boost::starts_with(was, Data::missingPrefix()))
+            was.erase(0, Data::missingPrefix().size());
         for(auto &element : Part::Feature::getRelatedElements(base,ref.c_str())) {
             tmp.clear();
             element.name.appendToBuffer(tmp);
@@ -2161,6 +2304,8 @@ bool populateGeometryReferences(QTreeWidget *treeWidget, App::PropertyLinkSub &p
             auto item = new QTreeWidgetItem(treeWidget);
             item->setText(0, QString::fromStdString(indexedName));
             setGeometryItemText(item, indexedName);
+            if (refound)
+                refound->push_back({base, was, indexedName, false});
             if(!popped) {
                 refs.pop_back();
                 touched = true;

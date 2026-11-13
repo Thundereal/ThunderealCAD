@@ -204,7 +204,7 @@ App::DocumentObjectExecReturn* SheetMetalBendCuts::execute()
                 QT_TRANSLATE_NOOP("Exception", "Bend cuts leave nothing of the sheet"));
         }
         Shape.setValue(result);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

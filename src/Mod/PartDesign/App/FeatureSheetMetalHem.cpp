@@ -53,6 +53,7 @@ namespace
 const App::PropertyQuantityConstraint::Constraints angleRange = {90.0, 330.0, 1.0};
 }
 const char* SheetMetalHem::PositionEnums[] = {"Inside", "Outside", nullptr};
+const char* SheetMetalHem::ReliefShapeEnums[] = {"Rule", "Rectangle", "Obround", "Tear", nullptr};
 
 SheetMetalHem::SheetMetalHem()
 {
@@ -118,6 +119,25 @@ SheetMetalHem::SheetMetalHem()
                       "Sheet Metal",
                       App::Prop_None,
                       "Fold toward the other skin than the one the edge is on");
+    ADD_PROPERTY_TYPE(ReliefShape,
+                      (0L),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The bend relief where the hem ends inside its wall's end, the wall cut "
+                      "back: Rule follows the rule's; another shape is the hem's own, from the "
+                      "rule's width and depth when chosen; a tear is the rule's Gap wide");
+    ReliefShape.setEnums(ReliefShapeEnums);
+    ADD_PROPERTY_TYPE(ReliefWidth,
+                      (1.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "The bend relief's width, when ReliefShape is not Rule");
+    ADD_PROPERTY_TYPE(ReliefDepth,
+                      (1.0),
+                      "Sheet Metal",
+                      App::Prop_None,
+                      "How far the bend relief runs past the fold, when ReliefShape is not Rule");
+    showReliefValues();
     showTypeValues();
     // A refined result would merge faces of two elements
     Refine.setValue(false);
@@ -128,7 +148,8 @@ short SheetMetalHem::mustExecute() const
 {
     if (Edges.isTouched() || HemType.isTouched() || Length.isTouched() || Gap.isTouched()
         || Position.isTouched() || Reversed.isTouched() || Radius.isTouched()
-        || Angle.isTouched() || Gap1.isTouched() || Gap2.isTouched()) {
+        || Angle.isTouched() || Gap1.isTouched() || Gap2.isTouched() || ReliefShape.isTouched()
+        || ReliefWidth.isTouched() || ReliefDepth.isTouched()) {
         return 1;
     }
     return FeatureAddSub::mustExecute();
@@ -146,7 +167,24 @@ void SheetMetalHem::onChanged(const App::Property* prop)
     if (prop == &HemType) {
         showTypeValues();
     }
+    if (prop == &ReliefShape) {
+        // From the rule to the hem's own: it starts from the rule's
+        auto rule = getRule();
+        if (!isRestoring() && ReliefShape.getValue() != 0
+            && ReliefWidth.testStatus(App::Property::ReadOnly) && rule) {
+            ReliefWidth.setValue(rule->ReliefWidth.getValue());
+            ReliefDepth.setValue(rule->ReliefDepth.getValue());
+        }
+        showReliefValues();
+    }
     FeatureAddSub::onChanged(prop);
+}
+
+void SheetMetalHem::showReliefValues()
+{
+    const bool byRule = ReliefShape.getValue() == 0;
+    ReliefWidth.setStatus(App::Property::ReadOnly, byRule);
+    ReliefDepth.setStatus(App::Property::ReadOnly, byRule);
 }
 
 void SheetMetalHem::showTypeValues()
@@ -173,10 +211,15 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             return new App::DocumentObjectExecReturn(
                 QT_TRANSLATE_NOOP("Exception", "A hem builds on a sheet metal feature"));
         }
+        // numbered on from the highest the sheet has (storeModel() gives
+        // each the number it keeps)
         int walls = 0, bends = 0;
-        for (const Element& e : model.elements) {
-            ++(e.kind == Element::Kind::Wall ? walls : bends);
-        }
+        model.numbers(walls, bends);
+        // its pieces' faces are named by its own count (ownName())
+        const int wallsBefore = walls, bendsBefore = bends;
+        auto ownNamed = [&](const std::string& name) {
+            return SheetMetal::ownName(name, wallsBefore, bendsBefore);
+        };
         TopoShape base = getBaseShape();
         const auto shadows = Edges.getShadowSubs();
         if (shadows.empty()) {
@@ -230,9 +273,10 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
         }
 
         std::vector<SheetMetal::WallEdge> edges;
-        std::vector<std::string> labels;
+        std::vector<std::string> labels, refs;
         for (const auto& shadow : shadows) {
             const std::string& ref = shadow.first.empty() ? shadow.second : shadow.first;
+            refs.push_back(ref);
             edges.push_back(SheetMetal::wallEdge(base, model, ref, shadow.second));
             labels.push_back(shadow.second);
             for (std::size_t i = 0; i + 1 < edges.size(); ++i) {
@@ -250,7 +294,10 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
         }
 
         std::vector<TopoShape> pieces, cuts;
+        // what each edge makes goes by the edge (storeModel())
+        std::vector<std::pair<std::size_t, std::string>> starts;
         for (std::size_t k = 0; k < edges.size(); ++k) {
+            starts.emplace_back(model.elements.size(), refs[k]);
             const SheetMetal::WallEdge& edge = edges[k];
             // folding toward up, its inner skin the one facing that way
             gp_Dir up = edge.skinOut;
@@ -279,22 +326,25 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
                 bendStart = edgeStart.Translated(-e * (R + T));
                 cuts.push_back(TopoShape(0, hasher).makEPrism(
                     SheetMetal::wallSection(bendStart, edge.endOut, R + T, up.Reversed(), T,
-                                            bendName + "Cut"),
+                                            ownNamed(bendName) + "Cut"),
                     along));
-                // Where the hem stops inside the wall's end, the rule's bend
-                // relief beside the fold, as a flange's (sec 5.2)
+                // Where the hem stops inside the wall's end, the bend relief
+                // beside the fold, as a flange's (sec 5.2): the hem's own,
+                // or the rule's
+                const bool ownRelief = ReliefShape.getValue() != 0;
                 SheetMetal::Relief relief;
-                relief.shape =
-                    static_cast<SheetMetal::Relief::Shape>(rule->ReliefShape.getValue());
-                relief.width = rule->ReliefWidth.getValue();
-                relief.depth = R + T + rule->ReliefDepth.getValue();
+                relief.shape = static_cast<SheetMetal::Relief::Shape>(
+                    ownRelief ? ReliefShape.getValue() - 1 : rule->ReliefShape.getValue());
+                relief.width = ownRelief ? ReliefWidth.getValue() : rule->ReliefWidth.getValue();
+                relief.depth = R + T
+                    + (ownRelief ? ReliefDepth.getValue() : rule->ReliefDepth.getValue());
                 if (relief.shape == SheetMetal::Relief::Shape::Slit) {
                     relief.width = rule->Gap.getValue();
                     relief.depth = R + T;
                 }
                 for (TopoShape& cut : SheetMetal::reliefCuts(relief, inner, edge.along,
                                                              edge.endOut, up, T, gap1, width,
-                                                             gap2, bendName + "Relief", hasher)) {
+                                                             gap2, ownNamed(bendName) + "Relief", hasher)) {
                     cuts.push_back(std::move(cut));
                 }
             }
@@ -330,10 +380,10 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             }
 
             pieces.push_back(TopoShape(0, hasher).makEPrism(
-                SheetMetal::bendSection(bend, bendName), along));
+                SheetMetal::bendSection(bend, ownNamed(bendName)), along));
             if (leg > Precision::Confusion()) {
                 pieces.push_back(TopoShape(0, hasher).makEPrism(
-                    SheetMetal::wallSection(legStart, legAlong, leg, x2, T, legName), along));
+                    SheetMetal::wallSection(legStart, legAlong, leg, x2, T, ownNamed(legName)), along));
             }
         }
 
@@ -342,7 +392,7 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             for (const TopoShape& cut : cuts) {
                 SheetMetal::storePCurves(cut);
             }
-            base = getSolid(SheetMetal::cutDroppingScrap(base, cuts, pieces, hasher));
+            base = getSolid(SheetMetal::cutDroppingScrap(base, cuts, pieces, hasher, getID()));
         }
         TopoShape tool = pieces.size() == 1 ? pieces.front()
                                              : TopoShape(0, hasher).makEFuse(pieces);
@@ -354,8 +404,7 @@ App::DocumentObjectExecReturn* SheetMetalHem::execute()
             return App::DocumentObject::StdReturn;
         }
         Shape.setValue(makeBoolean(base, tool, true));
-        applyBendOverrides(model);
-        SheetModel.setValue(model);
+        storeModel(model, false, edgeKeys(model, starts));
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

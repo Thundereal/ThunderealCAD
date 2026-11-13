@@ -26547,3 +26547,116 @@ whether the freed memory is reused before that walk. `Fillet::onChanged` no
 longer relinks while the fillet is being removed (`App::Remove`). The test now
 also asserts the FeatureBase's InList is the body's two links: that fails on
 the old build every time, with the freeze on or off.
+
+### 39.5 What an object counts (2026-11-11)
+
+Asked for sheet metal (docs/SheetMetal.md sec 12): a body numbers its walls
+and its bends, each number kept by the feature that made the wall or bend,
+and no number may be given twice -- a deletion taken back out of order
+(24.4) would bring back a name another has taken since. A count in a
+property would go back with an undo; it is file-scope state, as the last
+geometry id of 27.45 is, but an object may keep more than one.
+
+Ruled: a table of its own, by object and kind, not a second row of
+`lastgeoid` under another key; and no new layout version nor a migrate step
+for it, nothing being released.
+
+- `FileHistory`: `nextObjectCount(id, kind, floor)`, `noteObjectCount`,
+  `objectCounts()` -- a map (object id, kind) -> the last number given. The
+  next is one above the larger of the entry and `floor`, the largest number
+  the object holds, so an object the file does not know starts above what
+  it has. `kind` is 0, 1, ... as the object's class has them: a body's
+  sheet metal walls and bends.
+- `Document::nextObjectCount(obj, kind, floor)`: the history's when the
+  document has one, else the document's own map (`DocumentP::objectCounts`),
+  handed over when the history comes (`_noteObjectsInHistory`), as the
+  geometry ids are.
+- The store: table `objcount(cid, kind, last)`, key (cid, kind);
+  `objectCounts()`, `addObjectCounts()` (a row is raised, never lowered),
+  read when the store is opened and written by `embed` beside
+  `lastgeoid`. `StoreVersion` stays 4: a store written before gets the table
+  when opened to be written (`setUp()` makes every table that is missing),
+  and one read as it is, the embedded copy, reads as having no counts.
+- Compaction (27.47) forgets the counts of an object nothing refers to, with
+  its name and its last geometry id (`forgetObjects`, `removeObjectState`).
+  The estimate of 27.48 does not count them.
+
+Tests: gtest `aStoreKeepsWhatAnObjectCounts`, `aFileCountsForItsObjects`;
+sheet metal's `TestSheetMetalNames` -- deleted and made again; made, undone
+and made again; deleted, saved, reopened and made again; deleted, another
+made, and the deletion undone from the log with "skip".
+
+### 39.6 A step that changed nothing, and a step's recompute whole (2026-11-11)
+
+Found by `GuiPdEditTwoViews`, whose claim "what is typed into a primitive's
+box is one step" failed in some runs and not in others: the undo list was
+as long after the step as before. Two causes, both ruled to be fixed ("drop
+the empty steps. and find way to handle the speed dependency problem").
+
+**An empty step.** The fillet's "OK, recompute" step had nothing in it and
+so no row. Past the hot window (24.3) a step with a row becomes a cold
+stub; one without is deleted, so it went from the middle of the list as a
+later commit pushed it out -- the commit of the box's step, in that run.
+Now a step with nothing in it (`isEmpty()`) is no undo step:
+`_commitTransaction()` drops it as it drops a step folded into another (37.4
+P4) -- unless another document has a step of the same id, which it lists:
+a click in this document's view that changed only another is undone from
+here (docs/MultiViewEdit.md sec 12.2 rule 4; `GuiXdocUndoPair`).
+
+Not a step the log wrote no row for because every write put back what was
+there (`Transaction::Unchanged`, acdbf77beb), as first built: the gate
+found two whose change the log does not record at all -- an object frozen
+(`DocumentRecomputeCases.testFreezeUndoRedo`) and a material taken again
+from its library (`TestMaterialSync.testUpdateFromLibraryUndoes`). Their
+hot undo works from the in-memory copies; the log has no op for them, so a
+cold undo, a replay or a version does not have them. Left, and told.
+
+**OK's step left empty.** `TaskDlgFeatureParameters::accept()` opens OK's
+step (`beginAcceptStep()`), ends the edit, then recomputes. Ending the
+document's last edit closes its step (Gui `_resetEditSession`), so the step
+was committed empty and the recompute's writes went into an implicit step.
+The three accepts that do this -- feature, sweep, Boolean -- now hold a
+`TransactionLocker` from the edit's end through the recompute: the close
+the edit's end asks is made as the lock ends. That needed a fix of the
+locker, which had never worked since it was added (c4be6c8b23, 2020):
+`closeActiveTransaction()` under it wrote the pending close into the lock
+count (`_TransactionLock = abort?-1:1`, for `_TransactionClosed`), so a
+close asked under it was lost, and an abort left the count at -2: locked
+for good.
+
+**The speed.** A recompute longer than 500 ms pumps the event loop (the
+progress bar's `checkAbort()`), and a panel's step closer queued there
+(`TaskFeatureParameters::closeStep()`, a single-shot timer) ran inside the
+recompute it was waiting for: the step was committed with part of the
+recompute's writes, the rest went into an implicit step. Pinned to one core
+(`taskset -c 0`) the two-views run made three such steps more than at full
+speed (59 rows to 56), and an undo named after them, "Undo Edit Boolean,
+<implicit recompute>". Now:
+
+- `_commitTransaction()` of a document that recomputes, of a step that is
+  not implicit, holds the commit (`DocumentP::commitHeld`); `recompute()`
+  makes it as it ends, after `Recomputing` is off (`_commitHeld()`, from a
+  guard declared before the status locker). Writes made meanwhile are the
+  step's; the recompute's record follows its row, as when the step is open
+  through the recompute (27.59).
+- `Application::commitImplicitTransactions()`, the Gui's implicit closer,
+  leaves a recomputing document's implicit step: the recompute commits it
+  as it ends.
+- An undo of several rows (33.13) is named for the user's rows only, an
+  implicit one being no step of its own (33.4).
+
+Left: an OK with nothing changed still remakes the feature and what follows
+it, to the same shapes, and the log records those writes, each op's value
+the one it had: a step with its row, named "OK, recompute". The hot window
+counts implicit steps as steps with the log on (without it, only the
+user's), and a step with no row that is not empty -- the frozen object's,
+the material's above -- is still deleted, not made cold, as it passes the
+window: such a step still goes from the middle of the list, and which
+commit takes it still depends on how many implicit steps there are.
+
+Tests: `StepCommitCases` in `src/Mod/Test/Document.py` (3: nothing opened,
+a commit asked from inside a recompute, the undo's name; 1 of 3 before); `tests/gui/pd-ok-step.py` (4; 3 before); the two-views
+check counts steps by id (`edcafe4fad`), and `edit-group-undo.py` picks the
+step by name, OK's step being there only when it changed something;
+`serve_pd_multi_user.py` takes one step for one undo where her OK, without
+the preview, had nothing left to make.

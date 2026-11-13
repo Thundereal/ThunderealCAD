@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 # A bend's own K (docs/SheetMetal.md sec 4.6, ruled 2026-11-05): kept on the
-# feature that made the bend, in BendKFactors, keyed by the feature's own
-# bends counted in the order it makes them -- so the key holds while bends are
-# added earlier in the sheet and the bend's name moves on. Collected and
-# edited in Check Sheet's bend table, where its source reads "bend". It
+# feature that made the bend, in BendKFactors, keyed by the bend's number, 2
+# for Bend2, which the bend keeps whatever is added earlier in the sheet (by
+# its place among the feature's own until 2026-11-11, when a bend's name
+# moved on). Collected and edited in Check Sheet's bend table, where its
+# source reads "bend". It
 # changes that bend's flat and nothing else.
 #
 # On a plate 40 x 20, 1 thick, a flange 10 high (outer sharp) on its far edge
@@ -18,6 +19,7 @@ import FreeCAD
 import Part
 import PartDesign
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import flatObject
 
 V = FreeCAD.Vector
@@ -40,7 +42,7 @@ class TestSheetMetalBendOverride(unittest.TestCase):
         self.Doc.recompute()
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def edge(self, feature, a, b):
         for i, e in enumerate(feature.Shape.Edges):
@@ -87,7 +89,7 @@ class TestSheetMetalBendOverride(unittest.TestCase):
         second.setBendKFactor("Bend2", 0.3)
         self.Doc.recompute()
         self.assertNotIn("Invalid", second.State)
-        self.assertEqual(second.BendKFactors, {"1": "0.3"})
+        self.assertEqual(second.BendKFactors, {"2": "0.3"})
         self.assertAlmostEqual(second.bendKFactor("Bend2"), 0.3, places=12)
         self.assertIsNone(second.bendKFactor("Bend1"))
 
@@ -126,9 +128,9 @@ class TestSheetMetalBendOverride(unittest.TestCase):
         self.assertEqual(table["Bend1"]["Feature"], first.Name)
 
     def testKeyHoldsWhenEarlierBendsAreAdded(self):
-        """The near flange's bend is renamed Bend3 when the far flange takes
-        the left edge too (gaps at its ends, the near edge left whole); its K
-        goes with it"""
+        """The near flange's bend is Bend2 still when the far flange takes
+        the left edge too (gaps at its ends, the near edge left whole), that
+        edge's bend the body's next, Bend3; its K stays with it"""
         first, second = self.twoFlanges()
         second.setBendKFactor("Bend2", 0.3)
         self.Doc.recompute()
@@ -142,9 +144,13 @@ class TestSheetMetalBendOverride(unittest.TestCase):
         self.assertEqual(len(table), 3)
         mine = [b for b in table.values() if b["Feature"] == second.Name]
         self.assertEqual(len(mine), 1)
-        self.assertEqual(mine[0]["Name"], "Bend3")
+        self.assertEqual(mine[0]["Name"], "Bend2")
         self.assertAlmostEqual(mine[0]["KFactor"], 0.3, places=9)
         self.assertEqual(mine[0]["KFactorSource"], "bend")
+        self.assertEqual(
+            sorted(b["Name"] for b in table.values() if b["Feature"] == first.Name),
+            ["Bend1", "Bend3"],
+        )
         for b in table.values():
             if b["Feature"] == first.Name:
                 self.assertEqual(b["KFactorSource"], "rule")
@@ -189,12 +195,12 @@ class TestSheetMetalBendOverride(unittest.TestCase):
 
     def testBadValueSetByHand(self):
         """The map set by hand: a value that is no K fails the recompute; a
-        key past the feature's bends is kept and changes nothing"""
+        key that is no bend of the feature's is kept and changes nothing"""
         first, second = self.twoFlanges()
-        second.BendKFactors = {"1": "soft"}
+        second.BendKFactors = {"2": "soft"}
         self.Doc.recompute()
         self.assertIn("Invalid", second.State)
-        second.BendKFactors = {"1": "2"}
+        second.BendKFactors = {"2": "2"}
         self.Doc.recompute()
         self.assertIn("Invalid", second.State)
         second.BendKFactors = {"5": "0.3"}

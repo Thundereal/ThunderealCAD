@@ -24,6 +24,7 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <cctype>
 #include <limits>
 #include <map>
 
@@ -108,6 +109,17 @@ int Model::addBend(const std::string& name, const CylBend& bend, int before, int
     return static_cast<int>(elements.size()) - 1;
 }
 
+int Model::addCone(const std::string& name, const ConeBend& cone)
+{
+    Element element;
+    element.kind = Element::Kind::Cone;
+    element.name = name;
+    element.cone = cone;
+    element.frame = cone.startFrame();
+    elements.push_back(element);
+    return static_cast<int>(elements.size()) - 1;
+}
+
 int Model::find(const std::string& name) const
 {
     for (std::size_t i = 0; i < elements.size(); ++i) {
@@ -118,11 +130,43 @@ int Model::find(const std::string& name) const
     return -1;
 }
 
+int PartDesign::SheetMetal::numberOf(const std::string& name, const std::string& prefix)
+{
+    if (name.size() <= prefix.size() || name.size() > prefix.size() + 9
+        || name.compare(0, prefix.size(), prefix) != 0
+        || !std::all_of(name.begin() + prefix.size(), name.end(), [](unsigned char c) {
+               return std::isdigit(c) != 0;
+           })) {
+        return 0;
+    }
+    return std::stoi(name.substr(prefix.size()));
+}
+
+void Model::numbers(int& walls, int& bends) const
+{
+    walls = bends = 0;
+    for (const Element& element : elements) {
+        walls = std::max(walls, numberOf(element.name, "Wall"));
+        bends = std::max(bends, numberOf(element.name, "Bend"));
+    }
+}
+
 void Model::checkIndex(int index) const
 {
     if (index < 0 || index >= static_cast<int>(elements.size())) {
         FC_THROWM(Base::IndexError, "Sheet metal: no element " << index);
     }
+}
+
+gp_Pnt PartDesign::SheetMetal::rimPoint(const CylBend& bend, const gp_Pnt& point)
+{
+    // CylBend::toFlat() with the neutral fibre at the inner skin, so a
+    // K the bend is given later leaves it
+    CylBend skin = bend;
+    skin.k = 0;
+    const gp_Pnt flat = skin.toFlat(point);
+    const gp_Vec x(bend.frame.XDirection());
+    return flat.Translated(x * (bend.radius - gp_Vec(bend.frame.Location(), flat).Dot(x)));
 }
 
 bool Model::contains(int index, const gp_Pnt& point, double tol) const
@@ -135,7 +179,21 @@ bool Model::contains(int index, const gp_Pnt& point, double tol) const
         }
     }
     if (element.kind == Element::Kind::Bend) {
-        return element.bend.contains(point, tol);
+        if (!element.bend.contains(point, tol)) {
+            return false;
+        }
+        if (!element.rims.empty()) {
+            const gp_Pnt unrolled = rimPoint(element.bend, point);
+            for (const gp_Pln& rim : element.rims) {
+                if (gp_Vec(rim.Location(), unrolled).Dot(gp_Vec(rim.Axis().Direction())) > tol) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+    if (element.kind == Element::Kind::Cone) {
+        return element.cone.contains(point, tol);
     }
     const double depth =
         gp_Vec(element.frame.Location(), point).Dot(gp_Vec(element.frame.Direction()));
@@ -162,7 +220,7 @@ bool Model::contains(int index, const gp_Pnt& point, double tol) const
 
 int Model::owner(const gp_Pnt& point, double tol) const
 {
-    for (auto kind : {Element::Kind::Bend, Element::Kind::Wall}) {
+    for (auto kind : {Element::Kind::Bend, Element::Kind::Cone, Element::Kind::Wall}) {
         for (std::size_t i = 0; i < elements.size(); ++i) {
             if (elements[i].kind == kind && contains(static_cast<int>(i), point, tol)) {
                 return static_cast<int>(i);
@@ -205,11 +263,66 @@ bool interiorPoint(const TopoDS_Face& face, gp_Pnt& point)
 
 }  // namespace
 
+bool Form::contains(const gp_Pnt& point, double tol) const
+{
+    const gp_Vec v(frame.Location(), point);
+    const double x = v.Dot(gp_Vec(frame.XDirection()));
+    const double y = v.Dot(gp_Vec(frame.YDirection()));
+    const double z = v.Dot(gp_Vec(frame.Direction()));
+    if (z < zMin - tol || z > zMax + tol) {
+        return false;
+    }
+    if (halfWidth <= 0) {
+        return x * x + y * y <= (halfLength + tol) * (halfLength + tol);
+    }
+    return std::abs(x) <= halfLength + tol && std::abs(y) <= halfWidth + tol;
+}
+
+int Model::formOf(const TopoDS_Face& face, double tol) const
+{
+    if (forms.empty() || face.IsNull()) {
+        return -1;
+    }
+    gp_Pnt point;
+    if (!interiorPoint(face, point)) {
+        return -1;
+    }
+    for (std::size_t i = 0; i < forms.size(); ++i) {
+        const Form& form = forms[i];
+        if (!form.contains(point, tol)) {
+            continue;
+        }
+        bool whole = true;
+        for (TopExp_Explorer it(face, TopAbs_VERTEX); it.More() && whole; it.Next()) {
+            const TopoDS_Vertex& v = TopoDS::Vertex(it.Current());
+            whole = form.contains(BRep_Tool::Pnt(v), tol + BRep_Tool::Tolerance(v));
+        }
+        if (whole) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int Model::findForm(const std::string& name) const
+{
+    for (std::size_t i = 0; i < forms.size(); ++i) {
+        if (forms[i].name == name) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 int Model::owner(const TopoDS_Face& face, double tol) const
 {
     gp_Pnt point;
     if (face.IsNull() || !interiorPoint(face, point)) {
         return -1;
+    }
+    // a form's face rises out of its wall's slab: it is the form's wall's
+    if (const int form = formOf(face); form >= 0) {
+        return forms[form].wall;
     }
     // A wall's slab runs on in its plane past where the wall is, so a point
     // of another element's face can lie in it -- a flange's leg running down
@@ -228,8 +341,24 @@ int Model::owner(const TopoDS_Face& face, double tol) const
         }
         return true;
     };
+    // How far inside its limits the point is. A wall's limits are planes (a
+    // miter's, a rip's) and the region they leave is open: two legs mitered
+    // at both ends meet across the part, and past where their planes cross
+    // each holds what is the other's -- a lip's end face on one leg, at the
+    // crossing, was the opposite lip's, and the flat did not close
+    // (2026-11-06). Of the walls the face fits, the one it is deepest in.
+    auto margin = [&](const Element& element) {
+        double res = std::numeric_limits<double>::max();
+        for (const gp_Pln& limit : element.limits) {
+            res = std::min(res,
+                           -gp_Vec(limit.Location(), point).Dot(gp_Vec(limit.Axis().Direction())));
+        }
+        return res;
+    };
     int first = -1;
-    for (auto kind : {Element::Kind::Bend, Element::Kind::Wall}) {
+    int best = -1;
+    double deepest = -std::numeric_limits<double>::max();
+    for (auto kind : {Element::Kind::Bend, Element::Kind::Cone, Element::Kind::Wall}) {
         for (std::size_t i = 0; i < elements.size(); ++i) {
             const Element& element = elements[i];
             if (element.kind != kind || !contains(static_cast<int>(i), point, tol)) {
@@ -238,13 +367,21 @@ int Model::owner(const TopoDS_Face& face, double tol) const
             if (first < 0) {
                 first = static_cast<int>(i);
             }
-            if (kind == Element::Kind::Bend || within(element.frame)) {
+            if (kind != Element::Kind::Wall) {
                 return static_cast<int>(i);
+            }
+            if (!within(element.frame)) {
+                continue;
+            }
+            const double depth = margin(element);
+            if (depth > deepest + Precision::Confusion()) {
+                best = static_cast<int>(i);
+                deepest = depth;
             }
         }
     }
     // none it fits: as before, the first that holds it
-    return first;
+    return best >= 0 ? best : first;
 }
 
 void Model::transform(const gp_Trsf& trsf)
@@ -252,9 +389,16 @@ void Model::transform(const gp_Trsf& trsf)
     for (Element& element : elements) {
         element.frame.Transform(trsf);
         element.bend.frame.Transform(trsf);
+        element.cone.frame.Transform(trsf);
         for (gp_Pln& limit : element.limits) {
             limit.Transform(trsf);
         }
+        for (gp_Pln& rim : element.rims) {
+            rim.Transform(trsf);
+        }
+    }
+    for (Form& form : forms) {
+        form.frame.Transform(trsf);
     }
 }
 
@@ -281,6 +425,18 @@ void Model::remove(int index)
         }
         if (bend.after > index) {
             --bend.after;
+        }
+    }
+    // a removed wall's forms go with it
+    forms.erase(std::remove_if(forms.begin(),
+                               forms.end(),
+                               [index](const Form& form) {
+                                   return form.wall == index;
+                               }),
+                forms.end());
+    for (Form& form : forms) {
+        if (form.wall > index) {
+            --form.wall;
         }
     }
 }
@@ -356,8 +512,9 @@ gp_Trsf Model::placement(int index, int root) const
 {
     checkIndex(index);
     checkIndex(root);
-    if (elements[root].kind != Element::Kind::Wall) {
-        FC_THROWM(Base::ValueError, "Sheet metal: the flat's root " << root << " is not a wall");
+    if (elements[root].kind == Element::Kind::Bend) {
+        FC_THROWM(Base::ValueError,
+                  "Sheet metal: the flat's root " << root << " is not a wall or a cone");
     }
     // a bend moves with the wall it starts from
     const int wall = elements[index].kind == Element::Kind::Bend ? elements[index].before : index;
@@ -395,6 +552,9 @@ gp_Pnt Model::toFlat(int index, const gp_Pnt& point, int root) const
     const gp_Trsf move = placement(index, root);
     if (elements[index].kind == Element::Kind::Bend) {
         return elements[index].bend.toFlat(point).Transformed(move);
+    }
+    if (elements[index].kind == Element::Kind::Cone) {
+        return elements[index].cone.toFlat(point).Transformed(move);
     }
     return point.Transformed(move);
 }

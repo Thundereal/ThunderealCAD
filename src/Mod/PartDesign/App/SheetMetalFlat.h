@@ -59,6 +59,8 @@ struct PartDesignExport FlatSettings
     bool grain = false;
     /// The grain's direction from the flat's X, deg
     double grainAngle = 0;
+    /// How its forms are shown (ruled 2026-11-06: Outline first)
+    SheetMetal::FormDisplay formDisplay = SheetMetal::FormDisplay::Outline;
 
     bool operator==(const FlatSettings&) const = default;
 };

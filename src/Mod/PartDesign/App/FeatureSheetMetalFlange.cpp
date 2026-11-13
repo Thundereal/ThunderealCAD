@@ -446,10 +446,15 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             return new App::DocumentObjectExecReturn(
                 QT_TRANSLATE_NOOP("Exception", "A flange builds on a sheet metal feature"));
         }
+        // numbered on from the highest the sheet has (storeModel() gives
+        // each the number it keeps)
         int walls = 0, bends = 0;
-        for (const Element& e : model.elements) {
-            ++(e.kind == Element::Kind::Wall ? walls : bends);
-        }
+        model.numbers(walls, bends);
+        // its pieces' faces are named by its own count (ownName())
+        const int wallsBefore = walls, bendsBefore = bends;
+        auto ownNamed = [&](const std::string& name) {
+            return SheetMetal::ownName(name, wallsBefore, bendsBefore);
+        };
 
         // In place, as a pad of the current version is (shouldApplyPlacement())
         TopoShape base = getBaseShape();
@@ -578,10 +583,13 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             std::vector<int> elements;
         };
         std::vector<Side> sides;
+        // what each edge makes goes by the edge (storeModel())
+        std::vector<std::pair<std::size_t, std::string>> starts;
         for (const auto& shadow : shadows) {
             std::size_t first = pieces.size();
             const std::size_t firstCut = cuts.size();
             const std::string& ref = shadow.first.empty() ? shadow.second : shadow.first;
+            starts.emplace_back(model.elements.size(), ref);
             const SheetMetal::WallEdge edge = SheetMetal::wallEdge(base, model, ref, shadow.second);
             const gp_Pnt p0 = edge.p0, p1 = edge.p1;
             const gp_Dir d = edge.along, endOut = edge.endOut;
@@ -725,6 +733,38 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             const gp_Pnt edgeStart = inner.Translated(gp_Vec(d) * gap1);
             // the edge's length left beyond the flange at its last vertex
             const double gap2 = p0.Distance(p1) - gap1 - width;
+            // The wall ending on a plane through an end of the edge, slanted
+            // across the sheet (a miter's, below), the edge on the skin where
+            // the wall is the shorter: its other skin runs on past that end.
+            // What the flange adds and cuts runs on as far, to be stopped at
+            // the plane below, so the bend takes the wall's whole end
+            // (2026-11-06: a lip bent in from a mitered leg's inner edge left
+            // the leg's end standing beside its bend, sharp, to the top, and
+            // the part did not lie flat). A hat's lip, from the outer edge,
+            // has none.
+            double runOn[2] = {0, 0};
+            if (profile.isNull() && !contour()) {
+                for (const gp_Pln& limit : model.elements[wall].limits) {
+                    const gp_Vec n(limit.Axis().Direction());
+                    for (int k = 0; k < 2; ++k) {
+                        const double across = (k ? gp_Vec(d) : -gp_Vec(d)).Dot(n);
+                        if (meets[k] >= 0 || (k ? gap2 : gap1) > Precision::Confusion()
+                            || across < Precision::Angular()) {
+                            continue;
+                        }
+                        const double past = gp_Vec(limit.Location(), k ? p1 : p0).Dot(n);
+                        if (past > Precision::Confusion()
+                            || past < -(rule->Gap.getValue() / 2 + Precision::Confusion())) {
+                            continue;
+                        }
+                        // where the other skin, T in from the edge's, meets
+                        // the plane through the end
+                        runOn[k] = std::max(runOn[k], T * gp_Vec(edge.skinOut).Dot(n) / across);
+                    }
+                }
+            }
+            const gp_Vec pieceAlong = gp_Vec(d) * (width + runOn[0] + runOn[1]);
+            const gp_Pnt pieceStart = edgeStart.Translated(-gp_Vec(d) * runOn[0]);
 
             int bendIndex = -1, legWall = -1;
             std::vector<int> elements;
@@ -810,11 +850,17 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 bendIndex = model.addBend(bendName, bend, wall, legWall);
                 elements = {bendIndex, legWall};
 
+                // from where the pieces start, run on past the edge's end
+                CylBend from = bend;
+                from.frame.Translate(gp_Vec(edgeStart, pieceStart));
                 pieces.push_back(TopoShape(0, hasher).makEPrism(
-                    SheetMetal::bendSection(bend, bendName), along));
+                    SheetMetal::bendSection(from, ownNamed(bendName)), pieceAlong));
                 if (shape.faces.empty()) {
                     pieces.push_back(TopoShape(0, hasher).makEPrism(
-                        SheetMetal::wallSection(legStart, legAlong, leg, x2, T, legName), along));
+                        SheetMetal::wallSection(
+                            legStart.Translated(gp_Vec(edgeStart, pieceStart)), legAlong, leg,
+                            x2, T, ownNamed(legName)),
+                        pieceAlong));
                 }
                 for (const TopoShape& face : shape.faces) {
                     // from the outer skin in
@@ -833,16 +879,17 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             if (setback < -Precision::Confusion()) {
                 // the wall carried on to where the bend starts
                 pieces.push_back(TopoShape(0, hasher).makEPrism(
-                    SheetMetal::wallSection(edgeStart, endOut, -setback, up.Reversed(), T,
-                                            bendName + "Ext"),
-                    along));
+                    SheetMetal::wallSection(pieceStart, endOut, -setback, up.Reversed(), T,
+                                            ownNamed(bendName) + "Ext"),
+                    pieceAlong));
             }
             else if (setback > Precision::Confusion()) {
                 // the wall cut back under the flange to where the bend starts
                 cuts.push_back(TopoShape(0, hasher).makEPrism(
-                    SheetMetal::wallSection(cutStart.Translated(-e * setback), endOut, setback,
-                                            up.Reversed(), T, bendName + "Cut"),
-                    cutAlong));
+                    SheetMetal::wallSection(
+                        cutStart.Translated(gp_Vec(edgeStart, pieceStart) - e * setback), endOut,
+                        setback, up.Reversed(), T, ownNamed(bendName) + "Cut"),
+                    cutAlong + gp_Vec(d) * (runOn[0] + runOn[1])));
                 // Where the flange ends inside the wall's end, the wall left
                 // beside it meets the bend's side face to face, and only a
                 // relief parts them for the flat: beside the bend, from the
@@ -865,7 +912,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
                 relief.width = reliefWidth;
                 relief.depth = depth;
                 for (TopoShape& cut : SheetMetal::reliefCuts(relief, inner, d, endOut, up, T, gap1,
-                                                             width, gap2, bendName + "Relief",
+                                                             width, gap2, ownNamed(bendName) + "Relief",
                                                              hasher)) {
                     cuts.push_back(std::move(cut));
                 }
@@ -1077,7 +1124,7 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             for (const TopoShape& cut : cuts) {
                 SheetMetal::storePCurves(cut);
             }
-            base = getSolid(SheetMetal::cutDroppingScrap(base, cuts, pieces, hasher));
+            base = getSolid(SheetMetal::cutDroppingScrap(base, cuts, pieces, hasher, getID()));
         }
         TopoShape tool = pieces.size() == 1 ? pieces.front()
                                              : TopoShape(0, hasher).makEFuse(pieces);
@@ -1108,11 +1155,10 @@ App::DocumentObjectExecReturn* SheetMetalFlange::execute()
             rule->CornerReliefCover.getValue());
         if (!reliefs.empty()) {
             result = getSolid(TopoShape(0, hasher).makEBoolean(
-                Part::OpCodes::Cut, {result, TopoShape().makECompound(reliefs)}));
+                Part::OpCodes::Cut, {result, SheetMetal::toolOf(getID(), reliefs)}));
         }
         Shape.setValue(result);
-        applyBendOverrides(model);
-        SheetModel.setValue(model);
+        storeModel(model, false, edgeKeys(model, starts));
         if (Notice.getStrValue() != notice) {
             Notice.setValue(notice);
         }

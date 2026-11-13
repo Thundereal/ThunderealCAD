@@ -147,6 +147,16 @@ PyObject* PropertySheetModel::getPyObject()
                 d.setItem("CrossBreak", Py::Float(e.crossBreak / degree));
             }
         }
+        else if (e.kind == Element::Kind::Cone) {
+            d.setItem("Kind", Py::String("Cone"));
+            d.setItem("Radius", Py::Float(e.cone.radius));
+            d.setItem("SemiAngle", Py::Float(e.cone.semiAngle / degree));
+            d.setItem("Angle", Py::Float(e.cone.angle / degree));
+            d.setItem("KFactor", Py::Float(e.cone.k));
+            d.setItem("Center", vector(e.cone.frame.Location().XYZ()));
+            d.setItem("Axis", vector(e.cone.frame.Direction().XYZ()));
+            d.setItem("XDirection", vector(e.cone.frame.XDirection().XYZ()));
+        }
         else {
             d.setItem("Kind", Py::String("Bend"));
             d.setItem("Radius", Py::Float(e.bend.radius));
@@ -165,11 +175,38 @@ PyObject* PropertySheetModel::getPyObject()
             }
             d.setItem("Limits", limits);
         }
+        if (!e.rims.empty()) {
+            Py::List rims;
+            for (const gp_Pln& plane : e.rims) {
+                rims.append(Py::TupleN(vector(plane.Location().XYZ()),
+                                       vector(plane.Axis().Direction().XYZ())));
+            }
+            d.setItem("Rims", rims);
+        }
         elements.append(d);
     }
     Py::Dict res;
     res.setItem("Thickness", Py::Float(model.thickness));
     res.setItem("Elements", elements);
+    // only where there are any, as a cross break is
+    if (!model.forms.empty()) {
+        Py::List forms;
+        for (const SheetMetal::Form& f : model.forms) {
+            Py::Dict d;
+            d.setItem("Name", Py::String(f.name));
+            d.setItem("Wall", Py::String(model.elements[f.wall].name));
+            d.setItem("Center", vector(f.frame.Location().XYZ()));
+            d.setItem("Normal", vector(f.frame.Direction().XYZ()));
+            d.setItem("XDirection", vector(f.frame.XDirection().XYZ()));
+            d.setItem("Size",
+                      Py::TupleN(Py::Float(f.halfLength),
+                                 Py::Float(f.halfWidth),
+                                 Py::Float(f.zMin),
+                                 Py::Float(f.zMax)));
+            forms.append(d);
+        }
+        res.setItem("Forms", forms);
+    }
     return Py::new_reference_to(res);
 }
 
@@ -181,7 +218,12 @@ void PropertySheetModel::setPyObject(PyObject* /*value*/)
 void PropertySheetModel::Save(Base::Writer& writer) const
 {
     writer.Stream() << writer.ind() << "<SheetModel thickness=\"" << std::setprecision(17)
-                    << model.thickness << "\" count=\"" << model.elements.size() << "\">\n";
+                    << model.thickness << "\" count=\"" << model.elements.size() << "\"";
+    // only where there are any, so a file without reads as before
+    if (!model.forms.empty()) {
+        writer.Stream() << " forms=\"" << model.forms.size() << "\"";
+    }
+    writer.Stream() << ">\n";
     writer.incInd();
     for (const Element& e : model.elements) {
         writer.Stream() << writer.ind();
@@ -191,6 +233,13 @@ void PropertySheetModel::Save(Base::Writer& writer) const
             if (e.crossBreak != 0) {
                 writer.Stream() << " crossBreak=\"" << e.crossBreak << "\"";
             }
+        }
+        else if (e.kind == Element::Kind::Cone) {
+            writer.Stream() << "<Cone name=\"" << encodeAttribute(e.name) << "\" frame=\""
+                            << frameText(e.cone.frame) << "\" radius=\"" << e.cone.radius
+                            << "\" semiAngle=\"" << e.cone.semiAngle << "\" thickness=\""
+                            << e.cone.thickness << "\" angle=\"" << e.cone.angle << "\" k=\""
+                            << e.cone.k << "\"";
         }
         else {
             writer.Stream() << "<Bend name=\"" << encodeAttribute(e.name) << "\" frame=\""
@@ -203,7 +252,16 @@ void PropertySheetModel::Save(Base::Writer& writer) const
         if (!e.limits.empty()) {
             writer.Stream() << " limits=\"" << limitsText(e.limits) << "\"";
         }
+        if (!e.rims.empty()) {
+            writer.Stream() << " rims=\"" << limitsText(e.rims) << "\"";
+        }
         writer.Stream() << "/>\n";
+    }
+    for (const SheetMetal::Form& f : model.forms) {
+        writer.Stream() << writer.ind() << "<Form name=\"" << encodeAttribute(f.name)
+                        << "\" wall=\"" << f.wall << "\" frame=\"" << frameText(f.frame)
+                        << "\" size=\"" << f.halfLength << " " << f.halfWidth << " " << f.zMin
+                        << " " << f.zMax << "\"/>\n";
     }
     writer.decInd();
     writer.Stream() << writer.ind() << "</SheetModel>\n";
@@ -215,6 +273,7 @@ void PropertySheetModel::Restore(Base::XMLReader& reader)
     SheetMetal::Model value;
     value.thickness = reader.getAttributeAsFloat("thickness");
     const long count = reader.getAttributeAsInteger("count");
+    const long formCount = reader.hasAttribute("forms") ? reader.getAttributeAsInteger("forms") : 0;
     for (long i = 0; i < count; ++i) {
         reader.readElement();
         const char* name = reader.getAttribute("name");
@@ -230,6 +289,17 @@ void PropertySheetModel::Restore(Base::XMLReader& reader)
             }
             continue;
         }
+        if (reader.localName() == std::string("Cone")) {
+            SheetMetal::ConeBend cone;
+            cone.frame = frameOf(reader.getAttribute("frame"));
+            cone.radius = reader.getAttributeAsFloat("radius");
+            cone.semiAngle = reader.getAttributeAsFloat("semiAngle");
+            cone.thickness = reader.getAttributeAsFloat("thickness");
+            cone.angle = reader.getAttributeAsFloat("angle");
+            cone.k = reader.getAttributeAsFloat("k");
+            value.elements[value.addCone(name, cone)].limits = limits;
+            continue;
+        }
         // A bend a fold or a jog carries starts from that feature's wall,
         // made after it: its walls are checked once all are read
         Element element;
@@ -243,7 +313,26 @@ void PropertySheetModel::Restore(Base::XMLReader& reader)
         element.before = static_cast<int>(reader.getAttributeAsInteger("before"));
         element.after = static_cast<int>(reader.getAttributeAsInteger("after"));
         element.limits = limits;
+        if (reader.hasAttribute("rims")) {
+            element.rims = limitsOf(reader.getAttribute("rims"));
+        }
         value.elements.push_back(element);
+    }
+    for (long i = 0; i < formCount; ++i) {
+        reader.readElement("Form");
+        SheetMetal::Form form;
+        form.name = reader.getAttribute("name");
+        form.wall = static_cast<int>(reader.getAttributeAsInteger("wall"));
+        form.frame = frameOf(reader.getAttribute("frame"));
+        std::istringstream size(reader.getAttribute("size"));
+        size >> form.halfLength >> form.halfWidth >> form.zMin >> form.zMax;
+        // a wall's, or a gusset's bend's
+        if (form.wall < 0 || form.wall >= static_cast<int>(value.elements.size())) {
+            FC_THROWM(Base::IndexError,
+                      "Sheet metal: " << form.name << " is on element " << form.wall
+                                      << ", which is no wall or bend");
+        }
+        value.forms.push_back(form);
     }
     reader.readEndElement("SheetModel");
     for (const Element& e : value.elements) {
@@ -295,7 +384,22 @@ bool PropertySheetModel::isSame(const Property& other) const
             || !sameFrame(a.frame, b.frame) || !sameFrame(a.bend.frame, b.bend.frame)
             || a.bend.radius != b.bend.radius || a.bend.thickness != b.bend.thickness
             || a.bend.angle != b.bend.angle || a.bend.k != b.bend.k
-            || !sameLimits(a.limits, b.limits) || a.crossBreak != b.crossBreak) {
+            || !sameLimits(a.limits, b.limits) || !sameLimits(a.rims, b.rims)
+            || a.crossBreak != b.crossBreak
+            || !sameFrame(a.cone.frame, b.cone.frame) || a.cone.radius != b.cone.radius
+            || a.cone.semiAngle != b.cone.semiAngle || a.cone.thickness != b.cone.thickness
+            || a.cone.angle != b.cone.angle || a.cone.k != b.cone.k) {
+            return false;
+        }
+    }
+    if (p->model.forms.size() != model.forms.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < model.forms.size(); ++i) {
+        const SheetMetal::Form &a = model.forms[i], &b = p->model.forms[i];
+        if (a.name != b.name || a.wall != b.wall || !sameFrame(a.frame, b.frame)
+            || a.halfLength != b.halfLength || a.halfWidth != b.halfWidth || a.zMin != b.zMin
+            || a.zMax != b.zMax) {
             return false;
         }
     }

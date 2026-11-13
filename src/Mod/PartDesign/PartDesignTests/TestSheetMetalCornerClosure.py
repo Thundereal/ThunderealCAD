@@ -17,6 +17,7 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
 V = FreeCAD.Vector
@@ -81,7 +82,7 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
         self.Body, (self.Far, self.Right) = build(self.Doc, (5, 5), (5, 5))
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def legEnd(self, feature, axis, at):
         """The face of a leg's end, across the leg at that coordinate"""
@@ -130,8 +131,8 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
     def testButt(self):
         """Butt, the default: the corner the two flanges make when the
         later one is mitered against the earlier (gaps at their far ends
-        only), but for the reliefs the gaps cut, which stay below where the
-        bends start, 1 x 1 each; the same flat"""
+        only) -- what the reliefs the gaps cut left below where the bends
+        start, 1 x 1 each, is filled; the same flat"""
         closure = self.close()
         self.assertEqual(closure.CornerType, "Butt")
         self.checkValid(closure)
@@ -144,8 +145,11 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
             size = flat.FlatLength.Value, flat.FlatWidth.Value
         finally:
             FreeCAD.closeDocument(doc.Name)
-        self.assertAlmostEqual(closure.Shape.Volume, volume - 2, places=6)
+        self.assertAlmostEqual(closure.Shape.Volume, volume, places=6)
         shape = closure.Shape
+        # where the reliefs reached below the bends' starts
+        self.assertTrue(shape.isInside(V(35.5, 17.5, 0.5), 1e-9, True))
+        self.assertTrue(shape.isInside(V(37.5, 15.5, 0.5), 1e-9, True))
         for x in (38.6, 39.0, 39.5, 39.96):
             self.assertFalse(shape.isInside(V(x, x - 20, 5), 1e-9, True), x)
         self.assertTrue(shape.isInside(V(38.5, 19.5, 5), 1e-9, True))
@@ -155,10 +159,10 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
         self.assertAlmostEqual(flat.FlatWidth.Value, size[1], places=6)
 
     # the plate left: 40 x 20, less y 18..20 from x 5 (the far flange's cut
-    # and the corner's), x 38..40 from y 5 to 18 (the right one's), the two
-    # reliefs at the far ends (3 each) and what the corner's leave below
-    # where the bends start (1 each)
-    PLATE = 800 - 35 * 2 - 13 * 2 - 2 * 3 - 2 * 1
+    # and the corner's), x 38..40 from y 5 to 18 (the right one's) and the
+    # two reliefs at the far ends (3 each); what the corner's reliefs left
+    # below where the bends start (1 each) is filled
+    PLATE = 800 - 35 * 2 - 13 * 2 - 2 * 3
 
     def testOverlap(self):
         """The far leg over the right one's end: the far bend and leg on to
@@ -221,7 +225,7 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
             self.checkValid(closure)
             self.assertAlmostEqual(
                 closure.Shape.Volume,
-                self.PLATE + 2 + 35 * (RING + 8) + 12.9 * RING + 13.9 * 8,
+                self.PLATE + 35 * (RING + 8) + 12.9 * RING + 13.9 * 8,
                 places=6,
             )
             doc.recompute()
@@ -230,6 +234,39 @@ class TestSheetMetalCornerClosure(unittest.TestCase):
             self.assertAlmostEqual(flat.Shape.Volume, closure.Shape.Volume, places=4)
         finally:
             FreeCAD.closeDocument(doc.Name)
+
+    def testFilledOwnRelief(self):
+        """The flanges' own reliefs, an obround 2 wide reaching 1.5 below
+        where the bend starts: filled as the rule's are"""
+        for flange in (self.Far, self.Right):
+            flange.ReliefShape = "Obround"
+            flange.ReliefWidth = 2
+            flange.ReliefDepth = 1.5
+        closure = self.close(CornerType="Overlap")
+        self.checkValid(closure)
+        # each relief at a far end: 2 wide, straight for 2.5 and a half circle
+        relief = 2 * 2.5 + math.pi / 2
+        self.assertAlmostEqual(
+            closure.Shape.Volume,
+            800 - 35 * 2 - 13 * 2 - 2 * relief + 35 * (RING + 8) + 12.9 * RING + 13.9 * 8,
+            places=6,
+        )
+        shape = closure.Shape
+        self.assertTrue(shape.isInside(V(36, 17, 0.5), 1e-9, True))
+        self.assertTrue(shape.isInside(V(37, 16, 0.5), 1e-9, True))
+        flat = self.flat(closure)
+        self.assertAlmostEqual(flat.Shape.Volume, shape.Volume, places=4)
+
+    def testFilledTear(self):
+        """A tear stops where the bend starts: nothing below it to fill"""
+        self.Far.Rule.ReliefShape = "Tear"
+        closure = self.close(CornerType="Overlap")
+        self.checkValid(closure)
+        self.assertAlmostEqual(
+            closure.Shape.Volume,
+            800 - 35 * 2 - 13 * 2 - 2 * 0.1 * 2 + 35 * (RING + 8) + 12.9 * RING + 13.9 * 8,
+            places=6,
+        )
 
     def testRefused(self):
         """Two faces, each a leg's end; the plate's skin is not one"""

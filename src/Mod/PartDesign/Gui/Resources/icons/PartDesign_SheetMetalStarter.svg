@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's starter shape: a tub, a plate and its four legs, seen
+     from above at a slant, a star for a thing made ready -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the far legs, inside -->
+  <path
+     d="M 4,30 22,20 22,8 4,18 Z"
+     style="fill:#a4aeb8;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 22,20 50,30 50,18 22,8 Z"
+     style="fill:#b4bec8;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the plate -->
+  <path
+     d="M 4,30 22,20 50,30 32,40 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the near legs, outside -->
+  <path
+     d="M 4,30 32,40 32,52 4,42 Z"
+     style="fill:#d4dce4;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <path
+     d="M 32,40 50,30 50,42 32,52 Z"
+     style="fill:#e4eaf0;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the star -->
+  <path
+     d="M 52,2 54.6,8.4 61,9 56.2,13.2 57.6,19.6 52,16.2 46.4,19.6 47.8,13.2 43,9 49.4,8.4 Z"
+     style="fill:#f0c020;stroke:#1c2128;stroke-width:1.5;stroke-linejoin:round;" />
+</svg>

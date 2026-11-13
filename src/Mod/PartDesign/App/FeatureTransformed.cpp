@@ -316,6 +316,8 @@ App::DocumentObjectExecReturn *Transformed::execute()
     // Get the support
     TopoShape support;
     bool canSkipFirst = HideBaseFeature.getValue();
+    // Whether the support still holds the originals where they were made
+    bool keepsOriginals = false;
     auto baseObj = getBaseObject(true);
     if (!canSkipFirst && !NewSolid.getValue() && baseObj)  {
         support = getBaseShape(true, false, false);
@@ -425,7 +427,21 @@ App::DocumentObjectExecReturn *Transformed::execute()
         }
         if (baseIsNull && !rewritten)
             return new App::DocumentObjectExecReturn("Cannot transform invalid support shape");
+        keepsOriginals = !rewritten;
     }
+    // The first instance of an original the support still holds is left
+    // out. Made as well, it is the original over again, as it was before
+    // whatever came after it: a pad filleted and then mirrored had its
+    // fillet filled back in, and where an offset moves the instance and the
+    // history could not be written again without the original (above), it
+    // was added or cut a second time -- the mirror of a mirrored pocket in
+    // realthunder/FreeCAD#360, offset by 1.4 mm, took 42 mm3 more than the
+    // file has.
+    //
+    // Version 4 alone makes it: the patterns made from HideBaseFeature on
+    // (cdab86553b, the day _Version became 4) until it became 5, which
+    // stay as they were made. Earlier ones left it out, as 5 does again.
+    const bool leaveOutFirst = keepsOriginals && _Version.getValue() != 4;
 
     const auto placementInv = TopoShape::convert(this->Placement.getValue().toMatrix()).Inverted();
     gp_Trsf offset;
@@ -461,7 +477,7 @@ App::DocumentObjectExecReturn *Transformed::execute()
         if(!obj) 
             continue;
 
-        int startIndex = canSkipFirst && !isFirstInstanceTransformed()
+        int startIndex = (canSkipFirst || leaveOutFirst) && !isFirstInstanceTransformed()
             && body && body->isSibling(this, obj) ? 1 : 0;
 
         if (SubTransform.getValue() 
@@ -1046,7 +1062,7 @@ void Transformed::onChanged(const App::Property *prop) {
 void Transformed::setupObject () {
     FeatureAddSub::setupObject();
     CopyShape.setValue(false);
-    _Version.setValue(4);
+    _Version.setValue(5);
 }
 
 bool Transformed::isElementGenerated(const TopoShape &shape, const Data::MappedName &name) const

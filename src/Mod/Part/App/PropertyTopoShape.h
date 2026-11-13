@@ -272,6 +272,9 @@ private:
     TopoShape _Shape;
     TopoShape _ShapeNoName;
     std::string _Ver;
+    /// The version a file gave where Restore() found no map to check it
+    /// against yet, for afterRestore() to check once the map has come.
+    std::string _VerRead;
     mutable int _HasherIndex = 0;
     mutable bool _SaveHasher = false;
     mutable bool _RestorePending = false;

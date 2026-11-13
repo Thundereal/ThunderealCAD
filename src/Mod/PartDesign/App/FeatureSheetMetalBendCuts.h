@@ -66,6 +66,12 @@ public:
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
+    /// its own faces are those tracing to it, as a pad's are
+    bool isElementGenerated(const Part::TopoShape& shape,
+                            const Data::MappedName& name) const override
+    {
+        return isElementTraced(shape, name);
+    }
     void onChanged(const App::Property* prop) override;
     const char* getViewProviderName() const override
     {

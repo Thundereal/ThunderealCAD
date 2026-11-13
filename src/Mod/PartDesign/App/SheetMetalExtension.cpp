@@ -26,12 +26,15 @@
 
 #include <charconv>
 #include <cmath>
+#include <set>
 
 #include <TopoDS.hxx>
 
+#include <App/Document.h>
 #include <Base/Exception.h>
 #include <Mod/Part/App/TopoShape.h>
 
+#include "Body.h"
 #include "Feature.h"
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetalExtension.h"
@@ -60,8 +63,43 @@ SheetMetalExtension::SheetMetalExtension()
                                 "Sheet Metal",
                                 App::Prop_Hidden,
                                 "The K of each bend this feature makes that does not take the "
-                                "rule's, by the bend's place among its own counted from 1. Check "
+                                "rule's, by the bend's number, 3 for Bend3. Check "
                                 "Sheet's bend table edits it");
+    EXTENSION_ADD_PROPERTY_TYPE(WallNumbers,
+                                (std::vector<long>()),
+                                "Sheet Metal",
+                                App::PropertyType(App::Prop_Hidden | App::Prop_Output
+                                                  | App::Prop_NoRecompute),
+                                "The number of each wall this feature makes, in the order it "
+                                "makes them, kept from when it first made it");
+    EXTENSION_ADD_PROPERTY_TYPE(BendNumbers,
+                                (std::vector<long>()),
+                                "Sheet Metal",
+                                App::PropertyType(App::Prop_Hidden | App::Prop_Output
+                                                  | App::Prop_NoRecompute),
+                                "The number of each bend this feature makes, in the order it "
+                                "makes them, kept from when it first made it");
+    EXTENSION_ADD_PROPERTY_TYPE(FormNumbers,
+                                (std::vector<long>()),
+                                "Sheet Metal",
+                                App::PropertyType(App::Prop_Hidden | App::Prop_Output
+                                                  | App::Prop_NoRecompute),
+                                "The number of each form this feature makes, in the order it "
+                                "makes them, kept from when it first made it");
+    EXTENSION_ADD_PROPERTY_TYPE(WallKeys,
+                                (std::vector<std::string>()),
+                                "Sheet Metal",
+                                App::PropertyType(App::Prop_Hidden | App::Prop_Output
+                                                  | App::Prop_NoRecompute),
+                                "What each of WallNumbers is of, where the feature says: the "
+                                "edge its wall is on");
+    EXTENSION_ADD_PROPERTY_TYPE(BendKeys,
+                                (std::vector<std::string>()),
+                                "Sheet Metal",
+                                App::PropertyType(App::Prop_Hidden | App::Prop_Output
+                                                  | App::Prop_NoRecompute),
+                                "What each of BendNumbers is of, where the feature says: the "
+                                "edge its bend is on");
 }
 
 SheetMetalRule* SheetMetalExtension::getRule() const
@@ -185,11 +223,11 @@ void SheetMetalExtension::applyBendOverrides(SheetMetal::Model& model) const
     }
     const std::vector<int> own = ownBends(model);
     for (const auto& [key, text] : values) {
-        int place = 0;
-        auto [ptr, ec] = std::from_chars(key.data(), key.data() + key.size(), place);
-        if (ec != std::errc() || ptr != key.data() + key.size() || place < 1) {
+        int number = 0;
+        auto [ptr, ec] = std::from_chars(key.data(), key.data() + key.size(), number);
+        if (ec != std::errc() || ptr != key.data() + key.size() || number < 1) {
             FC_THROWM(Base::ValueError,
-                      "BendKFactors: '" << key << "' is no bend's place, counted from 1");
+                      "BendKFactors: '" << key << "' is no bend's number, as 3 is Bend3's");
         }
         const auto k = parseNumber(text);
         if (!k || !validK(*k)) {
@@ -197,24 +235,229 @@ void SheetMetalExtension::applyBendOverrides(SheetMetal::Model& model) const
                       "BendKFactors: the K of bend " << key << ", '" << text
                                                      << "', is no number from 0 to 1");
         }
-        if (place <= static_cast<int>(own.size())) {
-            model.elements[own[place - 1]].bend.k = *k;
+        for (int index : own) {
+            if (SheetMetal::numberOf(model.elements[index].name, "Bend") == number) {
+                model.elements[index].bend.k = *k;
+            }
         }
     }
+}
+
+void SheetMetalExtension::storeModel(SheetMetal::Model model, bool remade,
+                                     const std::vector<std::string>& keys)
+{
+    auto obj = getExtendedObject();
+    SheetMetal::Model earlier;
+    if (auto before = findBefore(obj)) {
+        earlier = before->SheetModel.getValue();
+    }
+    // What is numbered, kind by kind (the body's counts, 0, 1 and 2): the
+    // walls, the bends and the forms, each with its name in the model and
+    // what it is of, if the feature said
+    struct Named
+    {
+        std::string* name;
+        std::string key;
+    };
+    const char* prefixes[3] = {"Wall", "Bend", "Form"};
+    App::PropertyIntegerList* lists[3] = {&WallNumbers, &BendNumbers, &FormNumbers};
+    App::PropertyStringList* keyLists[3] = {&WallKeys, &BendKeys, nullptr};
+    std::vector<Named> named[3];
+    std::vector<std::string> before[3];
+    for (std::size_t i = 0; i < model.elements.size(); ++i) {
+        for (int kind = 0; kind < 2; ++kind) {
+            if (SheetMetal::numberOf(model.elements[i].name, prefixes[kind])) {
+                named[kind].push_back(
+                    {&model.elements[i].name, i < keys.size() ? keys[i] : std::string()});
+            }
+        }
+    }
+    for (SheetMetal::Form& form : model.forms) {
+        if (SheetMetal::numberOf(form.name, prefixes[2])) {
+            named[2].push_back({&form.name, std::string()});
+        }
+    }
+    for (const auto& element : earlier.elements) {
+        for (int kind = 0; kind < 2; ++kind) {
+            if (SheetMetal::numberOf(element.name, prefixes[kind])) {
+                before[kind].push_back(element.name);
+            }
+        }
+    }
+    for (const auto& form : earlier.forms) {
+        before[2].push_back(form.name);
+    }
+    // the highest number held: by the sheet this builds on, and by every
+    // sheet metal feature of the body, this one too
+    int top[3] = {0, 0, 0};
+    for (int kind = 0; kind < 3; ++kind) {
+        for (const std::string& name : before[kind]) {
+            top[kind] = std::max(top[kind], SheetMetal::numberOf(name, prefixes[kind]));
+        }
+    }
+    auto hold = [&top](const SheetMetalExtension& ext) {
+        const App::PropertyIntegerList* held[3] = {&ext.WallNumbers,
+                                                   &ext.BendNumbers,
+                                                   &ext.FormNumbers};
+        for (int kind = 0; kind < 3; ++kind) {
+            for (long number : held[kind]->getValues()) {
+                top[kind] = std::max(top[kind], static_cast<int>(number));
+            }
+        }
+    };
+    hold(*this);
+    auto body = obj ? Body::findBodyOf(obj) : nullptr;
+    if (body) {
+        for (auto other : body->Group.getValues()) {
+            if (auto ext = other ? other->getExtensionByType<SheetMetalExtension>(true) : nullptr) {
+                hold(*ext);
+            }
+        }
+    }
+    // A new number: the next of the body's count of the kind, which is the
+    // file's (Document::nextObjectCount()) -- above every number held, and
+    // above every one a feature since deleted had, so a deletion taken
+    // back, out of order too, brings back no name another has
+    auto doc = obj ? obj->getDocument() : nullptr;
+    auto nextNumber = [&](int kind) {
+        top[kind] = body && doc
+            ? static_cast<int>(doc->nextObjectCount(*body, kind, top[kind]))
+            : top[kind] + 1;
+        return static_cast<long>(top[kind]);
+    };
+    for (int kind = 0; kind < 3; ++kind) {
+        const std::string prefix = prefixes[kind];
+        // the feature's own: those the sheet before it has not, all of them
+        // where it remade the sheet; what it keeps of that sheet holds its
+        // numbers, and a sheet remade holds them all still
+        std::vector<Named*> own;
+        std::set<long> taken;
+        for (Named& item : named[kind]) {
+            const bool had = std::find(before[kind].begin(), before[kind].end(), *item.name)
+                != before[kind].end();
+            if (remade || !had) {
+                own.push_back(&item);
+            }
+            else {
+                taken.insert(SheetMetal::numberOf(*item.name, prefix));
+            }
+        }
+        if (remade) {
+            for (const std::string& name : before[kind]) {
+                taken.insert(SheetMetal::numberOf(name, prefix));
+            }
+        }
+        for (long number : taken) {
+            top[kind] = std::max(top[kind], static_cast<int>(number));
+        }
+        // what the feature held: each number and what it was of
+        const std::vector<long> held = lists[kind]->getValues();
+        std::vector<std::string> heldKeys =
+            keyLists[kind] ? keyLists[kind]->getValues() : std::vector<std::string>();
+        heldKeys.resize(held.size());
+        std::vector<bool> used(held.size(), false);
+        std::vector<long> numbers(own.size(), 0);
+        std::vector<std::string> ownKeys(own.size());
+        // a number held, if it is one and nothing else of the sheet has it
+        auto take = [&](std::size_t k, std::size_t h) {
+            used[h] = true;
+            if (held[h] >= 1 && taken.insert(held[h]).second) {
+                numbers[k] = held[h];
+            }
+        };
+        // first by what each is of, then the rest in the order made
+        for (std::size_t k = 0; k < own.size(); ++k) {
+            ownKeys[k] = own[k]->key;
+            if (ownKeys[k].empty()) {
+                continue;
+            }
+            for (std::size_t h = 0; h < held.size(); ++h) {
+                if (!used[h] && heldKeys[h] == ownKeys[k]) {
+                    take(k, h);
+                    break;
+                }
+            }
+        }
+        std::size_t next = 0;
+        for (std::size_t k = 0; k < own.size(); ++k) {
+            if (numbers[k] >= 1) {
+                continue;
+            }
+            // one whose own was found is not another's; nor is one the
+            // feature has the edge of still
+            while (next < held.size()
+                   && (used[next]
+                       || (!heldKeys[next].empty()
+                           && std::find(ownKeys.begin(), ownKeys.end(), heldKeys[next])
+                                  != ownKeys.end()))) {
+                ++next;
+            }
+            if (next < held.size()) {
+                take(k, next);
+            }
+        }
+        for (std::size_t k = 0; k < own.size(); ++k) {
+            if (numbers[k] < 1) {
+                numbers[k] = nextNumber(kind);
+                taken.insert(numbers[k]);
+            }
+            *own[k]->name = prefix + std::to_string(numbers[k]);
+        }
+        // and what it makes no more is kept, for when it does again
+        for (std::size_t h = 0; h < held.size(); ++h) {
+            if (!used[h] && held[h] >= 1) {
+                numbers.push_back(held[h]);
+                ownKeys.push_back(heldKeys[h]);
+            }
+        }
+        if (numbers != held) {
+            lists[kind]->setValues(numbers);
+        }
+        if (!keyLists[kind]) {
+            continue;
+        }
+        if (std::all_of(ownKeys.begin(), ownKeys.end(), [](const std::string& key) {
+                return key.empty();
+            })) {
+            ownKeys.clear();
+        }
+        if (ownKeys != keyLists[kind]->getValues()) {
+            keyLists[kind]->setValues(ownKeys);
+        }
+    }
+    applyBendOverrides(model);
+    SheetModel.setValue(model);
+}
+
+std::vector<std::string>
+SheetMetalExtension::edgeKeys(const SheetMetal::Model& model,
+                              const std::vector<std::pair<std::size_t, std::string>>& starts)
+{
+    std::vector<std::string> keys(model.elements.size());
+    for (std::size_t edge = 0; edge < starts.size(); ++edge) {
+        const std::size_t end =
+            edge + 1 < starts.size() ? starts[edge + 1].first : model.elements.size();
+        int places[2] = {0, 0};
+        for (std::size_t i = starts[edge].first; i < end && i < keys.size(); ++i) {
+            const bool wall = model.elements[i].kind == SheetMetal::Element::Kind::Wall;
+            keys[i] = starts[edge].second + "#" + std::to_string(++places[wall ? 0 : 1]);
+        }
+    }
+    return keys;
 }
 
 namespace
 {
 
-/// The key of one of a feature's bends in BendKFactors, empty if it made
-/// none of that name
+/// The key of one of a feature's bends in BendKFactors, its number, empty
+/// if it made none of that name
 std::string placeOf(const SheetMetalExtension& ext, const std::string& bend)
 {
     const SheetMetal::Model model = ext.SheetModel.getValue();
     const std::vector<int> own = ext.ownBends(model);
-    for (std::size_t i = 0; i < own.size(); ++i) {
-        if (model.elements[own[i]].name == bend) {
-            return std::to_string(i + 1);
+    for (int index : own) {
+        if (model.elements[index].name == bend) {
+            return std::to_string(SheetMetal::numberOf(bend, "Bend"));
         }
     }
     return {};
@@ -277,6 +520,9 @@ std::string SheetMetalExtension::elementOf(const char* subname) const
     }
     SheetMetal::Model model = SheetModel.getValue();
     model.transform(placementOf(feature));
+    if (const int form = model.formOf(TopoDS::Face(face.getShape())); form >= 0) {
+        return model.forms[form].name;
+    }
     const int index = model.owner(TopoDS::Face(face.getShape()));
     return index < 0 ? std::string() : model.elements[index].name;
 }

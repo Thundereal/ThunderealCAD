@@ -99,6 +99,18 @@ public:
      */
     TopLoc_Location positionByPrevious();
 
+    /** Whether the feature takes its Placement from what it is built on,
+     * and is built in the coordinates of that Placement
+     * (positionByPrevious()). Upstream's features do, which have no
+     * _ProfileBasedVersion. This fork's are made where the body is and
+     * left unplaced since 2022-09 (c1616d2349), and were placed like
+     * upstream's before, under the same version 1: one read from a file
+     * with a Placement is of those, and stays placed as it was made.
+     */
+    bool isPlacedByPrevious() const;
+
+    void Restore(Base::XMLReader &reader) override;
+
     /** applies a transform on the Placement of the Sketch or its
      *  support if it has one
       */
@@ -196,6 +208,9 @@ protected:
                                         double offset);
 
     bool shouldApplyPlacement() override;
+
+    /// Read from its file with a Placement (isPlacedByPrevious())
+    bool restoredPlaced = false;
 
     /// Extract a face from a given LinkSub
     static void getUpToFaceFromLinkSub(TopoShape& upToFace,

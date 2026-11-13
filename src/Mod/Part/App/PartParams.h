@@ -423,6 +423,22 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter ReferenceSearchTolerance
+    ///
+    /// How far from its place a referenced element may be found once its name
+    /// is gone, as a multiple of the shape tolerance: the larger of the
+    /// tolerance the element had and that of the element found. Tried only
+    /// after the exact search fails, and taken only when one element matches.
+    /// 0 turns it off.
+    static const double & getReferenceSearchTolerance();
+    static const double & defaultReferenceSearchTolerance();
+    static void removeReferenceSearchTolerance();
+    static void setReferenceSearchTolerance(const double &v);
+    static const char *docReferenceSearchTolerance();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter WarnUnnamedInput
     ///
     /// Report shape operations whose inputs carry no element names, so the

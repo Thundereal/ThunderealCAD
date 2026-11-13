@@ -145,9 +145,14 @@ def _encodeAv(path, files, fps, size, codec):
     from PIL import Image
     import numpy as np
 
+    from fractions import Fraction
+
+    # PyAV takes the rate as a rational; a FrameRate is a float
+    rate = Fraction(fps).limit_denominator(1001)
     with av.open(path, "w") as output:
-        stream = output.add_stream(codec, fps)
+        stream = output.add_stream(codec, rate)
         stream.width, stream.height = size
+        stream.pix_fmt = "yuv420p"
         for name in files:
             img = Image.open(name).convert("RGB")
             frame = av.VideoFrame.from_ndarray(np.array(img), format="rgb24")

@@ -681,6 +681,13 @@ EM_JS(void, fcviewer_install_control, (), {
     window.fcviewerEditHandleAt = function(x, y) {
         return !!_fcviewer_edit_handle_at(x, y);
     };
+    // The same, saying what it landed on: 0 nothing, 1 a handle, 2 a
+    // value's label. The label stands beside its active handle
+    // (docs/OnViewValueEditing.md), so a page looking for the handle
+    // itself has to tell the two apart.
+    window.fcviewerEditHandleKind = function(x, y) {
+        return _fcviewer_edit_handle_at(x, y);
+    };
     // Paint {obj, sub} as the hover would, '' to drop it: a context menu's
     // "Pick geometry" entry under the pointer.
     window.fcviewerHoverNamed = function(obj, sub) {
@@ -5903,29 +5910,38 @@ static bool pickLabelDraw(const Render::DrawCall &d, float px, float py)
 /// ask, so the client picks what it draws itself. Only while the edit
 /// mode takes the pointer: one that only shows something leaves the
 /// finger to the camera, as it leaves the mouse's left button.
-static bool pickEditHandle(float px, float py)
+/// What of the edit session's overlay is at canvas pixel (px, py): 0
+/// nothing, 1 a handle, 2 a value's label. A handle anywhere wins over a
+/// label.
+static int pickEditHandleKind(float px, float py)
 {
     if (!s_editing || !s_editPointer || !s_editSession || activeIsPage())
-        return false;
+        return 0;
+    int kind = 0;
     for (const auto &ov : s_snap.overlays) {
         if (!ov.anchor.sceneCamera || ov.anchor.session != s_editSession)
             continue;
         if (pickDraws(ov.draws, false, px, py, isEditPickDraw).kind != PickNone)
-            return true;
+            return 1;
         for (const auto &d : ov.draws) {
-            if (pickLabelDraw(d, px, py))
-                return true;
+            if (!kind && pickLabelDraw(d, px, py))
+                kind = 2;
         }
     }
-    return false;
+    return kind;
 }
 
-/// pickEditHandle at CSS pixel (clientX, clientY), for the page.
+static bool pickEditHandle(float px, float py)
+{
+    return pickEditHandleKind(px, py) != 0;
+}
+
+/// pickEditHandleKind at CSS pixel (clientX, clientY), for the page.
 extern "C" EMSCRIPTEN_KEEPALIVE int fcviewer_edit_handle_at(float clientX, float clientY)
 {
     float px, py;
     clientToCanvas(clientX, clientY, px, py);
-    return pickEditHandle(px, py) ? 1 : 0;
+    return pickEditHandleKind(px, py);
 }
 
 /// Send the press of a handle finger at canvas pixel (px, py), preceded by

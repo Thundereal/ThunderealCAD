@@ -27579,6 +27579,9 @@ OnViewValue.cpp, Gizmo.cpp, MDIViewPage or QGIView touched.
   the same socket, so buildViewerMenu sees the handle hovered.
 - A page hook window.fcviewerEditHandleAt(x, y) gives the same pick, for
   the test.
+  (2026-11-13: window.fcviewerEditHandleKind(x, y) says what it landed
+  on, 1 a handle, 2 a value's label: the label stands beside the active
+  handle since entry 241, and the test looks for each by its kind.)
 A DECISION FLAGGED by x16win: "on a handle" means ANY geometry of the
 session's overlay -- the labels too, and in a SKETCH edit the sketch
 geometry, so a finger on a sketch line goes to the sketcher as a mouse

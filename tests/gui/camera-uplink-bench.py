@@ -185,6 +185,9 @@ class Bench(threading.Thread):
 
     def click(self, ws, packed, eye, side):
         ws.drain(0.02)
+        # The answer is the "selection" text push (a client's selection is
+        # its own and told back to it), not a binary scene push.
+        since = len(ws.pushes)
         pick = wsclient.pick_frame(*edge_ray(eye, side))
         if self.policy == "lazy1" and packed != self.last_sent:
             both = wsclient.camera_and_pick(packed, pick)
@@ -203,7 +206,7 @@ class Bench(threading.Thread):
             self.sent_bytes += wsclient.wire_bytes(pick)
         started = clock()
         self.clicks += 1
-        if ws.next_binary(3.0) is not None:
+        if ws.next_push("selection", 3.0, since=since) is not None:
             self.pushes += 1
             self.latencies.append((clock() - started) * 1000.0)
 

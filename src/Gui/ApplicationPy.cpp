@@ -56,6 +56,7 @@
 #include "Document.h"
 #include "SceneServeSource.h"
 #include "SceneLog.h"
+#include "Renderer/Renderer.h"
 #include "Renderer/SceneServer.h"
 #include "SceneRequests.h"
 #include "Renderer/CyclesRenderer.h"
@@ -197,6 +198,8 @@ static PyObject *sServeBranch(PyObject *self, PyObject *args);
 static PyObject *sServeClients(PyObject *self, PyObject *args);
 static PyObject *sServeDevices(PyObject *self, PyObject *args);
 static PyObject *sServeDocument(PyObject *self, PyObject *args);
+static PyObject *sSetRenderClock(PyObject *self, PyObject *args);
+static PyObject *sRenderClock(PyObject *self, PyObject *args);
 static PyObject *sServeDropRequest(PyObject *self, PyObject *args);
 static PyObject *sServeGrants(PyObject *self, PyObject *args);
 static PyObject *sServeKickClient(PyObject *self, PyObject *args);
@@ -394,6 +397,19 @@ PyMethodDef Application::Methods[] = {
    "process, nothing more (docs/CyclesIntegration.md sec 8, phase 2).\n"
    "Blocks until the render is done. Raises RuntimeError with the\n"
    "engine's message on failure."},
+  {"setRenderClock",          (PyCFunction) sSetRenderClock, METH_VARARGS,
+   "setRenderClock(seconds=None)\n"
+   "\n"
+   "Pin the clock the renderer's time-animated effects read -- water,\n"
+   "caustics, fire, particles, a user shader's u_fcTime -- to seconds,\n"
+   "for every view; None gives it back to the wall clock. For whoever\n"
+   "steps time itself: freecad.videoexport pins it to each frame's time,\n"
+   "so an exported video has the effects as they are at that frame."},
+  {"renderClock",             (PyCFunction) sRenderClock, METH_VARARGS,
+   "renderClock() -> float or None\n"
+   "\n"
+   "What setRenderClock() pinned the renderer's clock to; None when it\n"
+   "runs on the wall clock."},
   {"serveDocument",           (PyCFunction) sServeDocument, METH_VARARGS,
    "serveDocument(doc, port=0) -> bool\n"
    "\n"
@@ -1405,6 +1421,32 @@ static PyObject* sIsBuildingVisuals(PyObject * /*self*/, PyObject *args)
         }
     }
     return Py::new_reference_to(Py::Boolean(building));
+}
+
+static PyObject* sSetRenderClock(PyObject * /*self*/, PyObject *args)
+{
+    PyObject *value = Py_None;
+    if (!PyArg_ParseTuple(args, "|O", &value))
+        return nullptr;
+    if (value == Py_None) {
+        Render::AnimationClock::release();
+        Py_RETURN_NONE;
+    }
+    const double seconds = PyFloat_AsDouble(value);
+    if (PyErr_Occurred())
+        return nullptr;
+    Render::AnimationClock::pin(seconds);
+    Py_RETURN_NONE;
+}
+
+static PyObject* sRenderClock(PyObject * /*self*/, PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    double seconds = 0.0;
+    if (!Render::AnimationClock::pinned(&seconds))
+        Py_RETURN_NONE;
+    return PyFloat_FromDouble(seconds);
 }
 
 static PyObject* sServeDocument(PyObject * /*self*/, PyObject *args)

@@ -250,6 +250,7 @@ def export(
     compose=None,
     progress=None,
     frameSize=None,
+    renderClock=True,
 ):
     """Save the view over `times` as `path`.
 
@@ -267,6 +268,9 @@ def export(
     progress    progress(index, count) before each frame, and with index
                 == count before encoding; False from it cancels (Cancelled)
     frameSize   the size compose leaves a frame at, if not the view's
+    renderClock the renderer's time-animated effects (water, fire,
+                particles) are drawn at each frame's time, counted from
+                the first; False leaves them on the wall clock
 
     -> {"Path", "Frames", "Size", "Encoder"}; for a sequence Path is its
     first frame.
@@ -298,11 +302,17 @@ def export(
 
     count = len(times)
     temp = None if sequence else tempfile.mkdtemp(prefix="fc-video-")
+    # The renderer's time-animated effects (water, fire, particles) read a
+    # clock of their own: pinned to each frame's time, they are in the file
+    # as they are at that frame, however long the frame took to save
+    pinned = Gui.renderClock() if hasattr(Gui, "renderClock") else None
     try:
         files = []
         for i, t in enumerate(times):
             if progress is not None and progress(i, count) is False:
                 raise Cancelled()
+            if renderClock and hasattr(Gui, "setRenderClock"):
+                Gui.setRenderClock(float(t) - float(times[0]))
             show(i, t)
             Gui.updateGui()
             name = frameName(path, i) if sequence else os.path.join(temp, "frame_%05d.png" % i)
@@ -321,6 +331,8 @@ def export(
             "Encoder": encoder,
         }
     finally:
+        if renderClock and hasattr(Gui, "setRenderClock"):
+            Gui.setRenderClock(pinned)
         if temp:
             shutil.rmtree(temp, ignore_errors=True)
 

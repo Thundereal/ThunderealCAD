@@ -361,6 +361,13 @@ if(TARGET FreeCADRenderer)
     target_link_libraries(MotionClip_tests_run gtest_main FreeCADRenderer)
     add_test(NAME MotionClip_tests_run COMMAND MotionClip_tests_run)
 
+    # The effects' clock pinned by whoever steps time (docs/Animation.md
+    # sec 9): the switch itself.
+    add_executable(AnimationClock_tests_run
+                   ${CMAKE_CURRENT_SOURCE_DIR}/AnimationClock.cpp)
+    target_link_libraries(AnimationClock_tests_run gtest_main FreeCADRenderer)
+    add_test(NAME AnimationClock_tests_run COMMAND AnimationClock_tests_run)
+
     add_executable(SceneLadder_tests_run
                    ${CMAKE_CURRENT_SOURCE_DIR}/SceneLadder.cpp)
     target_link_libraries(SceneLadder_tests_run gtest_main FreeCADRenderer)

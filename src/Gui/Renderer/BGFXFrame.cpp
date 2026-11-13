@@ -2565,6 +2565,15 @@ bool BGFXRenderer::Private::render(const QColor &col,
                        animclock::now() - start).count();
         animLive = true;
     }
+    // Somebody steps time itself (Render::AnimationClock) -- an export
+    // saving a frame per Animation time: the effects are at that time,
+    // and nothing redraws for the clock's sake.
+    double pinnedTime = 0.0;
+    const bool clockPinned = Render::AnimationClock::pinned(&pinnedTime);
+    if (clockPinned && !fixedTime) {
+        animTime = float(pinnedTime);
+        animLive = false;
+    }
     // The RenderDebug freeze-frame determinism switch
     // (docs/RenderDebug.md): a frozen clock renders every
     // time-animated effect (water waves, fire, caustics, splashes)
@@ -6180,7 +6189,12 @@ bool BGFXRenderer::Private::render(const QColor &col,
         // replaces the history outright every frame: k = 1 also
         // zeroes the golden-ratio jitter phase (accum < 1 gates it),
         // so a repeat frame raymarches identically.
-        float volAccum = debugconf.freezeFrame ? 1.0f
+        // A pinned clock (Render::AnimationClock) likewise: the frame
+        // is of one time, and a blend with the frame before it would
+        // be of two -- the first frame of an export showed what the
+        // view had drawn last, mixed in.
+        float volAccum = (debugconf.freezeFrame
+                          || Render::AnimationClock::pinned()) ? 1.0f
             : view->volAccumFrames == 0
             ? 1.0f
             : std::max(1.0f / float(view->volAccumFrames + 1),

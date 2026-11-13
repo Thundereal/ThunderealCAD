@@ -140,6 +140,29 @@ const char *Render::internedModeName(uint16_t id)
     return _modeNames[id - 1].c_str();
 }
 
+std::atomic<bool> AnimationClock::isPinned{false};
+std::atomic<double> AnimationClock::pinnedSeconds{0.0};
+
+void AnimationClock::pin(double seconds)
+{
+    pinnedSeconds.store(seconds, std::memory_order_relaxed);
+    isPinned.store(true, std::memory_order_relaxed);
+}
+
+void AnimationClock::release()
+{
+    isPinned.store(false, std::memory_order_relaxed);
+}
+
+bool AnimationClock::pinned(double *seconds)
+{
+    if (!isPinned.load(std::memory_order_relaxed))
+        return false;
+    if (seconds)
+        *seconds = pinnedSeconds.load(std::memory_order_relaxed);
+    return true;
+}
+
 std::atomic<bool> FrameOutside::active{false};
 double FrameOutside::phaseMs[FrameOutside::PhaseCount] = {};
 

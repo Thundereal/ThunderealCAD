@@ -1863,6 +1863,29 @@ public:
 /// backend drains it on the same tick it prints the frame line, and the
 /// remainder it cannot attribute is printed too: a breakdown of a
 /// derived quantity is only trustworthy if it says how much it missed.
+/// The clock every time-animated effect reads -- water waves, caustics,
+/// fire, particles, a user shader's u_fcTime (docs/RenderEngine.md,
+/// "Determinism") -- pinned to a time of the caller's. For whoever steps
+/// time itself: an export saving a frame for each of an Animation's
+/// times pins it to that time, so the effects are in the video as they
+/// are at that frame and not as the wall clock had them while it was
+/// being saved (docs/Animation.md sec 9). Process-wide, as the clock is.
+/// While pinned nothing asks for a redraw on the clock's account.
+class RendererExport AnimationClock
+{
+public:
+    /// Every frame from now reads \a seconds
+    static void pin(double seconds);
+    /// Back to the wall clock
+    static void release();
+    /// Whether it is pinned, and to what
+    static bool pinned(double *seconds = nullptr);
+
+private:
+    static std::atomic<bool> isPinned;
+    static std::atomic<double> pinnedSeconds;
+};
+
 class RendererExport FrameOutside
 {
 public:

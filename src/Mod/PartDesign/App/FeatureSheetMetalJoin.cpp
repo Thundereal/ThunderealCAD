@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepGProp.hxx>

@@ -1133,9 +1133,21 @@ Phase 5, built so far (2026-11-12):
   file, what is skipped, the formats), `tests/gui/animation-export.py`
   (12 checks: sequence, GIF, video, cancel, the animation left as it
   was, not modified, the command).
-- Not done: the renderer's clock following `Time` during export
-  (section 9) -- the engine has no setter for its clock yet, so water and
-  fire in an exported video run on wall time.
+- The renderer's clock follows the frame during export (section 9):
+  `Render::AnimationClock` pins the clock every time-animated effect
+  reads, process-wide; `Gui.setRenderClock(seconds or None)` and
+  `Gui.renderClock()` are its Python, and `videoexport.export` pins it to
+  each frame's time counted from the first (`renderClock=False` leaves
+  it), giving back what it found. A pinned clock asks for no redraw, set
+  back it replays the stateful particles from their reset, and the
+  volumetric pass replaces its history outright instead of blending the
+  frame before in -- all as a frozen frame does. That last one showed in
+  the test: without it the first image after any change of the clock was
+  a mix of two times, so an export's first frame held what the view had
+  drawn last. The Assembly simulation's Save Animation gets it by
+  being a caller. Tests: `AnimationClock_tests_run`,
+  `tests/gui/animation-export-clock.py` (a flame exported twice: the same
+  frames, one by one).
 - Streaming of `Time` (section 9.1): the host bakes a motion clip from
   the feed it publishes, sends it with its clock, and holds the publishes
   the clip already says; the browser's viewer plays it by itself.
@@ -1145,8 +1157,12 @@ Phase 5, built so far (2026-11-12):
   synthetic client) and `tests/gui/serve-animation-browser.py` (a browser
   drawing it, `scripts/animation-drive.js`). Visibility is not in the
   clip. mini has the wasm toolchain now (emsdk 6.0.9, `~/works/sw/emsdk`).
-- Not built: the frame cache -- "if needed", and nothing measured yet
-  says it is.
+- Not built: the frame cache -- "if needed", and what is measured says
+  it is not: the manual's scene (five tracks, a cylinder rebuilt each
+  frame, an expression on Time) evaluates in 0.95 ms a frame with
+  `Recompute` Touched and 0.47 ms with Never, worst 1.9 ms, on mini; a
+  frame at 30 fps has 33 ms. A model whose recompute is slow is the case
+  for one, and there the export already steps frame by frame.
 - The manual (thundereal-manual `core/animation`, "Exporting", with
   `export.py` and its media) and the help page have the export.
 

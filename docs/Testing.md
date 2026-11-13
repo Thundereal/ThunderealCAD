@@ -1126,6 +1126,15 @@ the reason above and the first because it plays by the wall clock. On mini
 `tools/run-gui-script.sh`, node from `~/works/sw/emsdk/node`, puppeteer-core
 in `~/works/sw/fcad-probes`, the system Chrome.
 
+`animation-export-clock.py` (2026-11-13) is the renderer's clock pinned by
+an export (`docs/Animation.md` sec 9): a flame (`Render_Fire`) drawn by the
+renderer, 12 checks. Two images at one pinned time are the same to the
+pixel and one at another time differs; the same export made twice gives
+the same frames one by one. It needs a view with the renderer behind it
+(`RenderCache` 3) and the scene light and volumetrics on, which it sets,
+and says SKIP when no flame is drawn. Not registered: it wants a real GL
+or Metal device.
+
 **On Windows they do not register**, and cannot: `tests/gui/CMakeLists.txt`
 wants `xvfb-run` and `.conda/run.sh`, and the box has neither. Run one with
 `scripts/gui-test.cmd`, the Windows driver (2026-10-29):

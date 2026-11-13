@@ -39,7 +39,6 @@ timeout); registered in ctest by tests/gui/CMakeLists.txt.
 import json as jsonlib
 import math
 import os
-import sys
 import threading
 import time
 import traceback
@@ -51,9 +50,9 @@ from PySide import QtCore
 import wsclient
 from wsclient import WS, free_port
 
-# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
-# bgfx OpenGL backend takes (docs/Testing.md).
-ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
 
 clock = time.perf_counter
 

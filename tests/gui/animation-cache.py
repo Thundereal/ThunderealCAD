@@ -24,7 +24,6 @@ Skips the pictures when the view has no renderer.
   scripts/gui-test.sh tests/gui/animation-cache.py /tmp/anim-cache
 """
 import os
-import platform
 import time
 import traceback
 
@@ -102,11 +101,11 @@ def run():
     try:
         App.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt("AutoSaveTimeout", 0)
         App.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("RenderCache", 3)
-        # Metal on macOS: a Qt widget's GL context there is 2.1, below
-        # what the bgfx OpenGL backend takes, and the render cache's own
-        # GL renderer would draw instead (docs/Testing.md).
+        # The platform's backend, as a user gets it (RenderParams::
+        # engineType): on macOS not OpenGL, whose 2.1 context there the
+        # bgfx OpenGL backend declines (docs/Testing.md).
         App.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - Metal" if platform.system() == "Darwin" else "bgfx - OpenGL")
+            "Type", "Default")
         mw = Gui.getMainWindow()
         mw.resize(1300, 900)
         doc = App.newDocument("AnimationCache")

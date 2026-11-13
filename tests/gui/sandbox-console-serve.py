@@ -30,7 +30,6 @@ served.
 import http.client
 import json
 import os
-import sys
 import socket
 import traceback
 
@@ -38,9 +37,9 @@ import FreeCAD
 import FreeCADGui
 from PySide import QtCore
 
-# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
-# bgfx OpenGL backend takes (docs/Testing.md).
-ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
 
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))

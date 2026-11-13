@@ -1144,18 +1144,24 @@ and the picture of the frame recomputed; exact detail is held while the
 Animation is active with its cache on and while an export saves; the
 timeline marks the frames kept; playing goes frame by frame out of the
 cache; an edit drops the frames. Not registered, like the others here. It
-asks for `bgfx - Metal` on macOS: a Qt widget's GL context there is 2.1
+asks for the `Default` backend, the platform's (RenderParams::engineType:
+Direct3D 11 on Windows, Metal on macOS, OpenGL elsewhere) -- on macOS not
+OpenGL, because a Qt widget's GL context there is 2.1
 (the compatibility profile Coin needs; macOS has nothing between that and
 core 3.2), below the 3.1 the bgfx OpenGL backend takes, so a view asked
 for `bgfx - OpenGL` is drawn by the render cache's own GL renderer and
-the backend counts no frame. So does every script here that names a
-backend (`ENGINE` at its top), the 63 that used to ask for `bgfx - OpenGL`
-outright and so ran without the backend on a Mac; switched 2026-11-13 and
-run on mini, Metal against OpenGL: the same results, 59 clean, and three
+the backend counts no frame. So does every script here that used to name
+a backend outright (`ENGINE` at the top of 63 of them), most of them
+`bgfx - OpenGL`, which ran them without the backend on a Mac and on
+OpenGL rather than Direct3D 11 on Windows; switched 2026-11-13 and run on
+mini, Metal against OpenGL: the same results, 59 clean, and three
 that fail alike on both -- camera-uplink-bench (no click answered with a
 push), serve-handle-touch-browser (the handle's menu is the view's) and
 serve-panel-two-users-browser (the second user's panel fields read None);
-sandbox-console-browser wants a build with the pyodide sandbox host. The
+sandbox-console-browser wants a build with the pyodide sandbox host.
+serve-animation-browser is flaky on mini on both: run again straight after
+a run, the host's Animation does not move ("moved": 0.0) and five checks
+fail; once in a full sweep "the green one stays" read 11 px. The
 browser scripts there want `node` on PATH as well as `NODE`,
 `PUPPETEER_PATH` and `CHROME` (most launch a bare `node`). That used to
 cost 5 s a picture -- `waitFrameComplete` and the frame dump each waited

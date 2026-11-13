@@ -21,7 +21,6 @@ Skips when the view has no renderer (RenderCache is not 3, or no backend).
   scripts/gui-test.sh tests/gui/animation-export-clock.py /tmp/anim-clock
 """
 import os
-import platform
 import time
 import traceback
 
@@ -84,8 +83,7 @@ def run():
         prefs.SetBool("ShowNaviCube", False)
         prefs.SetBool("CornerCoordSystem", False)
         render = App.ParamGet("User parameter:BaseApp/Preferences/View/Render")
-        render.SetString("Type", "bgfx - Metal" if platform.system() == "Darwin"
-                         else "bgfx - OpenGL")
+        render.SetString("Type", "Default")
         render.SetBool("Volumetric", True)
         Gui.getMainWindow().resize(1300, 900)
         doc = App.newDocument("AnimationExportClock")

@@ -33,7 +33,6 @@ timeout); registered in ctest by tests/gui/CMakeLists.txt.
 """
 import base64
 import os
-import sys
 import socket
 import struct
 import threading
@@ -44,9 +43,9 @@ import FreeCAD
 import FreeCADGui
 from PySide import QtCore
 
-# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
-# bgfx OpenGL backend takes (docs/Testing.md).
-ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
 
 # time.monotonic() is GetTickCount64() on Windows through CPython 3.12,
 # 15.6 ms of resolution -- which reads every loopback echo below one

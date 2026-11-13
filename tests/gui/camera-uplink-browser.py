@@ -41,7 +41,6 @@ import functools
 import http.server
 import json
 import os
-import sys
 import subprocess
 import threading
 import time
@@ -54,9 +53,9 @@ from PySide import QtCore
 import wsclient
 from wsclient import free_port
 
-# Metal on macOS: a Qt widget's GL context there is 2.1, below what the
-# bgfx OpenGL backend takes (docs/Testing.md).
-ENGINE = "bgfx - Metal" if sys.platform == "darwin" else "bgfx - OpenGL"
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
 
 # The browser acts on the document, so it is someone: the holder of an
 # invitation issued to its name (docs/TransactionLogJournal.md sec 30.6 U4, U6).

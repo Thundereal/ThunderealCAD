@@ -967,16 +967,88 @@ class TestFlexibleBody(unittest.TestCase):
             "a round on a flexible roller", 55, -10, roller=True, flexiblePlate=True, until=0.045
         )
 
+    def test_friction_on_flexible_round(self):
+        """The friction on a flexible part's round touched anywhere, against
+        its closed form (D4b step 17): test_round_anywhere's rod on its
+        plate with a friction of 0.3, sliding all the turn -- the motion
+        turning it gives 0.3 N R, the rod's radius the friction's arm. Each
+        point is slid again to its face's deepest at every update of a
+        substep (FlexibleContact::follow()): placed at the substep's start
+        alone it was carried round with the rod, w h R past where the rod is
+        deepest, and the normal's force turned the rod on -- 0.284 N R at
+        steps of 0.2 ms, and -0.0097 N R with no friction, where
+        test_round_anywhere now holds it to none"""
+        self.roundTurned("friction on a round", 55, -10, friction=0.3)
+
+    def test_friction_on_roller(self):
+        """The same on a rigid roller (D4b step 17), the points found again
+        on their faces by Newton's steps with the faces' curve
+        (deepestOnFace()): Gauss and Newton's alone left them a substep's
+        turn either side of the line, the torque 0.310 N R"""
+        self.roundTurned("friction on a roller", 55, -10, roller=True, friction=0.3)
+
+    def test_friction_between_flexible_parts(self):
+        """The friction between two flexible parts, against its closed form
+        (D4b step 17): the rod on the plate flexible too, a friction of 0.3
+        -- 0.282 N R before"""
+        self.roundTurned(
+            "friction between flexible parts", 55, -10, flexiblePlate=True, friction=0.3
+        )
+
+    def test_round_in_bore(self):
+        """A flexible part's round in a rigid bore (D4b step 18):
+        test_round_anywhere's rod in a grounded block's bore R 5.5, the
+        bore's wall 0.05 mm into its underside. A hollow round's deepest is
+        the face's point farthest from its axis (deepestOnFace()), and the
+        points that all go to the one line are thinned to one a place
+        (thinOut()): on its triangles against the bore's, 3500 points, the
+        run did not end in 10 minutes. Over 0.03 to 0.045 s of the turn"""
+        self.roundTurned("a round in a bore", 55, -10, bore=5.5, until=0.045)
+
+    def test_rigid_round_in_flexible_bore(self):
+        """A rigid round in a flexible part's bore (D4b step 18): the rod
+        rigid, the block flexible, held all along its underside, a friction
+        of 0.3. The block gives a tenth of a micron under it, and the rod
+        presses it the two rigid parts' 50 N, the motion's torque 0.3 N R:
+        with the wall's points at the rod's ends left on their flat
+        triangles, which stand in from a hollow face, and its strays off the
+        line among the 900 on it, 47.6 N in 430 s"""
+        self.roundTurned(
+            "a rigid round in a flexible bore",
+            55,
+            -10,
+            bore=5.5,
+            flexiblePlate=True,
+            rigidRod=True,
+            friction=0.3,
+            most=50.5,
+        )
+
     def roundTurned(
-        self, name, length, start, roller=False, flexiblePlate=False, within=0.1, until=0.1
+        self,
+        name,
+        length,
+        start,
+        roller=False,
+        flexiblePlate=False,
+        within=0.1,
+        until=0.1,
+        friction=0.0,
+        bore=None,
+        rigidRod=False,
+        most=50.0,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
         tenth ('within') of its mean over the turn, the mean under a rigid
-        rod's 50 N. flexiblePlate: the plate flexible too, held all along its
-        underside by a fixed joint to a grounded base -- the roller, at both
-        its ends by fixed joints to grounded blocks. until: the run's end, of
-        the turn's 0.1 s"""
+        rod's 50 N; and the motion's torque the friction's, 'friction' N R,
+        to 0.006 N R -- none without friction. flexiblePlate: the plate
+        flexible too, held all along its underside by a fixed joint to a
+        grounded base -- the roller, at both its ends by fixed joints to
+        grounded blocks. bore: a block 'length' x 20 x 20 about the rod
+        instead, a bore of that radius through it along the rod, its wall
+        0.05 mm into the rod's underside. rigidRod: the rod rigid. most: what
+        the mean stays under. until: the run's end, of the turn's 0.1 s"""
         import CommandCreateContact
 
         mount = self.box("Mount", (10, 20, 20), (-10, -10, -10))
@@ -986,7 +1058,17 @@ class TestFlexibleBody(unittest.TestCase):
         rod.Radius = 5
         rod.Height = 40
         rod.Placement = plc(0, 0, 0, App.Vector(0, 1, 0), 90)
-        if roller:
+        low = -10 + 0.05
+        if bore:
+            import Part
+
+            low = bore - 5.0 + 0.05 - 10.0
+            plate = self.assembly.newObject("Part::Feature", "Block")
+            plate.Shape = Part.makeBox(length, 20, 20).cut(
+                Part.makeCylinder(bore, length, App.Vector(0, 10, 10), App.Vector(1, 0, 0))
+            )
+            plate.Placement.Base = App.Vector(start, -10, low)
+        elif roller:
             plate = self.assembly.newObject("Part::Cylinder", "Roller")
             plate.Radius = 5
             plate.Height = length
@@ -1019,16 +1101,25 @@ class TestFlexibleBody(unittest.TestCase):
                 clamp.Placement1 = block.Placement.inverse().multiply(at)
                 clamp.Placement2 = plate.Placement.inverse().multiply(at)
         elif flexiblePlate:
-            base = self.box("Base", (length, 20, 5), (start, -10, -15 + 0.05))
+            base = self.box("Base", (length, 20, 5), (start, -10, low - 5))
             held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
             JointObject.GroundedJoint(held, base)
             self.doc.recompute()
+            # The plate's underside, a box's Face5; a block's by where it is
+            face = "Face5"
+            if bore:
+                face = next(
+                    "Face%d" % (i + 1)
+                    for i, f in enumerate(plate.Shape.Faces)
+                    if f.Surface.__class__.__name__ == "Plane"
+                    and abs(f.CenterOfMass.z - low) < 1e-6
+                )
             under = self.joints.newObject("App::FeaturePython", "Fixed")
             JointObject.Joint(under, JointObject.JointTypes.index("Fixed"))
             under.Detach1 = True
             under.Detach2 = True
             under.Reference1 = (base, ["Face6"])
-            under.Reference2 = (plate, ["Face5"])
+            under.Reference2 = (plate, [face])
             under.Placement1 = plc(length / 2.0, 10, 5)
             under.Placement2 = plc(length / 2.0, 10, 0)
         else:
@@ -1056,8 +1147,8 @@ class TestFlexibleBody(unittest.TestCase):
         contact.Stiffness = 1000.0
         contact.Exponent = 1.0
         contact.FrictionFrom = "Value"
-        contact.StaticFriction = 0.0
-        contact.DynamicFriction = 0.0
+        contact.StaticFriction = friction
+        contact.DynamicFriction = friction
         sim = self.study(until, 2e-4)
         sim.GravityEnabled = False
         sim.Elements = [contact]
@@ -1066,9 +1157,10 @@ class TestFlexibleBody(unittest.TestCase):
         motion.MotionType = "Angular"
         motion.Control = "Position"
         motion.Formula = "%r*(time/0.1)*(time/0.1)*(3 - 2*time/0.1)" % (2 * math.pi)
-        body = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
-        body.MeshSize = 4.0
-        FlexibleBodies.prepare(body)
+        if not rigidRod:
+            body = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+            body.MeshSize = 4.0
+            FlexibleBodies.prepare(body)
         if flexiblePlate:
             other = FlexibleBodies.makeFlexibleBody(self.assembly, plate)
             other.MeshSize = 4.0
@@ -1089,9 +1181,17 @@ class TestFlexibleBody(unittest.TestCase):
         print("%s: over the turn %.4g N, from %.4g to %.4g"
               % (name, mean, min(turning), max(turning)))
         self.assertGreater(mean, 35.0)
-        self.assertLess(mean, 50.0)
+        self.assertLess(mean, most)
         self.assertGreater(min(turning), (1.0 - within) * mean)
         self.assertLess(max(turning), (1.0 + within) * mean)
+        # The motion's torque, N mm: the friction's on the rod's radius
+        torques = [c["Values"] for c in results["Channels"] if c["Quantity"] == "MotorTorque"]
+        self.assertEqual(len(torques), 1)
+        turned = [v * 1e-3 for t, v in zip(results["Times"], torques[0]) if 0.03 <= t <= until]
+        torque = sum(turned) / len(turned)
+        print("%s: the motion's torque %.4g N mm, %.4f N R for a friction of %g"
+              % (name, torque, torque / (mean * 5.0), friction))
+        self.assertLess(abs(torque - friction * mean * 5.0), 0.006 * mean * 5.0)
 
     def renew(self):
         """A new document for a second run, as setUp's"""

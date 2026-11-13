@@ -1759,6 +1759,14 @@ class TestGuiCommands(unittest.TestCase):
             self.assertEqual([n > 1 for n in widths()], [True, True, True])
             panel.fitPlayerLabels(len(times))
             self.assertEqual(widths(), [1, 1, 1])
+            # Fitted to the run it is given, not to the widest it was given:
+            # a shorter run's frame label is narrower, and the run's again
+            # as wide as it was
+            fitted = [label.minimumWidth() for label in labels]
+            panel.fitPlayerLabels(5)
+            self.assertLess(panel.form.FrameLabel.minimumWidth(), fitted[0])
+            panel.fitPlayerLabels(len(times))
+            self.assertEqual([label.minimumWidth() for label in labels], fitted)
             # Auto's slow motion, the study's
             self.assertFalse(panel.slowSpin.isHidden())
             self.assertEqual(sim.SlowMotion, 1.0)

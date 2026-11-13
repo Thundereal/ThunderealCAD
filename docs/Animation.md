@@ -714,7 +714,115 @@ Performance, for large models:
   measured in phase 2.
 - A frame cache (the old `CacheProperties`/`EnableCache`) stores each
   frame's shapes for scrubbing a parametric animation. It is phase 5, and
-  only if recompute turns out too slow.
+  only if recompute turns out too slow. It did, and it is built: 4.1.
+
+### 4.1 The frame cache, as built
+
+What it is for: an Animation that drives a parameter costs a recompute a
+frame, and a recompute is as slow as the model. A plate whose thickness
+is animated, 64 holes cut through it and every edge filleted (218 faces),
+takes 290 ms a frame on mini; played a second time it took 290 ms again.
+Others keep what a frame evaluated to (Maya's cached playback, Houdini's
+cooked geometry) or bake it by hand (Blender's point caches, an Alembic
+sequence); the CAD tools keep placements only and render a parameter
+offline. Here the document keeps what the recompute wrote.
+
+`Cache` (a property of the Animation, off by default, saved; the frames
+are not). With it on, and `Recompute` not Never:
+
+- **A frame is a time on the grid**, `Start + n / FrameRate`
+  (`frameAt()`). Any other time is recomputed and not kept. The player
+  therefore plays a caching Animation frame by frame: `Time` is set to
+  the frame last passed, and not set at all while that frame is on show.
+- **Kept**: after the tracks are written, the recompute runs with every
+  `signalChangedObject` and `signalRecomputedObject` noted. Each property
+  written is copied (`Property::Copy`) -- a shape shares its `TShape`, so
+  the copy is a handle, and the mesh the view makes of it afterwards is
+  on that same `TShape` and comes with it. With the copies go the frame's
+  *scope* (every object touched before the recompute, recomputed by it or
+  written by it) and the ones of them it left untouched. A recompute that
+  fails, or leaves an object in error, keeps nothing.
+- **Put back**: the next time `Time` is that frame the tracks are written
+  as ever, and if nothing is touched outside the frame's scope the copies
+  are pasted, under the Animation's write cause, and the untouched ones
+  purged; no recompute. If something is touched that the frame's
+  recompute never met -- the frame was kept coming from the frame before,
+  where one object had not changed, and is reached now from a frame where
+  it differs -- the frame is recomputed and kept again, wider.
+- **Dropped**: every frame, by any change of a property that is not the
+  Animation's own writing (`WriteCause::Animation`): an edit, an undo, a
+  recompute of the design; by a new or deleted object, a removed
+  property; by a change of `Tracks`, `Start`, `FrameRate`, `Recompute` or
+  `Cache`. Stopping keeps them: the design it recomputes back to is the
+  one they were made from.
+- What is kept is a function of the frame and the design. A result that
+  depends on how the frame was reached (a solver starting from the last
+  pose) is put back as it was first found.
+
+**Memory.** A frame of that plate holds 3.1 MB without a view and 7.1 MB
+with one (the meshes), and `Property::getMemSize()` says 15 KB of it: it
+counts a shape's geometry by the size of its classes and leaves out the
+poles, the pcurves, the mesh and the element map. So a frame is counted
+by what the heap grew by between it and the frame kept before it
+(`malloc_zone_statistics`, `mallinfo2`, the private bytes on Windows) --
+in that interval the document gave up the earlier frame's values, which
+the cache holds on to, for this one's. Where that is not known (the frame
+before was put back, not kept) the mean of the frames measured is used.
+Measured against the heap itself: 433.8 MB counted for 440 MB grown, 61
+frames. Two budgets, in `Preferences/Animation`:
+
+| Parameter | Default | |
+|---|---|---|
+| `CacheLimitMB` | 512 | what the frames in memory may hold |
+| `CacheDiskLimitMB` | 4096 | what the frames on disk may; 0 for no disk |
+| `CacheDiskAlways` | false | to disk even where recomputing is quicker |
+| `CacheMeasure` | true | false counts by `getMemSize()` |
+
+Over the first, the frames shown longest ago go **to disk**: each value as
+a save would write it (`App::captureValue`, what the transaction log
+keeps a value as; no blob store, the frame's file holds it whole), one
+file a frame under `TransientDir/AnimationCache/<name>`, 0.55 MB for the
+plate. Read back (`App::restoreValue`) it is in memory again and its file
+stays good, so letting it go a second time writes nothing. A file does
+not hold the mesh, so a frame read back is meshed again: 107 ms against
+26 ms from memory and 290 ms recomputed. A frame that is quicker to
+recompute than its trip to disk has been costing, a byte, is dropped
+instead; so is every frame over the second budget, oldest first, and
+every one on disk at a save, whose string table its element maps name by
+id. The frame on show is never let go.
+
+**Detail.** A shape just rebuilt is shown coarse first and exact some
+frames later (`Render_CoarseTessellation`), a publish leaves shapes out
+when its capture budget is spent, and a shape of many faces stands in as
+its bounding box. A frame kept or saved in that state is wrong: the cache
+would keep the coarse mesh, and a video shows each rebuilt frame rough.
+`Render::ExactDetail` (`Renderer.h`) turns all three off while held:
+`PartGui::coarseTessellationLevel()` answers -1,
+`buildCoarseStandIn()` declines, and the capture budget is not applied.
+Held by an active Animation with `Cache` on (`App::Animation::cachingIn`,
+asked through `ExactDetail::also`, so before the first frame is built)
+and by `freecad.videoexport.export()` for its duration
+(`Gui.setExactDetail`, `exactDetail=False` to opt out), which also waits
+for a document still filling its views (`Gui.isBuildingVisuals`). Not
+held back: what memory pressure orders (the level plan's descents), and
+the stream to web viewers, whose ladder is the network's.
+
+Measured, mini, in the GUI, a frame:
+
+| Scene | Recomputed | From memory | From disk |
+|---|---|---|---|
+| 36 holes (38 faces) | 38 ms | 1.3 ms | |
+| 64 holes, filleted (218 faces) | 290 ms | 26 ms | 107 ms |
+
+The timeline draws a line under its ruler, a piece a frame: green for a
+frame in memory, blue for one on disk. Python: `anim.Cache`,
+`anim.cacheInfo()` (Times, OnDisk, Bytes, DiskBytes, Stored, Replayed,
+Spilled, Loaded), `anim.clearCache()`. Tests: `TestAnimation`
+(`testCache*`, nine) and `tests/gui/animation-cache.py`.
+
+Not done: a frame's mesh is not written to disk; a bake command (playing
+or exporting once is the bake); an edit drops every frame, not only
+those downstream of it.
 
 ## 5. Playing does not edit the design
 
@@ -1023,6 +1131,9 @@ anim.Time = 1.5                  # evaluates, and makes this the active Animatio
 anim.value("Box.Placement", 1.5) # evaluates without writing
 anim.frames()                    # [Start, Start + 1/FrameRate, ..., End]
 anim.stop()                      # rest values back, Active off
+anim.Cache = True                # keep what each frame recomputes to (4.1)
+anim.cacheInfo()                 # dict: Times, OnDisk, Bytes, DiskBytes, Stored, Replayed ...
+anim.clearCache()
 ```
 
 The track's options are a method, not attributes of a track object, so a
@@ -1100,7 +1211,7 @@ Phase 4, built so far (2026-11-12):
   components ever shows, Aligned handles kept in line by the curve
   editor (it makes a dragged handle Free).
 | 4 | Bezier handles in a curve editor; camera track; strips (section 7) | |
-| 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache if needed | |
+| 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache (4.1) | |
 
 Phase 5, built so far (2026-11-12):
 - The shared exporter, `freecad.videoexport` (`src/Ext/freecad`):
@@ -1157,8 +1268,8 @@ Phase 5, built so far (2026-11-12):
   synthetic client) and `tests/gui/serve-animation-browser.py` (a browser
   drawing it, `scripts/animation-drive.js`). Visibility is not in the
   clip. mini has the wasm toolchain now (emsdk 6.0.9, `~/works/sw/emsdk`).
-- Not built: the frame cache -- "if needed", and what is measured says
-  it is not: the manual's scene (five tracks, a cylinder rebuilt each
+- The frame cache -- "if needed", and the first measurement said not:
+  the manual's scene (five tracks, a cylinder rebuilt each
   frame, an expression on Time) evaluates in 0.95 ms a frame with
   `Recompute` Touched and 0.47 ms with Never, worst 1.9 ms, on mini; a
   frame at 30 fps has 33 ms. That is a small scene and says nothing of a
@@ -1166,9 +1277,9 @@ Phase 5, built so far (2026-11-12):
   through it, takes 21 ms a frame with 16 holes and 77 ms with 64, and
   with every edge filleted 60 ms and 272 ms (mini, in the GUI, the view's
   update included). A second pass over the same frames is no faster --
-  nothing is kept today. So a parametric animation of a real part plays
-  at 4 to 15 frames a second, and the frame cache is what would make its
-  second pass and its scrubbing real time. Still not built.
+  nothing was kept. So a parametric animation of a real part plays
+  at 4 to 15 frames a second. Built 2026-11-13, with exact detail held
+  while frames are kept or saved: section 4.1.
 - The manual (thundereal-manual `core/animation`, "Exporting", with
   `export.py` and its media) and the help page have the export.
 

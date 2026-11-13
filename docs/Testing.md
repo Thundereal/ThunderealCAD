@@ -1135,6 +1135,21 @@ the same frames one by one. It needs a view with the renderer behind it
 and says SKIP when no flame is drawn. Not registered: it wants a real GL
 or Metal device.
 
+`animation-cache.py` (2026-11-13) is the Animation's frame cache and the
+detail a frame is kept and saved in (`docs/Animation.md` sec 4.1): a plate
+whose thickness is animated, 36 holes cut through it, 25 checks. A second
+pass recomputes nothing and takes a fraction of the first (38 ms a frame
+against 1.3 on mini); a frame put back is the same picture to the pixel,
+and the picture of the frame recomputed; exact detail is held while the
+Animation is active with its cache on and while an export saves; the
+timeline marks the frames kept; playing goes frame by frame out of the
+cache; an edit drops the frames. Not registered, like the others here. On
+mini a window on `bgfx - OpenGL`, which these tests ask for, never
+reports a complete frame (`waitFrameComplete` gives up after its 5 s of
+quiet, so a picture takes 5 s; on `bgfx - Metal`, which the manual's
+scripts ask for, pictures come at once), and the check that a frame put
+back is complete at once is skipped there. Not looked into.
+
 **On Windows they do not register**, and cannot: `tests/gui/CMakeLists.txt`
 wants `xvfb-run` and `.conda/run.sh`, and the box has neither. Run one with
 `scripts/gui-test.cmd`, the Windows driver (2026-10-29):

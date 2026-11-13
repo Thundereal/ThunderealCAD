@@ -497,6 +497,15 @@ saves (docs/Animation.md sec 9). It too asks for no redraw, replaces the
 volumetric history outright each frame, and set back replays the stateful
 particles from their reset.
 
+Exact detail: `Render::ExactDetail` (`hold()`/`release()`, counted;
+`Gui.setExactDetail` in Python) is for whoever keeps or records what the
+frames show -- an Animation caching its frames, an export
+(docs/Animation.md sec 4.1). While held a shape built for display is
+tessellated exact up front (`coarseTessellationLevel()` answers -1), is
+not stood in for by its bounding box, and a publish captures every
+changed shape whatever its capture budget. What memory pressure orders
+is not held back.
+
 ### The shadow ground, in two forms
 
 The scene light's receiver (`RenderShadow_*`) is drawn by the backend,

@@ -251,3 +251,44 @@ class TestSketchExternalGeometry(unittest.TestCase):
         geo = sketch.ExternalGeo[-1]
         self.assertLess((geo.StartPoint - points[0]).Length, 1e-7)
         self.assertLess((geo.EndPoint - points[3]).Length, 1e-7)
+
+    def testACircleSeenEdgeOnRunsTheWayItsLineRan(self):
+        # A full circle seen edge on projects to a line that could run either
+        # way: the circle has no start of its own. It runs the way the line it
+        # replaces ran, so that what a sketch constrains to its start stays at
+        # that end. Until 2023-08 the line was made from the circle's box,
+        # lower bound first; a sketch saved then and made again had its line
+        # turned round, and its profile reached to the other end of the
+        # circle (realthunder/FreeCAD#613).
+        cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+        sketch = self.doc.addObject("Sketcher::SketchObject", "Sketch")
+        sketch.Placement = App.Placement(Vector(), App.Rotation(Vector(1, 0, 0), 90))
+        self.doc.recompute()
+        sketch.addExternal("Cyl", "Edge3")
+        self.doc.recompute()
+        first = sketch.ExternalGeo[-1]
+        self.assertEqual(first.TypeId, "Part::GeomLineSegment")
+        way = first.EndPoint - first.StartPoint
+        self.assertAlmostEqual(way.Length, 4.0, places=9)
+
+        # made again, it runs as it ran
+        cyl.Radius = 3
+        self.doc.recompute()
+        geo = sketch.ExternalGeo[-1]
+        self.assertAlmostEqual((geo.EndPoint - geo.StartPoint).Length, 6.0, places=9)
+        self.assertGreater((geo.EndPoint - geo.StartPoint).dot(way), 0)
+
+        # and the other way round, as a file may have it
+        geos = sketch.ExternalGeo
+        line = geos[-1]
+        start, end = line.StartPoint, line.EndPoint
+        line.StartPoint = (start + end) * 0.5
+        line.EndPoint = start
+        line.StartPoint = end
+        sketch.ExternalGeo = geos
+        cyl.Radius = 4
+        self.doc.recompute()
+        geo = sketch.ExternalGeo[-1]
+        self.assertAlmostEqual((geo.EndPoint - geo.StartPoint).Length, 8.0, places=9)
+        self.assertLess((geo.EndPoint - geo.StartPoint).dot(way), 0)
+        self.assertNotIn("Invalid", sketch.State)

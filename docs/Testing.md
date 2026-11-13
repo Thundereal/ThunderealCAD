@@ -404,6 +404,37 @@ the same reason as on Windows: their guard looks for `xvfb-run`. Run by
 hand, `GuiServeSelectionEcho_tests_run` passes -- eight PASS lines and
 `DONE`, 2026-09-07; see "The GUI tests" below for the command.
 
+### The Python sandbox on macOS
+
+Set up on mini 2026-11-14, so that its tests run there rather than fail
+or skip (docs/PyodideHost.md has the design):
+
+- **V8**: `v8-embed` from the user's channel (it is in the recipe), into
+  the dev env: `~/miniforge3/bin/conda install -p .conda/freecad
+  -c realthunder -c conda-forge v8-embed` -- a dry run first; it added
+  that package alone. Its dylib says macOS 13.5 and mini runs 13.4: the
+  linker warns, and it loads and runs.
+- **The build**: a tree configured before it was installed keeps
+  `BUILD_EXPR_PYODIDE_HOST` and `BUILD_EXPR_IMAGE_HOST` OFF in its cache;
+  reconfigure with both ON, `-Dv8-embed_DIR=.conda/freecad/lib/cmake/
+  v8-embed`, `FREECAD_FCX_IMAGE_WHEEL` (the wheel from PyPI, PyodideHost.md
+  sec 12.3, renamed to its `pyodide_2026_0_wasm32` tag, in
+  `build/pyodide-guest/dist`) and `FREECAD_BUNDLED_WHEELS` (ipywidgets
+  8.1.9 and traitlets 5.14.3, `pip download` into `build/sandbox-wheels`),
+  as the conda presets name them.
+- **The runtime**: `freecad.pyodide.install_runtime()` run once by
+  ThunderealCmd with `FREECAD_USER_HOME=~/works/sw/pyodide-home`, which
+  puts pyodide 314.0.6 in `~/works/sw/pyodide-home/Pyodide/314.0.6`.
+  The GUI tests run on a profile of their own, thrown away, so they and
+  ctest are handed it as `FCX_PYODIDE`. Beside it, the numpy wheel the
+  runtime's lock names (from the jsDelivr `full/` set, checked against
+  the lock's sha256), which ExpressionPyodideOfferTest installs from.
+
+With those, `ctest -R 'ExpressionImage|Pyodide|Sandbox'`: 77 pass and
+the eight `ExpressionImageBenchTest` benchmarks stay disabled, as they
+are everywhere; sandbox-console-serve 30 of 30 and
+sandbox-console-browser 11 of 11.
+
 ### Python on macOS
 
 **Run in full for the first time on 2026-09-10**, on
@@ -1165,8 +1196,9 @@ field's text with Control+A, which macOS Chrome does not run as select
 all for a synthesized key (nor Command+A), and typed after the old value;
 serve-animation-browser read the phase file of a run before into the same
 folder, which the manual's run-gui-script.sh did not clear as
-gui-test.sh does. sandbox-console-browser skips its browser leg on a
-build without the pyodide sandbox host (boot.json's 503). The
+gui-test.sh does. sandbox-console-browser failed for want of the
+pyodide sandbox host in the build; with it ("The Python sandbox on
+macOS" above) it passes, 11 of 11. The
 browser scripts there want `node` on PATH as well as `NODE`,
 `PUPPETEER_PATH` and `CHROME` (most launch a bare `node`). That used to
 cost 5 s a picture -- `waitFrameComplete` and the frame dump each waited

@@ -4855,6 +4855,127 @@ Phase D1 is under way (2026-10-28):
     strips, to 0.035 s: 2.3 to 3.3 N at the end, rising, leaning under
     0.05 of it). The rest hold: TestFlexibleBody 25, TestDynamics 90,
     TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 17 (2026-11-13): the friction on a flexible part
+  touched anywhere against its closed form -- step 16's limit -- and what
+  the check found: a point slid over a curved face is slid again at every
+  update of a substep.
+  - **The check.** Step 13's rod (R 5 x 40, mesh 4, turned once in 0.1 s
+    by a motion, 0.05 mm into the plate, 1000 N/mm, no gravity) with a
+    friction of 0.3 slides all the turn, at up to 470 mm/s: the motion
+    turning it gives mu N R, the rod's radius the friction's arm. The
+    friction's force was mu N in every case, 0.300; the motion's torque,
+    over 0.03 to 0.08 s, as its share of N R:
+
+    | rod | under it | before | now |
+    |---|---|---|---|
+    | rigid | rigid plate | 0.2998 | 0.2998 |
+    | rigid | flexible plate | 0.2999 | 0.2999 |
+    | flexible | rigid plate | 0.2838 | 0.2987 |
+    | flexible | flexible plate | 0.2820 | 0.2972 |
+    | flexible | rigid roller R 5 | 0.3102 | 0.2983 |
+    | flexible | flexible roller R 5 | -- | 0.2978 |
+
+    Not the friction, and not the pair of flexible parts: a flexible rod's
+    torque was 5% under on a plate and 3% over on a roller, with a ripple
+    of 7% on the roller (0.273 to 0.333), and with no friction at all the
+    motion gave -2.18 N mm on the plate for none.
+  - **A point placed at a substep's start is a point of the mesh.**
+    `FlexibleContact::place()` slides a curved face's point to the face's
+    farthest towards a flat face (step 13) or its deepest in a round (step
+    15) once, at collision detection, and `refresh()` then moves it with
+    the mesh. A rod turning carries it round, w h R past where the rod is
+    deepest by the substep's end, 0.085 mm at 85 rad/s and 0.2 ms; the
+    normal's force, still along the plate's normal, turns the rod on. With
+    no friction, at output steps of 0.2, 0.1 and 0.05 ms: -2.18, -1.15 and
+    -0.58 N mm, in proportion; with 0.3, 63.6, 65.5 and 66.2 for 67.2. A
+    rigid round's point had the same and its cure (`rollAlong()`).
+    Now each such point is slid again as the bodies are at every update
+    (`FlexibleContact::follow()`, from `refresh()` at `Update()`), by what
+    `place()` kept of it (`ContactLoad::OnMesh::slides`): towards a flat
+    face, its face's nodes and the point found on its flat triangle
+    (`towardsFlat()`), the normal turned with the face's body as the
+    load's follow turns it; into a round, the face it was placed on, its
+    area coordinates there, the station it is held at and the round
+    (`deepestOnFace()`). The other part's point under one slid along a
+    flat face stays under it where that part is rigid. The plate's cases
+    were right with that alone: no friction -0.06 N mm, 0.2987 and 0.2972.
+  - **On a round the first try never ended its first substep**, and then
+    was wrong the other way, -2.25 N mm with no friction for +0.75. Three
+    things, from a trace of every point's search:
+    - `deepestOnFace()` held each point, by a tenth of a weight, at the
+      station along the round's axis of the point it started from: found
+      again at each of Newton's iterations from where it last was, a point
+      on a rod lying along a roller crept along it each time. It is held
+      at the station its placing took now (`OnMesh::station`), and started
+      from where it was placed each time: a way of the state alone.
+    - **Its steps were Gauss and Newton's, without the face's curve**, and
+      such a step is the face's own radius short of the way: against a
+      roller of the rod's radius it goes twice as far as the deepest, to as
+      far beyond it and no nearer, and stops. The trace had the points in
+      two sets, a substep's turn (0.09 mm) either side of the rod's line,
+      some 0.2 to 0.6 mm off it -- at placing too, step 15's and step
+      16's. The steps are Newton's now, with the face's second rates, which
+      are the same all over a quadratic face (the Gauss and Newton's where
+      those leave no way down). The roller without friction: -0.39 N mm,
+      and 0.2981 with 0.3.
+    - **And then 283 s for 8**: a fifth of the substeps did not converge
+      (250 of 1417 in the first 26 ms; none on the plate) and were taken
+      again an eighth as long. A point gone on into the next face at one
+      of Newton's iterations and not at the next: the edge it leaves by
+      was read off the step as halved twelve times, so the deepest was
+      0.016 mm beyond the edge before the point went after it, and went
+      that far at once. The edge is read off the step as taken now; and
+      within a substep a point stays on the face it was placed on, stopped
+      at its edges -- a substep's turn is a fiftieth of a face. No substep
+      unconverged since, the run 7.5 s.
+  - **A point set on its round by the other flexible part is on its face
+    there** (`setGiven()`, step 16's second limit): its weights the face's
+    at the point nearest where it is set, across into the faces beyond its
+    edges at placing, its offset from that -- not the weights of where it
+    was found, its offset all the way from there. On a rod turning on a
+    flexible roller the roller's points go to their deepest in the rod and
+    the rod's are set under them: those were still the rod's own points
+    where they were found, carried round with it, and the torque 0.288 of
+    N R. Both parts' points are slid before either part's are read
+    (`refresh()`), whichever is updated first. 0.2978.
+  - Numbers (mesh 4, steps of 0.2 ms, friction 0.3; N R the mean normal
+    force by the rod's 5 mm). The flexible rod on the rigid plate: 44.81 N,
+    66.94 N mm, 0.2987 (0.2845 to 0.3147 over the turn), in 7.3 s; on the
+    flexible plate 46.02 N, 68.38 N mm, 0.2972, in 26 s; on the rigid
+    roller 44.60 N, 66.52 N mm, 0.2983 (0.2895 to 0.3081), in 9.7 s; on
+    the flexible roller 44.71 N, 66.57 N mm, 0.2978, in 182 s. With no
+    friction, the motion's torque for none: -0.06 N mm on the plate, -0.11
+    on the roller. Without friction, both flexible: the plate 43.75 to
+    47.20 N in 21 s (step 16's 43.76 to 47.21), past its ends 39.59 to
+    47.23 (39.62 to 47.14), the roller 44.09 to 45.37 in 136 s (43.47 to
+    45.26 in 112), the two strips 9.80 N at the end as they were, in 159 s
+    as they were. The strip between two bars
+    as it was, frame for frame, on both laws (19.09 and 16.85 N, 18.73 and
+    3.526): its faces are flat. The rod on the rigid roller 42.35 to 46.81
+    N at mesh 4 and 41.59 to 46.93 at mesh 2 (42.0 to 46.7, 40.5 to 46.2),
+    on the rigid plate 42.28 to 46.78 and 42.18 to 46.68, past its ends
+    41.81 to 47.30.
+  - Limits.
+    - Within a substep a slid point stops at the edges of the face it was
+      placed on, and one set by the other part at its own face's: the next
+      detection places it on.
+    - The flat part's point under a point slid along its face is moved
+      with it where that part is rigid; a flexible flat face's stays the
+      point of its mesh it was placed on.
+    - Two rounds, both flexible, cost four to six times the plate: 136 s
+      for 21 without friction, 182 for 26 with.
+    - The friction is checked sliding; sticking, and the two strips, are
+      against no closed form.
+    - Step 16's others stand: two curved faces of no cylinder or sphere,
+      hollow rounds, a corner of three flat faces.
+  - Tests: TestFlexibleBody.test_friction_on_flexible_round,
+    test_friction_on_roller and test_friction_between_flexible_parts (the
+    rod with a friction of 0.3 on the rigid plate, the rigid roller and the
+    flexible plate: the motion's torque 0.3 N R to 0.006 N R -- 0.2994,
+    0.2985 and 0.2975 over 0.03 to 0.1 s); and every round's test of steps
+    13 to 16 holds the motion's torque to none within the same (-0.0013 to
+    0.0004 N R). The rest hold: TestFlexibleBody 28 (548 s), TestDynamics
+    90, TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

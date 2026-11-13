@@ -967,16 +967,53 @@ class TestFlexibleBody(unittest.TestCase):
             "a round on a flexible roller", 55, -10, roller=True, flexiblePlate=True, until=0.045
         )
 
+    def test_friction_on_flexible_round(self):
+        """The friction on a flexible part's round touched anywhere, against
+        its closed form (D4b step 17): test_round_anywhere's rod on its
+        plate with a friction of 0.3, sliding all the turn -- the motion
+        turning it gives 0.3 N R, the rod's radius the friction's arm. Each
+        point is slid again to its face's deepest at every update of a
+        substep (FlexibleContact::follow()): placed at the substep's start
+        alone it was carried round with the rod, w h R past where the rod is
+        deepest, and the normal's force turned the rod on -- 0.284 N R at
+        steps of 0.2 ms, and -0.0097 N R with no friction, where
+        test_round_anywhere now holds it to none"""
+        self.roundTurned("friction on a round", 55, -10, friction=0.3)
+
+    def test_friction_on_roller(self):
+        """The same on a rigid roller (D4b step 17), the points found again
+        on their faces by Newton's steps with the faces' curve
+        (deepestOnFace()): Gauss and Newton's alone left them a substep's
+        turn either side of the line, the torque 0.310 N R"""
+        self.roundTurned("friction on a roller", 55, -10, roller=True, friction=0.3)
+
+    def test_friction_between_flexible_parts(self):
+        """The friction between two flexible parts, against its closed form
+        (D4b step 17): the rod on the plate flexible too, a friction of 0.3
+        -- 0.282 N R before"""
+        self.roundTurned(
+            "friction between flexible parts", 55, -10, flexiblePlate=True, friction=0.3
+        )
+
     def roundTurned(
-        self, name, length, start, roller=False, flexiblePlate=False, within=0.1, until=0.1
+        self,
+        name,
+        length,
+        start,
+        roller=False,
+        flexiblePlate=False,
+        within=0.1,
+        until=0.1,
+        friction=0.0,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
         tenth ('within') of its mean over the turn, the mean under a rigid
-        rod's 50 N. flexiblePlate: the plate flexible too, held all along its
-        underside by a fixed joint to a grounded base -- the roller, at both
-        its ends by fixed joints to grounded blocks. until: the run's end, of
-        the turn's 0.1 s"""
+        rod's 50 N; and the motion's torque the friction's, 'friction' N R,
+        to 0.006 N R -- none without friction. flexiblePlate: the plate
+        flexible too, held all along its underside by a fixed joint to a
+        grounded base -- the roller, at both its ends by fixed joints to
+        grounded blocks. until: the run's end, of the turn's 0.1 s"""
         import CommandCreateContact
 
         mount = self.box("Mount", (10, 20, 20), (-10, -10, -10))
@@ -1056,8 +1093,8 @@ class TestFlexibleBody(unittest.TestCase):
         contact.Stiffness = 1000.0
         contact.Exponent = 1.0
         contact.FrictionFrom = "Value"
-        contact.StaticFriction = 0.0
-        contact.DynamicFriction = 0.0
+        contact.StaticFriction = friction
+        contact.DynamicFriction = friction
         sim = self.study(until, 2e-4)
         sim.GravityEnabled = False
         sim.Elements = [contact]
@@ -1092,6 +1129,14 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertLess(mean, 50.0)
         self.assertGreater(min(turning), (1.0 - within) * mean)
         self.assertLess(max(turning), (1.0 + within) * mean)
+        # The motion's torque, N mm: the friction's on the rod's radius
+        torques = [c["Values"] for c in results["Channels"] if c["Quantity"] == "MotorTorque"]
+        self.assertEqual(len(torques), 1)
+        turned = [v * 1e-3 for t, v in zip(results["Times"], torques[0]) if 0.03 <= t <= until]
+        torque = sum(turned) / len(turned)
+        print("%s: the motion's torque %.4g N mm, %.4f N R for a friction of %g"
+              % (name, torque, torque / (mean * 5.0), friction))
+        self.assertLess(abs(torque - friction * mean * 5.0), 0.006 * mean * 5.0)
 
     def renew(self):
         """A new document for a second run, as setUp's"""

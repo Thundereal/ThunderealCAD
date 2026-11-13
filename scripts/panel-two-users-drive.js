@@ -153,9 +153,10 @@ const puppeteer = require(process.env.PUPPETEER_PATH || 'puppeteer-core');
         for (const f of fields) {
           if (parseFloat(await f.evaluate((el) => el.value)) !== from) continue;
           await f.click({ clickCount: 3 });
-          await page.keyboard.down('Control');
-          await page.keyboard.press('KeyA');
-          await page.keyboard.up('Control');
+          // Select all from the page: on macOS Chrome runs no editing
+          // command for a synthesized key, Control+A or Command+A alike,
+          // and the digits went in after the old value ("15.0018")
+          await f.evaluate((el) => el.select());
           await page.keyboard.type(String(to));
           await page.keyboard.press('Tab');
           return true;

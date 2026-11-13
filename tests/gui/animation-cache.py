@@ -13,9 +13,7 @@ saved, a rebuilt shape is meshed exact at once rather than coarse first
     fraction of the time;
   - a frame put back is the picture it was: the same pixels, and the
     picture of the same frame recomputed with the cache off;
-  - a frame is complete as soon as it is drawn -- nothing refines after
-    (where the window is drawn at all: not asked of a window the system
-    does not paint, which never reports a complete frame);
+  - a frame is complete as soon as it is drawn -- nothing refines after;
   - the timeline marks the frames kept;
   - playing goes frame by frame, out of the cache;
   - an edit of the design drops the frames;
@@ -26,6 +24,7 @@ Skips the pictures when the view has no renderer.
   scripts/gui-test.sh tests/gui/animation-cache.py /tmp/anim-cache
 """
 import os
+import platform
 import time
 import traceback
 
@@ -103,8 +102,11 @@ def run():
     try:
         App.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt("AutoSaveTimeout", 0)
         App.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("RenderCache", 3)
+        # Metal on macOS: a Qt widget's GL context there is 2.1, below
+        # what the bgfx OpenGL backend takes, and the render cache's own
+        # GL renderer would draw instead (docs/Testing.md).
         App.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", "bgfx - Metal" if platform.system() == "Darwin" else "bgfx - OpenGL")
         mw = Gui.getMainWindow()
         mw.resize(1300, 900)
         doc = App.newDocument("AnimationCache")

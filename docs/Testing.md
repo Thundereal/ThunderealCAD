@@ -1143,12 +1143,19 @@ against 1.3 on mini); a frame put back is the same picture to the pixel,
 and the picture of the frame recomputed; exact detail is held while the
 Animation is active with its cache on and while an export saves; the
 timeline marks the frames kept; playing goes frame by frame out of the
-cache; an edit drops the frames. Not registered, like the others here. On
-mini a window on `bgfx - OpenGL`, which these tests ask for, never
-reports a complete frame (`waitFrameComplete` gives up after its 5 s of
-quiet, so a picture takes 5 s; on `bgfx - Metal`, which the manual's
-scripts ask for, pictures come at once), and the check that a frame put
-back is complete at once is skipped there. Not looked into.
+cache; an edit drops the frames. Not registered, like the others here. It
+asks for `bgfx - Metal` on macOS: a Qt widget's GL context there is 2.1
+(the compatibility profile Coin needs; macOS has nothing between that and
+core 3.2), below the 3.1 the bgfx OpenGL backend takes, so a view asked
+for `bgfx - OpenGL` is drawn by the render cache's own GL renderer and
+the backend counts no frame. The other scripts here still ask for
+`bgfx - OpenGL` and so run without the backend on a Mac. That used to
+cost 5 s a picture -- `waitFrameComplete` and the frame dump each waited
+their quiet timeout out for a frame that would never be counted -- and a
+segfault at quit, the declined view swept through a bgfx that was not
+up; `Renderer::unavailable()` now sends both waiters the way of a view
+with no backend (0.01 s a picture on mini), and the sweep leaves bgfx
+alone.
 
 **On Windows they do not register**, and cannot: `tests/gui/CMakeLists.txt`
 wants `xvfb-run` and `.conda/run.sh`, and the box has neither. Run one with

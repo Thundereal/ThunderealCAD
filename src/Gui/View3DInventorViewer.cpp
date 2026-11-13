@@ -4028,7 +4028,10 @@ void View3DInventorViewer::savePicture(int width, int height, int sample, const 
     // model missing, so the capture goes through the backend's own one-shot
     // dump instead (docs/RenderDebug.md §4) -- which is the composed frame,
     // overlays and background included.
-    if (getExternalRenderer()) {
+    // Not a backend that declined the device: the render cache's GL
+    // renderer draws there, the routes below have the model, and the
+    // dump would only wait its timeout out.
+    if (getExternalRenderer() && !getExternalRenderer()->unavailable()) {
         auto self = const_cast<View3DInventorViewer*>(this);  // NOLINT
         if (self->imageFromRenderer(width, height, bg, img, waitComplete))
             return;
@@ -4801,8 +4804,10 @@ bool View3DInventorViewer::pumpFrameDump(Render::Renderer *renderer)
 bool View3DInventorViewer::waitFrameComplete(int timeoutMs)
 {
     Render::Renderer *renderer = getExternalRenderer();
-    if (!renderer) {
-        // Nothing asynchronous stands between Coin and its frame.
+    if (!renderer || renderer->unavailable()) {
+        // Nothing asynchronous stands between Coin and its frame -- nor
+        // between the render cache's GL renderer and its, where the
+        // backend declined the device and will count no frame.
         redraw(true);
         QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
         return true;

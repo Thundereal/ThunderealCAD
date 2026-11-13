@@ -1693,6 +1693,15 @@ public:
     /// wait lives in the caller. True where the backend has nothing
     /// to say.
     virtual bool frameComplete() const { return true; }
+    /// True once the backend has found it will never render on this
+    /// device -- bgfx asked for OpenGL on a context below 3.1, which is
+    /// every Qt widget context on macOS (2.1, the compatibility profile
+    /// Coin needs) -- and the render cache's own GL renderer draws
+    /// instead. Such a backend counts no frame, so whoever waits on
+    /// completeFrames() or asks it for a frame dump would only run its
+    /// timeout out: they ask this first and take the route of a view
+    /// with no backend. Known after the first frame was tried.
+    virtual bool unavailable() const { return false; }
     /// Frames rendered, and complete frames rendered, since the backend
     /// came up. A waiter records the complete count, pumps, and stops
     /// when it advances -- a verdict left over from before the request

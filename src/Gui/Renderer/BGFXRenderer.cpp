@@ -672,6 +672,11 @@ bool BGFXRenderer::frameComplete() const
     return pimpl->lastFrameComplete;
 }
 
+bool BGFXRenderer::unavailable() const
+{
+    return _BGFXLib.glUnsupported;
+}
+
 uint64_t BGFXRenderer::renderedFrames() const
 {
     return pimpl->renderedFrameCount;

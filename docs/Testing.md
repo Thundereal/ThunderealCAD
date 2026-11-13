@@ -1154,14 +1154,19 @@ the backend counts no frame. So does every script here that used to name
 a backend outright (`ENGINE` at the top of 63 of them), most of them
 `bgfx - OpenGL`, which ran them without the backend on a Mac and on
 OpenGL rather than Direct3D 11 on Windows; switched 2026-11-13 and run on
-mini, Metal against OpenGL: the same results, 59 clean, and three
-that fail alike on both -- camera-uplink-bench (no click answered with a
-push), serve-handle-touch-browser (the handle's menu is the view's) and
-serve-panel-two-users-browser (the second user's panel fields read None);
-sandbox-console-browser wants a build with the pyodide sandbox host.
-serve-animation-browser is flaky on mini on both: run again straight after
-a run, the host's Animation does not move ("moved": 0.0) and five checks
-fail; once in a full sweep "the green one stays" read 11 px. The
+mini, Metal against OpenGL: the same results. The four that failed on
+both were chased the same day and pass now: camera-uplink-bench waited
+for a binary push where a click is answered by the "selection" text push
+(since 26d8bb2a35); serve-handle-touch-browser looked for the arrow and
+the label by one hit test, and the label has stood beside the active
+handle since 6465589eb0 -- the page hook fcviewerEditHandleKind tells a
+handle (1) from a label (2) now; serve-panel-two-users-browser selected a
+field's text with Control+A, which macOS Chrome does not run as select
+all for a synthesized key (nor Command+A), and typed after the old value;
+serve-animation-browser read the phase file of a run before into the same
+folder, which the manual's run-gui-script.sh did not clear as
+gui-test.sh does. sandbox-console-browser skips its browser leg on a
+build without the pyodide sandbox host (boot.json's 503). The
 browser scripts there want `node` on PATH as well as `NODE`,
 `PUPPETEER_PATH` and `CHROME` (most launch a bare `node`). That used to
 cost 5 s a picture -- `waitFrameComplete` and the frame dump each waited

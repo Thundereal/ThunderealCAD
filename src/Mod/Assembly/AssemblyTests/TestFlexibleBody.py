@@ -1383,6 +1383,87 @@ class TestFlexibleBody(unittest.TestCase):
             moved = moved or tip.z < 4.0
         self.assertTrue(moved, "the rod did not swing")
 
+    def test_held_by_a_free_part(self):
+        """A flexible part held by a part nothing joins to the ground (D4b
+        step 19): a hanger 10 x 20 x 80 hung on a grounded pin R 5 by a bore
+        R 5.2, a block fixed under it, let down 0.01 mm onto the pin under
+        gravity. The joint to the block is in the model only once the
+        contact has made the hanger a body, after the flexible body's record
+        was: the record had no nodes for it, the hanger was tied to it at
+        the one nearest, its first three modes turns about that node at
+        0.002 Hz, and it bounced off the pin at 600 N. Its interfaces are
+        taken once those joints are in (AssemblyObject::
+        flexibleInterfaces()): its first mode is over 1 kHz, and it comes to
+        rest on the pin, pressing it its weight and the block's"""
+        import CommandCreateContact
+        import Part
+
+        pin = self.assembly.newObject("Part::Cylinder", "Pin")
+        pin.Radius = 5
+        pin.Height = 30
+        pin.Placement = plc(-15, 0, 0, App.Vector(0, 1, 0), 90)
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPin")
+        JointObject.GroundedJoint(ground, pin)
+        hanger = self.assembly.newObject("Part::Feature", "Hanger")
+        hanger.Shape = Part.makeBox(10, 20, 80).cut(
+            Part.makeCylinder(5.2, 10, App.Vector(0, 10, 68), App.Vector(1, 0, 0))
+        )
+        # The bore's wall 0.01 mm over the pin's top
+        hanger.Placement.Base = App.Vector(-5, -10, -68.19)
+        block = self.box("Block", (30, 30, 30), (-15, -15, -98.19))
+        self.doc.recompute()
+        under = next(
+            "Face%d" % (i + 1)
+            for i, f in enumerate(hanger.Shape.Faces)
+            if f.Surface.__class__.__name__ == "Plane" and abs(f.CenterOfMass.z + 68.19) < 1e-6
+        )
+        at = plc(0, 0, -68.19)
+        held = self.joints.newObject("App::FeaturePython", "Fixed")
+        JointObject.Joint(held, JointObject.JointTypes.index("Fixed"))
+        held.Detach1 = True
+        held.Detach2 = True
+        held.Reference1 = (block, ["Face6"])
+        held.Reference2 = (hanger, [under])
+        held.Placement1 = block.Placement.inverse().multiply(at)
+        held.Placement2 = hanger.Placement.inverse().multiply(at)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contact = CommandCreateContact.newContactSet(self.assembly, [pin], [hanger])
+        contact.StiffnessFrom = "Value"
+        contact.Stiffness = 1000.0
+        contact.Exponent = 1.0
+        contact.FrictionFrom = "Value"
+        contact.StaticFriction = 0.0
+        contact.DynamicFriction = 0.0
+        sim = self.study(0.03, 1e-3)
+        sim.Elements = [contact]
+        body = FlexibleBodies.makeFlexibleBody(self.assembly, hanger)
+        body.MeshSize = 4.0
+        FlexibleBodies.prepare(body)
+        self.assertEqual(list(body.InterfaceFrames), [held.FullName])
+        self.doc.recompute()
+        hz = self.assembly.getFlexibleFrequencies(sim, body)
+        self.assertGreater(hz[0], 1000.0)
+        weight = 0.0
+        for entry in self.assembly.getMassProperties()["Components"]:
+            if entry["Object"].Name in (hanger.Name, block.Name):
+                weight += entry["Mass"] * 9.80665
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        values = [
+            c["Values"]
+            for c in results["Channels"]
+            if c["Quantity"] == "ContactNormalForce" and c["Name"] == contact.Name
+        ]
+        self.assertEqual(len(values), 1)
+        forces = [v.Length * 1e-3 for v in values[0]]
+        resting = [f for t, f in zip(results["Times"], forces) if t >= 0.02]
+        mean = sum(resting) / len(resting)
+        print("held by a free part: first mode %.4g Hz; at most %.4g N, resting %.4g N of %.4g"
+              % (hz[0], max(forces), mean, weight))
+        self.assertLess(max(forces), 10.0)
+        self.assertLess(abs(mean - weight), 0.05 * weight)
+
     def test_flexible_pendulum(self):
         """Let go level, the flexible rod swings down as the rigid one does,
         its centre at the bottom in a quarter of the period, the hinge

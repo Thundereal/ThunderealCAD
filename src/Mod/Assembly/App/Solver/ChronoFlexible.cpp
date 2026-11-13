@@ -1155,10 +1155,25 @@ Chrono::flexibleFrequencies(const Model& model, std::size_t index, std::string* 
         if (flexible.body >= si.bodies.size()) {
             throw std::runtime_error("the flexible body is on no body");
         }
+        // Its interfaces as a run takes them (ChronoSession::load()): the
+        // frames on it but for its contact shapes', which ride its first
+        // interface or, with contact faces named, an interface of those
+        // faces' nodes at their centre. With a contact shape's frame an
+        // interface of its own, at the node nearest, the modes were not the
+        // run's, and the reduction of a hanger on a pin failed to factor
+        std::vector<Id> touched;
+        for (const auto& shape : si.dynamics->contactShapes) {
+            if (shape.frame < si.frames.size() && si.frames[shape.frame].body == flexible.body) {
+                touched.push_back(shape.frame);
+            }
+        }
         std::vector<ChronoFlexible::Interface> interfaces;
         for (const auto& face : flexible.interfaces) {
             if (face.frame >= si.frames.size()) {
                 throw std::runtime_error("a flexible body's interface is on no frame");
+            }
+            if (std::find(touched.begin(), touched.end(), face.frame) != touched.end()) {
+                continue;
             }
             const Base::Placement& local = si.frames[face.frame].local;
             const Base::Vector3d p = local.getPosition();
@@ -1167,6 +1182,26 @@ Chrono::flexibleFrequencies(const Model& model, std::size_t index, std::string* 
             interfaces.push_back({ch::ChFramed(ch::ChVector3d(p.x, p.y, p.z),
                                                ch::ChQuaterniond(w, x, y, z)),
                                   face.nodes});
+        }
+        // Held by nothing, it has no interface to reduce it about: the
+        // reduction read storage that was not its own
+        if (interfaces.empty()) {
+            throw std::runtime_error("nothing holds the flexible body");
+        }
+        if (!touched.empty() && !flexible.contactNodes.empty()) {
+            ch::ChVector3d centre;
+            std::size_t counted = 0;
+            for (Id n : flexible.contactNodes) {
+                if (n < flexible.nodes.size()) {
+                    centre += toCh(flexible.nodes[n]);
+                    ++counted;
+                }
+            }
+            ch::ChFramed contactAt;
+            if (counted) {
+                contactAt.SetPos(centre / static_cast<double>(counted));
+            }
+            interfaces.push_back({contactAt, flexible.contactNodes});
         }
         const Base::Placement& at = si.bodies[flexible.body].placement;
         double x, y, z, w;

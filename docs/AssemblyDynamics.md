@@ -5076,6 +5076,66 @@ Phase D1 is under way (2026-10-28):
     rigid rod in the flexible bore with a friction of 0.3: 49.98 N steady,
     0.2987 N R). The rest hold: TestFlexibleBody 30 (587 s), TestDynamics
     90, TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 19 (2026-11-13): a flexible part held by a part nothing
+  joins to the ground.
+  - **The scene.** A grounded pin R 5 x 30; a hanger 10 x 20 x 80 on it by
+    a bore R 5.2, 12 mm under its top; a block 30 x 30 x 30 fixed under the
+    hanger, 114 g the two. Gravity, the contact 1000 N/mm, the bore's wall
+    0.01 mm over the pin. Rigid, the hanger lands at 5.1 N, bounces once
+    and rests in 6 ms; let go 30 deg off the vertical it swings to -28.97
+    and back to 26.68 in 0.6 s, a run of 2 s. Flexible, each landing was
+    harder -- 4, 10, 26, 600 N -- and it left the pin.
+  - **Not the contact.** With no contact asked of, the two falling: the
+    block fell 19.63 um in 2 ms, g, and the flexible body's deformation at
+    its interface grew as t^2, a turn about x of 5.7e-4 rad at 1.2 ms, 800
+    rad/s^2; three of its modal coordinates with it, the rest at 1e-13.
+    Its modes: 0.0015, 0.0026 and 0.0034 Hz, then 5.4 kHz. In the contact's
+    run the bore, 68 mm over the interface, was 36.6 um off the pin's axis
+    sideways by the first touch, the contact 0.95 mm round from the pin's
+    top, a sixth of its force sideways.
+  - **Its record had no nodes for the joint.** A flexible body's interfaces
+    are the frames on its body, each with the nodes its mesh has for it
+    (`FlexibleBody::InterfaceFrames`), and were listed with its record, in
+    `addForces()`. The joints of parts nothing joins to the ground are put
+    in the model after that, once a contact, a spring or the flexible body
+    itself has made a part of theirs a body (`buildSimulation()`): the
+    hanger's joint to the block came after its record, so the record had
+    no interface for it, the backend took the frame as one with no nodes --
+    tied at the node nearest -- and the hanger turned about that node, its
+    first three modes. A flexible part hinged or fixed to the ground, or to
+    a part that is, has its joint in the model from the start: every test
+    before this one.
+    The interfaces are listed once those joints are in
+    (`AssemblyObject::flexibleInterfaces()`, from `buildSimulation()`
+    before the masses).
+  - **Find Modes with a contact set.** `Chrono::flexibleFrequencies()` took
+    every frame on the body for an interface, a contact shape's too -- at
+    the node nearest it -- where a run leaves those to the first interface
+    or to the contact faces' (`ChronoSession::load()`): its modes were not
+    the run's, and the hanger's reduction failed to factor (SparseLU), the
+    process with it. With no interface at all it read storage not its own.
+    It takes them as the run does now, and says "nothing holds the flexible
+    body" of one held by nothing.
+  - Numbers (mesh 4). Falling free, the hanger and the block both 19.627 um
+    in 2 ms; its modal coordinates under 1e-10. Its modes 1382, 2644, 7450
+    Hz, with the contact set or without. Let down straight: 5.15 N at the
+    landing, one bounce of 2.5, then 1.128 N over 0.02 to 0.03 s for a
+    weight of 1.116, in 9.7 s. Let go at 30 deg, a friction of 0.1: to
+    -28.95 deg and back to 26.61 in 0.6 s, the rigid hanger's -28.97 and
+    26.68; 843 frames in 209 s. Every probe of steps 12 to 18 as it was.
+  - Limits.
+    - The swing is 209 s for the rigid hanger's 2. Before the fix its
+      substeps were the contact's own, 25 us: the contact was never at rest
+      by the 2% its deepest point's depth, 1 um here, may move over its
+      period. Not looked at again since.
+    - Resting, the force on the pin ripples between 1.0 and 1.24 N about
+      its 1.12.
+    - A flexible part held by no joint at all is still refused.
+  - Tests: TestFlexibleBody.test_held_by_a_free_part (the hanger let down
+    straight for 0.03 s: its first mode over 1 kHz, the landing under 10 N,
+    the force at rest its weight to 5% -- 1382 Hz, 5.15 N, 1.128 N of
+    1.116). The rest hold: TestFlexibleBody 31 (604 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

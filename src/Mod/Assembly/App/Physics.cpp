@@ -1092,8 +1092,17 @@ FlexibleBody::FlexibleBody()
                       "Flexible",
                       App::Prop_None,
                       "The faces of its component a contact touches it on: their nodes move "
-                      "together, as one interface its contacts press it through. A contact on "
-                      "it needs them");
+                      "together, as one interface its contacts press it through. Without them "
+                      "a contact presses its mesh anywhere, where it touches");
+    ADD_PROPERTY_TYPE(BendingScale,
+                      (0.0),
+                      "Flexible",
+                      App::Prop_None,
+                      "How many times its bending is drawn over a run's frames, 1 as it is; "
+                      "0: what shows it, its largest a tenth of the part's size, or as it is "
+                      "where that is a twentieth or more");
+    static const App::PropertyFloatConstraint::Constraints drawn = {0.0, 1.0e6, 1.0};
+    BendingScale.setConstraints(&drawn);
 
     const auto made = static_cast<App::PropertyType>(App::Prop_Output | App::Prop_ReadOnly);
     ADD_PROPERTY_TYPE(Nodes,
@@ -1112,7 +1121,8 @@ FlexibleBody::FlexibleBody()
                       "Mesh",
                       made,
                       "The model frame each interface is: a joint's full name, a force "
-                      "element's with -1 or -2 for its end");
+                      "element's with -1 or -2 for its end -- matched by the name in its "
+                      "document, whatever the document is named now");
     ADD_PROPERTY_TYPE(InterfaceNodes,
                       (),
                       "Mesh",
@@ -1134,6 +1144,12 @@ FlexibleBody::FlexibleBody()
                       "Mesh",
                       static_cast<App::PropertyType>(made | App::Prop_Hidden),
                       "The mode shapes' columns: the deformation's coordinates");
+    ADD_PROPERTY_TYPE(Reduction,
+                      (),
+                      "Mesh",
+                      static_cast<App::PropertyType>(made | App::Prop_Hidden),
+                      "Its last dynamic run's reduction to its modes, which the next run takes "
+                      "where the part is as it was, after the document is opened again too");
 }
 
 namespace App

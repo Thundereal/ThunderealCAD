@@ -3781,8 +3781,9 @@ Phase D1 is under way (2026-10-28):
     bent from its hold.
   - **Its mesh and interfaces are made before a run** (`FlexibleBodies.py`,
     `prepare()`; the Simulation panel calls it, `prepareStudy()`): Netgen
-    through the Fem workbench, second order, in a hidden document of its
-    own; each joint on the component an interface, labelled as the model
+    through the Fem module, second order, in no document
+    (`Fem.meshNetgen()`, since step 6; a hidden document of its own
+    before); each joint on the component an interface, labelled as the model
     labels the joint's frame (its full name), its nodes those of the faces
     its reference stands for (`MotionLoads._facesOf()`, FemMesh
     `getNodesByFace()`); kept while the shape, the size and the joints'
@@ -3823,8 +3824,8 @@ Phase D1 is under way (2026-10-28):
     now with every other tetrahedron turned the other way, the same modes.
   - Not yet: the reduction is made again at each run (5 s for the rod; its
     modes kept since, step 5's last entry); a task panel of its own, the
-    modes' frequencies shown before the run; the deformation and stresses
-    (step 4).
+    modes' frequencies shown before the run (step 6); the deformation and
+    stresses (step 4).
 - Built, D4b step 4 (first half): the deformation, drawn as the run plays.
   - **What the run reports for it**: each frame, beside the modal
     coordinates, its interfaces' own deformation ("InterfaceDeformation",
@@ -3846,7 +3847,8 @@ Phase D1 is under way (2026-10-28):
     outer faces, each 6-node triangle as four, turned outward; at the time
     shown -- between two frames, the coordinates interpolated -- moved by
     the shapes and the coordinates, scaled up for the largest over the run
-    to be a tenth of the part's size, in place of the component, which
+    to be a tenth of the part's size (or by the body's `BendingScale`,
+    step 12), in place of the component, which
     hides while it is drawn and shows again when the panel closes. Save
     Animation's frames have it.
   - The panel's Elements lists the flexible bodies.
@@ -3892,7 +3894,7 @@ Phase D1 is under way (2026-10-28):
     axis cross that feed was built for (a square of plain
     SoIndexedFaceSet, probed 2026-11-06); and a camera nested in the scene
     graph is not one the render cache takes. A picture saved by Save
-    Picture is without it.
+    Picture is without it (has it since step 10).
   - **The Results box** has each flexible body's largest von Mises stress on
     its surface at each frame ("FlexibleVonMises", MPa), and the CSV and the
     spreadsheet with it.
@@ -3923,7 +3925,8 @@ Phase D1 is under way (2026-10-28):
     a long face that bends. `FlexibleBodies.prepare()` makes the interface
     (labelled "Contact" in InterfaceFrames), less the nodes a joint's
     interface holds: two interfaces sharing nodes would hold each other. A
-    contact on a flexible part without them is refused, saying so.
+    contact on a flexible part without them was refused, saying so; it is
+    a contact anywhere on the part now (step 8).
   - Why not the mesh's own nodes, as Adams' contact on a flexible body
     has it: the modal assembly takes a force on an internal node (its
     projection on the modes, `Psi^T f`), but only in the residual, and a
@@ -3933,6 +3936,7 @@ Phase D1 is under way (2026-10-28):
     interface is the static modes RecurDyn's RFlex takes for a contact
     whose place is known; a contact anywhere on a part, its full nodal
     mesh (FFlex, Chrono's ChContactSurfaceMesh), when a case needs it.
+    (Step 8 takes the mesh's own nodes after all, with that coupling.)
   - The contact interface's body at its nodes' centre, as a joint's is on
     its face: at the contact shape's frame -- a mesh's, the part's origin,
     the hinge's end of a strip 200 mm from the pad it was tied to -- the
@@ -3966,7 +3970,8 @@ Phase D1 is under way (2026-10-28):
     an allowance of 1e-4 mm: it strikes, bounces and the run goes through
     (without the floating frame set back it diverges as it leaves), the
     blow softer than the rigid strip's (by Hertz's law, 69.7 N at most
-    against 283 N); test_contact_needs_its_faces.
+    against 283 N); test_contact_needs_its_faces (test_contact_anywhere
+    since step 8).
   - **Stops and joint friction on a flexible part** (2026-11-07): their
     substeps -- a penalty stop's period on its spring and damper, a
     friction's time to cross the stiction band -- read the bodies on the
@@ -3994,7 +3999,7 @@ Phase D1 is under way (2026-10-28):
     accelerations are held by the modal assembly, which a change to them
     would not keep (it has columns there, but no mass, no means: not the
     run's bodies, its part's proxy is).
-  - Not yet: a contact anywhere on a part (above).
+  - Not yet: a contact anywhere on a part (above) -- done, step 8.
   - **The reduction's cost** (2026-11-07), measured by a trace of
     `DoModalReduction()`'s steps on the pendulum's rod (16272 internal
     coordinates, 6 modes, 0.25 s run in 9.6 s, 6.8 of it the reduction):
@@ -4047,6 +4052,53 @@ Phase D1 is under way (2026-10-28):
     - The rod's 0.25 s run of a study run before: 1.9 s, 2.0 at 12 modes
       (7.2 with the modes kept, 9.6 at first); started 25 deg down, 1.9; a
       1 ms run 0.46 s (4.4). Its first run, 4.4 s at 6 modes, 6.4 at 12.
+    - **A fine mesh's steps** (2026-11-09): the manual's strip (31130
+      nodes, 12 modes, 0.3 s in 601 frames) ran in 88.6 s, 31.7 run again
+      -- its steps, at every residual, went over the whole mesh in our
+      Chrono's `IntLoadResidual_F()`: each internal node cast twice to its
+      type for its force, and the internal part's gravity made as a vector
+      of 93390, turned and reduced by Psi_S and Psi_D. That gravity is
+      constant in F's axes: reduced once at the reduction's end
+      (`ComputeGravityReduced()`, [Psi_S; Psi_D]^T times the internal
+      items' gravity columns), each residual takes it times the gravity in
+      F's axes; each node's type is found once (`SetupItemCoords()`); a
+      force on an internal node is still reduced at each residual, and
+      the static correction mode, which takes the gravity among them,
+      keeps its way. The strip 64.7 s, run again 6.5; the rod's 0.25 s run
+      again 0.7 s (1.9).
+    - **A fine mesh's reduction** (2026-11-09): the strip's, traced (a
+      temporary trace, gone since): its full K, M and Cq assembled 8.5 s;
+      turned into F's axes 32.6; the eigenproblem 10.5 (its shift's LU
+      6.2, the iterations 3.8); K_II's LU for the static and dynamic modes
+      6.3 and their solves 2.0. The turning was Chrono's general sparse
+      products L^T K L, L^T M L and Cq L for an L that turns each item's
+      translation by R_F and keeps the rest; it is now made block by block
+      in one pass over the rows (our Chrono's `TurnToLocal()`, R_F^T B R_F
+      for each 3x3 block of two translations), 0.17 s, the same 6.39
+      million terms -- and for the rod turned about a skew axis (R_F not
+      the identity) the same matrices within 1.2e-16 of their norm, the
+      trace comparing the two. The strip's first run 64.7 s to 33.0; the
+      rod's 1 ms first run 3.2 s to 3.0.
+    - **K_II factored once** (2026-11-10): the eigenproblem's shift-and-invert
+      and the static modes each factored the same internal stiffness (6 s
+      apiece for the strip). Our Chrono's Craig-Bampton reduction factors
+      K_IIc first and hands it to the Krylov-Schur eigensolver
+      (`shift_inverse`), which takes it for a solve at a zero shift: its
+      A = [-K_II -a Cq_II'; -a Cq_II 0] is -D K_IIc D, D scaling the
+      multipliers by a over the static modes' own Cq scale. The modes are
+      found about 0 Hz now, not 1e-5 (`reduce()`): a K_II the static modes
+      solve with has no zero frequency to shift off, and the shift was
+      (2 pi 1e-5)^2 = 4e-9 against the first mode's w^2. The strip's first run 33.0 s
+      to 26.6; the rod's 1 ms first run 3.0 to 2.2 (12 modes 5.5 to 4.3).
+    - **The full K and M** (2026-11-10), traced (a temporary trace, gone
+      since): 7.2 s, 4.8 of them Chrono's sparsity learner, a list node per
+      element term sorted row by row, for K, M and Cq each (2.13, 2.11,
+      0.55); the mass pass 0.61, each tet10 making its corotated K to scale
+      it by 0; pasting into K and M 0.71 each. Our Chrono's learner keeps a
+      vector a row, sorted once (0.39, 0.63, 0.02), the same pattern; our
+      tet10 asked for its mass alone skips its K (0.04). The strip's K and
+      M 7.2 s to 2.7, its first run 26.6 to 22.4; the rod's 1 ms first run
+      2.2 to 1.8 (12 modes 4.3 to 3.3).
   - Test: FlexibleBody.aPartsModesAreKeptForItsNextReduction -- the bar
     reduced again takes the kept reduction, the same frequencies to the
     bit; moved and turned, its interface's frame and a node an ulp off,
@@ -4055,15 +4107,754 @@ Phase D1 is under way (2026-10-28):
     FlexibleBody.aRunAgainTakesTheKeptReduction -- the flexible pendulum
     run again takes the first run's, and swings the same: each frame,
     each channel to 1e-9, the mode shapes to the bit.
-  - Not yet: the kept reductions across sessions (they are the process's);
-    a part's first run, its 1 ms run 4.4 s where the rerun's is 0.46 --
-    the reduction about 3.9.
+  - Not yet: the kept reductions across sessions (they are the process's;
+    done, step 9);
+    a part's first run, the rod's 1 ms run 1.8 s where the rerun's is 0.2,
+    the strip's reduction about 16 of its 22.4 -- the
+    eigenproblem's factorization (6 s, Eigen's SparseLU) and iterations
+    (3.8), K_II's static and dynamic solves (2), pasting K and M (1.4).
   - Not yet: near a free end, where the stress is a hundredth of the root's,
     the modes left out take a fifth of it (6 modes, a third): stress takes
     more modes than shape, and a static correction for the loads on the
-    mesh -- gravity, inertia -- would give it back; the stresses inside the
+    mesh -- gravity, inertia -- would give it back (done, step 7); the
+    stresses inside the
     part (the surface's only, where the largest is but for a load inside);
     To FEM's vibration from the run's own coordinates.
+- Built, D4b step 6 (2026-11-10): the flexible body's task panel
+  (`CommandCreateFlexibleBody.py`, `TaskFlexibleBody`), which the command
+  opens on the body it makes and a double click opens on one
+  (`ViewProviderFlexibleBody::doubleClicked()`).
+  - **Part**: the component, and its material as the run takes it (the
+    elastic material's name, E, Poisson's ratio, density; "assumed" where
+    none is chosen). **Modes**: how many, the damping (in %), its
+    frequency; **Find Modes** meshes the part if it must and reduces it as
+    the first Dynamic study using it would, and lists the frequencies --
+    the reduction kept, so the run after it takes it.
+  - **Mesh**: the size, and the size its 0 stands for
+    (`FlexibleBodies.defaultMeshSize()`); the mesh made, and whether it is
+    of the part as it is now (`meshState()`: none, current, stale -- the
+    signature `prepare()` keeps); **Mesh Now**; **Show the mesh**, its
+    surface's edges over the part and each interface's nodes (orange a
+    joint's or a force element's, green the contact faces'); what holds it,
+    each interface by its joint's label and its count of nodes.
+  - **Contact faces**, picked on the part in the 3D view (a gate lets only
+    its faces through), removed or cleared: set by script alone before.
+  - **The frequencies' entry**, `AssemblyObject.getFlexibleFrequencies(sim,
+    flexible)`: the model built as the study's run builds it
+    (`buildSimulation()`), its interfaces at that run's frames, then
+    `Chrono::flexibleFrequencies()`. Refused while a run of the assembly is
+    on: its model is the run's.
+  - **Found on the way: meshing ends the panel's transaction.**
+    `prepare()` makes the mesh in a document of its own, and the work there
+    replaces the application's active transaction, committing the panel's:
+    Cancel after Mesh Now undid nothing (the test's Modes stayed 4). First
+    worked round in the panel (its transaction opened again after meshing,
+    Cancel undoing back to where it began); then removed at the source: the
+    one way to Netgen was `Fem::FemMeshShapeNetgenObject::execute()`, a
+    document object's recompute, so the Fem module now has it without one --
+    `FemMeshShapeNetgenObject::meshShape(mesh, shape, parameters)`, which
+    `execute()` calls, and `Fem.meshNetgen(shape, MaxSize=..., ...)` for
+    Python, a FemMesh whose `getNodesByFace()` takes the shape's own faces.
+    `prepare()` meshes by it: no document, no copy of the shape, nothing
+    of the application's transaction touched; the panel's workaround is
+    gone.
+  - Tests: TestGuiCommands -- test_flexible_body (the command opens the
+    panel; OK keeps the body), test_flexible_body_cancelled (Cancel leaves
+    none), test_flexible_body_panel (the rod's panel by a double click: the
+    material, Modes, Damping and Mesh Size set, Mesh Now and the hinge's
+    interface, the mesh drawn in the scene, a contact face picked and
+    another part's refused, Find Modes' four frequencies lowest first,
+    Cancel undoing it all); TestFlexibleBody test_mesh_in_no_document
+    (`prepare()` makes no document and leaves an open transaction open,
+    which aborting then undoes; `Fem.meshNetgen()` the Netgen object's
+    mesh, its counts of nodes and of tetrahedra).
+- Built, D4b step 7 (2026-11-10): the stress near a free end, by the
+  inertia loads' residual modes (step 4's "not yet").
+  - **What was missing.** A part's stress, recovered from its mode shapes,
+    is only what its kept modes make of the loads on its mesh; the loads
+    spread over it -- gravity, and the inertia of its own motion -- also
+    load the modes left out, which a stress takes more of than a shape
+    does. The clamped rod settled under gravity at 6 modes: 13% of the
+    beam's stress missing 70 mm out, 21% at 80, 34% at 90 (at 12 modes 1%,
+    7%, 20%); the hinged rod swinging, at 12 modes, 4% over at L / 3 and
+    20% at 90 mm, which 24 modes took to 1 and 4.
+  - **The mode-acceleration method, for the loads a rigid motion makes.**
+    Their field over the mesh is g - a - alpha x r - w x (w x r) per unit
+    mass, in the floating frame's axes, r from its origin: twelve fixed
+    fields -- the three axes, the three e_k x r, and six of r's components
+    the centripetal term takes -- times twelve coefficients the run has at
+    each moment: g - a, -alpha, and w's products. Our Chrono's
+    Craig-Bampton reduction makes, for each field b, the internal nodes'
+    static displacement with the interfaces held, K_IIc^-1 {M_II b; 0}, by
+    the factorization the static modes use, less what the kept modes take
+    of it statically, Psi_D K_DD^-1 Psi_D^T M_II b (K_DD the reduced
+    stiffness's modal block: what the reduced model at rest under the load
+    has): `SetUseInertialResidual()`, `GetInertialResidualModes()`, in the
+    kept reduction's data too. They are not in the reduced model: its run is
+    as it was; they are the stress's and the drawn shape's, which take the
+    residual's static share at each moment.
+  - **What the run hands over**: twelve more columns in the flexible body's
+    ModeShapes (mm per coefficient, SI), after its interfaces' and its
+    modes', and a channel "InertialLoad" of the twelve coefficients,
+    after "ModalCoordinates" -- `FlexibleBodies.Deformation` takes it as
+    the columns' coordinates. The floating frame's accelerations at the
+    start are not its motion's, the state not stepped yet: the start's
+    coefficients leave them out, the gravity and w's products alone. Those
+    the frame held there read 122 rad/s^2 for a clamped rod at rest, and a
+    line through the smallest steps' (as a reaction's start) 83 m/s^2 along
+    it, the reduced model's first steps settling.
+  - The rod clamped, settled, its top and bottom against the beam's:
+    within 0.4% from 10 to 50 mm, 1.1% at 70, 2.4% at 80 -- at 6 modes as
+    at 12, to the digit: the modes no longer matter to it. What is left
+    nearer the end, 9% at 90 mm and 29% at 95, is the part's against the
+    beam's, a depth from a free end, where the beam's is not the solid's.
+    The hinged rod at 12 modes: within 2.3% from 10 to 90 mm, as 24 modes
+    with them; at 95 mm 16% under at either.
+  - Cost: twelve solves by K_IIc's factorization at a reduction, and
+    twelve columns over the mesh: the strip's ModeShapes 18 columns to 30.
+  - Tests: TestFlexibleBody.test_cantilever_stress (6 modes now: the
+    beam's out to 80 mm within 3%, without the residual modes' columns 13%
+    and 21% under at 70 and 80; the coefficients the gravity at the start
+    and the end); test_pendulum_stress (12 modes now, out to 90 mm, 3%);
+    test_cantilever_deformation (24 columns); FlexibleBody.
+    cantileverBendsAndRingsInARun (30 columns, the channel after the modal
+    coordinates, the gravity at rest).
+- Built, D4b step 8 (2026-11-10): a contact anywhere on a flexible part.
+  - **Without the faces it is touched on** (`ContactFaces` empty), a contact
+    on a flexible part presses its mesh where it touches, as Adams' contact
+    on a flexible body does. The part's contact shapes ride its first
+    interface's boundary body, the carrier, on which collision detection
+    finds their points as it does any body's; each point found is put on
+    the mesh's surface -- the tetrahedra's faces no other shares, the
+    nearest one's corners and the point's weights on them, by a grid of
+    them (`ChronoFlexible::Surface`) -- where it is with the part at rest.
+    As the run goes each point is where the part's modes have it: its
+    position, velocity and map T onto the part's reduced coordinates from
+    our Chrono's `ChModalAssembly::GetInternalNodesMap()` -- the nodes'
+    F + R_F (r0 + Psi_S e_B + Psi_D eta), and T the transpose of the map
+    `IntLoadResidual_F()` takes the internal nodes' forces by, 3 x (6 per
+    boundary + modes), whose product with the reduced velocities is the
+    node's velocity.
+  - **The coupling the step 5 entry missed** (`FlexibleContact`, a physics
+    item per such part, in the system after its modal assembly and before
+    the loads, so its update puts the points where the state has them before
+    a load reads them): the points' forces go to the reduced coordinates as
+    T^T f, not to the carrier, and their stiffness and damping along the
+    normal with them, T^T (k n n') T and the blocks to the other side's
+    body, -T^T k n n' J and its transpose, J = [I, -R_A [r]x] -- a KRM
+    block over the reduced variables (`GetReducedVariables()`) and those
+    bodies'. The other side's own block stays the load's numerical
+    Jacobian; the load reads the point's place and velocity from the modes,
+    not from the carrier, so moving the carrier in that Jacobian moves
+    nothing and nothing is counted twice. k is the law's rate with depth,
+    e times the spring over the depth, the share and the damping's factor
+    held; c its rate with the depth's rate. Without these a force on the
+    mesh is in the residual only, as a node's load is.
+  - A flexible part touched anywhere is the load's B; the set's forces are
+    on its first group's side, so a load made the other way round says so
+    (`ContactLoad::swapped`) -- the first run read the prop's force
+    reversed. Two flexible parts touching each other anywhere are refused:
+    one needs its faces named.
+  - The shapes are found on the carrier rigid, the part's deformation then
+    taken in at each point: a contact shape that bends farther from the
+    carrier than collision detection's envelope (2e-5 m) before it touches
+    is found late, by the step that goes too deep (advance()), as a
+    contact it does not see coming is. A metal part bends microns -- a
+    stocky one: a strip does not, and step 11 looks for the surface
+    farther ahead. Since step 12 the shape is the surface itself, moved
+    by the modes.
+  - The rod clamped, its pad resting on the post, the pad's face not named:
+    the prop takes 106.6 mN for the propped cantilever's 104.9, 1.7% over
+    (through the faces 1.4%), clamp and prop the weight within 0.1%, the run
+    5.2 s. The strip struck on the post: its blow 132.9 N at most anywhere,
+    94.1 through the pad's face, 409 N rigid -- the pad's own patch moves
+    as one through the faces, and anywhere its nodes take the blow by the
+    modes alone, stiffer.
+  - Not in it: a stress near the contact from it (the modes and the
+    inertia loads' residual modes recover the deformation, not a contact's
+    local static share: no static correction for it); a cam or a profile
+    contact on a flexible part.
+  - Tests: TestFlexibleBody.test_propped_cantilever_anywhere (the prop
+    within 3%, clamp and prop the weight within 0.1%),
+    test_strike_anywhere (the run goes through, the blow under the rigid
+    strip's), test_contact_anywhere (test_contact_needs_its_faces's case
+    runs).
+- Built, D4b step 9 (2026-11-11): a flexible part's reduction kept in the
+  file.
+  - **The last run's reduction is the flexible body's** (`Reduction`, a
+    hidden float list in the Mesh group, written as a binary file of the
+    FCStd), and a run hands it to the backend (`Flexible::reduction`),
+    which takes it where the part is as it was -- its kept reductions
+    (step 5's) seeded with it -- so a part's first run in a session goes
+    as a rerun does. The rod's: a process that opens the file runs in
+    0.54 s, one with the file's dropped makes the reduction again in
+    2.31; the mode shapes the same to the bit either way.
+  - Its numbers (`ChronoFlexible::reductionNumbers()`): a format (1), the
+    key's hash as two 32-bit halves, the modes, the reduction's scaling,
+    the frequencies, then each of Psi_S, Psi_D, Psi_S Lambda^-1,
+    Psi_D Lambda^-1, M, K and R reduced, the gravity's M columns and
+    Psi_R as rows, columns and data. Psi itself, [I 0; Psi_S Psi_D;
+    Psi_S_L Psi_D_L], is made again of them, not kept. The rod's (6
+    modes, 24 columns with the residual ones) is 443028 numbers, 3.5 MB
+    of its 7.8 MB file.
+  - The key's hash is FNV-1a over the key the kept reductions are found
+    by: the exact numbers by their bits, the near ones (nodes and
+    interface frames over the part's size) rounded at 1e-9, sameReduction()'s
+    tolerance. One at a rounding's edge misses, and the reduction is
+    made again; a file's from another part (another mesh, material,
+    modes, damping or interface) is not taken. A new mesh (prepare())
+    empties it.
+  - **Found by the test: an interface held nothing in a document opened
+    from a file of another name.** InterfaceFrames keeps each joint's
+    full name, the document's in it; opened from kept.FCStd the document
+    is "kept", no frame matched, the interface's nodes were none and the
+    part ran free, with no word. The frames are matched by the joint's
+    name in its document now (the contact faces' label has no document
+    and is no joint's), and the mesh's signature takes that name too, so
+    the mesh is not stale and not made again for it.
+  - A Python joint converted to the C++ one on opening (ConvertJointsOnOpen)
+    is another joint, of another name: the part's mesh is stale, and made
+    again with its reduction when the study runs from its panel
+    (prepareStudy()). A script's run before that has the part held by
+    none of its nodes there, and says so now: a joint's frame on a
+    flexible part its mesh has no nodes for is warned of.
+  - Tests: TestFlexibleBody.test_reduction_kept_in_the_file (saved, opened
+    under another name, the mesh current, the reduction as saved, the run
+    the same mode shapes and coordinates to 1e-9; a new mesh empties it);
+    FlexibleBody.aRunTakesTheReductionItsModelHands (this process's
+    forgotten, a run handed the numbers takes them and swings the same,
+    each frame and channel to 1e-9; a stiffer part's are not taken).
+- Built, D4b step 10 (2026-11-11): the stress legend in Save Picture.
+  - **A widget over the 3D view can ask to be in its picture**: a dynamic
+    property `pictureOverlay`, true. `saveImage(..., overlays=True)`
+    (keywords now, the old positional calls as they were) paints each
+    such child of the viewer, shown, into the picture after it is taken
+    -- `QWidget::render()` of its own painting, no background, where it
+    is on the view: its centre at the picture's scale of the view on each
+    axis, itself scaled by the smaller of the two. Save Picture
+    (Std_ViewScreenShot) passes it, so a macro it records does too; the
+    legend's widget sets the property. Save Animation paints its own
+    frames' legend (`videoFrame()`) and does not pass it.
+  - Painted after the capture, not into the scene, for step 4's reason:
+    on the bgfx backend nothing in the viewer's foreground root reaches
+    a saved picture. The backend's readback is at the view's size and
+    scaled for a larger picture; the overlay is painted at the picture's,
+    sharp at any size.
+  - Test: TestGuiCommands.test_flexible_body_playback -- the picture at
+    the view's size and at twice it, the legend's bar red at its top and
+    blue at its bottom where it is on the view; without overlays, not.
+- Built, D4b step 11 (2026-11-11): a flexible part bent off its carrier
+  keeps its contact; a run is stopped inside a frame.
+  - Found making the manual's video of step 8: an aluminium strip
+    200 x 20 x 2 hinged at an end, let go level onto a grounded bar 10 mm
+    across lying 10 mm under it, 120 mm out, no contact faces. The run got
+    past the first blow (336 N at 47.5 ms) and then crawled, 0.4 ms in
+    four minutes, the panel showing a run under way and Cancel doing
+    nothing. Five faults, in the order they were found.
+  - **A run is stopped inside a frame** (`TrajectorySink::cancelled()`, read
+    at each substep of advance()): Cancel was seen only as a frame was
+    given, and a contact's substeps can take minutes a frame. And a run
+    that will not get anywhere says so: 100000 substeps kept in a row, each
+    under 10 ns, fail the run with "the contact's integration stalled at
+    ... s". The panel's poll outlives its assembly when a document closes
+    under a run (`pollRun()` takes the ReferenceError).
+  - **A flexible part's forces after a step taken back were the late
+    points'.** A load's forces on a flexible part are kept by its points'
+    numbers (`forcesOnB`) for `FlexibleContact` to put on the reduced
+    coordinates. A step taken back from a contact found late left them as
+    computed at the late points, and collision detection run again at the
+    state before gave other points or none: the next step read 7.6 kN on a
+    strip of 21 g as its start's (HHT's share of the old forces). The
+    finder computes a flexible load's forces again at the points it has
+    just found, and the two readers skip a number past the points.
+  - **The surface's speed, not the carrier's**, sizes a substep and judges
+    a contact found late (`ContactLoad::speedOnB()`): the strip came back
+    onto the bar 0.2 mm off its carrier's shape and still bending.
+  - **The carrier's shapes lag the surface, and were looked for too
+    near.** The shapes ride the first interface rigid; after the first blow
+    the strip's surface at the bar was 0.2 to 0.45 mm ahead of them, the
+    contact was lost as the shapes left the bar by the run's reach (0.1 mm)
+    and found again with the surface 0.18 mm in: 62 kN, where the blow is
+    336 N. Step 8's "a metal part bends microns" holds for a stocky part,
+    not for a strip. Now a flexible part's carrier is looked for ahead by
+    `FlexibleContact::reach`, a hundredth of the diagonal of the part's
+    nodes' box (the strip's 2 mm), as its collision model's envelope:
+    - Chrono's Bullet shapes are grown by the model's envelope and its
+      report takes the envelope back off each point, so the points are the
+      true shapes' with a pair kept from that far off.
+    - Our polyhedral features (box, hull, a mesh's triangles) are grown by
+      the run's envelope (2e-5 m) only: grown by the wide one they stand as
+      far sideways too, and a bar across the strip's 20 mm touched it
+      along 21. They keep how far inside Bullet's shape they stand
+      (`SatPolyhedron::inset`); the clip searches that much farther and
+      gives its points as Bullet's shapes'.
+    - The finder's own clips (a cylinder on a face or a mesh, the hollow
+      rounds, a seat's ring) reach farther by the two shapes'
+      `ShapeOn::search`.
+    A point found ahead presses nothing until the surface is there: each
+    point's depth is the surface's, by the modes.
+  - **Points found ahead whose surface is not there are no contact's
+    yet** (`FlexibleContact::trim()`, in the finder before the points'
+    patches are made). Kept, they shared their load's stiffness and its
+    patches' extent: step 8's propped cantilever, a rod 100 x 10 x 10
+    resting a pad 1 mm proud on a post, had its whole underside found
+    1 mm over the post's top (its reach 1.01 mm) and the post's force came
+    5% light, 99.6 mN for 104.9. A point stays when its surface, by the
+    modes, is within the run's own reach (0.1 mm) of the other body's
+    point along the normal.
+  - Limits. The surface must stay within the reach of the carrier's shape,
+    and well within the part's thickness of it (the shape is the rigid
+    part's: bent a thickness off, its other side is where the surface
+    was). A contact still found deep, no shorter step finding it sooner,
+    is said once a part: "the contact of ... on the flexible body ... was
+    found ... mm in". The proper mend is collision shapes that follow
+    the modes -- the surface's triangles placed by the nodes each step --
+    and is step 12.
+  - The strip on the bar now (mesh 8, 9052 nodes, 30 coordinates): the
+    blow 337.5 N at 47.50 ms, three lighter ones within 0.2 ms (156, 42,
+    13 N), then the strip stays on the bar 3.3 ms, pressing 0.2 to 6 N,
+    bent 0.45 mm off its carrier's shape, and leaves at 51 ms; 76 ms run
+    in 13.6 s. The manual's (mesh 3, 24296 nodes, 0.15 s): 336.2 N, 12
+    strikes, 0.16 N at the end for the 0.18 N of its weight's moment
+    about the hinge, 840 frames in 158 s.
+  - Tests: TestFlexibleBody.test_bent_onto_bar_anywhere (the force never
+    over the blow's, the strip pressing lightly a millisecond after, no
+    late contact said; 62 kN before); test_propped_cantilever_anywhere
+    holds the trim (106.6 mN as in step 8); TestContact.
+    test_cancel_within_a_frame (a ball bouncing 1000 s, one frame,
+    cancelled half a second in, done within 5 s). The strike with no
+    contact faces is 129.6 N now, 132.9 in step 8.
+- Built, D4b step 12 (2026-11-11): a flexible part touched anywhere is
+  touched where it is, however far it has bent -- step 11's limit.
+  - **The part's surface is its collision shape, and moves with the
+    modes** (`FlexibleContact::makeMesh()`, `moveMesh()`). The triangles of
+    `ChronoFlexible::Surface` -- the tetrahedra's faces no other shares,
+    now wound to face out of the body, a collision triangle being one
+    sided -- are one `ChCollisionShapeTriangleMesh` on the carrier, in
+    place of every shape the part had there. As each collision detection
+    starts the vertices go where the modes have their nodes
+    (`ContactCollisionSystem::addMovingMesh()`, `moveMeshes()`): Bullet's
+    triangles read the vertices as they are, and what it keeps of them is
+    brought along -- each triangle's box in the carrier's tree, five
+    envelopes wider when it has left the one it had, the carrier's own
+    box, the triangles' features. Chrono's fork gathers the nodes' shapes
+    once (`ChModalAssembly::GetInternalNodesShapes()`) and places them all
+    by one product a step (`GetInternalNodesPos()`); the maps of step 8
+    are asked only for the points found.
+  - A point found on one of the mesh's triangles is kept by the triangle's
+    nodes and its weights on them (`FlexibleContact::place()`), not looked
+    up on the surface at rest: it is where the triangle is. Step 11's
+    search ahead is gone with what it needed -- `FlexibleContact::reach`,
+    `trim()`, `ShapeOn::search`, `SatPolyhedron::inset`, the "found ... mm
+    in" warning: the envelope is the run's own (2e-5 m) again.
+  - **A bar on a triangle its axis is not over got Bullet's point, and a
+    force 14 times the blow.** The finder clips a cylinder against a
+    mesh's triangle (`cylinderTrianglePoints()`); a pair it did not clip
+    went on with Bullet's GJK point. On the strip's surface that was a
+    triangle with a corner 0.8 mm from the bar's line of contact, its
+    normal 8 deg off the direction to the axis, and the cylinder's support
+    along that normal (`rollAlong()`) read a gap of 34 um as 13 um in:
+    4.7 kN where the blow is 340 N. Now such a pair has the triangle's
+    point nearest the cylinder's axis, the normal from it to the axis
+    (`cylinderTriangleEdge()`, `nearestOfSegments()`): an edge along the
+    axis gives the ends of what they share. The clip also flipped a
+    triangle's normal to face the cylinder; with the triangles wound
+    outward it gives no points for a cylinder whose middle is behind the
+    triangle -- a bar across the strip's edge had the strip's side face
+    through it, and its cap, 5 mm past that face, was a point 5 mm deep.
+    Both hold for a rigid mesh under a cylinder too.
+  - **The friction's rate was not in the part's matrix.**
+    `FlexibleContact`'s block had each point's spring and damper along the
+    normal only (step 8). The friction's slope with the sliding speed --
+    mu 0.3 reached at 0.1 mm/s, 81 N s/mm under 18 N -- was in the residual
+    alone, and the Newton iterations stopped unconverged on any substep
+    past m / (mu' N): the strip between two bars (below) took no substep
+    longer than 0.3 us under 18 N, each fourth try taken back, 98950 kept
+    and 32587 taken back, 1643 s for its 0.1 s. Without friction the same
+    run kept 5272 and took none back, in 44 s. The block now has, a point,
+    k l n' and c l n' -- l the normal less mu along the sliding, the force
+    that comes with the normal's -- and the friction's rate with the
+    sliding velocity, mu N / v across the sliding and mu' N along it where
+    mu rises (`ContactLoad::ForceOnB::line`, `drag`): 5274 kept, none
+    unconverged, 43 s. Where mu falls from the static to the dynamic the
+    rate along the sliding is left out, a damper that drives. Found by a
+    step trace (kept and taken-back substeps a frame, by cause) after a
+    softer contact law did not help: the largest step that converged went
+    as 1 / N.
+  - Numbers (mesh 8). The strip let go onto the bar: first touch at
+    47.498 ms as in step 11, the blow 351 N (337.5), after it at most
+    3.0 N, pressing in 12 of 13 frames. The strip between two bars: no
+    gravity, its hinge turned 0.06 rad in 0.1 s onto a bar 120 mm out,
+    0.05 mm under it; bent over that bar its end rises and 195 mm out
+    meets a second bar 1 mm over it, 14 mm from where the hinge's end has
+    it rigid (7 mm at the first). The second bar is met at 0.02899 rad for
+    a beam's 0.02928; over the last fifth of the run the first presses
+    17.54 N for the beam's 17.11 and the second 3.175 N for 3.145 -- the
+    beam clamped at the hinge's turn, the contacts springs of 1000 N/mm.
+    On the materials' law (Hertz) 17.63 N for 16.85 and 3.288 N for
+    3.074, the second bar met with a blow of 17 N.
+  - Limits.
+    - The surface is the elements' faces, flat each: a round face facets
+      as fine as the mesh, and a round's own law (a cylinder's line, a
+      ball's point) needs the faces named (`ContactFaces`).
+    - Two flexible parts touching each other anywhere are still refused.
+    - A part the mesh could not be made for keeps its own shapes on the
+      carrier, rigid, with no search ahead.
+    - A contact that stands under a changing load runs at the contact's
+      own substep, a fiftieth of the period of the part on the contact's
+      spring: `resting()` lets a settled contact take the frame's step
+      only while its depth stays within 2%, and a load a motion keeps
+      raising never does. On the materials' law that is 1.4 us for the
+      strip, 250 substeps a frame of 0.5 ms: the two bars' 0.1 s in 210 s,
+      where the spring of 1000 N/mm (18 us) takes 43 s. Proposed, not
+      built: judge a standing contact by how its depth follows the load --
+      the depth's rate against the spring's own period -- not by its
+      range, so a slowly loaded contact steps as a resting one does.
+  - **How the bending is drawn is the flexible body's**
+    (`FlexibleBody::BendingScale`, the panel's "Bending drawn" under After
+    a run): 0, Automatic, is the scale that shows it, the largest over the
+    run a tenth of the part's size -- as it is where that is a twentieth
+    or more, never less than it is; a value draws it that many times, 1 as
+    it is. The scale is of the bending about the part's floating frame,
+    which lies along the bent part, not at its joint: the strip between
+    the bars, 14 mm from its hinge's line, is 1.5 mm from its frame's and
+    was drawn 13.6 times that -- off its mount and through both bars. A
+    part bent onto others wants 1. `Deformation.scale` reads the property
+    as it is; it is not the model's, so the run kept stays the study's and
+    the mesh stays made.
+  - Tests: TestFlexibleBody.test_bent_between_bars_anywhere (the second
+    bar met within 10% of the beam's angle, the bars' forces within 10%
+    and 15% of the beam's, neither over 1.5 times its last; 44 s; before,
+    the second bar was never met and the first was 7 mm in);
+    test_bent_onto_bar_anywhere, test_strike_anywhere (132.3 N, rigid
+    409.1) and test_propped_cantilever_anywhere (106.3 mN for 104.9) hold
+    on the moving mesh. The drawn scale: test_cantilever_deformation, and
+    TestGuiCommands' flexible body panel.
+  - The manual's page (`assembly/simulation/flexible-contact`) has the
+    strip between the bars, drawn as it is, mesh 3 mm: the lower bar met
+    at 7.7 ms, the upper at 48.9 ms, the hinge turned 0.0290 rad (a beam's
+    0.0293); at the end 18.71 N and 3.51 N for a beam's 18.33 and 3.48,
+    the strip's root at 114.5 MPa for a beam's 114.1; the run of 0.1 s,
+    526 frames, 119 s.
+- Built, D4b step 13 (2026-11-12): step 12's limits.
+  - **A contact standing under a changing load steps as a resting one
+    does.** `resting()` judges a load's depth over a window of one of its
+    periods (or of the last substep, where that was longer), not over all
+    of the time since it came to rest; the window's rate of depth sets the
+    substep a settled load allows, `standingStep()`: the time its depth
+    takes to move half the 2% `resting()` allows. Before, the range since
+    rest grew past 2% under a load a motion kept raising, the load fell out
+    of rest, the substep was taken back, and five periods were stepped at a
+    fiftieth of one before it settled again, over and over. The strip
+    between two bars (step 12), mesh 8: on the materials' law (Hertz) 0.1 s
+    in 44.9 s, 209.7 s before (48.6 s on the step's last build); at 1000
+    N/mm 36.5 s, 43.0 before (39.2). The
+    forces as they were: over the last fifth 18.203 N and 3.410 N for
+    18.204 and 3.413; the largest difference at any frame 0.095 N, at the
+    upper bar's blow. TestContact 63 in 81 s (89.5 before).
+  - **A round face touched anywhere is its elements' face, quadratic, not
+    flat** (`ChronoFlexible::Surface`). The mesh is of the second order and
+    Netgen (SMESH's quadratic helper) puts the edges' nodes on the face: on
+    a rod R 5 at a 4 mm mesh every one is at R to 1e-6 mm, the faces'
+    middles 0.198 mm in on their flat triangles, 0.0005 mm on the
+    quadratic faces. So:
+    - a face whose edges' nodes are off their edges' middles is four flat
+      triangles through them for collision detection, a quarter of its
+      sagitta; a flat face stays one (its quarters doubled the two bars'
+      time and changed nothing);
+    - a point found on one is placed on the face, by the six-node
+      triangle's shape functions, and its map onto the reduced coordinates
+      is the face's too -- each point six nodes, those of no weight left
+      out (`refresh()`);
+    - against a face of A (the point's normal A's face's own,
+      `Point::face`), the point goes to the face's farthest point towards
+      A, `Surface::farthest()`, A's point slid along with it: the flat
+      triangle's nearest is a corner or an edge, where the face and the
+      triangle are one, so placing the point alone changed nothing (the
+      rod's force ran from 23 to 124 N). Only to a point where the face
+      curves to A -- stationary inside it or along a curved edge, not a
+      corner a straight way runs to -- and only as far in as the face
+      stands out of its triangles (`Surface::bulge()`, 1.5 times). Both
+      found by a trace: the plate's end, where Bullet took the end face for
+      points of the rod sunk into the top past it, the normal along the
+      rod, sent the farthest point to the face's end along the rod's
+      straight, 0.11 mm in, 200 N for 46; and a normal leaning 1.3 deg
+      there, 1.4 mm along, read 0.033 mm deep;
+    - the carrier's envelope is wider by the bulge, and so is the reach
+      a cylinder's points on a mesh triangle are taken within: a triangle
+      is grown by its model's envelope alone (Chrono's Bullet, its
+      thickness its margin), and a face pressing where its triangles clear
+      the other part is found.
+    The rod R 5 x 40 hinged on its axis at an end face, turned one
+    revolution in 0.1 s on a plate 0.05 mm into its round, 1000 N/mm, no
+    friction: over the turn (0.03 s on) the force from 42.5 to 46.7 N, its
+    mean 44.9, in 6.4 s (mesh 4); 42.4 to 46.7 in 10.4 s (mesh 2). Its
+    faces flat, as in step 12 (the same build, all its faces taken flat):
+    0 to 104.5 N, the plate lost as each face rolled by, 23.0 s; at mesh
+    2, 0 to 80 N, 100.5 s.
+  - **The friction's fall stays out of the flexible part's matrix**, as
+    measured: with mu' along the sliding where mu falls from the static to
+    the dynamic, the strip between two bars ran at 1000 N/mm in 34.9 and
+    35.7 s for 36.2 and 36.0 without, on the materials' law 47.1 s for
+    44.7, its forces the same to the last digit both ways. The fall, from
+    0.1 to 10.16 mm/s, is 7.5 s/m at its steepest against the rise's 4500
+    (the default law); a damper that drives, kept out for no gain. (A
+    switch read from the environment at each point cost the run three
+    times its time: a getenv() per point per force, the stiff loads'
+    Jacobians by differences.)
+  - Limits.
+    - Against a round (a cylinder's points on the mesh, or a mesh's round),
+      the point stays on the face where the triangle has it: A's surface
+      falls away from the plane square to the normal. A quarter of the
+      flat face's sagitta, then.
+    - A part that runs on past the edge of a box it presses into: Bullet
+      takes the box's end face for some points of it, the normal along
+      the part, a penalty contact's edge -- the rod on a plate ending under
+      it pressed some 110 N for 46 at times. Not the faces'; flat faces
+      have it too.
+    - Two flexible parts touching each other anywhere are still refused:
+      a load's side A on a mesh of its own, its forces on A's reduced
+      coordinates, and a block coupling two parts' reduced variables, which
+      `FlexibleContact`'s, one part's, is not; Bullet finds a moving mesh's
+      triangles against another's.
+  - Tests: TestFlexibleBody.test_round_anywhere (the rod: within a tenth
+    of its mean over the turn, the mean under a rigid rod's 50 N; 9.6 s).
+    The rest hold: TestFlexibleBody 19, TestDynamics 90, TestJointFriction
+    4, TestContact 63; ctest 25; TestGuiCommands 76.
+  - The manual's page (`assembly/simulation/flexible-contact`) has the rod
+    turned on the plate, mesh 4: over the turn 42.1 to 46.7 N, the median
+    45.0; the run of 0.1 s, 504 frames, 10.5 s.
+- Built, D4b step 14 (2026-11-12): a flexible part past a box's edge.
+  - **A point of a flexible part's surface in a box or a hull is under the
+    face it is least deep under that faces the surface**
+    (`leastDeepFace()`), not the face Bullet found it under. Bullet's face
+    is the whole mesh triangle's way out of the solid: the rod of step 13
+    on a plate from x = 5 to 35, its ends under the rod, had points 0.036
+    mm under the top taken through the plate's end, 0.124 mm in along the
+    rod (a trace, each point leaning off the plate's normal or deeper than
+    0.07 mm). Over the turn the force ran from 35 to 126 N, its mean 54.9
+    for the whole plate's 44.9, the run 45.5 s. Three steps, each found by
+    the probe:
+    - the least deep face of all: the triangle's point Bullet gives can be
+      above the top and inside the end, so the face a point is outside of
+      is its face, the curved face's point it goes to then under the top
+      or not -- with only the points inside taken, 53.5 N and 114 at most;
+    - of the faces within 45 deg of facing the surface -- the mesh
+      triangle's outward normal, the other way: the end's points least
+      deep through the end, 0.041 mm in and 0.049 under the top, made a
+      patch of their own, its spring the set's, 40 N along the rod on top
+      of the 46, at the plate's edge where it is the edge in the rod's
+      round that presses -- 46.5 N, 62.8 at most;
+    - only of the faces within the margin (0.1 mm, which the penetrations
+      stay under) and the face's bulge of the point: without that the rod's
+      end faces, their normal along the rod, took the plate's far ends,
+      45 and 50 mm in, for theirs, and the rod on the whole plate pressed
+      it at 18 kN on average, 52 kN at most, its 0.1 s in 2819 s.
+    The rod past the plate's ends now 41.7 to 47.3 N over the turn, its
+    mean 45.1, in 4.3 to 8.5 s; on the whole plate as before, 42.5 to 46.7
+    (mesh 4) and 42.4 to 46.7 (mesh 2). The strip between two bars (step
+    12): its forces as they were, to the digit.
+  - Only a flexible part's points (`ShapeOn::flexible`), and only where A
+    is a box or a hull with its features; a rigid mesh's are Bullet's as
+    before.
+  - Limits as step 13 left them, but for the box's edge: against a round
+    the point stays on its quarter facet; two flexible parts touching
+    anywhere are still refused.
+  - Tests: TestFlexibleBody.test_round_past_edge (the rod on the plate
+    from 5 to 35: within a tenth of its mean over the turn, the mean under
+    50 N), sharing test_round_anywhere's rod (`roundTurned()`). The rest
+    hold: TestFlexibleBody 20, TestDynamics 90, TestJointFriction 4,
+    TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 15 (2026-11-12): a flexible part's round on a rigid one.
+  - **Against a sphere or a cylinder's side, a point of a flexible part's
+    curved face is the face's point nearest the round's centre or axis**
+    (`deepestOnFace()`), its normal out through it from there, turning with
+    the part (`Point::face` 2); A's point the round's surface that way.
+    Before, it kept the quarter triangle's normal and its place under the
+    round: a rod touching a roller at a slant to its quarter reads a
+    facet's R t^2 off, about the 0.05 mm it is pressed. The rod of step 13
+    on a grounded roller R 5 along it, 0.05 mm into its round, 1000 N/mm:
+    over the turn 31.9 to 45.8 N (mesh 4), 35.3 to 45.9 (mesh 2), the runs
+    157 and 225 s. Four steps, each from a trace of every point (how it
+    was placed, its depth, its angle round the rod, its normal):
+    - the face's point nearest the axis's point at the point's own station
+      (Gauss and Newton on the face's area coordinates): 37.2 to 45.9 N --
+      a point whose nearest is in the next face stopped at its own face's
+      edge and slid along it, a slanted edge, so that the way along the rod
+      read as gap: normals 0.08 along the rod, 0.01 mm of 0.04;
+    - measured square to the axis, the station held by a millionth: 5 to
+      50 N -- a step along the axis all but unbounded, and the points fell
+      into the faces' far corners, 1.4 mm clear;
+    - the station held by a tenth, each step at most a fifth of the face and
+      halved until nearer: 40.2 to 47.5 N, 13 s -- left, the points held at
+      an edge, 0.02 mm deep where the faces beside them read 0.045, pulling
+      their patch's depth down;
+    - across the edge into the face there, three faces at most
+      (`Surface::across()`, each face's neighbour across each edge; a flat
+      face's edges' nodes at their middles): 42.0 to 46.7 N (mesh 4), 40.5
+      to 46.2 (mesh 2), the runs 6.3 and 8.7 s. On the plate, 42.5 to 46.7.
+  - `Surface::faceCoordinates()`, a triangle's point in its face's area
+    coordinates, which `onFace()` takes now too.
+  - Only a curved face's points against a round of A with no round of B
+    (`Point::roundA`, not `roundB`); a flat face's triangle is its face.
+    The plate, its edge and the strip between two bars as they were, to
+    the digit.
+  - Limits: two flexible parts touching each other anywhere are still
+    refused (step 13's sizing). A round's cap, and a hollow round -- a bore
+    round a flexible pin, whose deepest is farthest from its axis -- are as
+    before; a hull's or a mesh's round face (`ShapeOn::rounds`) is taken as
+    its whole sphere or cylinder, its angles' range not looked at.
+  - Tests: TestFlexibleBody.test_round_on_roller (the rod on the roller:
+    within a tenth of its mean over the turn, the mean under 50 N). The
+    rest hold: TestFlexibleBody 21, TestDynamics 90, TestJointFriction 4,
+    TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 16 (2026-11-12): two flexible parts touching each other
+  anywhere -- the last of step 12's limits; such a pair is no longer
+  refused.
+  - **A load's side A on a mesh of its own** (`ContactLoad::flexibleA`,
+    `onMeshA`, `forcesOnA`). Of two flexible parts touched anywhere the
+    set's first is A, the second B. A's points are placed on A's surface and
+    follow its modes as B's do (`FlexibleContact::place()` and `refresh()`
+    by side, `loadsA`); `ComputeQ()` takes A's point and speed from A's mesh
+    and leaves A's force out of the bodies' load, and A's part takes it on
+    its reduced coordinates, T_A' (-f) (`IntLoadResidual_F()`). The
+    coupling is in B's block: each flexible A's reduced variables follow
+    B's and the bodies' there (`setVariables()`, `Part`), and a point adds
+    T_B' h T_B, -T_B' h T_A and its transpose, and T_A' h T_A
+    (`LoadKRMMatrices()`). The readers of a point's speed -- the contact's
+    substep, a contact found late, the patches' approach -- take A's from
+    its surface too (`speedOnA()`).
+  - That alone ran, and wrong: the rod of step 13 on its plate made
+    flexible too, held all along its underside (mesh 4), took 826 s for its
+    0.1 s, 706 frames, the force from 20.2 to 43.7 N, its mean 34.9, where
+    the rigid plate has 42.5 to 46.7 in 6 s. At t = 0 it was right (44.66
+    N), the terms above all there by a trace, and the sides swapped gave
+    the same numbers. Three things, each from a trace of every point of
+    every detection (its face, its triangles, its normal against each
+    triangle's own, its depth):
+    - **The curved face's point was not moved to where the face is deepest
+      when the curved face is A's.** Of each detection's points 95% were on
+      a curved face of the rod against a flat triangle of the plate, the
+      normal the plate's (`Point::face` 2), and step 13's move
+      (`Surface::farthest()`) was B's against a face of A alone: the rod's
+      middle sat 55 to 90 um clear on its quarter triangles, its ends alone
+      pressing. Now a flexible A's curved face against a flat face of B
+      goes to its farthest towards B, B's point slid along with it and
+      placed after (`placeOnFlexibles()`: each point's side that moves the
+      other's first). Not against a curved face of another flexible part.
+    - **One point in twenty had the rod's facet's own normal**, 10 to 17
+      deg off the plate's and turning with the rod: the pair of triangles
+      parted least along the rod's triangle where the plate's lay to one
+      side of it. A point between a curved face of one part and a flat
+      face of the other is the flat face's now, within 45 deg: its normal
+      that face's own, the flat side's point under the curved side's on its
+      plane (`flatFaces()`, before the patches).
+    - **One detection in twenty was two patches, each with the set's
+      spring**: the rows of the facets' corners either side of the rod's
+      line, no quarter of the one sharing a corner with the other's -- 80
+      to 95 N for 41. A curved face's quarter meets its neighbours by its
+      face's corners (`FlexibleContact::faceKeys()`, `patchesOf()`), on a
+      load of two flexible parts.
+    With these the first 10 ms ran in 6.2 s for 24.9, always one patch, but
+    from 33 to 47 N: the rod's middle still had no pressing point.
+    - **A triangle gone through the other's surface was "apart" from it**
+      (`satApart()`). The plain test of two triangles took each at its grown
+      place alone -- grown by the envelope and, on a flexible part, its
+      faces' bulge, 0.09 mm here -- so the rod's triangles along its line,
+      0.05 mm into the plate, lay 0.04 mm past the plate's top and were
+      proven apart, 41.6 um for a threshold of 6: of the 73 triangles of the
+      rod with points at the first detection, 5 reached its line, all at
+      its ends, and the 68 mid rod were the ones clear of the plate. A
+      triangle reaches now from its grown place back through its own and
+      the safe margin behind it (0.1 mm, `safeMargin`), the skin the
+      penetrations stay in. A box or a hull is a solid and never had it:
+      the rigid plate's points were on the line. The first detection then
+      has 376 points, 220 pressing, for 127 and 8.
+  - Three more, the pair's first limits, each from the same trace:
+    - **A part past the edge of another's flat face.** A point under a
+      flat face of one part, the normal that face's own, is under the face
+      -- of that one and the flat ones it meets at a convex edge
+      (`FlexibleContact::facesAbout()`, `edgeFaces`, as the part is at
+      rest) -- it is least deep under that faces the other part's surface
+      there, within 45 deg of that surface's triangle's normal the other
+      way and within the margin and the surface's bulge; one outside
+      through any of them, through the one it is farthest out of
+      (`flatFaces()`): step 14's rule for a rigid box, of a mesh's faces.
+      The rod on a plate from x = 5 to 35, both flexible, had a node 0.04
+      mm past the plate's end and 0.05 under its top taken through the
+      end, a patch of its own with the set's spring, 40 N along the rod:
+      over the turn 35.2 to 130.2 N, its mean 55.8, in 195 s; now 39.6 to
+      47.1, its mean 45.3, in 26 s (the rigid plate's 41.7 to 47.3). Where
+      none of the faces faces the other's surface -- that one's triangle a
+      side of its own, an edge on an edge -- the point is left as found:
+      with the least deep of them all taken then, two strips crossed, both
+      flexible, pressed 0.58 N sideways for 0.92 down.
+    - **Two flat faces meeting at their edges** are that same rule's. A
+      strip 200 x 20 x 2 turned 0.06 rad down onto the free end of a second
+      strip 20 x 100 x 2 across under it, clamped at its far end, both
+      flexible (mesh 8, 1000 N/mm, no friction): the force leaned 0.22 to
+      0.69 of its size along the lower strip, a side face's points a patch
+      of their own; now 0.027 at the end, the lower strip's own slope, one
+      patch, 9.80 N for a rigid lower strip's 14.06.
+    - **Two rounds.** A flexible part's shapes' convex cylinders and
+      spheres are kept as they ride its carrier at rest
+      (`FlexibleContact::rounds`), and each curved face of its surface
+      whose nodes are all on one is that round's (`matchRounds()`). A
+      point between two curved faces has B's go to its face's nearest A's
+      round's axis or centre, as against a rigid round (step 15,
+      `deepestOnFace()`), the round where A's mesh has it now
+      (`roundAt()`): its radius its own, a cylinder's axis the round's at
+      rest turned as the face's corners have turned, its centre where the
+      face's six nodes are all the radius from it. A's goes against B's
+      round where A's own face is of none. The other part's point, set on
+      its round's surface, is placed there as set (`ContactLoad::given`):
+      its offset from the face's point, not from the flat triangle's --
+      from the triangle's the rod's points were up to 0.034 mm outside the
+      rod, a roller's 0.044, and the depths read 0.05 to 0.094 mm for 0.05.
+      The rod on a roller R 5 held at both ends, both flexible: on their
+      quarter triangles the run did not end in 18 minutes; now 504 frames
+      in 112 s, over the turn 43.47 to 45.26 N, its mean 44.29 (a rigid
+      roller's 42.0 to 46.7).
+    A face walked into from a curved one's edge (step 15) took a flat
+    face's edge nodes for its first corner, which stands for them in
+    `Surface`: they are at its edges' middles now.
+  - Numbers (mesh 4, the rod R 5 x 40 turned once in 0.1 s, 0.05 mm into
+    the plate, 1000 N/mm, no friction). Both flexible: 504 frames in 21.8
+    s, over the turn 43.76 to 47.21 N, its mean 46.1. The set's groups
+    swapped, the plate A and the rod B: the same to 0.04 N, 20.3 s. The
+    rigid rod on the flexible plate 49.08 N throughout, as it was. Every
+    probe of steps 12 to 15 as it was, frame for frame: the two bars on
+    both laws, the roller and the plate at mesh 4 and 2, the plate's edge.
+    (Later the same day the box ran the plate in 36 s, this commit and the
+    one before it alike.)
+  - Limits.
+    - Two curved faces neither of a cylinder or a sphere of its part's
+      shapes -- a tooth's flank, a torus -- stay on their quarter
+      triangles, each facet's own normal; so do hollow rounds.
+    - A point slid or set by the other part's is placed on the triangle
+      it was found on, its offset from it rigid: past that triangle's edge
+      it is not handed to the next one.
+    - A flat face's neighbours are those across its own convex edges: at
+      a corner where three faces meet, the third is not looked at.
+    - Friction between two flexible parts is run, not checked: the two
+      strips with a friction of 0.3 press 9.85 N at the end for 9.80
+      without, as straight; the friction's own force is against no closed
+      form yet.
+    - Two rounds cost five times the plate, 112 s for 22: each point's
+      round is found again at each detection.
+    - `satApart()`'s skin is every mesh triangle's, a rigid mesh's too. A
+      rigid mesh's flat faces are large triangles, and the pair's
+      threshold goes by their size: TestContact.test_mesh_on_mesh rested
+      before as it does now.
+  - Tests: TestFlexibleBody.test_round_on_flexible_plate (the rod on the
+    plate, both flexible: within a tenth of its mean over the turn, the
+    mean under 50 N, the run under 120 s -- 46.1 N, from 43.76 to 47.21),
+    test_round_past_flexible_edge (the plate from 5 to 35: within 15% of
+    its mean), test_round_on_flexible_roller (over 0.03 to 0.045 s of the
+    turn, within a tenth) and test_strip_on_flexible_strip (the two
+    strips, to 0.035 s: 2.3 to 3.3 N at the end, rising, leaning under
+    0.05 of it). The rest hold: TestFlexibleBody 25, TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

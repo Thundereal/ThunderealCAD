@@ -53,13 +53,15 @@ public:
     QIcon getIcon() const override;
 };
 
-/// A flexible body: its icon
+/// A flexible body: its icon; a double click opens its task panel
+/// (CommandCreateFlexibleBody.py)
 class AssemblyGuiExport ViewProviderFlexibleBody: public Gui::ViewProviderDocumentObject
 {
     PROPERTY_HEADER_WITH_OVERRIDE(AssemblyGui::ViewProviderFlexibleBody);
 
 public:
     QIcon getIcon() const override;
+    bool doubleClicked() override;
 };
 
 /// A torsion spring: its icon; its joint shows where it is

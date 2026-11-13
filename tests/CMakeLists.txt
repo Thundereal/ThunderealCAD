@@ -91,6 +91,18 @@ endif()
 
 # -------------------------
 
+# The vendored gtest/gmock headers must win over any gtest a dependency's
+# prefix carries, or a test compiles against one gtest and links the vendored
+# library. conda-forge's osx-arm64 minizip ships gtest 1.16 into the env's
+# include/, which precedes these, and its MakeAndRegisterTestInfo() takes a
+# std::string where the vendored one takes a const char*: every test
+# executable then failed to link. Set before the targets below are created,
+# so all of them, tests/src included, inherit it.
+include_directories(BEFORE SYSTEM
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/googletest/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/googlemock/include
+)
+
 foreach (exe ${TestExecutables})
     add_executable(${exe})
 endforeach()

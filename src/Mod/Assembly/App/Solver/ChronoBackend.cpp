@@ -114,6 +114,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <tuple>
+#include <unordered_map>
 
 #include <Eigen/Dense>
 
@@ -169,6 +170,9 @@
 
 #include "ChronoBackend.h"
 #ifdef ASSEMBLY_WITH_CHRONO_MODAL
+# include <chrono/fea/ChNodeFEAxyz.h>
+# include <chrono/solver/ChKRMBlock.h>
+
 # include "ChronoFlexible.h"
 #endif
 #include "JointEquations.h"
@@ -184,6 +188,9 @@ namespace
 {
 
 constexpr double pi = std::numbers::pi;
+// The collision models' safe margin, which the penetrations stay under
+// (simulateDynamics()), m
+constexpr double safeMargin = 1e-4;
 constexpr double twoPi = 2.0 * std::numbers::pi;
 constexpr double notANumber = std::numeric_limits<double>::quiet_NaN();
 
@@ -935,7 +942,60 @@ bool isProfileSet(const Dynamics& dynamics, const ContactPair& pair)
         && dynamics.contactShapes[pair.groupA.front()].kind == ContactShape::Kind::Profile;
 }
 
-struct ShapeOn;
+// A contact shape where it is: on its body at its frame, a cylinder's
+// radius and half length, a box's or a hull's polyhedral features
+struct ShapeOn
+{
+    ch::ChBody* body = nullptr;
+    ch::ChFramed frame;
+    Id source = NoId;     // the model's frame of its ContactShape
+    double radius = 0.0;  // a cylinder's, 0 for any other
+    double half = 0.0;
+    const cbtConvexPolyhedron* features = nullptr;
+    double envelope = 0.0;
+    // A flexible part's surface: how far its faces stand out of the flat
+    // triangles collision detection has of them (Surface::bulge()), a point
+    // that far off a triangle touching
+    double bulge = 0.0;
+    // Whether it is a flexible part's surface (leastDeepFace())
+    bool flexible = false;
+    // For Hertz's law (patchStiffness()): a sphere's radius, the material's
+    // E / (1 - nu^2), the radius of the ball of the solid's volume, and the
+    // surface's curvature tensor at each vertex of its mesh, a mesh's or a
+    // hull's, 1/m -- a mesh's in its body's frame, a hull's at its points,
+    // in its frame. Not of a hull's features: Bullet's merges faces all but
+    // in one plane, and the vertices it kept about an ellipsoid's pole
+    // curved it as 1/8 mm where it is 1/12.
+    double ball = 0.0;
+    double modulus = 0.0;
+    double size = 0.0;
+    std::vector<ch::ChMatrix33d> curvatures;
+    std::vector<ch::ChVector3d> hull;
+    // The solid at each of a hull's or a mesh's points (ContactShape::
+    // surfaces), in the hull's frame or the mesh's body's: each face's
+    // outward normal and curvature tensor there
+    struct Surface
+    {
+        ch::ChVector3d normal;
+        ch::ChMatrix33d tensor;
+        int round = -1;  // its face's in rounds, or none
+    };
+    std::vector<std::vector<Surface>> surfaces;
+    // Its faces that are a convex cylinder's or sphere's (ContactShape::
+    // rounds), each a sphere or a cylinder on the body as a primitive is,
+    // a cylinder's frame at the middle of its reach; and a round's angles,
+    // from..to about its z from x, all round when to - from is 2 pi
+    std::vector<ShapeOn> rounds;
+    double angleFrom = 0.0;
+    double angleTo = 2.0 * pi;
+    // A round that is hollow: a bore, a socket, its surface facing its
+    // axis or its centre
+    bool concave = false;
+    // A mesh's vertices, in its body's frame: its triangles point into them
+    const ch::ChVector3d* vertices = nullptr;
+    std::size_t count = 0;
+};
+class FlexibleContact;
 
 class ContactLoad: public ch::ChLoadBodyBody
 {
@@ -1026,6 +1086,8 @@ public:
         deepest = 0.0;
         count = 0;
         pressed.clear();
+        forcesOnB.clear();
+        forcesOnA.clear();
         // A cam's point, or a profile contact's, found again at this state
         // (follow): the points are collision detection's, at the substep's
         // start, fixed on each body -- on a cam the follower slides along the
@@ -1048,8 +1110,10 @@ public:
         sum.assign(patches, 0.0);
         for (std::size_t i = 0; i < at.size(); ++i) {
             const Point& point = at[i];
-            const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
-            const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
+            const ch::ChVector3d pA =
+                meshedA(i) ? onMeshA[i].at : a.TransformPointLocalToParent(point.onA);
+            const ch::ChVector3d pB =
+                meshed(i) ? onMesh[i].at : b.TransformPointLocalToParent(point.onB);
             depths[i] = -ch::Vdot(point.normal, pB - pA);
             deepest = std::max(deepest, depths[i]);
             if (depths[i] > 0.0) {
@@ -1064,24 +1128,28 @@ public:
             if (!(depth > 0.0)) {
                 continue;
             }
-            const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
-            const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
+            const bool mesh = meshed(i);
+            const bool meshA = meshedA(i);
+            const ch::ChVector3d pA =
+                meshA ? onMeshA[i].at : a.TransformPointLocalToParent(point.onA);
+            const ch::ChVector3d pB = mesh ? onMesh[i].at : b.TransformPointLocalToParent(point.onB);
             const ch::ChVector3d relative =
-                b.PointSpeedLocalToParent(point.onB) - a.PointSpeedLocalToParent(point.onA);
+                (mesh ? onMesh[i].speed : b.PointSpeedLocalToParent(point.onB))
+                - (meshA ? onMeshA[i].speed : a.PointSpeedLocalToParent(point.onA));
             const double rate = -ch::Vdot(point.normal, relative);
             const double total = sum[point.patch];
             const double share = total > 0.0 ? squares[point.patch] / total / total : 1.0;
             const double spring =
                 stiffness[point.patch] * std::pow(depth, exponents[point.patch]);
-            double normal = share
-                * (law.damping == ContactLaw::Damping::Restitution
-                       ? spring
-                           * (1.0
-                              + hunt(std::pow(squares[point.patch] / total,
-                                              1.0 / exponents[point.patch]),
-                                     point.patch)
-                                  * rate)
-                       : spring + step(depth, 0.0, 0.0, law.penetration, law.maxDamping) * rate);
+            const bool restitution = law.damping == ContactLaw::Damping::Restitution;
+            const double factor = restitution
+                ? hunt(std::pow(squares[point.patch] / total, 1.0 / exponents[point.patch]),
+                       point.patch)
+                : 0.0;
+            const double viscous =
+                restitution ? 0.0 : step(depth, 0.0, 0.0, law.penetration, law.maxDamping);
+            double normal =
+                share * (restitution ? spring * (1.0 + factor * rate) : spring + viscous * rate);
             if (!(normal > 0.0)) {
                 continue;
             }
@@ -1090,17 +1158,68 @@ public:
             const ch::ChVector3d sliding =
                 relative - point.normal * ch::Vdot(point.normal, relative);
             const double speed = sliding.Length();
+            Eigen::Matrix3d drag = Eigen::Matrix3d::Zero();
             if (speed > 0.0 && law.muStatic > 0.0) {
                 const double mu = speed < law.vStiction
                     ? step(speed, 0.0, 0.0, law.vStiction, law.muStatic)
                     : step(speed, law.vStiction, law.muStatic, law.vFriction, law.muDynamic);
                 f -= sliding * (mu * normal / speed);
+                if (mesh || meshA) {
+                    // The friction's rate with the sliding velocity: mu N / v
+                    // across it, and along it mu' N where mu rises with the
+                    // speed -- not where it falls from the static to the
+                    // dynamic, a damper that drives. With the fall, the strip
+                    // between two bars ran in the same time, its forces the
+                    // same to the last digit: the fall is a six-hundredth as
+                    // steep as the rise
+                    const Eigen::Vector3d n = point.normal.eigen();
+                    const Eigen::Vector3d along = sliding.eigen() / speed;
+                    const double u = speed / law.vStiction;
+                    const double rising =
+                        u < 1.0 ? law.muStatic * 6.0 * u * (1.0 - u) / law.vStiction : 0.0;
+                    drag = normal
+                        * (mu / speed
+                               * (Eigen::Matrix3d::Identity() - n * n.transpose()
+                                  - along * along.transpose())
+                           + rising * along * along.transpose());
+                }
             }
-            // f on B at pB, -f on A at pA; the torques in each body's axes
-            load_Q.segment(6, 3) += f.eigen();
-            load_Q.segment(9, 3) += b.GetRot().RotateBack(ch::Vcross(pB - b.GetPos(), f)).eigen();
-            load_Q.segment(0, 3) -= f.eigen();
-            load_Q.segment(3, 3) -= a.GetRot().RotateBack(ch::Vcross(pA - a.GetPos(), f)).eigen();
+            // f on B at pB, -f on A at pA; the torques in each body's axes. A
+            // flexible part's point's on its reduced coordinates instead
+            // (FlexibleContact), with its rates along the normal: the
+            // spring's with the depth, the share and the damping's factor
+            // held, and the damping's -- and its friction's with them and
+            // with the sliding
+            const double rates = restitution ? 1.0 + factor * rate : 1.0;
+            const ForceOnB onMeshes {
+                i,
+                f,
+                point.normal,
+                point.onA,
+                std::max(share * exponents[point.patch] * spring / depth * rates, 0.0),
+                std::max(share * (restitution ? spring * factor : viscous), 0.0),
+                f / normal,
+                drag};
+            if (mesh) {
+                forcesOnB.push_back(onMeshes);
+            }
+            else {
+                load_Q.segment(6, 3) += f.eigen();
+                load_Q.segment(9, 3) +=
+                    b.GetRot().RotateBack(ch::Vcross(pB - b.GetPos(), f)).eigen();
+            }
+            // A flexible A's, -f on its reduced coordinates (its
+            // FlexibleContact's), its rates those of B's: the coupling is
+            // in B's block (FlexibleContact::LoadKRMMatrices())
+            if (meshA) {
+                forcesOnA.push_back(onMeshes);
+                forcesOnA.back().force = -f;
+            }
+            else {
+                load_Q.segment(0, 3) -= f.eigen();
+                load_Q.segment(3, 3) -=
+                    a.GetRot().RotateBack(ch::Vcross(pA - a.GetPos(), f)).eigen();
+            }
             onB += f;
             ++count;
             if (keep) {
@@ -1193,13 +1312,18 @@ public:
     // from then on
     double impact = 0.0;
     // Whether it rests (contactStep(), advance()): the range its deepest
-    // point's depth has kept, for how long, and the shortest period of its
-    // points on their springs
+    // point's depth has kept over the window now, for how long it has, and
+    // the shortest period of its points on their springs
     double low = 0.0;
     double high = 0.0;
     double calm = 0.0;
     double period = 0.0;
     bool settled = false;
+    // The window: its depth where it began and how long since, and the
+    // depth's rate over the last one, m/s -- how fast a standing load moves
+    double mark = 0.0;
+    double since = 0.0;
+    double drift = 0.0;
     // Whether it pressed at the end of the last substep kept, for the
     // contact events (advance())
     bool touching = false;
@@ -1256,9 +1380,1259 @@ public:
     bool keep = false;
     std::vector<Pressed> pressed;
 
+    // A flexible part's side B, a contact anywhere on it (D4b,
+    // FlexibleContact): each point's place on its mesh's surface -- a
+    // face's six nodes and the point's weights on them (Surface::Place), and
+    // the point's offset from that place in the carrier's (B's) axes -- and
+    // where the part's modes have it now, absolute, its velocity and its map
+    // onto the part's reduced coordinates. The forces of those points on B go
+    // to those coordinates (forcesOnB), not to B
+    FlexibleContact* flexible = nullptr;
+    // Its bodies the other way round from its set's groups: A from the set's
+    // second, B from its first -- a flexible part touched anywhere is B. The
+    // set's forces are on its first group's side
+    bool swapped = false;
+    struct OnMesh
+    {
+        bool placed = false;
+        std::array<Id, 6> nodes {};
+        std::array<double, 6> weights {};
+        ch::ChVector3d offset;
+        ch::ChVector3d at;
+        ch::ChVector3d speed;
+        ch::ChMatrixDynamic<> T;
+    };
+    std::vector<OnMesh> onMesh;
+    bool meshed(std::size_t i) const
+    {
+        return flexible && i < onMesh.size() && onMesh[i].placed;
+    }
+    // Its A on a flexible part too, two such touching anywhere: A's places
+    // on its own mesh, the way B's are
+    FlexibleContact* flexibleA = nullptr;
+    std::vector<OnMesh> onMeshA;
+    bool meshedA(std::size_t i) const
+    {
+        return flexibleA && i < onMeshA.size() && onMeshA[i].placed;
+    }
+    ch::ChVector3d speedOnA(std::size_t i, const Point& point) const
+    {
+        return meshedA(i) ? onMeshA[i].speed : GetBodyA()->PointSpeedLocalToParent(point.onA);
+    }
+    // A point's speed on B, absolute: B's there, or the part's surface's
+    // where its modes have it. What sizes a substep and judges a contact
+    // found late reads this one: the carrier's own is not how fast the
+    // surface comes in, a strip of 2 mm 0.2 mm off its carrier's shape and
+    // still bending as it came back onto a bar
+    ch::ChVector3d speedOnB(std::size_t i, const Point& point) const
+    {
+        return meshed(i) ? onMesh[i].speed : GetBodyB()->PointSpeedLocalToParent(point.onB);
+    }
+    // At the last state ComputeQ was given, each such point pressing: its
+    // force on B, absolute, its normal, where it is on A (A's frame), and the
+    // force's rates along the normal with the depth and with its rate (N/m,
+    // N s/m); the force for one newton along the normal, the normal less the
+    // friction's mu along the sliding, and the friction's rate with the
+    // sliding velocity (N s/m)
+    struct ForceOnB
+    {
+        std::size_t point = 0;
+        ch::ChVector3d force;
+        ch::ChVector3d normal;
+        ch::ChVector3d onA;
+        double k = 0.0;
+        double c = 0.0;
+        ch::ChVector3d line;
+        Eigen::Matrix3d drag = Eigen::Matrix3d::Zero();
+    };
+    std::vector<ForceOnB> forcesOnB;
+    // A flexible A's points', the same, each force the one on A
+    std::vector<ForceOnB> forcesOnA;
+    // Two flexible parts' points: the side of each that the other's set on
+    // its round's surface, 1 A's, 2 B's, or 0 (FlexibleContact::place())
+    std::vector<char> given;
+
 private:
     std::vector<double> depths, squares, sum;
 };
+
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+bool deepestOnFace(const ShapeOn& round,
+                   const ch::ChFrame<>& body,
+                   const ch::ChFrame<>& carrier,
+                   const std::array<ch::ChVector3d, 6>& x,
+                   std::array<double, 3>& L,
+                   ch::ChVector3d& normal,
+                   ch::ChVector3d& onRound,
+                   int& leaving);
+
+// A contact anywhere on a flexible part (D4b): the part's contact shapes ride
+// one of its interfaces' boundary bodies, the carrier, on which collision
+// detection finds their points, and each point found is put on the mesh's
+// surface where it is with the part at rest (place()). As the run goes each
+// is where the part's modes have it (refresh(), at each update: the modal
+// assembly is in the system before this item, and this before the loads),
+// its force on the part taken to the part's reduced coordinates as T^T f --
+// T the point's map onto them, our Chrono's GetInternalNodesMap() -- and its
+// stiffness and damping too, T^T k n n' T, coupled with the other side's
+// body. Without them a force on the mesh is in the residual only (a node's
+// load is), and Newton's iterations on a metal's contact, far stiffer than
+// the part's modes, run away
+class FlexibleContact: public ch::ChPhysicsItem
+{
+public:
+    FlexibleContact* Clone() const override
+    {
+        return new FlexibleContact(*this);
+    }
+
+    ch::modal::ChModalAssembly* assembly = nullptr;
+    ch::ChBody* carrier = nullptr;
+    // The carrier's frame in the part's, at rest
+    ch::ChFramed carrierAt;
+    std::shared_ptr<const ChronoFlexible::Surface> surface;
+    // The mesh's nodes, by the record's numbers
+    std::vector<const ch::fea::ChNodeFEAxyz*> nodes;
+    // The loads it is B of, and A of -- another flexible part's B
+    std::vector<ContactLoad*> loads;
+    std::vector<ContactLoad*> loadsA;
+    // Its surface as the collision shape on the carrier (makeMesh()): the
+    // triangles of ChronoFlexible::Surface, their vertices in the carrier's
+    // frame where the modes have the nodes -- moved there as each collision
+    // detection starts (moveMesh()). A shape riding the carrier rigid is off
+    // the surface by what the part has bent since: a strip 200 x 20 x 2
+    // hinged at an end, dropped 10 mm onto a bar 120 mm out, left it bent
+    // and came back with its surface 0.18 mm in when its box came within
+    // the run's reach of 0.1 mm -- 62 kN on 21 g. None when it could not be
+    // made: the part's own shapes ride the carrier then
+    std::shared_ptr<ch::ChTriangleMeshConnected> mesh;
+    // Each vertex's node, by the record's numbers, and each node's vertex;
+    // each triangle's in the surface's, by its vertices sorted
+    std::vector<Id> meshNodes;
+    std::vector<int> vertexOf;
+    std::map<std::array<int, 3>, std::size_t> triangleOf;
+    // Each flat triangle's flat neighbour faces across its convex edges, or
+    // -1 (makeMesh())
+    std::vector<std::array<std::int32_t, 3>> edgeFaces;
+    // A collision shape's triangle of the surface, as last found, and the
+    // corners it had then (triangleOn())
+    struct ShapeTriangle
+    {
+        std::int64_t triangle = -1;
+        std::array<const ch::ChVector3d*, 3> corners {};
+    };
+    mutable std::unordered_map<const ch::ChCollisionShape*, ShapeTriangle> shapeTriangle;
+    // The part's convex cylinders and spheres, its shapes' (a primitive, or
+    // a mesh's or a hull's round face), as they ride the carrier at rest;
+    // and each face of the surface's, the one all its nodes are on, or -1
+    // (matchRounds()). A round's radius is the part's own however it bends;
+    // where it is, the mesh says (roundAt())
+    std::vector<ShapeOn> rounds;
+    std::vector<std::int32_t> faceRound;
+
+    // Once the assembly is reduced, and before the carrier has its shapes
+    bool makeMesh()
+    {
+        mesh.reset();
+        meshNodes.clear();
+        triangleOf.clear();
+        rounds.clear();
+        faceRound.clear();
+        shapeTriangle.clear();
+        if (!surface || !assembly) {
+            return false;
+        }
+        const auto& points = surface->nodes();
+        auto made = std::make_shared<ch::ChTriangleMeshConnected>();
+        vertexOf.assign(points.size(), -1);
+        std::vector<const ch::fea::ChNodeFEAxyz*> moving;
+        for (const auto& triangle : surface->triangles()) {
+            int corners[3] = {0, 0, 0};
+            for (int k = 0; k < 3; ++k) {
+                const Id n = triangle[k];
+                if (n >= points.size() || n >= nodes.size() || !nodes[n]) {
+                    meshNodes.clear();
+                    return false;
+                }
+                if (vertexOf[n] < 0) {
+                    vertexOf[n] = static_cast<int>(meshNodes.size());
+                    made->GetCoordsVertices().push_back(
+                        carrierAt.TransformPointParentToLocal(points[n]));
+                    meshNodes.push_back(n);
+                    moving.push_back(nodes[n]);
+                }
+                corners[k] = vertexOf[n];
+            }
+            std::array<int, 3> key {corners[0], corners[1], corners[2]};
+            std::sort(key.begin(), key.end());
+            triangleOf.emplace(key, made->GetIndicesVertexes().size());
+            made->GetIndicesVertexes().emplace_back(corners[0], corners[1], corners[2]);
+        }
+        if (meshNodes.empty() || !assembly->GetInternalNodesShapes(moving, shapes)) {
+            meshNodes.clear();
+            return false;
+        }
+        mesh = made;
+        // Each flat triangle's flat neighbours across a convex edge, as the
+        // part is at rest (facesAbout())
+        const auto& triangles = surface->triangles();
+        edgeFaces.assign(triangles.size(), {-1, -1, -1});
+        for (std::size_t i = 0; i < triangles.size(); ++i) {
+            if (surface->curved(i)) {
+                continue;
+            }
+            const std::size_t own = surface->faceIndex(i);
+            const auto& mine = surface->face(own);
+            const ch::ChVector3d normal =
+                ch::Vcross(points[mine[1]] - points[mine[0]], points[mine[2]] - points[mine[0]]);
+            const double size = normal.Length();
+            for (int e = 0; e < 3; ++e) {
+                const std::int64_t next = surface->across(own, e);
+                if (next < 0) {
+                    continue;
+                }
+                const auto& other = surface->face(static_cast<std::size_t>(next));
+                // A flat face's edges' nodes are its first corner (Surface())
+                if (other[3] != other[0]) {
+                    continue;
+                }
+                double behind = 0.0;
+                for (int k = 0; k < 3; ++k) {
+                    const ch::ChVector3d& far = points[other[static_cast<std::size_t>(k)]];
+                    behind = std::min(behind, ch::Vdot(normal, far - points[mine[0]]));
+                }
+                // Behind its plane by a thousandth of its size
+                if (behind < -1e-3 * size * std::sqrt(size)) {
+                    edgeFaces[i][static_cast<std::size_t>(e)] = static_cast<std::int32_t>(next);
+                }
+            }
+        }
+        return true;
+    }
+
+    // The mesh's vertices where the modes have their nodes now
+    void moveMesh()
+    {
+        if (!mesh || !assembly->GetInternalNodesPos(shapes, moved)
+            || moved.size() != meshNodes.size()) {
+            return;
+        }
+        auto& vertices = mesh->GetCoordsVertices();
+        for (std::size_t i = 0; i < moved.size(); ++i) {
+            vertices[i] = carrier->TransformPointParentToLocal(moved[i]);
+        }
+    }
+
+    // The surface's triangle a collision shape is, a triangle of the mesh's;
+    // -1 for any other. Kept by the shape, with the corners it had: asked
+    // of each point of each detection several times over, the search by
+    // its corners was a third of a run's time
+    std::int64_t triangleOn(const ch::ChCollisionShape* shape) const
+    {
+        if (!mesh || !shape || shape->GetType() != ch::ChCollisionShape::Type::MESHTRIANGLE) {
+            return -1;
+        }
+        const ch::ChVector3d* first = mesh->GetCoordsVertices().data();
+        const std::size_t count = mesh->GetCoordsVertices().size();
+        const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
+        const ch::ChVector3d* corners[3] = {triangle->V1, triangle->V2, triangle->V3};
+        const auto kept = shapeTriangle.find(shape);
+        if (kept != shapeTriangle.end() && kept->second.corners[0] == corners[0]
+            && kept->second.corners[1] == corners[1] && kept->second.corners[2] == corners[2]) {
+            return kept->second.triangle;
+        }
+        const std::int64_t found = triangleBy(corners, first, count);
+        shapeTriangle[shape] = {found, {corners[0], corners[1], corners[2]}};
+        return found;
+    }
+
+    // That triangle by its corners' vertices
+    std::int64_t triangleBy(const ch::ChVector3d* const corners[3],
+                            const ch::ChVector3d* first,
+                            std::size_t count) const
+    {
+        std::array<int, 3> sorted {};
+        for (int k = 0; k < 3; ++k) {
+            if (corners[k] < first || corners[k] >= first + count) {
+                return -1;
+            }
+            sorted[static_cast<std::size_t>(k)] = static_cast<int>(corners[k] - first);
+        }
+        std::sort(sorted.begin(), sorted.end());
+        const auto it = triangleOf.find(sorted);
+        return it == triangleOf.end() ? -1 : static_cast<std::int64_t>(it->second);
+    }
+
+    // What a quarter of a curved face meets its neighbours by (keysOf()): its
+    // face's corners, not its own; 0 for any other shape. A face's quarters
+    // are one stretch of surface, and the middle one has no corner of the
+    // face's
+    int faceKeys(const ch::ChCollisionShape* shape, const void* keys[3]) const
+    {
+        const std::int64_t i = triangleOn(shape);
+        if (i < 0 || !surface->curved(static_cast<std::size_t>(i))) {
+            return 0;
+        }
+        const auto& face = surface->faceOf(static_cast<std::size_t>(i));
+        const ch::ChVector3d* first = mesh->GetCoordsVertices().data();
+        for (int k = 0; k < 3; ++k) {
+            const Id n = face[static_cast<std::size_t>(k)];
+            if (n >= vertexOf.size() || vertexOf[n] < 0) {
+                return 0;
+            }
+            keys[k] = first + vertexOf[n];
+        }
+        return 3;
+    }
+
+    // Each curved face of the surface to the round it is of: every one of
+    // its nodes on the round's surface as the part is at rest, to a
+    // hundredth of the radius. Once the rounds are the part's
+    void matchRounds()
+    {
+        faceRound.clear();
+        if (!mesh || !surface || rounds.empty()) {
+            return;
+        }
+        const auto& points = surface->nodes();
+        const auto& triangles = surface->triangles();
+        std::size_t count = 0;
+        for (std::size_t i = 0; i < triangles.size(); ++i) {
+            count = std::max(count, surface->faceIndex(i) + 1);
+        }
+        faceRound.assign(count, -1);
+        std::vector<char> seen(count, 0);
+        for (std::size_t i = 0; i < triangles.size(); ++i) {
+            const std::size_t f = surface->faceIndex(i);
+            if (!surface->curved(i) || seen[f]) {
+                continue;
+            }
+            seen[f] = 1;
+            const auto& nodesOf = surface->face(f);
+            for (std::size_t r = 0; r < rounds.size() && faceRound[f] < 0; ++r) {
+                const ShapeOn& round = rounds[r];
+                const bool ball = round.ball > 0.0;
+                const double radius = ball ? round.ball : round.radius;
+                if (!(radius > 0.0) || round.concave) {
+                    continue;
+                }
+                const ch::ChVector3d centre = round.frame.GetPos();
+                const ch::ChVector3d axis = round.frame.GetRotMat().GetAxisZ();
+                bool all = true;
+                for (int k = 0; k < 6 && all; ++k) {
+                    const Id n = nodesOf[static_cast<std::size_t>(k)];
+                    if (n >= points.size()) {
+                        all = false;
+                        break;
+                    }
+                    const ch::ChVector3d d =
+                        carrierAt.TransformPointParentToLocal(points[n]) - centre;
+                    const double along = ball ? 0.0 : ch::Vdot(axis, d);
+                    const double out = (d - axis * along).Length();
+                    all = std::abs(out - radius) < 0.01 * radius
+                        && (ball || std::abs(along) < round.half + 0.01 * radius);
+                }
+                if (all) {
+                    faceRound[f] = static_cast<std::int32_t>(r);
+                }
+            }
+        }
+    }
+
+    // The round a triangle's face is of, or none
+    const ShapeOn* roundOf(std::int64_t triangle) const
+    {
+        if (triangle < 0 || !surface) {
+            return nullptr;
+        }
+        const std::size_t f = surface->faceIndex(static_cast<std::size_t>(triangle));
+        return f < faceRound.size() && faceRound[f] >= 0
+            ? &rounds[static_cast<std::size_t>(faceRound[f])]
+            : nullptr;
+    }
+
+    // The round a triangle's face is of where the mesh has it now, about the
+    // point 'on' of it (in the carrier's frame) -- on the carrier, as any
+    // round of a body's: its radius its own; a cylinder's axis the round's
+    // at rest, turned as the face's corners have turned since; its centre
+    // where the face's six nodes are all the radius from it (Gauss and
+    // Newton's steps from the face's point there, the radius in along the
+    // face's normal), at that point's station along the axis. Not by the
+    // face's normal alone, which leans at a face's border: a parabola
+    // through 46 deg of an arc, a 4 mm mesh on R 5, by 16 mrad there, 0.08
+    // mm at the axis. Its reach along the axis is not looked at. False
+    // where the face is of no round
+    bool roundAt(std::int64_t triangle, const ch::ChVector3d& on, ShapeOn& local) const
+    {
+        const ShapeOn* round = roundOf(triangle);
+        if (!round || !mesh) {
+            return false;
+        }
+        const auto i = static_cast<std::size_t>(triangle);
+        const ch::ChVector3d* first = mesh->GetCoordsVertices().data();
+        const auto& rest = surface->nodes();
+        const auto& t = surface->triangles()[i];
+        std::array<ch::ChVector3d, 3> corner;
+        for (int k = 0; k < 3; ++k) {
+            const Id n = t[static_cast<std::size_t>(k)];
+            if (n >= vertexOf.size() || vertexOf[n] < 0) {
+                return false;
+            }
+            corner[static_cast<std::size_t>(k)] = first[vertexOf[n]];
+        }
+        const auto w = ChronoFlexible::Surface::weights(on, corner[0], corner[1], corner[2]);
+        const auto L = surface->faceCoordinates(i, w);
+        const auto& nodesOf = surface->faceOf(i);
+        std::array<ch::ChVector3d, 6> x;
+        std::array<ch::ChVector3d, 3> was;
+        for (int k = 0; k < 6; ++k) {
+            const Id n = nodesOf[static_cast<std::size_t>(k)];
+            if (n >= vertexOf.size() || vertexOf[n] < 0 || n >= rest.size()) {
+                return false;
+            }
+            x[static_cast<std::size_t>(k)] = first[vertexOf[n]];
+            if (k < 3) {
+                was[static_cast<std::size_t>(k)] = carrierAt.TransformPointParentToLocal(rest[n]);
+            }
+        }
+        // The face's point and its ways along s = L[1] and t = L[2] there
+        const double l = L[0];
+        const double sL = L[1];
+        const double tL = L[2];
+        const auto shape = ChronoFlexible::Surface::shape(L);
+        const double ds[6] = {
+            -(4.0 * l - 1.0), 4.0 * sL - 1.0, 0.0, 4.0 * (l - sL), 4.0 * tL, -4.0 * tL};
+        const double dt[6] = {
+            -(4.0 * l - 1.0), 0.0, 4.0 * tL - 1.0, -4.0 * sL, 4.0 * sL, 4.0 * (l - tL)};
+        ch::ChVector3d at = ch::VNULL;
+        ch::ChVector3d xs = ch::VNULL;
+        ch::ChVector3d xt = ch::VNULL;
+        for (std::size_t k = 0; k < 6; ++k) {
+            at += x[k] * shape[k];
+            xs += x[k] * ds[k];
+            xt += x[k] * dt[k];
+        }
+        ch::ChVector3d normal = ch::Vcross(xs, xt);
+        const double length = normal.Length();
+        if (!(length > 0.0)) {
+            return false;
+        }
+        normal /= length;
+        // Out of the part, as its triangle faces
+        if (ch::Vdot(normal, ch::Vcross(corner[1] - corner[0], corner[2] - corner[0])) < 0.0) {
+            normal = -normal;
+        }
+        const bool ball = round->ball > 0.0;
+        const double radius = ball ? round->ball : round->radius;
+        // The axis as the face's corners have turned from rest
+        ch::ChVector3d axis = ch::VNULL;
+        if (!ball) {
+            auto triad = [](const std::array<ch::ChVector3d, 3>& c,
+                            std::array<ch::ChVector3d, 3>& out) {
+                out[0] = c[1] - c[0];
+                out[2] = ch::Vcross(out[0], c[2] - c[0]);
+                if (!(out[0].Length() > 0.0) || !(out[2].Length() > 0.0)) {
+                    return false;
+                }
+                out[0].Normalize();
+                out[2].Normalize();
+                out[1] = ch::Vcross(out[2], out[0]);
+                return true;
+            };
+            std::array<ch::ChVector3d, 3> before;
+            std::array<ch::ChVector3d, 3> now;
+            if (!triad(was, before) || !triad({x[0], x[1], x[2]}, now)) {
+                return false;
+            }
+            const ch::ChVector3d z = round->frame.GetRotMat().GetAxisZ();
+            for (std::size_t k = 0; k < 3; ++k) {
+                axis += now[k] * ch::Vdot(before[k], z);
+            }
+            if (!(axis.Length() > 0.0)) {
+                return false;
+            }
+            axis.Normalize();
+        }
+        // The centre: every node the radius from it, a cylinder's square to
+        // its axis
+        auto square = [&](const ch::ChVector3d& v) {
+            return ball ? v : v - axis * ch::Vdot(axis, v);
+        };
+        ch::ChVector3d centre = at - normal * radius;
+        for (int step = 0; step < 6; ++step) {
+            Eigen::Matrix3d JJ = Eigen::Matrix3d::Zero();
+            Eigen::Vector3d Jr = Eigen::Vector3d::Zero();
+            for (const auto& node : x) {
+                const ch::ChVector3d d = square(node - centre);
+                const double far = d.Length();
+                if (!(far > 0.0)) {
+                    return false;
+                }
+                const Eigen::Vector3d j = -(d / far).eigen();
+                JJ += j * j.transpose();
+                Jr += j * (far - radius);
+            }
+            if (!ball) {
+                // Nothing moves it along the axis
+                JJ += axis.eigen() * axis.eigen().transpose();
+            }
+            const Eigen::Vector3d move = -JJ.ldlt().solve(Jr);
+            if (!move.allFinite()) {
+                return false;
+            }
+            centre += ch::ChVector3d(move.x(), move.y(), move.z());
+            if (move.norm() < 1e-12) {
+                break;
+            }
+        }
+        ch::ChVector3d out = square(at - centre);
+        const double away = out.Length();
+        if (!(away > 0.5 * radius) || !(away < 1.5 * radius)) {
+            return false;
+        }
+        out /= away;
+        if (ball) {
+            axis = ch::Vcross(out, std::abs(out.x()) < 0.9 ? ch::VECT_X : ch::VECT_Y);
+            axis.Normalize();
+        }
+        else {
+            // At the point's station
+            centre += axis * ch::Vdot(axis, at - centre);
+        }
+        local = *round;
+        ch::ChMatrix33d turn;
+        turn.SetFromDirectionAxes(out, ch::Vcross(axis, out), axis);
+        local.frame = ch::ChFramed(centre, turn);
+        local.half = std::numeric_limits<double>::max();
+        return true;
+    }
+
+    // A flat face of the surface and the flat faces it meets at a convex
+    // edge -- the solid's faces about that triangle, as a box's are about
+    // one of its own: each one's outward normal and a point of it, absolute,
+    // triangle i's own first, four at most; none for a triangle with no
+    // such neighbour (edgeFaces, as the part is at rest), or a curved one
+    struct Plane
+    {
+        ch::ChVector3d normal;
+        ch::ChVector3d at;
+    };
+    int facesAbout(std::size_t i, std::array<Plane, 4>& planes) const
+    {
+        int count = 0;
+        if (i >= edgeFaces.size()) {
+            return count;
+        }
+        const auto& about = edgeFaces[i];
+        if (about[0] < 0 && about[1] < 0 && about[2] < 0) {
+            return count;
+        }
+        const ch::ChVector3d* first = mesh->GetCoordsVertices().data();
+        auto planeOf = [&](std::size_t f, Plane& plane, std::array<ch::ChVector3d, 3>& x) {
+            const auto& nodesOf = surface->face(f);
+            for (int k = 0; k < 3; ++k) {
+                const Id n = nodesOf[static_cast<std::size_t>(k)];
+                if (n >= vertexOf.size() || vertexOf[n] < 0) {
+                    return false;
+                }
+                x[static_cast<std::size_t>(k)] =
+                    carrier->TransformPointLocalToParent(first[vertexOf[n]]);
+            }
+            plane.normal = ch::Vcross(x[1] - x[0], x[2] - x[0]);
+            const double area = plane.normal.Length();
+            if (!(area > 0.0)) {
+                return false;
+            }
+            plane.normal /= area;
+            plane.at = x[0];
+            return true;
+        };
+        const std::size_t own = surface->faceIndex(i);
+        Plane plane;
+        std::array<ch::ChVector3d, 3> x;
+        if (!planeOf(own, plane, x)) {
+            return count;
+        }
+        planes[static_cast<std::size_t>(count++)] = plane;
+        for (const std::int32_t next : about) {
+            if (next >= 0 && planeOf(static_cast<std::size_t>(next), plane, x)) {
+                planes[static_cast<std::size_t>(count++)] = plane;
+            }
+        }
+        return count;
+    }
+
+    // Each point of a load just found to its place on the surface, then
+    // where it is now: on the face of the mesh's triangle it was found on,
+    // as the face is -- off the flat triangle by the face's curve there, its
+    // offset from the triangle kept; one of no triangle of the mesh's (the
+    // part's own shapes on the carrier), on the surface nearest as the
+    // carrier has it at rest. 'only' those points, the others' places kept:
+    // a load on two flexible parts has each point's sides placed in the
+    // point's own order (placeOnFlexibles())
+    void place(ContactLoad& load, bool sideA = false, const std::vector<char>* only = nullptr)
+    {
+        auto& placedOn = sideA ? load.onMeshA : load.onMesh;
+        if (!only || placedOn.size() != load.points.size()) {
+            placedOn.assign(load.points.size(), {});
+        }
+        const ch::ChVector3d* first = mesh ? mesh->GetCoordsVertices().data() : nullptr;
+        const std::size_t count = mesh ? mesh->GetCoordsVertices().size() : 0;
+        const FlexibleContact* other = sideA ? load.flexible : load.flexibleA;
+        ShapeOn roundNow;
+        for (std::size_t i = 0; i < load.points.size(); ++i) {
+            if (only && !(*only)[i]) {
+                continue;
+            }
+            // This part's side's point: B's, or A's where this part is A
+            auto& on = placedOn[i];
+            on = {};
+            const ch::ChVector3d& onB = sideA ? load.points[i].onA : load.points[i].onB;
+            const ch::ChCollisionShape* shape =
+                sideA ? load.points[i].shapeA : load.points[i].shapeB;
+            // Whether a curved face's point goes to the face's farthest
+            // towards the other part: against a face of the other's, the
+            // normal that face's own (Point::face) -- B's against a face of
+            // A, and a flexible A's against a flat face of B, the other's
+            // point slid along with it and placed after. Not against a
+            // curved face of another flexible part, its facet's normal: the
+            // two stay on their triangles there
+            bool towards = load.points[i].face == (sideA ? 2 : 1) && (other || !sideA);
+            if (towards && other) {
+                const std::int64_t there =
+                    other->triangleOn(sideA ? load.points[i].shapeB : load.points[i].shapeA);
+                towards = there < 0 || !other->surface->curved(static_cast<std::size_t>(there));
+            }
+            if (first && shape && shape->GetType() == ch::ChCollisionShape::Type::MESHTRIANGLE) {
+                const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
+                const ch::ChVector3d* corners[3] = {triangle->V1, triangle->V2, triangle->V3};
+                std::array<int, 3> key {};
+                bool ours = true;
+                for (int k = 0; k < 3 && ours; ++k) {
+                    ours = corners[k] >= first && corners[k] < first + count;
+                    key[k] = ours ? static_cast<int>(corners[k] - first) : -1;
+                }
+                std::array<int, 3> sorted = key;
+                std::sort(sorted.begin(), sorted.end());
+                const auto it = ours ? triangleOf.find(sorted) : triangleOf.end();
+                if (it != triangleOf.end()) {
+                    const auto w = ChronoFlexible::Surface::weights(onB,
+                                                                    *corners[0],
+                                                                    *corners[1],
+                                                                    *corners[2]);
+                    // The weights in the surface's triangle's order of its
+                    // corners, and the point on the flat triangle
+                    const auto& t = surface->triangles()[it->second];
+                    std::array<double, 3> inOrder {0.0, 0.0, 0.0};
+                    ch::ChVector3d flat = ch::VNULL;
+                    for (int k = 0; k < 3; ++k) {
+                        const Id n = meshNodes[static_cast<std::size_t>(key[k])];
+                        for (int j = 0; j < 3; ++j) {
+                            if (t[j] == n) {
+                                inOrder[j] = w[k];
+                            }
+                        }
+                        flat += *corners[k] * w[k];
+                    }
+                    ChronoFlexible::Surface::Place face;
+                    surface->onFace(it->second, inOrder, face);
+                    on.nodes = face.nodes;
+                    on.weights = face.weights;
+                    on.offset = onB - flat;
+                    on.placed = true;
+                    // A point the other flexible part's set on this part's
+                    // round (given) stays where it was set: its offset from
+                    // the face's point at the triangle's nearest, not from
+                    // the triangle's. From the triangle's, it was put out of
+                    // the face by the face's bulge there: a rod on a roller,
+                    // both flexible, had the rod's points up to 0.034 mm
+                    // outside it, and read 0.05 to 0.094 mm deep for 0.05
+                    if (i < load.given.size() && load.given[i] == (sideA ? 1 : 2)
+                        && surface->curved(it->second)) {
+                        ch::ChVector3d onFace = ch::VNULL;
+                        bool whole = true;
+                        for (std::size_t k = 0; k < face.nodes.size() && whole; ++k) {
+                            if (face.weights[k] == 0.0) {
+                                continue;
+                            }
+                            const Id n = face.nodes[k];
+                            whole = n < vertexOf.size() && vertexOf[n] >= 0;
+                            if (whole) {
+                                onFace += first[vertexOf[n]] * face.weights[k];
+                            }
+                        }
+                        if (whole) {
+                            on.offset = onB - onFace;
+                        }
+                    }
+                    // On a curved face, its point farthest towards A: the
+                    // flat triangle's nearest is a corner or an edge, where
+                    // the face is the triangle -- a rod R 5 turned on a plate,
+                    // its faces 4 mm, pressed it from 23 to 124 N for 50 --
+                    // and A's point slid along with it, on the plane square
+                    // to the normal. So only where that plane is A's: the
+                    // normal its face's own (Point::face). At the plate's
+                    // edge Bullet's leaned 1.3 deg along the rod, which is
+                    // straight that way, and the farthest point ran 1.4 mm
+                    // to the face's end, its plane 0.033 mm off the plate --
+                    // 200 N, and 1.2 kN where it ran further. Against a
+                    // round, its surface falls away from that plane; the
+                    // triangles there, a quarter of the face's sagitta. And
+                    // only where the face curves to it (farthest()): the rod
+                    // sunk 0.05 mm into the plate's top ran on past its end,
+                    // whose face Bullet took for some points, the normal
+                    // along the rod, and the farthest that way, along the
+                    // rod's straight, was the face's end, 0.11 mm in -- the
+                    // run's force at 200 N for 46 in bursts. And only as far
+                    // in as the face can stand out of its triangles
+                    if (towards && surface->curved(it->second)) {
+                        const auto& nodesOf = surface->faceOf(it->second);
+                        std::array<ch::ChVector3d, 6> x;
+                        for (int k = 0; k < 6; ++k) {
+                            x[k] = first[vertexOf[nodesOf[k]]];
+                        }
+                        // The normal is from A to B: towards A against it
+                        const ch::ChVector3d into = carrier->GetRot().RotateBack(
+                            sideA ? load.points[i].normal : -load.points[i].normal);
+                        bool curve = false;
+                        const auto weights = ChronoFlexible::Surface::shape(
+                            ChronoFlexible::Surface::farthest(x, into, &curve));
+                        ch::ChVector3d at = ch::VNULL;
+                        for (int k = 0; k < 6; ++k) {
+                            at += x[k] * weights[k];
+                        }
+                        if (curve && ch::Vdot(into, at - flat) <= 1.5 * surface->bulge()) {
+                            on.weights = weights;
+                            const ch::ChVector3d& n = load.points[i].normal;
+                            ch::ChVector3d moved = carrier->GetRot().Rotate(at - flat);
+                            moved -= n * ch::Vdot(n, moved);
+                            auto& slid = sideA ? load.points[i].onB : load.points[i].onA;
+                            slid += (sideA ? load.GetBodyB() : load.GetBodyA())
+                                        ->GetRot()
+                                        .RotateBack(moved);
+                        }
+                    }
+                    // Against a sphere or a cylinder's side, the face's point
+                    // deepest in it, the normal through the round's centre or
+                    // axis (deepestOnFace()), turning with the part
+                    // (Point::face, 2). A's rigid round; or another flexible
+                    // part's round face, the round where that part's mesh
+                    // has it (roundAt()) -- B's point against A's, and A's
+                    // against B's where A's own face is of no round
+                    else if (const ShapeOn* against =
+                                 !surface->curved(it->second) ? nullptr
+                                 : !other ? (!sideA && load.points[i].roundA
+                                                     && !load.points[i].roundB
+                                                 ? load.points[i].roundA
+                                                 : nullptr)
+                                 : (!sideA || !roundOf(static_cast<std::int64_t>(it->second)))
+                                         && other->roundAt(
+                                             other->triangleOn(sideA ? load.points[i].shapeB
+                                                                     : load.points[i].shapeA),
+                                             sideA ? load.points[i].onB : load.points[i].onA,
+                                             roundNow)
+                                     ? &roundNow
+                                     : nullptr) {
+                        auto& point = load.points[i];
+                        const ch::ChBody& roundBody = sideA ? *load.GetBodyB() : *load.GetBodyA();
+                        const auto& nodesOf = surface->faceOf(it->second);
+                        std::array<ch::ChVector3d, 6> x;
+                        for (int k = 0; k < 6; ++k) {
+                            x[k] = first[vertexOf[nodesOf[k]]];
+                        }
+                        std::array<double, 3> L =
+                            surface->faceCoordinates(it->second, inOrder);
+                        ch::ChVector3d normal;
+                        ch::ChVector3d onRound;
+                        // Across an edge the deepest is beyond, into the face
+                        // there, three at most: a point held at its own
+                        // face's edge, 0.02 mm deep where the faces beside
+                        // it were 0.045, pulled its patch's depth down and
+                        // the rod's force on a roller with it, 40 N for 47
+                        std::size_t faceNow = surface->faceIndex(it->second);
+                        int leaving = -1;
+                        bool found = false;
+                        for (int walk = 0; walk < 4; ++walk) {
+                            found = deepestOnFace(*against,
+                                                  roundBody,
+                                                  *carrier,
+                                                  x,
+                                                  L,
+                                                  normal,
+                                                  onRound,
+                                                  leaving);
+                            const std::int64_t next =
+                                found && leaving >= 0 && walk < 3
+                                ? surface->across(faceNow, leaving)
+                                : -1;
+                            if (next < 0) {
+                                break;
+                            }
+                            // The edge's point in the next face's terms
+                            const auto& from = surface->face(faceNow);
+                            const auto& to = surface->face(static_cast<std::size_t>(next));
+                            std::array<double, 3> there {0.0, 0.0, 0.0};
+                            for (int k = 0; k < 2; ++k) {
+                                const int c = (leaving + k) % 3;
+                                for (int j = 0; j < 3; ++j) {
+                                    if (to[static_cast<std::size_t>(j)]
+                                        == from[static_cast<std::size_t>(c)]) {
+                                        there[static_cast<std::size_t>(j)] =
+                                            L[static_cast<std::size_t>(c)];
+                                    }
+                                }
+                            }
+                            const double sum = there[0] + there[1] + there[2];
+                            if (!(sum > 0.0)) {
+                                break;
+                            }
+                            for (double& w : there) {
+                                w /= sum;
+                            }
+                            faceNow = static_cast<std::size_t>(next);
+                            L = there;
+                            // A flat face's edges' nodes are not the mesh's
+                            // (its first corner stands for them, Surface()):
+                            // at its edges' middles
+                            const bool flatNext = to[3] == to[0];
+                            for (int k = 0; k < 6; ++k) {
+                                const int v = vertexOf[to[static_cast<std::size_t>(k)]];
+                                x[k] = k < 3 || (!flatNext && v >= 0)
+                                    ? first[v]
+                                    : (x[(k - 3)] + x[(k - 2) % 3]) * 0.5;
+                            }
+                        }
+                        if (found) {
+                            on.nodes = surface->face(faceNow);
+                            on.weights = ChronoFlexible::Surface::shape(L);
+                            on.offset = ch::VNULL;
+                            // Out of the round through the face's point:
+                            // from A to B where the face is B's
+                            point.normal = sideA ? -normal : normal;
+                            point.face = sideA ? 1 : 2;
+                            point.normalOn =
+                                carrier->TransformDirectionParentToLocal(point.normal);
+                            (sideA ? point.onB : point.onA) =
+                                roundBody.TransformPointParentToLocal(onRound);
+                            if (other && i < load.given.size()) {
+                                load.given[i] = sideA ? 2 : 1;
+                            }
+                        }
+                    }
+                    continue;
+                }
+            }
+            const ch::ChVector3d inPart = carrierAt.TransformPointLocalToParent(onB);
+            ChronoFlexible::Surface::Place found;
+            if (!surface || !surface->nearest(inPart, found)) {
+                continue;
+            }
+            on.placed = true;
+            on.nodes = found.nodes;
+            on.weights = found.weights;
+            on.offset = onB - carrierAt.TransformPointParentToLocal(found.at);
+        }
+        refresh(load, sideA);
+    }
+
+    // A load's points where the modes have them, and their maps; each one's
+    // onB on the carrier there, for what reads a point by its bodies
+    void refresh(ContactLoad& load, bool sideA = false)
+    {
+        auto& placedOn = sideA ? load.onMeshA : load.onMesh;
+        // Each point's nodes that weigh: a flat face's corners alone
+        std::vector<const ch::fea::ChNodeFEAxyz*> asked;
+        for (const auto& on : placedOn) {
+            if (on.placed) {
+                for (std::size_t j = 0; j < on.nodes.size(); ++j) {
+                    if (on.weights[j] != 0.0) {
+                        const Id n = on.nodes[j];
+                        asked.push_back(n < nodes.size() ? nodes[n] : nullptr);
+                    }
+                }
+            }
+        }
+        if (asked.empty()) {
+            return;
+        }
+        std::vector<ch::ChVector3d> pos;
+        std::vector<ch::ChVector3d> vel;
+        std::vector<ch::ChMatrixDynamic<>> maps;
+        if (!assembly->GetInternalNodesMap(asked, pos, vel, maps)) {
+            for (auto& on : placedOn) {
+                on.placed = false;
+            }
+            return;
+        }
+        std::size_t k = 0;
+        for (std::size_t i = 0; i < placedOn.size(); ++i) {
+            auto& on = placedOn[i];
+            if (!on.placed) {
+                continue;
+            }
+            on.at = carrier->GetRot().Rotate(on.offset);
+            on.speed = ch::VNULL;
+            on.T.setZero(3, maps.front().cols());
+            for (std::size_t j = 0; j < on.nodes.size(); ++j) {
+                if (on.weights[j] == 0.0) {
+                    continue;
+                }
+                on.at += pos[k] * on.weights[j];
+                on.speed += vel[k] * on.weights[j];
+                on.T += maps[k] * on.weights[j];
+                ++k;
+            }
+            if (i < load.points.size()) {
+                (sideA ? load.points[i].onA : load.points[i].onB) =
+                    carrier->TransformPointParentToLocal(on.at);
+            }
+        }
+    }
+
+    // Its block of the system matrix: the reduced variables, then each other
+    // side's body's that moves. Once the loads are its
+    void setVariables()
+    {
+        std::vector<ch::ChVariables*> variables = assembly->GetReducedVariables();
+        reduced = 0;
+        for (const auto* v : variables) {
+            reduced += static_cast<int>(v->GetDOF());
+        }
+        others.clear();
+        for (ContactLoad* load : loads) {
+            ch::ChBody* a = load->GetBodyA().get();
+            // A flexible A's carrier is of its reduced coordinates
+            if (load->flexibleA || a->IsFixed()
+                || std::find(others.begin(), others.end(), a) != others.end()) {
+                continue;
+            }
+            others.push_back(a);
+            variables.push_back(&a->Variables());
+        }
+        // Each flexible A's reduced variables, after the bodies': the two
+        // parts' coupling, T_B' h T_A and its transpose, and A's own T_A' h
+        // T_A, are this block's
+        parts.clear();
+        int col = reduced + 6 * static_cast<int>(others.size());
+        for (ContactLoad* load : loads) {
+            FlexibleContact* a = load->flexibleA;
+            if (!a || a == this
+                || std::find_if(parts.begin(), parts.end(), [&](const Part& part) {
+                       return part.contact == a;
+                   }) != parts.end()) {
+                continue;
+            }
+            int size = 0;
+            for (auto* v : a->assembly->GetReducedVariables()) {
+                variables.push_back(v);
+                size += static_cast<int>(v->GetDOF());
+            }
+            parts.push_back({a, col, size});
+            col += size;
+        }
+        block.SetVariables(variables);
+    }
+
+    void Update(double time, ch::UpdateFlags flags) override
+    {
+        ch::ChPhysicsItem::Update(time, flags);
+        for (ContactLoad* load : loads) {
+            refresh(*load);
+        }
+        for (ContactLoad* load : loadsA) {
+            refresh(*load, true);
+        }
+    }
+
+    // The points' forces on the reduced coordinates, T^T f
+    void IntLoadResidual_F(const unsigned int, ch::ChVectorDynamic<>& R, const double c) override
+    {
+        const unsigned int at = assembly->GetOffset_w();
+        for (ContactLoad* load : loads) {
+            for (const auto& f : load->forcesOnB) {
+                if (f.point >= load->onMesh.size()) {
+                    continue;
+                }
+                const auto& on = load->onMesh[f.point];
+                if (on.T.cols() != reduced || at + reduced > R.size()) {
+                    continue;
+                }
+                R.segment(at, reduced) += c * (on.T.transpose() * f.force.eigen());
+            }
+        }
+        for (ContactLoad* load : loadsA) {
+            for (const auto& f : load->forcesOnA) {
+                if (f.point >= load->onMeshA.size()) {
+                    continue;
+                }
+                const auto& on = load->onMeshA[f.point];
+                if (on.T.cols() != reduced || at + reduced > R.size()) {
+                    continue;
+                }
+                R.segment(at, reduced) += c * (on.T.transpose() * f.force.eigen());
+            }
+        }
+    }
+
+    void InjectKRMMatrices(ch::ChSystemDescriptor& descriptor) override
+    {
+        if (block.GetNumVariables()) {
+            descriptor.InsertKRMBlock(&block);
+        }
+    }
+
+    // Each point's k l n' and c l n' -- l the normal less the friction's mu
+    // along the sliding, the force that comes with the normal's -- and its
+    // friction's rate with the sliding, between where it is on the part, T,
+    // and on A, J = [I, -R_A [r]x] (A's velocity, its angular in its axes):
+    // A's own block is the load's (ContactLoad::ComputeJacobian()). Without
+    // the friction's the Newton iterations stopped unconverged on any substep
+    // past m / (mu' N): a strip of 21 g pressed 18 N onto a bar, mu 0.3
+    // reached at 0.1 mm/s, took none longer than 0.3 us, each fourth try
+    // taken back, and the tenth of a second it was bent in 1640 s
+    void LoadKRMMatrices(double Kfactor, double Rfactor, double) override
+    {
+        auto& H = block.GetMatrix();
+        H.setZero();
+        for (ContactLoad* load : loads) {
+            ch::ChBody* a = load->GetBodyA().get();
+            const auto it = std::find(others.begin(), others.end(), a);
+            const int other = it == others.end() ? -1 : static_cast<int>(it - others.begin());
+            for (const auto& f : load->forcesOnB) {
+                if (f.point >= load->onMesh.size()) {
+                    continue;
+                }
+                const auto& on = load->onMesh[f.point];
+                if (on.T.cols() != reduced) {
+                    continue;
+                }
+                const Eigen::Matrix3d h = (Kfactor * f.k + Rfactor * f.c)
+                    * ch::TensorProduct(f.line, f.normal)
+                    + Rfactor * f.drag;
+                const Eigen::MatrixXd hT = h * on.T;
+                H.topLeftCorner(reduced, reduced) += on.T.transpose() * hT;
+                if (load->flexibleA) {
+                    const auto part = std::find_if(parts.begin(), parts.end(), [&](const Part& p) {
+                        return p.contact == load->flexibleA;
+                    });
+                    if (part == parts.end() || !load->meshedA(f.point)) {
+                        continue;
+                    }
+                    const auto& TA = load->onMeshA[f.point].T;
+                    if (TA.cols() != part->size) {
+                        continue;
+                    }
+                    const Eigen::MatrixXd hTA = h * TA;
+                    H.block(0, part->col, reduced, part->size) -= on.T.transpose() * hTA;
+                    H.block(part->col, 0, part->size, reduced) -= TA.transpose() * hT;
+                    H.block(part->col, part->col, part->size, part->size) += TA.transpose() * hTA;
+                    continue;
+                }
+                if (other < 0) {
+                    continue;
+                }
+                Eigen::Matrix<double, 3, 6> J;
+                J.leftCols<3>().setIdentity();
+                J.rightCols<3>() = -(a->GetRotMat() * ch::ChStarMatrix33<>(f.onA));
+                const int col = reduced + 6 * other;
+                H.block(0, col, reduced, 6) -= on.T.transpose() * (h * J);
+                H.block(col, 0, 6, reduced) -= J.transpose() * hT;
+            }
+        }
+    }
+
+private:
+    ch::ChKRMBlock block;
+    int reduced = 0;
+    std::vector<ch::ChBody*> others;
+    // A flexible A of a load, its reduced variables' place in the block
+    struct Part
+    {
+        FlexibleContact* contact = nullptr;
+        int col = 0;
+        int size = 0;
+    };
+    std::vector<Part> parts;
+    // The mesh's nodes' shapes on the reduced coordinates, and where they
+    // are, the last asked
+    ch::modal::ChModalAssembly::NodesShapes shapes;
+    std::vector<ch::ChVector3d> moved;
+};
+
+// A load on two flexible parts, each touched anywhere: a point between a
+// curved face of one and a flat face of the other is the flat face's -- its
+// normal that face's own, the flat side's point under the curved side's on
+// the face's plane -- along whichever axis the two triangles were parted.
+// The curved face's point then goes to where the face is deepest in the
+// flat one (FlexibleContact::place()), as it does against a rigid part's
+// face. A rod R 5 turned on a plate, both flexible, mesh 4: of each
+// detection's points one in twenty had the rod's facet's own normal, 10 to
+// 17 deg off the plate's and turning with the rod. Only within 45 deg of
+// the flat face's; whether any point was changed
+bool flatFaces(ContactLoad& load)
+{
+    if (!load.flexible || !load.flexibleA) {
+        return false;
+    }
+    bool changed = false;
+    for (auto& point : load.points) {
+        const std::int64_t triA = load.flexibleA->triangleOn(point.shapeA);
+        const std::int64_t triB = load.flexible->triangleOn(point.shapeB);
+        if (triA < 0 || triB < 0) {
+            continue;
+        }
+        const bool curvedA = load.flexibleA->surface->curved(static_cast<std::size_t>(triA));
+        const bool curvedB = load.flexible->surface->curved(static_cast<std::size_t>(triB));
+        if (curvedA == curvedB) {
+            continue;
+        }
+        const ch::ChBody& flat = curvedA ? *load.GetBodyB() : *load.GetBodyA();
+        const ch::ChBody& round = curvedA ? *load.GetBodyA() : *load.GetBodyB();
+        const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(
+            curvedA ? point.shapeB : point.shapeA);
+        ch::ChVector3d out = flat.TransformDirectionLocalToParent(
+            ch::Vcross(*triangle->V2 - *triangle->V1, *triangle->V3 - *triangle->V1));
+        const double area = out.Length();
+        if (!(area > 0.0)) {
+            continue;
+        }
+        out /= area;
+        // From A to B: into a flat B, out of a flat A
+        const ch::ChVector3d normal = curvedA ? -out : out;
+        const int face = curvedA ? 2 : 1;
+        const double along = ch::Vdot(point.normal, normal);
+        if (along < std::cos(pi / 4.0) || (along > 1.0 - 1e-8 && point.face == face)) {
+            continue;
+        }
+        const ch::ChVector3d at =
+            round.TransformPointLocalToParent(curvedA ? point.onA : point.onB);
+        const ch::ChVector3d on = flat.TransformPointLocalToParent(*triangle->V1);
+        (curvedA ? point.onB : point.onA) =
+            flat.TransformPointParentToLocal(at - out * ch::Vdot(out, at - on));
+        point.normal = normal;
+        point.face = face;
+        point.normalOn = flat.TransformDirectionParentToLocal(normal);
+        changed = true;
+    }
+    // A point under a flat face of one part, the normal that face's own: of
+    // that face and the flat ones it meets at a convex edge, under the one
+    // it is least deep under that faces the other part's surface there --
+    // within 45 deg of that surface's triangle's normal, the other way, and
+    // within the margin and the surface's bulge of the point; one outside
+    // the solid through any of them, through the one it is farthest out of.
+    // As a flexible part's point in a rigid box is (leastDeepFace()): a rod
+    // on a plate ending under it, both flexible, had a node 0.04 mm past the
+    // plate's end and 0.05 under its top taken through the end, a patch of
+    // its own with the set's spring -- 40 N along the rod on top of the 45,
+    // the force over the turn from 35 to 130 N, its run 195 s
+    std::array<FlexibleContact::Plane, 4> planes;
+    for (auto& point : load.points) {
+        if (point.face != 1 && point.face != 2) {
+            continue;
+        }
+        const bool flatB = point.face == 2;
+        const FlexibleContact& flatPart = flatB ? *load.flexible : *load.flexibleA;
+        const FlexibleContact& otherPart = flatB ? *load.flexibleA : *load.flexible;
+        const std::int64_t tri = flatPart.triangleOn(flatB ? point.shapeB : point.shapeA);
+        const ch::ChCollisionShape* otherShape = flatB ? point.shapeA : point.shapeB;
+        if (tri < 0 || otherPart.triangleOn(otherShape) < 0) {
+            continue;
+        }
+        const int count = flatPart.facesAbout(static_cast<std::size_t>(tri), planes);
+        if (count < 2) {
+            continue;
+        }
+        const ch::ChBody& flat = flatB ? *load.GetBodyB() : *load.GetBodyA();
+        const ch::ChBody& other = flatB ? *load.GetBodyA() : *load.GetBodyB();
+        const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(otherShape);
+        ch::ChVector3d facing = other.TransformDirectionLocalToParent(
+            ch::Vcross(*triangle->V2 - *triangle->V1, *triangle->V3 - *triangle->V1));
+        const double area = facing.Length();
+        if (!(area > 0.0)) {
+            continue;
+        }
+        facing /= area;
+        const ch::ChVector3d at = other.TransformPointLocalToParent(flatB ? point.onA : point.onB);
+        const double within = safeMargin + otherPart.surface->bulge();
+        int out = -1;
+        int faces = -1;
+        std::array<double, 4> off {};
+        for (int f = 0; f < count; ++f) {
+            const auto k = static_cast<std::size_t>(f);
+            off[k] = ch::Vdot(planes[k].normal, at - planes[k].at);
+            if (off[k] > 0.0 && (out < 0 || off[k] > off[static_cast<std::size_t>(out)])) {
+                out = f;
+            }
+            if (-ch::Vdot(planes[k].normal, facing) > std::cos(pi / 4.0) && off[k] >= -within
+                && (faces < 0 || off[k] > off[static_cast<std::size_t>(faces)])) {
+                faces = f;
+            }
+        }
+        // None facing it -- the other's triangle a side of its own, edge on
+        // edge: left as found. The least deep of all then was a side face, a
+        // patch of its own: two strips crossed, both flexible, pressed 0.58
+        // N sideways for 0.92 down
+        const int best = out >= 0 ? out : faces;
+        if (best <= 0) {
+            continue;
+        }
+        const auto& plane = planes[static_cast<std::size_t>(best)];
+        // From A to B: into a flat B, out of a flat A
+        point.normal = flatB ? -plane.normal : plane.normal;
+        (flatB ? point.onB : point.onA) = flat.TransformPointParentToLocal(
+            at - plane.normal * off[static_cast<std::size_t>(best)]);
+        point.normalOn = flat.TransformDirectionParentToLocal(point.normal);
+        changed = true;
+    }
+    return changed;
+}
+
+// A load's points just found onto its flexible parts' surfaces
+// (FlexibleContact::place()). On two of them, each point's side that moves
+// the other's first: a curved face of A against a flat face of B (Point::
+// face, 2) slides B's point along that face, and a curved face of B against
+// a face of A slides A's; of two curved faces, B's against A's round, or
+// A's against B's where A's is of none
+void placeOnFlexibles(ContactLoad& load)
+{
+    load.given.assign(load.points.size(), 0);
+    if (!load.flexibleA) {
+        if (load.flexible) {
+            load.flexible->place(load);
+        }
+        return;
+    }
+    if (!load.flexible) {
+        load.flexibleA->place(load, true);
+        return;
+    }
+    const std::size_t count = load.points.size();
+    std::vector<char> first(count, 0);
+    std::vector<char> rest(count, 0);
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto& point = load.points[i];
+        const std::int64_t triA = load.flexibleA->triangleOn(point.shapeA);
+        const std::int64_t triB = load.flexible->triangleOn(point.shapeB);
+        const bool curvedA =
+            triA >= 0 && load.flexibleA->surface->curved(static_cast<std::size_t>(triA));
+        const bool curvedB =
+            triB >= 0 && load.flexible->surface->curved(static_cast<std::size_t>(triB));
+        // A's first where it is A's point that goes to its face's deepest:
+        // against a flat face of B, or against B's round where A's own
+        // face is of none
+        first[i] = (point.face == 2 && !(curvedA && curvedB))
+                || (curvedA && curvedB && !load.flexibleA->roundOf(triA)
+                    && load.flexible->roundOf(triB))
+            ? 1
+            : 0;
+        rest[i] = first[i] ? 0 : 1;
+    }
+    load.onMeshA.assign(count, {});
+    load.flexibleA->place(load, true, &first);
+    load.flexible->place(load);
+    load.flexibleA->place(load, true, &rest);
+}
+#endif
 
 // What a shape on a body meets its neighbours by: a mesh triangle its
 // corners, any other shape itself
@@ -1305,10 +2679,29 @@ void patchesOf(ContactLoad& load)
     entries.reserve(points.size() * 3);
     // A profile's point by its pieces: a flat lying on a flat touches at
     // both its corners, each on the flat's piece, in one patch
-    auto keysOfPoint = [](const std::array<const void*, 2>& pieces,
-                          const ch::ChCollisionShape* shape,
-                          const void* keys[3]) {
+    // Two flexible parts' (FlexibleContact): a curved face's quarter by its
+    // face's corners. The rows of a rod's facets' corners either side of
+    // its line on a plate, both flexible, were a patch each at one
+    // detection in twenty -- no quarter of the one a corner of the other's --
+    // and the set's spring pressed twice, 80 to 95 N for 41
+    const bool faces = load.flexible && load.flexibleA;
+    auto keysOfPoint = [&load, faces](const std::array<const void*, 2>& pieces,
+                                      const ch::ChCollisionShape* shape,
+                                      const void* keys[3],
+                                      bool sideA) {
         if (!pieces[0]) {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+            if (faces) {
+                const int count = (sideA ? load.flexibleA : load.flexible)->faceKeys(shape, keys);
+                if (count) {
+                    return count;
+                }
+            }
+#else
+            (void)load;
+            (void)faces;
+            (void)sideA;
+#endif
             return keysOf(shape, keys);
         }
         keys[0] = pieces[0];
@@ -1318,8 +2711,8 @@ void patchesOf(ContactLoad& load)
     for (std::size_t i = 0; i < points.size(); ++i) {
         const void* keysA[3];
         const void* keysB[3];
-        const int na = keysOfPoint(points[i].piecesA, points[i].shapeA, keysA);
-        const int nb = keysOfPoint(points[i].piecesB, points[i].shapeB, keysB);
+        const int na = keysOfPoint(points[i].piecesA, points[i].shapeA, keysA, true);
+        const int nb = keysOfPoint(points[i].piecesB, points[i].shapeB, keysB, false);
         for (int x = 0; x < na; ++x) {
             for (int y = 0; y < nb; ++y) {
                 entries.emplace_back(keysA[x], keysB[y], i);
@@ -1448,6 +2841,16 @@ struct SatPolyhedron
     std::vector<std::vector<int>> facesAt;   // each vertex's faces
     bool triangle = false;                   // a mesh's, one-sided
     cbtScalar grown = 0;                     // a triangle's, along its normal
+    // A triangle of a mesh whose vertices move (a flexible part's surface,
+    // ContactCollisionSystem::addMovingMesh()): its features are made again
+    // from it when the mesh has moved since, 'moves' the mesh's count of
+    // that and 'at' the count they were made at; 'layout' counts the times
+    // its edges came out other ones, a fold between it and a neighbour
+    // turned over
+    const cbtCEtriangleShape* moving = nullptr;
+    const unsigned* moves = nullptr;
+    unsigned at = 0;
+    unsigned layout = 0;
 };
 
 SatPolyhedron satOf(const cbtConvexPolyhedron& polyhedron)
@@ -1929,6 +3332,14 @@ void clipAlong(const SatPolyhedron& a,
 // mesh's axes satSearch() takes a contact normal from are not enough to tell:
 // a channel's wall and a part's side, 7 mm apart, the one axis between them
 // the cross product of their triangles' diagonals, were taken to overlap.
+// A triangle reaches from where it is grown to (SatPolyhedron::grown) back
+// through its own place and the safe margin behind it, the solid's skin the
+// penetrations stay in: taken at its grown place alone, one gone through the
+// other shape's surface by more than the threshold was apart from it, on its
+// far side. A flexible rod's triangles along its line on a flexible plate,
+// 0.05 mm in and grown by 0.09 (the envelope and their faces' bulge), were
+// 0.04 mm past the plate's top, and of the rod's 73 triangles with points
+// the 68 mid rod were the ones clear of the plate, none on its line.
 SatAxis
 satApart(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlaced& bp, cbtScalar threshold)
 {
@@ -1952,6 +3363,18 @@ satApart(const SatPolyhedron& a, const SatPolyhedron& b, const SatPlaced& bp, cb
         for (const auto& v : bp.vertices) {
             lowB = std::min(lowB, d.dot(v));
             highB = std::max(highB, d.dot(v));
+        }
+        if (a.triangle) {
+            const cbtScalar back =
+                d.dot(a.normals[0]) * (a.grown + static_cast<cbtScalar>(safeMargin));
+            lowA = std::min(lowA, lowA - back);
+            highA = std::max(highA, highA - back);
+        }
+        if (b.triangle) {
+            const cbtScalar back =
+                d.dot(bp.normals[0]) * (b.grown + static_cast<cbtScalar>(safeMargin));
+            lowB = std::min(lowB, lowB - back);
+            highB = std::max(highB, highB - back);
         }
         const cbtScalar gap = std::max(lowB - highA, lowA - highB);
         if (gap > apart.separation) {
@@ -2132,7 +3555,7 @@ public:
     PolyhedralAlgorithm(const cbtCollisionAlgorithmConstructionInfo& ci,
                         const cbtCollisionObjectWrapper* body0Wrap,
                         const cbtCollisionObjectWrapper* body1Wrap,
-                        const Polyhedra* polyhedra)
+                        Polyhedra* polyhedra)
         : cbtActivatingCollisionAlgorithm(ci, body0Wrap, body1Wrap)
         , manifold(ci.m_manifold)
         , polyhedra(polyhedra)
@@ -2162,6 +3585,12 @@ public:
         const void* keyB = keyOf(body1Wrap->getCollisionShape());
         auto a = keyA ? polyhedra->find(keyA) : polyhedra->end();
         auto b = keyB ? polyhedra->find(keyB) : polyhedra->end();
+        if (a != polyhedra->end()) {
+            freshen(a->second);
+        }
+        if (b != polyhedra->end()) {
+            freshen(b->second);
+        }
         if (a == polyhedra->end() || b == polyhedra->end() || a->second.normals.empty()
             || b->second.normals.empty()) {
             if (ownManifold) {
@@ -2172,16 +3601,28 @@ public:
         const cbtTransform& ta = body0Wrap->getWorldTransform();
         const cbtTransform& tb = body1Wrap->getWorldTransform();
         const cbtTransform bInA = ta.inverse() * tb;
-        const cbtScalar threshold =
-            manifold->getContactBreakingThreshold() + resultOut->m_closestPointDistanceThreshold;
+        const cbtScalar threshold = manifold->getContactBreakingThreshold()
+            + resultOut->m_closestPointDistanceThreshold;
         bool kept = false;
+        // An axis names its shapes' features by their numbers: one of a
+        // moving mesh's triangle whose edges are others now is searched for
+        // again. And one of a triangle that moved is kept only while it
+        // holds the pair apart, the pair's frames having stayed or not
+        if (a->second.layout != layoutA || b->second.layout != layoutB) {
+            axis = SatAxis();
+            layoutA = a->second.layout;
+            layoutB = b->second.layout;
+        }
+        const bool reshaped = a->second.at != seenA || b->second.at != seenB;
+        seenA = a->second.at;
+        seenB = b->second.at;
         if (axis.kind != SatAxis::None) {
             satRemeasure(a->second, b->second, bInA, axis);
             const cbtScalar moved = (bInA.getOrigin() - searchedAt.getOrigin()).length();
             const cbtQuaternion turn = searchedAt.getRotation().inverse() * bInA.getRotation();
             const cbtScalar angle = 2 * std::acos(std::min<cbtScalar>(1, std::abs(turn.getW())));
             kept = axis.separation > threshold
-                || (moved < 1e-5 && angle < 1e-3 && axis.kind != SatAxis::Apart
+                || (!reshaped && moved < 1e-5 && angle < 1e-3 && axis.kind != SatAxis::Apart
                     && axis.separation > -std::numeric_limits<cbtScalar>::max());
         }
         if (!kept) {
@@ -2221,7 +3662,7 @@ public:
 
     struct CreateFunc: cbtCollisionAlgorithmCreateFunc
     {
-        const Polyhedra* polyhedra = nullptr;
+        Polyhedra* polyhedra = nullptr;
         cbtCollisionAlgorithm*
         CreateCollisionAlgorithm(cbtCollisionAlgorithmConstructionInfo& ci,
                                  const cbtCollisionObjectWrapper* body0Wrap,
@@ -2299,10 +3740,34 @@ private:
     cbtPersistentManifold* manifold = nullptr;
     bool ownManifold = false;
     std::vector<cbtPersistentManifold*> extra;
+    // A moving mesh's triangle's features, as the mesh is now
+    // (SatPolyhedron::moving): made when a pair asks for them, a part's
+    // thousands of triangles a few of them near anything
+    static void freshen(SatPolyhedron& sat)
+    {
+        if (!sat.moving || !sat.moves || sat.at == *sat.moves) {
+            return;
+        }
+        SatPolyhedron now = satOfTriangle(*sat.moving, sat.grown);
+        now.moving = sat.moving;
+        now.moves = sat.moves;
+        now.at = *sat.moves;
+        bool same = now.edges.size() == sat.edges.size();
+        for (std::size_t i = 0; same && i < now.edges.size(); ++i) {
+            same = now.edges[i].tail == sat.edges[i].tail;
+        }
+        now.layout = same ? sat.layout : sat.layout + 1;
+        sat = std::move(now);
+    }
+
     std::vector<ClipPoint> clipped;
-    const Polyhedra* polyhedra = nullptr;
+    Polyhedra* polyhedra = nullptr;
     SatAxis axis;
     cbtTransform searchedAt;
+    unsigned seenA = 0;
+    unsigned seenB = 0;
+    unsigned layoutA = 0;
+    unsigned layoutB = 0;
 };
 
 // Bullet's collision detection, with several points per pair at once where
@@ -2351,6 +3816,17 @@ public:
     void addPolyhedralFeatures(
         ch::ChCollisionModel& model,
         std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*>& features);
+    // A mesh of a model (after addPolyhedralFeatures()) whose vertices
+    // 'move' moves, in its body's frame, as each run starts: a flexible
+    // part's surface, where its modes have it (FlexibleContact::moveMesh()).
+    // Bullet's triangles read the vertices as they are; what it keeps of
+    // them is brought along here -- each triangle's box in its body's tree,
+    // 'fat' wider when it has left the one it had, the body's own box, and
+    // the triangles' features (SatPolyhedron::moving)
+    void addMovingMesh(ch::ChCollisionModel& model,
+                       const ch::ChCollisionShape* shape,
+                       double fat,
+                       std::function<void()> move);
     // The Bullet shapes each shape of a model made (addPolyhedralFeatures()):
     // a mesh's its triangles, any other's one
     std::map<const ch::ChCollisionShape*, std::vector<const cbtCollisionShape*>> made;
@@ -2382,6 +3858,7 @@ public:
             if (refresh) {
                 refresh();
             }
+            moveMeshes();
             const ContactCollisionSystem* outer = running;
             running = this;
             ch::ChCollisionSystemBullet::Run();
@@ -2417,6 +3894,58 @@ private:
         return false;
     }
 
+    // A model's Bullet shape: its object's, the one whose user pointer is
+    // the model's Bullet half
+    cbtCollisionShape* topOf(ch::ChCollisionModel& model) const
+    {
+        if (!model.HasImplementation()) {
+            return nullptr;
+        }
+        const auto& objects = bt_collision_world->getCollisionObjectArray();
+        for (int i = 0; i < objects.size(); ++i) {
+            if (objects[i]->getUserPointer() == model.GetImplementation()) {
+                return objects[i]->getCollisionShape();
+            }
+        }
+        return nullptr;
+    }
+
+    struct MovingMesh
+    {
+        std::function<void()> move;
+        cbtCompoundShape* compound = nullptr;
+        std::vector<int> children;  // its triangles, of the compound's
+        cbtScalar fat = 0;
+    };
+    std::vector<MovingMesh> moving;
+    unsigned moves = 0;
+    void moveMeshes()
+    {
+        if (moving.empty()) {
+            return;
+        }
+        for (MovingMesh& mesh : moving) {
+            mesh.move();
+            if (!mesh.compound) {
+                continue;
+            }
+            cbtDbvt* tree = mesh.compound->getDynamicAabbTree();
+            cbtCompoundShapeChild* children = mesh.compound->getChildList();
+            for (int i : mesh.children) {
+                if (!tree || !children[i].m_node) {
+                    continue;
+                }
+                cbtVector3 low;
+                cbtVector3 high;
+                children[i].m_childShape->getAabb(children[i].m_transform, low, high);
+                cbtDbvtVolume volume = cbtDbvtVolume::FromMM(low, high);
+                tree->update(children[i].m_node, volume, mesh.fat);
+            }
+            mesh.compound->recalculateLocalAabb();
+        }
+        ++moves;
+    }
+
     PolyhedralAlgorithm::Polyhedra polyhedra;
     PolyhedralAlgorithm::CreateFunc polyhedral;
 };
@@ -2438,21 +3967,11 @@ void ContactCollisionSystem::addPolyhedralFeatures(
     ch::ChCollisionModel& model,
     std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*>& features)
 {
-    if (!model.HasImplementation()) {
-        return;
-    }
-    // Its Bullet object, the one whose user pointer is the model's Bullet
-    // half
-    cbtCollisionShape* top = nullptr;
-    const auto& objects = bt_collision_world->getCollisionObjectArray();
-    for (int i = 0; i < objects.size() && !top; ++i) {
-        if (objects[i]->getUserPointer() == model.GetImplementation()) {
-            top = objects[i]->getCollisionShape();
-        }
-    }
+    cbtCollisionShape* top = topOf(model);
     if (!top) {
         return;
     }
+    const cbtScalar grow = static_cast<cbtScalar>(model.GetEnvelope());
     auto* compound = top->getShapeType() == COMPOUND_SHAPE_PROXYTYPE
         ? static_cast<cbtCompoundShape*>(top)
         : nullptr;
@@ -2475,8 +3994,7 @@ void ContactCollisionSystem::addPolyhedralFeatures(
                    && children[next]->getShapeType() == CH_TRIANGLE_SHAPE_PROXYTYPE) {
                 auto* triangle = static_cast<cbtCEtriangleShape*>(children[next++]);
                 made[instances[i].shape.get()].push_back(triangle);
-                polyhedra[triangle] =
-                    satOfTriangle(*triangle, static_cast<cbtScalar>(model.GetEnvelope()));
+                polyhedra[triangle] = satOfTriangle(*triangle, grow);
             }
             continue;
         }
@@ -2509,7 +4027,6 @@ void ContactCollisionSystem::addPolyhedralFeatures(
                     break;
                 }
                 cbtConvexPolyhedron grown = *exact.getConvexPolyhedron();
-                const cbtScalar grow = static_cast<cbtScalar>(model.GetEnvelope());
                 std::vector<ch::ChMatrix33d> normals(grown.m_vertices.size(),
                                                      ch::ChMatrix33d::Zero());
                 std::vector<ch::ChVector3d> sums(grown.m_vertices.size(), ch::VNULL);
@@ -2556,53 +4073,36 @@ void ContactCollisionSystem::addPolyhedralFeatures(
     }
 }
 
-// A contact shape where it is: on its body at its frame, a cylinder's
-// radius and half length, a box's or a hull's polyhedral features
-struct ShapeOn
+void ContactCollisionSystem::addMovingMesh(ch::ChCollisionModel& model,
+                                           const ch::ChCollisionShape* shape,
+                                           double fat,
+                                           std::function<void()> move)
 {
-    ch::ChBody* body = nullptr;
-    ch::ChFramed frame;
-    Id source = NoId;     // the model's frame of its ContactShape
-    double radius = 0.0;  // a cylinder's, 0 for any other
-    double half = 0.0;
-    const cbtConvexPolyhedron* features = nullptr;
-    double envelope = 0.0;
-    // For Hertz's law (patchStiffness()): a sphere's radius, the material's
-    // E / (1 - nu^2), the radius of the ball of the solid's volume, and the
-    // surface's curvature tensor at each vertex of its mesh, a mesh's or a
-    // hull's, 1/m -- a mesh's in its body's frame, a hull's at its points,
-    // in its frame. Not of a hull's features: Bullet's merges faces all but
-    // in one plane, and the vertices it kept about an ellipsoid's pole
-    // curved it as 1/8 mm where it is 1/12.
-    double ball = 0.0;
-    double modulus = 0.0;
-    double size = 0.0;
-    std::vector<ch::ChMatrix33d> curvatures;
-    std::vector<ch::ChVector3d> hull;
-    // The solid at each of a hull's or a mesh's points (ContactShape::
-    // surfaces), in the hull's frame or the mesh's body's: each face's
-    // outward normal and curvature tensor there
-    struct Surface
-    {
-        ch::ChVector3d normal;
-        ch::ChMatrix33d tensor;
-        int round = -1;  // its face's in rounds, or none
-    };
-    std::vector<std::vector<Surface>> surfaces;
-    // Its faces that are a convex cylinder's or sphere's (ContactShape::
-    // rounds), each a sphere or a cylinder on the body as a primitive is,
-    // a cylinder's frame at the middle of its reach; and a round's angles,
-    // from..to about its z from x, all round when to - from is 2 pi
-    std::vector<ShapeOn> rounds;
-    double angleFrom = 0.0;
-    double angleTo = 2.0 * pi;
-    // A round that is hollow: a bore, a socket, its surface facing its
-    // axis or its centre
-    bool concave = false;
-    // A mesh's vertices, in its body's frame: its triangles point into them
-    const ch::ChVector3d* vertices = nullptr;
-    std::size_t count = 0;
-};
+    const auto triangles = made.find(shape);
+    cbtCollisionShape* top = topOf(model);
+    if (triangles == made.end() || !top || !move) {
+        return;
+    }
+    MovingMesh& mesh = moving.emplace_back();
+    mesh.move = std::move(move);
+    mesh.fat = static_cast<cbtScalar>(fat);
+    const std::set<const cbtCollisionShape*> its(triangles->second.begin(),
+                                                 triangles->second.end());
+    for (const cbtCollisionShape* triangle : triangles->second) {
+        SatPolyhedron& sat = polyhedra[triangle];
+        sat.moving = static_cast<const cbtCEtriangleShape*>(triangle);
+        sat.moves = &moves;
+        sat.at = moves;
+    }
+    if (top->getShapeType() == COMPOUND_SHAPE_PROXYTYPE) {
+        mesh.compound = static_cast<cbtCompoundShape*>(top);
+        for (int i = 0; i < mesh.compound->getNumChildShapes(); ++i) {
+            if (its.count(mesh.compound->getChildShape(i))) {
+                mesh.children.push_back(i);
+            }
+        }
+    }
+}
 
 // Where a sphere or a cylinder's side, on its body at 'body', is farthest
 // out along 'outward', absolute: a cylinder's at the point's own place
@@ -2730,6 +4230,272 @@ bool hasFace(const ShapeOn& on, const ch::ChCollisionShape* shape, const ch::ChV
     }
     return false;
 }
+
+// A point of a flexible part's surface in a box or a hull 'on' A, found
+// under one of its faces, the bodies at a and b: put under the face it is
+// least deep under that faces the part's surface there -- within 45 deg of
+// the mesh triangle's own normal, the other way -- A's point on that face;
+// one outside the solid through any face, through the face it is farthest
+// out of. Bullet's face is the triangle's way out of the solid, all of it: a
+// rod sunk 0.05 mm into a plate's top and running on past its end had points
+// 0.036 mm under the top taken through the end, 0.124 mm in along the rod,
+// and pressed 126 N for 46. Found on the flat triangle such a point can be
+// above the top, inside the end: the top its face, the curved face's point
+// it goes to then (FlexibleContact::place()) under it or not. And the end's
+// points least deep through it were a patch of their own, its spring the
+// set's: 40 N along the rod on top of the 46, at the plate's edge, where it
+// is the edge in the rod's round that presses. Only a face within 'within'
+// of the point faces it so -- the margin, which the penetrations stay under,
+// and the face's bulge out of its triangles: nearer the least deep face, it
+// is the solid's edge the point is at. Farther, the solid's face it is under
+// is not the surface's, as a rod's end is under a plate's top: the rod's end
+// faces took the plate's ends for theirs, 45 and 50 mm in, and the rod turned
+// on the plate pressed it at 52 kN for 46 N. The faces' planes in the
+// features are all grown alike, if at all: their differences are the
+// solid's, each point's distance off a face its distance off Bullet's face
+// and the difference.
+void leastDeepFace(const ShapeOn& on,
+                   const ch::ChFrame<>& a,
+                   const ch::ChFrame<>& b,
+                   double within,
+                   ContactLoad::Point& point)
+{
+    if (!on.features || !point.shapeB
+        || point.shapeB->GetType() != ch::ChCollisionShape::Type::MESHTRIANGLE) {
+        return;
+    }
+    const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(point.shapeB);
+    const ch::ChFramed frame = on.frame >> *on.body;
+    ch::ChVector3d surface = frame.TransformDirectionParentToLocal(b.TransformDirectionLocalToParent(
+        ch::Vcross(*triangle->V2 - *triangle->V1, *triangle->V3 - *triangle->V1)));
+    const double area = surface.Length();
+    if (!(area > 0.0)) {
+        return;
+    }
+    surface /= area;
+    const ch::ChVector3d pA = a.TransformPointLocalToParent(point.onA);
+    const ch::ChVector3d pB = b.TransformPointLocalToParent(point.onB);
+    const double across = ch::Vdot(point.normal, pB - pA);
+    const ch::ChVector3d local = frame.TransformPointParentToLocal(pB);
+    const ch::ChVector3d found = frame.TransformDirectionParentToLocal(point.normal);
+    struct Face
+    {
+        ch::ChVector3d normal;
+        double off = 0.0;
+    };
+    std::vector<Face> faces;
+    int own = -1;
+    double closest = -2.0;
+    for (int f = 0; f < on.features->m_faces.size(); ++f) {
+        const cbtScalar* plane = on.features->m_faces[f].m_plane;
+        const ch::ChVector3d n(plane[0], plane[1], plane[2]);
+        const double length = n.Length();
+        if (!(length > 0.0)) {
+            continue;
+        }
+        faces.push_back({n / length, (ch::Vdot(n, local) + plane[3]) / length});
+        const double along = ch::Vdot(n, found) / length;
+        if (along > closest) {
+            closest = along;
+            own = static_cast<int>(faces.size()) - 1;
+        }
+    }
+    if (own < 0 || !(closest > 1.0 - 1e-8)) {
+        return;
+    }
+    // Each face's distance, the solid's
+    const double shift = across - faces[static_cast<std::size_t>(own)].off;
+    int out = -1;
+    int facing = -1;
+    int any = -1;
+    auto off = [&](int f) {
+        return faces[static_cast<std::size_t>(f)].off + shift;
+    };
+    for (int f = 0; f < static_cast<int>(faces.size()); ++f) {
+        if (off(f) > 0.0 && (out < 0 || off(f) > off(out))) {
+            out = f;
+        }
+        if (any < 0 || off(f) > off(any)) {
+            any = f;
+        }
+        if (-ch::Vdot(faces[static_cast<std::size_t>(f)].normal, surface) > std::cos(pi / 4.0)
+            && off(f) >= -within && (facing < 0 || off(f) > off(facing))) {
+            facing = f;
+        }
+    }
+    const int best = out >= 0 ? out : facing >= 0 ? facing : any;
+    if (best < 0 || best == own) {
+        return;
+    }
+    const ch::ChVector3d normal =
+        frame.TransformDirectionLocalToParent(faces[static_cast<std::size_t>(best)].normal);
+    point.normal = normal;
+    point.onA = a.TransformPointParentToLocal(pB - normal * off(best));
+}
+
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+/** The point of a flexible part's curved face deepest in a sphere's or a
+ * cylinder's side 'round', on its body at 'body': the face's point nearest
+ * the round's centre, or its axis -- held, by a tenth of a weight, as far
+ * along the axis as the face's point at L is: a round lying along the
+ * part's face is as near it all along, and its points stay where collision
+ * detection spread them. The face by its six nodes x and the point by its
+ * area coordinates L, both in the carrier's frame ('carrier'); L moved there
+ * by Gauss and Newton's steps on the face, each held on it -- 'leaving' the
+ * edge (0 1, 1 2, 2 0: 0, 1, 2) it stops on with the next step still out
+ * across it, for the face there (FlexibleContact::place()), or -1 -- at most a fifth
+ * of it, and halved until it is nearer: with the hold a millionth, a step
+ * along the axis was all but unbounded, and its points fell into the face's
+ * far corners, 1.4 mm clear, and the rod's force on a roller ran down to 5
+ * N for 45. A tenth of a weight, then, on the station. Where the
+ * deepest is in the next face, the point stops on the edge, its point
+ * nearest the axis: measured to the axis's point at its own station, square
+ * to the axis -- held at the station it came from, it slid along a face's
+ * slanted edge, and the way along the rod read as gap, 0.01 mm of 0.04. The
+ * normal from the round's centre or axis out through it, absolute, and the
+ * round's surface that way, absolute. The quarter triangle's normal and its
+ * point under the round leave a rod touching a roller at a slant to the
+ * quarter a facet's R t^2 off -- R 5 at a 4 mm mesh, about as deep as the
+ * 0.05 mm it is pressed. False where the round is neither, or hollow (a
+ * bore's deepest is farthest from its axis), or its cap is what is near, or
+ * the face runs through the centre or the axis.
+ */
+bool deepestOnFace(const ShapeOn& round,
+                   const ch::ChFrame<>& body,
+                   const ch::ChFrame<>& carrier,
+                   const std::array<ch::ChVector3d, 6>& x,
+                   std::array<double, 3>& L,
+                   ch::ChVector3d& normal,
+                   ch::ChVector3d& onRound,
+                   int& leaving)
+{
+    leaving = -1;
+    const bool ball = round.ball > 0.0;
+    if ((!ball && !(round.radius > 0.0)) || round.concave) {
+        return false;
+    }
+    const ch::ChFramed frame = round.frame >> body;
+    const ch::ChVector3d centre = carrier.TransformPointParentToLocal(frame.GetPos());
+    const ch::ChVector3d axis =
+        ball ? ch::VNULL : carrier.TransformDirectionParentToLocal(frame.GetRotMat().GetAxisZ());
+    auto point = [&](double s, double t) {
+        const auto w = ChronoFlexible::Surface::shape({1.0 - s - t, s, t});
+        ch::ChVector3d p = ch::VNULL;
+        for (int k = 0; k < 6; ++k) {
+            p += x[k] * w[k];
+        }
+        return p;
+    };
+    // A vector's part square to the axis
+    auto square = [&](const ch::ChVector3d& v) {
+        return v - axis * ch::Vdot(axis, v);
+    };
+    double s = L[1];
+    double t = L[2];
+    const double along = ch::Vdot(axis, point(s, t) - centre);
+    if (!ball && std::abs(along) > round.half) {
+        return false;
+    }
+    constexpr double hold = 0.1;
+    // How far the point at s t is from the round, as the steps take it
+    auto miss = [&](double u, double v) {
+        const ch::ChVector3d d = point(u, v) - centre;
+        const double off = ch::Vdot(axis, d) - along;
+        return square(d).Length2() + hold * off * off;
+    };
+    for (int step = 0; step < 16; ++step) {
+        const double l = 1.0 - s - t;
+        // The face's way along s and t there: the shape functions' rates
+        const double ds[6] = {
+            -(4.0 * l - 1.0), 4.0 * s - 1.0, 0.0, 4.0 * (l - s), 4.0 * t, -4.0 * t};
+        const double dt[6] = {
+            -(4.0 * l - 1.0), 0.0, 4.0 * t - 1.0, -4.0 * s, 4.0 * s, 4.0 * (l - t)};
+        ch::ChVector3d xs = ch::VNULL;
+        ch::ChVector3d xt = ch::VNULL;
+        for (int k = 0; k < 6; ++k) {
+            xs += x[k] * ds[k];
+            xt += x[k] * dt[k];
+        }
+        const ch::ChVector3d d = point(s, t) - centre;
+        const ch::ChVector3d r = square(d);
+        const ch::ChVector3d ps = square(xs);
+        const ch::ChVector3d pt = square(xt);
+        const double as = ch::Vdot(axis, xs);
+        const double at = ch::Vdot(axis, xt);
+        const double off = ch::Vdot(axis, d) - along;
+        const double a = ch::Vdot(ps, ps) + hold * as * as;
+        const double b = ch::Vdot(ps, pt) + hold * as * at;
+        const double c = ch::Vdot(pt, pt) + hold * at * at;
+        const double det = a * c - b * b;
+        if (!(det > 1e-30)) {
+            break;
+        }
+        const double gs = ch::Vdot(ps, r) + hold * as * off;
+        const double gt = ch::Vdot(pt, r) + hold * at * off;
+        double us = -(c * gs - b * gt) / det;
+        double ut = -(a * gt - b * gs) / det;
+        const double longest = std::max(std::abs(us), std::abs(ut));
+        if (longest > 0.2) {
+            us *= 0.2 / longest;
+            ut *= 0.2 / longest;
+        }
+        // Onto the face: past its long edge, square back onto it, then into
+        // its corners' range; halved until nearer
+        auto onFace = [](double u, double v) {
+            if (u + v > 1.0) {
+                const double over = 0.5 * (u + v - 1.0);
+                u -= over;
+                v -= over;
+            }
+            u = std::clamp(u, 0.0, 1.0);
+            return std::array<double, 2> {u, std::clamp(v, 0.0, 1.0 - u)};
+        };
+        const double now = miss(s, t);
+        std::array<double, 2> next = onFace(s + us, t + ut);
+        int halved = 0;
+        while (miss(next[0], next[1]) >= now && halved < 12) {
+            us *= 0.5;
+            ut *= 0.5;
+            next = onFace(s + us, t + ut);
+            ++halved;
+        }
+        if (!(miss(next[0], next[1]) < now)) {
+            // Held by an edge, the step out across it
+            constexpr double on = 1e-9;
+            double most = 1e-6;
+            if (t <= on && ut < -most) {
+                most = -ut;
+                leaving = 0;
+            }
+            if (s + t >= 1.0 - on && us + ut > most) {
+                most = us + ut;
+                leaving = 1;
+            }
+            if (s <= on && us < -most) {
+                leaving = 2;
+            }
+            break;
+        }
+        const bool still = std::abs(next[0] - s) + std::abs(next[1] - t) < 1e-12;
+        s = next[0];
+        t = next[1];
+        if (still) {
+            break;
+        }
+    }
+    const ch::ChVector3d d = point(s, t) - centre;
+    const ch::ChVector3d out = square(d);
+    const double apart = out.Length();
+    if (!(apart > 1e-12) || (!ball && std::abs(ch::Vdot(axis, d)) > round.half)) {
+        return false;
+    }
+    L = {1.0 - s - t, s, t};
+    normal = carrier.TransformDirectionLocalToParent(out / apart);
+    onRound = carrier.TransformPointLocalToParent(centre + axis * ch::Vdot(axis, d))
+        + normal * (ball ? round.ball : round.radius);
+    return true;
+}
+#endif
 
 bool inLine(const ch::ChVector3d& inner, const ch::ChVector3d& bore);
 bool rimFarthest(const ch::ChVector3d& cap,
@@ -3379,6 +5145,72 @@ std::vector<ch::ChMatrix33d> meshCurvatures(const std::vector<ch::ChVector3d>& v
     return vertexCurvatures(vertices, faces);
 }
 
+// The solid at each vertex of a mesh that has no model of it, a flexible
+// part's surface of its elements' faces (ShapeOn::surfaces): its faces there
+// that an edge of the solid parts -- a turn of 40 deg or more, as
+// vertexCurvatures() tells one -- each by its normal and the curvature of
+// the mesh on its own side of the edge. Fitted across it, a vertex on a
+// strip's edge is a ridge, round 1/1 mm at elements of 3, and a bar lying
+// across the strip there would touch it as a ball does, not along a line.
+std::vector<std::vector<ShapeOn::Surface>>
+meshSurfaces(const std::vector<ch::ChVector3d>& vertices,
+             const std::vector<ch::ChVector3i>& triangles)
+{
+    const double sharp = std::cos(40.0 * pi / 180.0);
+    // A vertex's faces: the normal of the first triangle of each, the sum
+    // of its triangles', by their areas, and its copy of the vertex
+    struct Side
+    {
+        ch::ChVector3d seed;
+        ch::ChVector3d sum;
+        int copy;
+    };
+    std::vector<std::vector<Side>> sides(vertices.size());
+    std::vector<ch::ChVector3d> copies;
+    std::vector<ch::ChVector3i> faces;
+    for (const auto& t : triangles) {
+        const int corners[3] = {t.x(), t.y(), t.z()};
+        if (std::any_of(std::begin(corners), std::end(corners), [&](int v) {
+                return v < 0 || static_cast<std::size_t>(v) >= vertices.size();
+            })) {
+            continue;
+        }
+        const ch::ChVector3d area = ch::Vcross(vertices[corners[1]] - vertices[corners[0]],
+                                               vertices[corners[2]] - vertices[corners[0]]);
+        const double length = area.Length();
+        if (!(length > 0.0)) {
+            continue;
+        }
+        const ch::ChVector3d n = area / length;
+        int face[3] = {0, 0, 0};
+        for (int k = 0; k < 3; ++k) {
+            auto& at = sides[static_cast<std::size_t>(corners[k])];
+            auto side = std::find_if(at.begin(), at.end(), [&](const Side& one) {
+                return ch::Vdot(one.seed, n) > sharp;
+            });
+            if (side == at.end()) {
+                at.push_back({n, ch::VNULL, static_cast<int>(copies.size())});
+                copies.push_back(vertices[corners[k]]);
+                side = at.end() - 1;
+            }
+            side->sum += area;
+            face[k] = side->copy;
+        }
+        faces.emplace_back(face[0], face[1], face[2]);
+    }
+    const std::vector<ch::ChMatrix33d> tensors = meshCurvatures(copies, faces);
+    std::vector<std::vector<ShapeOn::Surface>> surfaces(vertices.size());
+    for (std::size_t v = 0; v < vertices.size(); ++v) {
+        for (const Side& side : sides[v]) {
+            const double length = side.sum.Length();
+            surfaces[v].push_back({length > 0.0 ? side.sum / length : side.seed,
+                                   tensors[static_cast<std::size_t>(side.copy)],
+                                   -1});
+        }
+    }
+    return surfaces;
+}
+
 // Whether a mesh's triangle, its corners among the mesh's vertices, has
 // one on the mesh's round face 'round' (ContactShape::Surface::round)
 bool onRound(const ShapeOn& mesh, std::initializer_list<const ch::ChVector3d*> corners, int round)
@@ -3668,14 +5500,14 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         const auto b = load.GetBodyB();
         bool pressed = false;
         double fastest = 0.0;
-        for (const auto& point : load.points) {
+        for (std::size_t i = 0; i < load.points.size(); ++i) {
+            const auto& point = load.points[i];
             const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
             const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
             pressed = pressed || -ch::Vdot(point.normal, pB - pA) > 0.0;
             fastest = std::max(fastest,
                                -ch::Vdot(point.normal,
-                                         b->PointSpeedLocalToParent(point.onB)
-                                             - a->PointSpeedLocalToParent(point.onA)));
+                                         load.speedOnB(i, point) - load.speedOnA(i, point)));
         }
         if (!pressed) {
             load.impact = fastest;
@@ -3953,11 +5785,15 @@ bool cylinderPoints(const ShapeOn& cylinder,
 // The points of a cylinder's contact with a mesh's triangle, as
 // cylinderPoints() has a face's: its cap's rim as a polygon, or its side's
 // segment, clipped to the triangle, each within reach of its plane; the
-// triangle's normal, turned toward the cylinder, in normal. False when none
-// is over the triangle. Bullet's GJK and EPA on a triangle, which has no
-// inside, gave a cylinder lying on a mesh's flat face one point, at one
-// end -- a pin dropped on its side rocked on it and was thrown off -- and a
-// pin's rim on a bore's facet the pin's own side's normal, 20 deg off.
+// triangle's normal, outward as a mesh's triangles are wound, in normal.
+// False when none is over the triangle, or the cylinder's middle is behind
+// it: a bar lying across a plate's edge has the plate's side face through
+// it, and its cap, 5 mm past that face, was a point 5 mm deep as soon as the
+// bar's rim was over the side's triangle. Bullet's GJK and EPA on a
+// triangle, which has no inside, gave a cylinder lying on a mesh's flat
+// face one point, at one end -- a pin dropped on its side rocked on it and
+// was thrown off -- and a pin's rim on a bore's facet the pin's own side's
+// normal, 20 deg off.
 bool cylinderTrianglePoints(const ShapeOn& cylinder,
                             const ShapeOn& mesh,
                             const ch::ChCollisionShapeMeshTriangle& triangle,
@@ -3977,7 +5813,7 @@ bool cylinderTrianglePoints(const ShapeOn& cylinder,
     n /= area;
     const ch::ChFramed c = cylinder.frame >> *cylinder.body;
     if (ch::Vdot(n, c.GetPos() - v[0]) < 0.0) {
-        n = -n;
+        return false;
     }
     normal = n;
     // Its feature toward the triangle, as cylinderPoints() takes it
@@ -4042,6 +5878,165 @@ bool cylinderTrianglePoints(const ShapeOn& cylinder,
         }
     }
     return !points.empty();
+}
+
+// The nearest points of two segments, p1..q1 and p2..q2 (Ericson's); of two
+// in line, the middle of where they are beside each other, and that
+// stretch's ends on the first, as its parameters, in beside
+void nearestOfSegments(const ch::ChVector3d& p1,
+                       const ch::ChVector3d& q1,
+                       const ch::ChVector3d& p2,
+                       const ch::ChVector3d& q2,
+                       ch::ChVector3d& on1,
+                       ch::ChVector3d& on2,
+                       std::array<double, 2>& beside)
+{
+    const ch::ChVector3d d1 = q1 - p1;
+    const ch::ChVector3d d2 = q2 - p2;
+    const ch::ChVector3d r = p1 - p2;
+    const double a = d1.Length2();
+    const double e = d2.Length2();
+    const double f = ch::Vdot(d2, r);
+    constexpr double tiny = 1e-24;
+    double s = 0.0;
+    double t = 0.0;
+    beside = {0.0, 0.0};
+    if (a > tiny && e > tiny) {
+        const double b = ch::Vdot(d1, d2);
+        const double c = ch::Vdot(d1, r);
+        const double denom = a * e - b * b;
+        if (denom > 1e-10 * a * e) {
+            s = std::clamp((b * f - c * e) / denom, 0.0, 1.0);
+            beside = {s, s};
+        }
+        else {
+            const double sp = ch::Vdot(p2 - p1, d1) / a;
+            const double sq = ch::Vdot(q2 - p1, d1) / a;
+            const double low = std::max(0.0, std::min(sp, sq));
+            const double high = std::min(1.0, std::max(sp, sq));
+            s = std::clamp(0.5 * (low + high), 0.0, 1.0);
+            beside = low < high ? std::array<double, 2> {low, high} : std::array<double, 2> {s, s};
+        }
+        t = (b * s + f) / e;
+        if (t < 0.0) {
+            t = 0.0;
+            s = std::clamp(-c / a, 0.0, 1.0);
+        }
+        else if (t > 1.0) {
+            t = 1.0;
+            s = std::clamp((b - c) / a, 0.0, 1.0);
+        }
+    }
+    else if (e > tiny) {
+        t = std::clamp(f / e, 0.0, 1.0);
+    }
+    else if (a > tiny) {
+        s = std::clamp(-ch::Vdot(d1, r) / a, 0.0, 1.0);
+    }
+    on1 = p1 + d1 * s;
+    on2 = p2 + d2 * t;
+}
+
+// A cylinder's side on a mesh's triangle its segment is not over
+// (cylinderTrianglePoints()): an edge of the triangle or a corner, the point
+// of it nearest the cylinder's axis and the cylinder's point over it, the
+// normal from there to the axis; an edge along the axis, the two ends of
+// where they are beside each other. 1 with the points, 0 when none is within
+// reach, -1 where the cap is what is nearest, or the axis goes through the
+// triangle: Bullet's point then. Bullet's on a corner 0.8 mm from where a
+// bar lay on a strip's mesh had a normal 8 deg off the corner's way to the
+// axis: along it the corner, 34 um clear of the bar, measured 13 um in, and
+// the strip took 4.7 kN where its blow is 340 N.
+int cylinderTriangleEdge(const ShapeOn& cylinder,
+                         const ShapeOn& mesh,
+                         const ch::ChCollisionShapeMeshTriangle& triangle,
+                         double reach,
+                         std::vector<CylinderPoint>& points,
+                         ch::ChVector3d& normal)
+{
+    points.clear();
+    const ch::ChVector3d v[3] = {mesh.body->TransformPointLocalToParent(*triangle.V1),
+                                 mesh.body->TransformPointLocalToParent(*triangle.V2),
+                                 mesh.body->TransformPointLocalToParent(*triangle.V3)};
+    ch::ChVector3d n = ch::Vcross(v[1] - v[0], v[2] - v[0]);
+    const double area = n.Length();
+    if (!(area > 0.0)) {
+        return -1;
+    }
+    n /= area;
+    const ch::ChFramed c = cylinder.frame >> *cylinder.body;
+    const ch::ChVector3d axis = c.GetRotMat().GetAxisZ();
+    const ch::ChVector3d ends[2] = {c.GetPos() - axis * cylinder.half,
+                                    c.GetPos() + axis * cylinder.half};
+    // Inside the triangle, a point of its plane
+    auto inside = [&](const ch::ChVector3d& p) {
+        for (int e = 0; e < 3; ++e) {
+            ch::ChVector3d inward = ch::Vcross(n, v[(e + 1) % 3] - v[e]);
+            if (ch::Vdot(inward, v[(e + 2) % 3] - v[e]) < 0.0) {
+                inward = -inward;
+            }
+            if (ch::Vdot(inward, p - v[e]) < 0.0) {
+                return false;
+            }
+        }
+        return true;
+    };
+    const double heights[2] = {ch::Vdot(n, ends[0] - v[0]), ch::Vdot(n, ends[1] - v[0])};
+    if ((heights[0] < 0.0) != (heights[1] < 0.0)) {
+        const double at = heights[0] / (heights[0] - heights[1]);
+        if (inside(ends[0] + (ends[1] - ends[0]) * at)) {
+            return -1;
+        }
+    }
+    double nearest = std::numeric_limits<double>::infinity();
+    ch::ChVector3d onAxis;
+    ch::ChVector3d onTriangle;
+    std::array<double, 2> beside {};
+    for (int e = 0; e < 3; ++e) {
+        ch::ChVector3d a;
+        ch::ChVector3d q;
+        std::array<double, 2> along {};
+        nearestOfSegments(ends[0], ends[1], v[e], v[(e + 1) % 3], a, q, along);
+        const double distance = (q - a).Length2();
+        if (distance < nearest) {
+            nearest = distance;
+            onAxis = a;
+            onTriangle = q;
+            beside = along;
+        }
+    }
+    for (int k = 0; k < 2; ++k) {
+        const ch::ChVector3d q = ends[k] - n * heights[k];
+        if (heights[k] * heights[k] < nearest && inside(q)) {
+            nearest = heights[k] * heights[k];
+            onAxis = ends[k];
+            onTriangle = q;
+            beside = {0.0, 0.0};
+        }
+    }
+    const double distance = std::sqrt(nearest);
+    if (!(distance > 1e-12)) {
+        return -1;
+    }
+    const ch::ChVector3d out = (onTriangle - onAxis) / distance;
+    // Past a cap's plane: the cap's, or its rim's
+    if (std::abs(ch::Vdot(axis, out)) > 1e-6) {
+        return -1;
+    }
+    if (distance - cylinder.radius > reach) {
+        return 0;
+    }
+    normal = -out;
+    if (beside[1] > beside[0]) {
+        for (const double s : beside) {
+            const ch::ChVector3d a = ends[0] + (ends[1] - ends[0]) * s;
+            points.push_back({a + out * cylinder.radius, a + out * distance});
+        }
+    }
+    else {
+        points.push_back({onAxis + out * cylinder.radius, onTriangle});
+    }
+    return 1;
 }
 
 // ---------------------------------------------------------------- NeutralLink
@@ -4734,6 +6729,11 @@ struct ChronoSession::Impl
         std::vector<double> hz;
         // Its contact interface's, in built.interfaces, or -1 (step 5)
         int contact = -1;
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        // Or a contact anywhere on it: its shapes on its first interface's
+        // body (FlexibleContact)
+        std::shared_ptr<FlexibleContact> anywhere;
+#endif
     };
     std::vector<FlexibleRun> flexibles;
     // Per frame, the boundary body of the interface it is on, a flexible
@@ -4937,10 +6937,9 @@ struct ChronoSession::Impl
                     touched.push_back(shape.frame);
                 }
             }
-            if (!touched.empty() && record.contactNodes.empty()) {
-                return "a contact touches the flexible body " + name
-                    + ", which has no faces it is touched on: name them, its ContactFaces";
-            }
+            // Its contact shapes without the faces it is touched on: a
+            // contact anywhere on its mesh's surface (FlexibleContact)
+            const bool anywhere = !touched.empty() && record.contactNodes.empty();
             std::vector<ChronoFlexible::Interface> faces;
             std::vector<Id> on;
             for (const auto& frame : model.frames) {
@@ -4964,7 +6963,7 @@ struct ChronoSession::Impl
             // The contact interface's body at its nodes' centre, in the
             // body's axes, as a joint's is on its faces
             ch::ChFramed contactAt;
-            if (!touched.empty()) {
+            if (!touched.empty() && !anywhere) {
                 ch::ChVector3d centre;
                 std::size_t counted = 0;
                 for (Id n : record.contactNodes) {
@@ -4977,7 +6976,7 @@ struct ChronoSession::Impl
                     contactAt.SetPos(centre / static_cast<double>(counted));
                 }
             }
-            if (!touched.empty()) {
+            if (!touched.empty() && !anywhere) {
                 run.contact = static_cast<int>(faces.size());
                 faces.push_back({contactAt, record.contactNodes});
             }
@@ -4999,10 +6998,39 @@ struct ChronoSession::Impl
             for (std::size_t i = 0; i < on.size(); ++i) {
                 frameBody[on[i]] = run.built.interfaces[i];
             }
-            // Each contact shape's frame where it is on the contact interface
+            // Each contact shape's frame where it is on the contact interface,
+            // or on the first interface's body, which carries it for a
+            // contact anywhere
             for (Id frame : touched) {
-                frameBody[frame] = run.built.interfaces[run.contact];
-                frameLocal[frame] = toCh(model.frames[frame].local) >> contactAt.GetInverse();
+                if (anywhere) {
+                    frameBody[frame] = run.built.interfaces[0];
+                    frameLocal[frame] =
+                        toCh(model.frames[frame].local) >> faces[0].local.GetInverse();
+                }
+                else {
+                    frameBody[frame] = run.built.interfaces[run.contact];
+                    frameLocal[frame] = toCh(model.frames[frame].local) >> contactAt.GetInverse();
+                }
+            }
+            // In the system after the modal assembly, and before the loads
+            if (anywhere) {
+                auto item = std::make_shared<FlexibleContact>();
+                item->assembly = run.built.assembly.get();
+                item->carrier = run.built.interfaces[0].get();
+                item->carrierAt = faces[0].local;
+                item->surface = std::make_shared<ChronoFlexible::Surface>(record);
+                for (const auto& node : run.built.mesh->GetNodes()) {
+                    item->nodes.push_back(dynamic_cast<const ch::fea::ChNodeFEAxyz*>(node.get()));
+                }
+                if (!item->makeMesh()) {
+                    Base::Console().warning(
+                        "Assembly: the flexible body %s has no mesh of its surface to be touched "
+                        "on: its shapes are carried by its first interface, and do not follow its "
+                        "bending\n",
+                        name.c_str());
+                }
+                sys->Add(item);
+                run.anywhere = item;
             }
             // Its mass the mesh's, for what reads a body's (the tolerance's
             // lightest body); it is not in the system
@@ -5020,6 +7048,47 @@ struct ChronoSession::Impl
 #ifdef ASSEMBLY_WITH_CHRONO_MODAL
         const auto& q = run.built.assembly->GetModalCoordinatesPosLevel();
         return std::vector<double>(q.data(), q.data() + q.size());
+#else
+        (void)run;
+        return {};
+#endif
+    }
+
+    // A flexible body's inertia loads per unit mass, in SI: the coefficients
+    // of its residual modes' fields (our Chrono's GetInertialResidualModes())
+    // for its floating frame's motion and the gravity -- g - a, -alpha, then
+    // w's products -- in the frame's axes; none without those modes. At the
+    // start ('rest') the frame's accelerations are not its motion's yet, so
+    // the gravity and w's products alone: those it held read 122 rad/s^2 for
+    // a clamped rod at rest, and the line through the smallest steps' (as a
+    // reaction's) 83 m/s^2 along it, the reduced model's first steps settling
+    std::vector<double> inertialLoad(const FlexibleRun& run, bool rest = false) const
+    {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        if (run.built.assembly->GetInertialResidualModes().cols() != 12) {
+            return {};
+        }
+        const ch::ChFrameMoving<> floating = run.built.assembly->GetFloatingFrameOfReference();
+        // The translation's absolute, the turn's in F's axes
+        ch::ChVectorDynamic<> acc = run.built.assembly->GetFloatingFrameAccelerations();
+        if (rest) {
+            acc.setZero();
+        }
+        const ch::ChVector3d load = floating.GetRot().RotateBack(
+            sys->GetGravitationalAcceleration() - ch::ChVector3d(acc(0), acc(1), acc(2)));
+        const ch::ChVector3d w = floating.GetAngVelLocal();
+        return {load.x(),
+                load.y(),
+                load.z(),
+                -acc(3),
+                -acc(4),
+                -acc(5),
+                w.x() * w.x(),
+                w.y() * w.y(),
+                w.z() * w.z(),
+                -w.x() * w.y(),
+                -w.x() * w.z(),
+                -w.y() * w.z()};
 #else
         (void)run;
         return {};
@@ -5061,21 +7130,26 @@ struct ChronoSession::Impl
     }
 
     // A flexible body's mode shapes (ModeShapes): the reduction matrix's
-    // rows of the mesh's nodes, in the floating frame's axes at the start,
-    // turned into the body's and in mm: a column of a translation in mm per
-    // mm, of a turn in mm per rad, of a mode in mm per modal coordinate
+    // rows of the mesh's nodes, then its inertia loads' residual modes', in
+    // the floating frame's axes at the start, turned into the body's and in
+    // mm: a column of a translation in mm per mm, of a turn in mm per rad, of
+    // a mode in mm per modal coordinate, of a residual mode in mm per its
+    // coefficient in SI (inertialLoad())
     ModeShapes modeShapesOf(const FlexibleRun& run, const std::string& source, double length) const
     {
         ModeShapes shapes;
         shapes.source = source;
 #ifdef ASSEMBLY_WITH_CHRONO_MODAL
         const auto& psi = run.built.assembly->GetModalReductionMatrix();
+        const auto& residual = run.built.assembly->GetInertialResidualModes();
         const auto boundary = static_cast<Eigen::Index>(6 * run.built.interfaces.size());
         const auto nodes = static_cast<Eigen::Index>(run.built.mesh->GetNumNodes());
         if (psi.rows() < boundary + 3 * nodes) {
             return shapes;
         }
-        const Eigen::Index columns = psi.cols();
+        const Eigen::Index reduced = psi.cols();
+        const Eigen::Index extra = residual.cols() == 12 && residual.rows() >= 3 * nodes ? 12 : 0;
+        const Eigen::Index columns = reduced + extra;
         shapes.columns = static_cast<std::size_t>(columns);
         shapes.values.resize(static_cast<std::size_t>(3 * nodes * columns));
         // The floating frame's axes to the body's
@@ -5084,9 +7158,13 @@ struct ChronoSession::Impl
             for (Eigen::Index c = 0; c < columns; ++c) {
                 const bool translation = c < boundary && (c % 6) < 3;
                 const double scale = translation ? 1.0 : 1.0 / length;
-                const ch::ChVector3d inFloating(psi(boundary + 3 * node, c),
-                                                psi(boundary + 3 * node + 1, c),
-                                                psi(boundary + 3 * node + 2, c));
+                const ch::ChVector3d inFloating =
+                    c < reduced ? ch::ChVector3d(psi(boundary + 3 * node, c),
+                                                 psi(boundary + 3 * node + 1, c),
+                                                 psi(boundary + 3 * node + 2, c))
+                                : ch::ChVector3d(residual(3 * node, c - reduced),
+                                                 residual(3 * node + 1, c - reduced),
+                                                 residual(3 * node + 2, c - reduced));
                 const ch::ChVector3d inBody = back * inFloating;
                 for (int k = 0; k < 3; ++k) {
                     shapes.values[static_cast<std::size_t>((3 * node + k) * columns + c)] =
@@ -7432,6 +9510,13 @@ Status ChronoSession::simulateDynamics(
                     }
                     else if (a && hasFace(*a, point.shapeA, point.normal)) {
                         point.face = 1;
+                        if (b && b->flexible) {
+                            leastDeepFace(*a,
+                                          *load.GetBodyA(),
+                                          *load.GetBodyB(),
+                                          reach + b->bulge,
+                                          point);
+                        }
                     }
                 }
                 if (point.face) {
@@ -7518,7 +9603,7 @@ Status ChronoSession::simulateDynamics(
                                       cylinder,
                                       *mesh,
                                       *static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape),
-                                      reach,
+                                      reach + mesh->bulge,
                                       points,
                                       normal)
                                 : cylinderPoints(cylinder, *face, toOther, reach, points, normal);
@@ -7526,8 +9611,27 @@ Status ChronoSession::simulateDynamics(
                 const bool clipped = cylinderA ? clip(*a, b, meshB, f.shapeB, f.normal)
                                                : clip(*b, a, meshA, f.shapeA, -f.normal);
                 if (!clipped) {
-                    handOver(f, f.pA, f.pB, f.normal);
-                    continue;
+                    // A mesh's triangle the cylinder's segment is not over:
+                    // its edge or corner nearest the axis, not Bullet's point
+                    const ShapeOn* mesh = cylinderA ? meshB : meshA;
+                    const int edge = mesh
+                        ? cylinderTriangleEdge(
+                              cylinderA ? *a : *b,
+                              *mesh,
+                              *static_cast<const ch::ChCollisionShapeMeshTriangle*>(
+                                  cylinderA ? f.shapeB : f.shapeA),
+                              reach + mesh->bulge,
+                              points,
+                              normal)
+                        : -1;
+                    if (edge < 0) {
+                        handOver(f, f.pA, f.pB, f.normal);
+                        continue;
+                    }
+                    if (edge == 0) {
+                        done.insert({f.shapeA, f.shapeB});
+                        continue;
+                    }
                 }
                 done.insert({f.shapeA, f.shapeB});
                 for (const CylinderPoint& point : points) {
@@ -7715,8 +9819,33 @@ Status ChronoSession::simulateDynamics(
                 }
             }
             for (auto& load : *loads) {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+                // Two flexible parts' points between a curved face and a
+                // flat one, the flat one's: before the patches, which go by
+                // the normals
+                if (flatFaces(*load)) {
+                    load->follow = rollAll;
+                }
+#endif
                 patchesOf(*load);
+                // A flexible part's points onto its surface first: the speed
+                // a contact comes in at, and whether it presses, are the
+                // surface's (patchStiffness())
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+                placeOnFlexibles(*load);
+#endif
                 patchStiffness(*load, shapesOn);
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+                // And its forces at the points just found: the ones it has
+                // are of the points before, by their numbers (forcesOnB), and
+                // a step taken back from a contact found late has them of
+                // the late points at the state before -- 7.6 kN on a strip of
+                // 21 g found 0.1 mm in, read by the next step as its start's
+                // (HHT's share of the old forces) with no point left
+                if (load->flexible || load->flexibleA) {
+                    load->ComputeQ(nullptr, nullptr);
+                }
+#endif
             }
         }
     };
@@ -7733,7 +9862,7 @@ Status ChronoSession::simulateDynamics(
         // hexagonal prism rocking on a plate until it flew off. Chrono caps
         // it at a tenth of the shape's least size.
         constexpr double envelope = 2e-5;
-        constexpr double margin = 1e-4;
+        constexpr double margin = safeMargin;
         ch::ChCollisionModel::SetDefaultSuggestedEnvelope(envelope);
         ch::ChCollisionModel::SetDefaultSuggestedMargin(margin);
         auto collision = std::make_shared<ContactCollisionSystem>();
@@ -7742,12 +9871,114 @@ Status ChronoSession::simulateDynamics(
         auto material = std::make_shared<ch::ChContactMaterialNSC>();
         std::vector<ch::ChBody*> shapeBody(si.dynamics->contactShapes.size(), nullptr);
         auto shapesOn = std::make_shared<std::map<const ch::ChCollisionShape*, ShapeOn>>();
+        // A flexible part's carrier, touched anywhere on the part: its item
+        auto anywhereOn = [&](const ch::ChBody* body) -> FlexibleContact* {
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+            for (const auto& flexible : run.d->flexibles) {
+                if (flexible.anywhere && flexible.anywhere->carrier == body) {
+                    return flexible.anywhere.get();
+                }
+            }
+#else
+            (void)body;
+#endif
+            return nullptr;
+        };
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        // Each such part's surface, the one shape of its carrier
+        std::map<FlexibleContact*, const ch::ChCollisionShape*> surfaceOf;
+#endif
         for (std::size_t k = 0; k < si.dynamics->contactShapes.size(); ++k) {
             const ContactShape& shape = si.dynamics->contactShapes[k];
             // A profile is not Bullet's (ContactHandover's profiles)
             if (!run.d->validFrame(shape.frame) || shape.kind == ContactShape::Kind::Profile) {
                 continue;
             }
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+            // A flexible part touched anywhere has its mesh's surface for
+            // all its shapes, moving with its modes (FlexibleContact::mesh):
+            // the shapes ride its carrier rigid, off the part once it has
+            // bent. Its faces are the elements', quadratic, a round one's to
+            // the second order; collision detection has a curved one as four
+            // flat triangles, and finds a point as far as the face bulges
+            // out of them sooner -- the carrier's envelope wider by that: a
+            // triangle is grown by its model's envelope alone, its
+            // thickness its margin
+            if (FlexibleContact* flexible = anywhereOn(run.d->bodyOf(shape.frame).get());
+                flexible && flexible->mesh) {
+                auto carrier = run.d->bodyOf(shape.frame);
+                shapeBody[k] = carrier.get();
+                const ch::ChCollisionShape*& surface = surfaceOf[flexible];
+                if (!surface) {
+                    auto whole = std::make_shared<ch::ChCollisionShapeTriangleMesh>(material,
+                                                                                    flexible->mesh,
+                                                                                    false,
+                                                                                    false,
+                                                                                    0.0);
+                    const double bulge = flexible->surface->bulge();
+                    carrier->AddCollisionShape(whole, ch::ChFramed());
+                    carrier->GetCollisionModel()->SetEnvelope(envelope + bulge);
+                    carrier->GetCollisionModel()->SetSafeMargin(margin);
+                    carrier->EnableCollision(true);
+                    surface = whole.get();
+                    ShapeOn& where = (*shapesOn)[surface];
+                    where.body = carrier.get();
+                    where.frame = run.d->localOf(shape.frame);
+                    where.source = shape.frame;
+                    where.envelope = envelope;
+                    where.bulge = bulge;
+                    where.flexible = true;
+                    where.modulus = shape.modulus;
+                    const auto& vertices = flexible->mesh->GetCoordsVertices();
+                    const auto& triangles = flexible->mesh->GetIndicesVertexes();
+                    where.vertices = vertices.data();
+                    where.count = vertices.size();
+                    where.curvatures = meshCurvatures(vertices, triangles);
+                    where.surfaces = meshSurfaces(vertices, triangles);
+                }
+                // The largest of its solids'
+                ShapeOn& where = (*shapesOn)[surface];
+                where.size = std::max(where.size,
+                                      std::cbrt(3.0 * std::max(shape.volume, 0.0) / (4.0 * pi)));
+                // Its rounds, as they ride the carrier at rest: the mesh's
+                // round faces are theirs (FlexibleContact::matchRounds())
+                const ch::ChFramed shapeAt = run.d->localOf(shape.frame);
+                if (shape.kind == ContactShape::Kind::Cylinder
+                    || shape.kind == ContactShape::Kind::Sphere) {
+                    ShapeOn& round = flexible->rounds.emplace_back();
+                    round.body = carrier.get();
+                    round.frame = shapeAt;
+                    round.source = shape.frame;
+                    if (shape.kind == ContactShape::Kind::Cylinder) {
+                        round.radius = shape.size.x;
+                        round.half = 0.5 * shape.size.z;
+                    }
+                    else {
+                        round.ball = shape.size.x;
+                    }
+                }
+                for (const auto& of : shape.rounds) {
+                    ShapeOn& round = flexible->rounds.emplace_back();
+                    round.body = carrier.get();
+                    round.source = shape.frame;
+                    const ch::ChVector3d z = toCh(of.axis);
+                    const ch::ChVector3d x = toCh(of.way);
+                    ch::ChMatrix33d turn;
+                    turn.SetFromDirectionAxes(x, ch::Vcross(z, x), z);
+                    const double middle = of.sphere ? 0.0 : 0.5 * (of.from + of.to);
+                    round.frame = ch::ChFramed(toCh(of.centre) + z * middle, turn) >> shapeAt;
+                    round.concave = of.concave;
+                    if (of.sphere) {
+                        round.ball = of.radius;
+                    }
+                    else {
+                        round.radius = of.radius;
+                        round.half = 0.5 * (of.to - of.from);
+                    }
+                }
+                continue;
+            }
+#endif
             std::shared_ptr<ch::ChCollisionShape> made;
             std::shared_ptr<ch::ChTriangleMeshConnected> meshMade;
             switch (shape.kind) {
@@ -7934,7 +10165,16 @@ Status ChronoSession::simulateDynamics(
             if (!first || !second) {
                 return;
             }
+            // A flexible part touched anywhere is B (FlexibleContact); of two
+            // such touching each other, the second, the first A
+            // (ContactLoad::flexibleA)
+            const bool swapped =
+                anywhereOn(first.get()) != nullptr && anywhereOn(second.get()) == nullptr;
+            if (swapped) {
+                std::swap(first, second);
+            }
             auto load = std::make_shared<ContactLoad>(first, second, lawOf(set, sx, sy), set);
+            load->swapped = swapped;
             loads->Add(load);
             contactLoads.push_back(load);
             finder->loads[{x, y}] = load.get();
@@ -8157,6 +10397,25 @@ Status ChronoSession::simulateDynamics(
             load->carried = {run.d->carriedMass(load->GetBodyA().get()),
                              run.d->carriedMass(load->GetBodyB().get())};
         }
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        // A contact anywhere on a flexible part: its loads, and its block
+        for (const auto& load : contactLoads) {
+            if (FlexibleContact* flexible = anywhereOn(load->GetBodyB().get())) {
+                load->flexible = flexible;
+                flexible->loads.push_back(load.get());
+            }
+            if (FlexibleContact* flexible = anywhereOn(load->GetBodyA().get())) {
+                load->flexibleA = flexible;
+                flexible->loadsA.push_back(load.get());
+            }
+        }
+        for (const auto& flexible : run.d->flexibles) {
+            if (flexible.anywhere) {
+                flexible.anywhere->matchRounds();
+                flexible.anywhere->setVariables();
+            }
+        }
+#endif
         collision->Initialize();
         std::map<const ch::ChCollisionShape*, const cbtConvexPolyhedron*> features;
         std::set<ch::ChBody*> withShapes(shapeBody.begin(), shapeBody.end());
@@ -8165,6 +10424,20 @@ Status ChronoSession::simulateDynamics(
                 collision->addPolyhedralFeatures(*body->GetCollisionModel(), features);
             }
         }
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        // A flexible part's surface goes with its modes. A triangle's box in
+        // its carrier's tree is five envelopes wider when it has left the
+        // one it had: a part swinging on its modes leaves it once a swing,
+        // not each step
+        for (const auto& [flexible, surface] : surfaceOf) {
+            collision->addMovingMesh(*flexible->carrier->GetCollisionModel(),
+                                     surface,
+                                     5.0 * envelope,
+                                     [item = flexible]() {
+                                         item->moveMesh();
+                                     });
+        }
+#endif
         for (const auto& [shape, polyhedron] : features) {
             auto it = shapesOn->find(shape);
             if (it != shapesOn->end()) {
@@ -8504,8 +10777,9 @@ Status ChronoSession::simulateDynamics(
     }
     // Each flexible body's modal coordinates (D4b): what its modes add to
     // the deformation its interfaces make about its floating frame
-    // and the deformation its interfaces make, six each (mm, rad): together
-    // its ModeShapes' coordinates
+    // and the deformation its interfaces make, six each (mm, rad), and its
+    // inertia loads, the residual modes' coefficients (SI): together its
+    // ModeShapes' coordinates
     for (const auto& flexible : run.d->flexibles) {
         const std::string& name = si.sourceName(si.dynamics->flexibles[flexible.record].source);
         channels.push_back({name,
@@ -8514,6 +10788,10 @@ Status ChronoSession::simulateDynamics(
         channels.push_back({name,
                             "ModalCoordinates",
                             static_cast<int>(run.d->modalCoordinates(flexible).size())});
+        const auto loads = run.d->inertialLoad(flexible);
+        if (!loads.empty()) {
+            channels.push_back({name, "InertialLoad", static_cast<int>(loads.size())});
+        }
     }
     // A link's wrench on the body of a frame (a joint's or a limit's frame
     // I), absolute, the torque about 'about': Chrono's links report it on
@@ -8911,6 +11189,9 @@ Status ChronoSession::simulateDynamics(
         sys.LoadResidual_CqL(R, L, 1.0);
         return ok && L.allFinite();
     };
+    // The start's values: a flexible body's inertia loads without its
+    // floating frame's accelerations (inertialLoad())
+    bool atStart = false;
     auto valuesNow = [&]() {
         std::vector<double> out;
         out.reserve(6 * reactions.size() + rotationMotors.size() + linearMotors.size()
@@ -9057,8 +11338,9 @@ Status ChronoSession::simulateDynamics(
             load->keep = true;
             load->ComputeQ(nullptr, nullptr);
             load->keep = false;
-            onSet[load->set] -= load->onB;
-            normalOnSet[load->set] -= load->normalOnB;
+            const double side = load->swapped ? -1.0 : 1.0;
+            onSet[load->set] -= side * load->onB;
+            normalOnSet[load->set] -= side * load->normalOnB;
             deepest[load->set] = std::max(deepest[load->set], load->deepest);
             // f on B at its point there, -f on A at A's
             for (const auto& point : load->pressed) {
@@ -9183,6 +11465,9 @@ Status ChronoSession::simulateDynamics(
             }
             for (double q : run.d->modalCoordinates(flexible)) {
                 out.push_back(q);
+            }
+            for (double c : run.d->inertialLoad(flexible, atStart)) {
+                out.push_back(c);
             }
         }
         return out;
@@ -9362,10 +11647,15 @@ Status ChronoSession::simulateDynamics(
         sink.channels(channels);
     }
     for (const auto& flexible : run.d->flexibles) {
-        sink.modeShapes(run.d->modeShapesOf(
+        ModeShapes shapes = run.d->modeShapesOf(
             flexible,
             si.sourceName(si.dynamics->flexibles[flexible.record].source),
-            SI::length));
+            SI::length);
+        // And its reduction, for the document to keep
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        shapes.reduction = ChronoFlexible::reductionNumbers(flexible.built, flexible.hz);
+#endif
+        sink.modeShapes(shapes);
     }
 
     // The events found (sec 8.4), held until their step is kept -- a
@@ -9764,13 +12054,14 @@ Status ChronoSession::simulateDynamics(
             const auto pressing = std::count(pressed.begin(), pressed.end(), true);
             mass /= static_cast<double>(pressing ? pressing : load->patches);
             const ContactLaw& law = load->law;
-            for (const auto& point : load->points) {
+            for (std::size_t i = 0; i < load->points.size(); ++i) {
+                const auto& point = load->points[i];
                 const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
                 const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
                 const double depth = -ch::Vdot(point.normal, pB - pA);
                 const double rate = -ch::Vdot(point.normal,
-                                              b->PointSpeedLocalToParent(point.onB)
-                                                  - a->PointSpeedLocalToParent(point.onA));
+                                              load->speedOnB(i, point)
+                                                  - load->speedOnA(i, point));
                 const double approach = std::max(rate, 0.0);
                 const double k = load->stiffness[point.patch];
                 const double e = load->exponents[point.patch];
@@ -9885,7 +12176,9 @@ Status ChronoSession::simulateDynamics(
             if (depth > touch.depth) {
                 touch.depth = depth;
                 touch.frames = point.frames;
-                touch.rate = rateOf(point, *a, *b);
+                touch.rate = load.meshed(i) || load.meshedA(i)
+                    ? -ch::Vdot(point.normal, load.speedOnB(i, point) - load.speedOnA(i, point))
+                    : rateOf(point, *a, *b);
                 touch.accel = -ch::Vdot(point.normal,
                                         b->PointAccelerationLocalToParent(point.onB)
                                             - a->PointAccelerationLocalToParent(point.onA));
@@ -9989,17 +12282,16 @@ Status ChronoSession::simulateDynamics(
         const auto a = load.GetBodyA();
         const auto b = load.GetBodyB();
         const double mass = load.lighterMass();
-        for (const auto& point : load.points) {
+        for (std::size_t i = 0; i < load.points.size(); ++i) {
+            const auto& point = load.points[i];
             const ch::ChVector3d pA = a->TransformPointLocalToParent(point.onA);
             const ch::ChVector3d pB = b->TransformPointLocalToParent(point.onB);
             const double depth = -ch::Vdot(point.normal, pB - pA);
             if (!(depth > 1e-12)) {
                 continue;
             }
-            const double rate = std::max(-ch::Vdot(point.normal,
-                                                   b->PointSpeedLocalToParent(point.onB)
-                                                       - a->PointSpeedLocalToParent(point.onA)),
-                                         0.0);
+            const double rate = std::max(
+                -ch::Vdot(point.normal, load.speedOnB(i, point) - load.speedOnA(i, point)), 0.0);
             const double e = load.exponents[point.patch];
             const double reach = std::isfinite(mass)
                 ? std::pow((e + 1.0) * mass * rate * rate / (2.0 * load.stiffness[point.patch]),
@@ -10012,16 +12304,24 @@ Status ChronoSession::simulateDynamics(
         return false;
     };
     const double tolerance = std::max(spec.errorTolerance, 1e-9) * SI::length;
-    // Whether a load rests: the range its deepest point's depth has kept,
-    // given the depth now too, within 2% of it or within the tolerance; and
-    // that range kept, after a substep of h, settled once it has held five
-    // of its periods -- an impact's sink and rebound move it all the way, and
-    // a resting part's rocking dies down under the damping within some. The
-    // tolerance for a metal's: a torus of aluminium on its ring, sunk 6e-8
-    // mm, rocks on its facets by 5e-8. Its deepest point within the
-    // tolerance of touching, not only pressing: a pin of 0.6 g lying on its
-    // rims across a bore sinks 0.17 nm, and chattered from 0.4 nm off to
-    // 0.1 nm in -- never resting, it took substeps of 0.3 us, 74 s for 0.3.
+    // Whether a load rests: the range its deepest point's depth has kept
+    // over a window of one of its periods, or of the last substep where that
+    // was longer, given the depth now too, within 2% of it or within the
+    // tolerance; and that kept, after a substep of h, settled once it has
+    // held five of its periods -- an impact's sink and rebound move it all
+    // the way within one, and a resting part's rocking dies down under the
+    // damping within some. Over a window, not since it came to rest: a load
+    // a motion keeps raising moves its depth by more than 2% sooner or
+    // later, and the strip pressed onto two bars by its hinge's turn, its
+    // range since then over 2% within some frames, fell out of rest, was
+    // taken back and stepped five periods at a fiftieth of one, again and
+    // again -- 1.4 us on the materials' law, 210 s for 0.1 s. The window's
+    // rate of depth is how fast it moves (standingStep()). The tolerance for a
+    // metal's: a torus of aluminium on its ring, sunk 6e-8 mm, rocks on its
+    // facets by 5e-8. Its deepest point within the tolerance of touching, not
+    // only pressing: a pin of 0.6 g lying on its rims across a bore sinks
+    // 0.17 nm, and chattered from 0.4 nm off to 0.1 nm in -- never resting,
+    // it took substeps of 0.3 us, 74 s for 0.3.
     auto resting = [&](const ContactLoad& load) {
         const double depth = pressing(load);
         const double high = std::max(load.high, depth);
@@ -10029,18 +12329,42 @@ Status ChronoSession::simulateDynamics(
         return depth > -tolerance && (range <= 0.02 * high || range <= tolerance);
     };
     auto keepCalm = [&](ContactLoad& load, double h) {
+        const double depth = pressing(load);
         if (load.calm > 0.0 && resting(load)) {
-            const double depth = pressing(load);
             load.low = std::min(load.low, depth);
             load.high = std::max(load.high, depth);
             load.calm += h;
+            load.since += h;
             load.settled = load.calm >= 5.0 * load.period;
+            if (load.since >= load.period) {
+                load.drift = std::abs(depth - load.mark) / load.since;
+                load.low = load.high = load.mark = depth;
+                load.since = 0.0;
+            }
             return;
         }
-        const double depth = pressing(load);
-        load.low = load.high = depth;
+        load.low = load.high = load.mark = depth;
         load.calm = depth > -tolerance ? h : 0.0;
+        load.since = 0.0;
+        load.drift = 0.0;
         load.settled = false;
+    };
+    // The substep a load at rest allows, which contactStep() leaves to it:
+    // the time its depth takes, at its last window's rate, to move half the
+    // range resting() allows. A load a motion raises keeps its rest and
+    // steps as long as its rise lets it, where a substep longer fell out of
+    // rest and was taken back.
+    auto standingStep = [&]() {
+        double h = std::numeric_limits<double>::infinity();
+        for (const auto& load : contactLoads) {
+            if (!load->settled || !(load->drift > 0.0)) {
+                continue;
+            }
+            const double allowed =
+                std::max(0.02 * std::max(load->high, pressing(*load)), tolerance);
+            h = std::min(h, 0.5 * allowed / load->drift);
+        }
+        return h;
     };
     // Newton's test, HHT's, is on its iterations' increments, in
     // accelerations and multipliers, 1e-10 absolute by default: a
@@ -10522,6 +12846,17 @@ Status ChronoSession::simulateDynamics(
     // again, an eighth as long, from the state before it, and the steps
     // grow back after. One longer than the strict rule's that moved a load
     // at rest is taken again by it.
+    // A run asked to stop is seen here too, not only as a frame is given
+    // (TrajectorySink::cancelled()): a frame's substeps can take minutes.
+    // And one that will not get anywhere says so: 100000 substeps kept in a
+    // row, each under 10 ns -- a contact's, a hundredth of a metal's line
+    // contact's on a part of grams, or ones taken back down to a nanosecond
+    // again and again -- are an hour for a millisecond. A strip of 2 mm
+    // coming back onto a bar ran 0.4 ms in four minutes so, its panel
+    // showing a run under way, Cancel doing nothing.
+    struct Stopped
+    {};
+    int crawled = 0;
     auto advance = [&](double dt) {
         if (!contact) {
             // A flexible body's modal coordinates never pass the default
@@ -10600,9 +12935,12 @@ Status ChronoSession::simulateDynamics(
         bool fresh = false;  // collision detection last ran at the state now
         goOn();
         while (dt - done > 1e-12 * dt) {
+            if (sink.cancelled()) {
+                throw Stopped {};
+            }
             const double strict = contactStep(true);
-            double h =
-                std::min({dt - done, cap, contactStep(false), penaltyStep(), frictionStep()});
+            double h = std::min(
+                {dt - done, cap, contactStep(false), standingStep(), penaltyStep(), frictionStep()});
             if (dt - done - h < 1e-9 * dt) {
                 h = dt - done;
             }
@@ -10686,6 +13024,14 @@ Status ChronoSession::simulateDynamics(
             }
             done += h;
             cap = std::min(dt, cap * 2.0);
+            if (!(h < 1e-8)) {
+                crawled = 0;
+            }
+            else if (++crawled > 100000) {
+                throw std::runtime_error("the contact's integration stalled at "
+                                         + std::to_string(sys.GetChTime())
+                                         + " s: 100000 substeps in a row under 10 ns");
+            }
             keepMoment();
             watchImpacts();
             // A load pressing as the substep ended that collision detection
@@ -10841,7 +13187,7 @@ Status ChronoSession::simulateDynamics(
             std::vector<double> limitAngles;
             struct LoadState
             {
-                double impact, low, high, calm, period;
+                double impact, low, high, calm, period, mark, since, drift;
                 bool settled, touching;
             };
             std::vector<LoadState> loads;
@@ -10867,6 +13213,9 @@ Status ChronoSession::simulateDynamics(
                                    load->high,
                                    load->calm,
                                    load->period,
+                                   load->mark,
+                                   load->since,
+                                   load->drift,
                                    load->settled,
                                    load->touching});
             }
@@ -10914,6 +13263,9 @@ Status ChronoSession::simulateDynamics(
                 load.high = kept.high;
                 load.calm = kept.calm;
                 load.period = kept.period;
+                load.mark = kept.mark;
+                load.since = kept.since;
+                load.drift = kept.drift;
                 load.settled = kept.settled;
                 load.touching = kept.touching;
             }
@@ -11111,8 +13463,10 @@ Status ChronoSession::simulateDynamics(
                         load->touching = pressing(*load) > 0.0;
                     }
                 }
+                atStart = true;
                 const std::vector<double> start =
                     channels.empty() ? std::vector<double>() : valuesNow();
+                atStart = false;
                 // The start's own forces, its loads' (a contact's as it
                 // stands, none where it only touches) and its bodies' turns:
                 // the fallback's accelerations are those with the reactions
@@ -11287,6 +13641,9 @@ Status ChronoSession::simulateDynamics(
             }
         }
     }
+    catch (const Stopped&) {
+        status = Status::Cancelled;
+    }
     catch (const std::exception& e) {
         Base::Console().error("Assembly: the Chrono backend's dynamic run failed: %s\n", e.what());
         status = Status::Failed;
@@ -11426,4 +13783,7 @@ std::size_t Chrono::flexibleModesKept()
 {
     return 0;
 }
+
+void Chrono::forgetFlexibleReductions()
+{}
 #endif

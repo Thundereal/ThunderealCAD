@@ -211,6 +211,10 @@ public:
             {
                 return sink.frame(time, session.expand(poses));
             }
+            bool cancelled() const override
+            {
+                return sink.cancelled();
+            }
             // The joints a group dropped report nothing
             void channels(const std::vector<Channel>& channels) override
             {

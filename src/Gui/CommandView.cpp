@@ -2662,6 +2662,8 @@ void StdViewScreenShot::activated(int iMsg)
             }
             hExt->SetInt("OffscreenImageBackground",opt->backgroundType());
 
+            // overlays=True: the widgets over the view that ask to be in its
+            // picture, a legend say, are painted into it
             QString comment = opt->comment();
             if (!comment.isEmpty()) {
                 // Replace newline escape sequence through '\\n' string to build one big string,
@@ -2673,11 +2675,11 @@ void StdViewScreenShot::activated(int iMsg)
                 QStringList lines = comment.split(QStringLiteral("\n"), QString::KeepEmptyParts );
 #endif
                 comment = lines.join(QStringLiteral("\\n"));
-                doCommand(Gui,"Gui.activeDocument().activeView().saveImage(%s,%d,%d,'%s','%s')",
+                doCommand(Gui,"Gui.activeDocument().activeView().saveImage(%s,%d,%d,'%s','%s',overlays=True)",
                             pyfn.c_str(),w,h,background,comment.toUtf8().constData());
             }
             else {
-                doCommand(Gui,"Gui.activeDocument().activeView().saveImage(%s,%d,%d,'%s')",
+                doCommand(Gui,"Gui.activeDocument().activeView().saveImage(%s,%d,%d,'%s',overlays=True)",
                             pyfn.c_str(),w,h,background);
             }
 

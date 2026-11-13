@@ -623,11 +623,13 @@ public:
  * it is -- a joint's full name, a force element's with "-1" or "-2" for its
  * end -- and the nodes on the faces it holds.
  *
- * A contact on it (D4b step 5) touches it through ContactFaces, faces of
+ * A contact on it touches it through ContactFaces (D4b step 5), faces of
  * its component: one interface of their own (labelled ContactInterface),
  * which its contact shapes ride and whose nodes move together, the forces
- * bending the part through its static modes. A contact on a flexible part
- * without them is refused.
+ * bending the part through its static modes. Without them a contact
+ * touches its mesh's surface anywhere, where the part is as it has bent
+ * (D4b steps 8 to 16): each point on the mesh, its force bending the part
+ * through its modes. Two flexible parts touch each other so.
  */
 class AssemblyExport FlexibleBody: public PhysicsItem
 {
@@ -642,6 +644,9 @@ public:
     App::PropertyFrequency DampingFrequency;
     App::PropertyLength MeshSize;
     App::PropertyLinkSubList ContactFaces;
+    /// How many times its bending is drawn over a run's frames; 0: what
+    /// shows it (FlexibleBodies.Deformation, Python). Not the model's
+    App::PropertyFloatConstraint BendingScale;
 
     /// The label of the contact faces' interface in InterfaceFrames
     static constexpr const char* ContactInterface = "Contact";
@@ -658,6 +663,10 @@ public:
     /// mm; a node's x, y and z each a row of ModeShapeColumns
     App::PropertyFloatList ModeShapes;
     App::PropertyInteger ModeShapeColumns;
+    /// Its last dynamic run's reduction to its modes (Solver::ModeShapes::
+    /// reduction), the backend's numbers: the next run takes it where the part
+    /// is as it was, after the document is opened again too
+    App::PropertyFloatList Reduction;
 
     const char* getViewProviderName() const override
     {

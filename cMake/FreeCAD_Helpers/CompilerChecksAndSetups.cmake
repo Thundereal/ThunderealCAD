@@ -65,6 +65,18 @@ macro(CompilerChecksAndSetups)
         endif()
         include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
+        # No fused multiply-add the source did not ask for. GCC and Clang
+        # contract a*b+c into one fma wherever the target has the
+        # instruction, which rounds once where the two operations round
+        # twice: every arm64 has it, the x86-64 baseline does not, so the
+        # same source gave different last bits on the two. That is enough to
+        # turn a tie -- the assembly solver, between two conflicting joints,
+        # dropped the constraint of the other one on Apple silicon and did
+        # not converge (TestJoints.TestSolveStatus.test_malformed). A CAD
+        # result should not depend on the CPU it was computed on.
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffp-contract=off")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffp-contract=off")
+
         # get linker errors as soon as possible and not at runtime e.g. for modules
         if(BUILD_DYNAMIC_LINK_PYTHON)
             if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")

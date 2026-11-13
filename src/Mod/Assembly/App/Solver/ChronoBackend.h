@@ -88,6 +88,11 @@ flexibleFrequencies(const Model& model, std::size_t index, std::string* error = 
 // found for the same part (for tests)
 AssemblyExport std::size_t flexibleModesKept();
 
+// The modes and reductions this process has kept, forgotten: the next run
+// takes only a reduction its model hands it (Flexible::reduction), as after
+// the document is opened again (for tests)
+AssemblyExport void forgetFlexibleReductions();
+
 }  // namespace Chrono
 
 class AssemblyExport ChronoBackend: public Backend

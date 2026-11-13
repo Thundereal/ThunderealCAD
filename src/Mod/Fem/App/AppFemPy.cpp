@@ -31,11 +31,14 @@
 #include <App/DocumentObjectPy.h>
 #include <Base/Interpreter.h>
 #include <Base/PlacementPy.h>
+#include <Base/PyWrapParseTupleAndKeywords.h>
 #include <Mod/Part/App/OCCError.h>
+#include <Mod/Part/App/TopoShapePy.h>
 
 #include "FemMesh.h"
 #include "FemMeshObject.h"
 #include "FemMeshPy.h"
+#include "FemMeshShapeNetgenObject.h"
 #ifdef FC_USE_VTK
 # include "FemPostPipeline.h"
 # include "FemVTKTools.h"
@@ -74,6 +77,17 @@ public:
             "export(list,string) -- Export a list of objects into a single file."
         );
         add_varargs_method("read", &Module::read, "Read a mesh from a file and returns a Mesh object.");
+        add_keyword_method(
+            "meshNetgen",
+            &Module::meshNetgen,
+            "meshNetgen(shape, MaxSize=1000, MinSize=0, SecondOrder=True, Fineness=2,\n"
+            "           GrowthRate=0.3, NbSegsPerEdge=1, NbSegsPerRadius=2, Optimize=True)\n"
+            "-- The shape meshed by Netgen, as a FemMesh, without a document: what a\n"
+            "Fem::FemMeshShapeNetgenObject of these properties makes. Fineness is the\n"
+            "index of VeryCoarse, Coarse, Moderate, Fine, VeryFine, UserDefined; the\n"
+            "last three settings are taken with UserDefined only. The mesh's\n"
+            "getNodesByFace() and the like take the faces of this very shape."
+        );
 #ifdef FC_USE_VTK
         add_varargs_method("frdToVTK", &Module::frdToVTK, "Convert a .frd result file to VTK file");
         add_varargs_method(
@@ -121,6 +135,28 @@ public:
     }
 
 private:
+    Py::Object invoke_method_keyword(
+        void* method_def,
+        const Py::Tuple& args,
+        const Py::Dict& keywords
+    ) override
+    {
+        try {
+            return Py::ExtensionModule<Module>::invoke_method_keyword(method_def, args, keywords);
+        }
+        catch (const Standard_Failure& e) {
+            Standard_CString msg = e.GetMessageString();
+            std::string str = std::string(typeid(e).name()) + " "
+                + (msg ? msg : "No OCCT Exception Message");
+            throw Py::Exception(Part::PartExceptionOCCError, str);
+        }
+        catch (const Base::Exception& e) {
+            throw Py::RuntimeError(e.what());
+        }
+        catch (const std::exception& e) {
+            throw Py::RuntimeError(e.what());
+        }
+    }
     Py::Object invoke_method_varargs(void* method_def, const Py::Tuple& args) override
     {
         try {
@@ -282,6 +318,58 @@ private:
 
         std::unique_ptr<FemMesh> mesh(new FemMesh);
         mesh->read(EncodedName.c_str());
+        return Py::asObject(new FemMeshPy(mesh.release()));
+    }
+    Py::Object meshNetgen(const Py::Tuple& args, const Py::Dict& kwds)
+    {
+        PyObject* pcShape;
+        FemMeshShapeNetgenObject::Parameters params;
+        PyObject* secondOrder = params.secondOrder ? Py_True : Py_False;
+        PyObject* optimize = params.optimize ? Py_True : Py_False;
+        static const std::array<const char*, 10> kwlist {
+            "shape",
+            "MaxSize",
+            "MinSize",
+            "SecondOrder",
+            "Fineness",
+            "GrowthRate",
+            "NbSegsPerEdge",
+            "NbSegsPerRadius",
+            "Optimize",
+            nullptr
+        };
+        if (!Base::Wrapped_ParseTupleAndKeywords(
+                args.ptr(),
+                kwds.ptr(),
+                "O!|ddO!idiiO!",
+                kwlist,
+                &(Part::TopoShapePy::Type),
+                &pcShape,
+                &params.maxSize,
+                &params.minSize,
+                &PyBool_Type,
+                &secondOrder,
+                &params.fineness,
+                &params.growthRate,
+                &params.nbSegsPerEdge,
+                &params.nbSegsPerRadius,
+                &PyBool_Type,
+                &optimize
+            )) {
+            throw Py::Exception();
+        }
+        if (params.fineness < 0 || params.fineness > 5) {
+            throw Py::ValueError("Fineness: 0 (VeryCoarse) to 5 (UserDefined)");
+        }
+        params.secondOrder = Base::asBoolean(secondOrder);
+        params.optimize = Base::asBoolean(optimize);
+        const TopoDS_Shape& shape
+            = static_cast<Part::TopoShapePy*>(pcShape)->getTopoShapePtr()->getShape();
+        if (shape.IsNull()) {
+            throw Py::ValueError("The shape is empty");
+        }
+        std::unique_ptr<FemMesh> mesh(new FemMesh);
+        FemMeshShapeNetgenObject::meshShape(*mesh, shape, params);
         return Py::asObject(new FemMeshPy(mesh.release()));
     }
 

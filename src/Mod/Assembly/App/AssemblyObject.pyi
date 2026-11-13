@@ -411,6 +411,20 @@ class AssemblyObject(Part):
         """
         ...
 
+    def getFlexibleFrequencies(self, sim: DocumentObject, flexible: DocumentObject, /) -> list:
+        """
+        The modes of a flexible body (Assembly::FlexibleBody) as a run of the
+        Dynamic study sim reduces it (docs/AssemblyDynamics.md D4b):
+        the model built as the run builds it, the interfaces at its frames,
+        not run. The reduction is kept, and the run takes it.
+
+        Returns: the modes' frequencies, Hz, lowest first. Raises when the
+        study does not bend it -- not Dynamic, the flexible body not in its
+        Elements, no mesh (FlexibleBodies.prepare()), a component in a rigid
+        group or fixed to the ground -- the report view saying why.
+        """
+        ...
+
     @constmethod
     def getCollisionMarkers(self) -> list:
         """

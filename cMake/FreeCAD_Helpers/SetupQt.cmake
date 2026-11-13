@@ -18,7 +18,21 @@ if(BUILD_GUI)
     endif()
     list (APPEND FREECAD_QT_COMPONENTS OpenGL PrintSupport Svg UiTools Widgets LinguistTools)
     if (BUILD_WEB)
-        list (APPEND FREECAD_QT_COMPONENTS WebEngineWidgets)
+        # Not REQUIRED, unlike the components in the loop below: Qt WebEngine
+        # is a separate package on most stacks and absent on some, and a
+        # workbench is not worth a failed configure. Shadow the cache entry
+        # with a normal variable rather than rewriting it, so the option
+        # still reads ON and a later configure with WebEngine installed
+        # builds the module.
+        find_package(Qt${FREECAD_QT_MAJOR_VERSION} QUIET COMPONENTS WebEngineWidgets)
+        if (Qt${FREECAD_QT_MAJOR_VERSION}WebEngineWidgets_FOUND)
+            list (APPEND FREECAD_QT_COMPONENTS WebEngineWidgets)
+        else()
+            message(WARNING "BUILD_WEB is ON but Qt${FREECAD_QT_MAJOR_VERSION} WebEngineWidgets was not found: "
+                            "building without the Web module. Install Qt WebEngine "
+                            "(conda: qt6-webengine, matching qt6-main) and configure again to get it.")
+            set(BUILD_WEB OFF)
+        endif()
     endif()
     if(BUILD_DESIGNER_PLUGIN)
         list (APPEND FREECAD_QT_COMPONENTS Designer)

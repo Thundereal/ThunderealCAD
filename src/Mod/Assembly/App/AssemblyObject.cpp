@@ -85,6 +85,7 @@
 #include "SimulationArchive.h"
 #include "Views.h"
 #include "Solver/Backend.h"
+#include "Solver/ChronoBackend.h"
 #include "Solver/ReferenceBackend.h"
 #include "Solver/Registry.h"
 #include "Solver/RigidGroups.h"
@@ -389,6 +390,10 @@ struct TrajectoryRecorder: Solver::TrajectorySink
         last = time;
         ++count;
         return true;
+    }
+    bool cancelled() const override
+    {
+        return cancel;
     }
     void channels(const std::vector<Solver::Channel>& channels) override
     {
@@ -988,6 +993,12 @@ void AssemblyObject::keepFrames(App::DocumentObject* sim,
                 if (flexible && flexible->getFullName() == shapes.source) {
                     flexible->ModeShapes.setValues(shapes.values);
                     flexible->ModeShapeColumns.setValue(static_cast<long>(shapes.columns));
+                    // Its reduction, for a run after the document is opened
+                    // again; set only when it is another
+                    if (!shapes.reduction.empty()
+                        && flexible->Reduction.getValues() != shapes.reduction) {
+                        flexible->Reduction.setValues(shapes.reduction);
+                    }
                 }
             }
         }
@@ -2894,6 +2905,12 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         record.modes = static_cast<int>(flexible->Modes.getValue());
         record.damping = flexible->Damping.getValue();
         record.dampingFrequency = flexible->DampingFrequency.getValue();
+        // Its last run's reduction, kept in the document, for the backend to
+        // take where the part is as it was
+        if (flexible->Reduction.getSize()) {
+            record.reduction =
+                std::make_shared<const std::vector<double>>(flexible->Reduction.getValues());
+        }
         // Each interface's nodes, by its frame's label
         const auto& frames = flexible->InterfaceFrames.getValues();
         std::vector<std::vector<Solver::Id>> held(1);
@@ -2919,10 +2936,38 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             Solver::Flexible::Interface face;
             face.frame = frame.id;
             const std::string& name = model.sourceName(frame.label);
+            // A full name by the object's name in its document: opened from a
+            // file of another name, the document is named again, and its
+            // frames kept would hold nothing. The contact faces' label has
+            // no document, and is no joint's
+            auto sameFrame = [](const std::string& kept, const std::string& now) {
+                if (kept == now) {
+                    return true;
+                }
+                const auto a = kept.find('#');
+                const auto b = now.find('#');
+                return a != std::string::npos && b != std::string::npos
+                    && kept.compare(a, std::string::npos, now, b, std::string::npos) == 0;
+            };
             for (std::size_t i = 0; i < frames.size() && i < held.size(); ++i) {
-                if (frames[i] == name) {
+                if (sameFrame(frames[i], name)) {
                     face.nodes = held[i];
                     break;
+                }
+            }
+            // A joint's frame the mesh has no nodes for holds the part by
+            // nothing: a mesh made before the joint was, or renamed
+            if (face.nodes.empty()) {
+                for (const auto& joint : model.joints) {
+                    if (joint.frameI == frame.id || joint.frameJ == frame.id) {
+                        Base::Console().warning(
+                            "Assembly: the flexible body %s has no mesh nodes for %s, which "
+                            "holds it by none: its mesh is of other joints. Make it again "
+                            "(its panel, or FlexibleBodies.prepareStudy())\n",
+                            label.c_str(),
+                            name.c_str());
+                        break;
+                    }
                 }
             }
             record.interfaces.push_back(std::move(face));
@@ -3035,6 +3080,51 @@ std::vector<AssemblyObject::BodyInertia> AssemblyObject::getBodyInertias()
             {inertia, solverModel->bodies[inertia.body].placement, std::move(objects)});
     }
     return result;
+}
+
+std::vector<double> AssemblyObject::getFlexibleFrequencies(App::DocumentObject* sim,
+                                                           App::DocumentObject* flexible,
+                                                           std::string* error)
+{
+    auto fail = [&](const char* why) {
+        if (error) {
+            *error = why;
+        }
+        return std::vector<double>();
+    };
+    auto* typed = freecad_cast<Simulation*>(sim);
+    if (!typed || typed->AnalysisType.getValue() != 1) {
+        return fail("the study is not a Dynamic one");
+    }
+    if (!freecad_cast<FlexibleBody*>(flexible)) {
+        return fail("not a flexible body");
+    }
+    if (simulationRun) {
+        // Its model is the run's
+        return fail("a simulation of the assembly is running");
+    }
+    // Built as the run builds it (generateSimulation()), not run
+    const int built = buildSimulation(sim);
+    motions.clear();
+    if (built != 0) {
+        return fail("the study's model could not be built: see the report view");
+    }
+    if (!solverModel->dynamics) {
+        return fail("the study does not bend it: see the report view");
+    }
+    const std::string name = flexible->getFullName();
+    const auto& flexibles = solverModel->dynamics->flexibles;
+    for (std::size_t i = 0; i < flexibles.size(); ++i) {
+        if (solverModel->sourceName(flexibles[i].source) == name) {
+#ifdef ASSEMBLY_WITH_CHRONO
+            return Solver::Chrono::flexibleFrequencies(*solverModel, i, error);
+#else
+            // ChronoBackend.cpp, which defines it, is built only with Chrono
+            return fail("built without the Chrono backend (BUILD_ASSEMBLY_CHRONO)");
+#endif
+        }
+    }
+    return fail("the study does not bend it: see the report view");
 }
 
 void AssemblyObject::exportAsASMT(std::string fileName)

@@ -25,6 +25,7 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <cstdlib>
 #include <numbers>
 
 #include "Formula.h"

@@ -166,6 +166,7 @@ class TestGuiCommands(unittest.TestCase):
                 "CommandCreateLoad",
                 "CommandCreateBushing",
                 "CommandCreateContact",
+                "CommandCreateFlexibleBody",
             ):
                 if module in sys.modules:
                     sys.modules[module].activeTask = None
@@ -2288,7 +2289,9 @@ class TestGuiCommands(unittest.TestCase):
         """Idle until one component is selected -- here by a face of it in the
         assembly, as the 3D view picks it; then a flexible body of it,
         selected, ticked in the Dynamic study and neither the Static nor the
-        Kinematic one. One undo takes it out"""
+        Kinematic one, its panel open; OK keeps it. One undo takes it out"""
+        import CommandCreateFlexibleBody
+
         sims = self.assembly.getGroup("Simulations", True)
         dynamic = sims.newObject("Assembly::Simulation", "Dynamic")
         dynamic.AnalysisType = "Dynamic"
@@ -2301,6 +2304,10 @@ class TestGuiCommands(unittest.TestCase):
         self.assertFalse(Gui.Command.get("Assembly_CreateFlexibleBody").isActive())
         Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Box.Face1")
         self.run_command("Assembly_CreateFlexibleBody")
+        task = CommandCreateFlexibleBody.activeTask
+        self.assertIsInstance(task, CommandCreateFlexibleBody.TaskFlexibleBody)
+        self.accept_task()
+        self.assertIsNone(CommandCreateFlexibleBody.activeTask)
         physics = self.assembly.getGroup("Physics")
         made = [o for o in physics.Group if o.TypeId == "Assembly::FlexibleBody"]
         self.assertEqual(len(made), 1)
@@ -2315,6 +2322,128 @@ class TestGuiCommands(unittest.TestCase):
         self.doc.undo()
         _process()
         self.assertEqual([o for o in physics.Group if o.TypeId == "Assembly::FlexibleBody"], [])
+
+    def test_flexible_body_cancelled(self):
+        """The command's panel cancelled: no flexible body"""
+        import CommandCreateFlexibleBody
+
+        Gui.Selection.clearSelection()
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Box.Face1")
+        self.run_command("Assembly_CreateFlexibleBody")
+        self.assertIsNotNone(CommandCreateFlexibleBody.activeTask)
+        Gui.Control.activeTaskDialog().reject()
+        _process()
+        physics = self.assembly.getGroup("Physics")
+        group = physics.Group if physics else []
+        self.assertEqual([o for o in group if o.TypeId == "Assembly::FlexibleBody"], [])
+        self.assertFalse(Gui.Control.activeDialog())
+        self.assertClean()
+
+    def test_flexible_body_panel(self):
+        """A flexible body's panel, as a double click opens it: its component
+        and material; Modes, Damping and Mesh Size set the properties; Mesh
+        Now meshes it, the hinge's interface listed; Show the Mesh draws its
+        surface edges and the held nodes in the scene; a face of the part
+        picked in the 3D view is its contact face, the mesh then of the part
+        as it was, and a face of another part is not; Find Modes meshes it
+        again and lists as many frequencies as modes, lowest first. Cancel
+        undoes it all and takes the drawing out"""
+        import CommandCreateFlexibleBody
+        import FlexibleBodies
+
+        base = self.box
+        base.Length, base.Width, base.Height = 10, 10, 10
+        rod = self.assembly.newObject("Part::Box", "Rod")
+        rod.Length, rod.Width, rod.Height = 60, 10, 10
+        rod.Placement.Base = App.Vector(10, 0, 0)
+        ground = self.jointgroup.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        hinge = self.jointgroup.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(hinge, JointObject.JointTypes.index("Revolute"))
+        hinge.Detach1 = True
+        hinge.Detach2 = True
+        hinge.Reference1 = (base, ["Face2"])
+        hinge.Reference2 = (rod, ["Face1"])
+        turn = App.Rotation(App.Vector(1, 0, 0), -90)
+        hinge.Placement1 = App.Placement(App.Vector(10, 5, 5), turn)
+        hinge.Placement2 = App.Placement(App.Vector(0, 5, 5), turn)
+        sims = self.assembly.getGroup("Simulations", True)
+        dynamic = sims.newObject("Assembly::Simulation", "Dynamic")
+        dynamic.AnalysisType = "Dynamic"
+        self.doc.recompute()
+        flexible = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
+        self.doc.recompute()
+        _process()
+        self.assertTrue(flexible.ViewObject.doubleClicked())
+        _process()
+        task = CommandCreateFlexibleBody.activeTask
+        self.assertIsInstance(task, CommandCreateFlexibleBody.TaskFlexibleBody)
+        self.assertEqual(task.componentLabel.text(), rod.Label)
+        self.assertIn("GPa", task.materialLabel.text())
+        self.assertIn("Not meshed", task.stateLabel.text())
+        self.assertTrue(task.findButton.isEnabled())
+        task.modesBox.setValue(4)
+        task.dampingBox.setValue(5.0)
+        task.sizeBox.setProperty("rawValue", 5.0)
+        _process()
+        self.assertEqual(flexible.Modes, 4)
+        self.assertAlmostEqual(flexible.Damping, 0.05)
+        self.assertAlmostEqual(flexible.MeshSize.Value, 5.0)
+
+        task.meshButton.click()
+        _process()
+        self.assertGreater(len(flexible.Nodes), 0)
+        self.assertEqual(FlexibleBodies.meshState(flexible), "current")
+        self.assertIn("%d nodes" % len(flexible.Nodes), task.stateLabel.text())
+        self.assertIn(hinge.Label, task.interfacesLabel.text())
+
+        # How its bending is drawn after a run: Automatic, or a scale. Not
+        # the mesh's
+        self.assertEqual(task.scaleBox.text(), "Automatic")
+        task.scaleBox.setValue(1.0)
+        _process()
+        self.assertEqual(flexible.BendingScale, 1.0)
+        self.assertEqual(task.scaleBox.text(), "x1.00")
+        self.assertEqual(FlexibleBodies.meshState(flexible), "current")
+
+        task.showMeshBox.setChecked(True)
+        _process()
+        scene = Gui.ActiveDocument.ActiveView.getSceneGraph()
+        drawn = task.meshRoot
+        self.assertIsNotNone(drawn)
+        self.assertGreaterEqual(scene.findChild(drawn), 0)
+
+        task.addButton.setChecked(True)
+        _process()
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Rod.Face2")
+        _process()
+        self.assertEqual([(o, list(s)) for o, s in flexible.ContactFaces], [(rod, ["Face2"])])
+        self.assertEqual(task.facesList.count(), 1)
+        self.assertEqual(FlexibleBodies.meshState(flexible), "stale")
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Box.Face1")
+        _process()
+        self.assertEqual(task.facesList.count(), 1)
+        task.addButton.setChecked(False)
+        _process()
+
+        task.findButton.click()
+        _process()
+        self.assertEqual(len(task.frequencies), 4, task.modesLabel.text())
+        self.assertEqual(task.frequencies, sorted(task.frequencies))
+        self.assertGreater(task.frequencies[0], 0.0)
+        self.assertTrue(task.modesLabel.text().startswith("4 modes"))
+        self.assertEqual(FlexibleBodies.meshState(flexible), "current")
+        self.assertIn("Contact faces", task.interfacesLabel.text())
+
+        Gui.Control.activeTaskDialog().reject()
+        _process()
+        self.assertIsNone(CommandCreateFlexibleBody.activeTask)
+        self.assertEqual(scene.findChild(drawn), -1)
+        self.assertEqual(flexible.Modes, 12)
+        self.assertAlmostEqual(flexible.Damping, 0.02)
+        self.assertEqual(flexible.MeshSize.Value, 0.0)
+        self.assertEqual(len(flexible.ContactFaces), 0)
+        self.assertEqual(len(flexible.Nodes), 0)
 
     def test_flexible_body_playback(self):
         """A run with a flexible body draws it bent as it plays: its mesh's
@@ -2415,6 +2544,35 @@ class TestGuiCommands(unittest.TestCase):
         self.assertLess(top.blue(), 60)
         self.assertGreater(bottom.blue(), 200)
         self.assertLess(bottom.red(), 60)
+        # In Save Picture's picture (saveImage(overlays=True)) where it is on
+        # the view, and twice the view's size twice as large; not without
+        view = Gui.ActiveDocument.ActiveView
+        left, up, _, tall = legend.geometry().getRect()
+
+        def picture(name, scale, **kwds):
+            path = os.path.join(self.tmpdir, name)
+            view.saveImage(path, viewer.width() * scale, viewer.height() * scale, "White", **kwds)
+            saved = QtGui.QImage(path)
+            self.assertFalse(saved.isNull(), path)
+            self.assertEqual(saved.width(), viewer.width() * scale)
+            return saved
+
+        def bar(saved, scale):
+            # The bar's top and bottom, at their place on the view
+            x = (left + 21) * scale
+            top = saved.pixelColor(int(x), int((up + 54) * scale))
+            bottom = saved.pixelColor(int(x), int((up + tall - 16) * scale))
+            return top, bottom
+
+        for scale in (1, 2):
+            top, bottom = bar(picture("legend%d.png" % scale, scale, overlays=True), scale)
+            self.assertGreater(top.red(), 200, scale)
+            self.assertLess(top.blue(), 60, scale)
+            self.assertGreater(bottom.blue(), 200, scale)
+            self.assertLess(bottom.red(), 60, scale)
+        top, bottom = bar(picture("bare.png", 1), 1)
+        self.assertFalse(top.red() > 200 and top.blue() < 60)
+        self.assertFalse(bottom.blue() > 200 and bottom.red() < 60)
         # The Results box: its largest at each frame
         at = panel.resultIndex((flexible.Name, "FlexibleVonMises"))
         self.assertGreaterEqual(at, 0)

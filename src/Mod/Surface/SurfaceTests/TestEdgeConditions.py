@@ -48,10 +48,20 @@ def angleAlong(test, shape, other, edge):
     name = edgeOn(shape, edge, 1e-4)
     test.assertIsNotNone(name, "no edge of the surface on the shared curve")
     e = shape.getElement(name)
+    # Where the edge is on the face by the edge's own curve on it, not by
+    # projecting the point: a fill of two curves that meet has two of its
+    # corners at that one point, both exact answers to the projection, and
+    # which of them came back turned on the last bit of the arithmetic.
+    onFace = face.curveOnSurface(e)
     worst = 0
     for k in range(41):
-        pt = e.valueAt(e.FirstParameter + (e.LastParameter - e.FirstParameter) * k / 40)
-        n1 = face.normalAt(*face.Surface.parameter(pt))
+        t = e.FirstParameter + (e.LastParameter - e.FirstParameter) * k / 40
+        pt = e.valueAt(t)
+        if onFace:
+            uv = onFace[0].value(t)
+            n1 = face.normalAt(uv.x, uv.y)
+        else:
+            n1 = face.normalAt(*face.Surface.parameter(pt))
         n2 = other.normalAt(*other.Surface.parameter(pt))
         worst = max(worst, math.degrees(math.acos(min(1, abs(n1.dot(n2))))))
     return worst

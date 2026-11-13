@@ -141,7 +141,7 @@ macro(PrintFinalReport)
     simple(QtXml ${QtXml_VERSION})
     conditional(QtTest ENABLE_DEVELOPER_TESTS "not needed" ${QtTest_VERSION})
     if (BUILD_GUI)
-        conditional(QtWebEngineWidgets BUILD_WEB "not needed (BUILD_WEB is OFF)" ${QtWebEngineWidgets_VERSION})
+        conditional(QtWebEngineWidgets BUILD_WEB "not used (BUILD_WEB is OFF, or Qt WebEngine was not found)" ${QtWebEngineWidgets_VERSION})
         conditional(DesignerPlugin BUILD_DESIGNER_PLUGIN
                     "not built (BUILD_DESIGNER_PLUGIN is OFF)"
                     "[${DESIGNER_PLUGIN_LOCATION}/${libFreeCAD_widgets}]"

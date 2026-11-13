@@ -3526,6 +3526,13 @@ void Application::initApplication()
     Base::Type::addModuleRoot(mConfig["AppHomePath"] + "Mod");
     Base::Type::addModuleRoot(getUserAppDataDir() + "Mod");
     Base::Type::addModuleRoot(getUserMacroDir() + "Mod");
+    // An installation has the modules' binaries in its library directory,
+    // not in Mod/<X> as a build tree has: without these a saved
+    // "Spreadsheet::Sheet" was refused in every installed package unless
+    // the module happened to be loaded. The files directly in them only.
+    Base::Type::addModuleLibDir(mConfig["AppHomePath"] + "lib");
+    Base::Type::addModuleLibDir(mConfig["AppHomePath"] + "lib64");
+    Base::Type::addModuleLibDir(getLibraryDir());
     {
         const std::string& extra = mConfig["AdditionalModulePaths"];
         std::string::size_type start = 0;

@@ -167,12 +167,15 @@ scale: sets distance from camera to origin, and height of the screen in model
         <UserDocu>listStereoTypes()</UserDocu>
       </Documentation>
     </Methode>
-    <Methode Name="saveImage">
+    <Methode Name="saveImage" Keyword="true">
       <Documentation>
-        <UserDocu>saveImage(path, width=-1, height=-1, background='Current', comment='$MIBA', samples=..., wait=True)
+        <UserDocu>saveImage(path, width=-1, height=-1, background='Current', comment='$MIBA', samples=..., wait=True, overlays=False)
 
 Write the view to an image file. A width or height of -1 keeps the
 view's own. 'background' is a color name, or 'Current' for the view's.
+overlays=True paints into it the widgets over the view that ask for it
+(a dynamic property "pictureOverlay", true) -- a legend, say -- where
+they are on the view, scaled with the picture; Save Picture does.
 wait=True (the default) captures a COMPLETE backend frame, with every
 user shader compiled and every deferred shape arrived
 (waitFrameComplete); wait=False takes the next frame as it stands.

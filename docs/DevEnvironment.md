@@ -419,6 +419,8 @@ see [FEM](#fem-and-the-external-smesh-it-links).
 and then makes `Qt6WebEngineWidgets` a hard `find_package` failure at
 `SetupQt.cmake:32`. WebEngine is no longer wanted, so the tracked preset sets
 `BUILD_WEB=OFF` rather than the env carrying the package.
+(Superseded 2026-11-11: a missing WebEngine is a warning now, and the preset
+no longer sets the option -- see "`BUILD_WEB` defaults OFF" below.)
 
 Two things the create line deliberately leaves out, because neither may be
 solved normally in this env: `smesh` (see
@@ -892,6 +894,29 @@ other consumers are `src/Mod/CMakeLists.txt` and the macOS bundle's Qt
 deployment. The presets on all three boxes already set it OFF explicitly; that
 line is now redundant rather than load-bearing, and is kept so the value is
 visible in the preset.
+
+**2026-11-11: ON again, and it gives way.** The default is back to
+`option(BUILD_WEB ... ON)`, and what made that a trap is gone: `SetupQt.cmake`
+looks for `WebEngineWidgets` on its own, without `REQUIRED`, and when it is
+not there the configure prints
+
+    BUILD_WEB is ON but Qt6 WebEngineWidgets was not found: building without
+    the Web module.
+
+and carries on with `BUILD_WEB` off for that run. Only a normal variable is
+set; the cache entry stays `ON`, so installing WebEngine and configuring
+again builds the module with nothing else to change. The final report shows
+which it was (`BUILD_WEB: OFF` and `QtWebEngineWidgets: not used ...`).
+`conda-linux-801-relwithdebinfo` no longer sets the option -- a preset's `OFF`
+would beat the default on every configure -- and a local preset should not
+either. **A tree that already exists keeps its cached `OFF`**: pass
+`-DBUILD_WEB=ON` once, or delete the tree.
+
+The table above has moved too. conda-forge now carries `qt6-webengine` 6.11.2
+and 6.11.3 for linux-64, linux-aarch64, win-64 and osx-arm64 (and 6.11.1 for
+osx-arm64); osx-64 still has none. And the osx-arm64 `pyside6` 6.11.1 does
+import `QtWebEngineWidgets`. Verified on the Apple-silicon box only: without
+the package the warning and a clean configure, with it the module built.
 
 ### Cycles (path-traced renderer)
 
@@ -1772,6 +1797,17 @@ suites now exist and run; all 60 of them need the guest wheel. If a number comes
 out far below these, the shortfall usually names its own cause: 1287 means `ply`
 is missing (`TestCAMApp`), ~2350 means `ifcopenshell` is (`TestArch`), 2538 means
 `BUILD_FEM=OFF`, and 499/559 on the C++ side means no `fcx_image` wheel.
+
+The Assembly simulation's Save Animation needs **PyAV** (`av`) for MP4 and AVI
+(a GIF only Pillow): without it the suites still pass -- `TestSimulationExport`
+skips -- and the GUI says so in an error box, which on the hidden desktop blocks
+a script until its guard ends it. The feedstock has `av` and `pillow` in its run
+deps. Into the Windows env, 2026-11-11, with ffmpeg held at the env's minor
+(one new package, av 18.1.0; ffmpeg 9.0.1 to a newer build of itself):
+
+```sh
+conda install -p ~/works/sw/fcad/.conda/freecad -y av "ffmpeg=9.0.1"
+```
 
 ### Quick verification after rebuilds
 
@@ -4229,7 +4265,6 @@ Darwin branch (`_LIBCPP_DISABLE_AVAILABILITY`, `BOOST_NO_CXX98_FUNCTION_BASE`,
         "BUILD_FEM": "ON",
         "FREECAD_USE_EXTERNAL_SMESH": "ON",
         "BUILD_FEM_NETGEN": "ON",
-        "BUILD_WEB": "OFF",
         "FREECAD_USE_PCL": "ON",
         "ENABLE_DEVELOPER_TESTS": "ON"
       }
@@ -4238,8 +4273,9 @@ Darwin branch (`_LIBCPP_DISABLE_AVAILABILITY`, `BOOST_NO_CXX98_FUNCTION_BASE`,
 }
 ```
 
-FEM and PCL were `OFF` in this preset until 2026-09-08 and `BUILD_WEB`
-still is -- there is no QtWebEngine for osx-64. Remember that a preset
+FEM and PCL were `OFF` in this preset until 2026-09-08. `BUILD_WEB` was set
+`OFF` here until 2026-11-11; it is left to its default now, which is ON and
+falls back with a warning on osx-64, where there is no QtWebEngine. Remember that a preset
 edit does not reach a tree that already exists (CLAUDE.md): force the
 four flags on the command line, or delete the tree.
 
@@ -4366,6 +4402,127 @@ Two things this box says that the Linux one does not:
   of the same gap on a 4-core box.
 - The **pivy wheel** (`FREECAD_PIVY_WHEEL`) is not built here; nothing the
   browser console needs wants it.
+
+### Apple silicon (Mac mini M2, macOS 13.4) (2026-11-11)
+
+The second macOS box, `mini`: M2, arm64, 8 cores, 8 GB, macOS 13.4, Xcode
+14.3.1 (**SDK 13.3**), Homebrew in `/opt/homebrew`. The recipe above runs
+as written with `osx-arm64` for `osx-64` and `clang_osx-arm64
+clangxx_osx-arm64` in the create line; the preset, `run.sh`, OCCT, Coin and
+pivy are unchanged. Build at `-j 4` here too -- the cores would take more,
+the 8 GB does not. What differed:
+
+- **The header audit greps for both Homebrew prefixes.** `xcrun` still
+  exports `/usr/local/include`, and Homebrew itself is in `/opt/homebrew`:
+
+  ```sh
+  ~/works/sw/fcad/.conda/run.sh ninja -C <build dir> -t deps \
+    | egrep -c '/usr/local/include|/opt/homebrew'
+  ```
+
+  Zero in the fcad, occt and coin trees.
+- **Qt stays 6.11.1.** The osx-arm64 `qt6-main=6.11.2` has the same
+  `moltenvk >=1.4.2` -> `__osx >=14.0` dependency as osx-64.
+- **Pin `hdf5=1.14.6` in the FEM install itself** (`vtk=9.6.2 hdf5=1.14.6
+  libmed ...`) and add `hdf5 ==1.14.6` to `conda-meta/pinned`. Left open,
+  the solve takes hdf5 2.2.0, and IfcOpenShell needs `<1.15`. smesh links
+  no hdf5, so nothing else moves.
+- **The realthunder channel has the osx-arm64 builds**: smesh 9.9.0.0
+  `hb280e95_27` (explicit file, as above), libarea 0.3.2, and
+  ifcopenshell `py312h0cb97cd_13` (explicit, seven packages, no `occt`).
+- **Sign again after `install_name_tool`.** "The module loads anyway" is
+  true on Intel only: arm64 refuses to load a binary whose signature the
+  edit invalidated. After the `-add_rpath` on `_ifcopenshell_wrapper`:
+
+  ```sh
+  codesign --force -s - <the same .so>
+  ```
+
+- **`BUILD_CYCLES` defaults to ON since 2026-10-19** and needs
+  `openimageio embree openimagedenoise` in the env (3.2.2, 4.4.1 and 2.5.1
+  here; the dry run moved nothing the stack is pinned to).
+- **conda-forge's osx-arm64 `minizip` ships gtest and gmock** (1.16, all
+  three builds of 4.2.2) into the env's `include/` and `lib/`. The env's
+  headers preceded the vendored ones, and its `MakeAndRegisterTestInfo()`
+  takes a `std::string` where the vendored library takes a `const char*`,
+  so every test executable failed to link. `tests/CMakeLists.txt` now puts
+  the vendored include directories first.
+- **A submodule that is `shallow = true` and pinned off its branch tip can
+  abort `git submodule update`.** `src/3rdParty/chrono` did, with
+  "transport 'file' not allowed" and then "did not contain 41abf82e"
+  (git 2.39.2; the cause was not found -- a fresh superproject with the
+  same entry clones). The way through is
+  `git -C <submodule> fetch --depth 1 origin <sha>` and a checkout. The
+  abort also left `vg-renderer` and `tests/render/refs` cloned but never
+  checked out -- empty directories, every file staged as deleted -- which
+  `git -C <submodule> reset --hard <pin>` repairs. **`git submodule status`
+  does not show this; check that every submodule has files.**
+- **`QtWebEngine` exists for osx-arm64**, so the Web module builds here
+  where osx-64 cannot have it:
+
+  ```sh
+  mamba install -p ~/works/sw/fcad/.conda/freecad -c conda-forge \
+    six qt6-webengine=6.11.1
+  ```
+
+  Name the version: it has to be qt6-main's. The solve leaves Qt, pyside6,
+  vtk, hdf5, boost and fmt where they are, and takes older builds of ffmpeg
+  9.0.2, libabseil, libprotobuf and the openvino set (19 downgrades, none of
+  them linked by the tree directly). `six` is in the same line because the
+  Python audit found it missing.
+- `ld` warns that OCCT and Coin were built for macOS 13.0 while FreeCAD's
+  deployment target is 11.2. Harmless.
+- **`FREECAD_USER_HOME` is ignored unless the directory exists**, and the
+  first run then migrates `~/Library/Application Support/FreeCAD` into
+  `.../Thundereal`. `mkdir` the scratch home before a test run.
+
+Three fixes in source, none of them arm64's own:
+
+| Fix | What |
+|---|---|
+| `src/Mod/Assembly/App/Solver/Formula.cpp` | `<cstdlib>` for `std::strtod` -- the libc++ transitive-include class again |
+| `src/Mod/Assembly/App/AssemblyObject.cpp` | `getFlexibleFrequencies()` called `Solver::Chrono::flexibleFrequencies()` unconditionally, and `ChronoBackend.cpp` is built only with `BUILD_ASSEMBLY_CHRONO`: the **default** build did not link on any platform. The call is under `ASSEMBLY_WITH_CHRONO` now |
+| `cycles` `src/device/metal/util.mm` | `MTLBindingAccessReadWrite` is the macOS 14 SDK's name; under SDK 13 it is `MTLArgumentAccessReadWrite`. Xcode 15 needs macOS 13.5, so this box cannot simply take the newer SDK |
+
+**The suites are not green here yet.** First run, 2026-11-11, `main` at
+`2cf90d50b6`: C++ **1114 of 1121**, Python **5131 tests, 19 failures, 2
+errors**. After the fixes below, `main` at `0418e879c9` with OCCT at
+`08ca431659` and libarea 0.3.3: C++ **1118 of 1119** with the two
+`RenderGolden` tests left out
+(`QT_QPA_PLATFORM=offscreen ctest -j 4 -E '^RenderGolden'`, 50 s), Python
+**5133 tests, 15 failures, 2 errors**, 473 skipped, 6 expected failures
+(`ThunderealCmd -t 0` under `script`, 286 s) -- all seventeen the symlinked
+temp folder's, below.
+
+What was found and fixed:
+
+| Failing | Cause | Fix |
+|---|---|---|
+| `FormulaEvaluator.valuesMatchOndselSolver`, `derivativesMatchOndselSolver` | **libc++'s `operator>>(double)` consumes the `d` of `1.5d-1`**, fails and leaves 0; libstdc++ stops at the `d`. On macOS OndselSolver read such a term as 0 | OndselSolver `015de97`: `SymbolicParser::xDigit` takes the digits itself |
+| `PublishOnly.noGraphicsDeviceIsCreated` | Cycles' `g_bvh_build_throttler`, a global in `device/metal/bvh.mm`, called `MTLCreateSystemDefaultDevice()` in its constructor: every process that loaded `libFreeCADRenderer` had `AGXMetalG14G.bundle` mapped before `main()`. Found with `DYLD_PRINT_LIBRARIES=1 DYLD_PRINT_INITIALIZERS=1` and `nm -n` on the initializer's address | cycles `b63d8b234`: the limit is asked on the first build |
+| `AssemblyTests.TestJoints.TestSolveStatus.test_malformed`, `MeshTwin.landsWhatAMeshInPlaceGives`, `CAMTests.TestPathProfile` `test01` to `test03` | **floating-point contraction.** GCC and Clang fuse `a*b+c` into one `fma` where the target has it -- every arm64, not the x86-64 baseline -- and it rounds once where the two operations round twice. The assembly solver dropped a constraint of the wrong one of two conflicting joints; BRepMesh left a face at a deflection of 0.080 with 0.05 asked; libarea split an arc into a line and an arc | `-ffp-contract=off` in three places, each proved by building that part alone with it: FreeCAD (`CompilerChecksAndSetups.cmake`), OCCT (`adm/cmake/occt_defs_flags.cmake`, beside MSVC's `/fp:precise`, `08ca431659`), libarea (`CMakeLists.txt`, 0.3.3) |
+| `SurfaceTests.TestEdgeConditions.testFillOfTwoCurvesG1` -- **new with the flag** | the test, not the feature: `angleAlong()` projected a point of the shared edge onto the fill, and a fill of two curves that meet has two corners at that point. Which one came back turned on the last bit; the feature had reached 0.03 deg | the test reads the edge's own curve on the face |
+
+**OCCT has to be rebuilt after pulling `08ca431659`**, and FreeCAD needs no
+rebuild for that. **libarea has to be 0.3.3**
+(`mamba install -p .conda/freecad -c realthunder -c conda-forge libarea=0.3.3`):
+0.3.2 was built with contraction on arm64 -- `otool -tv` on it counts 792
+fused instructions, 0.3.3 has none -- and the CAM three fail on it. libarea's
+own `area_ops_test` fails four cases on this box with and without the flag,
+to the same digits -- not looked into.
+
+**The first launch of a test binary just linked can outlast gtest's five
+second discovery** on macOS, and `ctest` then stops before running anything
+("Error running test executable ... Timeout: '5'"). Run `ctest` again.
+
+Still failing, and not for this box to settle:
+
+| Failing | What is known |
+|---|---|
+| `TransactionLogTest.aPinnedVersionIsFrozen`; 15 of `Document.TransactionBranchCases` and 2 of `TransactionAuditCases` | **`$TMPDIR` is `/var/folders/...`, and `/var` is a symlink to `/private/var`.** A document keeps the spelling it was given, the file history knows the file by its canonical path and names a version's document after that, and the two spellings meet in the link lookup, the export sets and the merges. Run with `TMPDIR=$(cd "$TMPDIR" && pwd -P)/` and all eighteen pass (`-t Document`: 358 tests, OK). Which spelling a version's document takes is a design decision; not changed |
+| `RenderGoldenRaster`, `RenderGoldenRasterFlat` | the references were blessed on the Intel box's GPU; here depth, normal and ao agree and `beauty` differs in 0.13% of the pixels (flat). **Both open a window on the desktop** -- `ctest -E '^RenderGolden'` for a run that must not |
+
+`FormWidgets_Tests_run` failed once in three `-j 4` runs and passes alone.
 
 ## Regenerating the bundled material icons
 

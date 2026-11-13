@@ -344,10 +344,6 @@
             "type": "BOOL",
             "value": "TRUE"
           },
-          "BUILD_WEB": {
-            "type": "BOOL",
-            "value": "OFF"
-          },
           "BUILD_EXPR_PYODIDE_HOST": {
             "type": "BOOL",
             "value": "ON"

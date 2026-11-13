@@ -25,8 +25,12 @@
 #include "FemMeshShapeObject.h"
 #include <App/PropertyStandard.h>
 
+class TopoDS_Shape;
+
 namespace Fem
 {
+
+class FemMesh;
 
 class FemExport FemMeshShapeNetgenObject: public FemMeshShapeBaseObject
 {
@@ -52,6 +56,22 @@ public:
         return "FemGui::ViewProviderFemMeshShapeNetgen";
     }
     App::DocumentObjectExecReturn* execute() override;
+
+    /// Netgen's settings, as the properties above hold them
+    struct Parameters
+    {
+        double maxSize = 1000;
+        double minSize = 0;
+        bool secondOrder = true;
+        int fineness = 2;
+        double growthRate = 0.3;
+        int nbSegsPerEdge = 1;
+        int nbSegsPerRadius = 2;
+        bool optimize = true;
+    };
+    /// The shape meshed by Netgen into mesh, as execute() does but without a
+    /// document. Throws if the module is built without Netgen.
+    static void meshShape(Fem::FemMesh& mesh, const TopoDS_Shape& shape, const Parameters& params);
 
     // virtual short mustExecute(void) const;
     // virtual PyObject *getPyObject(void);

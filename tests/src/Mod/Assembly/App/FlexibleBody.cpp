@@ -439,8 +439,9 @@ TEST_F(FlexibleBody, cantileverBendsAndRingsInARun)  // NOLINT
     // 8.87 um against 8.95: the mesh a little stiffer, as its modes say
     EXPECT_NEAR(rest, -sag, 0.02 * sag) << "sag " << sag << " mm";
     // Its modal coordinates, of the six modes, after its two interfaces'
-    // deformation
+    // deformation; then its inertia loads, the twelve residual modes'
     bool found = false;
+    bool loads = false;
     for (const Channel& channel : settled.seen) {
         if (channel.quantity == "ModalCoordinates") {
             found = true;
@@ -450,16 +451,24 @@ TEST_F(FlexibleBody, cantileverBendsAndRingsInARun)  // NOLINT
         if (channel.quantity == "InterfaceDeformation") {
             EXPECT_EQ(channel.width, 12);
         }
+        if (channel.quantity == "InertialLoad") {
+            loads = true;
+            EXPECT_EQ(channel.width, 12);
+        }
     }
     EXPECT_TRUE(found);
+    EXPECT_TRUE(loads);
     // Its mode shapes: the node at the middle of its end face, made of them
     // and the coordinates, where the gram welded to that face is
     ASSERT_EQ(settled.shapes.size(), 1u);
     const ModeShapes& shapes = settled.shapes[0];
     EXPECT_EQ(shapes.source, "Flexible");
-    ASSERT_EQ(shapes.columns, 18u);
+    ASSERT_EQ(shapes.columns, 30u);
     const std::size_t from = settled.offsetOf("InterfaceDeformation");
     ASSERT_EQ(settled.offsetOf("ModalCoordinates"), from + 12);
+    ASSERT_EQ(settled.offsetOf("InertialLoad"), from + 18);
+    // At rest, held still: the gravity's alone, in SI
+    EXPECT_NEAR(settled.rows.back()[from + 18 + 2], -g, 1e-3 * g);
     // A node on the bar's axis at x, where the run leaves it
     auto nodeAt = [&](int i) {
         const std::size_t node = (i * 3 + 1) * 3 + 1;  // (10 i, 5, 5)
@@ -643,4 +652,59 @@ TEST_F(FlexibleBody, aRunAgainTakesTheKeptReduction)  // NOLINT
     ASSERT_EQ(first.shapes.size(), 1u);
     ASSERT_EQ(again.shapes.size(), 1u);
     EXPECT_EQ(again.shapes[0].values, first.shapes[0].values);
+}
+
+// The pendulum's reduction as a document keeps it (ModeShapes::reduction,
+// handed back as Flexible::reduction): this process's forgotten, as when the
+// document is opened again, a run handed it takes it, and swings as the first
+// did -- each frame, each channel. Psi is made of the rest, not kept. Another
+// part's, the bar twice as stiff, is not taken
+TEST_F(FlexibleBody, aRunTakesTheReductionItsModelHands)  // NOLINT
+{
+    if (!Chrono::hasFlexibleBodies()) {
+        GTEST_SKIP() << "the Chrono backend has no modal module";
+    }
+    Chrono::forgetFlexibleReductions();
+    RunRecorder first;
+    ASSERT_EQ(run(pendulum(true), first, 0.05, 1e-4), Status::Ok);
+    ASSERT_EQ(first.shapes.size(), 1u);
+    ASSERT_FALSE(first.shapes[0].reduction.empty());
+    const auto numbers = std::make_shared<const std::vector<double>>(first.shapes[0].reduction);
+
+    Chrono::forgetFlexibleReductions();
+    Model handed = pendulum(true);
+    handed.dynamics->flexibles[0].reduction = numbers;
+    const std::size_t kept = Chrono::flexibleModesKept();
+    RunRecorder again;
+    ASSERT_EQ(run(handed, again, 0.05, 1e-4), Status::Ok);
+    EXPECT_EQ(Chrono::flexibleModesKept(), kept + 1);
+    ASSERT_EQ(first.frames.size(), again.frames.size());
+    ASSERT_EQ(first.rows.size(), again.rows.size());
+    double apart = 0.0;
+    for (std::size_t f = 0; f < first.frames.size(); ++f) {
+        for (std::size_t b = 0; b < first.frames[f].size(); ++b) {
+            apart = std::max(apart,
+                             (first.frames[f][b].placement.getPosition()
+                              - again.frames[f][b].placement.getPosition())
+                                 .Length());
+        }
+        ASSERT_EQ(first.rows[f].size(), again.rows[f].size());
+        for (std::size_t c = 0; c < first.rows[f].size(); ++c) {
+            EXPECT_NEAR(again.rows[f][c], first.rows[f][c], 1e-9 * (1 + std::abs(first.rows[f][c])))
+                << "frame " << f << ", column " << c;
+        }
+    }
+    EXPECT_LT(apart, 1e-9) << "mm";
+    ASSERT_EQ(again.shapes.size(), 1u);
+    EXPECT_EQ(again.shapes[0].values, first.shapes[0].values);
+    EXPECT_EQ(again.shapes[0].reduction, first.shapes[0].reduction);
+
+    Chrono::forgetFlexibleReductions();
+    Model stiffer = pendulum(true);
+    stiffer.dynamics->flexibles[0].youngs *= 2.0;
+    stiffer.dynamics->flexibles[0].reduction = numbers;
+    const std::size_t before = Chrono::flexibleModesKept();
+    RunRecorder other;
+    ASSERT_EQ(run(stiffer, other, 0.01, 1e-4), Status::Ok);
+    EXPECT_EQ(Chrono::flexibleModesKept(), before);
 }

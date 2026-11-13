@@ -1073,6 +1073,37 @@ class TestContact(unittest.TestCase):
         self.assertLess(min(z), 15)
         self.assertAlmostEqual(max(z[low:]), 20, delta=5 * 1e-4)
 
+    def test_cancel_within_a_frame(self):
+        """A run on the worker thread is stopped inside a frame, not at its
+        next one: the ball bouncing for 1000 s, the one frame at its end,
+        cancelled half a second in, is done within seconds. A contact's
+        substeps can take minutes a frame, and Cancel did nothing until it
+        was given"""
+        import time
+
+        plate = self.plate()
+        ball = self.ball(20)
+        self.contact([ball], [plate], Stiffness=1.0, MaxDamping=0.0, StaticFriction=0.0)
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.ImpactFrames = False  # the output frames alone
+        sim.AnalysisType = "Dynamic"
+        sim.TimeEnd = 1000
+        sim.TimeStepOutput = 1000
+        sim.Elements = self.sets
+        self.doc.recompute()
+        self.assertEqual(self.assembly.startSimulation(sim), 0)
+        time.sleep(0.5)
+        progress = self.assembly.getSimulationProgress()
+        self.assertFalse(progress["Done"], progress)
+        start = time.monotonic()
+        self.assembly.cancelSimulation()
+        while not self.assembly.getSimulationProgress()["Done"]:
+            self.assertLess(time.monotonic() - start, 5.0)
+            time.sleep(0.01)
+        self.assertEqual(self.assembly.finishSimulation(), -7)
+        self.assertEqual(self.assembly.numberOfFrames(), 0)
+
     def test_sliding_friction(self):
         """A block sent sliding along the plate slows at mu g, mu the
         dynamic friction while it slides faster than the friction velocity"""

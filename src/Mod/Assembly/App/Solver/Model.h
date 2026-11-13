@@ -626,8 +626,14 @@ struct Flexible
     std::vector<Interface> interfaces;
     // The nodes a contact on it touches it through (D4b step 5): the faces
     // it is touched on, one interface of their own that every contact
-    // shape on the body rides; empty, none is
+    // shape on the body rides; empty, a contact touches its mesh anywhere
+    // (D4b step 8)
     std::vector<Id> contactNodes;
+    // Its reduction kept in the document (FlexibleBody::Reduction), a
+    // backend's as it handed it over (ModeShapes::reduction): taken where it
+    // is of the part as it is now, else made again. Shared, not copied with
+    // the model; none, null
+    std::shared_ptr<const std::vector<double>> reduction;
 };
 
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has

@@ -81,13 +81,16 @@ def rePopulateIcons():
     global iconKind
     try:
         text = indicator.palette().color(indicator.foregroundRole())
+        # The styles are made after the indicator, and a palette change can
+        # come in between: on a Mac in dark mode it did, at every start.
+        actions = gStyle.actions()
     except NameError:
         return False
     kind = "light" if text.lightness() > 127 else "dark"
     if kind == iconKind:
         return False
     iconKind = kind
-    for action in gStyle.actions():
+    for action in actions:
         name = action.objectName().replace("Indicator_", "")
         path = ":/icons/" + name + "_" + kind + ".svg"
         if not QtCore.QFile.exists(path):

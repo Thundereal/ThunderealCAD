@@ -3,13 +3,14 @@
 a dynamic run, an Assembly::FlexibleBody in the Physics group. Not upstream.
 
 What the run takes from it is made here, before the run: the component's
-mesh of 10-node tetrahedra (Netgen, through the Fem workbench, in a hidden
-document of its own) and its interfaces -- for each frame of the model on
+mesh of 10-node tetrahedra (Netgen, through the Fem module, in no
+document: Fem.meshNetgen()) and its interfaces -- for each frame of the model on
 the component, the nodes on the faces that hold it there: a joint's faces
 on the component, as D4a's loads take them (MotionLoads._facesOf()); a
 force element's end, the nearest node, the run's default; and the nodes of
 the faces a contact touches it on (ContactFaces), one interface of their
-own its contacts press it through (D4b step 5). Kept on the object, remade
+own its contacts press it through (D4b step 5); without them a contact
+presses its mesh anywhere, where it touches. Kept on the object, remade
 when the shape, the mesh size, what holds the component or its contact
 faces change (MeshSignature)."""
 
@@ -32,20 +33,27 @@ def flexibleBodiesOf(sim):
     return [e for e in getattr(sim, "Elements", []) if isFlexibleBody(e)]
 
 
+def newFlexibleBody(assembly, component):
+    """A flexible body of a component in the assembly's Physics group, ticked
+    in every Dynamic study of it"""
+    physics = assembly.getGroup("Physics", True)
+    flexible = physics.newObject("Assembly::FlexibleBody", "FlexibleBody")
+    flexible.Component = component
+    flexible.Label = "Flexible %s" % component.Label
+    sims = assembly.getGroup("Simulations")
+    for sim in sims.Group if sims else []:
+        if getattr(sim, "AnalysisType", None) == "Dynamic":
+            sim.Elements = list(sim.Elements) + [flexible]
+    return flexible
+
+
 def makeFlexibleBody(assembly, component):
     """A flexible body of a component, in a transaction; used by every
     Dynamic study of the assembly"""
     doc = assembly.Document
     doc.openTransaction("Create flexible body")
     try:
-        physics = assembly.getGroup("Physics", True)
-        flexible = physics.newObject("Assembly::FlexibleBody", "FlexibleBody")
-        flexible.Component = component
-        flexible.Label = "Flexible %s" % component.Label
-        sims = assembly.getGroup("Simulations")
-        for sim in sims.Group if sims else []:
-            if getattr(sim, "AnalysisType", None) == "Dynamic":
-                sim.Elements = list(sim.Elements) + [flexible]
+        flexible = newFlexibleBody(assembly, component)
     finally:
         doc.commitTransaction()
     return flexible
@@ -97,8 +105,10 @@ def _signature(flexible, local, holds, touched):
         " ".join("%.9g" % v for v in (box.XMin, box.YMin, box.ZMin, box.XMax, box.YMax, box.ZMax)),
         "%.9g" % flexible.MeshSize.Value,
     ]
+    # Each frame by its joint's name in the document: the document is named
+    # again when opened from a file of another name, and its mesh is the same
     for label, ref in holds:
-        parts.append("%s %s" % (label, ref[1]))
+        parts.append("%s %s" % (label.split("#")[-1], ref[1]))
     if touched:
         parts.append("contact %s" % " ".join(touched))
     return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
@@ -124,87 +134,120 @@ def contactFacesOf(flexible):
     return names
 
 
-def prepare(flexible, force=False):
-    """The flexible body's mesh and interfaces made, unless they are of what
-    the component is now. True when made."""
+def _whatMeshes(flexible):
+    """(shape, interfaces, contact faces, signature) the mesh is made of, as
+    the component is now; None without a component in an assembly"""
     import Part
-
-    import MotionLoads
 
     component = flexible.Component
     assembly = _assemblyOf(flexible)
     if component is None or assembly is None:
-        return False
+        return None
     local = Part.getShape(component, "", transform=False)
     if local.isNull() or not local.Solids:
         raise ValueError("the flexible body %s is of a component with no solid" % flexible.Label)
     holds = interfacesOf(assembly, component)
     touched = contactFacesOf(flexible)
-    signature = _signature(flexible, local, holds, touched)
+    return local, holds, touched, _signature(flexible, local, holds, touched)
+
+
+def meshState(flexible):
+    """Whether the flexible body's mesh is made: "none", "current" -- of what
+    the component, the size, what holds it and its contact faces are now --
+    or "stale", which the next run (prepare()) remakes"""
+    if not flexible.Nodes:
+        return "none"
+    try:
+        found = _whatMeshes(flexible)
+    except ValueError:
+        return "stale"
+    return "current" if found and found[3] == flexible.MeshSignature else "stale"
+
+
+def defaultMeshSize(flexible):
+    """The mesh size a MeshSize of 0 stands for, mm: a fortieth of the
+    component's diagonal; 0 without a component"""
+    import Part
+
+    component = flexible.Component
+    if component is None:
+        return 0.0
+    local = Part.getShape(component, "", transform=False)
+    return 0.0 if local.isNull() else local.BoundBox.DiagonalLength / 40.0
+
+
+def prepare(flexible, force=False):
+    """The flexible body's mesh and interfaces made, unless they are of what
+    the component is now. True when made."""
+    import MotionLoads
+
+    found = _whatMeshes(flexible)
+    if found is None:
+        return False
+    local, holds, touched, signature = found
     if not force and flexible.MeshSignature == signature and flexible.Nodes:
         return False
 
-    import ObjectsFem
+    import Fem
 
-    work = App.newDocument("FlexibleMesh", hidden=True, temp=True)
-    try:
-        copy = work.addObject("Part::Feature", "Shape")
-        copy.Shape = local
-        mesh = ObjectsFem.makeMeshNetgenLegacy(work, "Mesh")
-        mesh.Shape = copy
-        size = flexible.MeshSize.Value
-        mesh.MaxSize = size if size > 0 else local.BoundBox.DiagonalLength / 40.0
-        mesh.SecondOrder = True
-        mesh.Fineness = 2
-        work.recompute()
-        femmesh = mesh.FemMesh
-        if not femmesh.Volumes:
-            raise ValueError("the flexible body %s could not be meshed" % flexible.Label)
-        # Taken once: each read of Nodes makes the whole dict again
-        points = femmesh.Nodes
-        ids = sorted(points.keys())
-        index = {n: i for i, n in enumerate(ids)}
-        rows, _ = MotionLoads._tet10Nodes(femmesh)
-        tetrahedra = [index[int(n)] for row in rows for n in row]
-        frames = []
-        held = []
-        faces = copy.Shape.Faces
-        for label, ref in holds:
-            element = _element(ref)
-            names = MotionLoads._facesOf(copy.Shape, element) if element is not None else []
-            on = set()
-            for name in names:
-                face = faces[int(name[4:]) - 1]
-                on.update(index[n] for n in femmesh.getNodesByFace(face) if n in index)
-            frames.append(label)
-            held.extend(sorted(on))
-            held.append(-1)
-        # The faces a contact touches it on, one interface of their own,
-        # but for the nodes another holds: two interfaces sharing nodes
-        # would hold each other
-        if touched:
-            holding = {n for n in held if n >= 0}
-            on = set()
-            for name in touched:
-                k = int(name[4:]) - 1
-                if 0 <= k < len(faces):
-                    on.update(index[n] for n in femmesh.getNodesByFace(faces[k]) if n in index)
-            on -= holding
-            if not on:
-                raise ValueError(
-                    "the flexible body %s: its contact faces are none of its component's, "
-                    "or all held by its joints" % flexible.Label
-                )
-            frames.append(CONTACT)
-            held.extend(sorted(on))
-            held.append(-1)
-        flexible.Nodes = [points[n] for n in ids]
-        flexible.Tetrahedra = tetrahedra
-        flexible.InterfaceFrames = frames
-        flexible.InterfaceNodes = held
-        flexible.MeshSignature = signature
-    finally:
-        App.closeDocument(work.Name)
+    # In no document: one made for it would commit the application's open
+    # transaction -- a task panel's
+    size = flexible.MeshSize.Value
+    femmesh = Fem.meshNetgen(
+        local,
+        MaxSize=size if size > 0 else local.BoundBox.DiagonalLength / 40.0,
+        SecondOrder=True,
+        Fineness=2,
+    )
+    if not femmesh.Volumes:
+        raise ValueError("the flexible body %s could not be meshed" % flexible.Label)
+    # Taken once: each read of Nodes makes the whole dict again
+    points = femmesh.Nodes
+    ids = sorted(points.keys())
+    index = {n: i for i, n in enumerate(ids)}
+    rows, _ = MotionLoads._tet10Nodes(femmesh)
+    tetrahedra = [index[int(n)] for row in rows for n in row]
+    frames = []
+    held = []
+    # The faces of the shape meshed: getNodesByFace() knows no other
+    faces = local.Faces
+    for label, ref in holds:
+        element = _element(ref)
+        names = MotionLoads._facesOf(local, element) if element is not None else []
+        on = set()
+        for name in names:
+            face = faces[int(name[4:]) - 1]
+            on.update(index[n] for n in femmesh.getNodesByFace(face) if n in index)
+        frames.append(label)
+        held.extend(sorted(on))
+        held.append(-1)
+    # The faces a contact touches it on, one interface of their own,
+    # but for the nodes another holds: two interfaces sharing nodes
+    # would hold each other
+    if touched:
+        holding = {n for n in held if n >= 0}
+        on = set()
+        for name in touched:
+            k = int(name[4:]) - 1
+            if 0 <= k < len(faces):
+                on.update(index[n] for n in femmesh.getNodesByFace(faces[k]) if n in index)
+        on -= holding
+        if not on:
+            raise ValueError(
+                "the flexible body %s: its contact faces are none of its component's, "
+                "or all held by its joints" % flexible.Label
+            )
+        frames.append(CONTACT)
+        held.extend(sorted(on))
+        held.append(-1)
+    flexible.Nodes = [points[n] for n in ids]
+    flexible.Tetrahedra = tetrahedra
+    flexible.InterfaceFrames = frames
+    flexible.InterfaceNodes = held
+    flexible.MeshSignature = signature
+    # A reduction of the mesh it had is not of this one
+    if hasattr(flexible, "Reduction"):
+        flexible.Reduction = []
     return True
 
 
@@ -401,8 +444,10 @@ def colorsOf(fractions):
 class Deformation:
     """A flexible body's deformation as its last run had it: its mesh's
     surface moved by its mode shapes and the run's coordinates at a time,
-    scaled up to be seen: its largest over the run a tenth of its size,
-    unless show() is given a scale. And its stress there, each mode's
+    scaled up to be seen: its largest over the run a tenth of its size --
+    as it is where that is a twentieth or more -- unless the flexible body
+    has a BendingScale or show() is given a scale. And its stress there,
+    each mode's
     (modalStresses()) weighed by the coordinates, coloured over it, the
     largest over the run red."""
 
@@ -420,6 +465,7 @@ class Deformation:
         self.root = None
         self._stresses = None
         self._largest = None
+        self.automatic = 1.0
         if not self.valid:
             return
         triangles = surfaceOf(list(flexible.Tetrahedra), nodes)
@@ -432,7 +478,9 @@ class Deformation:
         # Every node's, for the stresses; the surface's moved
         self.shapes = np.array(shapes).reshape(len(nodes), 3, columns)
         self.psi = self.shapes[used]  # surface nodes x 3 x columns
-        # The run's coordinates: its interfaces' deformation, then its modes'
+        # The run's coordinates: its interfaces' deformation, then its modes',
+        # then its inertia loads' -- the residual modes' coefficients, what the
+        # modes left out take of its gravity and motion statically
         name = flexible.FullName
         found = {}
         for channel in results.get("Channels", []):
@@ -446,10 +494,16 @@ class Deformation:
 
         interfaces = rows(found.get("InterfaceDeformation", []))
         modes = rows(found.get("ModalCoordinates", []))
+        loads = rows(found.get("InertialLoad", [()] * len(self.times)))
         if len(interfaces) != len(self.times) or len(modes) != len(self.times):
             self.valid = False
             return
-        self.coordinates = np.array([tuple(a) + tuple(b) for a, b in zip(interfaces, modes)])
+        if len(loads) != len(self.times):
+            self.valid = False
+            return
+        self.coordinates = np.array(
+            [tuple(a) + tuple(b) + tuple(c) for a, b, c in zip(interfaces, modes, loads)]
+        )
         if self.coordinates.shape[1] != columns:
             self.valid = False
             return
@@ -458,7 +512,10 @@ class Deformation:
             moved = self.psi @ row
             largest = max(largest, float(np.max(np.linalg.norm(moved, axis=1))))
         size = float(np.max(np.ptp(self.rest, axis=0)))
-        self.scale = 0.1 * size / largest if largest > 0 else 1.0
+        self.automatic = 0.1 * size / largest if largest > 0 else 1.0
+        if self.automatic < 2.0:
+            # Seen as it is
+            self.automatic = 1.0
         self.elasticity = elasticityOf(flexible)
 
     def stresses(self):
@@ -517,6 +574,18 @@ class Deformation:
         span = times[i + 1] - times[i]
         f = (time - times[i]) / span if span > 0 else 0.0
         return self.coordinates[i] * (1 - f) + self.coordinates[i + 1] * f
+
+    @property
+    def scale(self):
+        """How many times the bending is drawn: the flexible body's
+        BendingScale, as it is now, or the automatic one where that is 0.
+        Scaled, a part bent onto another is drawn through it or off it: 1
+        draws it where it is"""
+        try:
+            given = float(self.flexible.BendingScale)
+        except (AttributeError, ReferenceError, RuntimeError):
+            given = 0.0
+        return given if given > 0 else self.automatic
 
     def pointsAt(self, time, scale=None):
         """The surface's nodes at a time, in the component's coordinates"""
@@ -593,8 +662,10 @@ class Legend:
     """The stress colours' scale: from no stress to the largest, in MPa, and
     how many times the bending is drawn, on a light backing of its own so it
     reads on any background. Painted by Qt (paint()), not drawn in the
-    scene: over the 3D view's right side as a widget of its own, and into
-    Save Animation's frames at the same place (the panel's videoFrame()).
+    scene: over the 3D view's right side as a widget of its own, into Save
+    Animation's frames at the same place (the panel's videoFrame()), and
+    into Save Picture's (saveImage(overlays=True), the widget's
+    pictureOverlay).
     The render backend's overlay feed, where a view provider's front root
     goes, reaches neither its frames nor a saved picture (2026-11-06)."""
 
@@ -713,6 +784,8 @@ def _LegendWidget(parent, legend):
             self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
             self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
             self.setObjectName("FlexibleStressLegend")
+            # Painted into Save Picture's picture (saveImage(overlays=True))
+            self.setProperty("pictureOverlay", True)
             parent.installEventFilter(self)
 
         def eventFilter(self, watched, event):

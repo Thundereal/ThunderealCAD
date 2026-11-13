@@ -115,6 +115,23 @@ def build():
             finish()
             return
         FreeCADGui.serveSetGrants([{"token": TOKEN}])
+        # A build without the pyodide sandbox host (BUILD_EXPR_PYODIDE_HOST
+        # off: no v8-embed) or with no runtime installed has nothing for
+        # the page to boot: boot.json answers 503 with why, as
+        # sandbox-console-serve.py reads it.
+        import urllib.error
+        import urllib.request
+
+        try:
+            urllib.request.urlopen(
+                "http://127.0.0.1:%d/pyodide/boot.json?token=%s" % (port, TOKEN), timeout=10
+            ).read()
+        except urllib.error.HTTPError as e:
+            if e.code == 503:
+                reason = json.loads(e.read().decode()).get("error", "")
+                note("SKIP the browser leg: no sandbox runtime to serve: " + reason)
+                finish()
+                return
         url = "http://127.0.0.1:%d/web/console-test.html?token=%s" % (port, TOKEN)
         note("NOTE " + url)
         log = open(os.path.join(OUT, "drive.log"), "w")

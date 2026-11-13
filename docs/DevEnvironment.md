@@ -291,6 +291,13 @@ The order that worked, and what each step needs beyond its own section:
     -DCMAKE_BUILD_TYPE=Release`. It takes `shaderc` from the desktop tree, so it
     comes after FreeCAD. The DOM layer is `npm install && npm run build` in
     `src/Gui/Renderer/web`, with emsdk's node on `PATH`.
+    On mini (2026-11-13): emsdk 6.0.9 in `~/works/sw/emsdk`, installed with
+    `EMSDK_PYTHON=.conda/freecad/bin/python ./emsdk install 6.0.9` and
+    `activate`; then `source ~/works/sw/emsdk/emsdk_env.sh`, unset `CFLAGS`
+    `CXXFLAGS` `LDFLAGS` `CPPFLAGS`, put `.conda/freecad/bin` and
+    `~/works/sw/emsdk/node/24.19.0_64bit/bin` on `PATH`, and configure with
+    `-DFCVIEWER_SHADERC=$PWD/build/mac-relwithdebinfo-801/src/3rdParty/bgfx/cmake/bgfx/shaderc`.
+    218 targets, about ten minutes at `-j 4`.
 
 Times at `-j6 -l 12`: OCCT 21 min (5667 steps), Coin 1 min, pivy 3 min, the pivy
 wheel 2 min, FreeCAD with Cycles and FEM 72 min (9220 steps),

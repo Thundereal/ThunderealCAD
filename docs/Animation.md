@@ -912,6 +912,92 @@ camera track plays only in the view it was keyed in, or in the export view.
   "Determinism"). During export that clock follows `Time`, so water and
   fire match the animation frame for frame.
 
+### 9.1 Streaming, as built
+
+A served document (`Gui.serveDocument`) used to reach its viewers as the
+scene updates each frame's writes make: a publish per frame, a kilobyte or
+so for every object that moved, at whatever rate the host managed. Now the
+viewer plays the motion by itself and the host publishes nothing for it.
+
+**The clip is baked from the feed, not from the tracks.** When the player
+starts an Animation of a served document that somebody is watching, the
+serve source steps it through its range -- at `FrameRate`, 240 frames at
+most -- and after each step traverses the served graph and reads the draws
+it would publish (`Render::MotionClipBaker`, `Gui/Renderer/MotionClip.h`).
+An object, on this wire, is an `objectKey`: one occurrence of a document
+object, as its node path has it. Where every draw of a key moved by one
+rigid transform against the first frame, the key gets a track: that
+transform, a translation and a quaternion per frame. Nothing in the bake
+knows what a track of the Animation is, so keys of any interpolation,
+easing, Turns, strips, an expression reading `Time`, a group or a Link
+moving its children all come out right with no case for each -- the same
+argument as the glTF exporter's baking, one level further down. The time
+it was at is put back when the sweep is done.
+
+**Two messages on the control channel**, both built and parsed by the one
+header the desktop and the browser's viewer share:
+
+    {"cmd":"clip","doc":..,"id":N,"start":s,"step":dt,"frames":F,
+     "keys":["<objectKey, hex>",..],"data":"<base64: F x 7 float32 a key>"}
+    {"cmd":"time","doc":..,"clip":N,"active":..,"playing":..,"t":..,
+     "raw":..,"speed":..,"start":..,"end":..,"loop":..,
+     "v":<manifest version>,"baseActive":..,"base":<Time of that publish>}
+
+`time` is the host's clock: sent when the player's state changes, when
+`Speed`, `Loop` or the range do, after every publish, and once a second
+while it plays. `raw` is the player's own count before `Loop` folds it, so
+the viewer folds it with the same arithmetic (`MotionClock::timeAfter` is
+`AnimationPlayer::tick`) and a PingPong runs the same way on both sides.
+
+**Every publish is named with the Time its pose was taken at** (`v`,
+`base`). That is what makes the rest simple: a viewer holds the draws of
+some publish, and to show Time `t` it moves each clip object's draws by
+`D(t) D(base)^-1`. It does not matter how old the publish is or whether
+more arrive while it plays; a publish that arrives in the middle is posed
+from its own Time. Without a name for the publish it holds (the message
+not there yet, or no Animation active when it was taken) the viewer draws
+it as it came.
+
+**What is held.** With the clip at the viewers, a publish for what the
+Animation writes says nothing new. The serve source asks before it
+schedules one (`SceneServeClip::changed`), and the answer is yes only for
+a write made by the Animation (`WriteCause::Animation`, section 5.1) while
+the player plays, the clip being *exact*: the sweep changed nothing in the
+feed that a track does not say -- no object came or went, none was
+rebuilt, none changed its colour or style, none moved other than rigidly.
+What the Animation writes at a Time is what it wrote there in the sweep,
+so with an exact clip none of it is news, whatever the property (a moved
+Part::Feature's `Shape` is written along with its `Placement`). An
+Animation that also drives a colour or a length, or switches a visibility,
+has a clip that is not exact, and everything it writes publishes as it
+always did; the viewer still moves the rigid part smoothly between the
+publishes that bring the rest. Pausing, scrubbing and stopping always publish, so a viewer that is
+not playing holds the very pose the host is in.
+
+**A real edit makes the clip stale.** Any change not made by the
+Animation, a change of its tracks or range, an object added or removed:
+the viewers are told there is no clip, publishes flow, and if it is still
+playing the clip is baked again half a second after the edits stop. A
+viewer that joins while it plays is sent the clip and the clock; if nobody
+was watching when it started, the join is what bakes it.
+
+**In the viewer** (`wasm/main.cpp`) the draws are moved in place, in the
+scene it holds, once a frame before it is decided whether a frame is
+drawn; the selection drawn over them is rebuilt from the moved draws.
+`window.fcviewerAnimationState()` says what it is playing.
+
+Not in this cut:
+- **Visibility is not in the clip.** A hidden object's geometry is not at
+  the viewer, so a switch arrives as the scene update it always was (and
+  an Animation with one is not held).
+- **Picking while it plays** in the browser is against the draws as the
+  viewer has moved them, but the host resolves the pick in the pose its
+  own clock is at; the two agree to within a frame, not exactly.
+- The desktop's own mirror of a served scene and the Cycles stream do not
+  read the clip.
+- The clip rides the control channel as base64: a few hundred kilobytes
+  for some tens of moving objects, sent once per bake.
+
 ## 10. Python
 
 Built, phase 2 (`App/AnimationPy.xml`; tests in `Mod/Test/TestAnimation.py`):
@@ -1050,12 +1136,15 @@ Phase 5, built so far (2026-11-12):
 - Not done: the renderer's clock following `Time` during export
   (section 9) -- the engine has no setter for its clock yet, so water and
   fire in an exported video run on wall time.
-- Not done: streaming of `Time` with the web viewer playing placement
-  and visibility tracks by itself. A served document's animation reaches
-  the viewer today as the scene updates each frame's writes make. The
-  viewer side is wasm, which the box this was built on (mini) has no
-  toolchain for, so it was not started blind. The glTF exporter's baked
-  samples are the data such a clip would carry.
+- Streaming of `Time` (section 9.1): the host bakes a motion clip from
+  the feed it publishes, sends it with its clock, and holds the publishes
+  the clip already says; the browser's viewer plays it by itself.
+  `Gui/Renderer/MotionClip.h` (shared), `Gui/SceneServeClip.*` (host),
+  `wasm/main.cpp` (viewer). Tests: `MotionClip_tests_run` (the bake, the
+  wire, the clock), `tests/gui/serve-animation.py` (the wire, with a
+  synthetic client) and `tests/gui/serve-animation-browser.py` (a browser
+  drawing it, `scripts/animation-drive.js`). Visibility is not in the
+  clip. mini has the wasm toolchain now (emsdk 6.0.9, `~/works/sw/emsdk`).
 - Not built: the frame cache -- "if needed", and nothing measured yet
   says it is.
 - The manual (thundereal-manual `core/animation`, "Exporting", with

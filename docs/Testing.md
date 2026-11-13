@@ -1110,6 +1110,22 @@ what caught the viewer fitting to an object only another client shows. Its
 first runs found two more on the way: a client's show raised no publish on
 the host, and the snapshot never carried a per-view-shown draw at all.
 
+`serve-animation.py` and `serve-animation-browser.py` (2026-11-13,
+`scripts/animation-drive.js`) are a served document's Animation as its
+viewers play it by themselves (`docs/Animation.md` sec 9.1). The first reads
+the wire with a synthetic client, 26 checks: the clip's track is the box's
+own move, the clock says what the player does, every publish is named with
+the Time of its pose, and while it plays NOTHING is published though the
+box moves on the host. The second is the half only a canvas shows, 16
+checks by colour: a red box drawn somewhere else at each of eight readings
+on one publish, a green one that stays, the paused pose held at the host's
+Time, the rest pose back after Stop. It takes `NODE` as well as
+`PUPPETEER_PATH` and `CHROME`. Neither is registered, the browser one for
+the reason above and the first because it plays by the wall clock. On mini
+(macOS, no `gui-test.sh` display): `tests/gui` on `PYTHONPATH`, the manual's
+`tools/run-gui-script.sh`, node from `~/works/sw/emsdk/node`, puppeteer-core
+in `~/works/sw/fcad-probes`, the system Chrome.
+
 **On Windows they do not register**, and cannot: `tests/gui/CMakeLists.txt`
 wants `xvfb-run` and `.conda/run.sh`, and the box has neither. Run one with
 `scripts/gui-test.cmd`, the Windows driver (2026-10-29):

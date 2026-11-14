@@ -313,7 +313,8 @@ def verify():
         check("and nowhere else", outside and all(n < 200 for n in outside), greens)
         # Read by its yellow: the background's gradient is blue too
         yellows = sorted((round((lo + hi) / 2, 3), spot(s, "yellow")[0]) for (lo, hi), s in caught)
-        early = [y for t, y in yellows if t < 0.75]
+        # Halfway (1.5 s) it is a grey, no yellow yet
+        early = [y for t, y in yellows if t < 1.5]
         late = [y for t, y in yellows if t > 2.25]
         check("the blue box turns yellow as the Time goes on",
               early and late and all(y < 50 for y in early) and all(y > 200 for y in late),

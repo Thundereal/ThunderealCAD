@@ -1240,7 +1240,13 @@ Phase 3, built (2026-11-12), and what is left of it:
   made to, not what it set in turn, a Legacy name (Part's Transparency)
   included; `Gui::Document::slotTouchedObject` no longer marks the
   document modified for an animated write's touch.
-- Left: the Driven mark inside the expression editor.
+- The Driven mark inside the expression editor (2026-11-14): opened on a
+  property the timeline's Animation keys, `DlgExpressionInput` adds an
+  orange note below the rest (`animationDriven`) -- the keys and the
+  expression both write it, which shows, and to write the expression in
+  `<Anim>.Time` to animate it. `tests/gui/animation-timeline.py` opens it
+  from a bound spin box, as `=` does, on a keyed property and on one with
+  no track.
 
 Phase 4, built so far (2026-11-12):
 - The camera track (4173274215, `Gui/AnimationCamera.cpp`): the handler

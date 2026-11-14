@@ -10,6 +10,8 @@ A document with a cylinder, its Height keyed 10 mm at 0 s and 40 mm at
     back;
   - the key menu's Interpolation > Constant sets the key's interpolation,
     and Interpolation > Python... the expression it asks for;
+  - the expression editor opened on a keyed property says it is Driven,
+    and on one with no track says nothing;
   - a key clicked and Delete pressed is removed;
   - the property editor marks Height: green between keys, yellow on a key,
     orange typed and not keyed;
@@ -292,6 +294,42 @@ def run():
         check("Interpolation > Python... sets the expression it asks for",
               "Python..." in chosen and key["Interp"] == "Python" and key.get("Python") == "u * u",
               key)
+
+        # The expression editor on a keyed property: Driven (3.11)
+        def driven(prop):
+            spin = Gui.UiLoader().createWidget("Gui::QuantitySpinBox")
+            Gui.ExpressionBinding(spin).bind(post, prop)
+            spin.show()
+            pump(0.2)
+            seen = {}
+
+            def look():
+                for w in QtWidgets.QApplication.allWidgets():
+                    if w.metaObject().className() == "Gui::Dialog::DlgExpressionInput" \
+                            and w.isVisible():
+                        label = w.findChild(QtWidgets.QLabel, "animationDriven")
+                        seen["text"] = label.text() if label is not None else ""
+                        w.close()
+                        return
+                seen.setdefault("tries", 0)
+                seen["tries"] += 1
+                if seen["tries"] < 30:
+                    QtCore.QTimer.singleShot(100, look)
+
+            QtCore.QTimer.singleShot(300, look)
+            spin.setFocus()
+            QtWidgets.QApplication.sendEvent(spin, QtGui.QKeyEvent(
+                QtCore.QEvent.KeyPress, Qt.Key_Equal, Qt.NoModifier, "="))
+            pump(1.5)
+            spin.deleteLater()
+            pump(0.2)
+            return seen.get("text")
+
+        text = driven("Height")
+        check("the expression editor on a keyed property says it is Driven",
+              text is not None and text.startswith("Driven:") and anim.Name in text, text)
+        text = driven("Radius")
+        check("and on one with no track says nothing", text == "", text)
 
         # Delete a key
         anim.addKey("Post.Height", 1.0, 20.0)

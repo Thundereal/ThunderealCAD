@@ -26,12 +26,16 @@
 
 #ifndef _PreComp_
 # include <QApplication>
+# include <QBoxLayout>
+# include <QLabel>
 # include <QMenu>
 # include <QMouseEvent>
 # include <QPainter>
 #endif
 
+#include <App/Animation.h>
 #include <App/Application.h>
+#include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/ExpressionParser.h>
 #include <App/ExpressionSecurityRuntime.h>
@@ -39,6 +43,7 @@
 #include <Base/Tools.h>
 
 #include "DlgExpressionInput.h"
+#include "AnimationTimeline.h"
 #include "Application.h"
 #include "ui_DlgExpressionInput.h"
 
@@ -97,6 +102,31 @@ DlgExpressionInput::DlgExpressionInput(const App::ObjectIdentifier & _path,
     // Set document object on line edit to create auto completer
     DocumentObject * docObj = path.getDocumentObject();
     ui->expression->setDocumentObject(docObj);
+
+    // An Animation keys this property: with an expression on it as well it
+    // is Driven, written by both (docs/Animation.md sec 3.11)
+    if (auto prop = path.getProperty()) {
+        auto anim = docObj ? Gui::activeAnimation(docObj->getDocument()) : nullptr;
+        if (anim && Gui::animationKeyMark(*prop, &path).isValid()) {
+            auto note = new QLabel(this);
+            note->setObjectName(QStringLiteral("animationDriven"));
+            note->setWordWrap(true);
+            note->setStyleSheet(QStringLiteral("color: #e08020;"));
+            note->setText(tr("Driven: %1 keys this property and the expression writes it too. "
+                             "With Recompute Touched or Full the expression's value shows; to "
+                             "animate it, write the expression in %2.Time.")
+                              .arg(QString::fromUtf8(anim->Label.getValue()),
+                                   QString::fromUtf8(anim->getNameInDocument())));
+            // Below the rest, in the dialog's own layout: the splitter
+            // above keeps its sizes, and the dialog grows by the note
+            if (auto box = qobject_cast<QBoxLayout*>(layout())) {
+                box->addWidget(note);
+            }
+            else {
+                note->deleteLater();
+            }
+        }
+    }
 
     // There are some platforms where setting no system background causes a black
     // rectangle to appear. To avoid this the 'NoSystemBackground' parameter can be

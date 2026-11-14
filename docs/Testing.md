@@ -170,6 +170,50 @@ then the command as plain arguments, not as one quoted string.
 A single module instead of everything: `FreeCADCmd -t TestPartApp`, or from
 the Python console `import Test; Test.runTestApp()`.
 
+#### Python, split by module
+
+    scripts/pytest-split.sh
+
+runs every module of `FreeCAD.__unit_test__` in a `FreeCADCmd` of its own,
+six at a time, each with its own profile and temporary directory, and
+prints a line per module and the totals (`--help` has the options; module
+names as arguments run only those). Measured 2026-11-13 on this box (20
+cores): 150 s for the 358 s of `-t 0`, and the same 4388 tests, 53 skipped,
+6 expected failures. The longest modules set the time: `TestPartDesignApp`
+137 s, `Document` 68 s, `TestPartApp` 59 s.
+
+**Why it exists: `-t 0` under an address-space limit dies, and not on a
+test.** One process running everything reserves 16.8 GB of address space
+and uses 1.1 to 1.6 GB of it. What is reserved, at 15.2 GB:
+
+| | reserved | why |
+|---|---|---|
+| glibc malloc arenas | 5.6 GB | 90 arenas of 64 MB, one per thread; about 110 threads, from pools sized to the cores (OpenBLAS 19 on `import numpy`, OCCT 15, Qt 19, libgomp 19, V8 15, Python 21) |
+| V8 | 4.8 GB | the expression sandbox (Pyodide on V8): a 4 GB wasm memory reservation and a 512 MB code range |
+| OpenBLAS | 2.5 GB | 20 buffers of 128 MB |
+| thread stacks | 0.9 GB | |
+| libraries | 0.6 GB | |
+
+Under `ulimit -v 16000000` the run gets to its last modules and then a
+thread cannot be created: "terminate called without an active exception"
+out of `App::Document::saveToFile`, which reads like a crash in the test
+that happened to be saving. It is the limit. Three ways round it, any one
+of which is enough:
+
+- no limit, or one of 32 GB;
+- `MALLOC_ARENA_MAX=8 OPENBLAS_NUM_THREADS=1` in the environment, with
+  which the same single process peaks at 7.65 GB in the same time;
+- the split, which sets those two and gives each process 8 GB
+  (`--cap`).
+
+Two things the split has to get right, both of which cost a wrong answer
+when they were missed: each process needs its own `FREECAD_USER_HOME`
+*and* its own `TMPDIR`, because tests save documents under fixed names;
+and the expression sandbox's guest lives in the profile, so a scratch
+profile without it skips 29 sandbox tests ("no sandbox guest in this
+build") -- the script links the user's `Pyodide` directory into each
+profile.
+
 #### Audit the Python environment first, on a new box
 
 A green `ctest` says nothing about the Python side: `FreeCADCmd` links no

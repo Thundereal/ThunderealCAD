@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "Gui/Renderer/MotionClip.h"
+#include "Gui/Renderer/MotionClipBlob.h"
 
 using namespace Render;
 
@@ -215,7 +216,7 @@ TEST(MotionClipBaker, aChangedColourIsNoMove)
     EXPECT_EQ(clip.keys[0], 2U);
 }
 
-TEST(MotionClipBaker, anObjectThatGoesOrComesMakesTheClipNotExact)
+TEST(MotionClipBaker, anObjectThatGoesOrComesWithNowhereToKeepItsDrawsIsNotExact)
 {
     auto a = mesh(11), b = mesh(12);
     {
@@ -227,9 +228,13 @@ TEST(MotionClipBaker, anObjectThatGoesOrComesMakesTheClipNotExact)
         baker.frame(feed(2, 3, a, b));
         MotionClip clip = baker.finish(1, 0.0, 1.0);
         EXPECT_FALSE(clip.exact);
-        // The one that stayed is still played
-        ASSERT_EQ(clip.keys.size(), 1U);
-        EXPECT_EQ(clip.keys[0], 2U);
+        // The one that went has a track all the same, hidden at frame 1
+        ASSERT_EQ(clip.keys.size(), 2U);
+        EXPECT_EQ(clip.keys[0], 1U);
+        EXPECT_EQ(clip.keys[1], 2U);
+        ASSERT_EQ(clip.shown.size(), 6U);
+        EXPECT_EQ(clip.shown, (std::vector<uint8_t> {1, 0, 1, 1, 1, 1}));
+        EXPECT_EQ(clip.refBlob[0], -1);
     }
     {
         MotionClipBaker baker;
@@ -238,8 +243,145 @@ TEST(MotionClipBaker, anObjectThatGoesOrComesMakesTheClipNotExact)
         baker.frame(less);
         baker.frame(feed(1, 3, a, b));
         baker.frame(feed(2, 3, a, b));
-        EXPECT_FALSE(baker.finish(1, 0.0, 1.0).exact);
+        MotionClip clip = baker.finish(1, 0.0, 1.0);
+        EXPECT_FALSE(clip.exact);
+        ASSERT_EQ(clip.keys.size(), 2U);
+        // Measured from the frame it came at
+        EXPECT_EQ(clip.refFrame[0], 1);
     }
+}
+
+namespace
+{
+
+/// A store that keeps what it is given, up to \a room blobs
+struct Kept
+{
+    std::vector<DrawCallList> blobs;
+    size_t room = 1000;
+    MotionClipBaker::Store store()
+    {
+        return [this](const DrawCallList &draws) -> int32_t {
+            if (blobs.size() >= room) {
+                return -1;
+            }
+            blobs.push_back(draws);
+            return int32_t(blobs.size() - 1);
+        };
+    }
+};
+
+}  // namespace
+
+TEST(MotionClipBaker, aHiddenObjectHasItsDrawsKeptAndTheClipIsExact)
+{
+    auto a = mesh(11), b = mesh(12);
+    Kept kept;
+    MotionClipBaker baker(kept.store());
+    DrawCallList less = feed(0, 4, a, b);
+    less.erase(less.begin() + 1, less.end());
+    // Object 2 hidden at frames 0 and 2
+    baker.frame(less);
+    baker.frame(feed(1, 4, a, b));
+    less = feed(2, 4, a, b);
+    less.erase(less.begin() + 1, less.end());
+    baker.frame(less);
+    baker.frame(feed(3, 4, a, b));
+    MotionClip clip = baker.finish(1, 0.0, 1.0);
+    EXPECT_TRUE(clip.exact);
+    ASSERT_EQ(clip.keys.size(), 1U);
+    EXPECT_EQ(clip.keys[0], 2U);
+    EXPECT_EQ(clip.shown, (std::vector<uint8_t> {0, 1, 0, 1}));
+    EXPECT_FALSE(clip.shownAt(0, 0.2));
+    EXPECT_TRUE(clip.shownAt(0, 0.8));
+    EXPECT_EQ(clip.refFrame[0], 1);
+    ASSERT_GE(clip.refBlob[0], 0);
+    // The kept draws are frame 1's, and the track takes them to frame 3's
+    const DrawCallList &ref = kept.blobs[size_t(clip.refBlob[0])];
+    ASSERT_EQ(ref.size(), 2U);
+    DrawCallList want = feed(3, 4, a, b);
+    double x[16];
+    ASSERT_TRUE(clip.moveBetween(0, clip.timeOf(1), 3.0, x));
+    for (size_t k = 0; k < 2; ++k) {
+        DrawCall moved = ref[k];
+        Motion::moveDraw(moved, x);
+        for (int e = 0; e < 16; ++e) {
+            EXPECT_NEAR(moved.model[e], want[k + 1].model[e], 1e-4) << k << " " << e;
+        }
+    }
+    EXPECT_TRUE(clip.seqKeys.empty());
+}
+
+TEST(MotionClipBaker, aRebuiltShapeIsASequenceOfItsDraws)
+{
+    auto a = mesh(11), b = mesh(12), rebuilt = mesh(13);
+    Kept kept;
+    MotionClipBaker baker(kept.store());
+    const int count = 4;
+    // Rigid for frames 0 to 2, rebuilt at 3
+    baker.frame(feed(0, count, a, b));
+    baker.frame(feed(1, count, a, b));
+    baker.frame(feed(2, count, a, b));
+    baker.frame(feed(3, count, a, rebuilt));
+    MotionClip clip = baker.finish(1, 0.0, 1.0);
+    EXPECT_TRUE(clip.exact);
+    EXPECT_TRUE(clip.keys.empty());
+    ASSERT_EQ(clip.seqKeys.size(), 1U);
+    EXPECT_EQ(clip.seqKeys[0], 2U);
+    ASSERT_EQ(clip.seq.size(), 4U);
+    // Every frame's draws, the ones before the rebuild made from the
+    // moves they were
+    for (int i = 0; i < count; ++i) {
+        const int32_t blob = clip.blobAt(0, double(i));
+        ASSERT_GE(blob, 0) << i;
+        const DrawCallList &got = kept.blobs[size_t(blob)];
+        DrawCallList want = feed(i, count, a, i == 3 ? rebuilt : b);
+        ASSERT_EQ(got.size(), 2U) << i;
+        for (size_t k = 0; k < 2; ++k) {
+            EXPECT_EQ(got[k].objectKey, 2U);
+            EXPECT_EQ(got[k].mesh, want[k + 1].mesh) << i << " " << k;
+            for (int e = 0; e < 16; ++e) {
+                EXPECT_NEAR(got[k].model[e], want[k + 1].model[e], 1e-4) << i << " " << k;
+            }
+        }
+    }
+    EXPECT_EQ(clip.frameAt(1.4), 1U);
+    EXPECT_EQ(clip.frameAt(1.6), 2U);
+    EXPECT_EQ(clip.frameAt(-5.0), 0U);
+    EXPECT_EQ(clip.frameAt(9.0), 3U);
+}
+
+TEST(MotionClipBaker, aSequenceHiddenAtAFrameHasNoDrawsThere)
+{
+    auto a = mesh(11), b = mesh(12), rebuilt = mesh(13);
+    Kept kept;
+    MotionClipBaker baker(kept.store());
+    baker.frame(feed(0, 3, a, b));
+    DrawCallList less = feed(1, 3, a, rebuilt);
+    less.erase(less.begin() + 1, less.end());
+    baker.frame(less);
+    baker.frame(feed(2, 3, a, rebuilt));
+    MotionClip clip = baker.finish(1, 0.0, 1.0);
+    EXPECT_TRUE(clip.exact);
+    ASSERT_EQ(clip.seqKeys.size(), 1U);
+    EXPECT_GE(clip.seq[0], 0);
+    EXPECT_EQ(clip.seq[1], -1);
+    EXPECT_GE(clip.seq[2], 0);
+}
+
+TEST(MotionClipBaker, aSequenceWithNoRoomLeftIsLeftOutAndTheClipIsNotExact)
+{
+    auto a = mesh(11), b = mesh(12), rebuilt = mesh(13);
+    Kept kept;
+    kept.room = 2;
+    MotionClipBaker baker(kept.store());
+    baker.frame(feed(0, 4, a, b));
+    baker.frame(feed(1, 4, a, rebuilt));
+    baker.frame(feed(2, 4, a, b));
+    baker.frame(feed(3, 4, a, rebuilt));
+    MotionClip clip = baker.finish(1, 0.0, 1.0);
+    EXPECT_FALSE(clip.exact);
+    EXPECT_TRUE(clip.seqKeys.empty());
 }
 
 TEST(MotionClipBaker, drawsOfOneObjectMovingApartAreNoRigidMove)
@@ -274,6 +416,76 @@ TEST(MotionClip, whatIsWrittenIsRead)
     EXPECT_EQ(read.keys, clip.keys);
     EXPECT_EQ(read.data, clip.data);
     EXPECT_FALSE(read.empty());
+}
+
+TEST(MotionClip, hiddenFramesAndSequencesAreWrittenAndRead)
+{
+    auto a = mesh(11), b = mesh(12), rebuilt = mesh(13);
+    Kept kept;
+    MotionClipBaker baker(kept.store());
+    DrawCallList first = feed(0, 3, a, b);
+    first.erase(first.begin());
+    baker.frame(first);
+    baker.frame(feed(1, 3, a, b));
+    DrawCallList last = feed(2, 3, a, rebuilt);
+    baker.frame(last);
+    MotionClip clip = baker.finish(3, 0.0, 0.5);
+    for (size_t i = 0; i < kept.blobs.size(); ++i) {
+        clip.blobs.push_back(std::string(40, char('a' + i)));
+        clip.blobSizes.push_back(uint32_t(100 + i));
+    }
+    ASSERT_FALSE(clip.shown.empty());
+    ASSERT_FALSE(clip.seqKeys.empty());
+    MotionClip read;
+    ASSERT_TRUE(read.fromJson(clip.toJson("\"Doc\"").c_str()));
+    EXPECT_EQ(read.keys, clip.keys);
+    EXPECT_EQ(read.data, clip.data);
+    EXPECT_EQ(read.shown, clip.shown);
+    EXPECT_EQ(read.refFrame, clip.refFrame);
+    EXPECT_EQ(read.refBlob, clip.refBlob);
+    EXPECT_EQ(read.seqKeys, clip.seqKeys);
+    EXPECT_EQ(read.seq, clip.seq);
+    EXPECT_EQ(read.blobs, clip.blobs);
+    EXPECT_EQ(read.blobSizes, clip.blobSizes);
+    // A blob number past the table is no clip
+    std::string json = clip.toJson("\"Doc\"");
+    json = json.substr(0, json.find("\"blobs\":[")) + "\"blobs\":[],\"sizes\":[]}";
+    EXPECT_FALSE(read.fromJson(json.c_str()));
+}
+
+TEST(MotionClipBlob, theDrawsOfABlobAreTheDrawsItWasMadeOf)
+{
+    auto owned = std::make_shared<MeshData>();
+    static const float positions[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
+    static const float normals[9] = {0, 0, 1, 0, 0, 1, 0, 0, 1};
+    static const int32_t indices[3] = {0, 1, 2};
+    owned->cacheId = 77;
+    owned->numVertices = 3;
+    owned->positions = positions;
+    owned->normals = normals;
+    owned->triangleIndices = indices;
+    owned->numTriangleIndices = 3;
+    double m[16];
+    placement(0.5, 1, 2, 3, m);
+    DrawCallList draws {draw(5, m, owned)};
+    draws[0].indexCount = 3;
+    draws[0].material.diffuse = 0x336699FF;
+    const std::vector<uint8_t> bytes = motionBlobOf(draws);
+    ASSERT_FALSE(bytes.empty());
+    DrawCallList read;
+    ASSERT_TRUE(motionBlobDraws(bytes.data(), bytes.size(), read));
+    ASSERT_EQ(read.size(), 1U);
+    EXPECT_EQ(read[0].objectKey, 5U);
+    EXPECT_EQ(read[0].material.diffuse, 0x336699FFU);
+    for (int e = 0; e < 16; ++e) {
+        EXPECT_NEAR(read[0].model[e], m[e], 1e-6) << e;
+    }
+    ASSERT_TRUE(read[0].mesh);
+    ASSERT_EQ(read[0].mesh->numVertices, 3);
+    EXPECT_FLOAT_EQ(read[0].mesh->positions[3], 1.0F);
+    // The same draws, the same bytes: what the content key relies on
+    EXPECT_EQ(motionBlobOf(draws), bytes);
+    EXPECT_FALSE(motionBlobDraws(bytes.data(), bytes.size() / 2, read));
 }
 
 TEST(MotionClip, noClipIsWrittenAndReadAsNone)

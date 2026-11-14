@@ -13,8 +13,12 @@ but it reads the wire, and the wire is what is asserted:
   - while it plays, the host publishes nothing for what the clip says --
     the box really moving on the host all the while;
   - pausing publishes the pose it stopped in and says so;
-  - an Animation that also rebuilds a shape is not held: its clip still
-    plays the box, and the publishes flow;
+  - an Animation that also rebuilds a shape and hides an object is held
+    all the same: the shape is a sequence of its draws at every frame,
+    the hidden one a track with the frames it is shown at and its draws
+    kept, every blob servable under the key the clip names;
+  - with no room for those blobs the clip still plays the box, it is not
+    exact, and the publishes flow;
   - an edit while playing drops the clip, and it is baked again;
   - stopping says the document is as designed again.
 
@@ -23,8 +27,10 @@ The drawing half is tests/gui/serve-animation-browser.py.
   scripts/gui-test.sh tests/gui/serve-animation.py /tmp/serve-anim
 """
 import base64
+import hashlib
 import json as jsonlib
 import os
+import urllib.request
 import struct
 import threading
 import time
@@ -145,6 +151,8 @@ def run():
         box = doc.addObject("Part::Box", "Box")
         still = doc.addObject("Part::Box", "Still")
         still.Placement.Base = App.Vector(30, 0, 0)
+        lamp = doc.addObject("Part::Box", "Lamp")
+        lamp.Placement.Base = App.Vector(-30, 0, 0)
         doc.recompute()
         anim = doc.addObject("App::Animation", "Anim")
         anim.FrameRate = 20
@@ -235,10 +243,13 @@ def run():
               and abs(tick["t"] - paused) < 1e-6 and tick["baseActive"]
               and abs(tick["base"] - paused) < 1e-6, (paused, tick))
 
-        # --- an Animation that rebuilds a shape as well
+        # --- an Animation that rebuilds a shape and hides an object as well
         t4 = clock()
         anim.addKey("Still.Height", 0.0, 10.0)
         anim.addKey("Still.Height", 2.0, 20.0)
+        anim.addKey("Lamp.Visibility", 0.0, True)
+        anim.addKey("Lamp.Visibility", 0.5, False)
+        anim.addKey("Lamp.Visibility", 1.5, True)
         pump(0.3)
         dropped = client.last("clip", t4)
         check("changing the tracks drops the clip", dropped is not None and dropped["id"] == 0
@@ -249,15 +260,79 @@ def run():
         clip2 = client.last("clip", t5)
         check("playing bakes it again",
               clip2 is not None and clip2["id"] > clip["id"], clip2 and clip2["id"])
-        check("the box is still played", clip2 and len(clip_poses(clip2)) == len(poses),
-              clip2 and len(clip2["keys"]))
+        if clip2 is None:
+            return finish()
+        frames = clip2["frames"]
+        tracks = clip_poses(clip2)
+        seq = struct.unpack("<%di" % (len(base64.b64decode(clip2["seq"])) // 4),
+                            base64.b64decode(clip2["seq"]))
+        shown = base64.b64decode(clip2["shown"])
+        refs = clip2["refs"]
+        blobs = clip2["blobs"]
+        check("the rebuilt shape is a sequence, a blob at every frame",
+              len(clip2["seqKeys"]) == 1 and len(seq) == frames
+              and all(0 <= b < len(blobs) for b in seq) and len(set(seq)) > frames // 2,
+              (clip2["seqKeys"], len(seq), len(set(seq))))
+        lamp_rows = [i for i in range(len(clip2["keys"]))
+                     if 0 in shown[i * frames:(i + 1) * frames]]
+        row = lamp_rows[0] if lamp_rows else None
+        mask = list(shown[row * frames:(row + 1) * frames]) if row is not None else []
+        check("the hidden one is a track, hidden from 0.5 s to 1.5 s",
+              len(lamp_rows) == 1 and mask[5] == 1 and mask[10] == 0 and mask[29] == 0
+              and mask[30] == 1, mask)
+        check("with its draws kept, as they were where it was first shown",
+              row is not None and refs[2 * row] == 0 and 0 <= refs[2 * row + 1] < len(blobs),
+              refs)
+        check("the box is still played",
+              len([k for k in tracks if k not in [clip2["keys"][r] for r in lamp_rows]])
+              == len(poses), clip2["keys"])
+        got = []
+        for key, size in list(zip(blobs, clip2["sizes"]))[:3] + [(blobs[-1], clip2["sizes"][-1])]:
+            try:
+                body = urllib.request.urlopen(
+                    "http://127.0.0.1:%d/blob?key=%s" % (port, key), timeout=5).read()
+            except Exception as e:
+                body = repr(e).encode()
+            got.append(hashlib.sha1(body).hexdigest() == key and len(body) == size)
+        check("every blob is served under its key", all(got), got)
         t6 = clock()
         pump(1.0)
         flowing = client.since(t6, "scene")
-        check("but what the clip cannot say is published as it was", len(flowing) >= 3,
+        check("and nothing is published while it plays", len(flowing) == 0, len(flowing))
+        Gui.runCommand("Std_AnimationStop")
+        pump(0.5)
+        try:
+            urllib.request.urlopen("http://127.0.0.1:%d/blob?key=%s" % (port, blobs[0]),
+                                   timeout=5).read()
+            kept = True
+        except Exception:
+            kept = False
+        check("the blobs stay while the clip does", kept)
+
+        # --- no room for the blobs
+        hGrp = App.ParamGet("User parameter:BaseApp/Preferences/Animation")
+        hGrp.SetInt("StreamBlobMB", 0)
+        anim.addKey("Still.Height", 1.0, 30.0)
+        pump(0.3)
+        t5 = clock()
+        Gui.runCommand("Std_AnimationPlay")
+        pump(1.5)
+        clip5 = client.last("clip", t5)
+        # The hidden one keeps its track, without its draws: a viewer can
+        # still hide it, not show it from a publish that lacks it
+        check("with no room for blobs the box and the hidden one are still played",
+              clip5 is not None and len(clip_poses(clip5)) == len(poses) + 1
+              and -1 in clip5["refs"][1::2], clip5 and (clip5["keys"], clip5["refs"]))
+        check("the rebuilt shape left out", clip5 is not None and not clip5["seqKeys"]
+              and not clip5["blobs"], clip5 and clip5["seqKeys"])
+        t6 = clock()
+        pump(1.0)
+        flowing = client.since(t6, "scene")
+        check("and what the clip cannot say is published as it was", len(flowing) >= 3,
               len(flowing))
         named = [f[2] for f in client.since(t6, "time") if f[2].get("baseActive")]
         check("each of those named with its Time", len(named) >= 3, len(named))
+        hGrp.RemInt("StreamBlobMB")
         Gui.runCommand("Std_AnimationStop")
         pump(0.5)
 

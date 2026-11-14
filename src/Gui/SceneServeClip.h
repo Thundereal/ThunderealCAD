@@ -60,6 +60,7 @@ public:
     };
 
     SceneServeClip(App::Document* doc, Host host, QObject* parent = nullptr);
+    ~SceneServeClip() override;
 
     /** A property of the document or of one of its view providers changed.
      * True when the clients need no publish for it: they play it by the
@@ -86,6 +87,11 @@ public:
     {
         return heldCount;
     }
+    /// What the clip's blobs hold, bytes
+    size_t blobs() const
+    {
+        return blobBytes;
+    }
 
 private:
     App::Animation* animation() const;
@@ -107,6 +113,7 @@ private:
     bool isBaking = false;
     bool announced = false;
     unsigned heldCount = 0;
+    size_t blobBytes = 0;
     uint64_t baseVersion = 0;
     bool baseActive = false;
     double baseTime = 0;

@@ -105,7 +105,11 @@ async function reading(page, name) {
   }
   await page.evaluate((n, d) => window.__fcCapture(n, d), name, b64);
   const colours = await page.evaluate(n => window.__fcColours(n), name);
-  return {state: state, colours: colours, at: Date.now()};
+  // And after: a screenshot can take seconds, and a reading whose two
+  // states disagree says nothing of which frame was caught
+  const after = await page.evaluate(
+      () => window.fcviewerAnimationState ? window.fcviewerAnimationState() : null);
+  return {state: state, after: after, colours: colours, at: Date.now()};
 }
 
 async function until(page, test, timeoutMs) {

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <App/Animation.h>
+#include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/WriteScope.h>
@@ -15,6 +16,7 @@
 #include <Base/Exception.h>
 
 #include "AnimationTimeline.h"
+#include "Renderer/MotionClipBlob.h"
 #include "Renderer/SceneServer.h"
 #include "SceneServeClip.h"
 
@@ -29,6 +31,18 @@ namespace
 constexpr int MaxSamples = 240;
 constexpr int HeartbeatMs = 1000;
 constexpr int RebakeMs = 500;
+/// The most the blobs of one clip hold (a sequence's draws at every
+/// frame), unless the preference says otherwise: they stay in the
+/// server's store and in each viewer for as long as the clip lives
+constexpr int DefaultBlobMB = 64;
+
+size_t blobLimit()
+{
+    auto hGrp = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/Animation");
+    const long mb = hGrp->GetInt("StreamBlobMB", DefaultBlobMB);
+    return static_cast<size_t>(std::max(0L, mb)) * 1024 * 1024;
+}
 
 }  // namespace
 
@@ -56,6 +70,13 @@ SceneServeClip::SceneServeClip(App::Document* doc, Host host, QObject* parent)
             onPlayerState();
         }
     });
+}
+
+SceneServeClip::~SceneServeClip()
+{
+    if (blobBytes) {
+        Render::SceneStreamServer::instance().holdBlobs({}, host.group);
+    }
 }
 
 App::Animation* SceneServeClip::animation() const
@@ -122,6 +143,8 @@ void SceneServeClip::invalidate()
     theClip = Render::MotionClip();
     clipJson = theClip.toJson(host.quotedGroup);
     told.clear();
+    blobBytes = 0;
+    Render::SceneStreamServer::instance().holdBlobs({}, host.group);
     if (announced) {
         announce();
     }
@@ -165,14 +188,47 @@ void SceneServeClip::bake(App::Animation* anim)
     theClip = Render::MotionClip();
     valid = false;
     heldCount = 0;
+    blobBytes = 0;
+    std::map<std::string, std::vector<uint8_t>> kept;
     if (end - start > 1e-9 && host.capture) {
         const double rate = std::max(1.0, anim->FrameRate.getValue());
         const int count = std::clamp(static_cast<int>(std::lround((end - start) * rate)) + 1, 2,
                                      MaxSamples);
         const double step = (end - start) / (count - 1);
-        Render::MotionClipBaker baker;
+        // The draws of an object at a frame, kept for the viewers to
+        // fetch: one blob for the same bytes, however often they recur
+        std::map<std::string, int32_t> index;
+        std::vector<std::string> keys;
+        std::vector<uint32_t> sizes;
+        const size_t limit = blobLimit();
+        auto store = [&](const Render::DrawCallList& draws) -> int32_t {
+            std::vector<uint8_t> blob = Render::motionBlobOf(draws);
+            if (blob.empty()) {
+                return -1;
+            }
+            std::string key = Render::sha1Hex(blob.data(), blob.size());
+            auto it = index.find(key);
+            if (it != index.end()) {
+                return it->second;
+            }
+            if (blobBytes + blob.size() > limit) {
+                return -1;
+            }
+            blobBytes += blob.size();
+            const auto number = static_cast<int32_t>(keys.size());
+            index[key] = number;
+            keys.push_back(key);
+            sizes.push_back(static_cast<uint32_t>(blob.size()));
+            kept.emplace(std::move(key), std::move(blob));
+            return number;
+        };
+        Render::MotionClipBaker baker(store);
         bool ok = true;
         isBaking = true;
+        // What a frame is drawn with at the viewer is what the sweep
+        // read: the exact mesh, not the coarse one a capture budget or
+        // coarse-first tessellation stands in with for a while
+        Render::ExactDetail::hold();
         try {
             for (int i = 0; i < count && ok; ++i) {
                 anim->Time.setValue(i + 1 == count ? end : start + i * step);
@@ -189,6 +245,7 @@ void SceneServeClip::bake(App::Animation* anim)
             e.ReportException();
             ok = false;
         }
+        Render::ExactDetail::release();
         try {
             anim->Time.setValue(keep);
         }
@@ -198,12 +255,23 @@ void SceneServeClip::bake(App::Animation* anim)
         isBaking = false;
         if (ok) {
             theClip = baker.finish(++serial, start, step);
+            theClip.blobs = std::move(keys);
+            theClip.blobSizes = std::move(sizes);
             valid = true;
             FC_LOG("animation clip " << theClip.id << " of " << doc->getName() << ": "
-                                     << theClip.keys.size() << " tracks, " << theClip.frames
-                                     << " frames" << (theClip.exact ? ", exact" : ""));
+                                     << theClip.keys.size() << " tracks, "
+                                     << theClip.seqKeys.size() << " sequences, "
+                                     << theClip.blobs.size() << " blobs (" << blobBytes
+                                     << " bytes), " << theClip.frames << " frames"
+                                     << (theClip.exact ? ", exact" : ""));
+        }
+        else {
+            kept.clear();
+            blobBytes = 0;
         }
     }
+    // The chunks the clip names, which no publish does
+    Render::SceneStreamServer::instance().holdBlobs(std::move(kept), host.group);
     clipJson = theClip.toJson(host.quotedGroup);
     told.clear();
 }

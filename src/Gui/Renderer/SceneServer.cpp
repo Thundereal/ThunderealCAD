@@ -757,6 +757,9 @@ public:
         /// which keys are *alive* is a per-document fact, and a key
         /// retires only when no group at all names it (retireBlobs).
         std::set<std::string> pendingKeys, currentKeys, previousKeys;
+        /// Keys kept alive outside the publishes: the blobs of the
+        /// motion clip this document's clients play (holdBlobs).
+        std::set<std::string> heldKeys;
 
         /// Level bookkeeping (docs/SceneStreaming.md §7): rung demand
         /// is driven by the viewers of this document's scene.
@@ -1052,7 +1055,7 @@ public:
             for (const auto &entry : groups) {
                 const DocGroup &grp = entry.second;
                 if (grp.pendingKeys.count(key) || grp.currentKeys.count(key)
-                        || grp.previousKeys.count(key))
+                        || grp.previousKeys.count(key) || grp.heldKeys.count(key))
                     return true;
             }
             return false;
@@ -4663,6 +4666,21 @@ void SceneStreamServer::publishBlob(const std::string &key,
     p->addBlob(*g, key, std::move(data));
 }
 
+void SceneStreamServer::holdBlobs(std::map<std::string, std::vector<uint8_t>> &&held,
+                                  const std::string &doc)
+{
+    Private *p = ensure();
+    std::lock_guard<std::mutex> guard(p->mutex);
+    Private::DocGroup &g = p->group(doc);
+    g.heldKeys.clear();
+    for (auto &entry : held) {
+        g.heldKeys.insert(entry.first);
+        // Content addressed: an existing entry is already these bytes
+        p->blobs.emplace(entry.first, std::move(entry.second));
+    }
+    p->sweepBlobs();
+}
+
 bool SceneStreamServer::retainBlob(const std::string &key, uint32_t *size,
                                    const std::string &doc)
 {
@@ -4911,6 +4929,7 @@ void SceneStreamServer::releaseGroup(const std::string &doc)
         g->pendingKeys.clear();
         g->currentKeys.clear();
         g->previousKeys.clear();
+        g->heldKeys.clear();
         // The level memos go with them: requestLevel early-returns on
         // a recorded ask, so an entry outliving its purged job would
         // answer 202 forever without ever building on a re-serve.

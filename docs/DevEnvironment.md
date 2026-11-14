@@ -4273,12 +4273,28 @@ Darwin branch (`_LIBCPP_DISABLE_AVAILABILITY`, `BOOST_NO_CXX98_FUNCTION_BASE`,
         "FREECAD_USE_EXTERNAL_SMESH": "ON",
         "BUILD_FEM_NETGEN": "ON",
         "FREECAD_USE_PCL": "ON",
-        "ENABLE_DEVELOPER_TESTS": "ON"
+        "ENABLE_DEVELOPER_TESTS": "ON",
+        "BUILD_ASSEMBLY_CHRONO": "ON",
+        "CHRONO_BUILD_JOBS": "4"
       }
     }
   ]
 }
 ```
+
+`BUILD_ASSEMBLY_CHRONO` is on here since 2026-11-14 (the Assembly's Chrono
+backend, the submodule `src/3rdParty/chrono` built as a nested project; the
+nested build is about six minutes at 4 jobs here and leaves a 1.3 GB `libChrono_core.a`).
+It needed two fixes: the fork's `ChClassFactory.h` did not include
+`<type_traits>` (libc++ again, the class below), and `ChronoCore.cmake` did
+not pass `CMAKE_OSX_DEPLOYMENT_TARGET`/`SYSROOT`/`ARCHITECTURES` on, so Chrono
+was built for the running system (13.0) and every link warned. CalculiX
+(`calculix` from conda-forge, `ccx`) is in the env for the dynamics tests
+that run it. With both, the Assembly tests skip only what needs the GUI or
+holds references recorded on win32; `TestProfileContact.test_half_disc_rocks`
+fails here, 0.071 deg against its 0.06 bound (0.034 where it was written):
+the run's period is about 2e-4 off the rigid model's, the error growing
+steadily to the last frame.
 
 FEM and PCL were `OFF` in this preset until 2026-09-08. `BUILD_WEB` was set
 `OFF` here until 2026-11-11; it is left to its default now, which is ON and

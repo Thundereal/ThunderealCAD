@@ -82,6 +82,17 @@ else()
                    "Assembly has no flexible bodies")
 endif()
 
+# The macOS target and SDK this project builds for: without them the nested
+# build targets the running system (13.0 on a 13.x box), and every link of
+# the module warns that Chrono's objects are newer than the binary they go
+# into -- and may call what an older system does not have.
+set(_chrono_apple)
+foreach (_var CMAKE_OSX_DEPLOYMENT_TARGET CMAKE_OSX_SYSROOT CMAKE_OSX_ARCHITECTURES)
+    if (${_var})
+        list(APPEND _chrono_apple "-D${_var}:STRING=${${_var}}")
+    endif()
+endforeach()
+
 ExternalProject_Add(ChronoCoreBuild
     SOURCE_DIR "${CHRONO_SOURCE_DIR}"
     BINARY_DIR "${CHRONO_BINARY_DIR}"
@@ -114,6 +125,7 @@ ExternalProject_Add(ChronoCoreBuild
         -DCMAKE_DISABLE_FIND_PACKAGE_OpenMP:BOOL=ON
         ${_chrono_eigen}
         ${_chrono_modal}
+        ${_chrono_apple}
     BUILD_COMMAND
         ${CMAKE_COMMAND} --build <BINARY_DIR> --target ${_chrono_targets} --config $<CONFIG> ${_chrono_jobs}
     INSTALL_COMMAND ""

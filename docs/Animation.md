@@ -752,12 +752,16 @@ are not). With it on, and `Recompute` not Never:
   recompute never met -- the frame was kept coming from the frame before,
   where one object had not changed, and is reached now from a frame where
   it differs -- the frame is recomputed and kept again, wider.
-- **Dropped**: every frame, by any change of a property that is not the
-  Animation's own writing (`WriteCause::Animation`): an edit, an undo, a
-  recompute of the design; by a new or deleted object, a removed
-  property; by a change of `Tracks`, `Start`, `FrameRate`, `Recompute` or
-  `Cache`. Stopping keeps them: the design it recomputes back to is the
-  one they were made from.
+- **Dropped**: by a change of a property that is not the Animation's own
+  writing (`WriteCause::Animation`) -- an edit, an undo, a recompute of
+  the design -- the frames whose scope holds the object changed or any
+  object depending on it, through any link, an expression's hidden ones
+  included (`dropFramesReaching`, `getInListEx`); a frame whose recompute
+  met none of them is what a recompute would give now, and stays
+  (2026-11-14; before, an edit dropped every frame). Every frame, by a new
+  or deleted object, a removed property, a change of `Tracks`, `Start`,
+  `FrameRate`, `Recompute` or `Cache`. Stopping keeps them: the design it
+  recomputes back to is the one they were made from.
 - What is kept is a function of the frame and the design. A result that
   depends on how the frame was reached (a solver starting from the last
   pose) is put back as it was first found.
@@ -783,12 +787,20 @@ frames. Two budgets, in `Preferences/Animation`:
 
 Over the first, the frames shown longest ago go **to disk**: each value as
 a save would write it (`App::captureValue`, what the transaction log
-keeps a value as; no blob store, the frame's file holds it whole), one
-file a frame under `TransientDir/AnimationCache/<name>`, 0.55 MB for the
-plate. Read back (`App::restoreValue`) it is in memory again and its file
-stays good, so letting it go a second time writes nothing. A file does
-not hold the mesh, so a frame read back is meshed again: 107 ms against
-26 ms from memory and 290 ms recomputed. A frame that is quicker to
+keeps a value as, in the binary shape format; no blob store, the frame's
+file holds it whole), one file a frame under
+`TransientDir/AnimationCache/<name>` (0.55 MB for the 64-hole plate when
+it was written as text). Read back
+(`App::restoreValue`) it is in memory again and its file stays good, so
+letting it go a second time writes nothing. A file does not hold the
+mesh, and holding it does not pay (measured 2026-11-14, the user
+manual's plate, 36 holes filleted, 134 faces, mini): written with each
+face's triangulation (`BinTools_ShapeSet::SetWithTriangles`) a frame read
+back took 88 ms and 1.9 MB, without it 80 ms and 0.21 MB, and in the
+text form a save writes 85 ms and 0.33 MB. Headless a read-back is 38 ms
+of parsing; the rest is the view taking the shape, as it does for a frame
+from memory (39 ms the whole), so the mesh made again at the view's
+deflection is not where the time goes. The cache writes binary. A frame that is quicker to
 recompute than its trip to disk has been costing, a byte, is dropped
 instead; so is every frame over the second budget, oldest first, and
 every one on disk at a save, whose string table its element maps name by
@@ -823,9 +835,7 @@ frame in memory, blue for one on disk. Python: `anim.Cache`,
 Spilled, Loaded), `anim.clearCache()`. Tests: `TestAnimation`
 (`testCache*`, nine) and `tests/gui/animation-cache.py`.
 
-Not done: a frame's mesh is not written to disk; a bake command (playing
-or exporting once is the bake); an edit drops every frame, not only
-those downstream of it.
+Not done: a bake command (playing or exporting once is the bake).
 
 ## 5. Playing does not edit the design
 

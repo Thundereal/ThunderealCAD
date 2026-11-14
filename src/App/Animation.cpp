@@ -2424,6 +2424,9 @@ bool Animation::spillFrame(long index, Frame& frame)
         double began = secondsNow();
         CaptureConfig config(*doc);
         config.blobs = nullptr;  // whole, in the frame's own file
+        // Binary: a third smaller than the text a save writes, and quicker
+        // read back (docs/Animation.md sec 4.1)
+        config.preferBinary = true;
         std::string name = dir + "/" + std::to_string(index) + ".frame";
         std::ofstream out(name, std::ios::binary | std::ios::trunc);
         if (!out) {
@@ -2647,6 +2650,27 @@ void Animation::trimCache()
             }
             break;
         }
+        dropFrame(index);
+    }
+}
+
+void Animation::dropFramesReaching(const DocumentObject& obj)
+{
+    // obj, and every object whose result depends on it, through any link,
+    // an expression's hidden ones included
+    std::set<DocumentObject*> reached = obj.getInListEx(true);
+    reached.insert(const_cast<DocumentObject*>(&obj));
+    reached.erase(this);
+    std::vector<long> gone;
+    for (auto& [index, frame] : _frames) {
+        for (auto o : frame->scope) {
+            if (reached.count(o)) {
+                gone.push_back(index);
+                break;
+            }
+        }
+    }
+    for (long index : gone) {
         dropFrame(index);
     }
 }
@@ -2933,12 +2957,18 @@ void Animation::connectDocument()
                                                    const_cast<Property*>(&prop));
                 }
             }
-            else if (!_frames.empty() && !(WriteScope::causes() & WriteCause::Animation)
-                     && (&obj != this || &prop == &Tracks || &prop == &Start
-                         || &prop == &FrameRate || &prop == &Recompute || &prop == &Cache)) {
-                // The design changed, or what a frame is: nothing kept
-                // is what a recompute would give now
-                clearCache();
+            else if (!_frames.empty() && !(WriteScope::causes() & WriteCause::Animation)) {
+                if (&obj != this) {
+                    // The design changed: what a frame kept of it, or of
+                    // anything that depends on it, is not what a
+                    // recompute would give now
+                    dropFramesReaching(obj);
+                }
+                else if (&prop == &Tracks || &prop == &Start || &prop == &FrameRate
+                         || &prop == &Recompute || &prop == &Cache) {
+                    // What a frame is changed: nothing kept stands
+                    clearCache();
+                }
             }
             onRecord(obj, prop);
         }));

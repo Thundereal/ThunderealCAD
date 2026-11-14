@@ -398,6 +398,8 @@ public:
     };
     CacheInfo cacheInfo() const;
     void clearCache();
+    /// Drop the frames whose recompute met obj or anything depending on it
+    void dropFramesReaching(const DocumentObject& obj);
     /// Whether frames are kept: Cache, and a Recompute that recomputes
     bool isCaching() const;
     /// Whether an active Animation of `doc`, or of any document when

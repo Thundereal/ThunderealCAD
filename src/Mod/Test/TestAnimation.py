@@ -906,6 +906,32 @@ class TestAnimation(unittest.TestCase):
         self.doc.addObject("App::FeaturePython", "Other")
         self.assertEqual(self.anim.cacheInfo()["Times"], [])
 
+    def testCacheKeepsTheFramesAnEditDoesNotReach(self):
+        proxy = self.cacheScene()
+        other = self.doc.addObject("App::FeaturePython", "Other")
+        other.addProperty("App::PropertyFloat", "X")
+        source = self.doc.addObject("App::FeaturePython", "Source")
+        source.addProperty("App::PropertyLength", "Y")
+        source.Y = 2.0
+        self.obj.setExpression("L", "Source.Y")
+        self.doc.recompute()
+        self.anim.Cache = True
+        self.anim.activate()
+        for t in self.anim.frames():
+            self.anim.Time = t
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        # An object no frame's recompute meets, nor depends on
+        other.X = 4.0
+        self.doc.recompute()
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        executed = proxy.count
+        self.anim.Time = 0.3
+        self.assertEqual(proxy.count, executed)  # put back, not recomputed
+        self.assertAlmostEqual(self.obj.G, 6.0)
+        # One a frame's object depends on: those frames go
+        source.Y = 3.0
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+
     def testCacheFrameReachedFromElsewhere(self):
         # A frame kept when only one object changed on the way to it is not
         # the whole answer when two differ: it is recomputed then

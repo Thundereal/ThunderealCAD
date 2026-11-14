@@ -24,6 +24,7 @@
  * before a user's edit.
  */
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -438,6 +439,14 @@ public:
     /// nothing changes: the document's value as the transaction log keeps
     /// it (restValueOf() also takes what comes next for an edit)
     static const Property* heldRestValue(const Property& prop);
+
+    /** Whether a module that places parts -- an Assembly -- solves obj's
+     * Placement: a track on it is then Solved, written and warned
+     * (docs/Animation.md sec 3.11). A module adds its answer once, at its
+     * init; App knows no such module.
+     */
+    static void addPlacementSolver(std::function<bool(const DocumentObject&)> solves);
+    static bool placementSolved(const DocumentObject& obj);
 
     /// What the property editor marks on a row (docs/Animation.md sec 6)
     enum class KeyState : std::uint8_t

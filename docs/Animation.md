@@ -1199,8 +1199,14 @@ a list of dicts and is not written from Python. The `Python`
 interpolation: `addKey(path, t, value, python="1 - (1 - u) ** 3")` or
 `setInterp(path, t, "Python", python=...)`; the text is saved on the key
 (`python="..."`), shown as `Python` in the key's dict, and asked for by
-the timeline's Interpolation > Python... (2026-11-14). Not yet: `Solved`
-detection, which needs the Assembly's view of which parts it solves. Stepped keys
+the timeline's Interpolation > Python... (2026-11-14). `Solved` is told
+too (2026-11-14): App asks the modules that place parts, through
+`Animation::addPlacementSolver()`, which the Assembly registers at its
+init -- a part in an assembly not frozen (`Freeze`), not grounded, and
+joined by joints to what is grounded (`isPartConnected`). App names no
+such module. A grounded part's Placement is read-only and cannot be keyed
+at all. Test: `AssemblyTests.TestCore`,
+`test_animated_placement_of_a_solved_part_is_solved`. Stepped keys
 hold the property's own XML, which serves every type that saves itself
 inline; a type that saves to a file of its own in the archive (a shape)
 is not one to step.

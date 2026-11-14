@@ -22,6 +22,7 @@
  ***************************************************************************/
 
 
+#include <App/Animation.h>
 #include <App/Application.h>
 #include <App/Document.h>
 #include <Base/Console.h>
@@ -96,6 +97,31 @@ PyMOD_INIT_FUNC(AssemblyApp)
         }
     });
 
+
+    // A part an assembly solves (docs/Animation.md sec 3.11): in an
+    // assembly that is not frozen, not grounded, and joined to what is --
+    // the solver places it, so an Animation's track on its placement is
+    // Solved. A part on its own the solver leaves where it is.
+    App::Animation::addPlacementSolver([](const App::DocumentObject& part) {
+        auto* doc = part.getDocument();
+        if (!doc) {
+            return false;
+        }
+        auto* obj = const_cast<App::DocumentObject*>(&part);
+        for (auto* o : doc->getObjectsOfType(Assembly::AssemblyObject::getClassTypeId())) {
+            auto* assembly = static_cast<Assembly::AssemblyObject*>(o);
+            if (assembly == obj || assembly->Freeze.getValue() || !assembly->hasObject(obj, true)) {
+                continue;
+            }
+            if (assembly->isPartGrounded(obj)) {
+                return false;
+            }
+            if (assembly->isPartConnected(obj)) {
+                return true;
+            }
+        }
+        return false;
+    });
 
     // NOTE: To finish the initialization of our own type objects we must
     // call PyType_Ready, otherwise we run into a segmentation fault, later on.

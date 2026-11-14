@@ -1369,8 +1369,44 @@ bool Animation::resolve(const AnimationTrack& track, Target& target) const
                 break;
             }
         }
+        // The placement of a part an Assembly places: the solver writes it
+        // too (3.11), a piece of it or the whole
+        if (target.state == AnimationTrackState::Ok && name
+            && std::strcmp(name, "Placement") == 0
+            && target.prop->isDerivedFrom<PropertyPlacement>() && placementSolved(*obj)) {
+            target.state = AnimationTrackState::Solved;
+        }
     }
     return true;
+}
+
+namespace
+{
+std::vector<std::function<bool(const DocumentObject&)>>& placementSolvers()
+{
+    static std::vector<std::function<bool(const DocumentObject&)>> solvers;
+    return solvers;
+}
+}  // namespace
+
+void Animation::addPlacementSolver(std::function<bool(const DocumentObject&)> solves)
+{
+    placementSolvers().push_back(std::move(solves));
+}
+
+bool Animation::placementSolved(const DocumentObject& obj)
+{
+    for (auto& solves : placementSolvers()) {
+        try {
+            if (solves(obj)) {
+                return true;
+            }
+        }
+        catch (Base::Exception& e) {
+            FC_LOG("placement solver: " << e.what());
+        }
+    }
+    return false;
 }
 
 AnimationTrackState Animation::state(int trackId) const

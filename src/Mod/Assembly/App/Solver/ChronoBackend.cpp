@@ -12875,11 +12875,27 @@ Status ChronoSession::simulateDynamics(
     // only pressing: a pin of 0.6 g lying on its rims across a bore sinks
     // 0.17 nm, and chattered from 0.4 nm off to 0.1 nm in -- never resting,
     // it took substeps of 0.3 us, 74 s for 0.3.
+    // On a flexible part's curved faces, within a hundredth of how far those
+    // stand out of their flat triangles too (Surface::bulge()): what its
+    // quadratic faces are off its round by, 0.2 um on the mean and 1.75 at
+    // most on a rod R 5 meshed at 4 mm, 90 um out of its triangles. Its
+    // deepest point is found again on those faces at every detection, and a
+    // hanger of 114 g on a pin by its bore, sunk 1.3 um, had it wander 0.3 um
+    // as it swung: never at rest by 2% of that, it stepped a fiftieth of its
+    // contact's period, 25 us -- 209 s for the rigid hanger's 2, now 54.
     auto resting = [&](const ContactLoad& load) {
         const double depth = pressing(load);
         const double high = std::max(load.high, depth);
         const double range = high - std::min(load.low, depth);
-        return depth > -tolerance && (range <= 0.02 * high || range <= tolerance);
+        double within = tolerance;
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        for (const FlexibleContact* part : {load.flexible, load.flexibleA}) {
+            if (part && part->surface) {
+                within = std::max(within, 0.01 * part->surface->bulge());
+            }
+        }
+#endif
+        return depth > -within && (range <= 0.02 * high || range <= within);
     };
     auto keepCalm = [&](ContactLoad& load, double h) {
         const double depth = pressing(load);

@@ -5141,6 +5141,43 @@ Phase D1 is under way (2026-10-28):
     the force at rest its weight to 5% -- 1382 Hz, 5.15 N, 1.128 N of
     1.116). The rest hold: TestFlexibleBody 31 (604 s), TestDynamics 90,
     TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 20 (2026-11-14): a contact on a flexible part's round
+  at rest -- step 19's swing, 209 s for the rigid hanger's 2.
+  - **Never at rest.** A contact rests while its deepest point's depth
+    keeps within 2% of itself, or within the tolerance, over one of its
+    periods (`resting()`), and a resting one steps over its period.
+    The hanger's bore is 1.3 um into its pin, 1.1 N at 1000 N/mm; the
+    deepest point, found again on the mesh's faces at every detection,
+    wandered 0.3 um as the bore slid round the pin -- 1.22 to 2.19 um over
+    the swing -- and 2% of it is 28 nm. Every substep was a fiftieth of the
+    contact's period, 25 us: 4000 to 0.1 s, two thirds of each in collision
+    detection.
+  - **Within the faces' own accuracy.** On a flexible part's curved faces
+    a contact rests within a hundredth of how far those stand out of their
+    flat triangles too (`Surface::bulge()`): 0.9 um for the hanger, where
+    step 18 measured a rod's quadratic faces 0.2 um off its round on the
+    mean and 1.75 at most, of 90. A part of flat faces alone has none, and
+    a contact deeper than fifty times that is within its 2% first: the
+    probes of steps 12 to 18, 50 um deep, are as they were, frame for
+    frame. With 0.1 um instead the swing took 191 s, and with a two
+    hundredth of the bulge 85.
+  - Numbers. The swing of 0.6 s: 4195 substeps for some 24000, 54 s for
+    209; to -28.95 deg and back to 26.61 as before. The pin's force over
+    it from 0.02 s on: mean 1.196 N, 0.79 to 1.74, from frame to frame
+    0.109 N rms -- before, 1.208, 0.50 to 1.70 and 0.109; the rigid
+    hanger's 1.154, 0.94 to 1.37 and 0.015. Let down straight, 1.112 N at
+    rest for a weight of 1.116 (1.128).
+  - Limits.
+    - The force on a flexible bore sunk a micron is seven times as rough
+      as on a rigid one, frame to frame: its mesh's accuracy, a third of
+      that depth. A contact by the materials' law, stiffer, is sunk less
+      and rougher still; there the bore is better named a contact face.
+    - 54 s is still the rigid hanger's 2 many times: a resting contact on
+      a flexible round steps by how fast its depth moves (`standingStep()`),
+      which is that roughness too.
+  - Tests: none new; TestFlexibleBody.test_held_by_a_free_part rests at
+    1.112 N of 1.116. TestFlexibleBody 31 (593 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

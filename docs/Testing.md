@@ -425,12 +425,16 @@ or skip (docs/PyodideHost.md has the design):
 - **The runtime**: `freecad.pyodide.install_runtime()` run once by
   ThunderealCmd with `FREECAD_USER_HOME=~/works/sw/pyodide-home`, which
   puts pyodide 314.0.6 in `~/works/sw/pyodide-home/Pyodide/314.0.6`.
-  The GUI tests run on a profile of their own, thrown away, so they and
-  ctest are handed it as `FCX_PYODIDE`. Beside it, the numpy wheel the
-  runtime's lock names (from the jsDelivr `full/` set, checked against
-  the lock's sha256), which ExpressionPyodideOfferTest installs from.
+  Then `freecad.pyodide.install_package("numpy")` the same way: the
+  on-demand install a user gets, from pyodide's CDN against the lock's
+  sha256, into `~/works/sw/pyodide-home/Pyodide/packages`.
+  ExpressionPyodideOfferTest runs offline and takes the numpy wheel from
+  there (or from beside a full distribution's runtime). ctest is run with
+  `FREECAD_USER_HOME=~/works/sw/pyodide-home`; the GUI tests run on a
+  profile of their own, thrown away, so they are handed the runtime as
+  `FCX_PYODIDE`.
 
-With those, `ctest -R 'ExpressionImage|Pyodide|Sandbox'`: 77 pass and
+With those, `ctest -R 'ExpressionImage|Pyodide|Sandbox'`: 76 pass and
 the eight `ExpressionImageBenchTest` benchmarks stay disabled, as they
 are everywhere; sandbox-console-serve 30 of 30 and
 sandbox-console-browser 11 of 11.

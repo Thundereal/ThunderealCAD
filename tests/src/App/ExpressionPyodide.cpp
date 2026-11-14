@@ -386,6 +386,7 @@ protected:
         // guest that found it there would pass this test without the
         // package set ever being read.
         mirror = where.stdlib;
+        installed = where.packages;
         fs::path copy = scratchDir("offer-runtime");
         const Pyodide::Release* rel = Pyodide::releaseFor(Pyodide::directoryVersion(mirror));
         if (!rel)
@@ -419,6 +420,7 @@ protected:
     }
 
     std::string mirror;      ///< the staged runtime, which also holds the wheels
+    std::string installed;   ///< the box's own package set, before the test's
     std::string runtimeDir;  ///< the copy the guest boots from
     fs::path packages;
     std::unique_ptr<EnvGuard> dirEnv;
@@ -462,9 +464,18 @@ TEST_F(ExpressionPyodideOfferTest, missingImportIsOfferedThenLoadedAfterInstall)
     //    does after downloading and verifying
     auto info = Pyodide::lookupImport(runtimeDir, "numpy");
     ASSERT_TRUE(info.has_value());
+    //    The wheel comes from beside the staged runtime (a dev tree's full
+    //    distribution), else from the box's own package set, where
+    //    freecad.pyodide.install_package("numpy") puts it on a box whose
+    //    runtime install_runtime() fetched -- the core files only. Never
+    //    from the network: this test runs offline.
     fs::path wheel = fs::path(mirror) / info->fileName;
+    if (!fs::is_regular_file(wheel) && !installed.empty())
+        wheel = fs::path(installed) / info->fileName;
     if (!fs::is_regular_file(wheel))
-        GTEST_SKIP() << "no local numpy wheel beside the staged runtime: " << wheel.string();
+        GTEST_SKIP() << "no local numpy wheel beside the staged runtime (" << mirror
+                     << ") nor in the package set (" << installed
+                     << "): freecad.pyodide.install_package(\"numpy\") puts one there";
     fs::copy_file(wheel, packages / info->fileName, fs::copy_options::overwrite_existing);
     json manifest = {{"version", 1},
                      {"abi", Pyodide::directoryAbi(runtimeDir)},

@@ -2754,6 +2754,15 @@ raw-WebSocket Python client, and headless Chrome 151 driven over CDP):
   menu showing "CUDA (100%)"; the screenshot is the path-traced image
   under the raster edge lines and the NaviCube, the raster view again
   after "Off".
+- Browser, METAL 256 spp at 960x600, on the mini (M2, macOS 13.4; 2026-11-14,
+  after the StackAllocator fix of sec 9): `fcviewerSetCycles('METAL', 0)` on
+  the manual's animation scene posed at 2.2 s, headless Chrome through
+  puppeteer. The first frame (137x85) 2 s after the start, "Rendering
+  Done, Sample 256/256" 19 s after it, 29 frames; about 12 s of that is
+  Metal compiling its optimized kernels the first time ("2 kernels to
+  optimize" until sample 55). The picture is the path-traced one under the
+  edge lines and the NaviCube, the environment as its backdrop; Off gives
+  the raster view back.
 - The desktop viewport through the moved blit: settles at 16 spp in
   6.4 s, live frame vs offline 5.7/255 with denoise off (the lines and
   the NaviCube are in the live frame), the raster frame 34/255 from

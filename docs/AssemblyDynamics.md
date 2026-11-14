@@ -2275,7 +2275,12 @@ Phase D1 is under way (2026-10-28):
     on its arc from 10 deg, its angle against the exact model of one
     freedom integrated by RK4 -- frictionless, its point sliding along the
     arc and the line, to 0.034 deg for a second, every turn within 0.012
-    deg of 10, its centre of mass not across by 1e-11 mm; on friction of
+    deg of 10, its centre of mass not across by 1e-11 mm (measured again
+    2026-11-13: 0.071 deg in the run's steps of 1 ms since a standing
+    contact steps as a resting one, step 13 below -- the steps' error, as
+    their square: 0.030 at 0.5 ms, 0.020 at 0.25, 0.017 at 0.1, which is
+    the disc's sink; the test runs it at 0.25 ms to 0.03, and at 1 ms to
+    0.1); on friction of
     0.5 it rolls, to 0.059 deg, its circle's centre where rolling puts it
     to 0.0011 mm, each turn 0.008 deg lower than the last (the stiction's
     slip). A disc of radius 5 swinging 10 deg in a hollow of 25,

@@ -28,13 +28,29 @@ set(_fc_gui_work "${CMAKE_BINARY_DIR}/Testing/gui")
 
 # One test = one script; its work directory (result.txt, run.log, the
 # isolated configuration) is named after it under Testing/gui.
+#
+# ctest's own limit is the driver's (--timeout, 300 without) and a minute,
+# and no less than 600: the driver's ends the test with its result read and
+# its processes gone, ctest's only kills it. At 600 for every test, one that
+# asks its driver for 1200 was killed at 600 -- the Assembly's suite, once
+# its dynamic cases run (BUILD_ASSEMBLY_CHRONO), under a loaded ctest -j.
 function(fc_add_gui_test name script)
     add_test(NAME ${name}
              COMMAND "${_fc_gui_run}" "${CMAKE_CURRENT_SOURCE_DIR}/${script}"
                      "${_fc_gui_work}/${name}" ${ARGN})
+    set(_limit 600)
+    list(FIND ARGN "--timeout" _at)
+    if(_at GREATER -1)
+        math(EXPR _at "${_at} + 1")
+        list(GET ARGN ${_at} _asked)
+        math(EXPR _asked "${_asked} + 60")
+        if(_asked GREATER _limit)
+            set(_limit ${_asked})
+        endif()
+    endif()
     set_tests_properties(${name} PROPERTIES
         ENVIRONMENT "FC_BUILD=${CMAKE_BINARY_DIR}"
-        TIMEOUT 600)
+        TIMEOUT ${_limit})
 endfunction()
 
 # The live-import nested-loop crash (docs/DocumentLoad.md sec 15.2): a

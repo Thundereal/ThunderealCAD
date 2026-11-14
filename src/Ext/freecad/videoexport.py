@@ -372,6 +372,10 @@ def exportAnimation(anim, path, view=None, size=None, background="Current", prog
 
     def show(_index, t):
         anim.Time = t
+        # A Time already at t is no change, and activates nothing: the
+        # first frame would be the design as it rests
+        if not anim.Active:
+            anim.activate()
 
     try:
         return export(

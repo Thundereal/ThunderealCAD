@@ -151,6 +151,20 @@ def run():
                 head = f.read(4)
         check("Std_AnimationExport writes a binary glTF", head == b"glTF", head)
         check("still not modified", not Gui.ActiveDocument.Modified)
+        # The first frame is the Animation's, not the design at rest: keyed
+        # away from where it rests, held there, the Time already at the start
+        anim.addKey("Box.Placement", 0.0, App.Placement(App.Vector(0, 0, 6), App.Rotation()))
+        anim.Time = 0.0
+        anim.stop()
+        pump(0.2)
+        held = os.path.join(OUT, "held.png")
+        idle = (not anim.Active, anim.Time.Value)
+        videoexport.exportAnimation(anim, held, size=(160, 120))
+        firstHeld = QtGui.QImage(videoexport.frameName(held, 0))
+        middleHeld = QtGui.QImage(videoexport.frameName(held, 5))
+        check("from a Time already at the start, the first frame is the Animation's",
+              idle == (True, 0.0) and not firstHeld.isNull() and firstHeld == middleHeld, idle)
+
         App.closeDocument(doc.Name)
     except Exception:
         note("ABORT\n" + traceback.format_exc())

@@ -543,6 +543,7 @@ class TestAnimation(unittest.TestCase):
         done = animationgltf.exportGltf(self.anim, name)
         self.assertEqual(done["Frames"], 11)
         self.assertEqual(done["Animated"], 2)
+        self.assertEqual(done["Keyed"], 1)
         self.assertEqual(done["Meshes"], 3)
         self.assertEqual(done["Skipped"], [])
         # The design is as it was, the animation stopped
@@ -566,21 +567,191 @@ class TestAnimation(unittest.TestCase):
                 (nodes["Cyl"], "scale"),
             },
         )
+        # Two Linear keys: the channel is the keys
         move = by[(nodes["Box"], "translation")]
         self.assertEqual(move["interpolation"], "LINEAR")
         times = [v[0] for v in values(move["input"])]
-        self.assertEqual(len(times), 11)
+        self.assertEqual(len(times), 2)
         self.assertAlmostEqual(times[0], 0.0)
         self.assertAlmostEqual(times[-1], 1.0, places=5)
-        # Metres, and halfway at the middle frame
+        # Metres
         z = [v[2] for v in values(move["output"])]
         self.assertAlmostEqual(z[0], 0.0)
-        self.assertAlmostEqual(z[5], 0.025, places=5)
         self.assertAlmostEqual(z[-1], 0.05, places=5)
+        # The visibility where it switches
         hide = by[(nodes["Cyl"], "scale")]
         self.assertEqual(hide["interpolation"], "STEP")
+        self.assertEqual([round(v[0], 5) for v in values(hide["input"])], [0.0, 0.5])
         shown = [v[0] for v in values(hide["output"])]
-        self.assertEqual(shown, [1.0] * 5 + [0.0] * 6)
+        self.assertEqual(shown, [1.0, 0.0])
+
+    def gltfMove(self, name):
+        """The Box's translation and rotation samplers of an export, and
+        the accessor reader"""
+        from freecad import animationgltf
+
+        folder = tempfile.mkdtemp(prefix="AnimGltf")
+        path = os.path.join(folder, name + ".gltf")
+        self.files += [path, os.path.join(folder, name + ".bin")]
+        done = animationgltf.exportGltf(self.anim, path)
+        gltf, values = self.readGltf(path)
+        box = [i for i, n in enumerate(gltf["nodes"]) if n["name"] == "Box"][0]
+        anim = gltf["animations"][0]
+        by = {}
+        for ch in anim["channels"]:
+            if ch["target"]["node"] == box:
+                by[ch["target"]["path"]] = anim["samplers"][ch["sampler"]]
+        return done, by["translation"], by["rotation"], values
+
+    def boxAt(self, t):
+        """The Box's translation (m) and rotation at t, from the document"""
+        self.anim.Time = t
+        p = self.doc.getObject("Box").Placement
+        b, q = p.Base, p.Rotation.Q
+        out = [b.x * 1e-3, b.y * 1e-3, b.z * 1e-3], list(q)
+        return out
+
+    def testGltfConstantKeysAreAStepOnTheKeys(self):
+        self.gltfScene()
+        self.anim.setInterp("Box.Placement", 0.0, "Constant")
+        done, move, _turn, values = self.gltfMove("step")
+        self.assertEqual(done["Keyed"], 1)
+        self.assertEqual(move["interpolation"], "STEP")
+        self.assertEqual(len(values(move["input"])), 2)
+
+    def testGltfBezierKeysAreACubicSplineThatGivesBackEveryFrame(self):
+        self.gltfScene()
+        self.anim.addKey(
+            "Box.Placement",
+            0.5,
+            App.Placement(App.Vector(20, 0, 10), App.Rotation(App.Vector(0, 0, 1), 30)),
+        )
+        for t in (0.0, 0.5):
+            self.anim.setInterp("Box.Placement", t, "Bezier")
+        done, move, turn, values = self.gltfMove("bezier")
+        self.assertEqual(move["interpolation"], "CUBICSPLINE", done)
+        self.assertEqual(turn["interpolation"], "CUBICSPLINE")
+        keys = [v[0] for v in values(move["input"])]
+        self.assertEqual(len(keys), 3)
+        out = values(move["output"])
+        self.assertEqual(len(out), 9)
+        # Between the keys, off the frames too, the Hermite curve glTF draws
+        # is where the document puts the box
+        for t in (0.13, 0.37, 0.71, 0.94):
+            k = 0 if t < keys[1] else 1
+            t0, t1 = keys[k], keys[k + 1]
+            u, span = (t - t0) / (t1 - t0), t1 - t0
+            h = (
+                2 * u**3 - 3 * u**2 + 1,
+                span * (u**3 - 2 * u**2 + u),
+                -2 * u**3 + 3 * u**2,
+                span * (u**3 - u**2),
+            )
+            got = [
+                h[0] * out[3 * k + 1][i]
+                + h[1] * out[3 * k + 2][i]
+                + h[2] * out[3 * k + 4][i]
+                + h[3] * out[3 * k + 3][i]
+                for i in range(3)
+            ]
+            want, _q = self.boxAt(t)
+            for a, b in zip(got, want):
+                self.assertAlmostEqual(a, b, delta=2e-5, msg="at %s" % t)
+
+    def testGltfTheFirstFrameIsTheAnimationsNotTheRest(self):
+        from freecad import animationgltf
+
+        box, _cyl, _still = self.gltfScene()
+        # Keyed away from where it rests, the Time already at the start
+        self.anim.addKey("Box.Placement", 0.0, App.Placement(App.Vector(0, 0, 20), App.Rotation()))
+        self.assertAlmostEqual(self.anim.Time.Value, 0.0)
+        self.assertFalse(self.anim.Active)
+        folder = tempfile.mkdtemp(prefix="AnimGltf")
+        name = os.path.join(folder, "first.gltf")
+        self.files += [name, os.path.join(folder, "first.bin")]
+        animationgltf.exportGltf(self.anim, name)
+        gltf, values = self.readGltf(name)
+        node = [n for n in gltf["nodes"] if n["name"] == "Box"][0]
+        self.assertAlmostEqual(node["translation"][2], 0.02, places=6)
+        anim = gltf["animations"][0]
+        index = gltf["nodes"].index(node)
+        for ch in anim["channels"]:
+            if ch["target"] == {"node": index, "path": "translation"}:
+                out = values(anim["samplers"][ch["sampler"]]["output"])
+                self.assertAlmostEqual(out[0][2], 0.02, places=6)
+        self.assertAlmostEqual(box.Placement.Base.z, 0.0)
+
+    def testGltfALargeBezierTurnIsSampledAndItsMoveKeyed(self):
+        # The user manual's lid: open 110 deg by 1.5 s, held, closed at 5 s
+        self.gltfScene()
+        self.anim.removeKey("Box.Placement", 1.0)
+        self.anim.FrameRate = 30
+        self.anim.End = 5.0
+        closed = App.Placement(App.Vector(0, 40, 30), App.Rotation())
+        opened = App.Placement(App.Vector(0, 40, 30), App.Rotation(App.Vector(1, 0, 0), -110))
+        self.anim.addKey("Box.Placement", 0.0, closed, interp="Bezier")
+        self.anim.addKey("Box.Placement", 1.5, opened, interp="Bezier")
+        self.anim.addKey("Box.Placement", 4.0, opened, interp="Bezier")
+        self.anim.addKey("Box.Placement", 5.0, closed)
+        done, move, turn, values = self.gltfMove("bigturn")
+        self.assertEqual(done["Keyed"], 0)
+        self.assertEqual(done["PartlyKeyed"], 1)
+        self.assertEqual(move["interpolation"], "CUBICSPLINE")
+        self.assertEqual(turn["interpolation"], "LINEAR")
+        self.assertEqual(len(values(turn["input"])), 151)
+
+    def testGltfEasedKeysAreSampledAtEveryFrame(self):
+        self.gltfScene()
+        self.anim.setInterp("Box.Placement", 0.0, "Easing", easing=("Bounce", "Out"))
+        done, move, _turn, values = self.gltfMove("eased")
+        self.assertEqual(done["Keyed"], 0)
+        self.assertEqual(move["interpolation"], "LINEAR")
+        self.assertEqual(len(values(move["input"])), 11)
+
+    def testGltfAPartTrackBesideTheKeysIsSampled(self):
+        self.gltfScene()
+        self.anim.addKey("Box.Placement.Base.x", 0.0, 0.0)
+        self.anim.addKey("Box.Placement.Base.x", 0.7, 30.0)
+        done, move, _turn, values = self.gltfMove("part")
+        self.assertEqual(done["Keyed"], 0)
+        self.assertEqual(len(values(move["input"])), 11)
+        xs = [v[0] for v in values(move["output"])]
+        self.assertAlmostEqual(xs[7], 0.03, places=5)
+
+    def testGltfATurnOnLinearKeysIsKeyedWhereItTurnsAsGltfDoes(self):
+        self.gltfScene()
+        self.anim.addKey(
+            "Box.Placement",
+            1.0,
+            App.Placement(App.Vector(0, 0, 50), App.Rotation(App.Vector(0, 0, 1), 90)),
+        )
+        done, move, turn, values = self.gltfMove("turn")
+        # Whichever it is written as, every frame is where the box is
+        times = [v[0] for v in values(turn["input"])]
+        quats = values(turn["output"])
+        for i in range(11):
+            t = i / 10.0
+            _m, want = self.boxAt(t)
+            k = max(j for j in range(len(times)) if times[j] <= t + 1e-9)
+            if k + 1 < len(times):
+                u = (t - times[k]) / (times[k + 1] - times[k])
+                a, b = quats[k], quats[k + 1]
+                import math
+
+                d = max(-1.0, min(1.0, sum(x * y for x, y in zip(a, b))))
+                ang = math.acos(d)
+                if ang > 1e-6:
+                    got = [
+                        (math.sin((1 - u) * ang) * x + math.sin(u * ang) * y) / math.sin(ang)
+                        for x, y in zip(a, b)
+                    ]
+                else:
+                    got = list(a)
+            else:
+                got = list(quats[k])
+            dot = abs(sum(x * y for x, y in zip(got, want)))
+            self.assertAlmostEqual(dot, 1.0, places=6, msg="at %s" % t)
+        self.assertEqual(done["Keyed"], 1 if len(times) == 2 else 0)
 
     def testGltfExportSaysWhatItLeavesOut(self):
         from freecad import animationgltf

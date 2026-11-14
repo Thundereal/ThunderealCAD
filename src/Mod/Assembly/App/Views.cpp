@@ -23,6 +23,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <set>
 
 #include <Standard_Failure.hxx>
@@ -33,7 +34,14 @@
 #include <App/FeaturePythonPyImp.h>
 #include <App/WriteScope.h>
 #include <Base/BoundBox.h>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <TopoDS_Edge.hxx>
+#include <gp_Pnt.hxx>
+#include <Precision.hxx>
+#include <regex>
+
 #include <Mod/Part/App/PartFeature.h>
+#include <Mod/Part/App/PartPyCXX.h>
 
 #include "AssemblyObject.h"
 #include "AssemblyUtils.h"
@@ -279,6 +287,150 @@ ExplodedPose ExplodedView::explodedAt(std::optional<double> progress) const
 {
     auto frame = restFrame();
     return explodeIn(frame, progress);
+}
+
+bool ExplodedView::isTrailName(const char* mappedName)
+{
+    if (!mappedName) {
+        return false;
+    }
+    static const std::regex trail("Trail[0-9]+(Part[0-9]+)?");
+    std::string name(mappedName);
+    return std::regex_match(name.substr(0, name.find(';')), trail);
+}
+
+Part::TopoShape ExplodedView::getExplodedShape(std::optional<double> progress) const
+{
+    auto assembly = getAssembly();
+    // A view is not in its assembly's shape; were it, asking the assembly
+    // here would ask this again
+    static thread_local std::set<const ExplodedView*> building;
+    if (!assembly || building.count(this)) {
+        return {};
+    }
+    building.insert(this);
+    struct Done
+    {
+        const ExplodedView* view;
+        ~Done()
+        {
+            building.erase(view);
+        }
+    } done {this};
+
+    auto frame = restFrame();
+    auto pose = explodeIn(frame, progress);
+
+    // The frame the assembly is placed in, at rest
+    Base::Placement above;
+    if (auto prop = placementOf(assembly)) {
+        auto it = frame.rest.find(assembly);
+        above = globalPlacementOf(assembly, "")
+            * (it != frame.rest.end() ? it->second : prop->getValue()).inverse();
+    }
+
+    std::vector<Part::TopoShape> shapes;
+    std::function<void(App::DocumentObject*, const std::string&, int)> collect =
+        [&](App::DocumentObject* owner, const std::string& path, int depth) {
+            if (depth > 16) {
+                return;
+            }
+            for (const auto& sub : owner->getSubObjects(App::DocumentObject::GS_DEFAULT)) {
+                std::string p = path + sub;
+                auto objs = assembly->getSubObjectList(p.c_str());
+                if (objs.empty()) {
+                    continue;
+                }
+                auto obj = objs.back();
+                if (obj->isDerivedFrom<ExplodedView>()) {
+                    continue;
+                }
+                Part::TopoShape shape;
+                try {
+                    auto it = frame.placed.find(obj);
+                    if (it != frame.placed.end()) {
+                        // Where the steps put it, in its parent's frame at rest
+                        Base::Matrix4D mat = (frame.parentFrame[obj] * it->second).toMatrix();
+                        shape = Part::Feature::getTopoShape(obj, nullptr, false, &mat, nullptr,
+                                                            true, false);
+                    }
+                    else if (frame.ancestors.count(obj)) {
+                        // Holds a part moved: each of its own
+                        collect(obj, p, depth + 1);
+                        continue;
+                    }
+                    else {
+                        Base::Matrix4D mat = above.toMatrix();
+                        shape = Part::Feature::getTopoShape(assembly, p.c_str(), false, &mat);
+                    }
+                }
+                catch (Base::Exception&) {
+                }
+                catch (Standard_Failure&) {
+                }
+                if (!shape.isNull()) {
+                    shapes.push_back(shape);
+                }
+            }
+        };
+    collect(assembly, "", 0);
+
+    // The trails, each piece an edge of its own name
+    std::vector<Part::TopoShape> edges;
+    int number = 0;
+    for (const auto& trail : pose.trails) {
+        ++number;
+        int piece = 0;
+        for (std::size_t j = 1; j < trail.path.size(); ++j) {
+            const auto& a = trail.path[j - 1];
+            const auto& b = trail.path[j];
+            if (Base::Distance(a, b) <= Precision::Confusion()) {
+                continue;
+            }
+            Part::TopoShape edge(
+                BRepBuilderAPI_MakeEdge(gp_Pnt(a.x, a.y, a.z), gp_Pnt(b.x, b.y, b.z)).Edge());
+            ++piece;
+            std::string name = "Trail" + std::to_string(number);
+            if (piece > 1) {
+                name += "Part" + std::to_string(piece);
+            }
+            edge.setElementName(Data::IndexedName::fromConst("Edge", 1), Data::MappedName(name));
+            edges.push_back(edge);
+        }
+    }
+    if (shapes.empty() && edges.empty()) {
+        return {};
+    }
+    auto hasher = shapes.empty() ? App::StringHasherRef() : shapes.front().Hasher;
+    std::vector<Part::TopoShape> parts;
+    if (!shapes.empty()) {
+        parts.push_back(Part::TopoShape(0, hasher).makECompound(shapes, nullptr, true));
+    }
+    if (!edges.empty()) {
+        parts.push_back(Part::TopoShape(0, hasher).makECompound(edges, nullptr, true));
+    }
+    return Part::TopoShape(0, hasher).makECompound(parts, nullptr, true);
+}
+
+App::DocumentObject* ExplodedView::getSubObject(const char* subname,
+                                                PyObject** pyObj,
+                                                Base::Matrix4D* mat,
+                                                bool transform,
+                                                int depth) const
+{
+    // The view's own shape: the explode (it has no placement of its own)
+    if (pyObj && (!subname || !subname[0])) {
+        auto shape = getExplodedShape();
+        if (!shape.isNull()) {
+            if (mat) {
+                shape.transformShape(*mat, false, true);
+            }
+            Base::PyGILStateLocker lock;
+            *pyObj = Py::new_reference_to(Part::shape2pyshape(shape));
+        }
+        return const_cast<ExplodedView*>(this);
+    }
+    return App::DocumentObject::getSubObject(subname, pyObj, mat, transform, depth);
 }
 
 namespace
@@ -609,6 +761,16 @@ void ExplodedViewStep::explode(const App::DocumentObject& step,
             continue;
         }
         auto parent = parentFrameOf(root, sub, obj, frame);
+        frame.parentFrame[obj] = parent;
+        {
+            auto objs = root->getSubObjectList(sub.c_str());
+            for (auto o : objs) {
+                if (o == obj) {
+                    break;
+                }
+                frame.ancestors.insert(o);
+            }
+        }
         auto rest = frame.restOf(obj);
         auto now = frame.placedOf(obj);
         auto center = frame.restCenterOf(obj);
@@ -686,7 +848,7 @@ PROPERTY_SOURCE_TEMPLATE(Assembly::ExplodedViewPython, Assembly::ExplodedView)
 template<>
 const char* Assembly::ExplodedViewPython::getViewProviderName() const
 {
-    return "Gui::ViewProviderPythonFeature";
+    return "AssemblyGui::ViewProviderExplodedViewPython";
 }
 template<>
 PyObject* Assembly::ExplodedViewPython::getPyObject()

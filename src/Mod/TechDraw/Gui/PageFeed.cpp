@@ -61,6 +61,7 @@
 #include <Base/Console.h>
 #include <Gui/Application.h>
 #include <Gui/Document.h>
+#include <Gui/ViewProvider.h>
 #include <Gui/Renderer/Page2D.h>
 #include <Mod/TechDraw/App/CenterLine.h>
 #include <Mod/TechDraw/App/Cosmetic.h>
@@ -298,6 +299,22 @@ float dashUnit(double asked)
     return (float)drawnWidth(asked);
 }
 
+// How the view of one of `dvp`'s sources draws the 3D edge named `name`
+bool sourceEdgeInfo(TechDraw::DrawViewPart* dvp, const std::string& name,
+                    Gui::ViewProvider::EdgeInfo& info)
+{
+    if (name.empty()) {
+        return false;
+    }
+    for (auto source : dvp->getAllSources()) {
+        auto view = Gui::Application::Instance->getViewProvider(source);
+        if (view && view->getEdgeInfo(name.c_str(), info)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Per-edge appearance, mirroring QGIViewPart::drawAllEdges: cosmetic
 // edge / centerline formats, GeomFormat overrides, the hidden-line pen
 // and the iso-line width. Dash patterns come from the same
@@ -340,6 +357,22 @@ EdgeStroke resolveEdgeStroke(TechDraw::DrawViewPart* dvp,
         TechDraw::GeomFormat* gf = dvp->getGeomFormatBySelection(iEdge);
         if (gf)
             format = &gf->m_format;
+    }
+    // No format of its own: as its source's view draws it -- a sheet's bend
+    // lines, an exploded view's trails -- as QGIViewPart::drawAllEdges asks
+    Gui::ViewProvider::EdgeInfo source;
+    const bool fromSource = !geom->getCosmetic() && !format
+        && sourceEdgeInfo(dvp, geom->getSource3d(), source);
+    if (fromSource) {
+        const double width = source.width > 0
+            ? (vp ? vp->formatWeightScaled(source.width) : source.width)
+            : lineWidthMm;
+        es.color = packColor(source.color.asValue<QColor>());
+        const auto qtStyle = static_cast<Qt::PenStyle>(source.style);
+        pen = lineGen.getBestPen(TechDraw::LineGenerator::fromQtStyle(qtStyle), qtStyle, width);
+        if (width > 0)
+            asked = Rez::guiX(width);
+        formatVisible = source.visible;
     }
     if (format) {
         const double weight =

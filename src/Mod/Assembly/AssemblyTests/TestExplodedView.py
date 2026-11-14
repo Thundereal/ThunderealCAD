@@ -674,3 +674,192 @@ class TestExplodeTrack(PlacementAsserts, JointTestBase):
         anim.Time = 1
         anim.stop()
         self.assertPlc(self.b.Placement, plc(30, 0, 0))
+
+
+def hasEventLoop():
+    """A Qt application to run an event loop in: FreeCADCmd has none"""
+    from PySide import QtCore
+
+    return QtCore.QCoreApplication.instance() is not None
+
+
+def waitForWorkers(ms=2000):
+    """TechDraw projects in worker threads; give them the event loop"""
+    from PySide import QtCore
+
+    loop = QtCore.QEventLoop()
+    timer = QtCore.QTimer()
+    timer.setSingleShot(True)
+    timer.timeout.connect(loop.quit)
+    timer.start(ms)
+    loop.exec_()
+
+
+def trailNames(shape):
+    return sorted(n for n in shape.ElementMap if n.split(";")[0].startswith("Trail"))
+
+
+class TestExplodedShape(PlacementAsserts, JointTestBase):
+    """The exploded view's shape: the parts where its steps put them, and its
+    trails as edges named Trail<n> (docs/AssemblyExplode.md sec 5)"""
+
+    def build(self, steps):
+        self.box("A")
+        self.b = self.box("B", plc(30, 0, 0))
+        return TestExplodedView.explodedView(self, steps)
+
+    def testShapeIsTheExplodedParts(self):
+        import Part
+
+        view = self.build([(["B."], plc(0, 0, 20), 0)])
+        shape = view.getExplodedShape()
+        self.assertEqual(len(shape.Solids), 2)
+        zmins = sorted(round(s.BoundBox.ZMin, 9) for s in shape.Solids)
+        self.assertEqual(zmins, [0, 20])
+        self.assertEqual([n.split(";")[0] for n in trailNames(shape)], ["Trail1"])
+        trail = shape.getElement(shape.ElementMap[trailNames(shape)[0]])
+        self.assertTrue(trail.Vertexes[0].Point.isEqual(App.Vector(35, 5, 5), TOL))
+        self.assertTrue(trail.Vertexes[1].Point.isEqual(App.Vector(35, 5, 25), TOL))
+        # As any consumer of shapes sees it, and the design untouched
+        same = Part.getShape(view)
+        self.assertEqual(len(same.Solids), 2)
+        self.assertAlmostEqual(same.BoundBox.ZMax, 30)
+        self.assertPlc(self.b.Placement, plc(30, 0, 0))
+        # At a progress
+        half = view.getExplodedShape(0.5)
+        self.assertAlmostEqual(half.BoundBox.ZMax, 20)
+
+    def testTurnTrailIsItsArc(self):
+        view = self.build([(["B."], turn((30, 0, 0), 90), 0)])
+        names = [n.split(";")[0] for n in trailNames(view.getExplodedShape())]
+        n = len(view.explodedAt(None, True)[1][0][3]) - 1
+        self.assertEqual(
+            sorted(names), sorted(["Trail1"] + ["Trail1Part%d" % k for k in range(2, n + 1)])
+        )
+
+    def testAssemblyShapeLeavesTheViewOut(self):
+        import Part
+
+        view = self.build([(["B."], plc(0, 0, 20), 0)])
+        self.assertEqual(len(Part.getShape(self.assembly).Solids), 2)
+        center, size = view.getCenterAndSize()
+        self.assertTrue(center.isEqual(App.Vector(20, 5, 5), TOL), center)
+
+    def testPosedViewDrawsTheSame(self):
+        view = self.build([(["B."], plc(0, 0, 20), 0)])
+        before = view.getExplodedShape()
+        view.pose(0.5)
+        during = view.getExplodedShape()
+        view.unpose()
+        self.assertTrue(before.BoundBox.isInside(during.BoundBox.Center))
+        self.assertAlmostEqual(during.BoundBox.ZMax, before.BoundBox.ZMax)
+
+    def testTechDrawView(self):
+        """A TechDraw view of the exploded view: its parts and its trails,
+        each projected edge of a trail named after it"""
+        try:
+            import TechDraw  # noqa: F401
+            from TDTest.TechDrawTestUtilities import createPageWithSVGTemplate
+        except ImportError:
+            self.skipTest("no TechDraw")
+        if not hasEventLoop():
+            self.skipTest("TechDraw projects in threads, which need an event loop")
+        view = self.build([(["B."], plc(0, 0, 20), 0)])
+        page = createPageWithSVGTemplate(self.doc)
+        drawing = self.doc.addObject("TechDraw::DrawViewPart", "Drawing")
+        page.addView(drawing)
+        drawing.Source = [view]
+        drawing.Direction = App.Vector(0, -1, 0)
+        self.doc.recompute()
+        waitForWorkers()
+        sources = [source.split(";")[0] for _n, source, _i in drawing.getEdgeNames()]
+        self.assertIn("Trail1", sources)
+        # Both boxes: B drawn where the step put it, 20 up
+        shape = drawing.getSourceShape()
+        self.assertEqual(len(shape.Solids), 2)
+        self.assertAlmostEqual(shape.BoundBox.ZMax, 30)
+
+
+@unittest.skipIf(not App.GuiUp, "drawing a page needs the GUI")
+class TestExplodedViewDrawn(PlacementAsserts, JointTestBase):
+    # The steps' line colour for the test: a green nothing else on the page
+    # has. Put back after (the GUI tests write the real user.cfg).
+    GREEN = 0x00C80000
+
+    def setUp(self):
+        super().setUp()
+        self.prefs = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly")
+        self.hadColor = "StepLineColor" in self.prefs.GetUnsigneds()
+        self.oldColor = self.prefs.GetUnsigned("StepLineColor", 0xCC333300)
+        self.prefs.SetUnsigned("StepLineColor", self.GREEN)
+
+    def tearDown(self):
+        if self.hadColor:
+            self.prefs.SetUnsigned("StepLineColor", self.oldColor)
+        else:
+            self.prefs.RemUnsigned("StepLineColor")
+        super().tearDown()
+
+    def testTrailsAreDashed(self):
+        """On the page, in its SVG and on the vg 2D engine's page, a trail
+        is dashed and in the steps' colour: the exploded view's view
+        provider styles its trail edges"""
+        try:
+            import TechDraw  # noqa: F401
+            import TechDrawGui
+            from TDTest.TechDrawTestUtilities import createPageWithSVGTemplate
+        except ImportError:
+            self.skipTest("no TechDraw")
+        self.box("A")
+        self.box("B", plc(30, 0, 0))
+        view = TestExplodedView.explodedView(self, [(["B."], plc(0, 0, 20), 0)])
+        CommandCreateView.ViewProviderExplodedView(view.ViewObject)
+        self.assertEqual(view.ViewObject.TypeId, "AssemblyGui::ViewProviderExplodedViewPython")
+        page = createPageWithSVGTemplate(self.doc)
+        drawing = self.doc.addObject("TechDraw::DrawViewPart", "Drawing")
+        page.addView(drawing)
+        drawing.Source = [view]
+        drawing.Direction = App.Vector(0, -1, 0)
+        self.doc.recompute()
+        waitForWorkers()
+        page.ViewObject.show()
+        waitForWorkers(1000)
+        trail = self.greenStrokes(TechDrawGui, page)
+        greenPixels = self.greenPixels(TechDrawGui, page)
+        self.assertTrue(trail, "no stroke in the steps' colour")
+        for g in trail:
+            self.assertIn("stroke-dasharray", g)
+            self.assertIn('stroke-opacity="1"', g)
+        if greenPixels is not None:
+            self.assertGreater(greenPixels, 20, "the vg page draws no trail")
+        # Without the trail, none
+        view.Group[0].MovementTransform = plc()
+        self.doc.recompute()
+        drawing.touch()
+        self.doc.recompute()
+        waitForWorkers()
+        self.assertEqual(self.greenStrokes(TechDrawGui, page), [])
+        if greenPixels is not None:
+            self.assertEqual(self.greenPixels(TechDrawGui, page), 0)
+
+    def greenStrokes(self, TechDrawGui, page):
+        """The groups of the page's SVG that stroke in the steps' green"""
+        import re
+
+        path = os.path.join(tempfile.mkdtemp(), "exploded.svg")
+        TechDrawGui.exportPageAsSvg(page, path)
+        svg = open(path, encoding="utf-8").read()
+        return [g for g in re.findall(r"<g [^>]*>", svg) if 'stroke="#00c800"' in g]
+
+    def greenPixels(self, TechDrawGui, page):
+        """The pixels of the steps' green on the page the vg 2D engine draws,
+        or None where it cannot draw"""
+        from PIL import Image
+
+        path = os.path.join(tempfile.mkdtemp(), "exploded.png")
+        try:
+            TechDrawGui.renderPageVg(page, path, 1400, 1000)
+        except Exception:
+            return None
+        img = Image.open(path).convert("RGB")
+        return sum(1 for r, g, b in img.getdata() if g > 120 and r < 90 and b < 90)

@@ -264,6 +264,10 @@ class ExplodedView:
         Generates a compound shape of the exploded assembly in memory
         without modifying the document. Returns a single Part.Compound.
         """
+        # Not upstream: the C++ view makes it, its trails named
+        if viewObj.isDerivedFrom("Assembly::ExplodedView"):
+            shape = viewObj.getExplodedShape()
+            return None if shape.isNull() else shape
         final_placements, line_positions = self._calculateExplodedPlacements(viewObj)
 
         exploded_shapes = []

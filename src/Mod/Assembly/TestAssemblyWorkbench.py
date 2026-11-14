@@ -65,6 +65,8 @@ from AssemblyTests.TestExplodedView import (
     TestExplodedViewInTree,
     TestExplodeTrack,
     TestExplodedViewAnimate,
+    TestExplodedShape,
+    TestExplodedViewDrawn,
 )
 from AssemblyTests.TestAssemblyGroups import TestAssemblyGroups
 from AssemblyTests.TestInterference import (
@@ -134,6 +136,8 @@ True if TestExplodedViewShown else False
 True if TestExplodedViewInTree else False
 True if TestExplodeTrack else False
 True if TestExplodedViewAnimate else False
+True if TestExplodedShape else False
+True if TestExplodedViewDrawn else False
 True if TestAssemblyGroups else False
 True if TestInterference else False
 True if TestInterferenceOverFrames else False

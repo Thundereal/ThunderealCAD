@@ -32,6 +32,7 @@
 #include "ViewProviderJoint.h"
 #include "ViewProviderBom.h"
 #include "ViewProviderGroups.h"
+#include "ViewProviderExplodedView.h"
 #include "ViewProviderPhysics.h"
 
 namespace AssemblyGui
@@ -83,6 +84,8 @@ PyMOD_INIT_FUNC(AssemblyGui)
     AssemblyGui::ViewProviderPartsGroup::init();
     AssemblyGui::ViewProviderJointGroup::init();
     AssemblyGui::ViewProviderViewGroup::init();
+    AssemblyGui::ViewProviderExplodedView::init();
+    AssemblyGui::ViewProviderExplodedViewPython::init();
     AssemblyGui::ViewProviderSimulationGroup::init();
     AssemblyGui::ViewProviderSnapshotGroup::init();
 

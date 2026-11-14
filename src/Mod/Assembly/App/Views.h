@@ -37,11 +37,13 @@
 #include <Base/Placement.h>
 
 #include <Mod/Assembly/AssemblyGlobal.h>
+#include <Mod/Part/App/TopoShape.h>
 
 #include <fastsignals/signal.h>
 
 #include <map>
 #include <optional>
+#include <set>
 #include <vector>
 
 namespace Assembly
@@ -93,6 +95,10 @@ struct AssemblyExport ExplodeFrame
     std::vector<App::DocumentObject*> order;
     /// The center of its bounding box at rest, in its parent's frame
     std::map<App::DocumentObject*, Base::Vector3d> restCenter;
+    /// Its parent's frame at rest, in the document's
+    std::map<App::DocumentObject*, Base::Placement> parentFrame;
+    /// The objects on the paths to the parts moved: what holds a part moved
+    std::set<App::DocumentObject*> ancestors;
 
     /// The rest placement of `obj`: `rest` has it, or its Placement now
     Base::Placement restOf(App::DocumentObject* obj);
@@ -112,7 +118,7 @@ public:
 
     const char* getViewProviderName() const override
     {
-        return "Gui::ViewProviderDocumentObjectGroup";
+        return "AssemblyGui::ViewProviderExplodedView";
     }
     PyObject* getPyObject() override;
 
@@ -131,6 +137,23 @@ public:
      * the end. Nothing is written.
      */
     ExplodedPose explodedAt(std::optional<double> progress = std::nullopt) const;
+
+    /** The assembly as explodedAt(progress) puts it, in the document's
+     * frame: what the assembly shows, the parts moved where the steps put
+     * them, and the trails as edges named Trail<n> (Trail<n>Part<k> for the
+     * pieces of a turn's arc). Nothing is written. Its shape for anything
+     * that asks the view for one (getSubObject): a TechDraw view of it
+     * draws the explode (docs/AssemblyExplode.md sec 5).
+     */
+    Part::TopoShape getExplodedShape(std::optional<double> progress = std::nullopt) const;
+    /// Whether `mappedName` is a trail edge's, as getExplodedShape names it
+    static bool isTrailName(const char* mappedName);
+
+    App::DocumentObject* getSubObject(const char* subname,
+                                      PyObject** pyObj = nullptr,
+                                      Base::Matrix4D* mat = nullptr,
+                                      bool transform = true,
+                                      int depth = 0) const override;
 
     /** Show the parts where explodedAt(progress) puts them, and each step's
      * trails, as an Animation plays (docs/AssemblyExplode.md sec 3): under

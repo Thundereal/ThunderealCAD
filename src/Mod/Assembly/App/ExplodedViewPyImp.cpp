@@ -25,6 +25,8 @@
 #include <Base/PlacementPy.h>
 #include <Base/VectorPy.h>
 
+#include <Mod/Part/App/PartPyCXX.h>
+
 #include "AssemblyObject.h"
 #include "ExplodedViewPy.h"
 #include "ExplodedViewPy.cpp"
@@ -126,6 +128,28 @@ PyObject* ExplodedViewPy::explodedAt(PyObject* args) const
             }
         }
         return Py::new_reference_to(Py::TupleN(moves, trails));
+    }
+    PY_CATCH;
+}
+
+PyObject* ExplodedViewPy::getExplodedShape(PyObject* args) const
+{
+    PyObject* pyProgress = Py_None;
+    if (!PyArg_ParseTuple(args, "|O", &pyProgress)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        std::optional<double> progress;
+        if (pyProgress != Py_None) {
+            double value = PyFloat_AsDouble(pyProgress);
+            if (value == -1.0 && PyErr_Occurred()) {
+                return nullptr;
+            }
+            progress = value;
+        }
+        return Py::new_reference_to(
+            Part::shape2pyshape(getExplodedViewPtr()->getExplodedShape(progress)));
     }
     PY_CATCH;
 }

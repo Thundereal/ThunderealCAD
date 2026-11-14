@@ -14,7 +14,7 @@ dwin's (the Windows box); this branch stays out of them.
 | E1 | One calculation in C++: placements and trails at a progress through the steps | built |
 | E2 | Showing an explode is not an edit | built |
 | E3 | An "Explode" animation track kind, its value the progress | built |
-| E4 | TechDraw: an exploded view as a drawing view's source, with its trails dashed | next |
+| E4 | TechDraw: an exploded view as a drawing view's source, with its trails dashed | built |
 
 The user agreed with three recommendations:
 - **One track** whose value runs 0..N, each step one unit, so easing and
@@ -155,7 +155,46 @@ An Animation plays an exploded view through a track of kind `Explode`
   makes one in a single undo step, makes it active and raises the
   timeline.
 
-## 5. Tests
+## 5. Drawings (E4)
+
+**An exploded view has a shape.** `ExplodedView::getExplodedShape(progress)`
+is the assembly as the steps put it, in the document's frame, writing
+nothing:
+- what the assembly shows, its parts moved where the steps put them; a
+  part inside an `App::Part` is moved inside it, the rest of that Part
+  drawn where it is;
+- the trails as edges named `Trail<n>`, and `Trail<n>Part<k>` for the
+  pieces of a turn's arc (sec 2).
+
+`getSubObject` hands it to anything that asks the view for its shape, so
+`Part.getShape(view)` and a TechDraw view whose Source is the exploded
+view draw the explode at its end, with no TechDraw code that knows the
+Assembly. The assembly's own shape does not take the view in: it exports
+its components only. A re-entry guard keeps a view out of its own shape
+should that change.
+
+**Trails are drawn dashed.** A projected edge keeps the mapped name of the
+3D edge it came from, and TechDraw asks the source's view provider how to
+draw it (`Gui::ViewProvider::getEdgeInfo`, the hook sheet metal's flat
+pattern uses for its bend lines, `docs/SheetMetal.md` sec 5.6). The
+exploded view has a C++ view provider for it now,
+`AssemblyGui::ViewProviderExplodedView` and its Python variant, which the
+Python proxy attaches to as before. It answers for a trail's name:
+dashed, in the steps' line colour (`StepLineColor`, the 3D view's).
+
+Found on the way:
+- **The 2D page engine ignored a source's edge styles.** `PageFeed` (the
+  vg page, `docs/TechDrawPortAndSection.md` sec 16) drew every edge
+  without a format of its own solid black. `QGIViewPart` asked the
+  source's view provider. It asks now too, so sheet metal's bend lines
+  are styled there as well.
+- **`StepLineColor`'s last byte is not an opacity.** Coin's line colour
+  reads the colour alone. Read as a `Base::Color` its default 0xCC333300
+  is fully transparent, and the first version drew every trail invisible
+  on both pages, though the SVG said dashed. The view provider takes the
+  colour and makes it opaque.
+
+## 6. Tests
 
 `src/Mod/Assembly/AssemblyTests/TestExplodedView.py`:
 
@@ -188,6 +227,18 @@ An Animation plays an exploded view through a track of kind `Explode`
   - a track of a deleted view writes nothing.
 - `TestExplodedViewAnimate` (1, GUI only): the context menu's Animate
   makes the Animation in one undo step.
+- `TestExplodedShape` (5, E4):
+  - the shape: both parts, the moved one where the step put it, one trail
+    edge named Trail1 from where to where; `Part.getShape(view)` the
+    same; the design untouched; at a progress;
+  - a turn's trail as Trail1 and its pieces;
+  - the assembly's own shape without the view;
+  - the shape the same while posed;
+  - a TechDraw view of the exploded view: both parts, and projected edges
+    whose source is Trail1 (needs an event loop: GUI only).
+- `TestExplodedViewDrawn` (1, GUI only): on the page, the trail is a
+  stroke in the steps' colour, dashed and opaque, in the SVG and on the vg
+  page (counted in pixels), and none without the trail.
 - `TestExplodedViewInTree` (1, GUI only): selecting the view with the
   assembly active shows it and the step draws its trail; leaving it puts
   everything back, with no undo step and the document not modified.
@@ -197,9 +248,13 @@ transaction, and the 8 pose cases had no API. After: 22 of 22 headless,
 23 of 23 in the GUI (`GT_ASSEMBLY_TESTS=AssemblyTests.TestExplodedView
 scripts/gui-test.sh tests/gui/assembly-workbench-suite.py`). With E3:
 26 of 26 headless (2 GUI-only skipped) and 28 of 28 in the GUI; with the
-arc trails, 28 of 28 headless and 30 of 30 in the GUI.
+arc trails, 28 of 28 headless and 30 of 30 in the GUI. With E4: 32 of 32
+headless (4 GUI-only skipped), 36 of 36 in the GUI. Before E4: the three
+shape cases had no API; with the view provider's answer off, the drawn
+case failed (the trail a plain stroke), and with its first colour the vg
+page showed no trail at all.
 
-## 6. Open
+## 7. Open
 
 - Editing a step (its transform, its parts) while the view is posed does
   not re-pose. The tree's explode ends when the selection moves, and the

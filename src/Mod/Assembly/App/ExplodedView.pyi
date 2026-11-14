@@ -60,6 +60,18 @@ class ExplodedView(DocumentObject):
         """
         ...
 
+    @constmethod
+    def getExplodedShape(self, progress: Optional[float] = None, /) -> object:
+        """
+        The assembly as explodedAt(progress) puts it, in the document's
+        frame, writing nothing: what it shows, the parts moved where the steps
+        put them, and the trails as edges named Trail<n> (Trail<n>Part<k>
+        for the pieces of a turn's arc). The default is the end. It is the
+        view's shape for anything that asks for one: a TechDraw view of it
+        draws the explode.
+        """
+        ...
+
     def pose(self, progress: Optional[float] = None, /) -> None:
         """
         Show the parts where explodedAt(progress) puts them, and the steps'

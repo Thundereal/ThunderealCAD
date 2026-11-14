@@ -5252,6 +5252,23 @@ Phase D1 is under way (2026-10-28):
     are as they were, to the digits they print.
   - Tests: none new. TestFlexibleBody 32 (601 s), TestDynamics 90,
     TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Checked, D4b step 23 (2026-11-14): a flexible part sticks as a rigid
+  one does. No change to the solver.
+  - Step 17 checked the friction on a flexible part sliding, mu N; whether
+    one is held was left open. A bar 40 x 10 x 4 no joint holds (step 21),
+    4.32 g, lying on a grounded plate tilted 5 deg, tan 0.0875, touched
+    anywhere, 1000 N/mm; 0.1 s.
+  - A friction of 0.2: the plate presses it 0.042204 N, its weight's
+    cosine, and holds it 0.0036923 N, its weight's sine, both to the last
+    digit; it creeps down at 0.04582 mm/s, steadily -- the friction's slip,
+    the rigid bar's 0.04582 too.
+  - A friction of 0.05: 0.0021102 N, mu N, and it gains 366.24 mm/s^2 for
+    g (sin a - mu cos a)'s 366.24; 1.832 mm down the slope at 0.1 s, the
+    rigid bar's 1.8317.
+  - 162 frames in 3.4 s, the rigid bar's 0.1 s.
+  - Tests: TestFlexibleBody.test_sticks_on_a_slope (both frictions: the
+    forces and the gain to 1%, the creep under 0.1 mm/s). TestFlexibleBody
+    33 (611 s).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

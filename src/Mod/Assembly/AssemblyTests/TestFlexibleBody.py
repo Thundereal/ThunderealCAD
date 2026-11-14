@@ -1540,6 +1540,93 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertLess(abs(mean - weight), 0.01 * weight)
         self.assertLess(abs(sag - beam), 0.03 * beam)
 
+    def test_sticks_on_a_slope(self):
+        """A flexible part sticks, and slides, as a rigid one does (D4b step
+        23): a bar 40 x 10 x 4 no joint holds, lying on a grounded plate
+        tilted 5 deg, touched anywhere. tan 5 deg is 0.0875: with a friction
+        of 0.2 the plate holds it, the friction its weight's part down the
+        slope, and it creeps by the friction's slip alone; with 0.05 it
+        slides, the friction mu N, gaining g (sin a - mu cos a)"""
+        import CommandCreateContact
+
+        angle = math.radians(5.0)
+        tilt = App.Placement(App.Vector(0, 0, 0), App.Rotation(App.Vector(0, 1, 0), 5.0))
+        plate = self.box("Plate", (160, 40, 5), (0, 0, 0))
+        plate.Placement = tilt.multiply(App.Placement(App.Vector(-80, -20, -5), App.Rotation()))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
+        JointObject.GroundedJoint(ground, plate)
+        bar = self.box("Bar", (40, 10, 4), (0, 0, 0))
+        bar.Placement = tilt.multiply(App.Placement(App.Vector(-60, -5, 0.01), App.Rotation()))
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contact = CommandCreateContact.newContactSet(self.assembly, [plate], [bar])
+        contact.StiffnessFrom = "Value"
+        contact.Stiffness = 1000.0
+        contact.Exponent = 1.0
+        contact.FrictionFrom = "Value"
+        sim = self.study(0.1, 1e-3)
+        sim.Elements = [contact]
+        body = FlexibleBodies.makeFlexibleBody(self.assembly, bar)
+        body.MeshSize = 4.0
+        FlexibleBodies.prepare(body)
+        self.doc.recompute()
+        weight = 0.0
+        for entry in self.assembly.getMassProperties()["Components"]:
+            if entry["Object"].Name == bar.Name:
+                weight += entry["Mass"] * 9.80665
+        down = tilt.Rotation.multVec(App.Vector(1, 0, 0))
+
+        def run(mu):
+            # The forces' means over the last half, and the bar's speed down
+            # the slope at 0.05 s and 0.099 s
+            contact.StaticFriction = mu
+            contact.DynamicFriction = mu
+            self.doc.recompute()
+            self.assertEqual(self.assembly.generateSimulation(sim), 0)
+            results = self.assembly.getSimulationResults()
+            times = results["Times"]
+
+            def channel(quantity):
+                values = [
+                    c["Values"]
+                    for c in results["Channels"]
+                    if c["Quantity"] == quantity and c["Name"] == contact.Name
+                ]
+                self.assertEqual(len(values), 1)
+                return [v.Length * 1e-3 for v in values[0]]
+
+            normal = channel("ContactNormalForce")
+            friction = channel("ContactFrictionForce")
+            late = [k for k, t in enumerate(times) if t >= 0.05]
+            along = []
+            for k in range(len(times)):
+                self.assembly.updateForFrame(k)
+                along.append(bar.Placement.multVec(App.Vector(20, 5, 2)).dot(down))
+            k0, k1 = late[0], late[-1]
+            v0 = (along[k0 + 1] - along[k0 - 1]) / (times[k0 + 1] - times[k0 - 1])
+            v1 = (along[k1] - along[k1 - 2]) / (times[k1] - times[k1 - 2])
+            gain = (v1 - v0) / (times[k1 - 1] - times[k0])
+            return (
+                sum(normal[k] for k in late) / len(late),
+                sum(friction[k] for k in late) / len(late),
+                v1,
+                gain,
+            )
+
+        held = run(0.2)
+        slid = run(0.05)
+        free = 9806.65 * (math.sin(angle) - 0.05 * math.cos(angle))
+        print("sticks on a slope: mu 0.2, N %.5g of %.5g, F %.5g of %.5g, creeping %.4g mm/s; "
+              "mu 0.05, F %.5g of %.5g, gaining %.5g mm/s^2 of %.5g"
+              % (held[0], weight * math.cos(angle), held[1], weight * math.sin(angle), held[2],
+                 slid[1], 0.05 * weight * math.cos(angle), slid[3], free))
+        self.assertLess(abs(held[0] - weight * math.cos(angle)), 0.01 * weight)
+        self.assertLess(abs(held[1] - weight * math.sin(angle)), 0.01 * weight * math.sin(angle))
+        self.assertLess(abs(held[2]), 0.1)
+        self.assertLess(abs(held[3]), 1.0)
+        self.assertLess(abs(slid[1] - 0.05 * slid[0]), 0.01 * 0.05 * slid[0])
+        self.assertLess(abs(slid[3] - free), 0.01 * free)
+
     def test_flexible_pendulum(self):
         """Let go level, the flexible rod swings down as the rigid one does,
         its centre at the bottom in a quarter of the period, the hinge

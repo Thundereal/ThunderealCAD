@@ -12494,6 +12494,22 @@ Status ChronoSession::simulateDynamics(
             body->SetPosDt(body->GetPosDt() - back * body->GetPosDt2());
             body->SetAngVelLocal(body->GetAngVelLocal() - back * body->GetAngAccLocal());
         }
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        // A flexible body's too, which is none of those: its interfaces'
+        // bodies and its modes' rates. A flexible bar falling free was g
+        // times 2e-6 s ahead from the start, 0.02 mm/s
+        for (const auto& flexible : run.d->flexibles) {
+            for (const auto& body : flexible.built.interfaces) {
+                body->SetPosDt(body->GetPosDt() - back * body->GetPosDt2());
+                body->SetAngVelLocal(body->GetAngVelLocal() - back * body->GetAngAccLocal());
+            }
+            auto& rates = flexible.built.assembly->GetModalCoordinatesVelLevel();
+            const auto& gains = flexible.built.assembly->GetModalCoordinatesAccLevel();
+            if (rates.size() == gains.size()) {
+                rates -= back * gains;
+            }
+        }
+#endif
     };
     // The initial velocities on the start assembly (sec 6.1): a body's set
     // as given, a joint's rate held by a Speed motor of the joint's kind

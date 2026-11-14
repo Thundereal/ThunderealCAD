@@ -5220,8 +5220,8 @@ Phase D1 is under way (2026-10-28):
       the beam's formula. The run does not hold it there: the interface's
       six coordinates go with those modes.
     - Falling free it is 0.04 um ahead of g t^2/2 at 2 ms and 0.10 at 5
-      ms, a speed of 0.02 mm/s from the start. Not looked into; step 19's
-      hanger and block, 19.627 um, had a third of it.
+      ms, a speed of 0.02 mm/s from the start; step 19's hanger and block,
+      19.627 um, had a third of it. Step 22.
     - The strip 1 mm thick still rings at rest at 0.05 s, 0.0207 to 0.0217
       N: its 479 Hz mode.
   - Tests: TestFlexibleBody.test_held_by_nothing (the bar on the rollers
@@ -5231,6 +5231,27 @@ Phase D1 is under way (2026-10-28):
     hold: TestFlexibleBody 32 (615 s), TestDynamics 90, TestJointFriction
     4, TestContact 63; ctest 25; TestGuiCommands 76; every probe of steps
     12 to 18 as it was.
+- Built, D4b step 22 (2026-11-14): a flexible body starts at the
+  velocities it has.
+  - **2 us of acceleration ahead.** Step 21's bar falling free was ahead of
+    g t^2/2 by 0.0196 um at 1 ms, 0.0392 at 2 and 0.098 at 5: a speed of
+    0.019613 mm/s from the start, g times 2e-6 s to its last digit. The
+    start's assembly projects the velocities twice, each a step of 1e-6 s
+    under the forces, and takes those 2e-6 s of acceleration back off the
+    bodies (`assembleFull()`) -- off the rigid ones: a flexible
+    body is none of those, its coordinates its interfaces' bodies and its
+    modes'. Step 19's hanger, 41 g of the 114 falling, was 0.36 of it
+    ahead: 19.627 um for 19.613.
+  - Taken back off a flexible body's interface bodies and its modes' rates
+    too.
+  - Numbers. The bar falling free: 1.225831, 4.903325, 19.613300 and
+    122.583125 um at 0.5, 1, 2 and 5 ms, g t^2/2 to the last digit. On the
+    rollers it lands at 1.443 N for 1.435, and rests and sags as it did,
+    0.08473 N and 0.0409 um. Step 19's hanger lands at 5.17 N for 5.15 and
+    rests at 1.121 N for 1.112, of 1.116. The probes of steps 12 to 18
+    are as they were, to the digits they print.
+  - Tests: none new. TestFlexibleBody 32 (601 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

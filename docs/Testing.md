@@ -1161,6 +1161,21 @@ the reason above and the first because it plays by the wall clock. On mini
 `tools/run-gui-script.sh`, node from `~/works/sw/emsdk/node`, puppeteer-core
 in `~/works/sw/fcad-probes`, the system Chrome.
 
+2026-11-14: the clip carries visibility and sequences of per-frame blobs
+(`docs/Animation.md` sec 9.1). `serve-animation.py` is 34 checks now (a box
+rebuilt and one hidden from 0.5 s to 1.5 s: a sequence and a shown mask,
+every blob served under its SHA-1, nothing published; with
+`StreamBlobMB` 0 the publishes flow). `serve-animation-sequence-browser.py`
+is the browser half, 18 checks on the same driver: a red box whose Height
+the Animation shrinks drawn smaller as the Time goes on, a green one hidden
+in the publish the viewer holds drawn between 1 s and 2 s and nowhere
+else, a blue one standing still so the camera the viewer fits does not
+move. It plays at Speed 0.25 and the driver reads the viewer's state after
+each screenshot as well as before: under swiftshader a screenshot can take
+seconds, and a reading whose two Times are far apart cannot say which frame
+it caught. The navigation cube's Y axis is some 60 green pixels in every
+shot.
+
 `animation-export-clock.py` (2026-11-13) is the renderer's clock pinned by
 an export (`docs/Animation.md` sec 9): a flame (`Render_Fire`) drawn by the
 renderer, 12 checks. Two images at one pinned time are the same to the

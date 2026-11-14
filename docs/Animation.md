@@ -1042,11 +1042,36 @@ moving its children all come out right with no case for each -- the same
 argument as the glTF exporter's baking, one level further down. The time
 it was at is put back when the sweep is done.
 
+**What is not a move rides the clip too** (2026-11-14). A key whose draws
+are missing at some frames -- hidden -- keeps its track, with a byte a
+frame saying where it is shown; its poses are measured from the first
+frame it is shown in, and its draws there are kept, so a viewer holding a
+publish taken while it was hidden can still show it. A key whose draws do
+not move rigidly -- a shape rebuilt, a colour or a transparency changed,
+draws moving apart -- is a *sequence*: its draws at every frame are kept,
+the frames before the one that showed it being made from the moves they
+were. What is kept is a **blob**: the key's draws as a self-contained
+scene snapshot (`Render::motionBlobOf`, `Gui/Renderer/MotionClipBlob.h`,
+the layout a bundled `.fcsd` has, meshes and materials inline), named by
+the SHA-1 of its bytes, so a frame that draws as another is one blob. The
+serve source hands the clip's blobs to the scene server
+(`SceneStreamServer::holdBlobs`), which keeps them through its publish
+generations for as long as the clip lives and serves them as any chunk,
+`GET /blob?key=` and the batched fetch. Blobs are counted as they are
+made; past `StreamBlobMB` (`BaseApp/Preferences/Animation`, 64 by
+default) a sequence that needs more is left out of the clip, and so is a
+hidden key's kept draws. The sweep holds `Render::ExactDetail`: a frame is
+kept with the exact mesh, not the coarse one coarse-first tessellation or
+the capture budget would stand in for a while.
+
 **Two messages on the control channel**, both built and parsed by the one
 header the desktop and the browser's viewer share:
 
     {"cmd":"clip","doc":..,"id":N,"start":s,"step":dt,"frames":F,
-     "keys":["<objectKey, hex>",..],"data":"<base64: F x 7 float32 a key>"}
+     "keys":["<objectKey, hex>",..],"data":"<base64: F x 7 float32 a key>",
+     "shown":"<base64: F bytes a key, or empty>","refs":[frame,blob,..],
+     "seqKeys":["<objectKey, hex>",..],"seq":"<base64: F int32 a key>",
+     "blobs":["<sha1>",..],"sizes":[bytes,..]}
     {"cmd":"time","doc":..,"clip":N,"active":..,"playing":..,"t":..,
      "raw":..,"speed":..,"start":..,"end":..,"loop":..,
      "v":<manifest version>,"baseActive":..,"base":<Time of that publish>}
@@ -1071,15 +1096,14 @@ Animation writes says nothing new. The serve source asks before it
 schedules one (`SceneServeClip::changed`), and the answer is yes only for
 a write made by the Animation (`WriteCause::Animation`, section 5.1) while
 the player plays, the clip being *exact*: the sweep changed nothing in the
-feed that a track does not say -- no object came or went, none was
-rebuilt, none changed its colour or style, none moved other than rigidly.
-What the Animation writes at a Time is what it wrote there in the sweep,
-so with an exact clip none of it is news, whatever the property (a moved
-Part::Feature's `Shape` is written along with its `Placement`). An
-Animation that also drives a colour or a length, or switches a visibility,
-has a clip that is not exact, and everything it writes publishes as it
-always did; the viewer still moves the rigid part smoothly between the
-publishes that bring the rest. Pausing, scrubbing and stopping always publish, so a viewer that is
+feed that the clip does not say -- a track, a shown byte or a sequence's
+blob. What the Animation writes at a Time is what it wrote there in the
+sweep, so with an exact clip none of it is news, whatever the property (a
+moved Part::Feature's `Shape` is written along with its `Placement`, a
+rebuilt one's along with its `Height`). Only a clip that left something
+out -- the blobs over their limit -- is not exact; then everything the
+Animation writes publishes as it always did, and the viewer still plays
+what the clip does say between the publishes that bring the rest. Pausing, scrubbing and stopping always publish, so a viewer that is
 not playing holds the very pose the host is in.
 
 **A real edit makes the clip stale.** Any change not made by the
@@ -1089,15 +1113,28 @@ playing the clip is baked again half a second after the edits stop. A
 viewer that joins while it plays is sent the clip and the clock; if nobody
 was watching when it started, the join is what bakes it.
 
-**In the viewer** (`wasm/main.cpp`) the draws are moved in place, in the
-scene it holds, once a frame before it is decided whether a frame is
-drawn; the selection drawn over them is rebuilt from the moved draws.
-`window.fcviewerAnimationState()` says what it is playing.
+**In the viewer** (`wasm/main.cpp`) the scene it holds is recomposed from
+the publish's draws once a frame, before it is decided whether a frame is
+drawn: a track's draws moved, or left out at a frame it is hidden at; a
+sequence's draws swapped for those of the blob of the frame nearest, or
+left out where it has none; a track the publish lacks drawn from its kept
+draws, moved from the frame they were taken at. At the very Time the
+publish was taken nothing is changed -- the publish is exact there, which
+is what a paused viewer shows. The blobs are asked for when the clip
+arrives, through the same store a scene's chunks go through (IndexedDB,
+the batched fetch); one not in yet leaves the publish's draws standing.
+The selection drawn over them is rebuilt from the posed draws.
+`window.fcviewerAnimationState()` says what it is playing: tracks,
+sequences, blobs and how many are in, and what the last pose moved,
+swapped and left out.
 
 Not in this cut:
-- **Visibility is not in the clip.** A hidden object's geometry is not at
-  the viewer, so a switch arrives as the scene update it always was (and
-  an Animation with one is not held).
+- **A sequence is stepped**, shown at the frame nearest, at `FrameRate`
+  (240 frames over the range at most), not blended between frames.
+- **A blob is self-contained**, so a mesh that only changes colour is in
+  every frame's blob again; out-of-band mesh chunks keyed by content
+  would share it. The manual's scene (a post rebuilt, a box made
+  transparent, 151 frames) takes 301 blobs.
 - **Picking while it plays** in the browser is against the draws as the
   viewer has moved them, but the host resolves the pick in the pose its
   own clock is at; the two agree to within a frame, not exactly.
@@ -1266,8 +1303,18 @@ Phase 5, built so far (2026-11-12):
   `wasm/main.cpp` (viewer). Tests: `MotionClip_tests_run` (the bake, the
   wire, the clock), `tests/gui/serve-animation.py` (the wire, with a
   synthetic client) and `tests/gui/serve-animation-browser.py` (a browser
-  drawing it, `scripts/animation-drive.js`). Visibility is not in the
-  clip. mini has the wasm toolchain now (emsdk 6.0.9, `~/works/sw/emsdk`).
+  drawing it, `scripts/animation-drive.js`). mini has the wasm toolchain
+  now (emsdk 6.0.9, `~/works/sw/emsdk`).
+- Then (2026-11-14) visibility and everything else in the clip: hidden
+  frames on a track, and sequences of per-frame blobs for what is rebuilt
+  or recoloured, held by the scene server while the clip lives (9.1). An
+  Animation of any properties now plays in the browser with nothing
+  published. Tests: `MotionClip_tests_run` 20 (the blob read back
+  included), `serve-animation.py` 34 (a rebuilt box and a hidden one,
+  every blob served under its key, nothing published; with no room the
+  publishes flow), `tests/gui/serve-animation-sequence-browser.py` 18 (a
+  red box shrinking drawn smaller as the Time goes on, a green one hidden
+  in the publish drawn between 1 s and 2 s only, all on one publish).
 - The frame cache -- "if needed", and the first measurement said not:
   the manual's scene (five tracks, a cylinder rebuilt each
   frame, an expression on Time) evaluates in 0.95 ms a frame with

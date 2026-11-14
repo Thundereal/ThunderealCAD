@@ -5178,6 +5178,59 @@ Phase D1 is under way (2026-10-28):
   - Tests: none new; TestFlexibleBody.test_held_by_a_free_part rests at
     1.112 N of 1.116. TestFlexibleBody 31 (593 s), TestDynamics 90,
     TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 21 (2026-11-14): a flexible part no joint holds.
+  - **Refused.** A flexible body is reduced about its interfaces -- the
+    frames on its body, each a boundary body tied to its mesh's nodes
+    there -- and has no motion as a whole but theirs: its coordinates are
+    the interfaces' six each and the modes' (`ChModalAssembly`). One with no
+    joint on it had no interface: "nothing holds the flexible body" (step
+    19; before that the reduction read storage not its own).
+  - **An interface of its own.** `ChronoFlexible::ownInterface()`: the
+    tetrahedron nearest its mesh's middle -- the tetrahedra's, each by its
+    volume -- its ten nodes tied to a boundary body at that tetrahedron's
+    middle. Nothing is on that body: it is the part's motion as a whole,
+    and the modes are the mesh's with that element held. Given in the run
+    (`buildFlexibles()`) and in Find Modes (`Chrono::flexibleFrequencies()`)
+    to a body with no frame but its contact shapes'. With contact faces
+    named their interface is the one, as it was to be, and the part goes as
+    those faces do, rigid.
+  - Numbers. A bar 80 x 10 x 4, 8.64 g, across two grounded rollers R 5
+    60 mm apart, 0.01 mm over them; 1000 N/mm, a friction of 0.1; mesh 4,
+    2788 nodes.
+    - Falling free, no contact asked of: 19.65 um in 2 ms for g t^2/2's
+      19.61, its modal coordinates under 1e-19.
+    - On the rollers: lands at 1.435 N (rigid 1.85), at rest by 17 ms,
+      0.08473 N for a weight of 0.084729; 165 frames in 2.2 s (rigid 0.1
+      s).
+    - Its sag between the rollers at rest, its underside at midspan
+      against its underside over them, for a beam's on two supports with
+      its ends hanging over, w L^2 (5 L^2 - 24 a^2) / (384 E I): 0.0409 um
+      of 0.0415. 2 mm thick (mesh 2) 0.1637 of 0.1660; 1 mm thick 0.657 of
+      0.664 (mesh 4) and 0.656 (mesh 2). 1 to 1.5% under, all four.
+    - Its modes by Find Modes: 1874, 2063, 2169 Hz.
+    - Its underside named its contact face: lands at 1.844 N as the rigid
+      bar does, sags 3e-11 um, its modes from 177 kHz.
+    - 1 mm thick, let fall 5 mm: lands at 12.05 N (rigid 20.1), bent 73 um
+      between the rollers at 32.4 ms, springs 0.77 mm off them, and is at
+      rest by 0.15 s, 0.0212 N for 0.02118; 335 frames in 79 s.
+  - Limits.
+    - Find Modes shows such a part's modes about its middle element, not
+      its free ones: the bar's 1874 Hz is half of it clamped at the middle
+      (a beam's 2.06 kHz), where a free bar's first bending is 3.3 kHz by
+      the beam's formula. The run does not hold it there: the interface's
+      six coordinates go with those modes.
+    - Falling free it is 0.04 um ahead of g t^2/2 at 2 ms and 0.10 at 5
+      ms, a speed of 0.02 mm/s from the start. Not looked into; step 19's
+      hanger and block, 19.627 um, had a third of it.
+    - The strip 1 mm thick still rings at rest at 0.05 s, 0.0207 to 0.0217
+      N: its 479 Hz mode.
+  - Tests: TestFlexibleBody.test_held_by_nothing (the bar on the rollers
+    for 0.05 s: no interface listed, its first mode over 1 kHz, the landing
+    under 3 N, the force at rest its weight to 1%, its sag the beam's to
+    3% -- 1874 Hz, 1.435 N, 0.08473 N, 0.0409 um of 0.0415). The rest
+    hold: TestFlexibleBody 32 (615 s), TestDynamics 90, TestJointFriction
+    4, TestContact 63; ctest 25; TestGuiCommands 76; every probe of steps
+    12 to 18 as it was.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

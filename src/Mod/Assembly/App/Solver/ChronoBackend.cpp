@@ -7509,8 +7509,16 @@ struct ChronoSession::Impl
                 faces.push_back(std::move(face));
                 on.push_back(frame.id);
             }
-            if (faces.empty()) {
-                return "nothing holds the flexible body " + name;
+            // Held by no joint, and no contact faces named for an interface
+            // of theirs: one of its own, the element at its mesh's middle
+            // (ownInterface()), for its motion as a whole
+            if (faces.empty() && (touched.empty() || anywhere)) {
+                try {
+                    faces.push_back(ChronoFlexible::ownInterface(record));
+                }
+                catch (const std::exception& e) {
+                    return "the flexible body " + name + ": " + e.what();
+                }
             }
             // The contact interface's body at its nodes' centre, in the
             // body's axes, as a joint's is on its faces

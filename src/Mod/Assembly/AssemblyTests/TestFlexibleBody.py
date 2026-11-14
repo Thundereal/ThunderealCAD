@@ -1464,6 +1464,82 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertLess(max(forces), 10.0)
         self.assertLess(abs(mean - weight), 0.05 * weight)
 
+    def test_held_by_nothing(self):
+        """A flexible part no joint holds (D4b step 21): a bar 80 x 10 x 4
+        across two grounded rollers R 5, 60 mm apart, 0.01 mm over them,
+        let fall under gravity and touched anywhere. It was refused, having
+        no interface to be reduced about; it has one of its own now, the
+        element at its mesh's middle (ChronoFlexible::ownInterface()), in
+        the run and in Find Modes. It comes to rest on the rollers pressing
+        them its weight, sagging between them as a beam on two supports with
+        its ends hanging over does"""
+        import CommandCreateContact
+        import numpy as np
+
+        rollers = []
+        for i, x in enumerate((-30.0, 30.0)):
+            roller = self.assembly.newObject("Part::Cylinder", "Roller%d" % i)
+            roller.Radius = 5
+            roller.Height = 30
+            roller.Placement = plc(x, 15, 0, App.Vector(1, 0, 0), 90)
+            ground = self.joints.newObject("Assembly::GroundedJointPython", "Grounded%d" % i)
+            JointObject.GroundedJoint(ground, roller)
+            rollers.append(roller)
+        bar = self.box("Bar", (80, 10, 4), (-40, -5, 5.01))
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contact = CommandCreateContact.newContactSet(self.assembly, rollers, [bar])
+        contact.StiffnessFrom = "Value"
+        contact.Stiffness = 1000.0
+        contact.Exponent = 1.0
+        contact.FrictionFrom = "Value"
+        contact.StaticFriction = 0.1
+        contact.DynamicFriction = 0.1
+        sim = self.study(0.05, 1e-3)
+        sim.Elements = [contact]
+        body = FlexibleBodies.makeFlexibleBody(self.assembly, bar)
+        body.MeshSize = 4.0
+        FlexibleBodies.prepare(body)
+        self.assertEqual(list(body.InterfaceFrames), [])
+        self.doc.recompute()
+        hz = self.assembly.getFlexibleFrequencies(sim, body)
+        self.assertGreater(hz[0], 1000.0)
+        weight = 0.0
+        for entry in self.assembly.getMassProperties()["Components"]:
+            if entry["Object"].Name == bar.Name:
+                weight += entry["Mass"] * 9.80665
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        times = results["Times"]
+        values = [
+            c["Values"]
+            for c in results["Channels"]
+            if c["Quantity"] == "ContactNormalForce" and c["Name"] == contact.Name
+        ]
+        self.assertEqual(len(values), 1)
+        forces = [v.Length * 1e-3 for v in values[0]]
+        resting = [f for t, f in zip(times, forces) if t >= 0.03]
+        mean = sum(resting) / len(resting)
+        # Its sag: its underside at midspan against its underside over the
+        # rollers, by its deformation; the beam's w L^2 (5 L^2 - 24 a^2) /
+        # (384 E I), L 60 between the supports and a 10 over each
+        deformation = FlexibleBodies.Deformation(body, results)
+        self.assertTrue(deformation.valid)
+        moved = deformation.psi @ deformation.coordinatesAt(times[-1])
+        rest = deformation.rest
+        low = np.abs(rest[:, 2]) < 1e-6
+        mid = low & (np.abs(rest[:, 0] - 40.0) < 2.5)
+        over = low & ((np.abs(rest[:, 0] - 10.0) < 2.5) | (np.abs(rest[:, 0] - 70.0) < 2.5))
+        sag = moved[over, 2].mean() - moved[mid, 2].mean()
+        youngs = FlexibleBodies.elasticityOf(body)[0]
+        beam = (weight / 80.0) * 3600.0 * (5 * 3600.0 - 2400.0) / (384.0 * youngs * 640.0 / 12.0)
+        print("held by nothing: first mode %.4g Hz; at most %.4g N, resting %.5g N of %.5g; "
+              "sag %.4g um of a beam's %.4g"
+              % (hz[0], max(forces), mean, weight, sag * 1e3, beam * 1e3))
+        self.assertLess(max(forces), 3.0)
+        self.assertLess(abs(mean - weight), 0.01 * weight)
+        self.assertLess(abs(sag - beam), 0.03 * beam)
+
     def test_flexible_pendulum(self):
         """Let go level, the flexible rod swings down as the rigid one does,
         its centre at the bottom in a quarter of the period, the hinge

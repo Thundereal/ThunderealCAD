@@ -294,6 +294,10 @@ def verify():
         check("with every blob in",
               states and states[-1].get("blobs", 0) > 30
               and states[-1].get("blobsIn") == states[-1].get("blobs"), states[-1:])
+        # Their meshes are chunks of their own, fetched beside them
+        check("and every mesh they name",
+              states and states[-1].get("meshesIn", 0) > 0
+              and states[-1].get("meshesWanted") == 0, states[-1:])
         timed = sorted((round((lo + hi) / 2, 3), spot(s, "red")[0]) for (lo, hi), s in caught)
         early = [n for t, n in timed if t < 0.9]
         late = [n for t, n in timed if t > 2.1]

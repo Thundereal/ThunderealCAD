@@ -607,6 +607,8 @@ TEST(MotionClip, hiddenFramesAndSequencesAreWrittenAndRead)
         clip.blobs.push_back(std::string(40, char('a' + i)));
         clip.blobSizes.push_back(uint32_t(100 + i));
     }
+    clip.chunks = {std::string(40, 'm'), std::string(40, 'n')};
+    clip.chunkSizes = {700, 900};
     ASSERT_FALSE(clip.shown.empty());
     ASSERT_FALSE(clip.seqKeys.empty());
     MotionClip read;
@@ -620,6 +622,8 @@ TEST(MotionClip, hiddenFramesAndSequencesAreWrittenAndRead)
     EXPECT_EQ(read.seq, clip.seq);
     EXPECT_EQ(read.blobs, clip.blobs);
     EXPECT_EQ(read.blobSizes, clip.blobSizes);
+    EXPECT_EQ(read.chunks, clip.chunks);
+    EXPECT_EQ(read.chunkSizes, clip.chunkSizes);
     // A blob number past the table is no clip
     std::string json = clip.toJson("\"Doc\"");
     json = json.substr(0, json.find("\"blobs\":[")) + "\"blobs\":[],\"sizes\":[]}";
@@ -659,6 +663,73 @@ TEST(MotionClipBlob, theDrawsOfABlobAreTheDrawsItWasMadeOf)
     // The same draws, the same bytes: what the content key relies on
     EXPECT_EQ(motionBlobOf(draws), bytes);
     EXPECT_FALSE(motionBlobDraws(bytes.data(), bytes.size() / 2, read));
+}
+
+TEST(MotionClipBlob, aMeshTheBlobsShareIsOneChunk)
+{
+    static const float positions[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
+    static const float normals[9] = {0, 0, 1, 0, 0, 1, 0, 0, 1};
+    static const int32_t indices[3] = {0, 1, 2};
+    auto shape = [](uint64_t id) {
+        auto m = std::make_shared<MeshData>();
+        m->cacheId = id;
+        m->numVertices = 3;
+        m->positions = positions;
+        m->normals = normals;
+        m->triangleIndices = indices;
+        m->numTriangleIndices = 3;
+        return m;
+    };
+    auto frame = [](double x, const std::shared_ptr<const MeshData>& mesh) {
+        double m[16];
+        placement(0, x, 0, 0, m);
+        DrawCallList draws {draw(5, m, mesh)};
+        draws[0].indexCount = 3;
+        return draws;
+    };
+    MotionBlobMeshes meshes;
+    // Two frames of one shape, moved: two blobs, one mesh
+    const std::vector<uint8_t> first = motionBlobOf(frame(1, shape(77)), &meshes);
+    ASSERT_FALSE(first.empty());
+    ASSERT_EQ(meshes.fresh.size(), 1U);
+    std::map<std::string, std::vector<uint8_t>> held = meshes.commit();
+    ASSERT_EQ(held.size(), 1U);
+    const std::string key = held.begin()->first;
+    EXPECT_EQ(sha1Hex(held[key].data(), held[key].size()), key);
+    const std::vector<uint8_t> second = motionBlobOf(frame(2, shape(77)), &meshes);
+    EXPECT_NE(second, first);
+    EXPECT_TRUE(meshes.fresh.empty());
+    // The same geometry rebuilt under another id: the same chunk, by content
+    motionBlobOf(frame(3, shape(78)), &meshes);
+    ASSERT_EQ(meshes.fresh.size(), 1U);
+    EXPECT_EQ(meshes.fresh.begin()->first, key);
+    // A dropped blob's meshes are not known to the next
+    meshes.drop();
+    EXPECT_EQ(meshes.committed.count(78), 0U);
+    // Smaller than the blob that held its mesh inline
+    EXPECT_LT(second.size(), motionBlobOf(frame(2, shape(77))).size());
+
+    // Read back: whole once the chunk is in, not before
+    MotionBlobRead read;
+    ASSERT_TRUE(read.load(second.data(), second.size()));
+    EXPECT_FALSE(read.complete());
+    const auto wanted = read.wanted();
+    ASSERT_EQ(wanted.size(), 1U);
+    EXPECT_EQ(wanted[0].first, key);
+    EXPECT_EQ(wanted[0].second, held[key].size());
+    EXPECT_TRUE(read.wants(key));
+    DrawCallList draws;
+    EXPECT_FALSE(read.finish(draws));
+    EXPECT_FALSE(motionBlobDraws(second.data(), second.size(), draws));
+    ASSERT_TRUE(read.fill(key, held[key].data(), held[key].size()));
+    EXPECT_TRUE(read.complete());
+    ASSERT_TRUE(read.finish(draws));
+    ASSERT_EQ(draws.size(), 1U);
+    EXPECT_NEAR(draws[0].model[12], 2.0, 1e-6);
+    ASSERT_TRUE(draws[0].mesh);
+    ASSERT_EQ(draws[0].mesh->numVertices, 3);
+    EXPECT_FLOAT_EQ(draws[0].mesh->positions[3], 1.0F);
+    EXPECT_EQ(draws[0].mesh->numTriangleIndices, 3);
 }
 
 TEST(MotionClip, noClipIsWrittenAndReadAsNone)

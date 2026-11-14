@@ -402,6 +402,19 @@ def run():
                 body = repr(e).encode()
             got.append(hashlib.sha1(body).hexdigest() == key and len(body) == size)
         check("every blob is served under its key", all(got), got)
+        chunks = clip2.get("chunks") or []
+        check("the blobs' meshes are chunks of their own, named with the clip",
+              len(chunks) >= 1 and len(clip2.get("chunkSizes") or []) == len(chunks),
+              (len(chunks), clip2.get("chunkSizes")))
+        got = []
+        for key, size in list(zip(chunks, clip2.get("chunkSizes") or []))[:3]:
+            try:
+                body = urllib.request.urlopen(
+                    "http://127.0.0.1:%d/blob?key=%s" % (port, key), timeout=5).read()
+            except Exception as e:
+                body = repr(e).encode()
+            got.append(hashlib.sha1(body).hexdigest() == key and len(body) == size)
+        check("and served under their keys", got and all(got), got)
         t6 = clock()
         pump(1.0)
         flowing = client.since(t6, "scene")
@@ -479,6 +492,56 @@ def run():
         check("nothing is published for it while it plays", len(flowing) == 0, len(flowing))
         Gui.runCommand("Std_AnimationStop")
         pump(0.5)
+
+        # --- rebuilt and moved: a blob a frame, its meshes shared by them
+        step = doc.addObject("Part::Box", "Step")
+        # A footprint of its own: at the Still's 10 by 10 its two heights
+        # are meshes the Still's frames already hold, shared across objects
+        step.Length = step.Width = 7
+        step.Placement.Base = App.Vector(0, -30, 0)
+        doc.recompute()
+        for t, h in ((0.0, 10.0), (0.5, 20.0), (1.0, 10.0), (1.5, 20.0)):
+            anim.addKey("Step.Height", t, h, interp="Constant")
+        anim.addKey("Step.Placement.Base.x", 0.0, 0.0)
+        anim.addKey("Step.Placement.Base.x", 2.0, 20.0)
+        doc.recompute()
+        pump(0.3)
+        t12 = clock()
+        Gui.runCommand("Std_AnimationPlay")
+        pump(2.0)
+        clip7 = client.last("clip", t12)
+        if clip7 is not None and len(clip7["seqKeys"]) >= 1:
+            frames7 = clip7["frames"]
+            seq7 = struct.unpack("<%di" % (len(base64.b64decode(clip7["seq"])) // 4),
+                                 base64.b64decode(clip7["seq"]))
+            mine = None
+            for i in range(len(clip7["seqKeys"])):
+                row7 = seq7[i * frames7:(i + 1) * frames7]
+                if len(set(row7)) > frames7 // 2:
+                    mine = row7
+            check("a shape rebuilt as it moves is a blob a frame",
+                  mine is not None and all(b >= 0 for b in mine), mine and len(set(mine)))
+            shared = clip7.get("chunks") or []
+            # Against the clip before, of the same tracks but these
+            before = set((clip6 or {}).get("chunks") or [])
+            fresh = [c for c in shared if c not in before]
+            # Two heights, each a mesh of faces, one of edges and one of
+            # vertices -- however many frames name them
+            note("blobs %d (%d bytes), meshes %d (%d bytes)"
+                 % (len(clip7["blobs"]), sum(clip7["sizes"]), len(shared),
+                    sum(clip7.get("chunkSizes") or [])))
+            check("its frames' meshes are two heights' worth, not a frame's each",
+                  mine is not None and 1 <= len(fresh) <= 6 < len(set(mine)),
+                  (len(fresh), mine and len(set(mine))))
+        else:
+            check("a shape rebuilt as it moves is a blob a frame", False,
+                  clip7 and clip7["seqKeys"])
+        Gui.runCommand("Std_AnimationStop")
+        pump(0.5)
+        anim.removeTrack("Step.Height")
+        anim.removeTrack("Step.Placement.Base.x")
+        doc.removeObject("Step")
+        doc.recompute()
 
         # --- an edit while playing
         t7 = clock()

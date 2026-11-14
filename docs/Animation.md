@@ -1221,11 +1221,33 @@ moved, swapped, left out and set the looks of.
 Not in this cut:
 - **A sequence is stepped**, shown at the frame nearest, at `FrameRate`
   (240 frames over the range at most), not blended between frames.
-- **A blob is self-contained**: a rebuilt shape whose mesh repeats --
-  a height keyed back and forth -- shares a blob only where the whole
-  draw is the same; out-of-band mesh chunks keyed by content would share
-  more. A colour or a transparency no longer needs a blob at all (the
-  looks above).
+- **A blob's meshes are chunks of their own** (built 2026-11-14, was "a
+  blob is self-contained"). A blob is the key's draws -- transforms,
+  materials -- naming each mesh by the content key a publish would give
+  it (`Render::MotionBlobMeshes`, the snapshot's `meshBlobs` sink, the
+  layout without the manifest tree), and the mesh is a chunk of its own,
+  kept with the blobs and listed in the clip (`"chunks"`,
+  `"chunkSizes"`). So a mesh that recurs is one chunk however many
+  frames name it: a shape rebuilt as it moves is a blob a frame but only
+  as many meshes as it has shapes, and a mesh the viewer already holds
+  from a publish is not fetched at all. It also takes the mesh's cacheId
+  out of the blob's bytes -- an inline mesh carries it, so a shape
+  rebuilt to the same geometry under a new id was a new blob. Measured
+  on the manual's scene (151 frames, its post's height eased up and back
+  down): 124 blobs where there were 151, 1.18 MB for blobs and meshes
+  together against about 1.27 MB self-contained; a box rebuilt to two
+  heights in turn while it slides is a blob a frame and six meshes
+  (tests/gui/serve-animation.py). The bake counts a chunk once
+  against `StreamBlobMB`. The viewer asks for the chunks with the blobs,
+  reads a blob as soon as it lands (`Render::MotionBlobRead`), and uses
+  its draws once every mesh it names is in; a mesh that cannot be had
+  leaves the publish's draws standing, as a missing blob does. A colour
+  or a transparency needs no blob at all (the looks above).
+- **Picking resolves through the clip; edit input does not.** A click
+  carries its Time (above) and lands through the client's mirror view
+  (`MirrorViewer`, docs/ThinClient.md sec 8) where the viewer drew. The
+  `'E'` frames of an edit mode are sent only while editing, and an edit
+  mode run while an Animation plays meets the host's own pose.
 - **Looks are the compared fields only**: a change the Animation makes to
   a material field outside them (a texture, a PBR parameter) is not in the
   clip, as before.

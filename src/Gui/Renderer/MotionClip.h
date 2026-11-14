@@ -548,6 +548,10 @@ struct MotionClip {
     /// What the blob numbers above name: content keys, and their sizes
     std::vector<std::string> blobs;
     std::vector<uint32_t> blobSizes;
+    /// The mesh chunks the blobs name (MotionBlobMeshes), each once: a
+    /// viewer asks for them with the blobs, not after reading each
+    std::vector<std::string> chunks;
+    std::vector<uint32_t> chunkSizes;
     /// The tracks whose objects change how they look, by track number:
     /// row r is track lookTracks[r], whose draws lookSlots name --
     /// lookCount[r] of them, the rows' slots one after another. lookAt is
@@ -707,14 +711,21 @@ struct MotionClip {
         });
         hexList("seqKeys", seqKeys);
         bytes("seq", seq.data(), seq.size() * sizeof(int32_t));
-        json += ",\"blobs\":[";
-        for (size_t i = 0; !none && i < blobs.size(); ++i) {
-            json += i ? ",\"" : "\"";
-            json += blobs[i];
-            json += "\"";
-        }
-        json += "]";
+        auto strings = [&](const char *name, const std::vector<std::string> &list) {
+            json += ",\"";
+            json += name;
+            json += "\":[";
+            for (size_t i = 0; !none && i < list.size(); ++i) {
+                json += i ? ",\"" : "\"";
+                json += list[i];
+                json += "\"";
+            }
+            json += "]";
+        };
+        strings("blobs", blobs);
         intList("sizes", blobSizes.size(), [this](size_t i) { return blobSizes[i]; });
+        strings("chunks", chunks);
+        intList("chunkSizes", chunkSizes.size(), [this](size_t i) { return chunkSizes[i]; });
         intList("lookTracks", lookTracks.size(), [this](size_t i) { return lookTracks[i]; });
         intList("lookCount", lookCount.size(), [this](size_t i) { return lookCount[i]; });
         intList("lookSlots", lookSlots.size() * 4, [this](size_t i) {
@@ -753,10 +764,12 @@ struct MotionClip {
         ok = ok && Motion::jsonBytes(json, "data", bytes)
             && Motion::jsonBytes(json, "shown", shown)
             && Motion::jsonBytes(json, "seq", seqBytes);
-        std::vector<long long> refs, sizes;
+        std::vector<long long> refs, sizes, chunkBytes;
         Motion::jsonInts(json, "refs", refs);
         Motion::jsonInts(json, "sizes", sizes);
         Motion::jsonStrings(json, "blobs", blobs);
+        Motion::jsonStrings(json, "chunks", chunks);
+        Motion::jsonInts(json, "chunkSizes", chunkBytes);
         std::vector<long long> rows, counts, slots;
         std::vector<uint8_t> atBytes, lookBytes;
         Motion::jsonInts(json, "lookTracks", rows);
@@ -769,8 +782,10 @@ struct MotionClip {
         ok = ok && bytes.size() == want * sizeof(float)
             && (shown.empty() || (shown.size() == cells && refs.size() == keys.size() * 2))
             && seqBytes.size() == seqKeys.size() * size_t(frames) * sizeof(int32_t)
-            && sizes.size() == blobs.size();
+            && sizes.size() == blobs.size() && chunkBytes.size() == chunks.size();
         if (ok) {
+            for (long long s : chunkBytes)
+                chunkSizes.push_back(uint32_t(s));
             data.resize(want);
             if (want)
                 std::memcpy(data.data(), bytes.data(), bytes.size());

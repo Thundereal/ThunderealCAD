@@ -902,6 +902,15 @@ That is its *rest* value, the design's.
   `TransactionObject::setProperty()`). Undoing the edit then puts the
   design's value back, and the redo step it makes records the edit. Built,
   phase 2.
+  - **A shape its placement places** (a Part feature's) is recorded too:
+    the placement's edit moves it, after the placement was recorded. Its
+    rest is the shape at the rest placement (`restGeometryOf()`). Before
+    this (2026-11-14), the undo of an edit of a Part box's placement while
+    it played put back the pose: the recorded shape carried it, and the
+    placement followed the shape.
+  - **Others than Animations hold rest values**: an exploded view shows the
+    model posed without being one. They answer through
+    `Animation::addRestProvider()` (docs/AssemblyExplode.md sec 3).
 
 How the rest value follows the design, without a signal per property:
 each property keeps, beside its rest value, the value the last evaluation

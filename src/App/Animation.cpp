@@ -205,6 +205,13 @@ std::unordered_map<const Property*, Animation*>& restOwners()
     return owners;
 }
 
+/// Holders of rest values that are not Animations (addRestProvider())
+std::vector<Animation::RestProvider>& restProviders()
+{
+    static std::vector<Animation::RestProvider> providers;
+    return providers;
+}
+
 /// The Animations recording: a view provider's every change asks, so the
 /// answer when none is must cost nothing
 /// The active Animations that keep their frames (Animation::cachingIn())
@@ -946,6 +953,11 @@ struct Animation::Rest
     std::unique_ptr<Property> written;  ///< what the last evaluation left; null: the
                                         ///< value now is the design's
     bool touched = false;               ///< whether obj was touched before
+    /// The pose a transaction was just given the rest value in place of:
+    /// a placement's, whose object's shape is recorded next
+    std::unique_ptr<Property> recorded;
+    /// That shape at rest, what the transaction records for it
+    std::map<const Property*, std::unique_ptr<Property>> geometry;
 };
 
 /// What the recompute of a frame wrote, to put back the next time
@@ -1515,6 +1527,14 @@ const Property* Animation::restValueOf(const Property& prop)
     auto& owners = restOwners();
     auto it = owners.find(&prop);
     if (it == owners.end()) {
+        if (auto geometry = restGeometryOf(prop)) {
+            return geometry;
+        }
+        for (auto& provider : restProviders()) {
+            if (auto rest = provider(prop)) {
+                return rest;
+            }
+        }
         return nullptr;
     }
     auto rit = it->second->_rest.find(&prop);
@@ -1525,11 +1545,49 @@ const Property* Animation::restValueOf(const Property& prop)
     const Property* res = nullptr;
     if (r.rest && r.written && r.written->isSame(prop)) {
         res = r.rest.get();
+        r.recorded.reset(r.written->Copy());
     }
     // What is written next is the design's: the next evaluation takes it
     // as the rest value
     r.written.reset();
     return res;
+}
+
+const Property* Animation::restGeometryOf(const Property& prop)
+{
+    // A shape placed by its object's placement (a Part feature's): the
+    // placement's edit moves it, so it is recorded after the placement, with
+    // the pose on show still its own
+    auto geometry = dynamic_cast<const PropertyGeometry*>(&prop);
+    auto obj = geometry ? dynamic_cast<DocumentObject*>(prop.getContainer()) : nullptr;
+    auto placement = obj ? obj->getPropertyByName("Placement") : nullptr;
+    auto& owners = restOwners();
+    auto it = placement ? owners.find(placement) : owners.end();
+    if (it == owners.end()) {
+        return nullptr;
+    }
+    auto rit = it->second->_rest.find(placement);
+    if (rit == it->second->_rest.end()) {
+        return nullptr;
+    }
+    auto& r = *rit->second;
+    auto pose = dynamic_cast<const PropertyPlacement*>(r.recorded.get());
+    auto rest = dynamic_cast<const PropertyPlacement*>(r.rest.get());
+    if (!pose || !rest
+        || !Base::Placement(geometry->getTransform()).isSame(pose->getValue(), 1e-12)) {
+        return nullptr;
+    }
+    auto& copy = r.geometry[&prop];
+    copy.reset(prop.Copy());
+    static_cast<PropertyGeometry*>(copy.get())->setTransform(rest->getValue().toMatrix());
+    return copy.get();
+}
+
+void Animation::addRestProvider(RestProvider provider)
+{
+    if (provider) {
+        restProviders().push_back(std::move(provider));
+    }
 }
 
 void Animation::dropRest(const DocumentObject* obj, const Property* prop)

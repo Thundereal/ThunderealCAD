@@ -315,8 +315,10 @@ elementName : str
 
 What a drawing of the object shows of one of its edges, by the edge's mapped
 name, as TechDraw asks it: a dict of Visible, Style (a Qt pen style number),
-Color (r,g,b,a), Width (mm, 0 for the drawing's) and Label; None where the
-object leaves the edge to the drawing.</UserDocu>
+Color (r,g,b,a), Width (mm, 0 for the drawing's), Label, Styled (False: the
+label alone, the edge drawn as the drawing draws it), OncePerLabel (one label
+for all edges with the same one) and Bubble (the label's TechDraw bubble shape,
+empty for none); None where the object leaves the edge to the drawing.</UserDocu>
             </Documentation>
         </Methode>
         <Methode Name="setElementColors">

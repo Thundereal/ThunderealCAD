@@ -542,6 +542,16 @@ public:
         Base::Color color;
         double width = 0;
         std::string label;
+        /// False: the label alone is given, the edge drawn as the drawing
+        /// draws it (an exploded view's part numbers)
+        bool styled = true;
+        /// One label for all the edges given the same one, on the longest
+        /// piece of them the drawing shows: a part's number on one of its
+        /// edges
+        bool oncePerLabel = false;
+        /// The label's bubble, as TechDraw names its shapes ("Circular");
+        /// empty for none
+        std::string bubble;
     };
     virtual bool getEdgeInfo(const char *mappedName, EdgeInfo &info) const {
         (void)mappedName;

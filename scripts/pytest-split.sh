@@ -61,6 +61,14 @@ CMD=$BUILD/bin/FreeCADCmd
 MAC=
 [ "$(uname)" = Darwin ] && MAC=1
 
+# macOS has no timeout(1): perl's alarm ends the module there, the command
+# run in its place so that nothing is left behind.
+if command -v timeout > /dev/null 2>&1; then
+    LIMIT="timeout $TIMEOUT"
+else
+    LIMIT="perl -e 'alarm shift; exec @ARGV' $TIMEOUT"
+fi
+
 # FreeCADCmd needs a pty for -t (a CAM test dies on a bad file descriptor
 # without one); GNU and BSD script take their arguments differently.
 in_pty() {  # in_pty <log> <command line>
@@ -77,19 +85,24 @@ if [ -n "$ONE" ]; then
     # The expression sandbox's guest lives in the profile; without it its
     # tests skip ("no sandbox guest in this build").
     guest=${XDG_DATA_HOME:-$HOME/.local/share}/Thundereal/Pyodide
+    [ -n "$MAC" ] && guest="$HOME/Library/Application Support/Thundereal/Pyodide"
     [ -e "$OUT/home/$m/Pyodide" ] || { [ -e "$guest" ] && ln -s "$guest" "$OUT/home/$m/Pyodide"; }
     limit=
     [ -z "$MAC" ] && [ "$CAP" != 0 ] && limit="ulimit -v $CAP;"
     start=$(date +%s)
     in_pty "$OUT/$m.log" "$limit cd '$BUILD' && QT_QPA_PLATFORM=offscreen MALLOC_ARENA_MAX=8 \
 OPENBLAS_NUM_THREADS=1 FREECAD_USER_HOME='$OUT/home/$m' TMPDIR='$OUT/tmp/$m' \
-$RUN timeout $TIMEOUT ./bin/FreeCADCmd -t $m"
+$RUN $LIMIT ./bin/FreeCADCmd -t $m"
     verdict=$(tr '\r' '\n' < "$OUT/$m.log" | grep -a '^Ran \|^OK\|^FAILED\|terminate called' | tr '\n' ' ')
     echo "$m $(($(date +%s) - start))s $verdict" >> "$OUT/summary.txt"
     exit 0
 fi
 
 [ -n "$OUT" ] || OUT=$(mktemp -d "${TMPDIR:-/tmp}/pytest-split.XXXXXX")
+# By its real name: a document keeps the canonical name of its file, and on
+# macOS the temporary directory is under /var, a link to /private/var --
+# the transaction log's tests compared the two and failed.
+mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P)
 mkdir -p "$OUT/home/_list"
 : > "$OUT/summary.txt"
 if [ ${#MODULES[@]} -eq 0 ]; then

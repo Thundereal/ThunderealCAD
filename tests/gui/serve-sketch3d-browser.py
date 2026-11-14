@@ -56,6 +56,10 @@ from PySide import QtCore, QtGui
 import wsclient
 from wsclient import free_port
 
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
+
 TOKEN = "sketch3d-browser-invite"
 CLIENT = "sketch3d-browser"
 
@@ -191,7 +195,7 @@ def build():
         view = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
         view.SetInt("RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         # The colours the page counts: the edited edges magenta; the icons a
         # pure green fill in a pure blue border, on either background
         view.SetUnsigned("EditedEdgeColor", 0xFF00FFFF)

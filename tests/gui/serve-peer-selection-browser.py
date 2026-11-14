@@ -59,6 +59,10 @@ from PySide import QtCore
 import wsclient
 from wsclient import free_port
 
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
+
 # The two browsers, each invited by name (docs/TransactionLogJournal.md
 # sec 30.6 U6); the driver puts the name on each page's URL.
 TOKEN = "peersel-browser-invite"
@@ -189,7 +193,7 @@ def build():
             "RenderCache", 3)
         FreeCAD.ParamGet(
             "User parameter:BaseApp/Preferences/View/Render").SetString(
-                "Type", "bgfx - OpenGL")
+                "Type", ENGINE)
         doc = FreeCAD.newDocument(DOC, hidden=True)
         state["doc"] = doc
         # Two boxes, apart, so a click that lands off centre lands on one

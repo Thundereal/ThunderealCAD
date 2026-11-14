@@ -147,6 +147,7 @@
 #include "PropertyLinks.h"
 #include "PropertyPythonObject.h"
 #include "SavedView.h"
+#include "Animation.h"
 #include "StringHasherPy.h"
 #include "StringIDPy.h"
 #include "TextDocument.h"
@@ -2696,6 +2697,7 @@ void Application::initTypes()
     App::PropertyPythonObject       ::init();
     App::PropertyExpressionContainer::init();
     App::PropertyExpressionEngine   ::init();
+    App::PropertyAnimationTracks    ::init();
     // all know unit properties
     App::PropertyAcceleration               ::init();
     App::PropertyAmountOfSubstance          ::init();
@@ -2833,6 +2835,7 @@ void Application::initTypes()
     App::ShaderBinding                ::init();
     App::ShaderBindingPython          ::init();
     App::SavedView                 ::init();
+    App::Animation                 ::init();
 
     // Expression classes
     App::Expression                ::init();

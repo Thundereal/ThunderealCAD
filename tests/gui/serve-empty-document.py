@@ -31,6 +31,10 @@ from PySide import QtCore
 
 from wsclient import WS, free_port
 
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
+
 clock = time.perf_counter
 
 OUT = os.environ["GT_OUT"]
@@ -101,7 +105,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
             "RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         # The cube is an overlay of the serve source's own: with it on the
         # source always has something to state.
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetBool(

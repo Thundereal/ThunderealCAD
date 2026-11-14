@@ -37,6 +37,10 @@ import FreeCAD
 import FreeCADGui
 from PySide import QtCore
 
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
+
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
 DOC = "SandboxConsoleServe"
@@ -97,7 +101,7 @@ def run():
     FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt("AutoSaveTimeout", 0)
     FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("RenderCache", 3)
     FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-        "Type", "bgfx - OpenGL"
+        "Type", ENGINE
     )
     doc = FreeCAD.newDocument(DOC, hidden=True)
     doc.addObject("Part::Box", "Box")

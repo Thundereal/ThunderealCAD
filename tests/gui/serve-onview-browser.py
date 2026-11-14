@@ -60,6 +60,10 @@ from PySide import QtCore
 import wsclient
 from wsclient import free_port
 
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
+
 # The browser acts on the document, so it is someone: the holder of an
 # invitation issued to its name (docs/TransactionLogJournal.md sec 30.6 U4, U6).
 TOKEN = "onview-browser-invite"
@@ -186,7 +190,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
             "RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         # The default shows only the dimensional boxes, and a line tool's
         # first state has only positioning ones -- nothing would be drawn
         # until the second click. This is about the mechanism, so ask for

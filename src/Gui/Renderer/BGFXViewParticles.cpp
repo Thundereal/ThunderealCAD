@@ -195,7 +195,10 @@ bool BGFXView::stepParticles(const Render::DrawCallList &scene,
         // rewinds to the reset and replays. Without this a
         // shortened warm-up would simply hold the longer one's
         // state and the same inputs would not give the same pixels.
-        if (freeze && st.simTime > target + dt * 0.5f)
+        // The same of a pinned clock (Render::AnimationClock) set back:
+        // an export starting over, or a frame saved again.
+        if ((freeze || Render::AnimationClock::pinned())
+                && st.simTime > target + dt * 0.5f)
             st.needInit = true;
         if (st.needInit)
             st.simTime = freeze ? 0.0f : target;

@@ -38,6 +38,7 @@
 
 #include <Inventor/annex/FXViz/nodes/SoShadowStyle.h>
 
+#include <App/Animation.h>
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
 #include <App/GroupExtension.h>
@@ -280,6 +281,10 @@ void ViewProviderDocumentObject::onBeforeChange(const App::Property* prop)
         if (doc && !prop->testStatus(App::Property::Legacy)) {
             onBeforeChangeProperty(doc, prop);
         }
+        // Record keys a view's property too (docs/Animation.md sec 6), a
+        // Legacy name among them: Transparency over the object's own look
+        if (doc && prop->getName())
+            App::Animation::recordViewBefore(*obj, *prop);
     }
 
     ViewProvider::onBeforeChange(prop);
@@ -287,6 +292,7 @@ void ViewProviderDocumentObject::onBeforeChange(const App::Property* prop)
 
 void ViewProviderDocumentObject::onChanged(const App::Property* prop)
 {
+
     if (prop == &DisplayMode) {
         setActiveMode();
     }
@@ -401,17 +407,12 @@ void ViewProviderDocumentObject::onChanged(const App::Property* prop)
             setSelectable(Selectable.getValue());
     }
 
-    if (prop && !prop->testStatus(App::Property::NoModify)
-             && pcDocument
-             && !pcDocument->isModified()
-             && testStatus(Gui::ViewStatus::TouchDocument)
-             // Fitted to the model, not edited: an origin sized after a
-             // load made a document that was only opened a modified one
-             && !App::DerivedViewWrites::active()) {
-        if (prop)
-            FC_LOG(prop->getFullName() << " changed");
-        pcDocument->setModified(true);
-    }
+    // A view's change marks the document modified when the user's setting
+    // says so and the write is an edit -- not NoModify; not fitted to the
+    // model, an origin sized after a load; not played -- which is App's to
+    // say (Document::noteChanged(), App/WriteScope.h)
+    if (prop && pcDocument && testStatus(Gui::ViewStatus::TouchDocument))
+        pcDocument->getDocument()->noteChanged(*prop);
 
     ViewProvider::onChanged(prop);
     // Said through the object, for whoever watches the document: that its
@@ -420,6 +421,12 @@ void ViewProviderDocumentObject::onChanged(const App::Property* prop)
     // every look set on one, with nothing of it to send.
     if (pcObject && !testStatus(Gui::ViewStatus::HostOnlyView))
         pcObject->ViewObject.touch();
+
+    // Last: what this change set in turn (a colour's alpha for a
+    // transparency) came between, and is not what Record keys
+    if (prop && prop->getName() && pcObject && pcObject->isAttachedToDocument()
+            && isAttachedToDocument() && !testStatus(SecondaryView))
+        App::Animation::recordViewAfter(*pcObject, *prop);
 }
 
 void ViewProviderDocumentObject::hide()

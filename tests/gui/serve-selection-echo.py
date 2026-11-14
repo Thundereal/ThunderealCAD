@@ -43,6 +43,10 @@ import FreeCAD
 import FreeCADGui
 from PySide import QtCore
 
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
+
 # time.monotonic() is GetTickCount64() on Windows through CPython 3.12,
 # 15.6 ms of resolution -- which reads every loopback echo below one
 # tick as 0.0 ms and makes the figure this test exists to report
@@ -304,7 +308,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
             "RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         doc = FreeCAD.newDocument(DOC, hidden=True)
         state["doc"] = doc
         for i in range(3):

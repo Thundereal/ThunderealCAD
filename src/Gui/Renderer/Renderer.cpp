@@ -140,6 +140,56 @@ const char *Render::internedModeName(uint16_t id)
     return _modeNames[id - 1].c_str();
 }
 
+std::atomic<bool> AnimationClock::isPinned{false};
+std::atomic<double> AnimationClock::pinnedSeconds{0.0};
+
+void AnimationClock::pin(double seconds)
+{
+    pinnedSeconds.store(seconds, std::memory_order_relaxed);
+    isPinned.store(true, std::memory_order_relaxed);
+}
+
+void AnimationClock::release()
+{
+    isPinned.store(false, std::memory_order_relaxed);
+}
+
+bool AnimationClock::pinned(double *seconds)
+{
+    if (!isPinned.load(std::memory_order_relaxed))
+        return false;
+    if (seconds)
+        *seconds = pinnedSeconds.load(std::memory_order_relaxed);
+    return true;
+}
+
+std::atomic<int> ExactDetail::holders{0};
+std::atomic<bool (*)()> ExactDetail::reason{nullptr};
+
+void ExactDetail::hold()
+{
+    holders.fetch_add(1, std::memory_order_relaxed);
+}
+
+void ExactDetail::release()
+{
+    if (holders.fetch_sub(1, std::memory_order_relaxed) <= 0)
+        holders.store(0, std::memory_order_relaxed);
+}
+
+bool ExactDetail::held()
+{
+    if (holders.load(std::memory_order_relaxed) > 0)
+        return true;
+    auto ask = reason.load(std::memory_order_relaxed);
+    return ask && ask();
+}
+
+void ExactDetail::also(bool (*ask)())
+{
+    reason.store(ask, std::memory_order_relaxed);
+}
+
 std::atomic<bool> FrameOutside::active{false};
 double FrameOutside::phaseMs[FrameOutside::PhaseCount] = {};
 

@@ -37,6 +37,8 @@
 #include <Base/Tools.h>
 #include <Base/Reader.h>
 #include <Base/Writer.h>
+
+#include "AnimationCurve.h"
 #include <CXX/Objects.hxx>
 
 #include "Property.h"
@@ -382,6 +384,29 @@ void Property::Paste(const Property& /*from*/)
 {
     // have to be reimplemented by a subclass!
     assert(0);
+}
+
+void Property::interpolate(const Property &from, const Property &to, float t)
+{
+    Anim::Layout layout, fromLayout, toLayout;
+    std::vector<double> a, b;
+    if (getAnimLayout(layout) && from.getAnimLayout(fromLayout) && to.getAnimLayout(toLayout)
+            && layout == fromLayout && layout == toLayout
+            && from.getAnimValue(layout, a) && to.getAnimValue(layout, b)
+            && static_cast<int>(a.size()) == layout.size()
+            && static_cast<int>(b.size()) == layout.size()) {
+        std::vector<double> v(a.size());
+        Anim::blend(layout, a.data(), b.data(), t, v.data());
+        if (setAnimValue(layout, v))
+            return;
+    }
+    if (from.getTypeId() != getTypeId() || to.getTypeId() != getTypeId())
+        FC_THROWM(Base::TypeError, "cannot interpolate " << getTypeId().getName()
+                << " from " << from.getTypeId().getName()
+                << " to " << to.getTypeId().getName());
+    const Property &pick = t < 0.5f ? from : to;
+    if (!isSame(pick))
+        Paste(pick);
 }
 
 unsigned long Property::getStatus() const

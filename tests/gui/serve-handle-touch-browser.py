@@ -55,6 +55,10 @@ from PySide import QtCore
 import wsclient
 from wsclient import free_port
 
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
+
 TOKEN = "touch-browser-invite"
 CLIENT = "touch-browser"
 
@@ -210,7 +214,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt(
             "AutoSaveTimeout", 0)
         FreeCAD.ParamGet(VIEW).SetInt("RenderCache", 3)
-        FreeCAD.ParamGet(VIEW + "/Render").SetString("Type", "bgfx - OpenGL")
+        FreeCAD.ParamGet(VIEW + "/Render").SetString("Type", ENGINE)
         gizmos = FreeCAD.ParamGet(GIZMOS)
         gizmos.SetInt("DefaultCoarseDragBehavior", 0)
         gizmos.SetBool("EnableCoarseSnap", True)

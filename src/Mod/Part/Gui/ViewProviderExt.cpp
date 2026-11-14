@@ -5755,6 +5755,10 @@ bool ViewProviderPartExt::buildCoarseStandIn(bool underPressure)
     if (cachedShape.isNull() || (deferFaces < 0 && !underPressure)) {
         return false;
     }
+    // No box where the frames shown are kept or recorded
+    if (!underPressure && Render::ExactDetail::held()) {
+        return false;
+    }
     TopoDS_Shape cShape = cachedShape.getShape();
     if (cShape.IsNull()) {
         return false;

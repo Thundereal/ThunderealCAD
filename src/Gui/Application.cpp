@@ -190,6 +190,7 @@
 #include "ViewProviderTextDocument.h"
 #include "ViewProviderVarSet.h"
 #include "ViewProviderSavedView.h"
+#include "ViewProviderAnimation.h"
 #include "ViewProviderSavedViewPy.h"
 
 #include "ViewProviderVRMLObject.h"
@@ -1155,6 +1156,7 @@ void Application::createStandardOperations()
     Gui::CreateStructureCommands();
     Gui::CreateTestCommands();
     Gui::CreateLinkCommands();
+    Gui::CreateAnimationCommands();
 }
 
 void Application::slotNewDocument(const App::Document& Doc, bool isMainDoc)
@@ -2815,6 +2817,7 @@ void Application::initTypes()
                               "Gui::ViewProviderOrigin");
     Gui::AxisOrigin                             ::init();
     Gui::ViewProviderSavedView                  ::init();
+    Gui::ViewProviderAnimation                  ::init();
 
     // Workbench
     Gui::Workbench                              ::init();

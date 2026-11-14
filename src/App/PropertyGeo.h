@@ -115,7 +115,9 @@ public:
 
     Property *copyBeforeChange() const override {return Copy();}
 
-    void interpolate(const Property &from, const Property &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 private:
     Base::Vector3d _cVec;
@@ -199,7 +201,9 @@ public:
         return "Gui::PropertyEditor::PropertyDirectionItem";
     }
 
-    void interpolate(const Property &from, const Property &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 };
 
 /// Double precision vector list
@@ -235,7 +239,9 @@ public:
         return "Gui::PropertyEditor::PropertyVectorListItem";
     }
 
-    void interpolateValue(int index, const Base::Vector3d &from, const Base::Vector3d &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 protected:
     Base::Vector3d getPyValue(PyObject *) const override;
@@ -262,7 +268,9 @@ public:
 
     unsigned int getMemSize (void) const override;
 
-    void interpolateValue(int index, const Base::Vector3f &from, const Base::Vector3f &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 protected:
     Base::Vector3f getPyValue(PyObject *) const override;
@@ -408,7 +416,9 @@ public:
     Property *copyBeforeChange() const override {return Copy();}
     static const Placement Null;
 
-    void interpolate(const Property &from, const Property &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 private:
     Base::Placement _cPos;
@@ -462,7 +472,9 @@ public:
 
     unsigned int getMemSize (void) const override;
 
-    void interpolateValue(int index, const Base::Placement &from, const Base::Placement &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
     
 protected:
     Base::Placement getPyValue(PyObject *) const override;
@@ -574,7 +586,9 @@ public:
     }
     Property *copyBeforeChange() const override {return Copy();}
 
-    void interpolate(const Property &from, const Property &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 private:
     Base::Rotation _rot;

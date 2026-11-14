@@ -41,6 +41,10 @@ from PySide import QtCore
 import wsclient
 from wsclient import free_port
 
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
+
 clock = time.perf_counter
 
 OUT = os.environ["GT_OUT"]
@@ -162,7 +166,7 @@ def build():
             "AutoSaveTimeout", 0
         )
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("RenderCache", 3)
-        p.SetString("Type", "bgfx - OpenGL")
+        p.SetString("Type", ENGINE)
         doc = FreeCAD.newDocument(DOC, hidden=True)
         state["doc"] = doc
         sphere = doc.addObject("Part::Sphere", "Sphere")

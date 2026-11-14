@@ -404,6 +404,41 @@ the same reason as on Windows: their guard looks for `xvfb-run`. Run by
 hand, `GuiServeSelectionEcho_tests_run` passes -- eight PASS lines and
 `DONE`, 2026-09-07; see "The GUI tests" below for the command.
 
+### The Python sandbox on macOS
+
+Set up on mini 2026-11-14, so that its tests run there rather than fail
+or skip (docs/PyodideHost.md has the design):
+
+- **V8**: `v8-embed` from the user's channel (it is in the recipe), into
+  the dev env: `~/miniforge3/bin/conda install -p .conda/freecad
+  -c realthunder -c conda-forge v8-embed` -- a dry run first; it added
+  that package alone. Its dylib says macOS 13.5 and mini runs 13.4: the
+  linker warns, and it loads and runs.
+- **The build**: a tree configured before it was installed keeps
+  `BUILD_EXPR_PYODIDE_HOST` and `BUILD_EXPR_IMAGE_HOST` OFF in its cache;
+  reconfigure with both ON, `-Dv8-embed_DIR=.conda/freecad/lib/cmake/
+  v8-embed`, `FREECAD_FCX_IMAGE_WHEEL` (the wheel from PyPI, PyodideHost.md
+  sec 12.3, renamed to its `pyodide_2026_0_wasm32` tag, in
+  `build/pyodide-guest/dist`) and `FREECAD_BUNDLED_WHEELS` (ipywidgets
+  8.1.9 and traitlets 5.14.3, `pip download` into `build/sandbox-wheels`),
+  as the conda presets name them.
+- **The runtime**: `freecad.pyodide.install_runtime()` run once by
+  ThunderealCmd with `FREECAD_USER_HOME=~/works/sw/pyodide-home`, which
+  puts pyodide 314.0.6 in `~/works/sw/pyodide-home/Pyodide/314.0.6`.
+  Then `freecad.pyodide.install_package("numpy")` the same way: the
+  on-demand install a user gets, from pyodide's CDN against the lock's
+  sha256, into `~/works/sw/pyodide-home/Pyodide/packages`.
+  ExpressionPyodideOfferTest runs offline and takes the numpy wheel from
+  there (or from beside a full distribution's runtime). ctest is run with
+  `FREECAD_USER_HOME=~/works/sw/pyodide-home`; the GUI tests run on a
+  profile of their own, thrown away, so they are handed the runtime as
+  `FCX_PYODIDE`.
+
+With those, `ctest -R 'ExpressionImage|Pyodide|Sandbox'`: 76 pass and
+the eight `ExpressionImageBenchTest` benchmarks stay disabled, as they
+are everywhere; sandbox-console-serve 30 of 30 and
+sandbox-console-browser 11 of 11.
+
 ### Python on macOS
 
 **Run in full for the first time on 2026-09-10**, on
@@ -1109,6 +1144,88 @@ yellow, B's canvas does not change at all -- not even its framing, which is
 what caught the viewer fitting to an object only another client shows. Its
 first runs found two more on the way: a client's show raised no publish on
 the host, and the snapshot never carried a per-view-shown draw at all.
+
+`serve-animation.py` and `serve-animation-browser.py` (2026-11-13,
+`scripts/animation-drive.js`) are a served document's Animation as its
+viewers play it by themselves (`docs/Animation.md` sec 9.1). The first reads
+the wire with a synthetic client, 26 checks: the clip's track is the box's
+own move, the clock says what the player does, every publish is named with
+the Time of its pose, and while it plays NOTHING is published though the
+box moves on the host. The second is the half only a canvas shows, 16
+checks by colour: a red box drawn somewhere else at each of eight readings
+on one publish, a green one that stays, the paused pose held at the host's
+Time, the rest pose back after Stop. It takes `NODE` as well as
+`PUPPETEER_PATH` and `CHROME`. Neither is registered, the browser one for
+the reason above and the first because it plays by the wall clock. On mini
+(macOS, no `gui-test.sh` display): `tests/gui` on `PYTHONPATH`, the manual's
+`tools/run-gui-script.sh`, node from `~/works/sw/emsdk/node`, puppeteer-core
+in `~/works/sw/fcad-probes`, the system Chrome.
+
+2026-11-14: the clip carries visibility and sequences of per-frame blobs
+(`docs/Animation.md` sec 9.1). `serve-animation.py` is 34 checks now (a box
+rebuilt and one hidden from 0.5 s to 1.5 s: a sequence and a shown mask,
+every blob served under its SHA-1, nothing published; with
+`StreamBlobMB` 0 the publishes flow). `serve-animation-sequence-browser.py`
+is the browser half, 18 checks on the same driver: a red box whose Height
+the Animation shrinks drawn smaller as the Time goes on, a green one hidden
+in the publish the viewer holds drawn between 1 s and 2 s and nowhere
+else, a blue one standing still so the camera the viewer fits does not
+move. It plays at Speed 0.25 and the driver reads the viewer's state after
+each screenshot as well as before: under swiftshader a screenshot can take
+seconds, and a reading whose two Times are far apart cannot say which frame
+it caught. The navigation cube's Y axis is some 60 green pixels in every
+shot.
+
+`animation-export-clock.py` (2026-11-13) is the renderer's clock pinned by
+an export (`docs/Animation.md` sec 9): a flame (`Render_Fire`) drawn by the
+renderer, 12 checks. Two images at one pinned time are the same to the
+pixel and one at another time differs; the same export made twice gives
+the same frames one by one. It needs a view with the renderer behind it
+(`RenderCache` 3) and the scene light and volumetrics on, which it sets,
+and says SKIP when no flame is drawn. Not registered: it wants a real GL
+or Metal device.
+
+`animation-cache.py` (2026-11-13) is the Animation's frame cache and the
+detail a frame is kept and saved in (`docs/Animation.md` sec 4.1): a plate
+whose thickness is animated, 36 holes cut through it, 25 checks. A second
+pass recomputes nothing and takes a fraction of the first (38 ms a frame
+against 1.3 on mini); a frame put back is the same picture to the pixel,
+and the picture of the frame recomputed; exact detail is held while the
+Animation is active with its cache on and while an export saves; the
+timeline marks the frames kept; playing goes frame by frame out of the
+cache; an edit drops the frames. Not registered, like the others here. It
+asks for the `Default` backend, the platform's (RenderParams::engineType:
+Direct3D 11 on Windows, Metal on macOS, OpenGL elsewhere) -- on macOS not
+OpenGL, because a Qt widget's GL context there is 2.1
+(the compatibility profile Coin needs; macOS has nothing between that and
+core 3.2), below the 3.1 the bgfx OpenGL backend takes, so a view asked
+for `bgfx - OpenGL` is drawn by the render cache's own GL renderer and
+the backend counts no frame. So does every script here that used to name
+a backend outright (`ENGINE` at the top of 63 of them), most of them
+`bgfx - OpenGL`, which ran them without the backend on a Mac and on
+OpenGL rather than Direct3D 11 on Windows; switched 2026-11-13 and run on
+mini, Metal against OpenGL: the same results. The four that failed on
+both were chased the same day and pass now: camera-uplink-bench waited
+for a binary push where a click is answered by the "selection" text push
+(since 26d8bb2a35); serve-handle-touch-browser looked for the arrow and
+the label by one hit test, and the label has stood beside the active
+handle since 6465589eb0 -- the page hook fcviewerEditHandleKind tells a
+handle (1) from a label (2) now; serve-panel-two-users-browser selected a
+field's text with Control+A, which macOS Chrome does not run as select
+all for a synthesized key (nor Command+A), and typed after the old value;
+serve-animation-browser read the phase file of a run before into the same
+folder, which the manual's run-gui-script.sh did not clear as
+gui-test.sh does. sandbox-console-browser failed for want of the
+pyodide sandbox host in the build; with it ("The Python sandbox on
+macOS" above) it passes, 11 of 11. The
+browser scripts there want `node` on PATH as well as `NODE`,
+`PUPPETEER_PATH` and `CHROME` (most launch a bare `node`). That used to
+cost 5 s a picture -- `waitFrameComplete` and the frame dump each waited
+their quiet timeout out for a frame that would never be counted -- and a
+segfault at quit, the declined view swept through a bgfx that was not
+up; `Renderer::unavailable()` now sends both waiters the way of a view
+with no backend (0.01 s a picture on mini), and the sweep leaves bgfx
+alone.
 
 **On Windows they do not register**, and cannot: `tests/gui/CMakeLists.txt`
 wants `xvfb-run` and `.conda/run.sh`, and the box has neither. Run one with

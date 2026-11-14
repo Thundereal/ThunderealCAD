@@ -302,7 +302,7 @@ void DocumentObject::touch(bool noRecompute)
     }
     StatusBits.set(ObjectStatus::Touch);
     if (_pDoc)
-        _pDoc->signalTouchedObject(*this);
+        _pDoc->noteTouched(*this);
 }
 
 /**
@@ -324,7 +324,7 @@ void DocumentObject::purgeTouched()
     if(StatusBits.test(ObjectStatus::Touch)) {
         StatusBits.reset(ObjectStatus::Touch);
         if (_pDoc)
-            _pDoc->signalPurgeTouchedObject(*this);
+            _pDoc->noteTouched(*this, true);
     }
 }
 
@@ -338,7 +338,7 @@ void DocumentObject::freeze()
     // Not a property change, so nothing else tells the Gui: this refreshes
     // the tree icon and marks the document modified, the state being saved.
     if (_pDoc)
-        _pDoc->signalTouchedObject(*this);
+        _pDoc->noteTouched(*this);
 }
 
 void DocumentObject::unfreeze(bool noRecompute)
@@ -368,12 +368,8 @@ void DocumentObject::setLogTouchedBits(int bits)
     if (touch == StatusBits.test(ObjectStatus::Touch))
         return;
     StatusBits.set(ObjectStatus::Touch, touch);
-    if (_pDoc) {
-        if (touch)
-            _pDoc->signalTouchedObject(*this);
-        else
-            _pDoc->signalPurgeTouchedObject(*this);
-    }
+    if (_pDoc)
+        _pDoc->noteTouched(*this, !touch);
 }
 
 /**

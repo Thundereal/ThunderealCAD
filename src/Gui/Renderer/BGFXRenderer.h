@@ -119,6 +119,8 @@ public:
                          const void *projMatrix,
                          int width, int height) override;
     virtual void setPublishGroup(const std::string &doc) override;
+    virtual const DrawCallList *sceneFeed() const override;
+    virtual uint64_t publishedVersion() const override;
     virtual bool boundBox(float &xmin, float &ymin, float &zmin,
                           float &xmax, float &ymax, float &zmax) override;
     virtual bool animating() const override;
@@ -180,6 +182,7 @@ public:
     virtual void holdFrameDump() override;
     virtual bool frameDumpHeld() const override;
     virtual bool frameComplete() const override;
+    virtual bool unavailable() const override;
     virtual uint64_t renderedFrames() const override;
     virtual uint64_t completeFrames() const override;
     virtual bool getRenderStats(RenderStats &stats) const override;

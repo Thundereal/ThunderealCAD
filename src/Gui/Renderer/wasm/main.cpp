@@ -39,6 +39,8 @@
 #include "Page2D.h"
 #include "Page2DWire.h"
 #include "SceneDump.h"
+#include "MotionClip.h"
+#include "MotionClipBlob.h"
 #include "SceneLadder.h"
 #include "StandalonePlatform.h"
 
@@ -680,6 +682,13 @@ EM_JS(void, fcviewer_install_control, (), {
     window.fcviewerEditHandleAt = function(x, y) {
         return !!_fcviewer_edit_handle_at(x, y);
     };
+    // The same, saying what it landed on: 0 nothing, 1 a handle, 2 a
+    // value's label. The label stands beside its active handle
+    // (docs/OnViewValueEditing.md), so a page looking for the handle
+    // itself has to tell the two apart.
+    window.fcviewerEditHandleKind = function(x, y) {
+        return _fcviewer_edit_handle_at(x, y);
+    };
     // Paint {obj, sub} as the hover would, '' to drop it: a context menu's
     // "Pick geometry" entry under the pointer.
     window.fcviewerHoverNamed = function(obj, sub) {
@@ -779,6 +788,15 @@ EM_JS(void, fcviewer_install_control, (), {
         var ok = _fcviewer_control_send(buf);
         _free(buf);
         return ok === 1;
+    };
+    // What the viewer is playing of the host's Animation
+    // (docs/Animation.md sec 9, "Streaming"), as an object.
+    window.fcviewerAnimationState = function() {
+        try {
+            return JSON.parse(UTF8ToString(_fcviewer_animation_state()));
+        } catch (e) {
+            return null;
+        }
     };
 });
 
@@ -5048,6 +5066,8 @@ static void updateOnViewLayout()
         fcviewer_onview_layout(spec.c_str());
 }
 
+static void tickClip();
+
 static void mainLoop()
 {
     const double frameNow = emscripten_get_now();
@@ -5150,6 +5170,9 @@ static void mainLoop()
     // handful of float compares on a settled scene; the skip still
     // saves the render.
     pumpFetchOnMove();
+    // An Animation playing here moves its draws before it is decided
+    // whether this frame is drawn: the move is what makes it one.
+    tickClip();
     if (s_dirtyFrames > 0) {
         --s_dirtyFrames;
     } else if (s_renderer && !s_renderer->isSceneDirty()
@@ -5888,29 +5911,38 @@ static bool pickLabelDraw(const Render::DrawCall &d, float px, float py)
 /// ask, so the client picks what it draws itself. Only while the edit
 /// mode takes the pointer: one that only shows something leaves the
 /// finger to the camera, as it leaves the mouse's left button.
-static bool pickEditHandle(float px, float py)
+/// What of the edit session's overlay is at canvas pixel (px, py): 0
+/// nothing, 1 a handle, 2 a value's label. A handle anywhere wins over a
+/// label.
+static int pickEditHandleKind(float px, float py)
 {
     if (!s_editing || !s_editPointer || !s_editSession || activeIsPage())
-        return false;
+        return 0;
+    int kind = 0;
     for (const auto &ov : s_snap.overlays) {
         if (!ov.anchor.sceneCamera || ov.anchor.session != s_editSession)
             continue;
         if (pickDraws(ov.draws, false, px, py, isEditPickDraw).kind != PickNone)
-            return true;
+            return 1;
         for (const auto &d : ov.draws) {
-            if (pickLabelDraw(d, px, py))
-                return true;
+            if (!kind && pickLabelDraw(d, px, py))
+                kind = 2;
         }
     }
-    return false;
+    return kind;
 }
 
-/// pickEditHandle at CSS pixel (clientX, clientY), for the page.
+static bool pickEditHandle(float px, float py)
+{
+    return pickEditHandleKind(px, py) != 0;
+}
+
+/// pickEditHandleKind at CSS pixel (clientX, clientY), for the page.
 extern "C" EMSCRIPTEN_KEEPALIVE int fcviewer_edit_handle_at(float clientX, float clientY)
 {
     float px, py;
     clientToCanvas(clientX, clientY, px, py);
-    return pickEditHandle(px, py) ? 1 : 0;
+    return pickEditHandleKind(px, py);
 }
 
 /// Send the press of a handle finger at canvas pixel (px, py), preceded by
@@ -6639,6 +6671,323 @@ static void feedOverlays()
     s_overlayIds.swap(ovIds);
 }
 
+//////////////////////////////////////////////////////////////////////
+// An Animation played here (docs/Animation.md sec 9, "Streaming")
+//
+// The host bakes what its Animation does to each object into a clip and
+// says what its clock reads; this viewer then poses the draws of the
+// publish it holds by itself, every frame, and the host publishes none
+// for it. A track's draws are moved -- from where the publish has them,
+// which the host names by the Time it was taken at -- and left out where
+// the track says its object is hidden; a sequence's draws are those of
+// the blob of the frame nearest. The scene is recomposed from the
+// publish's draws each time, in s_snap.scene, so a pick and the
+// selection drawn over them see what the canvas shows.
+
+static Render::MotionClip s_clip;
+static std::unordered_map<uint64_t, size_t> s_clipTracks;
+static std::unordered_map<uint64_t, size_t> s_clipSeqs;
+static Render::MotionClock s_clock;
+/// emscripten_get_now() when s_clock arrived
+static double s_clockAt = 0.0;
+/// What the host said of each recent publish: whether an Animation was
+/// posing it, and at what Time
+static std::map<uint64_t, std::pair<bool, double>> s_clipBases;
+
+/// The draws of each of the clip's blobs, null until it has landed
+static std::vector<std::shared_ptr<const Render::DrawCallList>> s_clipBlobDraws;
+/// The blobs asked for and not yet in, by content key
+static std::unordered_map<std::string, size_t> s_clipBlobWanted;
+static size_t s_clipBlobsIn = 0;
+/// A blob landed since the scene was last posed
+static bool s_clipBlobLanded = false;
+
+/// s_snap.scene as the publish has it
+static Render::DrawCallList s_clipRaw;
+/// s_clipRaw is of the scene as it stands; false once it is assembled anew
+static bool s_clipRawValid = false;
+/// s_snap.scene is posed, not the publish's
+static bool s_clipPosed = false;
+static double s_clipShown = 0.0;
+static unsigned s_clipPoses = 0;
+/// What the last pose did: draws moved, drawn from a blob, left out
+static size_t s_clipMoved = 0;
+static size_t s_clipSwapped = 0;
+static size_t s_clipHidden = 0;
+
+static void clipWantBlobs();
+
+/// The scene was assembled again: its draws are where the publish has
+/// them, whatever was moved before
+static void clipSceneRebuilt()
+{
+    s_clipRawValid = false;
+    s_clipPosed = false;
+}
+
+static void clipCaptureRaw()
+{
+    s_clipRawValid = true;
+    s_clipPosed = false;
+    if (s_clip.empty())
+        s_clipRaw.clear();
+    else
+        s_clipRaw = s_snap.scene;
+}
+
+static void clipRestoreRaw()
+{
+    if (!s_clipRawValid || !s_clipPosed)
+        return;
+    s_snap.scene = s_clipRaw;
+    s_clipPosed = false;
+}
+
+/// Whether the publish held is one the clip can move the draws of
+static bool clipBase(double &time)
+{
+    auto it = s_clipBases.find(s_sceneVersion);
+    if (it == s_clipBases.end() || !it->second.first)
+        return false;
+    time = it->second.second;
+    return true;
+}
+
+static bool clipPlays()
+{
+    double base = 0.0;
+    return !s_clip.empty() && s_clock.clip == s_clip.id && s_clock.active
+        && clipBase(base);
+}
+
+static double clipTimeNow()
+{
+    return s_clock.timeAfter((emscripten_get_now() - s_clockAt) / 1000.0);
+}
+
+/// Pose the clip's objects where they are at \a time. In s_snap.scene,
+/// from the publish's draws; the caller hands the scene to the renderer.
+static void clipPose(double time)
+{
+    double base = 0.0;
+    if (!clipBase(base))
+        return;
+    if (!s_clipRawValid)
+        clipCaptureRaw();
+    // At the Time the publish was taken it is the truth, and exact
+    const bool atBase = std::fabs(time - base) < 1e-6;
+    const size_t ntracks = s_clip.keys.size();
+    std::vector<double> moves(ntracks * 16);
+    std::vector<uint8_t> have(ntracks, 0), inPublish(ntracks, 0);
+    // Per sequence: 0 the publish's draws stay (at the base, or the
+    // blob not in yet), 1 none here, 2 the blob's
+    std::vector<uint8_t> swap(s_clip.seqKeys.size(), 0);
+    if (!atBase) {
+        for (size_t i = 0; i < swap.size(); ++i) {
+            const int32_t blob = s_clip.blobAt(i, time);
+            if (blob < 0)
+                swap[i] = 1;
+            else if (s_clipBlobDraws[size_t(blob)])
+                swap[i] = 2;
+        }
+    }
+    size_t moved = 0, swapped = 0, hidden = 0;
+    Render::DrawCallList out;
+    out.reserve(s_clipRaw.size());
+    for (const Render::DrawCall &d : s_clipRaw) {
+        if (d.objectKey) {
+            auto si = s_clipSeqs.find(d.objectKey);
+            if (si != s_clipSeqs.end() && swap[si->second]) {
+                ++hidden;
+                continue;
+            }
+            auto ti = s_clipTracks.find(d.objectKey);
+            if (ti != s_clipTracks.end() && !atBase) {
+                const size_t k = ti->second;
+                inPublish[k] = 1;
+                if (!s_clip.shownAt(k, time)) {
+                    ++hidden;
+                    continue;
+                }
+                if (!have[k])
+                    have[k] = s_clip.moveBetween(k, base, time, &moves[k * 16]) ? 1 : 2;
+                out.push_back(d);
+                if (have[k] == 1) {
+                    Render::Motion::moveDraw(out.back(), &moves[k * 16]);
+                    ++moved;
+                }
+                continue;
+            }
+        }
+        out.push_back(d);
+    }
+    if (!atBase) {
+        for (size_t i = 0; i < swap.size(); ++i) {
+            if (swap[i] != 2)
+                continue;
+            const auto &draws = *s_clipBlobDraws[size_t(s_clip.blobAt(i, time))];
+            out.insert(out.end(), draws.begin(), draws.end());
+            swapped += draws.size();
+        }
+        // A track's object the publish lacks -- taken while it was
+        // hidden -- shown from the draws kept where it was measured from
+        for (size_t k = 0; k < ntracks && !s_clip.refBlob.empty(); ++k) {
+            const int32_t blob = s_clip.refBlob[k];
+            if (inPublish[k] || blob < 0 || !s_clipBlobDraws[size_t(blob)]
+                || !s_clip.shownAt(k, time))
+                continue;
+            double x[16];
+            if (!s_clip.moveBetween(k, s_clip.timeOf(uint32_t(s_clip.refFrame[k])), time, x))
+                continue;
+            for (const Render::DrawCall &d : *s_clipBlobDraws[size_t(blob)]) {
+                out.push_back(d);
+                Render::Motion::moveDraw(out.back(), x);
+                ++swapped;
+            }
+        }
+    }
+    s_snap.scene = std::move(out);
+    s_clipMoved = moved;
+    s_clipSwapped = swapped;
+    s_clipHidden = hidden;
+    s_clipPosed = true;
+    s_clipShown = time;
+    s_clipBlobLanded = false;
+    ++s_clipPoses;
+}
+
+/// The scene to the renderer again, its draws moved; what is drawn over
+/// them follows
+static void clipResubmit()
+{
+    Render::DrawCallList draws = s_snap.scene;
+    s_renderer->setScene(std::move(draws));
+    s_feedJustSet = true;
+    if (!s_selIds.empty() || !s_sel.empty()) {
+        for (int id : s_selIds)
+            s_renderer->removeSelection(id);
+        s_selIds.clear();
+        rebuildSelection();
+        rebuildPeerSelection();
+    }
+    markDirty();
+}
+
+/// Once a frame, before it is decided whether one is drawn
+static void tickClip()
+{
+    if (!s_renderer || !s_haveScene)
+        return;
+    if (!clipPlays()) {
+        if (s_clipPosed) {
+            clipRestoreRaw();
+            clipResubmit();
+        }
+        return;
+    }
+    const double time = clipTimeNow();
+    if (s_clipPosed && s_clipRawValid && time == s_clipShown && !s_clipBlobLanded)
+        return;
+    clipRestoreRaw();
+    clipPose(time);
+    clipResubmit();
+}
+
+/// A blob of the clip landed: the draws it holds
+static bool clipBlobResolved(const std::string &key, const uint8_t *data, size_t size)
+{
+    auto it = s_clipBlobWanted.find(key);
+    if (it == s_clipBlobWanted.end())
+        return false;
+    const size_t index = it->second;
+    s_clipBlobWanted.erase(it);
+    auto draws = std::make_shared<Render::DrawCallList>();
+    if (!Render::motionBlobDraws(data, size, *draws)) {
+        std::printf("fcviewer: clip blob %s would not read\n", key.c_str());
+        return true;
+    }
+    if (index < s_clipBlobDraws.size()) {
+        s_clipBlobDraws[index] = std::move(draws);
+        ++s_clipBlobsIn;
+        s_clipBlobLanded = true;
+        markDirty();
+    }
+    return true;
+}
+
+static void clipBlobFailed(const std::string &key)
+{
+    s_clipBlobWanted.erase(key);
+}
+
+/// {"cmd":"clip",...} (Render::MotionClip::toJson): the tracks to play,
+/// or none
+static void applyClip(const char *json)
+{
+    clipRestoreRaw();
+    Render::MotionClip clip;
+    if (!clip.fromJson(json))
+        std::printf("fcviewer: clip %u would not parse\n", clip.id);
+    s_clip = std::move(clip);
+    s_clipTracks.clear();
+    for (size_t i = 0; i < s_clip.keys.size(); ++i)
+        s_clipTracks[s_clip.keys[i]] = i;
+    s_clipSeqs.clear();
+    for (size_t i = 0; i < s_clip.seqKeys.size(); ++i)
+        s_clipSeqs[s_clip.seqKeys[i]] = i;
+    s_clipBlobDraws.assign(s_clip.blobs.size(), nullptr);
+    s_clipBlobWanted.clear();
+    s_clipBlobsIn = 0;
+    s_clipRawValid = false;
+    std::printf("fcviewer: clip %u: %zu tracks, %zu sequences, %zu blobs, %u frames\n",
+                s_clip.id, s_clip.keys.size(), s_clip.seqKeys.size(), s_clip.blobs.size(),
+                s_clip.frames);
+    clipWantBlobs();
+    markDirty();
+}
+
+/// {"cmd":"time",...} (Render::MotionClock::toJson): the host's clock,
+/// and which publish was taken at what Time
+static void applyClock(const char *json)
+{
+    s_clock.fromJson(json);
+    s_clockAt = emscripten_get_now();
+    if (s_clock.version) {
+        s_clipBases[s_clock.version] = {s_clock.baseActive, s_clock.baseTime};
+        while (s_clipBases.size() > 64)
+            s_clipBases.erase(s_clipBases.begin());
+    }
+    markDirty();
+}
+
+/// What is playing, for a page's script and the tests: JSON, valid until
+/// the next call
+extern "C" EMSCRIPTEN_KEEPALIVE const char *fcviewer_animation_state()
+{
+    static std::string out;
+    char buf[480];
+    double base = 0.0;
+    const bool based = clipBase(base);
+    std::snprintf(buf, sizeof(buf),
+                  "{\"clip\":%u,\"tracks\":%zu,\"sequences\":%zu,\"blobs\":%zu,"
+                  "\"blobsIn\":%zu,\"frames\":%u,\"clock\":%u,"
+                  "\"active\":%s,\"playing\":%s,\"plays\":%s,\"time\":%.9g,"
+                  "\"base\":%.9g,\"based\":%s,\"poses\":%u,\"moved\":%zu,"
+                  "\"swapped\":%zu,\"hidden\":%zu,\"version\":%llu}",
+                  s_clip.id, s_clip.keys.size(), s_clip.seqKeys.size(), s_clip.blobs.size(),
+                  s_clipBlobsIn, s_clip.frames, s_clock.clip,
+                  s_clock.active ? "true" : "false",
+                  s_clock.playing ? "true" : "false",
+                  clipPlays() ? "true" : "false", clipTimeNow(), base,
+                  based ? "true" : "false", s_clipPoses,
+                  s_clipPosed ? s_clipMoved : size_t(0),
+                  s_clipPosed ? s_clipSwapped : size_t(0),
+                  s_clipPosed ? s_clipHidden : size_t(0),
+                  (unsigned long long)s_sceneVersion);
+    out = buf;
+    return out.c_str();
+}
+
 /// Feed the loaded snapshot to the renderer; a first load also fits
 /// the camera (streamed updates keep the user's).
 static void applySnapshot(bool fit)
@@ -6720,6 +7069,14 @@ static void applySnapshot(bool fit)
                                   s_snap.hatch->width, s_snap.hatch->height);
     {
         DbgScope dbg(s_dbgSceneMs);
+        // An Animation playing here: the draws go to the renderer
+        // where the clip has them now, not where the publish does
+        if (!s_clipRawValid)
+            clipCaptureRaw();
+        if (clipPlays())
+            clipPose(clipTimeNow());
+        else
+            clipRestoreRaw();
         Render::DrawCallList draws = s_snap.scene;
         s_renderer->setScene(std::move(draws));
         s_feedJustSet = true;
@@ -6889,6 +7246,7 @@ static void commitSnapshot(Render::SceneSnapshot &&snap, uint64_t version)
     // by the first scene.
     bool first = !s_userCam;
     s_snap = std::move(snap);
+    clipSceneRebuilt();
     applySnapshot(first);
     // Only when there is nothing left to wait for. A publish is
     // committed on the first arrival that can be drawn, not on the
@@ -7750,8 +8108,10 @@ static void blobResolved(const std::string &key, BlobData data,
                 std::printf("fcviewer: blob store to IndexedDB failed\n");
             });
     }
-    if (data)
+    if (data) {
         pageBlobResolved(key, data->data(), data->size());
+        clipBlobResolved(key, data->data(), data->size());
+    }
     if (!s_batchApplying)
         resolvePending();
 }
@@ -7763,6 +8123,7 @@ static void blobFailed(const std::string &key)
     s_blobFailed.insert(key);
     std::printf("fcviewer: blob %s unavailable, dropped\n", key.c_str());
     pageBlobFailed(key);
+    clipBlobFailed(key);
     if (!s_batchApplying)
         resolvePending();
 }
@@ -8082,6 +8443,21 @@ static void pageWantChunk(const std::string &key, uint32_t size)
     requestBlob(key, size);
 }
 
+/// The clip's blobs: the cache answers now, everything else answers
+/// through blobResolved
+static void clipWantBlobs()
+{
+    for (size_t i = 0; i < s_clip.blobs.size(); ++i) {
+        const std::string &key = s_clip.blobs[i];
+        auto it = s_blobCache.find(key);
+        s_clipBlobWanted[key] = i;
+        if (it != s_blobCache.end() && it->second)
+            clipBlobResolved(key, it->second->data(), it->second->size());
+        else
+            requestBlob(key, i < s_clip.blobSizes.size() ? s_clip.blobSizes[i] : 0);
+    }
+}
+
 static bool applyPagePayload(uint64_t version, const char *data,
                              size_t size)
 {
@@ -8301,6 +8677,8 @@ static bool assembleResolved(Render::SceneSnapshot &snap)
     // landed, a box on its bounds if it has not — so this runs per
     // arrival rather than once, and each pass refines the last.
     if (Render::applySceneObjects(snap, s_objects)) {
+        if (&snap == &s_snap)
+            clipSceneRebuilt();
         logStandIns(snap);
         if (s_streamDebug) {
             size_t coarse = 0;
@@ -9992,6 +10370,14 @@ static void handleControlMessage(const char *json)
 {
     if (handleCyclesControl(json))
         return;
+    if (std::strstr(json, "\"cmd\":\"clip\"")) {
+        applyClip(json);
+        return;
+    }
+    if (std::strstr(json, "\"cmd\":\"time\"")) {
+        applyClock(json);
+        return;
+    }
     if (std::strstr(json, "\"cmd\":\"dumpFrame\"")) {
         long id = 0, mode = -1;
         const char *p = std::strstr(json, "\"id\"");

@@ -5,8 +5,9 @@
 // Input.dispatchTouchEvent, which reaches the page as the touch events a
 // touch screen gives, through the compositor -- not events built in the
 // page. The page is entered into the edit of the served fillet, the radius
-// arrow is found by the client's own pick (window.fcviewerEditHandleAt,
-// what a touch decides by), and then:
+// arrow is found by the client's own pick (window.fcviewerEditHandleKind,
+// what a touch decides by: 1 a handle, 2 a value's label -- which stands
+// beside its active handle, so the two are told apart), and then:
 //
 //   tap       a finger on the arrow, lifted: the value is active;
 //   drag      a finger on the arrow, moved: the radius changes and the
@@ -64,16 +65,17 @@ async function canvasRect(page) {
 
 // Every point of a grid over the canvas where a finger lands on the
 // edit's handles, by the client's own pick
-async function handleHits(page, step) {
-  return page.evaluate((step) => {
+// kind 1: the handles; 2: the values' labels
+async function handleHits(page, step, kind = 1) {
+  return page.evaluate((step, kind) => {
     const r = document.getElementById('canvas').getBoundingClientRect();
     const hits = [];
     for (let y = r.top + step; y < r.bottom - step; y += step)
       for (let x = r.left + step; x < r.right - step; x += step)
-        if (window.fcviewerEditHandleAt(x, y))
+        if (window.fcviewerEditHandleKind(x, y) === kind)
           hits.push([x, y]);
     return hits;
-  }, step);
+  }, step, kind);
 }
 
 // The hit with the most hits around it: the middle of the largest piece
@@ -360,14 +362,22 @@ async function hudCamera(page) {
     phase('finedragged');
 
     // the label: a tap on it opens its box in the page, which takes the
-    // keys -- the phone's keyboard, here CDP's. The top-middle label is
-    // looked for in the band under the tool bars.
-    const top = (await handleHits(page, 4)).filter(([x, y]) => y < r.y + 90);
-    out.labelHits = top.length;
-    // its middle: the hits fill its box evenly, so the densest is a corner
-    const lab = top.length
-        ? [top.reduce((a, p) => a + p[0], 0) / top.length,
-           top.reduce((a, p) => a + p[1], 0) / top.length]
+    // keys -- the phone's keyboard, here CDP's. The label stands beside
+    // the active handle (entry 241), so it is looked for by its kind.
+    const labels = await handleHits(page, 4, 2);
+    out.labelHits = labels.length;
+    // its middle: the hits fill its box evenly, so the densest is a corner;
+    // the mean of the hits around the densest, should another label show
+    const near = labels.length
+        ? (() => {
+            const d = densest(labels, 60);
+            return labels.filter(([x, y]) =>
+                Math.abs(x - d[0]) <= 60 && Math.abs(y - d[1]) <= 30);
+          })()
+        : [];
+    const lab = near.length
+        ? [near.reduce((a, p) => a + p[0], 0) / near.length,
+           near.reduce((a, p) => a + p[1], 0) / near.length]
         : null;
     out.labelAt = lab;
     if (lab) {

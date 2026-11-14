@@ -617,6 +617,16 @@ void BGFXRenderer::setPublishGroup(const std::string &doc)
     pimpl->publishGroup = doc;
 }
 
+const DrawCallList *BGFXRenderer::sceneFeed() const
+{
+    return &pimpl->scene;
+}
+
+uint64_t BGFXRenderer::publishedVersion() const
+{
+    return pimpl->publishedVersion;
+}
+
 bool BGFXRenderer::requestFrameDump(const FrameDumpRequest &req)
 {
 #ifdef FC_RENDERER_STANDALONE
@@ -660,6 +670,11 @@ bool BGFXRenderer::frameDumpHeld() const
 bool BGFXRenderer::frameComplete() const
 {
     return pimpl->lastFrameComplete;
+}
+
+bool BGFXRenderer::unavailable() const
+{
+    return _BGFXLib.glUnsupported;
 }
 
 uint64_t BGFXRenderer::renderedFrames() const

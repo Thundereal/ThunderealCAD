@@ -47,6 +47,11 @@ import os
 import threading
 import time
 import traceback
+import sys
+
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
 
 import FreeCAD
 import FreeCADGui
@@ -278,7 +283,7 @@ def build():
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt(
             "RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetBool(
             "ShowNaviCube", False)
         # Driven by the pointer alone: an on-view parameter would take

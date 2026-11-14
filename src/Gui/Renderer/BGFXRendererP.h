@@ -5628,7 +5628,13 @@ public:
     static void releaseHandle(H &h)
     {
         if (bgfx::isValid(h)) {
-            bgfx::destroy(h);
+            // Not with the device down: bgfx::destroy locks a mutex of
+            // a context that is not there. A view whose device was
+            // declined (OpenGL below 3.1) is still swept at quit, and a
+            // handle member that is not the invalid index by default
+            // reads as valid there.
+            if (Render::_BGFXLib.deviceUp())
+                bgfx::destroy(h);
             h = BGFX_INVALID_HANDLE;
         }
     }
@@ -10648,6 +10654,8 @@ public:
     int dumpFrames = 0;         ///< non-empty frames seen (dump delay)
     bool serveStarted = false;  ///< FC_BGFX_SERVE_SCENE start attempted
     bool scenePublished = false;///< at least one payload published
+    /// The manifest version of the last payload handed to the server
+    uint64_t publishedVersion = 0;
     /// SceneStreamServer::levelsBuilt() as of the last publish. The
     /// counter moving is what a finished level-generation job looks
     /// like from here, and the response is a republish — that is the

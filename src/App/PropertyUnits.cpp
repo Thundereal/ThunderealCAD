@@ -29,6 +29,7 @@
 #include <Base/UnitPy.h>
 #include "ExpressionParser.h"
 #include "PropertyUnits.h"
+#include "AnimationCurve.h"
 
 using namespace App;
 using namespace Base;
@@ -223,6 +224,17 @@ double PropertyQuantityConstraint::getMaximum() const
     if (_ConstStruct)
         return _ConstStruct->UpperBound;
     return std::numeric_limits<double>::max();
+}
+
+bool PropertyQuantityConstraint::setAnimValue(const Anim::Layout &, const std::vector<double> &values)
+{
+    if (values.size() != 1)
+        return false;
+    double v = values[0];
+    if (_ConstStruct)
+        v = std::max(_ConstStruct->LowerBound, std::min(_ConstStruct->UpperBound, v));
+    setValue(v);
+    return true;
 }
 
 double PropertyQuantityConstraint::getStepSize() const

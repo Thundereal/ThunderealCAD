@@ -73,6 +73,7 @@
 #include "SandboxRemote.h"
 #include "SandboxServe.h"
 #include "SceneActors.h"
+#include "SceneServeClip.h"
 
 #include "Document.h"
 #include "Inventor/SoFCRenderCache.h"
@@ -567,6 +568,9 @@ public:
     /// The version of each client's visibility set it was last told
     /// (announceVisibility), so a publish that changed it re-tells it.
     std::map<uint64_t, uint32_t> visibilityTold;
+    /// The document's Animation as the clients play it by themselves
+    /// (docs/Animation.md sec 9, "Streaming")
+    std::unique_ptr<SceneServeClip> clip;
 
     /** This connection's mirror viewer, built on first contact.
      *
@@ -1819,6 +1823,8 @@ SceneServeSource::SceneServeSource(Document *doc)
         pimpl->connections.emplace_back(doc->signalNewObject.connect(
             [this](const ViewProviderDocumentObject &vp) {
                 pimpl->addViewProvider(vp);
+                if (pimpl->clip)
+                    pimpl->clip->invalidate();
                 schedulePublish();
             }));
         pimpl->connections.emplace_back(doc->signalDeletedObject.connect(
@@ -1828,6 +1834,8 @@ SceneServeSource::SceneServeSource(Document *doc)
                 // deleted object's geometry in every later publish -- a
                 // ghost no viewer can get rid of.
                 pimpl->removeViewProvider(vp);
+                if (pimpl->clip)
+                    pimpl->clip->invalidate();
                 schedulePublish();
             }));
         pimpl->connections.emplace_back(doc->signalToggleInSceneGraph.connect(
@@ -1836,9 +1844,27 @@ SceneServeSource::SceneServeSource(Document *doc)
                 schedulePublish();
             }));
         pimpl->connections.emplace_back(doc->signalChangedObject.connect(
-            [this](const ViewProviderDocumentObject &, const App::Property &) {
+            [this](const ViewProviderDocumentObject &, const App::Property &prop) {
+                // What a playing Animation writes and the clients play
+                // by the clip they hold is no news to them
+                if (pimpl->clip && pimpl->clip->changed(prop))
+                    return;
                 schedulePublish();
             }));
+        SceneServeClip::Host clipHost;
+        clipHost.group = pimpl->groupName;
+        jsonQuoted(clipHost.quotedGroup, pimpl->groupName);
+        clipHost.capture = [this]() -> const Render::DrawCallList * {
+            auto *manager = pimpl->root ? pimpl->root->getRenderManager() : nullptr;
+            if (!manager || !pimpl->renderer)
+                return nullptr;
+            SbViewportRegion viewport{short(kDefaultWidth), short(kDefaultHeight)};
+            manager->traverse(pimpl->root, viewport);
+            return pimpl->renderer->sceneFeed();
+        };
+        clipHost.publish = [this]() { schedulePublish(); };
+        pimpl->clip = std::make_unique<SceneServeClip>(doc->getDocument(),
+                                                       std::move(clipHost));
         // The source must not outlive its document: the pick handler,
         // renderProperties() and the level-source override lookup all
         // dereference it, so a click from a still-connected viewer after
@@ -1889,6 +1915,8 @@ SceneServeSource::~SceneServeSource()
     // Stop listening first: a selection change during the teardown
     // below must not traverse a root that is going away.
     pimpl->selectionMirror.reset();
+    // Its capture reads the root and the renderer
+    pimpl->clip.reset();
     // Hand the group back before anything of this source goes away:
     // clears its publisher claim and handler slots and purges its
     // queued level jobs, so no server thread dispatches into a source
@@ -2038,6 +2066,8 @@ void SceneServeSource::installHandlers()
             SceneActors::sync(self->pimpl->groupName,
                               gdoc ? gdoc->getDocument() : nullptr,
                               self->pimpl->logins);
+            if (self->pimpl->clip)
+                self->pimpl->clip->syncClients();
         }, Qt::QueuedConnection);
     }, docName);
 
@@ -2631,6 +2661,10 @@ bool SceneServeSource::publishNow()
     // CyclesIntegration.md sec 7.1): their own gate says whether the
     // scene moved, so this costs a few compares when nothing did.
     pimpl->feedCyclesStreams(false);
+    // Which publish this was and the Time its pose is of, for a client
+    // that moves the draws on from there by itself.
+    if (published && pimpl->clip)
+        pimpl->clip->published(pimpl->renderer->publishedVersion());
     return published;
 }
 

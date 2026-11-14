@@ -28,6 +28,7 @@ FreeCAD.__unit_test__ += [
     "BaseTests",
     "UnitTests",
     "Document",
+    "TestAnimation",
     "TestIntPairList",
     "TestLinkArray",
     "FileBlobs",

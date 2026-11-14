@@ -395,6 +395,7 @@ generate_from_xml(DocumentObjectExtensionPy)
 generate_from_xml(GroupExtensionPy)
 generate_from_xml(LinkBaseExtensionPy)
 generate_from_xml(DocumentObjectGroupPy)
+generate_from_xml(AnimationPy)
 generate_from_xml(GeoFeaturePy)
 generate_from_xml(GeoFeatureGroupExtensionPy)
 # Authored as a .pyi, the way upstream writes bindings now.
@@ -424,6 +425,7 @@ generate_from_cog(FeaturePythonHookApp.cog.h FeaturePythonHookApp.h
 set(CMAKE_ADD_CUSTOM_COMMAND_DEPENDS_EXPLICIT_ONLY OFF)
 
 SET(FreeCADApp_XML_SRCS
+    AnimationPy.xml
     ExtensionPy.xml
     ExtensionContainerPy.xml
     DocumentObjectExtensionPy.xml
@@ -543,6 +545,8 @@ SET(Document_CPP_SRCS
     LinkBaseExtensionPyImp.cpp
     ExpressionPyImp.cpp
     SavedView.cpp
+    Animation.cpp
+    AnimationPyImp.cpp
     License.h
 )
 
@@ -631,6 +635,7 @@ SET(Document_HPP_SRCS
     Pattern.h
     PatternExtension.h
     SavedView.h
+    Animation.h
 )
 SET(Document_SRCS
     ${Document_CPP_SRCS}
@@ -640,6 +645,7 @@ SOURCE_GROUP("Document" FILES ${Document_SRCS})
 
 # The property stuff
 SET(Properties_CPP_SRCS
+    AnimationCurve.cpp
     DynamicProperty.cpp
     Property.cpp
     PropertyContainer.cpp
@@ -655,6 +661,7 @@ SET(Properties_CPP_SRCS
     PropertyExpressionEngine.cpp
 )
 SET(Properties_HPP_SRCS
+    AnimationCurve.h
     DynamicProperty.h
     ObjectIdentifier.h
     Property.h
@@ -684,6 +691,7 @@ SET(FreeCADApp_CPP_SRCS
     Application.cpp
     ApplicationPy.cpp
     AutoTransaction.cpp
+    WriteScope.cpp
     BrandText.cpp
     Branding.cpp
     CleanupProcess.cpp
@@ -717,6 +725,7 @@ SET(FreeCADApp_HPP_SRCS
     Actor.h
     Application.h
     AutoTransaction.h
+    WriteScope.h
     BrandText.h
     Branding.h
     CleanupProcess.h

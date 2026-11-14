@@ -86,7 +86,9 @@ public:
     bool isSame(const Property &other) const override;
     Property *copyBeforeChange() const override {return Copy();}
 
-    void interpolate(const Property &from, const Property &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 protected:
     long _lValue;
@@ -314,6 +316,7 @@ public:
 
     long getMinimum() const;
     long getMaximum() const;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
     long getStepSize() const;
 
     const char* getEditorName() const override { return "Gui::PropertyEditor::PropertyIntegerConstraintItem"; }
@@ -375,7 +378,9 @@ public:
     Property *Copy(void) const override;
     void Paste(const Property &from) override;
 
-    void interpolateValue(int index, const long &from, const long &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 protected:
     long getPyValue(PyObject *item) const override;
@@ -564,7 +569,9 @@ public:
     bool isSame(const Property &other) const override;
     Property *copyBeforeChange() const override {return Copy();}
 
-    void interpolate(const Property &from, const Property &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 protected:
     double _dValue;
@@ -646,6 +653,7 @@ public:
 
     double getMinimum() const;
     double getMaximum() const;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
     double getStepSize() const;
 
     const char* getEditorName() const override
@@ -707,7 +715,9 @@ public:
     Property *Copy(void) const override;
     void Paste(const Property &from) override;
 
-    void interpolateValue(int index, const double &from, const double &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 protected:
     double getPyValue(PyObject *item) const override;
@@ -732,7 +742,9 @@ public:
     Property *Copy(void) const override;
     void Paste(const Property &from) override;
 
-    void interpolateValue(int index, const float &from, const float &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 protected:
     float getPyValue(PyObject *item) const override;
@@ -1028,7 +1040,9 @@ public:
 
     unsigned int getMemSize () const override{return sizeof(Color);}
     
-    void interpolate(const Property &from, const Property &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
 private:
     Color _cCol;
@@ -1082,7 +1096,9 @@ public:
     Property *Copy(void) const override;
     void Paste(const Property &from) override;
 
-    void interpolateValue(int index, const Color &from, const Color &to, float t) override;
+    bool getAnimLayout(Anim::Layout &layout) const override;
+    bool getAnimValue(const Anim::Layout &layout, std::vector<double> &values) const override;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
 
     /// Converts the alpha component of a document that means opacity by it;
     /// see Base::alphaIsOpacity.

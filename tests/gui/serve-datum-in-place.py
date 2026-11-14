@@ -43,6 +43,10 @@ from PySide import QtCore, QtWidgets
 import wsclient
 from wsclient import WS, free_port
 
+# The platform's backend, as a user gets it: Direct3D 11 on Windows, Metal
+# on macOS, OpenGL elsewhere (RenderParams::engineType, docs/Testing.md).
+ENGINE = "Default"
+
 clock = time.perf_counter
 
 OUT = os.environ["GT_OUT"]
@@ -241,7 +245,7 @@ def build():
             "AutoSaveTimeout", 0)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("RenderCache", 3)
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
-            "Type", "bgfx - OpenGL")
+            "Type", ENGINE)
         # the host's own preference is the dialog: a served view has no
         # dialog whatever it says
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/Sketcher/General").SetBool(

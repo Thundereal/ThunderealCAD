@@ -2754,7 +2754,10 @@ SoFCRenderCacheManagerP::preShape(void *userdata,
   // one.
   if (self->capturebudgeting && self->capturecount > 0 && !prebuilt) {
     const long budget = Gui::RenderParams::getCaptureBudgetMS();
-    if (budget > 0 && self->capturespentms >= double(budget)) {
+    // Not where the frames shown are kept or recorded: a shape left out
+    // of this publish is a frame that shows what it was before
+    if (budget > 0 && self->capturespentms >= double(budget)
+        && !Render::ExactDetail::held()) {
       if (prev) {
         currentcache->addChildCache(state, prev);
         sensor.caches.emplace_back(prev);

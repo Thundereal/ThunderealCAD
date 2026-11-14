@@ -37,6 +37,13 @@ configure_file(prefs.py ${NAMESPACE_DIR}/prefs.py)
 configure_file(params.py ${NAMESPACE_DIR}/params.py COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/src/Tools/params_utils.py ${NAMESPACE_DIR}/params_utils.py COPYONLY)
 
+# Export of a run over time (docs/Animation.md sec 9): the view as a video,
+# a GIF or an image sequence, and an Animation as an animated glTF. Shared
+# by the Animation and the Assembly simulation.
+configure_file(videoexport.py ${NAMESPACE_DIR}/videoexport.py COPYONLY)
+configure_file(gltfscene.py ${NAMESPACE_DIR}/gltfscene.py COPYONLY)
+configure_file(animationgltf.py ${NAMESPACE_DIR}/animationgltf.py COPYONLY)
+
 # MCP debug console (pure-Python; requires the 'mcp' package at runtime)
 configure_file(mcp_console/__init__.py ${NAMESPACE_DIR}/mcp_console/__init__.py COPYONLY)
 configure_file(mcp_console/server.py ${NAMESPACE_DIR}/mcp_console/server.py COPYONLY)
@@ -70,6 +77,9 @@ INSTALL(
         project_utility.py
         UiTools.py
         utils.py
+        videoexport.py
+        gltfscene.py
+        animationgltf.py
     DESTINATION
         ${SITE_PACKAGE_DIR}
 )

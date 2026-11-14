@@ -52,6 +52,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -613,6 +614,13 @@ public:
     /// viewer can learn its key.
     void publishBlob(const std::string &key, std::vector<uint8_t> &&data,
                      const std::string &doc = {});
+
+    /// Keep \a blobs stored and servable until the next call, whatever the
+    /// publishes name: the chunks of the motion clip the document's
+    /// clients play (MotionClip.h), which no publish names. Replaces
+    /// what the last call held; an empty map lets them go.
+    void holdBlobs(std::map<std::string, std::vector<uint8_t>> &&blobs,
+                   const std::string &doc = {});
 
     /// Declare a blob still in use by the publish being built, without
     /// re-sending its bytes, and report its size. False means it is no

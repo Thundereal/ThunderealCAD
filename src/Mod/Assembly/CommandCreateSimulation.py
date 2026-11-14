@@ -3980,20 +3980,12 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             )
             return
 
-        formats = {
-            "MP4 Video": ".mp4",
-            "Animated GIF": ".gif",
-            "AVI Video": ".avi",
-        }
+        # Not upstream: the frames are saved and encoded by the exporter an
+        # Animation shares (freecad.videoexport, docs/Animation.md sec 9); a
+        # run is one time source of its
+        from freecad import videoexport
 
-        try:
-            import av
-
-            # 05/26 libvpx has no Windows conda package
-            if "libvpx-vp9" in av.codecs_available:
-                formats["WebM Video"] = ".webm"
-        except ImportError:
-            pass  # Error out later
+        formats = dict(videoexport.formats())
         # Not upstream: the parts and their motion, for Blender and web viewers
         formats["Animated glTF, binary"] = ".glb"
         formats["Animated glTF"] = ".gltf"
@@ -4010,7 +4002,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             return  # User cancelled
 
         if not Path(file_path).suffix:
-            file_path += [v for v in formats.values() if v in selected_filter][0]
+            file_path += [v for k, v in formats.items() if selected_filter.startswith(k)][0]
         if Path(file_path).suffix.lower() in (".glb", ".gltf"):
             self.saveGltf(file_path)
             return
@@ -4025,16 +4017,6 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
         fps = self.form.FramesPerSecondSpinBox.value()
 
-        # Fail early when PIL is not installed
-        try:
-            from PIL import Image
-        except ImportError:
-            errMsg = translate(
-                "Assembly", "Pillow (PIL) is not installed. It is required for video export."
-            )
-            QMessageBox.critical(self.form, "Error", errMsg)
-            return
-
         # Not upstream: the video goes as playback does, at the study's speed
         # (SimulationPlayback): its frames' times are the run's at that speed,
         # between the run's frames where it plays slower than them
@@ -4044,83 +4026,71 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # it, as the menu says
         layout = self.videoLayout(width, height)
         background = self.videoBackground()
-        viewSize = (width, height)
-        if layout is not None:
-            width, height = layout["size"].width(), layout["size"].height()
 
-        # Setup temporary directory and progress bar
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            progress = QProgressDialog(
-                translate("Assembly", "Generating Frames…"),
-                translate("Assembly", "Cancel"),
-                0,
-                len(video_times),
-                self.form,
-            )
-            progress.setWindowModality(Qt.WindowModal)
-            progress.show()
+        progress = QProgressDialog(
+            translate("Assembly", "Generating Frames…"),  # nonascii-ok
+            translate("Assembly", "Cancel"),
+            0,
+            len(video_times),
+            self.form,
+        )
+        progress.setWindowModality(Qt.WindowModal)
+        progress.show()
 
-            original_frame = self.form.frameSlider.value()
+        original_frame = self.form.frameSlider.value()
 
-            try:
-                # Generate and save all frames as temporary images
-                frame_files = []
-                for i, video_time in enumerate(video_times):
-                    progress.setValue(i)
-                    if progress.wasCanceled():
-                        App.Console.PrintMessage("Animation save cancelled.\n")
-                        return
+        def show(i, video_time):
+            if layout is None:
+                self.assembly.updateForTime(video_time)
+            else:
+                # The panel's labels and plot at the time too
+                self.showPlayed(video_time, played[i][1])
 
-                    if layout is None:
-                        self.assembly.updateForTime(video_time)
-                    else:
-                        # The panel's labels and plot at the time too
-                        self.showPlayed(video_time, played[i][1])
-                    Gui.updateGui()  # Ensure the 3D view is redrawn
+        def compose(name, i, video_time):
+            self.videoFrame(name, layout, video_time, played[i][1])
 
-                    frame_filename = temp_path / f"frame_{i:05d}.png"
-                    if layout is None:
-                        view.saveImage(str(frame_filename), width, height, background)
-                    else:
-                        view.saveImage(str(frame_filename), viewSize[0], viewSize[1], background)
-                        self.videoFrame(str(frame_filename), layout, video_time, played[i][1])
-                    frame_files.append(str(frame_filename))
-
-                # Assemble the final animation file
-                progress.setLabelText(translate("Assembly", "Assembling animation…"))
-                progress.setMaximum(0)  # Indeterminate progress
-
-                success = False
-                file_extension = Path(file_path).suffix.lower()
-                if not file_extension:
-                    file_extension = [
-                        filter for filter in formats.values() if filter in selected_filter
-                    ][0]
-                    file_path += file_extension
-
-                if file_extension == ".gif":
-                    success = self.create_gif(file_path, frame_files, fps)
-                elif file_extension in [".mp4", ".avi", ".webm"]:
-                    success = self.create_video(file_path, frame_files, fps, (width, height))
-
-                if success:
-                    App.Console.PrintMessage(f"Animation successfully saved to {file_path}\n")
-
-            except Exception as e:
-                errMsg = (
-                    translate("Assembly", "An error occurred while saving the animation")
-                    + ": "
-                    + str(e)
+        def step(i, count):
+            if i >= count:
+                progress.setLabelText(
+                    translate("Assembly", "Assembling animation…")  # nonascii-ok
                 )
-                QMessageBox.critical(self.form, "Error", errMsg)
-            finally:
-                progress.close()
-                # Restore original state
-                self.assembly.updateForFrame(original_frame)
-                self.form.frameSlider.setValue(original_frame)
-                # Not upstream: the labels and plot too, which played
-                self.onFrameChanged(original_frame)
+                progress.setMaximum(0)  # Indeterminate progress
+            else:
+                progress.setValue(i)
+            return not progress.wasCanceled()
+
+        try:
+            videoexport.export(
+                file_path,
+                video_times,
+                show,
+                view=view,
+                size=(width, height),
+                fps=fps,
+                background=background,
+                compose=None if layout is None else compose,
+                progress=step,
+                frameSize=None
+                if layout is None
+                else (layout["size"].width(), layout["size"].height()),
+            )
+            App.Console.PrintMessage(f"Animation successfully saved to {file_path}\n")
+        except videoexport.Cancelled:
+            App.Console.PrintMessage("Animation save cancelled.\n")
+        except Exception as e:
+            errMsg = (
+                translate("Assembly", "An error occurred while saving the animation")
+                + ": "
+                + str(e)
+            )
+            QMessageBox.critical(self.form, "Error", errMsg)
+        finally:
+            progress.close()
+            # Restore original state
+            self.assembly.updateForFrame(original_frame)
+            self.form.frameSlider.setValue(original_frame)
+            # Not upstream: the labels and plot too, which played
+            self.onFrameChanged(original_frame)
 
     def saveGltf(self, file_path):
         """The frames as an animated glTF (SimulationGltf), the parts as
@@ -4147,68 +4117,25 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         )
 
     def create_gif(self, output_path, frame_files, fps):
-        """Creates an animated GIF from a list of image files using Pillow."""
-        from PIL import Image
+        """Creates an animated GIF from a list of image files: the shared
+        exporter's (freecad.videoexport)"""
+        from freecad import videoexport
 
-        pil_images = [Image.open(f) for f in frame_files]
-        duration_ms = int(1000 / fps)
-        pil_images[0].save(
-            output_path,
-            save_all=True,
-            append_images=pil_images[1:],
-            optimize=True,
-            duration=duration_ms,
-            loop=0,  # 0 means loop forever
-        )
+        videoexport.encode(output_path, frame_files, fps)
         return True
 
     def create_video(
         self, output_path: str, frame_files: list[str], fps: int, size: tuple[int, int]
     ):
-        """Creates a video file from a list of image files using PyAV."""
+        """Creates a video file from a list of image files: the shared
+        exporter's (freecad.videoexport)"""
+        from freecad import videoexport
+
         try:
-            import av
-        except ImportError:
-            errMsg = translate(
-                "Assembly", "PyAv is not installed. It is required for video export."
-            )
-            QMessageBox.critical(self.form, "Error", errMsg)
+            videoexport.encode(output_path, frame_files, fps, size)
+        except (RuntimeError, ValueError) as e:
+            QMessageBox.critical(self.form, "Error", str(e))
             return False
-
-        file_extension = Path(output_path).suffix.lower()
-
-        # Select codec based on file type
-        with av.open(output_path, "w") as output:
-            stream = None
-            if file_extension == ".mp4":
-                try:
-                    stream = output.add_stream("libx264", fps)
-                except av.codec.codec.UnknownCodecError:
-                    stream = output.add_stream("mpeg4", fps)
-            elif file_extension == ".avi":
-                stream = output.add_stream("mpeg4", fps)
-            elif file_extension == ".webm":
-                stream = output.add_stream("libvpx-vp9", fps)
-            else:
-                errMsg = translate("Assembly", "Unknown video export format")
-                QMessageBox.critical(self.form, "Error", errMsg)
-                return False
-
-            stream.width, stream.height = size
-
-            from PIL import Image
-            import numpy as np
-
-            for file in frame_files:
-                img = Image.open(file).convert("RGB")
-                frame = av.VideoFrame.from_ndarray(np.array(img), format="rgb24")
-                packet = stream.encode(frame)
-                output.mux(packet)
-
-            # Flush & write
-            packet = stream.encode(None)
-            output.mux(packet)
-
         return True
 
 

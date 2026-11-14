@@ -105,6 +105,7 @@ public:
 
     double getMinimum() const;
     double getMaximum() const;
+    bool setAnimValue(const Anim::Layout &layout, const std::vector<double> &values) override;
     double getStepSize() const;
 
     const char* getEditorName() const override;

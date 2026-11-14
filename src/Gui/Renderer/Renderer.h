@@ -1266,6 +1266,18 @@ public:
         return false;
     }
 
+    /// The scene feed as it stands -- the draws publish() would
+    /// serialize -- or null when the backend does not keep one. What a
+    /// serve source reads an object's pose from while it bakes an
+    /// Animation's motion clip (docs/Animation.md sec 9, "Streaming").
+    /// Valid until the feed is next set.
+    virtual const DrawCallList *sceneFeed() const { return nullptr; }
+
+    /// The manifest version of the last publish() that went out, 0
+    /// before any: what a serve source names the publish by when it
+    /// says something about it on the control channel.
+    virtual uint64_t publishedVersion() const { return 0; }
+
     /// Which document group this renderer's publishes belong to on the
     /// scene-stream server (docs/MultiDocServe.md §3). Empty -- the
     /// default -- publishes into the server's default group, which is
@@ -1681,6 +1693,15 @@ public:
     /// wait lives in the caller. True where the backend has nothing
     /// to say.
     virtual bool frameComplete() const { return true; }
+    /// True once the backend has found it will never render on this
+    /// device -- bgfx asked for OpenGL on a context below 3.1, which is
+    /// every Qt widget context on macOS (2.1, the compatibility profile
+    /// Coin needs) -- and the render cache's own GL renderer draws
+    /// instead. Such a backend counts no frame, so whoever waits on
+    /// completeFrames() or asks it for a frame dump would only run its
+    /// timeout out: they ask this first and take the route of a view
+    /// with no backend. Known after the first frame was tried.
+    virtual bool unavailable() const { return false; }
     /// Frames rendered, and complete frames rendered, since the backend
     /// came up. A waiter records the complete count, pumps, and stops
     /// when it advances -- a verdict left over from before the request
@@ -1851,6 +1872,55 @@ public:
 /// backend drains it on the same tick it prints the frame line, and the
 /// remainder it cannot attribute is printed too: a breakdown of a
 /// derived quantity is only trustworthy if it says how much it missed.
+/// The clock every time-animated effect reads -- water waves, caustics,
+/// fire, particles, a user shader's u_fcTime (docs/RenderEngine.md,
+/// "Determinism") -- pinned to a time of the caller's. For whoever steps
+/// time itself: an export saving a frame for each of an Animation's
+/// times pins it to that time, so the effects are in the video as they
+/// are at that frame and not as the wall clock had them while it was
+/// being saved (docs/Animation.md sec 9). Process-wide, as the clock is.
+/// While pinned nothing asks for a redraw on the clock's account.
+class RendererExport AnimationClock
+{
+public:
+    /// Every frame from now reads \a seconds
+    static void pin(double seconds);
+    /// Back to the wall clock
+    static void release();
+    /// Whether it is pinned, and to what
+    static bool pinned(double *seconds = nullptr);
+
+private:
+    static std::atomic<bool> isPinned;
+    static std::atomic<double> pinnedSeconds;
+};
+
+/// Exact detail, held: while anybody holds it, a shape built for display
+/// is tessellated exact up front instead of coarse first with the exact
+/// mesh following (Render_CoarseTessellation), is never stood in for by
+/// its bounding box, and a scene update captures every changed shape in
+/// the one publish instead of rationing them over frames
+/// (Render_CaptureBudgetMS). For whoever keeps or records what a frame
+/// shows: an Animation caching its frames keeps the meshes each was shown
+/// with, and an export saves a picture of each -- a frame that is coarse
+/// because it was just rebuilt is wrong in both (docs/Animation.md sec 4,
+/// "The frame cache"). What memory pressure orders is not held back: it
+/// is what keeps the process alive. Counted, process-wide.
+class RendererExport ExactDetail
+{
+public:
+    static void hold();
+    static void release();
+    static bool held();
+    /// One more reason it is held, asked each time: for what this library
+    /// cannot see (the document's Animation keeping its frames)
+    static void also(bool (*reason)());
+
+private:
+    static std::atomic<int> holders;
+    static std::atomic<bool (*)()> reason;
+};
+
 class RendererExport FrameOutside
 {
 public:

@@ -438,6 +438,7 @@ private:
     void setupDockWindows();
     bool setupSelectionView();
     bool setupTransactionLogView();
+    bool setupAnimationTimeline();
     bool setupReportView();
     bool setupPythonConsole();
 

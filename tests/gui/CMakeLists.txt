@@ -2750,3 +2750,9 @@ fc_add_gui_test(GuiAssemblyWorkbench_tests_run
 fc_add_gui_test(GuiFemWorkbench_tests_run
                 fem-workbench-suite.py
                 --timeout 600)
+
+# The animation timeline driven as a user drives it (docs/Animation.md 3.9,
+# 6): scrub, drag and delete keys, the key menu, Play / Pause / Stop, the
+# property editor's marks and I key, Record of a property and of a view's,
+# none of it marking the document modified.
+fc_add_gui_test(GuiAnimationTimeline_tests_run animation-timeline.py --timeout 240)

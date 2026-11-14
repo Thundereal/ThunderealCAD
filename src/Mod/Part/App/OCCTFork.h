@@ -166,7 +166,16 @@ PartExport bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
 ///       tests/fork/fillet/README.md, "A chamfer's guide bent at its other
 ///       end"). Fillets on such edges move by their section planes, up to
 ///       0.008 of volume. An OCCT without it makes level 1 as level 0.
-constexpr int OCCTFilletFixLevelLatest = 1;
+///  2 -- at a corner the surfaces of a fillet or chamfer kept are those at
+///       that end of it: one run on past the other end, starting on an edge
+///       that is beside the filleted one at both its ends (a chord across a
+///       cup's top, the rim beside it filleted), is not taken for the one
+///       at this vertex. It makes the chamfer of such a rim, refused before
+///       (at every level, so), and four fillets at the vertices of
+///       realthunder/FreeCAD#474's coil differently, by 0.2 mm3 of 1830
+///       (the fork's tests/fork/fillet/README.md, "A chamfer of a rim
+///       beside a chord"). An OCCT without it makes level 2 as level 1.
+constexpr int OCCTFilletFixLevelLatest = 2;
 
 /// Sets, for the calling thread, the OCCT fork's fillet fix level
 /// (ChFi3d_SetFixLevel): which of the fork's corrections to fillets and

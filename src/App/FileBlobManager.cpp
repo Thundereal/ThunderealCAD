@@ -29,6 +29,7 @@
 #include <cstring>
 #include <limits>
 #include <numeric>
+#include <system_error>
 #include <sstream>
 #include <tuple>
 
@@ -3573,7 +3574,22 @@ void FileBlobManager::scheduleMaintenance()
     }
     _maintenanceDue = true;
     if (!_worker.joinable()) {
-        _worker = std::thread([this]() { workerLoop(); });
+        // This is reached from ~FileBlob, which may not throw. A worker
+        // that cannot be started -- the process at its limit of threads,
+        // or of address space for another stack -- leaves the pass due,
+        // for the next call to start it.
+        try {
+            _worker = std::thread([this]() { workerLoop(); });
+        }
+        catch (const std::system_error& e) {
+            static bool told = false;
+            if (!told) {
+                told = true;
+                FC_WARN("Blob store: no thread for its maintenance (" << e.what()
+                        << "); it waits for one");
+            }
+            return;
+        }
     }
     _wake.notify_one();
 }

@@ -7509,8 +7509,16 @@ struct ChronoSession::Impl
                 faces.push_back(std::move(face));
                 on.push_back(frame.id);
             }
-            if (faces.empty()) {
-                return "nothing holds the flexible body " + name;
+            // Held by no joint, and no contact faces named for an interface
+            // of theirs: one of its own, the element at its mesh's middle
+            // (ownInterface()), for its motion as a whole
+            if (faces.empty() && (touched.empty() || anywhere)) {
+                try {
+                    faces.push_back(ChronoFlexible::ownInterface(record));
+                }
+                catch (const std::exception& e) {
+                    return "the flexible body " + name + ": " + e.what();
+                }
             }
             // The contact interface's body at its nodes' centre, in the
             // body's axes, as a joint's is on its faces
@@ -12486,6 +12494,22 @@ Status ChronoSession::simulateDynamics(
             body->SetPosDt(body->GetPosDt() - back * body->GetPosDt2());
             body->SetAngVelLocal(body->GetAngVelLocal() - back * body->GetAngAccLocal());
         }
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        // A flexible body's too, which is none of those: its interfaces'
+        // bodies and its modes' rates. A flexible bar falling free was g
+        // times 2e-6 s ahead from the start, 0.02 mm/s
+        for (const auto& flexible : run.d->flexibles) {
+            for (const auto& body : flexible.built.interfaces) {
+                body->SetPosDt(body->GetPosDt() - back * body->GetPosDt2());
+                body->SetAngVelLocal(body->GetAngVelLocal() - back * body->GetAngAccLocal());
+            }
+            auto& rates = flexible.built.assembly->GetModalCoordinatesVelLevel();
+            const auto& gains = flexible.built.assembly->GetModalCoordinatesAccLevel();
+            if (rates.size() == gains.size()) {
+                rates -= back * gains;
+            }
+        }
+#endif
     };
     // The initial velocities on the start assembly (sec 6.1): a body's set
     // as given, a joint's rate held by a Speed motor of the joint's kind
@@ -12875,11 +12899,27 @@ Status ChronoSession::simulateDynamics(
     // only pressing: a pin of 0.6 g lying on its rims across a bore sinks
     // 0.17 nm, and chattered from 0.4 nm off to 0.1 nm in -- never resting,
     // it took substeps of 0.3 us, 74 s for 0.3.
+    // On a flexible part's curved faces, within a hundredth of how far those
+    // stand out of their flat triangles too (Surface::bulge()): what its
+    // quadratic faces are off its round by, 0.2 um on the mean and 1.75 at
+    // most on a rod R 5 meshed at 4 mm, 90 um out of its triangles. Its
+    // deepest point is found again on those faces at every detection, and a
+    // hanger of 114 g on a pin by its bore, sunk 1.3 um, had it wander 0.3 um
+    // as it swung: never at rest by 2% of that, it stepped a fiftieth of its
+    // contact's period, 25 us -- 209 s for the rigid hanger's 2, now 54.
     auto resting = [&](const ContactLoad& load) {
         const double depth = pressing(load);
         const double high = std::max(load.high, depth);
         const double range = high - std::min(load.low, depth);
-        return depth > -tolerance && (range <= 0.02 * high || range <= tolerance);
+        double within = tolerance;
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        for (const FlexibleContact* part : {load.flexible, load.flexibleA}) {
+            if (part && part->surface) {
+                within = std::max(within, 0.01 * part->surface->bulge());
+            }
+        }
+#endif
+        return depth > -within && (range <= 0.02 * high || range <= within);
     };
     auto keepCalm = [&](ContactLoad& load, double h) {
         const double depth = pressing(load);

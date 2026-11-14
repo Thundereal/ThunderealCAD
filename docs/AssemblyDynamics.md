@@ -5141,6 +5141,134 @@ Phase D1 is under way (2026-10-28):
     the force at rest its weight to 5% -- 1382 Hz, 5.15 N, 1.128 N of
     1.116). The rest hold: TestFlexibleBody 31 (604 s), TestDynamics 90,
     TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 20 (2026-11-14): a contact on a flexible part's round
+  at rest -- step 19's swing, 209 s for the rigid hanger's 2.
+  - **Never at rest.** A contact rests while its deepest point's depth
+    keeps within 2% of itself, or within the tolerance, over one of its
+    periods (`resting()`), and a resting one steps over its period.
+    The hanger's bore is 1.3 um into its pin, 1.1 N at 1000 N/mm; the
+    deepest point, found again on the mesh's faces at every detection,
+    wandered 0.3 um as the bore slid round the pin -- 1.22 to 2.19 um over
+    the swing -- and 2% of it is 28 nm. Every substep was a fiftieth of the
+    contact's period, 25 us: 4000 to 0.1 s, two thirds of each in collision
+    detection.
+  - **Within the faces' own accuracy.** On a flexible part's curved faces
+    a contact rests within a hundredth of how far those stand out of their
+    flat triangles too (`Surface::bulge()`): 0.9 um for the hanger, where
+    step 18 measured a rod's quadratic faces 0.2 um off its round on the
+    mean and 1.75 at most, of 90. A part of flat faces alone has none, and
+    a contact deeper than fifty times that is within its 2% first: the
+    probes of steps 12 to 18, 50 um deep, are as they were, frame for
+    frame. With 0.1 um instead the swing took 191 s, and with a two
+    hundredth of the bulge 85.
+  - Numbers. The swing of 0.6 s: 4195 substeps for some 24000, 54 s for
+    209; to -28.95 deg and back to 26.61 as before. The pin's force over
+    it from 0.02 s on: mean 1.196 N, 0.79 to 1.74, from frame to frame
+    0.109 N rms -- before, 1.208, 0.50 to 1.70 and 0.109; the rigid
+    hanger's 1.154, 0.94 to 1.37 and 0.015. Let down straight, 1.112 N at
+    rest for a weight of 1.116 (1.128).
+  - Limits.
+    - The force on a flexible bore sunk a micron is seven times as rough
+      as on a rigid one, frame to frame: its mesh's accuracy, a third of
+      that depth. A contact by the materials' law, stiffer, is sunk less
+      and rougher still; there the bore is better named a contact face.
+    - 54 s is still the rigid hanger's 2 many times: a resting contact on
+      a flexible round steps by how fast its depth moves (`standingStep()`),
+      which is that roughness too.
+  - Tests: none new; TestFlexibleBody.test_held_by_a_free_part rests at
+    1.112 N of 1.116. TestFlexibleBody 31 (593 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 21 (2026-11-14): a flexible part no joint holds.
+  - **Refused.** A flexible body is reduced about its interfaces -- the
+    frames on its body, each a boundary body tied to its mesh's nodes
+    there -- and has no motion as a whole but theirs: its coordinates are
+    the interfaces' six each and the modes' (`ChModalAssembly`). One with no
+    joint on it had no interface: "nothing holds the flexible body" (step
+    19; before that the reduction read storage not its own).
+  - **An interface of its own.** `ChronoFlexible::ownInterface()`: the
+    tetrahedron nearest its mesh's middle -- the tetrahedra's, each by its
+    volume -- its ten nodes tied to a boundary body at that tetrahedron's
+    middle. Nothing is on that body: it is the part's motion as a whole,
+    and the modes are the mesh's with that element held. Given in the run
+    (`buildFlexibles()`) and in Find Modes (`Chrono::flexibleFrequencies()`)
+    to a body with no frame but its contact shapes'. With contact faces
+    named their interface is the one, as it was to be, and the part goes as
+    those faces do, rigid.
+  - Numbers. A bar 80 x 10 x 4, 8.64 g, across two grounded rollers R 5
+    60 mm apart, 0.01 mm over them; 1000 N/mm, a friction of 0.1; mesh 4,
+    2788 nodes.
+    - Falling free, no contact asked of: 19.65 um in 2 ms for g t^2/2's
+      19.61, its modal coordinates under 1e-19.
+    - On the rollers: lands at 1.435 N (rigid 1.85), at rest by 17 ms,
+      0.08473 N for a weight of 0.084729; 165 frames in 2.2 s (rigid 0.1
+      s).
+    - Its sag between the rollers at rest, its underside at midspan
+      against its underside over them, for a beam's on two supports with
+      its ends hanging over, w L^2 (5 L^2 - 24 a^2) / (384 E I): 0.0409 um
+      of 0.0415. 2 mm thick (mesh 2) 0.1637 of 0.1660; 1 mm thick 0.657 of
+      0.664 (mesh 4) and 0.656 (mesh 2). 1 to 1.5% under, all four.
+    - Its modes by Find Modes: 1874, 2063, 2169 Hz.
+    - Its underside named its contact face: lands at 1.844 N as the rigid
+      bar does, sags 3e-11 um, its modes from 177 kHz.
+    - 1 mm thick, let fall 5 mm: lands at 12.05 N (rigid 20.1), bent 73 um
+      between the rollers at 32.4 ms, springs 0.77 mm off them, and is at
+      rest by 0.15 s, 0.0212 N for 0.02118; 335 frames in 79 s.
+  - Limits.
+    - Find Modes shows such a part's modes about its middle element, not
+      its free ones: the bar's 1874 Hz is half of it clamped at the middle
+      (a beam's 2.06 kHz), where a free bar's first bending is 3.3 kHz by
+      the beam's formula. The run does not hold it there: the interface's
+      six coordinates go with those modes.
+    - Falling free it is 0.04 um ahead of g t^2/2 at 2 ms and 0.10 at 5
+      ms, a speed of 0.02 mm/s from the start; step 19's hanger and block,
+      19.627 um, had a third of it. Step 22.
+    - The strip 1 mm thick still rings at rest at 0.05 s, 0.0207 to 0.0217
+      N: its 479 Hz mode.
+  - Tests: TestFlexibleBody.test_held_by_nothing (the bar on the rollers
+    for 0.05 s: no interface listed, its first mode over 1 kHz, the landing
+    under 3 N, the force at rest its weight to 1%, its sag the beam's to
+    3% -- 1874 Hz, 1.435 N, 0.08473 N, 0.0409 um of 0.0415). The rest
+    hold: TestFlexibleBody 32 (615 s), TestDynamics 90, TestJointFriction
+    4, TestContact 63; ctest 25; TestGuiCommands 76; every probe of steps
+    12 to 18 as it was.
+- Built, D4b step 22 (2026-11-14): a flexible body starts at the
+  velocities it has.
+  - **2 us of acceleration ahead.** Step 21's bar falling free was ahead of
+    g t^2/2 by 0.0196 um at 1 ms, 0.0392 at 2 and 0.098 at 5: a speed of
+    0.019613 mm/s from the start, g times 2e-6 s to its last digit. The
+    start's assembly projects the velocities twice, each a step of 1e-6 s
+    under the forces, and takes those 2e-6 s of acceleration back off the
+    bodies (`assembleFull()`) -- off the rigid ones: a flexible
+    body is none of those, its coordinates its interfaces' bodies and its
+    modes'. Step 19's hanger, 41 g of the 114 falling, was 0.36 of it
+    ahead: 19.627 um for 19.613.
+  - Taken back off a flexible body's interface bodies and its modes' rates
+    too.
+  - Numbers. The bar falling free: 1.225831, 4.903325, 19.613300 and
+    122.583125 um at 0.5, 1, 2 and 5 ms, g t^2/2 to the last digit. On the
+    rollers it lands at 1.443 N for 1.435, and rests and sags as it did,
+    0.08473 N and 0.0409 um. Step 19's hanger lands at 5.17 N for 5.15 and
+    rests at 1.121 N for 1.112, of 1.116. The probes of steps 12 to 18
+    are as they were, to the digits they print.
+  - Tests: none new. TestFlexibleBody 32 (601 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Checked, D4b step 23 (2026-11-14): a flexible part sticks as a rigid
+  one does. No change to the solver.
+  - Step 17 checked the friction on a flexible part sliding, mu N; whether
+    one is held was left open. A bar 40 x 10 x 4 no joint holds (step 21),
+    4.32 g, lying on a grounded plate tilted 5 deg, tan 0.0875, touched
+    anywhere, 1000 N/mm; 0.1 s.
+  - A friction of 0.2: the plate presses it 0.042204 N, its weight's
+    cosine, and holds it 0.0036923 N, its weight's sine, both to the last
+    digit; it creeps down at 0.04582 mm/s, steadily -- the friction's slip,
+    the rigid bar's 0.04582 too.
+  - A friction of 0.05: 0.0021102 N, mu N, and it gains 366.24 mm/s^2 for
+    g (sin a - mu cos a)'s 366.24; 1.832 mm down the slope at 0.1 s, the
+    rigid bar's 1.8317.
+  - 162 frames in 3.4 s, the rigid bar's 0.1 s.
+  - Tests: TestFlexibleBody.test_sticks_on_a_slope (both frictions: the
+    forces and the gain to 1%, the creep under 0.1 mm/s). TestFlexibleBody
+    33 (611 s).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

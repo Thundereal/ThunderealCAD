@@ -76,6 +76,13 @@ struct Built
     Key key;
 };
 
+// An interface for a flexible body no joint holds and no contact faces are
+// named of: the element at its mesh's middle, at that element's middle. Its
+// boundary body is the body's motion as a whole, with nothing on it; the
+// modes are the mesh's about that element. Throws std::runtime_error on a
+// mesh with no volume.
+Interface ownInterface(const Flexible& flexible);
+
 // The flexible body (in SI: Solver::scaled()) built into the system at its
 // pose, not yet reduced. Throws std::runtime_error on a mesh it cannot take.
 Built build(chrono::ChSystem& sys,

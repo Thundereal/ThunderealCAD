@@ -832,6 +832,48 @@ bool ChronoFlexible::Surface::nearest(const ch::ChVector3d& p, Place& place) con
     return found;
 }
 
+ChronoFlexible::Interface ChronoFlexible::ownInterface(const Flexible& flexible)
+{
+    // The mesh's middle: its tetrahedra's, each by its volume
+    ch::ChVector3d centre;
+    double volume = 0.0;
+    std::vector<ch::ChVector3d> middles;
+    middles.reserve(flexible.tetrahedra.size());
+    for (const auto& tet : flexible.tetrahedra) {
+        for (Id n : tet) {
+            if (n >= flexible.nodes.size()) {
+                throw std::runtime_error("the flexible body's mesh names a node it does not have");
+            }
+        }
+        const ch::ChVector3d a = toCh(flexible.nodes[tet[0]]);
+        const ch::ChVector3d b = toCh(flexible.nodes[tet[1]]);
+        const ch::ChVector3d c = toCh(flexible.nodes[tet[2]]);
+        const ch::ChVector3d d = toCh(flexible.nodes[tet[3]]);
+        const double six = std::abs(ch::Vdot(b - a, ch::Vcross(c - a, d - a)));
+        middles.push_back((a + b + c + d) * 0.25);
+        centre += middles.back() * six;
+        volume += six;
+    }
+    if (!(volume > 0.0)) {
+        throw std::runtime_error("the flexible body's mesh has no volume");
+    }
+    centre /= volume;
+    std::size_t nearest = 0;
+    double best = std::numeric_limits<double>::max();
+    for (std::size_t i = 0; i < middles.size(); ++i) {
+        const double d = (middles[i] - centre).Length2();
+        if (d < best) {
+            best = d;
+            nearest = i;
+        }
+    }
+    Interface own;
+    own.local.SetPos(middles[nearest]);
+    const auto& tet = flexible.tetrahedra[nearest];
+    own.nodes.assign(tet.begin(), tet.end());
+    return own;
+}
+
 ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
                                             const Flexible& flexible,
                                             const ch::ChFramed& pose,
@@ -1183,10 +1225,11 @@ Chrono::flexibleFrequencies(const Model& model, std::size_t index, std::string* 
                                                ch::ChQuaterniond(w, x, y, z)),
                                   face.nodes});
         }
-        // Held by nothing, it has no interface to reduce it about: the
-        // reduction read storage that was not its own
-        if (interfaces.empty()) {
-            throw std::runtime_error("nothing holds the flexible body");
+        // Held by no joint, it has no interface to reduce it about (the
+        // reduction read storage that was not its own): one of its own, as
+        // a run gives it, unless its contact faces' is to come
+        if (interfaces.empty() && (touched.empty() || flexible.contactNodes.empty())) {
+            interfaces.push_back(ChronoFlexible::ownInterface(flexible));
         }
         if (!touched.empty() && !flexible.contactNodes.empty()) {
             ch::ChVector3d centre;

@@ -43,6 +43,7 @@
 #include "scene/background.h"
 #include "scene/camera.h"
 #include "scene/film.h"
+#include "scene/integrator.h"
 #include "scene/mesh.h"
 #include "scene/object.h"
 #include "scene/pass.h"
@@ -83,7 +84,8 @@ bool renderTestScene(const std::string &, int, int, int, const std::string &, st
     return false;
 }
 
-bool renderScene(const SceneInput &, const std::string &, int, const std::string &, std::string *error, RenderReport *)
+bool renderScene(const SceneInput &, const std::string &, int, const std::string &, std::string *error, RenderReport *,
+                 const StillOptions &)
 {
     if (error)
         *error = "this build carries no Cycles engine (BUILD_CYCLES is off)";
@@ -334,7 +336,8 @@ bool renderScene(const SceneInput &input,
                  int samples,
                  const std::string &deviceType,
                  std::string *error,
-                 RenderReport *report)
+                 RenderReport *report,
+                 const StillOptions &still)
 {
     auto fail = [error](const std::string &message) {
         if (error)
@@ -365,6 +368,19 @@ bool renderScene(const SceneInput &input,
     translator.translate(input, rep);
     if (rep.objects == 0)
         return fail("nothing to render: the scene has no surface draws");
+
+    ccl::Integrator *integrator = session->scene->integrator;
+    integrator->set_seed(still.seed);
+    if (still.denoise) {
+        // The final render's settings, as Blender's are: the viewport's
+        // fast ones (CyclesViewport) trade quality for a denoise between
+        // samples, and a still is denoised once
+        integrator->set_use_denoise(true);
+        integrator->set_denoiser_type(ccl::DENOISER_OPENIMAGEDENOISE);
+        integrator->set_denoiser_quality(ccl::DENOISER_QUALITY_HIGH);
+        integrator->set_denoiser_prefilter(ccl::DENOISER_PREFILTER_ACCURATE);
+        integrator->set_denoise_use_gpu(true);
+    }
 
     ccl::Pass *pass = session->scene->create_node<ccl::Pass>();
     pass->set_name(ccl::ustring("combined"));

@@ -967,11 +967,15 @@ PyObject* View3DInventorPy::cyclesRender(PyObject *args, PyObject *kwds)
     int samples = 64;
     const char *device = "CPU";
     PyObject *waitObj = Py_True;
-    static char *kwlist[] = {"path", "width", "height", "samples", "device", "wait", nullptr};
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "et|iiisO", kwlist,
+    PyObject *denoiseObj = Py_False;
+    int seed = 0;
+    static char *kwlist[] = {"path", "width", "height", "samples", "device", "wait",
+                             "denoise", "seed", nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "et|iiisOOi", kwlist,
                                      "utf-8", &cPath, &width, &height, &samples, &device,
-                                     &waitObj))
+                                     &waitObj, &denoiseObj, &seed))
         return nullptr;
+    const bool denoise = PyObject_IsTrue(denoiseObj) > 0;
     std::string path(cPath);
     PyMem_Free(cPath);
 
@@ -992,7 +996,8 @@ PyObject* View3DInventorPy::cyclesRender(PyObject *args, PyObject *kwds)
     // The render blocks for as long as the samples take and touches no
     // Python; the snapshot before it is Coin, not Python, either.
     Py_BEGIN_ALLOW_THREADS
-    ok = viewer->renderWithCycles(path, width, height, samples, device, &error, &report);
+    ok = viewer->renderWithCycles(path, width, height, samples, device, &error, &report,
+                                  denoise, seed);
     Py_END_ALLOW_THREADS
     if (!ok) {
         PyErr_SetString(PyExc_RuntimeError, error.c_str());

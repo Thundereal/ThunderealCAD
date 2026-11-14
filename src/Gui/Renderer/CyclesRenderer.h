@@ -125,6 +125,17 @@ struct RenderReport {
     int released = 0;    ///< meshes deleted (no object references them)
 };
 
+/// What a still render does beyond its samples
+struct StillOptions {
+    /// Denoised by OpenImageDenoise at its final-render settings (high
+    /// quality, accurate prefilter), where the build carries it
+    bool denoise = false;
+    /// The sampling pattern's seed: the same seed gives the same noise.
+    /// A sequence of frames passes each its own, or the noise stands
+    /// still on the screen while the scene moves under it
+    int seed = 0;
+};
+
 /// Phase 3 of the plan: translate \a scene and path trace it to a PNG
 /// at \a path with \a samples per pixel on the device of the given
 /// type. The image is composited over the scene's background (the
@@ -137,7 +148,8 @@ RendererExport bool renderScene(const SceneInput &scene,
                                 int samples,
                                 const std::string &deviceType,
                                 std::string *error,
-                                RenderReport *report = nullptr);
+                                RenderReport *report = nullptr,
+                                const StillOptions &still = StillOptions());
 
 /// How the viewport session renders (docs/CyclesIntegration.md sec
 /// 5.2 and step 11 of sec 8).

@@ -199,7 +199,7 @@ chrome included, when that is what you want.</UserDocu>
     </Methode>
     <Methode Name="cyclesRender" Keyword="true">
       <Documentation>
-        <UserDocu>cyclesRender(path, width=640, height=480, samples=64, device='CPU', wait=True) -> dict
+        <UserDocu>cyclesRender(path, width=640, height=480, samples=64, device='CPU', wait=True, denoise=False, seed=0) -> dict
 
 Path trace this view with the Cycles engine to a PNG at path
 (docs/CyclesIntegration.md phase 3): the view's render-cache scene,
@@ -211,6 +211,9 @@ With wait=True (the default) it waits first for a complete frame
 catching up deferred shapes would otherwise trace half of it;
 wait=False traces the scene as it stands. Requires the render-cache
 bridge (render cache mode 3) and a build with BUILD_CYCLES.
+denoise=True runs OpenImageDenoise on the result at its final-render
+settings; seed is the sampling pattern's (a frame of a sequence gives
+its own, or the noise stands still on the screen as the scene moves).
 
 Returns a dict of what the translation made of the scene: meshes,
 objects, shaders, triangles, skipped (draws with no path-traced

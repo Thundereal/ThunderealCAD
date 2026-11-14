@@ -29,6 +29,8 @@ import FreeCAD as App
 
 __all__ = [
     "Cancelled",
+    "cyclesDevices",
+    "cyclesOptions",
     "encode",
     "export",
     "exportAnimation",
@@ -36,6 +38,7 @@ __all__ = [
     "formats",
     "frameName",
     "videoEncoder",
+    "viewRenderer",
 ]
 
 VIDEO = (".mp4", ".avi", ".webm")
@@ -265,6 +268,8 @@ def export(
     frameSize=None,
     renderClock=True,
     exactDetail=True,
+    renderer="Raster",
+    cycles=None,
 ):
     """Save the view over `times` as `path`.
 
@@ -289,9 +294,14 @@ def export(
                 because it was just rebuilt, none standing in as a box,
                 and a document still loading is waited for. False takes
                 the view as it draws
+    renderer    "Raster", the view's image as it draws it, or "Cycles": each
+                frame path traced (View3DInventorPy.cyclesRender), over the
+                view's own background -- `background` is the raster's
+    cycles      for "Cycles": {"Samples": 64, "Device": "CPU", "Denoise":
+                False}, any left out taken from cyclesOptions(view)
 
-    -> {"Path", "Frames", "Size", "Encoder"}; for a sequence Path is its
-    first frame.
+    -> {"Path", "Frames", "Size", "Encoder", "Renderer"}; for a sequence
+    Path is its first frame.
     """
     import FreeCADGui as Gui
 
@@ -311,6 +321,14 @@ def export(
 
     if view is None:
         view = Gui.ActiveDocument.ActiveView
+    if renderer not in ("Raster", "Cycles"):
+        raise ValueError("Unknown renderer '%s': Raster or Cycles" % renderer)
+    traced = None
+    if renderer == "Cycles":
+        if not hasattr(view, "cyclesRender") or not cyclesDevices():
+            raise RuntimeError("This build has no Cycles engine to render with")
+        traced = cyclesOptions(view)
+        traced.update(cycles or {})
     width, height = size if size else view.getSize()
     width -= width % 2
     height -= height % 2
@@ -340,7 +358,21 @@ def export(
             show(i, t)
             Gui.updateGui()
             name = frameName(path, i) if sequence else os.path.join(temp, "frame_%05d.png" % i)
-            view.saveImage(name, width, height, background)
+            if traced is None:
+                view.saveImage(name, width, height, background)
+            else:
+                # A seed a frame: with one seed the noise would stand still
+                # on the screen while the scene moves under it
+                view.cyclesRender(
+                    name,
+                    width,
+                    height,
+                    int(traced["Samples"]),
+                    str(traced["Device"]),
+                    True,
+                    bool(traced["Denoise"]),
+                    i,
+                )
             if compose is not None:
                 compose(name, i, t)
             files.append(name)
@@ -353,6 +385,7 @@ def export(
             "Frames": count,
             "Size": outSize,
             "Encoder": encoder,
+            "Renderer": renderer,
         }
     finally:
         if renderClock and hasattr(Gui, "setRenderClock"):
@@ -363,10 +396,68 @@ def export(
             shutil.rmtree(temp, ignore_errors=True)
 
 
-def exportAnimation(anim, path, view=None, size=None, background="Current", progress=None):
+def cyclesDevices():
+    """The device types Cycles can render on here ("CPU", "METAL", "CUDA",
+    ...); empty in a build without the engine"""
+    import FreeCADGui as Gui
+
+    if not hasattr(Gui, "cyclesDevices"):
+        return []
+    return [d["type"] for d in Gui.cyclesDevices()]
+
+
+def _viewProperty(view, name, default):
+    try:
+        return getattr(view, name)
+    except Exception:  # pylint: disable=broad-except
+        return default
+
+
+def cyclesOptions(view):
+    """The view's own Cycles settings, as its live path tracing uses them:
+    {"Samples", "Device", "Denoise"}"""
+    devices = cyclesDevices()
+    device = str(_viewProperty(view, "Cycles_Device", "") or "")
+    if device not in devices:
+        device = "CPU" if "CPU" in devices or not devices else devices[0]
+    return {
+        "Samples": int(_viewProperty(view, "Cycles_Samples", 64) or 64),
+        "Device": device,
+        "Denoise": bool(_viewProperty(view, "Cycles_Denoise", False)),
+    }
+
+
+def viewRenderer(view):
+    """What the view draws with: "Cycles" when its shading is the path
+    tracer (External) and the build has it, else "Raster" """
+    if str(_viewProperty(view, "ShadingType", "")) == "External" and cyclesDevices():
+        return "Cycles"
+    return "Raster"
+
+
+def exportAnimation(
+    anim,
+    path,
+    view=None,
+    size=None,
+    background="Current",
+    progress=None,
+    renderer=None,
+    cycles=None,
+):
     """Save an App::Animation, each frame of its range at its FrameRate, as
     export() does. The animation is left as it was: stopped if it was not
-    active, at the time it showed if it was."""
+    active, at the time it showed if it was.
+
+    renderer    "Raster" or "Cycles", as export() takes it; None follows the
+                view: path traced when it is (its shading External), with
+                its own Cycles settings"""
+    import FreeCADGui as Gui
+
+    if view is None:
+        view = Gui.ActiveDocument.ActiveView
+    if renderer is None:
+        renderer = viewRenderer(view)
     wasActive = bool(anim.Active)
     time = anim.Time
 
@@ -387,6 +478,8 @@ def exportAnimation(anim, path, view=None, size=None, background="Current", prog
             fps=anim.FrameRate,
             background=background,
             progress=progress,
+            renderer=renderer,
+            cycles=cycles,
         )
     finally:
         if wasActive:
@@ -463,8 +556,11 @@ def exportAnimationDialog(anim=None):
             App.Console.PrintWarning("Not in the glTF: %s\n" % line)
         return done
 
+    renderer = viewRenderer(view)
     dialog = QtWidgets.QProgressDialog(
-        translate("Animation", "Generating frames..."),
+        translate("Animation", "Path tracing frames...")
+        if renderer == "Cycles"
+        else translate("Animation", "Generating frames..."),
         translate("Animation", "Cancel"),
         0,
         1,
@@ -484,7 +580,7 @@ def exportAnimationDialog(anim=None):
         return not dialog.wasCanceled()
 
     try:
-        done = exportAnimation(anim, path, view=view, progress=progress)
+        done = exportAnimation(anim, path, view=view, progress=progress, renderer=renderer)
     except Cancelled:
         App.Console.PrintMessage("Animation export cancelled.\n")
         return None
@@ -495,7 +591,13 @@ def exportAnimationDialog(anim=None):
     finally:
         dialog.close()
     App.Console.PrintMessage(
-        "Animation saved to %s: %d frames, %d x %d\n"
-        % (done["Path"], done["Frames"], done["Size"][0], done["Size"][1])
+        "Animation saved to %s: %d frames, %d x %d%s\n"
+        % (
+            done["Path"],
+            done["Frames"],
+            done["Size"][0],
+            done["Size"][1],
+            ", path traced" if done["Renderer"] == "Cycles" else "",
+        )
     )
     return done

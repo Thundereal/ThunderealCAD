@@ -2540,7 +2540,8 @@ SoFCRenderCacheManager *View3DInventorViewer::getRenderCacheManager() const
 bool View3DInventorViewer::renderWithCycles(const std::string &path, int width, int height,
                                             int samples, const std::string &device,
                                             std::string *error,
-                                            Render::Cycles::RenderReport *report)
+                                            Render::Cycles::RenderReport *report,
+                                            bool denoise, int seed)
 {
     auto fail = [error](const char *message) {
         if (error)
@@ -2609,7 +2610,10 @@ bool View3DInventorViewer::renderWithCycles(const std::string &path, int width, 
     input.camera.width = width;
     input.camera.height = height;
 
-    return Render::Cycles::renderScene(input, path, samples, device, error, report);
+    Render::Cycles::StillOptions still;
+    still.denoise = denoise;
+    still.seed = seed;
+    return Render::Cycles::renderScene(input, path, samples, device, error, report, still);
 }
 
 bool View3DInventorViewer::setCyclesViewport(const Render::Cycles::ViewportOptions *options,

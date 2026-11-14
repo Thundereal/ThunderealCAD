@@ -1147,3 +1147,97 @@ class TestExplodedViewBalloons(PlacementAsserts, JointTestBase):
         again = CommandCreateView.addBomBalloons(drawing)
         self.assertEqual(sorted(b.Name for b in again), names)
 
+
+class TestAutoExplode(PlacementAsserts, JointTestBase):
+    """Steps made from the joints (docs/AssemblyExplode.md sec 10)"""
+
+    def stack(self):
+        """A grounded; B on A's top, C on B's; D on A's +X side"""
+        self.a = self.box("A")
+        self.b = self.box("B", plc(0, 0, 10))
+        self.c = self.box("C", plc(0, 0, 20))
+        self.d = self.box("D", plc(10, 0, 0))
+        self.ground(self.a)
+        self.assembly.makeJoint("Fixed", (self.a, "Face6"), (self.b, "Face5"))
+        self.assembly.makeJoint("Fixed", (self.b, "Face6"), (self.c, "Face5"))
+        self.assembly.makeJoint("Fixed", (self.a, "Face2"), (self.d, "Face1"))
+        self.doc.recompute()
+
+    def steps(self, view):
+        return [(sorted(step.References[1]), step.MovementTransform) for step in view.Group]
+
+    def testOuterPartsFirstEachTakingThoseOutside(self):
+        self.stack()
+        view = CommandCreateView.makeAutoExplode(self.assembly)
+        self.doc.recompute()
+        steps = self.steps(view)
+        self.assertEqual([s for s, _m in steps], [["C."], ["B.", "C."], ["D."]])
+        # Each by half again its size, along its joint, away from the inner part
+        for (_s, move), want in zip(steps, (plc(0, 0, 15), plc(0, 0, 15), plc(15, 0, 0))):
+            self.assertPlc(move, want)
+        placed = TestExplodedView.placements(self, view)
+        self.assertPlc(placed["C"], plc(0, 0, 50))
+        self.assertPlc(placed["B"], plc(0, 0, 25))
+        self.assertPlc(placed["D"], plc(25, 0, 0))
+        self.assertNotIn("A", placed)
+        # Nothing written
+        self.assertPlc(self.c.Placement, plc(0, 0, 20))
+        self.assertEqual(view.Group[2].Label, "Move D")
+
+    def testSameWayAtOneDepthIsOneStep(self):
+        a = self.box("A", size=30)
+        b = self.box("B", plc(0, 0, 30))
+        c = self.box("C", plc(20, 0, 30))
+        self.ground(a)
+        self.assembly.makeJoint("Fixed", (a, "Face6"), (b, "Face5"))
+        self.assembly.makeJoint("Fixed", (a, "Face6"), (c, "Face5"))
+        self.doc.recompute()
+        view = CommandCreateView.makeAutoExplode(self.assembly)
+        self.assertEqual([s for s, _m in self.steps(view)], [["B.", "C."]])
+        self.assertEqual(view.Group[0].Label, "Move B, C")
+
+    def testWithNoGroundTheLargestStays(self):
+        a = self.box("A", size=20)
+        b = self.box("B", plc(0, 0, 20))
+        self.assembly.makeJoint("Fixed", (b, "Face5"), (a, "Face6"))
+        self.doc.recompute()
+        view = CommandCreateView.makeAutoExplode(self.assembly)
+        ((subs, move),) = self.steps(view)
+        self.assertEqual(subs, ["B."])
+        self.assertPlc(move, plc(0, 0, 15))
+
+    def testAPartNoJointReachesStays(self):
+        self.stack()
+        self.box("E", plc(50, 50, 0))
+        view = CommandCreateView.makeAutoExplode(self.assembly)
+        self.assertFalse(any("E." in s for s, _m in self.steps(view)))
+
+    def testFactorAndAfterTheViewsSteps(self):
+        self.stack()
+        view = TestExplodedView.explodedView(self, [(["D."], plc(0, 5, 0), 0)])
+        CommandCreateView.makeAutoExplode(self.assembly, view, factor=2.0)
+        steps = self.steps(view)
+        self.assertEqual(len(steps), 4)
+        self.assertPlc(steps[0][1], plc(0, 5, 0))
+        self.assertPlc(steps[1][1], plc(0, 0, 20))
+
+    def testABoltThroughALidLeavesItOutwards(self):
+        """Its middle below the lid's: the joint's side on the lid says out"""
+        lid = self.box("Lid", size=10)
+        self.ground(lid)
+        bolt = self.cylinder("Bolt", 1, 16, plc(5, 5, -4))
+        self.assembly.makeJoint("Fixed", (lid, "Face6"), (bolt, "Face3"))
+        bolt.Placement = plc(5, 5, -4)  # where it was, through the lid
+        self.doc.recompute()
+        self.assertLess(bolt.Shape.BoundBox.Center.z, lid.Shape.BoundBox.Center.z)
+        view = CommandCreateView.makeAutoExplode(self.assembly)
+        ((subs, move),) = self.steps(view)
+        self.assertEqual(subs, ["Bolt."])
+        self.assertPlc(move, plc(0, 0, 24))
+
+    def testTheAssemblysFrame(self):
+        """A move is in the assembly's frame, as a part's Placement is"""
+        self.assembly.Placement = plc(0, 100, 0, Z, 90)
+        self.stack()
+        view = CommandCreateView.makeAutoExplode(self.assembly)
+        self.assertPlc(self.steps(view)[2][1], plc(15, 0, 0))

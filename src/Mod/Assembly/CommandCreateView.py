@@ -932,6 +932,190 @@ def addBomBalloons(drawing, bom=None):
     ]
 
 
+def _subnameIn(assembly, obj):
+    """The subname of `obj` from `assembly`, through the groups between;
+    None if it is not in it"""
+    path = []
+    o = obj
+    while o is not None and o != assembly:
+        path.insert(0, o.Name)
+        # A plain group's, else the Part's -- the assembly is one
+        o = o.getParentGroup() or o.getParentGeoFeatureGroup()
+    return ".".join(path) + "." if o is not None else None
+
+
+def _extentAlong(box, way):
+    """The length of a bounding box along the unit vector `way`"""
+    return abs(way.x) * box.XLength + abs(way.y) * box.YLength + abs(way.z) * box.ZLength
+
+
+def autoExplodeSteps(assembly, factor=1.5):
+    """Not upstream: the steps auto explode makes of `assembly`'s joints
+    (docs/AssemblyExplode.md sec 10), in the order to play them, as
+    [(parts, move, label)], each move an App.Vector in the assembly's frame.
+
+    The parts are the assembly's, an App::Part one part. From the grounded
+    ones -- the largest part when none is grounded -- the joints are walked
+    outwards. A part moves along its joint's axis (the Z of the joint's
+    frame on the side of the part it is joined to), the way out of that
+    part, by
+    `factor` times its own size that way; the parts furthest out move
+    first, and a part takes with it the parts outside it, moved already.
+    Parts at one depth moving the same way move in one step. A part no joint
+    reaches does not move."""
+    import JointObject
+    import Part
+
+    # Not the element bindings the joints hold, kept in the assembly
+    parts = [
+        p
+        for p in UtilsAssembly.getMovablePartsWithin(assembly, True)
+        if not p.isDerivedFrom("Part::ElementBinding")
+    ]
+    if not parts:
+        return []
+    index = {p.Name: i for i, p in enumerate(parts)}
+    boxes = {}
+    for p in parts:
+        try:
+            boxes[p.Name] = Part.getShape(p).BoundBox
+        except Exception:
+            boxes[p.Name] = None
+    inverse = assembly.getGlobalPlacement().inverse()
+    joints = []  # (part1, part2, joint)
+    grounded = []
+    for joint in UtilsAssembly.getJointGroup(assembly).Group:
+        if getattr(joint, "Suppressed", False):
+            continue
+        ground = getattr(joint, "ObjectToGround", None)
+        if ground is not None:
+            if ground.Name in index:
+                grounded.append(ground)
+            continue
+        if not hasattr(joint, "JointType"):
+            continue
+        try:
+            p1 = JointObject.sideMovingPart(joint, 1)
+            p2 = JointObject.sideMovingPart(joint, 2)
+        except Exception:
+            continue
+        if p1 is None or p2 is None or p1 == p2:
+            continue
+        if p1.Name in index and p2.Name in index:
+            joints.append((p1, p2, joint))
+
+    def volume(p):
+        box = boxes[p.Name]
+        return box.XLength * box.YLength * box.ZLength if box is not None else 0.0
+
+    if not grounded:
+        joined = [p for p in parts if any(p in (a, b) for a, b, _j in joints)]
+        if not joined:
+            return []
+        grounded = [max(joined, key=lambda p: (volume(p), -index[p.Name]))]
+    # Outwards from the ground: each part's depth and the joint it is reached by
+    depth = {p.Name: 0 for p in grounded}
+    reached = {}  # name: (inner part, joint, side of the part)
+    front = sorted(grounded, key=lambda p: index[p.Name])
+    while front:
+        nextFront = []
+        for inner in front:
+            for a, b, joint in joints:
+                for outer, side in ((b, 2), (a, 1)):
+                    other = a if side == 2 else b
+                    if other != inner or outer.Name in depth:
+                        continue
+                    depth[outer.Name] = depth[inner.Name] + 1
+                    reached[outer.Name] = (inner, joint, side)
+                    nextFront.append(outer)
+        front = sorted(nextFront, key=lambda p: index[p.Name])
+
+    def way(p):
+        """The way `p` leaves the part it is joined to: the axis of the
+        joint's frame on that part's side, pointing out of that part --
+        from its middle to where the joint sits on it. A bolt through a lid
+        has its middle below the lid's: the middles alone would send it in."""
+        inner, joint, side = reached[p.Name]
+        frame = inverse * JointObject.sideJcsGlobal(joint, 3 - side)
+        axis = frame.Rotation.multVec(App.Vector(0, 0, 1))
+        box, innerBox = boxes[p.Name], boxes[inner.Name]
+        if innerBox is None:
+            return axis
+        tol = 1e-6 * max(innerBox.DiagonalLength, 1.0)
+        out = axis.dot(frame.Base - innerBox.Center)
+        if abs(out) <= tol and box is not None:
+            # On the inner part's middle (a pin in a hole): the middles say
+            out = axis.dot(box.Center - innerBox.Center)
+        return -axis if out < -tol else axis
+
+    def outside(p):
+        """The parts reached through `p`, all the way out"""
+        found = []
+        for name, (inner, _j, _s) in reached.items():
+            if inner == p:
+                o = parts[index[name]]
+                found.append(o)
+                found.extend(outside(o))
+        return found
+
+    steps = []
+    moving = sorted(reached, key=lambda n: (-depth[n], index[n]))
+    groups = []  # [depth, way, [parts]]
+    for name in moving:
+        p = parts[index[name]]
+        w = way(p)
+        for g in groups:
+            if g[0] == depth[name] and g[1].dot(w) > 1 - 1e-9:
+                g[2].append(p)
+                break
+        else:
+            groups.append([depth[name], w, [p]])
+    for _d, w, group in groups:
+        distance = factor * max(
+            (_extentAlong(boxes[p.Name], w) for p in group if boxes[p.Name] is not None),
+            default=0.0,
+        )
+        if distance <= 0:
+            continue
+        taken = list(group)
+        for p in group:
+            for o in outside(p):
+                if o not in taken:
+                    taken.append(o)
+        labels = [p.Label for p in group]
+        label = "Move " + ", ".join(labels[:3]) + (", ..." if len(labels) > 3 else "")
+        steps.append((taken, w * distance, label))
+    return steps
+
+
+def makeAutoExplode(assembly, explodedView=None, factor=1.5):
+    """Not upstream: an exploded view of `assembly` made from its joints
+    (autoExplodeSteps(), docs/AssemblyExplode.md sec 10): its steps added
+    after those of `explodedView`, or of a new view. Returns the view."""
+    if explodedView is None:
+        group = UtilsAssembly.getViewGroup(assembly)
+        explodedView = group.newObject("Assembly::ExplodedViewPython", "Exploded View")
+        ExplodedView(explodedView)
+        if App.GuiUp:
+            ViewProviderExplodedView(explodedView.ViewObject)
+    steps = list(explodedView.Group)
+    for parts, move, label in autoExplodeSteps(assembly, factor):
+        subs = [s for s in (_subnameIn(assembly, p) for p in parts) if s]
+        if not subs:
+            continue
+        step = assembly.newObject("Assembly::ExplodedViewStepPython", "Move")
+        ExplodedViewStep(step, 0)
+        if App.GuiUp:
+            ViewProviderExplodedViewStep(step.ViewObject)
+        step.MovementTransform = App.Placement(move, App.Rotation())
+        step.References = [assembly, subs]
+        step.Label = label
+        step.Visibility = False
+        steps.append(step)
+    explodedView.Group = steps
+    return explodedView
+
+
 def _unposeViews(assembly):
     group = UtilsAssembly.getViewGroup(assembly) if assembly else None
     for explodedView in group.Group if group else []:
@@ -1120,6 +1304,7 @@ class TaskAssemblyCreateView(QtCore.QObject):
         self.form.btnAlignDragger.setEnabled(False)
         self.form.btnAlignDragger.setText("Select a part")
         self.form.btnRadialExplosion.clicked.connect(self.onRadialClicked)
+        self.form.btnAutoExplosion.clicked.connect(self.onAutoClicked)
 
         pref = Preferences.preferences()
         self.form.CheckBox_PartsAsSingleSolid.setChecked(pref.GetBool("PartsAsSingleSolid", True))
@@ -1520,6 +1705,20 @@ class TaskAssemblyCreateView(QtCore.QObject):
         self.setDragger()
 
         self.radialExplosion = True
+
+    def onAutoClicked(self):
+        """Not upstream: steps made from the joints, after the view's own
+        (docs/AssemblyExplode.md sec 10), worked out from the design"""
+        self.dismissCurrentStep()
+        UtilsAssembly.restoreAssemblyPartsPlacements(self.assembly, self.initialPlcs)
+        Gui.doCommand(
+            "CommandCreateView.makeAutoExplode("
+            f'App.ActiveDocument.getObject("{self.assembly.Name}"), '
+            f'App.ActiveDocument.getObject("{self.viewObj.Name}"))'
+        )
+        for move in self.viewObj.Group:  # shown while the panel is open
+            move.Visibility = True
+        self.onMovesChanged()
 
     def onAlignTo(self):
         self.alignMode = "Custom"

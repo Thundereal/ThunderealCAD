@@ -283,7 +283,200 @@ page showed no trail at all. With the open items: 37 of 37 headless (4
 GUI-only skipped) and 41 of 41 in the GUI; before, the three edit and undo
 cases failed.
 
-## 7. Open
+## 7. The later steps (E5 .. E7)
 
-- Not in this pass, as agreed: an exploded view per step in a drawing,
-  balloons tied to the BOM, auto explode.
+Left out of the first pass, as agreed, and taken up after it
+("continue on later steps", 2026-11-14), in this order:
+- E5, a drawing view per step (sec 8);
+- E6, balloons carrying the BOM's numbers (sec 9);
+- E7, auto explode: steps made from the joints (sec 10).
+
+Tests and scores of all three: sec 11.
+
+## 8. A drawing per step (E5)
+
+**`Assembly::ExplodedViewAt` is the view at a step.** It holds the view
+(`View`) and a progress (`Progress`, n the end of step n, below 0 the
+end). Its shape is the view's there, `getExplodedShape(Progress)`, handed
+out by `getSubObject` as the view's own is (sec 5). It writes nothing and
+moves nothing: a TechDraw view whose Source is it projects the explode at
+that step, and projects it again when a step changes. Its view provider,
+`AssemblyGui::ViewProviderExplodedViewAt`, answers the drawing's
+questions about edges as the exploded view's does, through `View`: its
+trails are dashed too.
+
+Found on the way, each a drawing left at the step as it was:
+- **Part's shape cache kept its shape.** Part's cache of an object's shape
+  is cleared when its `Shape`, `Group` or a touched property changes; this
+  object has none of those, so a new `Progress` drew the old one. It
+  clears its entry when it changes and when it recomputes.
+- **The recompute skipped it, and its drawing.** With
+  `OptimizeRecompute` (the default) an object recomputed only because what
+  it depends on was is skipped when no input of its own changed. Both the
+  `ExplodedViewAt` and the TechDraw view of it are such objects: an edit of
+  a step recomputed the exploded view and stopped there. It is never
+  skipped now (`skipRecompute()` false), and it marks what depends on it
+  for recompute when it runs. With `OptimizeRecompute` off the drawing
+  followed, which is how the cause was found.
+- **`View` is a global link.** The exploded view is inside its assembly
+  and this object is not, so a plain link warned on every recompute that
+  it went out of its scope.
+
+**Drawing of each step**, on the exploded view's context menu
+(`CommandCreateView.makeStepDrawings`), in one undo step:
+- a page on TechDraw's default template (the user's, else A4 landscape),
+  unless a page is given;
+- per step, an `ExplodedViewAt` at the step's end, kept in a group
+  `ExplodedStepViews` beside the page, and a `DrawViewPart` of it;
+- the views in a grid above the title block, at one scale, so a part
+  keeps its size from view to view:
+  - the scale fits the largest outline any step projects (a turn half
+    open can stand taller than the end), with room round each view for
+    its balloons (sec 9) and under it for its caption;
+  - the grid is the one of 1 .. n columns that gives the largest scale;
+    three steps on A3 are a row, not a square with a cell empty;
+  - the scale is the fit to two figures, rounded down. Rounded to a
+    standard scale (1, 2 or 5 times a power of ten) the manual's sample
+    (three steps on A3) was drawn at 0.2; its fit is 0.49;
+- under each view a caption, "k. <the step's label>";
+- isometric by default; a direction can be given.
+
+Step k shows the parts where the first k steps put them, and the trails of
+those k steps, so the page reads as the sequence: what moved last is the
+newest trail.
+
+## 9. Balloons from the BOM (E6)
+
+**Number parts in drawings**, on the context menu once a drawing of the
+view exists (`CommandCreateView.addBomBalloons(drawing)`), puts a
+balloon on each part a drawing shows, its number in the bill of
+materials:
+- the BOM is the view's `Bom`, else the assembly's, made if it has none,
+  and kept in `Bom` after;
+- one balloon a part, circular, its leader to the middle of the longest
+  piece of it the drawing shows;
+- the balloons on a ring round the view: the box of its visible edges
+  grown by a balloon and a gap. Each stands where the line from the box's
+  middle through its piece meets the ring, and neighbours are pushed apart
+  along the ring until none meet. The first version stood each 12 mm out
+  from its piece, and on a small view of eight parts four pairs met;
+- run again, after a step or the BOM changed, the balloons move with
+  their parts, a balloon whose number you typed keeps it, and a part gone
+  takes its balloon.
+
+How a drawing learns a part's number, with no TechDraw code that knows the
+Assembly:
+- **The edge's name says which object it is of.** A part's edges in the
+  exploded shape carry their object's tag in their mapped names, and the
+  projected edge keeps the name (sec 5). `ExplodedView::partNumberOf`
+  reads the tag (`MappedName::findTagInElementName`, not recursive: the
+  outermost, the part the assembly holds), finds the object by ID, and
+  asks the BOM for its row.
+- **The BOM answers for an object.** `BomObject::getIndexOf(obj)` gives a
+  row's number for the object or anything linking to it, so a part
+  brought in as a link is found; Python has `getRows()`, each row's
+  number and object, and `getIndexOf`.
+- **The view provider answers for the edge.** `getEdgeInfo` gives a part's
+  edge its number as a label, once for the number, in a circular bubble,
+  and leaves its line style alone. `Gui::ViewProvider::EdgeInfo` has three
+  new fields for that: `styled` (false: draw the edge as the drawing
+  would, only label it), `oncePerLabel` (one label for the text, not one
+  for each edge) and `bubble` (the label's BubbleShape). The Python
+  `getEdgeInfo` dict has them as `Styled`, `OncePerLabel` and `Bubble`.
+- **TechDraw's Import Edge Labels does the rest**
+  (`TechDraw_ImportEdgeLabels`, sheet metal's bend labels,
+  `docs/SheetMetal.md`). For a once-per-label answer it keeps the longest
+  visible piece of any edge with that text, and when the piece labelled
+  before is gone it finds the label by its text and moves it to the new
+  piece. `QGIViewPart` and `PageFeed` take a source's line style only when
+  `styled` is set.
+
+Found on the way: **the BOM's mirrored check read memory it did not
+own.** `BomObject::isObjMirrored` (upstream's) cast any object to a link
+element with `static_cast`, never null, and read its `Scale`: for a
+`Part::Box`, whatever lay there. A link is counted in its part's row only
+when both are mirrored alike, so a full run of the explode tests once
+numbered a link apart from its part. The casts are checked now; a
+mirrored link (`Scale` -1) still gets a row of its own, which
+`testBomRows` checks.
+
+## 10. Auto explode (E7)
+
+**Explode Automatically**, a button of the exploded view's panel
+(`CommandCreateView.makeAutoExplode(assembly, view=None, factor=1.5)`),
+adds steps made from the joints after the view's own, or makes a view
+with them:
+- the parts are the assembly's, an App::Part one part; the element
+  bindings the joints hold are not parts;
+- from the grounded parts -- the largest joined part when none is
+  grounded -- the joints are walked outwards, each part reached once, by
+  the first joint that reaches it;
+- a part moves along its joint's axis -- the Z of the joint's frame on
+  the side of the part it is joined to, in the assembly's frame -- the way
+  out of that part: from that part's middle toward where the joint sits on
+  it. The first version took the way from one middle to the other, and
+  sent a bolt through a lid into the lid: the bolt's middle is below the
+  lid's. When the joint sits on the middle (a pin in a hole), the middles
+  decide;
+- it moves by `factor` times its own size that way;
+- the parts furthest out move first; a part takes with it the parts
+  outside it, moved already, so an inner part's step does not run into
+  them;
+- parts at one depth moving the same way move in one step, labelled
+  "Move" and their labels;
+- a part no joint reaches does not move.
+
+The panel works it out from the design: it puts the parts back before,
+and shows the view's steps after. The manual's housing, joined (the plate
+grounded, the housing on it, the lid on the housing, the knob and four
+bolts through the lid on it), gives three steps: the knob and the bolts
+lift 24 mm (one depth, one way: one step, the bolts' 16 mm the largest),
+then the lid 7.5 mm taking them, then the housing 45 mm taking all of
+them.
+
+## 11. Tests, E5 .. E7
+
+In `TestExplodedView.py`:
+- `TestExplodedViewAtSteps` (2): the shape at a progress, at the end, and
+  after a step's edit, with no error; a page of each step, its captions,
+  one scale, the trails of each, inside the page, and a step's edit
+  projected again (GUI only).
+- `TestExplodedViewBalloons` (4): the BOM's rows and a link's row; a
+  part's edge's number from the view provider, a Body's numbered as the
+  Body though its edges carry its features' tags (GUI only); the balloons
+  on a drawing, one a number, circular, a balloon and a gap apart, and the
+  same ones again (GUI only).
+- `TestAutoExplode` (7): outer parts first, each taking those outside it;
+  one step for a depth and a way; the largest part stays with none
+  grounded; a part no joint reaches stays; the factor, after the view's
+  own steps; a bolt through a lid leaves it outwards; the assembly's
+  frame.
+
+Scores. The tests were written with the code, before it was built; the
+first run after building, headless: 7 of the 13 new failed:
+- the 5 auto explode cases: a part directly in the assembly had no
+  subname (`getParentGroup()` is None there; the assembly is a Part);
+- the shape at a progress: Part's cache;
+- the BOM's rows: the BOM had no Quantity column, so a link was a row of
+  its own filed as the object it links. `assemblyBom` now makes the BOM
+  as the BOM command does, and `getIndexOf` finds a row by the object as
+  its parent holds it first.
+
+In the GUI, 2 more: a part's edge had no number, the tag read being the
+exploded shape's own (`;:H:9`), not the part's. `partNumberOf` now walks
+the tags from the last inwards. Then the step drawing's re-projection: 1
+of 2 failed before the recompute fix (sec 8); and the bolt through a lid,
+added when the manual's scene showed it: 1 of 7 auto explode cases failed
+before (the bolt sent 24 mm down). After: 54 of 54 headless (8 GUI-only
+skipped), 54 of 54 in the GUI. TechDraw, sheet metal and Assembly
+ctests: 54 of 54.
+
+## 12. Open
+
+- Balloons are laid out when made. Run again, each keeps its offset from
+  its part, so one can meet another, or a caption, after a big move; drag
+  it, or delete it and run again.
+- Leaders can cross: the ring keeps the order of the parts' angles round
+  the view, not of where their leaders land.
+- A part no joint reaches is left where it is by auto explode; a radial
+  step moves it.

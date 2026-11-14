@@ -66,6 +66,9 @@ struct AssemblyExport ExplodedPose
         int step = 0;
         Base::Vector3d from;
         Base::Vector3d to;
+        /// The path from `from` to `to`: those two for a slide, the arc
+        /// sampled every 5 deg or less for a turn
+        std::vector<Base::Vector3d> path;
     };
     /// One per part moved, in the order first moved, at its last placement
     std::vector<Move> moves;
@@ -203,8 +206,9 @@ public:
     /// CommandCreateView.ExplodedViewStepTypes
     App::PropertyEnumeration MoveType;
 
-    /// The trail each part it moved left, as pairs of points in the
-    /// document's frame: what its view provider draws. Never saved
+    /// The trail each part it moved left, as segments -- pairs of points --
+    /// in the document's frame, a turn's arc as several: what its view
+    /// provider draws. Never saved
     App::PropertyVectorList Trail;
 
     static const char* MoveTypeEnums[];

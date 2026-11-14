@@ -87,7 +87,8 @@ PyObject* ExplodedViewPy::getCenterAndSize(PyObject* args) const
 PyObject* ExplodedViewPy::explodedAt(PyObject* args) const
 {
     PyObject* pyProgress = Py_None;
-    if (!PyArg_ParseTuple(args, "|O", &pyProgress)) {
+    PyObject* paths = Py_False;
+    if (!PyArg_ParseTuple(args, "|OO!", &pyProgress, &PyBool_Type, &paths)) {
         return nullptr;
     }
     PY_TRY
@@ -108,9 +109,21 @@ PyObject* ExplodedViewPy::explodedAt(PyObject* args) const
         }
         Py::List trails;
         for (const auto& trail : pose.trails) {
-            trails.append(Py::TupleN(Py::Long(trail.step),
-                                     Py::asObject(new Base::VectorPy(trail.from)),
-                                     Py::asObject(new Base::VectorPy(trail.to))));
+            if (PyObject_IsTrue(paths)) {
+                Py::List points;
+                for (const auto& p : trail.path) {
+                    points.append(Py::asObject(new Base::VectorPy(p)));
+                }
+                trails.append(Py::TupleN(Py::Long(trail.step),
+                                         Py::asObject(new Base::VectorPy(trail.from)),
+                                         Py::asObject(new Base::VectorPy(trail.to)),
+                                         points));
+            }
+            else {
+                trails.append(Py::TupleN(Py::Long(trail.step),
+                                         Py::asObject(new Base::VectorPy(trail.from)),
+                                         Py::asObject(new Base::VectorPy(trail.to))));
+            }
         }
         return Py::new_reference_to(Py::TupleN(moves, trails));
     }

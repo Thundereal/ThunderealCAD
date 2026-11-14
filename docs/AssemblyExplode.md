@@ -46,6 +46,11 @@ and the trail each left, and writes nothing.
   the part's bounding-box center is when its step starts to where it is
   now. Upstream's `_calculateExplodedPlacements` started every trail at
   the unmoved place.
+  - A turn's trail follows its arc: the path is sampled every 5 deg or
+    less, along the powers of the move. A slide's is its two ends.
+    Upstream drew a turn's trail as the chord.
+  - `Trail.path` carries the points. A step's `Trail` property holds
+    segments, so an arc is several, and its view provider draws each.
 - **Radial.**
   - A radial step moves a part away from the assembly's bounding-box
     center, by 4 x the move's length / the assembly's diagonal, as
@@ -154,7 +159,7 @@ An Animation plays an exploded view through a track of kind `Explode`
 
 `src/Mod/Assembly/AssemblyTests/TestExplodedView.py`:
 
-- `TestExplodedView` (13, E1):
+- `TestExplodedView` (15, E1):
   - a translation; a turn about a center, half of it on the arc; two
     steps composed; one step moving two parts;
   - the same as upstream on Normal moves;
@@ -162,6 +167,8 @@ An Animation plays an exploded view through a track of kind `Explode`
   - progress 0 .. past the end;
   - the assembly moved; a part in a Part;
   - a missing part skipped; an empty view;
+  - a turn's trail on its arc, halfway only as far as it went; a slide's
+    two points (2, added with the arc trails);
   - the panel's applyMoves and applyStep; a step's explodeFrom.
 - `TestExplodedViewShown` (9, E2):
   - the tree's explode and restore are not an edit;
@@ -189,7 +196,8 @@ Score before E2: 13 of 22 headless. The selection case failed on the open
 transaction, and the 8 pose cases had no API. After: 22 of 22 headless,
 23 of 23 in the GUI (`GT_ASSEMBLY_TESTS=AssemblyTests.TestExplodedView
 scripts/gui-test.sh tests/gui/assembly-workbench-suite.py`). With E3:
-26 of 26 headless (2 GUI-only skipped) and 28 of 28 in the GUI.
+26 of 26 headless (2 GUI-only skipped) and 28 of 28 in the GUI; with the
+arc trails, 28 of 28 headless and 30 of 30 in the GUI.
 
 ## 6. Open
 

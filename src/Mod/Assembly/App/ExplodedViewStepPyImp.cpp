@@ -40,7 +40,9 @@ PyObject* ExplodedViewStepPy::explodeFrom(PyObject* args) const
     PyObject* pyCenter = nullptr;
     double size = 100.0;
     double fraction = 1.0;
-    if (!PyArg_ParseTuple(args, "O!d|d", &Base::VectorPy::Type, &pyCenter, &size, &fraction)) {
+    PyObject* paths = Py_False;
+    if (!PyArg_ParseTuple(args, "O!d|dO!", &Base::VectorPy::Type, &pyCenter, &size, &fraction,
+                          &PyBool_Type, &paths)) {
         return nullptr;
     }
     PY_TRY
@@ -57,8 +59,19 @@ PyObject* ExplodedViewStepPy::explodeFrom(PyObject* args) const
         }
         Py::List pyTrails;
         for (const auto& trail : trails) {
-            pyTrails.append(Py::TupleN(Py::asObject(new Base::VectorPy(trail.from)),
-                                       Py::asObject(new Base::VectorPy(trail.to))));
+            if (PyObject_IsTrue(paths)) {
+                Py::List points;
+                for (const auto& p : trail.path) {
+                    points.append(Py::asObject(new Base::VectorPy(p)));
+                }
+                pyTrails.append(Py::TupleN(Py::asObject(new Base::VectorPy(trail.from)),
+                                           Py::asObject(new Base::VectorPy(trail.to)),
+                                           points));
+            }
+            else {
+                pyTrails.append(Py::TupleN(Py::asObject(new Base::VectorPy(trail.from)),
+                                           Py::asObject(new Base::VectorPy(trail.to))));
+            }
         }
         return Py::new_reference_to(Py::TupleN(moves, pyTrails));
     }

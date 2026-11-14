@@ -44,8 +44,8 @@ class ExplodedView(DocumentObject):
 
     @constmethod
     def explodedAt(
-        self, progress: Optional[float] = None, /
-    ) -> Tuple[List[Tuple[DocumentObject, Placement]], List[Tuple[int, Vector, Vector]]]:
+        self, progress: Optional[float] = None, paths: bool = False, /
+    ) -> Tuple[List[Tuple[DocumentObject, Placement]], List[Tuple]]:
         """
         Where the steps put the parts at `progress`, writing nothing: 0 is
         the assembly at rest, n the end of step n, a fraction part of the
@@ -55,6 +55,8 @@ class ExplodedView(DocumentObject):
         frame), in the order first moved; and the trails, one per part per
         step started, each the step's index and where the center of the
         part's bounding box went from and to, in the document's frame.
+        With `paths`, each trail has a fourth item: its path as points, two
+        for a slide, a turn's arc sampled every 5 deg or less.
         """
         ...
 

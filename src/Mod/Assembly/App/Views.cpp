@@ -21,6 +21,7 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <cmath>
 #include <cstring>
 #include <set>
 
@@ -362,8 +363,11 @@ void ExplodedView::pose(std::optional<double> progress)
     }
     std::vector<std::vector<Base::Vector3d>> trails(steps.size());
     for (const auto& trail : shown.trails) {
-        trails[trail.step].push_back(trail.from);
-        trails[trail.step].push_back(trail.to);
+        // As segments
+        for (std::size_t j = 1; j < trail.path.size(); ++j) {
+            trails[trail.step].push_back(trail.path[j - 1]);
+            trails[trail.step].push_back(trail.path[j]);
+        }
     }
     for (std::size_t i = 0; i < steps.size(); ++i) {
         auto step = steps[i];
@@ -627,15 +631,31 @@ void ExplodedViewStep::explode(const App::DocumentObject& step,
         Base::Vector3d to;
         (next * rest.inverse()).multVec(center, to);
 
-        if (frame.placed.find(obj) == frame.placed.end()) {
-            frame.order.push_back(obj);
-        }
-        frame.placed[obj] = next;
         ExplodedPose::Trail trail;
         trail.step = stepIndex;
         parent.multVec(from, trail.from);
         parent.multVec(to, trail.to);
-        trails.push_back(trail);
+        // A turn's path is its arc: the move's powers, as the part goes
+        Base::Vector3d axis;
+        double angle = 0;
+        part.getRotation().getValue(axis, angle);
+        int pieces = radial ? 1 : static_cast<int>(std::ceil(std::fabs(angle) / (M_PI / 36) - 1e-9));
+        trail.path.push_back(trail.from);
+        for (int j = 1; j < pieces; ++j) {
+            double f = fraction * j / pieces;
+            Base::Vector3d p;
+            (move.pow(f) * now * rest.inverse()).multVec(center, p);
+            Base::Vector3d g;
+            parent.multVec(p, g);
+            trail.path.push_back(g);
+        }
+        trail.path.push_back(trail.to);
+
+        if (frame.placed.find(obj) == frame.placed.end()) {
+            frame.order.push_back(obj);
+        }
+        frame.placed[obj] = next;
+        trails.push_back(std::move(trail));
     }
 }
 

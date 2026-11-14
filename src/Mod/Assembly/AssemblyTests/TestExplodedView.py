@@ -108,6 +108,42 @@ class TestExplodedView(PlacementAsserts, JointTestBase):
         # Halfway is half the turn about the same center, not a chord
         self.assertPlc(self.placements(view, 0.5)["B"], plc(30, 0, 0, Z, 45))
 
+    def testTurnTrailFollowsTheArc(self):
+        """A turn's trail is its arc, sampled, not the chord between its ends"""
+        self.box("B", plc(30, 0, 0))
+        view = self.explodedView([(["B."], turn((30, 0, 0), 90), 0)])
+        ((step, start, end, points),) = view.explodedAt(None, True)[1]
+        self.assertTrue(start.isEqual(App.Vector(35, 5, 5), TOL), start)
+        self.assertTrue(end.isEqual(App.Vector(25, 5, 5), TOL), end)
+        self.assertGreaterEqual(len(points), 10)
+        self.assertTrue(points[0].isEqual(start, TOL) and points[-1].isEqual(end, TOL))
+        # Every point at the same distance from the axis, the arc's radius
+        for p in points:
+            r = math.hypot(p.x - 30, p.y)
+            self.assertAlmostEqual(r, math.sqrt(50), 9)
+            self.assertAlmostEqual(p.z, 5, 9)
+        # Halfway through the move, the arc only as far as it went
+        ((_s, _a, half, points),) = view.explodedAt(0.5, True)[1]
+        self.assertTrue(points[-1].isEqual(half, TOL))
+        self.assertAlmostEqual(math.degrees(math.atan2(half.y, half.x - 30)), 90, 9)
+        # The step draws it as segments
+        view.pose()
+        trail = view.Group[0].Trail
+        n = len(view.explodedAt(None, True)[1][0][3])
+        self.assertEqual(len(trail), 2 * (n - 1))
+        view.unpose()
+
+    def testSlideTrailIsAStraightLine(self):
+        self.box("B", plc(30, 0, 0))
+        view = self.explodedView([(["B."], plc(0, 0, 20), 0)])
+        ((_s, start, end, points),) = view.explodedAt(None, True)[1]
+        self.assertEqual(len(points), 2)
+        view.pose()
+        self.assertEqual(len(view.Group[0].Trail), 2)
+        view.unpose()
+        moves, trails = view.Group[0].explodeFrom(App.Vector(), 100, 1.0, True)
+        self.assertEqual(len(trails[0]), 3)
+
     def testStepsCompose(self):
         self.box("C", plc(0, 30, 0))
         first, second = plc(0, 0, 20), plc(15, 0, 0, Z, 30)

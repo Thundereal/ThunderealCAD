@@ -129,7 +129,7 @@ class ExplodedView:
         # where the parts are now, with the assembly's center and size of its
         # own; the panel's com and size are for the Python steps below
         if viewObj.isDerivedFrom("Assembly::ExplodedView"):
-            moves, trails = viewObj.explodedAt()
+            moves, trails = viewObj.explodedAt(None, True)
             return _writeExplosion(viewObj.getSteps(), moves, trails)
 
         positions = []  # [[p1start, p1end], [p2start, p2end], ...]
@@ -655,8 +655,8 @@ class ExplodedViewStep:
 
         # Not upstream: the C++ step calculates (Assembly::ExplodedViewStep)
         if move.isDerivedFrom("Assembly::ExplodedViewStep"):
-            moves, trails = move.explodeFrom(com, size)
-            return _writeExplosion([move], moves, [(0, a, b) for a, b in trails])
+            moves, trails = move.explodeFrom(com, size, 1.0, True)
+            return _writeExplosion([move], moves, [(0, a, b, path) for a, b, path in trails])
 
         positions = []
         if move.MoveType == "Radial":
@@ -715,19 +715,22 @@ def _unposeViews(assembly):
 
 def _writeExplosion(steps, moves, trails):
     """Put the parts where `moves` say, as the panel's edit does, and give
-    each of `steps` the trails it made, for its view provider to draw.
+    each of `steps` the trails it made (step, start, end, path), as
+    segments for its view provider to draw.
     Returns the trails as upstream's applyMoves did: [[start, end], ...]"""
     for obj, placement in moves:
         obj.Placement = placement
         obj.purgeTouched()
     perStep = [[] for _ in steps]
-    for step, start, end in trails:
+    for step, _start, _end, path in trails:
         if 0 <= step < len(steps):
-            perStep[step] += [start, end]
+            # As segments: a turn's arc is several
+            for a, b in zip(path, path[1:]):
+                perStep[step] += [a, b]
     for step, points in zip(steps, perStep):
         if hasattr(step, "Trail"):
             step.Trail = points
-    return [[start, end] for _step, start, end in trails]
+    return [[start, end] for _step, start, end, _path in trails]
 
 
 class ViewProviderExplodedViewStep:

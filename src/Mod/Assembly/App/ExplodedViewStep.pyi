@@ -24,8 +24,8 @@ class ExplodedViewStep(DocumentObject):
 
     @constmethod
     def explodeFrom(
-        self, center: Vector, size: float, fraction: float = 1.0, /
-    ) -> Tuple[List[Tuple[DocumentObject, Placement]], List[Tuple[Vector, Vector]]]:
+        self, center: Vector, size: float, fraction: float = 1.0, paths: bool = False, /
+    ) -> Tuple[List[Tuple[DocumentObject, Placement]], List[Tuple]]:
         """
         Where the step puts the parts it moves, from where they are now, for
         `fraction` of its move, writing nothing. `center` and `size` are the
@@ -33,6 +33,7 @@ class ExplodedViewStep(DocumentObject):
         radial step reads.
 
         Returns: the parts with their new Placement, and the trail of each,
-        in the document's frame.
+        in the document's frame: (from, to), or with `paths` (from, to,
+        points), a turn's arc sampled every 5 deg or less.
         """
         ...

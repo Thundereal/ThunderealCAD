@@ -362,7 +362,9 @@ def export(
                 view.saveImage(name, width, height, background)
             else:
                 # A seed a frame: with one seed the noise would stand still
-                # on the screen while the scene moves under it
+                # on the screen while the scene moves under it. One session
+                # through the frames: its device, kernels and shaders are
+                # set up once, the scene restated in place
                 view.cyclesRender(
                     name,
                     width,
@@ -372,6 +374,7 @@ def export(
                     True,
                     bool(traced["Denoise"]),
                     i,
+                    True,
                 )
             if compose is not None:
                 compose(name, i, t)
@@ -388,6 +391,8 @@ def export(
             "Renderer": renderer,
         }
     finally:
+        if traced is not None and hasattr(view, "cyclesRelease"):
+            view.cyclesRelease()
         if renderClock and hasattr(Gui, "setRenderClock"):
             Gui.setRenderClock(pinned)
         if exact:

@@ -151,6 +151,37 @@ RendererExport bool renderScene(const SceneInput &scene,
                                 RenderReport *report = nullptr,
                                 const StillOptions &still = StillOptions());
 
+/// Stills of one scene in turn -- the frames of an export -- through one
+/// session kept between them, as Blender's persistent data keeps it: the
+/// device, its kernels and the shaders are set up once, and each still
+/// restates the scene in place (the translator builds again only what
+/// changed). renderScene() is one of these used once. A still that
+/// changes the device, the samples or the colour management starts a
+/// session afresh. Not thread safe: one caller at a time.
+class RendererExport StillSession
+{
+public:
+    StillSession();
+    ~StillSession();
+    StillSession(const StillSession &) = delete;
+    StillSession &operator=(const StillSession &) = delete;
+
+    /// As renderScene(); \a report's seconds are this still's
+    bool render(const SceneInput &scene,
+                const std::string &path,
+                int samples,
+                const std::string &deviceType,
+                std::string *error,
+                RenderReport *report = nullptr,
+                const StillOptions &still = StillOptions());
+    /// How many sessions it has started (1 while it kept its first)
+    int sessions() const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl;
+};
+
 /// How the viewport session renders (docs/CyclesIntegration.md sec
 /// 5.2 and step 11 of sec 8).
 struct ViewportOptions {

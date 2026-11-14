@@ -841,6 +841,9 @@ struct View3DInventorViewer::Private
     /// so a frame can tell a restated scene or setting from a camera
     /// move. Fed from renderScene() just before the backend's frame.
     std::unique_ptr<Render::Cycles::Viewport> cyclesViewport;
+    /// The session renderWithCycles keeps between stills when asked to
+    /// (the frames of an export), until a still that does not keep it
+    std::unique_ptr<Render::Cycles::StillSession> cyclesStill;
     /// What the running session was created with, so syncExternalShading
     /// can tell an option that moved from a write that restated the same
     /// value and only restart the session for the former.
@@ -2541,7 +2544,7 @@ bool View3DInventorViewer::renderWithCycles(const std::string &path, int width, 
                                             int samples, const std::string &device,
                                             std::string *error,
                                             Render::Cycles::RenderReport *report,
-                                            bool denoise, int seed)
+                                            bool denoise, int seed, bool keep)
 {
     auto fail = [error](const char *message) {
         if (error)
@@ -2613,7 +2616,19 @@ bool View3DInventorViewer::renderWithCycles(const std::string &path, int width, 
     Render::Cycles::StillOptions still;
     still.denoise = denoise;
     still.seed = seed;
+    if (keep) {
+        if (!_pimpl->cyclesStill)
+            _pimpl->cyclesStill = std::make_unique<Render::Cycles::StillSession>();
+        return _pimpl->cyclesStill->render(input, path, samples, device, error, report, still);
+    }
+    // Not kept: one used once, and a session kept before let go
+    _pimpl->cyclesStill.reset();
     return Render::Cycles::renderScene(input, path, samples, device, error, report, still);
+}
+
+void View3DInventorViewer::releaseCyclesStill()
+{
+    _pimpl->cyclesStill.reset();
 }
 
 bool View3DInventorViewer::setCyclesViewport(const Render::Cycles::ViewportOptions *options,

@@ -199,7 +199,7 @@ chrome included, when that is what you want.</UserDocu>
     </Methode>
     <Methode Name="cyclesRender" Keyword="true">
       <Documentation>
-        <UserDocu>cyclesRender(path, width=640, height=480, samples=64, device='CPU', wait=True, denoise=False, seed=0) -> dict
+        <UserDocu>cyclesRender(path, width=640, height=480, samples=64, device='CPU', wait=True, denoise=False, seed=0, keep=False) -> dict
 
 Path trace this view with the Cycles engine to a PNG at path
 (docs/CyclesIntegration.md phase 3): the view's render-cache scene,
@@ -214,10 +214,21 @@ bridge (render cache mode 3) and a build with BUILD_CYCLES.
 denoise=True runs OpenImageDenoise on the result at its final-render
 settings; seed is the sampling pattern's (a frame of a sequence gives
 its own, or the noise stands still on the screen as the scene moves).
+keep=True keeps the Cycles session for the next still (the frames of an
+export): the device, its kernels and the shaders are set up once and the
+scene restated in place; a call without keep, or cyclesRelease(), lets
+it go.
 
 Returns a dict of what the translation made of the scene: meshes,
 objects, shaders, triangles, skipped (draws with no path-traced
 form: lines, points, gizmos, effect volumes), seconds.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="cyclesRelease">
+      <Documentation>
+        <UserDocu>cyclesRelease()
+
+Let go of the Cycles session cyclesRender(keep=True) kept, if any.</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="cyclesViewport" Keyword="true">

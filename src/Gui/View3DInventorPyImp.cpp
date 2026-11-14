@@ -969,13 +969,15 @@ PyObject* View3DInventorPy::cyclesRender(PyObject *args, PyObject *kwds)
     PyObject *waitObj = Py_True;
     PyObject *denoiseObj = Py_False;
     int seed = 0;
+    PyObject *keepObj = Py_False;
     static char *kwlist[] = {"path", "width", "height", "samples", "device", "wait",
-                             "denoise", "seed", nullptr};
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "et|iiisOOi", kwlist,
+                             "denoise", "seed", "keep", nullptr};
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "et|iiisOOiO", kwlist,
                                      "utf-8", &cPath, &width, &height, &samples, &device,
-                                     &waitObj, &denoiseObj, &seed))
+                                     &waitObj, &denoiseObj, &seed, &keepObj))
         return nullptr;
     const bool denoise = PyObject_IsTrue(denoiseObj) > 0;
+    const bool keep = PyObject_IsTrue(keepObj) > 0;
     std::string path(cPath);
     PyMem_Free(cPath);
 
@@ -997,7 +999,7 @@ PyObject* View3DInventorPy::cyclesRender(PyObject *args, PyObject *kwds)
     // Python; the snapshot before it is Coin, not Python, either.
     Py_BEGIN_ALLOW_THREADS
     ok = viewer->renderWithCycles(path, width, height, samples, device, &error, &report,
-                                  denoise, seed);
+                                  denoise, seed, keep);
     Py_END_ALLOW_THREADS
     if (!ok) {
         PyErr_SetString(PyExc_RuntimeError, error.c_str());
@@ -1012,6 +1014,14 @@ PyObject* View3DInventorPy::cyclesRender(PyObject *args, PyObject *kwds)
     dict.setItem("skipped", Py::Long(report.skipped));
     dict.setItem("seconds", Py::Float(report.seconds));
     return Py::new_reference_to(dict);
+}
+
+PyObject* View3DInventorPy::cyclesRelease(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    getView3DInventorPtr()->getViewer()->releaseCyclesStill();
+    Py_Return;
 }
 
 PyObject* View3DInventorPy::cyclesViewport(PyObject *args, PyObject *kwds)

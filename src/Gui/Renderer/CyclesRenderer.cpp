@@ -92,6 +92,21 @@ bool renderScene(const SceneInput &, const std::string &, int, const std::string
     return false;
 }
 
+struct StillSession::Impl {};
+StillSession::StillSession() = default;
+StillSession::~StillSession() = default;
+bool StillSession::render(const SceneInput &, const std::string &, int, const std::string &,
+                          std::string *error, RenderReport *, const StillOptions &)
+{
+    if (error)
+        *error = "this build carries no Cycles engine (BUILD_CYCLES is off)";
+    return false;
+}
+int StillSession::sessions() const
+{
+    return 0;
+}
+
 std::unique_ptr<Viewport> Viewport::create(const ViewportOptions &, std::string *error)
 {
     if (error)
@@ -331,13 +346,48 @@ bool writePng(const std::string &path,
 
 }  // namespace
 
-bool renderScene(const SceneInput &input,
-                 const std::string &path,
-                 int samples,
-                 const std::string &deviceType,
-                 std::string *error,
-                 RenderReport *report,
-                 const StillOptions &still)
+/// The kept session's state: what it was made for, and what it renders
+/// into. The translator holds the session's scene, so it goes first.
+struct StillSession::Impl {
+    std::unique_ptr<ccl::Session> session;
+    std::unique_ptr<SceneTranslator> translator;
+    CaptureDriver *capture = nullptr;
+    ccl::SessionParams sp;
+    std::string device;
+    int samples = 0;
+    bool managed = false;
+    int sessions = 0;
+
+    void release()
+    {
+        translator.reset();
+        session.reset();
+        capture = nullptr;
+    }
+    ~Impl()
+    {
+        release();
+    }
+};
+
+StillSession::StillSession()
+    : impl(std::make_unique<Impl>())
+{}
+
+StillSession::~StillSession() = default;
+
+int StillSession::sessions() const
+{
+    return impl->sessions;
+}
+
+bool StillSession::render(const SceneInput &input,
+                          const std::string &path,
+                          int samples,
+                          const std::string &deviceType,
+                          std::string *error,
+                          RenderReport *report,
+                          const StillOptions &still)
 {
     auto fail = [error](const std::string &message) {
         if (error)
@@ -350,41 +400,56 @@ bool renderScene(const SceneInput &input,
         return fail("width, height and samples must be positive");
 
     initEngine();
-    std::string message;
-    ccl::SessionParams sp;
-    if (!offlineSessionParams(deviceType, samples, sp, message))
-        return fail(message);
-    ccl::SceneParams scp;
-
-    auto session = std::make_unique<ccl::Session>(sp, scp);
-    auto driver = std::make_unique<CaptureDriver>();
-    CaptureDriver *capture = driver.get();
-    session->set_output_driver(std::move(driver));
-
+    Impl &d = *impl;
     const bool managed = input.output.transform == OutputConfig::SRGB;
+    // The session is kept while it can serve: the same device, samples
+    // and colour management (the translator decodes colours on their way
+    // in), and no error left in it
+    if (!d.session || d.device != deviceType || d.samples != samples || d.managed != managed
+        || d.session->progress.get_error()) {
+        d.release();
+        std::string message;
+        ccl::SessionParams sp;
+        if (!offlineSessionParams(deviceType, samples, sp, message))
+            return fail(message);
+        ccl::SceneParams scp;
+        d.session = std::make_unique<ccl::Session>(sp, scp);
+        auto driver = std::make_unique<CaptureDriver>();
+        d.capture = driver.get();
+        d.session->set_output_driver(std::move(driver));
+        d.translator = std::make_unique<SceneTranslator>(d.session->scene.get(), managed);
+        ccl::Pass *pass = d.session->scene->create_node<ccl::Pass>();
+        pass->set_name(ccl::ustring("combined"));
+        pass->set_type(ccl::PASS_COMBINED);
+        d.sp = sp;
+        d.device = deviceType;
+        d.samples = samples;
+        d.managed = managed;
+        ++d.sessions;
+    }
+
     RenderReport local;
     RenderReport &rep = report ? *report : local;
-    SceneTranslator translator(session->scene.get(), managed);
-    translator.translate(input, rep);
-    if (rep.objects == 0)
-        return fail("nothing to render: the scene has no surface draws");
-
-    ccl::Integrator *integrator = session->scene->integrator;
-    integrator->set_seed(still.seed);
-    if (still.denoise) {
+    {
+        // The session thread is waiting between stills; the lock is the
+        // scene's own, as the viewport takes it to restate in place
+        std::lock_guard<ccl::thread_mutex> lock(d.session->scene->mutex);
+        d.translator->translate(input, rep);
+        ccl::Integrator *integrator = d.session->scene->integrator;
+        integrator->set_seed(still.seed);
         // The final render's settings, as Blender's are: the viewport's
         // fast ones (CyclesViewport) trade quality for a denoise between
         // samples, and a still is denoised once
-        integrator->set_use_denoise(true);
-        integrator->set_denoiser_type(ccl::DENOISER_OPENIMAGEDENOISE);
-        integrator->set_denoiser_quality(ccl::DENOISER_QUALITY_HIGH);
-        integrator->set_denoiser_prefilter(ccl::DENOISER_PREFILTER_ACCURATE);
-        integrator->set_denoise_use_gpu(true);
+        integrator->set_use_denoise(still.denoise);
+        if (still.denoise) {
+            integrator->set_denoiser_type(ccl::DENOISER_OPENIMAGEDENOISE);
+            integrator->set_denoiser_quality(ccl::DENOISER_QUALITY_HIGH);
+            integrator->set_denoiser_prefilter(ccl::DENOISER_PREFILTER_ACCURATE);
+            integrator->set_denoise_use_gpu(true);
+        }
     }
-
-    ccl::Pass *pass = session->scene->create_node<ccl::Pass>();
-    pass->set_name(ccl::ustring("combined"));
-    pass->set_type(ccl::PASS_COMBINED);
+    if (rep.objects == 0)
+        return fail("nothing to render: the scene has no surface draws");
 
     ccl::BufferParams bp;
     bp.width = width;
@@ -392,24 +457,38 @@ bool renderScene(const SceneInput &input,
     bp.full_width = width;
     bp.full_height = height;
 
+    d.capture->done = false;
     const auto t0 = std::chrono::steady_clock::now();
-    session->reset(sp, bp);
-    session->start();
-    session->wait();
+    d.session->reset(d.sp, bp);
+    d.session->start();
+    d.session->wait();
     rep.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
-    if (session->progress.get_error())
-        return fail("Cycles: " + session->progress.get_error_message());
-    if (!capture->done)
+    if (d.session->progress.get_error())
+        return fail("Cycles: " + d.session->progress.get_error_message());
+    if (!d.capture->done)
         return fail("Cycles produced no frame");
     // A debug view is a measurement, not a picture: written raw over
     // black, as the raster path shows it (its output transform is off
     // whenever a view mode is on, and its background is black).
     const bool debug = input.debugView != 0;
-    if (!writePng(path, capture->width, capture->height, capture->pixels,
+    std::string message;
+    if (!writePng(path, d.capture->width, d.capture->height, d.capture->pixels,
                   debug ? Background() : input.background, managed && !debug, message))
         return fail(message);
     return true;
+}
+
+bool renderScene(const SceneInput &input,
+                 const std::string &path,
+                 int samples,
+                 const std::string &deviceType,
+                 std::string *error,
+                 RenderReport *report,
+                 const StillOptions &still)
+{
+    StillSession once;
+    return once.render(input, path, samples, deviceType, error, report, still);
 }
 
 bool renderTestScene(const std::string &path,

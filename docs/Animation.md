@@ -1052,13 +1052,20 @@ camera track plays only in the view it was keyed in, or in the export view.
   stands still on the screen while the scene moves under it. Measured on
   the mini's M2 (Metal, after the StackAllocator fix of
   CyclesIntegration.md sec 9): the manual's 151 frames at 480 x 270, 32
-  samples, denoised, 147 s -- under a second a frame, most of it the
-  session each still starts; at 640 x 360 the CPU takes 2.4 s a frame at
-  128 samples and Metal 1.5 s. The tracer has no surface for the effect
-  volumes (water, fire, cloud, fountain) or for lines, so those are not in
-  the frames. Each frame is a session of its own; the viewport's
-  incremental scene update (CyclesIntegration.md sec 5.10) would spare
-  the translation, at the cost of keeping a session through the export.
+  samples, denoised, 147 s with a session a frame; at 640 x 360 the CPU
+  takes 2.4 s a frame at 128 samples and Metal 1.5 s. A still's fixed
+  cost was most of it: measured at 480 x 270 on Metal, 0.52 s at 1 sample,
+  0.62 at 32, 0.94 at 128 -- 3 ms a sample over half a second of session
+  set-up, device update and translation. So the export keeps one session
+  through its frames (`Render::Cycles::StillSession`, `cyclesRender(...,
+  keep=True)`, `cyclesRelease()`; Blender's persistent data): the device,
+  its kernels and the shaders once, the scene restated in place under its
+  mutex as the viewport restates it (CyclesIntegration.md sec 5.10), and
+  the session reset and started again. The 151 frames: 76 s, 0.50 s a
+  frame, a frame of the kept session identical to the one a fresh session
+  makes of the same Time and seed. The tracer has no surface for the
+  effect volumes (water, fire, cloud, fountain) or for lines, so those
+  are not in the frames.
 
 ### 9.1 Streaming, as built
 

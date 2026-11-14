@@ -188,6 +188,25 @@ def run():
                   and all(os.path.isfile(f) for f in tfiles)
                   and (tfirst.width(), tfirst.height()) == (160, 120), done)
             check("the box moves in them", not tfirst.isNull() and tfirst != tlast)
+            # One session kept through the frames: the last frame is the
+            # one a session of its own makes of the same Time and seed
+            anim.Time = 1.0
+            if not anim.Active:
+                anim.activate()
+            pump(0.3)
+            alone = os.path.join(OUT, "alone.png")
+            view.cyclesRender(alone, 160, 120, 8, "CPU", True, False, 10)
+            anim.stop()
+            pump(0.2)
+            a, b = QtGui.QImage(alone), QtGui.QImage(tfiles[-1])
+            worst = 0
+            for y in range(0, a.height(), 2):
+                for x in range(0, a.width(), 2):
+                    p, q = a.pixel(x, y), b.pixel(x, y)
+                    worst = max(worst, max(abs(((p >> s) & 255) - ((q >> s) & 255))
+                                           for s in (0, 8, 16)))
+            check("a frame of the kept session is the frame a fresh one makes",
+                  not a.isNull() and worst <= 2, worst)
             raster = os.path.join(OUT, "raster.png")
             videoexport.exportAnimation(anim, raster, size=(160, 120), renderer="Raster")
             check("and they are not the raster's frames",

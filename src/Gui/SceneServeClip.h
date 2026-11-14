@@ -96,6 +96,15 @@ public:
     {
         return blobBytes;
     }
+    /** A click a viewer made on an object it had moved by the clip
+     * \a clipId to \a time: the ray (\a origin, \a dir, world) moved by
+     * that object's move from \a time to the Time the host is at, so that
+     * it meets the object where the host has it as it met it where the
+     * viewer drew it. False, the ray untouched, when the clip is not this
+     * one, the object no track of it, or no Animation poses the document.
+     */
+    bool movePick(uint32_t clipId, double time, uint64_t key, float origin[3],
+                  float dir[3]) const;
 
 private:
     App::Animation* animation() const;

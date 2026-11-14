@@ -298,6 +298,58 @@ def run():
               and abs(tick["t"] - paused) < 1e-6 and tick["baseActive"]
               and abs(tick["base"] - paused) < 1e-6, (paused, tick))
 
+        # A click a viewer made on the box where it drew it, a second away
+        # on the clock from the host: the pick names the clip, that Time and
+        # the box, and the host moves the ray to meet the box where it has it
+        import Part
+
+        picker = WS(port)
+        picker.hello("picker")
+        picker.next_binary(20.0)
+        down = App.Vector(0, 0, -1)
+        # A Time at which a ray straight down through the box's centre
+        # misses the box where the host has it now
+        misses_here = False
+        for step in range(5, 16):
+            drawn_at = (paused + 0.1 * step) % 2.0
+            centre = anim.value("Box.Placement", drawn_at).multVec(App.Vector(5, 5, 5))
+            origin = centre + App.Vector(0, 0, 50)
+            ray = Part.LineSegment(origin, origin + down * 100).toShape()
+            if box.Shape.distToShape(ray)[0] > 1e-3:
+                misses_here = True
+                break
+
+        def pick(timed):
+            msg = struct.pack("<cB6f", b"P", 0, origin.x, origin.y, origin.z,
+                              down.x, down.y, down.z)
+            if timed:
+                msg += struct.pack("<IdQ", clip["id"], drawn_at, int(clip["keys"][0], 16))
+            picker.send(2, msg)
+            # What it selected comes back to this client alone
+            end = clock() + 3.0
+            while clock() < end:
+                pump(0.05)
+                text = picker.next_text(0.05)
+                if not text:
+                    continue
+                try:
+                    said = jsonlib.loads(text.decode("utf-8"))
+                except Exception:
+                    continue
+                if said.get("cmd") == "selection":
+                    return [item.get("obj") for item in said.get("items", [])]
+            return None
+
+        # The timed one first: the untimed one then has a box to clear,
+        # and says so (a miss that changes nothing tells nothing back)
+        timed, untimed = pick(True), pick(False)
+        picker.close()
+        check("the ray where the viewer drew the box misses it where the host has it",
+              misses_here and untimed is not None and "Box" not in untimed,
+              (drawn_at, paused, untimed))
+        check("with the clip's Time and the box, the host moves it: the box is picked",
+              timed == ["Box"], timed)
+
         # --- an Animation that rebuilds a shape and hides an object as well
         t4 = clock()
         anim.addKey("Still.Height", 0.0, 10.0)

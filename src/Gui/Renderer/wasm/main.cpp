@@ -3195,7 +3195,10 @@ static void applyPeerSelection(const char *json)
 /// and re-applies this one. The ruling is sec 8.2a's: a click round-trips
 /// because selection feeds the tree, the property panel and everything
 /// behind Gui::Selection(); a hover never does.
-static void sendPick(float px, float py, uint8_t flags);
+static void sendPick(float px, float py, uint8_t flags, uint64_t hitKey = 0);
+/// Whether \a key is an object this viewer drew moved by the clip, and if
+/// so the clip's id and the Time it was drawn at (defined with the clip)
+static bool clipPickTail(uint64_t key, uint32_t &clip, double &at);
 
 /// What a click MEANS, which is what goes up the wire (sec 8.5).
 ///
@@ -3314,7 +3317,7 @@ static void selectAt(float px, float py, bool ctrl, bool shift = false)
     flags |= shift ? PickExtend : (multi ? PickToggle : PickReplace);
     if (wholeScope)
         flags |= kPickWholeObject;
-    sendPick(px, py, flags);
+    sendPick(px, py, flags, dc.objectKey);
 }
 
 /// One on-view parameter, as far as this viewer is concerned
@@ -4660,18 +4663,32 @@ static void tickCameraUplink()
 /// the ~1500 call sites behind Gui::Selection() are all on that side, and
 /// the ruling of sec 8.2a is that a click round-trips while a hover does
 /// not. The echo is merged, never applied over the local state.
-static void sendPick(float px, float py, uint8_t flags)
+static void sendPick(float px, float py, uint8_t flags, uint64_t hitKey)
 {
     if (!s_wsOpen || s_ws <= 0)
         return;
 
     bx::Vec3 orig(bx::InitZero), rdir(bx::InitZero);
     screenRay(px, py, orig, rdir);
-    uint8_t pick[2 + 6 * sizeof(float)];
+    // A click on an object this viewer moved by the clip carries the clip,
+    // the Time it was drawn at and the object (docs/Animation.md sec 9.1):
+    // the host, a frame or so elsewhere on its own clock, moves the ray by
+    // that object's move between the two before it resolves it
+    uint32_t clipId = 0;
+    double drawnAt = 0.0;
+    const bool timed = hitKey && clipPickTail(hitKey, clipId, drawnAt);
+    uint8_t pick[2 + 6 * sizeof(float) + 4 + 8 + 8];
+    const size_t pickSize = 2 + 6 * sizeof(float) + (timed ? 20 : 0);
     pick[0] = 'P';
     pick[1] = flags;
     const float v[6] = {orig.x, orig.y, orig.z, rdir.x, rdir.y, rdir.z};
     std::memcpy(pick + 2, v, sizeof(v));
+    if (timed) {
+        uint8_t *tail = pick + 2 + sizeof(v);
+        std::memcpy(tail, &clipId, 4);
+        std::memcpy(tail + 4, &drawnAt, 8);
+        std::memcpy(tail + 12, &hitKey, 8);
+    }
 
     // The camera goes with the click, and the policy decides how. The
     // server resolves the ray against the camera it last heard about, so
@@ -4693,8 +4710,8 @@ static void sendPick(float px, float py, uint8_t flags)
             uint8_t both[1 + sizeof(cam) + sizeof(pick)];
             both[0] = 'Q';
             std::memcpy(both + 1, cam, sizeof(cam));
-            std::memcpy(both + 1 + sizeof(cam), pick, sizeof(pick));
-            emscripten_websocket_send_binary(s_ws, both, sizeof(both));
+            std::memcpy(both + 1 + sizeof(cam), pick, pickSize);
+            emscripten_websocket_send_binary(s_ws, both, uint32_t(1 + sizeof(cam) + pickSize));
             markCameraFrameSent(cam);
             return;
         }
@@ -4705,7 +4722,7 @@ static void sendPick(float px, float py, uint8_t flags)
     else {
         sendCameraFrame(/*force*/ true);
     }
-    emscripten_websocket_send_binary(s_ws, pick, sizeof(pick));
+    emscripten_websocket_send_binary(s_ws, pick, uint32_t(pickSize));
 }
 
 // ---- Uplink: this client's pointer and keys, while it is editing ------
@@ -6887,6 +6904,15 @@ static void clipPose(double time)
     s_clipShown = time;
     s_clipBlobLanded = false;
     ++s_clipPoses;
+}
+
+static bool clipPickTail(uint64_t key, uint32_t &clip, double &at)
+{
+    if (!s_clipPosed || !s_clip.id || s_clipTracks.count(key) == 0)
+        return false;
+    clip = s_clip.id;
+    at = s_clipShown;
+    return true;
 }
 
 /// The scene to the renderer again, its draws moved; what is drawn over

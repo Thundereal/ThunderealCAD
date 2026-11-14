@@ -90,6 +90,31 @@ bool SceneServeClip::playing() const
     return animation() && AnimationPlayer::instance()->isPlaying();
 }
 
+bool SceneServeClip::movePick(uint32_t clipId, double time, uint64_t key, float origin[3],
+                              float dir[3]) const
+{
+    if (!valid || !clipId || clipId != theClip.id || theClip.empty())
+        return false;
+    App::Animation* anim = animation();
+    if (!anim || !anim->Active.getValue())
+        return false;
+    auto it = std::find(theClip.keys.begin(), theClip.keys.end(), key);
+    if (it == theClip.keys.end())
+        return false;
+    const size_t track = size_t(it - theClip.keys.begin());
+    // Where the host has it now, from where the viewer drew it
+    double x[16];
+    if (!theClip.moveBetween(track, time, anim->Time.getValue(), x))
+        return false;
+    const double o[3] = {origin[0], origin[1], origin[2]};
+    const double d[3] = {dir[0], dir[1], dir[2]};
+    for (int r = 0; r < 3; ++r) {
+        origin[r] = float(x[r] * o[0] + x[4 + r] * o[1] + x[8 + r] * o[2] + x[12 + r]);
+        dir[r] = float(x[r] * d[0] + x[4 + r] * d[1] + x[8 + r] * d[2]);
+    }
+    return true;
+}
+
 bool SceneServeClip::holding() const
 {
     return valid && theClip.exact && !theClip.empty() && !told.empty() && playing()

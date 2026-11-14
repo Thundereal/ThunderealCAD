@@ -1963,8 +1963,14 @@ void SceneServeSource::installHandlers()
                 // What a client does is the client's (docs/TransactionLogJournal.md
                 // sec 30.3 S.b): a pick may run a command.
                 App::ActorScope actor(SceneActors::of(r.client));
-                self->pickAndSelect(SbVec3f(r.origin[0], r.origin[1], r.origin[2]),
-                                    SbVec3f(r.dir[0], r.dir[1], r.dir[2]),
+                // A click on an object the viewer moved by the clip, at its
+                // own Time: the ray moved to meet it where it is here
+                float origin[3] = {r.origin[0], r.origin[1], r.origin[2]};
+                float dir[3] = {r.dir[0], r.dir[1], r.dir[2]};
+                if (r.clip && self->pimpl->clip)
+                    self->pimpl->clip->movePick(r.clip, r.clipTime, r.objectKey, origin, dir);
+                self->pickAndSelect(SbVec3f(origin[0], origin[1], origin[2]),
+                                    SbVec3f(dir[0], dir[1], dir[2]),
                                     r.modifiers, r.client);
             }
         }, Qt::QueuedConnection);

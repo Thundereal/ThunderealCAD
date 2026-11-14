@@ -1178,6 +1178,24 @@ the clip, the raster viewers still playing the clip between them. The
 stream traces each pose it is given, so while it plays it shows a few
 samples a frame, and it converges once the animation pauses.
 
+**A click lands on what the viewer drew** (2026-11-14). The viewer
+resolves a click against the draws as it moved them, the host against
+its scene at its own Time, and while it plays the two are a frame or more
+apart -- more over a slow link, and a click on a moving part could miss
+on the host or take what moved in front of it there. A click whose local
+hit is an object the clip moves now carries the clip's id, the Time the
+viewer drew it at (`s_clipShown`) and that object's key: a 20-byte tail on
+the `'P'` frame (and inside a `'Q'`) -- a server older than it would drop
+such a pick, its size unknown; the viewer and the server ship together --
+which the server reads into `ScenePickRequest::clip`,
+`clipTime`, `objectKey`. The host moves the ray by that object's move from
+that Time to its own (`SceneServeClip::movePick`, the clip's
+`moveBetween`) before it picks, so the ray meets the object where the
+host has it as it met it where the viewer drew it. Measured in
+tests/gui/serve-animation.py on the paused host: a ray straight down
+through the box where it was drawn 1.1 s away misses the box on the host
+and selects nothing; the same ray with the tail picks the box.
+
 **A real edit makes the clip stale.** Any change not made by the
 Animation, a change of its tracks or range, an object added or removed:
 the viewers are told there is no clip, publishes flow, and if it is still
@@ -1211,9 +1229,6 @@ Not in this cut:
 - **Looks are the compared fields only**: a change the Animation makes to
   a material field outside them (a texture, a PBR parameter) is not in the
   clip, as before.
-- **Picking while it plays** in the browser is against the draws as the
-  viewer has moved them, but the host resolves the pick in the pose its
-  own clock is at; the two agree to within a frame, not exactly.
 - The clip rides the control channel as base64: a few hundred kilobytes
   for some tens of moving objects, sent once per bake.
 

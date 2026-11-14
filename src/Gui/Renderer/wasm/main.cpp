@@ -6687,6 +6687,8 @@ static void feedOverlays()
 static Render::MotionClip s_clip;
 static std::unordered_map<uint64_t, size_t> s_clipTracks;
 static std::unordered_map<uint64_t, size_t> s_clipSeqs;
+/// Track number -> its row of looks, for the tracks whose looks change
+static std::unordered_map<size_t, size_t> s_clipLookRows;
 static Render::MotionClock s_clock;
 /// emscripten_get_now() when s_clock arrived
 static double s_clockAt = 0.0;
@@ -6714,6 +6716,8 @@ static unsigned s_clipPoses = 0;
 static size_t s_clipMoved = 0;
 static size_t s_clipSwapped = 0;
 static size_t s_clipHidden = 0;
+/// Draws whose looks the last pose set
+static size_t s_clipLooked = 0;
 
 static void clipWantBlobs();
 
@@ -6791,7 +6795,33 @@ static void clipPose(double time)
                 swap[i] = 2;
         }
     }
-    size_t moved = 0, swapped = 0, hidden = 0;
+    size_t moved = 0, swapped = 0, hidden = 0, looked = 0;
+    // The looks of each track whose looks change, at this time, and which
+    // of its slots a draw has taken this pose (a draw finds its record by
+    // what it is, not by where it is in the publish)
+    std::vector<std::vector<Render::MotionLook>> rowLooks(s_clip.lookTracks.size());
+    std::vector<std::vector<uint8_t>> rowUsed(s_clip.lookTracks.size());
+    auto applyLook = [&](size_t k, Render::DrawCall &d) {
+        auto ri = s_clipLookRows.find(k);
+        if (ri == s_clipLookRows.end())
+            return;
+        const size_t r = ri->second;
+        const size_t n = s_clip.lookCount[r];
+        if (rowLooks[r].empty()) {
+            s_clip.looksAt(r, time, rowLooks[r]);
+            rowUsed[r].assign(n, 0);
+        }
+        const Render::MotionSlot *slots = &s_clip.lookSlots[s_clip.lookSlotStart(r)];
+        const Render::MotionSlot mine = Render::MotionSlot::of(d);
+        for (size_t j = 0; j < n; ++j) {
+            if (!rowUsed[r][j] && slots[j] == mine) {
+                rowUsed[r][j] = 1;
+                rowLooks[r][j].applyTo(d.material);
+                ++looked;
+                return;
+            }
+        }
+    };
     Render::DrawCallList out;
     out.reserve(s_clipRaw.size());
     for (const Render::DrawCall &d : s_clipRaw) {
@@ -6816,6 +6846,7 @@ static void clipPose(double time)
                     Render::Motion::moveDraw(out.back(), &moves[k * 16]);
                     ++moved;
                 }
+                applyLook(k, out.back());
                 continue;
             }
         }
@@ -6842,6 +6873,7 @@ static void clipPose(double time)
             for (const Render::DrawCall &d : *s_clipBlobDraws[size_t(blob)]) {
                 out.push_back(d);
                 Render::Motion::moveDraw(out.back(), x);
+                applyLook(k, out.back());
                 ++swapped;
             }
         }
@@ -6850,6 +6882,7 @@ static void clipPose(double time)
     s_clipMoved = moved;
     s_clipSwapped = swapped;
     s_clipHidden = hidden;
+    s_clipLooked = looked;
     s_clipPosed = true;
     s_clipShown = time;
     s_clipBlobLanded = false;
@@ -6935,6 +6968,9 @@ static void applyClip(const char *json)
     s_clipSeqs.clear();
     for (size_t i = 0; i < s_clip.seqKeys.size(); ++i)
         s_clipSeqs[s_clip.seqKeys[i]] = i;
+    s_clipLookRows.clear();
+    for (size_t r = 0; r < s_clip.lookTracks.size(); ++r)
+        s_clipLookRows[s_clip.lookTracks[r]] = r;
     s_clipBlobDraws.assign(s_clip.blobs.size(), nullptr);
     s_clipBlobWanted.clear();
     s_clipBlobsIn = 0;
@@ -6965,16 +7001,18 @@ static void applyClock(const char *json)
 extern "C" EMSCRIPTEN_KEEPALIVE const char *fcviewer_animation_state()
 {
     static std::string out;
-    char buf[480];
+    char buf[560];
     double base = 0.0;
     const bool based = clipBase(base);
     std::snprintf(buf, sizeof(buf),
-                  "{\"clip\":%u,\"tracks\":%zu,\"sequences\":%zu,\"blobs\":%zu,"
+                  "{\"clip\":%u,\"tracks\":%zu,\"sequences\":%zu,\"lookTracks\":%zu,"
+                  "\"blobs\":%zu,"
                   "\"blobsIn\":%zu,\"frames\":%u,\"clock\":%u,"
                   "\"active\":%s,\"playing\":%s,\"plays\":%s,\"time\":%.9g,"
                   "\"base\":%.9g,\"based\":%s,\"poses\":%u,\"moved\":%zu,"
-                  "\"swapped\":%zu,\"hidden\":%zu,\"version\":%llu}",
-                  s_clip.id, s_clip.keys.size(), s_clip.seqKeys.size(), s_clip.blobs.size(),
+                  "\"swapped\":%zu,\"hidden\":%zu,\"looked\":%zu,\"version\":%llu}",
+                  s_clip.id, s_clip.keys.size(), s_clip.seqKeys.size(),
+                  s_clip.lookTracks.size(), s_clip.blobs.size(),
                   s_clipBlobsIn, s_clip.frames, s_clock.clip,
                   s_clock.active ? "true" : "false",
                   s_clock.playing ? "true" : "false",
@@ -6983,6 +7021,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char *fcviewer_animation_state()
                   s_clipPosed ? s_clipMoved : size_t(0),
                   s_clipPosed ? s_clipSwapped : size_t(0),
                   s_clipPosed ? s_clipHidden : size_t(0),
+                  s_clipPosed ? s_clipLooked : size_t(0),
                   (unsigned long long)s_sceneVersion);
     out = buf;
     return out.c_str();

@@ -154,6 +154,8 @@ def run():
         still.Placement.Base = App.Vector(30, 0, 0)
         lamp = doc.addObject("Part::Box", "Lamp")
         lamp.Placement.Base = App.Vector(-30, 0, 0)
+        paint = doc.addObject("Part::Box", "Paint")
+        paint.Placement.Base = App.Vector(0, 30, 0)
         doc.recompute()
         anim = doc.addObject("App::Animation", "Anim")
         anim.FrameRate = 20
@@ -386,6 +388,43 @@ def run():
         named = [f[2] for f in client.since(t6, "time") if f[2].get("baseActive")]
         check("each of those named with its Time", len(named) >= 3, len(named))
         hGrp.RemInt("StreamBlobMB")
+        Gui.runCommand("Std_AnimationStop")
+        pump(0.5)
+
+        # --- a transparency that changes: a record a frame, not a blob
+        anim.addKey("Paint.ViewObject.Transparency", 0.0, 0)
+        anim.addKey("Paint.ViewObject.Transparency", 2.0, 80)
+        pump(0.3)
+        t10 = clock()
+        Gui.runCommand("Std_AnimationPlay")
+        pump(1.5)
+        clip6 = client.last("clip", t10)
+        looked = clip6["lookTracks"] if clip6 else []
+        check("a fading object rides a track with its looks",
+              clip6 is not None and len(looked) == 1 and len(clip6["seqKeys"]) == 1
+              and clip6["lookCount"][0] >= 1,
+              clip6 and (looked, clip6["lookCount"], clip6["seqKeys"]))
+        if looked:
+            frames6 = clip6["frames"]
+            at = struct.unpack("<%di" % (len(base64.b64decode(clip6["lookAt"])) // 4),
+                               base64.b64decode(clip6["lookAt"]))
+            record = 40
+            looks = base64.b64decode(clip6["looks"])
+            row = looked[0]
+            check("its look changes from frame to frame",
+                  len(at) == frames6 and len(set(at)) > frames6 // 2
+                  and len(looks) % record == 0, (len(at), len(set(at))))
+            # The first draw's diffuse colour, RGBA: its alpha goes down
+            alpha = [struct.unpack_from("<I", looks, at[f] * record + 4)[0] & 0xFF
+                     for f in (0, frames6 - 1)]
+            check("from opaque to 80 % transparent", alpha[0] == 255 and 40 <= alpha[1] <= 60,
+                  alpha)
+            check("and no blob of it is kept",
+                  not clip6["refs"] or clip6["refs"][2 * row + 1] == -1, clip6["refs"])
+        t11 = clock()
+        pump(1.0)
+        flowing = client.since(t11, "scene")
+        check("nothing is published for it while it plays", len(flowing) == 0, len(flowing))
         Gui.runCommand("Std_AnimationStop")
         pump(0.5)
 

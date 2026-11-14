@@ -380,18 +380,146 @@ inline bool jsonBytes(const char *json, const char *name, std::vector<uint8_t> &
 
 }  // namespace Motion
 
+/// What a draw looks like, as far as an Animation changes it without
+/// changing its geometry: a colour, a transparency, a line's pattern or
+/// width, a style. The fields of Material that MotionClipBaker compares;
+/// the rest of a draw's material stays as the publish has it.
+struct MotionLook {
+    /// transparent 1, ontop 2, lighting 4, twoside 8, pervertexcolor 16,
+    /// perfacematerial 32, depthtest 64, depthwrite 128; drawstyle << 8
+    uint32_t bits = 0;
+    uint32_t diffuse = 0;
+    uint32_t emissive = 0;
+    uint32_t specular = 0;
+    uint32_t ambient = 0;
+    uint32_t linecolor = 0;
+    uint32_t linepattern = 0;
+    float shininess = 0.0f;
+    float linewidth = 0.0f;
+    float pointsize = 0.0f;
+
+    static MotionLook of(const Material &m)
+    {
+        MotionLook l;
+        l.bits = (m.transparent ? 1U : 0U) | (m.ontop ? 2U : 0U) | (m.lighting ? 4U : 0U)
+            | (m.twoside ? 8U : 0U) | (m.pervertexcolor ? 16U : 0U)
+            | (m.perfacematerial ? 32U : 0U) | (m.depthtest ? 64U : 0U)
+            | (m.depthwrite ? 128U : 0U) | (uint32_t(m.drawstyle) << 8);
+        l.diffuse = m.diffuse;
+        l.emissive = m.emissive;
+        l.specular = m.specular;
+        l.ambient = m.ambient;
+        l.linecolor = m.linecolor;
+        l.linepattern = m.linepattern;
+        l.shininess = m.shininess;
+        l.linewidth = m.linewidth;
+        l.pointsize = m.pointsize;
+        return l;
+    }
+
+    void applyTo(Material &m) const
+    {
+        m.transparent = (bits & 1U) != 0;
+        m.ontop = (bits & 2U) != 0;
+        m.lighting = (bits & 4U) != 0;
+        m.twoside = (bits & 8U) != 0;
+        m.pervertexcolor = (bits & 16U) != 0;
+        m.perfacematerial = (bits & 32U) != 0;
+        m.depthtest = (bits & 64U) != 0;
+        m.depthwrite = (bits & 128U) != 0;
+        m.drawstyle = uint8_t((bits >> 8) & 0xffU);
+        m.diffuse = diffuse;
+        m.emissive = emissive;
+        m.specular = specular;
+        m.ambient = ambient;
+        m.linecolor = linecolor;
+        m.linepattern = linepattern;
+        m.shininess = shininess;
+        m.linewidth = linewidth;
+        m.pointsize = pointsize;
+    }
+
+    bool operator==(const MotionLook &o) const
+    {
+        return std::memcmp(this, &o, sizeof(MotionLook)) == 0;
+    }
+    bool operator!=(const MotionLook &o) const
+    {
+        return !(*this == o);
+    }
+
+    /// Between \a a and \a b, \a u of the way: the colours channel by
+    /// channel, the widths and shininess linearly. Where the flags or
+    /// patterns differ there is no between, and the nearer one is taken.
+    static MotionLook mix(const MotionLook &a, const MotionLook &b, double u)
+    {
+        if (a.bits != b.bits || a.linepattern != b.linepattern)
+            return u < 0.5 ? a : b;
+        auto rgba = [u](uint32_t x, uint32_t y) {
+            uint32_t out = 0;
+            for (int s = 0; s < 32; s += 8) {
+                const double p = double((x >> s) & 0xffU), q = double((y >> s) & 0xffU);
+                out |= uint32_t(std::lround(p + (q - p) * u)) << s;
+            }
+            return out;
+        };
+        auto lin = [u](float x, float y) {
+            return float(x + (y - x) * u);
+        };
+        MotionLook l = a;
+        l.diffuse = rgba(a.diffuse, b.diffuse);
+        l.emissive = rgba(a.emissive, b.emissive);
+        l.specular = rgba(a.specular, b.specular);
+        l.ambient = rgba(a.ambient, b.ambient);
+        l.linecolor = rgba(a.linecolor, b.linecolor);
+        l.shininess = lin(a.shininess, b.shininess);
+        l.linewidth = lin(a.linewidth, b.linewidth);
+        l.pointsize = lin(a.pointsize, b.pointsize);
+        return l;
+    }
+};
+static_assert(sizeof(MotionLook) == 40, "MotionLook rides the wire as it is laid out");
+
+/// Which of an object's draws a look is for: enough to find it again
+/// among the draws of a publish, whatever their order
+struct MotionSlot {
+    int32_t type = 0;
+    int32_t partIndex = -1;
+    int32_t indexStart = 0;
+    int32_t indexCount = 0;
+
+    static MotionSlot of(const DrawCall &d)
+    {
+        MotionSlot s;
+        s.type = int32_t(d.material.type);
+        s.partIndex = d.partIndex;
+        s.indexStart = d.indexStart;
+        s.indexCount = d.indexCount;
+        return s;
+    }
+    bool operator==(const MotionSlot &o) const
+    {
+        return type == o.type && partIndex == o.partIndex && indexStart == o.indexStart
+            && indexCount == o.indexCount;
+    }
+};
+
 /// The tracks of one bake: for each objectKey a pose per frame, against
 /// the first frame it was shown in.
 ///
-/// Two more kinds of what an Animation does to the feed ride along
+/// Three more kinds of what an Animation does to the feed ride along
 /// (docs/Animation.md sec 9.1):
 /// - a track's object may be hidden at some frames (`shown`). Its draws
 ///   at the frame its poses are measured from are a blob (`refBlob`),
 ///   so a viewer holding a publish taken while it was hidden can still
 ///   show it;
-/// - an object that does not move rigidly -- rebuilt, recoloured, its
-///   draws moving apart -- is a sequence: its draws at every frame are
-///   a blob each, and a viewer shows the one of the frame nearest.
+/// - a track's object may change how it looks -- a colour, a
+///   transparency -- with its geometry moved rigidly or not at all: its
+///   looks at every frame, a record a draw (`looks`), and a viewer sets
+///   them on the publish's draws;
+/// - an object that does not move rigidly -- rebuilt, its draws moving
+///   apart -- is a sequence: its draws at every frame are a blob each,
+///   and a viewer shows the one of the frame nearest.
 ///
 /// A blob is a self-contained scene snapshot (SceneDump) holding the
 /// object's draws, addressed by the SHA-1 of its bytes and served by
@@ -420,6 +548,16 @@ struct MotionClip {
     /// What the blob numbers above name: content keys, and their sizes
     std::vector<std::string> blobs;
     std::vector<uint32_t> blobSizes;
+    /// The tracks whose objects change how they look, by track number:
+    /// row r is track lookTracks[r], whose draws lookSlots name --
+    /// lookCount[r] of them, the rows' slots one after another. lookAt is
+    /// lookTracks.size() x frames: where in `looks` that frame's records
+    /// start, one a slot. Frames that look alike share their records.
+    std::vector<uint32_t> lookTracks;
+    std::vector<uint32_t> lookCount;
+    std::vector<MotionSlot> lookSlots;
+    std::vector<int32_t> lookAt;
+    std::vector<MotionLook> looks;
     /// Every change the sweep made to the feed is in the clip: nothing
     /// changed that a track or a sequence does not say. Only then may a
     /// publish be held for what the Animation writes.
@@ -454,6 +592,33 @@ struct MotionClip {
     int32_t blobAt(size_t index, double t) const
     {
         return seq[index * frames + frameAt(t)];
+    }
+
+    /// Where row \a row's slots start in lookSlots
+    size_t lookSlotStart(size_t row) const
+    {
+        size_t at = 0;
+        for (size_t r = 0; r < row; ++r)
+            at += lookCount[r];
+        return at;
+    }
+
+    /// Row \a row's looks at \a t, one a slot: between the two frames
+    /// about it (MotionLook::mix), clamped to the range
+    void looksAt(size_t row, double t, std::vector<MotionLook> &out) const
+    {
+        const size_t n = lookCount[row];
+        out.resize(n);
+        if (!n || frames == 0)
+            return;
+        double u = frames > 1 && step > 0.0 ? (t - start) / step : 0.0;
+        u = std::max(0.0, std::min(u, double(frames - 1)));
+        const uint32_t a = frames > 1 ? std::min(uint32_t(u), frames - 2) : 0;
+        const uint32_t b = frames > 1 ? a + 1 : 0;
+        const MotionLook *la = &looks[size_t(lookAt[row * frames + a])];
+        const MotionLook *lb = &looks[size_t(lookAt[row * frames + b])];
+        for (size_t i = 0; i < n; ++i)
+            out[i] = MotionLook::mix(la[i], lb[i], u - a);
     }
 
     Motion::Pose poseAt(size_t track, uint32_t frame) const
@@ -492,8 +657,10 @@ struct MotionClip {
     ///  "keys":["<hex>",..],"data":"<base64 of the float32s>",
     ///  "shown":"<base64, a byte a track a frame>","refs":[frame,blob,..],
     ///  "seqKeys":["<hex>",..],"seq":"<base64 of the int32s>",
-    ///  "blobs":["<sha1>",..],"sizes":[..]}. \a doc is written as given:
-    /// already quoted and escaped.
+    ///  "blobs":["<sha1>",..],"sizes":[..],
+    ///  "lookTracks":[..],"lookCount":[..],"lookSlots":[type,part,start,count,..],
+    ///  "lookAt":"<base64 of the int32s>","looks":"<base64 of the records>"}.
+    /// \a doc is written as given: already quoted and escaped.
     std::string toJson(const std::string &quotedDoc) const
     {
         char buf[160];
@@ -548,6 +715,15 @@ struct MotionClip {
         }
         json += "]";
         intList("sizes", blobSizes.size(), [this](size_t i) { return blobSizes[i]; });
+        intList("lookTracks", lookTracks.size(), [this](size_t i) { return lookTracks[i]; });
+        intList("lookCount", lookCount.size(), [this](size_t i) { return lookCount[i]; });
+        intList("lookSlots", lookSlots.size() * 4, [this](size_t i) {
+            const MotionSlot &s = lookSlots[i / 4];
+            const int32_t v[4] = {s.type, s.partIndex, s.indexStart, s.indexCount};
+            return v[i % 4];
+        });
+        bytes("lookAt", lookAt.data(), lookAt.size() * sizeof(int32_t));
+        bytes("looks", looks.data(), looks.size() * sizeof(MotionLook));
         json += "}";
         return json;
     }
@@ -581,6 +757,13 @@ struct MotionClip {
         Motion::jsonInts(json, "refs", refs);
         Motion::jsonInts(json, "sizes", sizes);
         Motion::jsonStrings(json, "blobs", blobs);
+        std::vector<long long> rows, counts, slots;
+        std::vector<uint8_t> atBytes, lookBytes;
+        Motion::jsonInts(json, "lookTracks", rows);
+        Motion::jsonInts(json, "lookCount", counts);
+        Motion::jsonInts(json, "lookSlots", slots);
+        ok = ok && Motion::jsonBytes(json, "lookAt", atBytes)
+            && Motion::jsonBytes(json, "looks", lookBytes);
         const size_t want = keys.size() * size_t(frames) * 7;
         const size_t cells = keys.size() * size_t(frames);
         ok = ok && bytes.size() == want * sizeof(float)
@@ -600,10 +783,53 @@ struct MotionClip {
             }
             for (long long s : sizes)
                 blobSizes.push_back(uint32_t(s));
+            // The looks: every row a track, every frame's records inside
+            size_t slotTotal = 0;
+            for (long long c : counts)
+                slotTotal += c > 0 ? size_t(c) : 0;
+            ok = counts.size() == rows.size() && slots.size() == slotTotal * 4
+                && atBytes.size() == rows.size() * size_t(frames) * sizeof(int32_t)
+                && lookBytes.size() % sizeof(MotionLook) == 0
+                && std::all_of(rows.begin(), rows.end(), [this](long long r) {
+                       return r >= 0 && size_t(r) < keys.size();
+                   })
+                && std::all_of(counts.begin(), counts.end(), [](long long c) {
+                       return c > 0;
+                   });
+            if (ok) {
+                for (long long r : rows)
+                    lookTracks.push_back(uint32_t(r));
+                for (long long c : counts)
+                    lookCount.push_back(uint32_t(c));
+                for (size_t i = 0; i + 3 < slots.size(); i += 4) {
+                    MotionSlot s;
+                    s.type = int32_t(slots[i]);
+                    s.partIndex = int32_t(slots[i + 1]);
+                    s.indexStart = int32_t(slots[i + 2]);
+                    s.indexCount = int32_t(slots[i + 3]);
+                    lookSlots.push_back(s);
+                }
+                lookAt.resize(atBytes.size() / sizeof(int32_t));
+                if (!lookAt.empty())
+                    std::memcpy(lookAt.data(), atBytes.data(), atBytes.size());
+                looks.resize(lookBytes.size() / sizeof(MotionLook));
+                if (!looks.empty())
+                    std::memcpy(static_cast<void *>(looks.data()), lookBytes.data(),
+                                lookBytes.size());
+                for (size_t r = 0; ok && r < lookTracks.size(); ++r) {
+                    for (uint32_t f = 0; f < frames; ++f) {
+                        const int32_t at = lookAt[r * frames + f];
+                        if (at < 0 || size_t(at) + lookCount[r] > looks.size()) {
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+            }
             const auto blobOk = [this](int32_t b) {
                 return b >= -1 && b < int32_t(blobs.size());
             };
-            ok = std::all_of(seq.begin(), seq.end(), blobOk)
+            ok = ok && std::all_of(seq.begin(), seq.end(), blobOk)
                 && std::all_of(refBlob.begin(), refBlob.end(), blobOk)
                 && std::all_of(refFrame.begin(), refFrame.end(), [this](int32_t f) {
                        return f >= -1 && f < int32_t(frames);
@@ -729,6 +955,7 @@ public:
             Object &obj = objects[entry.first];
             obj.poses.resize(count);
             obj.shown.assign(count, 0);
+            obj.lookFrames.resize(count);
             order.push_back(entry.first);
         }
         for (auto &entry : objects) {
@@ -743,12 +970,15 @@ public:
             const std::vector<const DrawCall *> &now = it->second;
             if (obj.refFrame < 0) {
                 obj.refFrame = int32_t(count);
+                std::vector<MotionLook> looks;
                 for (const DrawCall *draw : now) {
                     obj.ref.push_back(shapeOf(*draw));
                     obj.refDraws.push_back(*draw);
+                    looks.push_back(obj.ref.back().look);
                 }
                 obj.poses.emplace_back();
                 obj.shown.push_back(1);
+                obj.lookFrames.push_back(std::move(looks));
                 continue;
             }
             if (obj.sequence) {
@@ -756,12 +986,16 @@ public:
                 continue;
             }
             Motion::Pose pose;
-            if (!measure(obj, now, pose)) {
+            std::vector<MotionLook> looks;
+            if (!measure(obj, now, pose, looks)) {
                 becomeSequence(obj);
                 if (!obj.dropped)
                     keep(obj, now);
                 continue;
             }
+            if (looks != obj.lookFrames[size_t(obj.refFrame)])
+                obj.looked = true;
+            obj.lookFrames.push_back(std::move(looks));
             // On the side of the last shown, so a viewer turns the short
             // way between them
             for (size_t i = obj.shown.size(); i-- > 0;) {
@@ -805,7 +1039,7 @@ public:
                 continue;
             }
             const bool gaps = hidden(obj);
-            if (!gaps && !moved(obj))
+            if (!gaps && !moved(obj) && !obj.looked)
                 continue;
             if (gaps && obj.refBlob < 0) {
                 // A viewer holding a publish taken while it was hidden
@@ -831,6 +1065,8 @@ public:
                 clip.refFrame.push_back(obj.refFrame);
                 clip.refBlob.push_back(obj.refBlob);
             }
+            if (obj.looked)
+                addLooks(clip, uint32_t(clip.keys.size() - 1), obj);
         }
         return clip;
     }
@@ -848,8 +1084,9 @@ private:
         int partIndex = -1;
         int indexStart = 0;
         int indexCount = 0;
-        /// The material as far as one colour and one style say it
-        uint64_t look = 0;
+        int type = 0;
+        /// The material as far as an Animation changes it in place
+        MotionLook look;
     };
     struct Object {
         /// The draws at refFrame, what the poses are measured from
@@ -866,12 +1103,43 @@ private:
         std::vector<int32_t> blobs;
         /// Cannot be played: the clip leaves it to the publishes
         bool dropped = false;
+        /// One a frame, with the poses: how each of the draws looks, in
+        /// the order of `ref`; empty before refFrame
+        std::vector<std::vector<MotionLook>> lookFrames;
+        /// The looks change: a colour, a transparency
+        bool looked = false;
     };
+
+    /// The object's looks as a row of the clip: each frame's records,
+    /// frames that look alike sharing theirs
+    static void addLooks(MotionClip &clip, uint32_t track, const Object &obj)
+    {
+        const std::vector<MotionLook> &first = obj.lookFrames[size_t(obj.refFrame)];
+        clip.lookTracks.push_back(track);
+        clip.lookCount.push_back(uint32_t(first.size()));
+        for (const DrawCall &draw : obj.refDraws)
+            clip.lookSlots.push_back(MotionSlot::of(draw));
+        std::unordered_map<std::string, int32_t> seen;
+        for (uint32_t f = 0; f < clip.frames; ++f) {
+            const std::vector<MotionLook> &set =
+                obj.lookFrames[f].empty() ? first : obj.lookFrames[f];
+            const std::string bytes(reinterpret_cast<const char *>(set.data()),
+                                    set.size() * sizeof(MotionLook));
+            auto it = seen.find(bytes);
+            if (it == seen.end()) {
+                it = seen.emplace(bytes, int32_t(clip.looks.size())).first;
+                clip.looks.insert(clip.looks.end(), set.begin(), set.end());
+            }
+            clip.lookAt.push_back(it->second);
+        }
+    }
 
     void hide(Object &obj)
     {
         obj.poses.push_back(obj.poses.empty() ? Motion::Pose() : obj.poses.back());
         obj.shown.push_back(0);
+        obj.lookFrames.push_back(obj.lookFrames.empty() ? std::vector<MotionLook>()
+                                                        : obj.lookFrames.back());
         if (obj.sequence)
             obj.blobs.push_back(-1);
     }
@@ -896,6 +1164,7 @@ private:
         obj.blobs.push_back(blob);
         obj.poses.emplace_back();
         obj.shown.push_back(1);
+        obj.lookFrames.emplace_back();
     }
 
     /// The frames so far, from the draws they were moves of
@@ -914,8 +1183,13 @@ private:
             double x[16];
             Motion::matrixOf(obj.poses[i], x);
             DrawCallList moved = obj.refDraws;
-            for (DrawCall &draw : moved)
-                Motion::moveDraw(draw, x);
+            const std::vector<MotionLook> &looks = obj.lookFrames[i];
+            for (size_t d = 0; d < moved.size(); ++d) {
+                Motion::moveDraw(moved[d], x);
+                // As it looked then, not as it did at refFrame
+                if (d < looks.size())
+                    looks[d].applyTo(moved[d].material);
+            }
             const int32_t blob = store(moved);
             if (blob < 0) {
                 drop(obj);
@@ -925,36 +1199,37 @@ private:
         }
     }
 
-    /// A digest of what a material draws with, apart from what rides
-    /// the mesh: enough to tell a colour, a transparency or a style that
-    /// the Animation changes from a move
-    static uint64_t lookOf(const Material &m)
+    /// The same geometry under another cache id: a colour or a
+    /// transparency changed builds the object's caches again, the arrays
+    /// as they were
+    static bool sameMesh(const MeshData *a, const MeshData *b)
     {
-        uint64_t h = 1469598103934665603ULL;
-        auto add = [&h](uint64_t v) {
-            h = (h ^ v) * 1099511628211ULL;
+        if (a == b)
+            return true;
+        if (!a || !b)
+            return false;
+        auto same = [](const void *x, const void *y, size_t bytes) {
+            if (x == y)
+                return true;
+            if (!x || !y)
+                return false;
+            return std::memcmp(x, y, bytes) == 0;
         };
-        auto bits = [](float f) {
-            uint32_t u = 0;
-            std::memcpy(&u, &f, sizeof(u));
-            return uint64_t(u);
-        };
-        add(m.type);
-        add(m.drawstyle);
-        add((m.transparent ? 1U : 0U) | (m.ontop ? 2U : 0U) | (m.lighting ? 4U : 0U)
-            | (m.twoside ? 8U : 0U) | (m.pervertexcolor ? 16U : 0U)
-            | (m.perfacematerial ? 32U : 0U) | (m.depthtest ? 64U : 0U)
-            | (m.depthwrite ? 128U : 0U));
-        add(m.diffuse);
-        add(m.emissive);
-        add(m.specular);
-        add(m.ambient);
-        add(m.linecolor);
-        add(m.linepattern);
-        add(bits(m.shininess));
-        add(bits(m.linewidth));
-        add(bits(m.pointsize));
-        return h;
+        const size_t nv = size_t(std::max(a->numVertices, 0));
+        return a->numVertices == b->numVertices
+            && a->numTriangleIndices == b->numTriangleIndices
+            && a->numLineIndices == b->numLineIndices
+            && a->numPointIndices == b->numPointIndices
+            && same(a->positions, b->positions, nv * 3 * sizeof(float))
+            && same(a->normals, b->normals, nv * 3 * sizeof(float))
+            && same(a->colors, b->colors, nv * 4)
+            && same(a->materials, b->materials, nv * MeshData::MaterialStride)
+            && same(a->triangleIndices, b->triangleIndices,
+                    size_t(std::max(a->numTriangleIndices, 0)) * sizeof(int32_t))
+            && same(a->lineIndices, b->lineIndices,
+                    size_t(std::max(a->numLineIndices, 0)) * sizeof(int32_t))
+            && same(a->pointIndices, b->pointIndices,
+                    size_t(std::max(a->numPointIndices, 0)) * sizeof(int32_t));
     }
 
     static Shape shapeOf(const DrawCall &draw)
@@ -965,15 +1240,19 @@ private:
         s.partIndex = draw.partIndex;
         s.indexStart = draw.indexStart;
         s.indexCount = draw.indexCount;
-        s.look = lookOf(draw.material);
+        s.type = draw.material.type;
+        s.look = MotionLook::of(draw.material);
         return s;
     }
 
     /// The one rigid transform that takes the object's draws at refFrame
-    /// to \a now; false when there is none
+    /// to \a now, and how each of them looks there; false when there is
+    /// none. The looks may differ from refFrame's: a colour or a
+    /// transparency the Animation changes rides the track.
     static bool measure(const Object &obj, const std::vector<const DrawCall *> &now,
-                        Motion::Pose &pose)
+                        Motion::Pose &pose, std::vector<MotionLook> &looks)
     {
+        looks.clear();
         if (now.size() != obj.ref.size() || now.empty())
             return false;
         double first[16], back[16], move[16];
@@ -986,10 +1265,12 @@ private:
         for (size_t i = 0; i < now.size(); ++i) {
             const Shape &was = obj.ref[i];
             const Shape is = shapeOf(*now[i]);
-            if (is.mesh != was.mesh || is.partIndex != was.partIndex
-                || is.indexStart != was.indexStart || is.indexCount != was.indexCount
-                || is.look != was.look)
+            if ((is.mesh != was.mesh
+                 && !sameMesh(now[i]->mesh.get(), obj.refDraws[i].mesh.get()))
+                || is.partIndex != was.partIndex || is.indexStart != was.indexStart
+                || is.indexCount != was.indexCount || is.type != was.type)
                 return false;
+            looks.push_back(is.look);
             double expect[16];
             Motion::mul(move, was.model, expect);
             // In float the feed holds about seven digits of a coordinate

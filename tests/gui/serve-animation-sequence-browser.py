@@ -9,7 +9,9 @@ fetches, and the green box a track that says when it is shown, with its
 draws kept. The publish the viewer holds is taken as the player starts,
 while the green box is hidden: what it draws of it comes from the blob.
 A blue box stands still beyond them, so the bounds the viewer frames its
-camera on are the same with the green one or without.
+camera on are the same with the green one or without; its colour is keyed
+from blue to yellow, which is not a move either but a look: a record a
+frame on its track, set by the viewer on the draws it holds.
 
 The reading is pixels by colour and what the viewer says it is playing.
 What is asserted:
@@ -18,6 +20,8 @@ What is asserted:
   - playing, it holds the clip, a sequence and a track, every blob in;
   - the red box is drawn smaller as the Time goes on, all on one publish;
   - the green box is drawn between 1 s and 2 s and nowhere else;
+  - the blue box is blue early and yellow late, its looks set by the
+    viewer;
   - paused, the red box stays as it is, at the host's Time;
   - stopped, both are back as they rested.
 
@@ -182,6 +186,10 @@ def build():
         anim.addKey("Lamp.Visibility", 0.0, False)
         anim.addKey("Lamp.Visibility", 1.0, True)
         anim.addKey("Lamp.Visibility", 2.0, False)
+        # Not a move either: the blue box turns yellow, its looks a record
+        # a frame on its track
+        anim.addKey("Still.ViewObject.ShapeColor", 0.0, (0.0, 0.0, 1.0))
+        anim.addKey("Still.ViewObject.ShapeColor", 3.0, (1.0, 1.0, 0.0))
         doc.recompute()
         state["anim"] = anim
 
@@ -271,8 +279,8 @@ def verify():
         ps = out.get("playing") or {}
         check("playing, the viewer holds the clip: a sequence and a track",
               ps.get("plays") and ps.get("clip", 0) > 0 and ps.get("clock") == ps.get("clip")
-              and ps.get("sequences") == 1 and ps.get("tracks") == 1
-              and ps.get("frames") == 61, ps)
+              and ps.get("sequences") == 1 and ps.get("tracks") == 2
+              and ps.get("lookTracks") == 1 and ps.get("frames") == 61, ps)
         states = [s.get("state") or {} for s in samples]
         # Only the readings the shot of which is of the Time they say
         # (the earliest and the latest Time the shot can be of): the two
@@ -303,6 +311,15 @@ def verify():
               inside and all(n > 200 for n in inside), greens)
         # The navigation cube's Y axis is green too, some 60 pixels of it
         check("and nowhere else", outside and all(n < 200 for n in outside), greens)
+        # Read by its yellow: the background's gradient is blue too
+        yellows = sorted((round((lo + hi) / 2, 3), spot(s, "yellow")[0]) for (lo, hi), s in caught)
+        early = [y for t, y in yellows if t < 0.75]
+        late = [y for t, y in yellows if t > 2.25]
+        check("the blue box turns yellow as the Time goes on",
+              early and late and all(y < 50 for y in early) and all(y > 200 for y in late),
+              yellows)
+        check("its looks set by the viewer, not sent",
+              any((st.get("looked") or 0) > 0 for st in states), [st.get("looked") for st in states])
         check("from its kept draws: the publish held lacks it",
               any(st.get("swapped", 0) > 0 and 1.1 < st.get("time", 0) < 1.9 for st in states)
               and all(st.get("based") and st.get("base", -1) < 1e-6 for st in states), states)

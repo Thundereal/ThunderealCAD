@@ -136,6 +136,14 @@ endif()
 set(_fc_refs_variant "")
 if(APPLE)
     set(_fc_refs_variant "-metal")
+    # Apple silicon is another GPU family: the Intel iGPU's Metal set and
+    # the M2's differ on 0.13% of the beauty pixels, all of them along the
+    # edge lines, with every other stage the same (2026-11-14) -- a
+    # rasteriser's, not the engine's. A golden is a picture of one device,
+    # so the arm64 Macs keep a set of their own.
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64" OR CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
+        set(_fc_refs_variant "-metal-apple")
+    endif()
 endif()
 
 function(fc_add_golden_test name scene refs bg)

@@ -4304,10 +4304,9 @@ not pass `CMAKE_OSX_DEPLOYMENT_TARGET`/`SYSROOT`/`ARCHITECTURES` on, so Chrono
 was built for the running system (13.0) and every link warned. CalculiX
 (`calculix` from conda-forge, `ccx`) is in the env for the dynamics tests
 that run it. With both, the Assembly tests skip only what needs the GUI or
-holds references recorded on win32; `TestProfileContact.test_half_disc_rocks`
-fails here, 0.071 deg against its 0.06 bound (0.034 where it was written):
-the run's period is about 2e-4 off the rigid model's, the error growing
-steadily to the last frame.
+holds references recorded on win32. `TestProfileContact.test_half_disc_rocks`
+measured 0.071 deg here before `main` was merged, as on Linux: step-size
+error, not the platform (ded38fc20f, the section above).
 
 FEM and PCL were `OFF` in this preset until 2026-09-08. `BUILD_WEB` was set
 `OFF` here until 2026-11-11; it is left to its default now, which is ON and

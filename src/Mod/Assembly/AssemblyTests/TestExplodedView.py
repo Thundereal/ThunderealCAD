@@ -512,3 +512,129 @@ class TestExplodedViewInTree(PlacementAsserts, JointTestBase):
         self.assertEqual(self.doc.UndoCount, undo, "an undo step")
         self.assertFalse(self.doc.HasPendingTransaction, "a transaction open")
         self.assertFalse(gdoc.Modified, "modified")
+
+
+@unittest.skipIf(not App.GuiUp, "the context menu needs the GUI")
+class TestExplodedViewAnimate(PlacementAsserts, JointTestBase):
+    def testAnimate(self):
+        """The view's Animate: one undo step making an Animation of it"""
+        import FreeCADGui as Gui
+
+        b = self.box("B", plc(30, 0, 0))
+        view = TestExplodedView.explodedView(self, [(["B."], plc(0, 0, 20), 0)])
+        CommandCreateView.ViewProviderExplodedView(view.ViewObject)
+        self.doc.recompute()
+        if self.doc.HasPendingTransaction:
+            self.doc.commitTransaction()
+        Gui.setActiveDocument(self.doc.Name)
+        undo = self.doc.UndoCount
+        view.ViewObject.Proxy._animate(view)
+        try:
+            anims = [o for o in self.doc.Objects if o.isDerivedFrom("App::Animation")]
+            self.assertEqual(len(anims), 1)
+            anim = anims[0]
+            self.assertEqual(self.doc.UndoCount, undo + 1)
+            self.assertEqual(anim.Label, view.Label + " animation")
+            anim.Time = 0.5
+            self.assertPlc(b.Placement, plc(30, 0, 10))
+            anim.stop()
+            self.assertPlc(b.Placement, plc(30, 0, 0))
+        finally:
+            Gui.ActiveDocument.resetEdit()
+
+
+class TestExplodeTrack(PlacementAsserts, JointTestBase):
+    """An exploded view played by an Animation: a track of kind Explode
+    whose one number is the progress through the steps
+    (docs/AssemblyExplode.md sec 4)"""
+
+    def setUp(self):
+        super().setUp()
+        self.doc.UndoMode = 1
+        self.b = self.box("B", plc(30, 0, 0))
+        self.view = TestExplodedView.explodedView(
+            self,
+            [
+                (["B."], plc(0, 0, 20), 0),
+                (["B."], plc(20, 0, 0), 0),
+            ],
+        )
+        self.path = "Explode:" + self.view.Name
+
+    def settle(self):
+        self.doc.recompute()
+        if self.doc.HasPendingTransaction:
+            self.doc.commitTransaction()
+        return self.doc.UndoCount
+
+    def assertNotAnEdit(self, undo):
+        self.assertEqual(self.doc.UndoCount, undo, "an undo step")
+        self.assertFalse(self.doc.HasPendingTransaction, "a transaction open")
+        # Nothing the explode moves; an Animation's own Time is its business
+        touched = [
+            o.Name
+            for o in self.doc.Objects
+            if "Touched" in o.State and not o.isDerivedFrom("App::Animation")
+        ]
+        self.assertEqual(touched, [])
+
+    def testPlay(self):
+        anim = self.doc.addObject("App::Animation", "Anim")
+        anim.addKey(self.path, 0, 0, interp="Linear")
+        anim.addKey(self.path, 4, 2, interp="Linear")
+        self.assertEqual(anim.state(self.path), "Ok")
+        self.assertEqual(anim.track(self.path)["Path"], self.path)
+        undo = self.settle()
+        anim.Time = 1
+        self.assertAlmostEqual(self.view.posedAt(), 0.5)
+        self.assertPlc(self.b.Placement, plc(30, 0, 10))
+        anim.Time = 3
+        self.assertPlc(self.b.Placement, plc(40, 0, 20))
+        anim.Time = 4
+        self.assertPlc(self.b.Placement, plc(50, 0, 20))
+        self.assertNotAnEdit(undo)
+        anim.stop()
+        self.assertIsNone(self.view.posedAt())
+        self.assertPlc(self.b.Placement, plc(30, 0, 0))
+        self.assertNotAnEdit(undo)
+
+    def testKeyByLabelAndNow(self):
+        anim = self.doc.addObject("App::Animation", "Anim")
+        self.view.Label = "Apart"
+        anim.addKey("Explode:Apart", 0, [0.0])
+        self.assertEqual(anim.track(self.path)["Path"], self.path)
+        # The value now: the progress on show
+        anim.Time = 2
+        self.view.pose(1.5)
+        anim.keyNow(self.path)
+        self.assertEqual([list(k[1]) for k in anim.keys(self.path)], [[0.0], [1.5]])
+        anim.stop()
+
+    def testReverseStripAssembles(self):
+        explode = CommandCreateView.makeExplodeAnimation(self.view, 1.0)
+        self.assertEqual(explode.End, 0)  # the last key's time
+        self.assertEqual(explode.frames()[-1], 2.0)
+        show = self.doc.addObject("App::Animation", "Show")
+        show.addStrip(explode)
+        show.addStrip(explode, reverse=True)
+        undo = self.settle()
+        show.Time = 1.5
+        self.assertPlc(self.b.Placement, plc(40, 0, 20))
+        show.Time = 2.5  # assembling: half of step 2 undone
+        self.assertPlc(self.b.Placement, plc(40, 0, 20))
+        show.Time = 3.5
+        self.assertPlc(self.b.Placement, plc(30, 0, 10))
+        show.Time = 4
+        self.assertPlc(self.b.Placement, plc(30, 0, 0))
+        self.assertNotAnEdit(undo)
+        show.stop()
+        self.assertIsNone(self.view.posedAt())
+
+    def testDeletedViewIsSkipped(self):
+        anim = CommandCreateView.makeExplodeAnimation(self.view)
+        for step in self.view.Group:
+            self.doc.removeObject(step.Name)
+        self.doc.removeObject(self.view.Name)
+        anim.Time = 1
+        anim.stop()
+        self.assertPlc(self.b.Placement, plc(30, 0, 0))

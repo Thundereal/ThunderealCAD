@@ -367,6 +367,32 @@ class ViewProviderExplodedView:
 
         return True
 
+    def setupContextMenu(self, vobj, menu):
+        # Not upstream: play the explode in an Animation
+        explodedView = vobj.Object
+        if not explodedView.isDerivedFrom("Assembly::ExplodedView"):
+            return
+        action = menu.addAction(App.Qt.translate("Assembly", "Animate"))
+        action.setToolTip(
+            App.Qt.translate(
+                "Assembly",
+                "Make an animation playing this exploded view, a second a step;\n"
+                "a strip of it in reverse assembles",
+            )
+        )
+        action.triggered.connect(lambda: self._animate(explodedView))
+
+    def _animate(self, explodedView):
+        Gui.addModule("CommandCreateView")
+        Gui.ActiveDocument.openCommand("Animate Exploded View")
+        Gui.doCommand(
+            f'anim = CommandCreateView.makeExplodeAnimation(App.ActiveDocument.getObject("{explodedView.Name}"))'
+        )
+        Gui.ActiveDocument.commitCommand()
+        anim = Gui.doCommandEval("anim")
+        # Active, with the timeline raised
+        Gui.ActiveDocument.setEdit(anim)
+
     def onDelete(self, vobj, subelements):
         for obj in self.claimChildren():
             obj.Document.removeObject(obj.Name)
@@ -665,11 +691,26 @@ class ExplodedViewStep:
         return positions
 
 
+def makeExplodeAnimation(explodedView, secondsPerStep=1.0):
+    """Not upstream: an Animation playing `explodedView`'s explode -- an Explode
+    track from 0 to the count of its steps, a step each `secondsPerStep`,
+    linear (docs/AssemblyExplode.md sec 4). A strip of it in Reverse
+    assembles."""
+    doc = explodedView.Document
+    steps = len(explodedView.getSteps())
+    anim = doc.addObject("App::Animation", "ExplodeAnimation")
+    anim.Label = explodedView.Label + " animation"
+    path = "Explode:" + explodedView.Name
+    anim.addKey(path, 0.0, 0.0, interp="Linear")
+    anim.addKey(path, max(steps, 1) * secondsPerStep, float(steps), interp="Linear")
+    return anim
+
+
 def _unposeViews(assembly):
     group = UtilsAssembly.getViewGroup(assembly) if assembly else None
-    for view in group.Group if group else []:
-        if view.isDerivedFrom("Assembly::ExplodedView"):
-            view.unpose()
+    for explodedView in group.Group if group else []:
+        if explodedView.isDerivedFrom("Assembly::ExplodedView"):
+            explodedView.unpose()
 
 
 def _writeExplosion(steps, moves, trails):

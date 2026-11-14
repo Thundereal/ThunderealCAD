@@ -26,6 +26,8 @@
 
 #include <Standard_Failure.hxx>
 
+#include <App/Animation.h>
+#include <App/Application.h>
 #include <App/Document.h>
 #include <App/FeaturePythonPyImp.h>
 #include <App/WriteScope.h>
@@ -447,6 +449,91 @@ void ExplodedView::connectDocument()
         _rest.erase(o);
         _stepVisible.erase(o);
     }));
+}
+
+
+// The Explode track ------------------------------------------------------
+
+namespace
+{
+
+class ExplodeTrackHandler: public App::AnimationTrackHandler
+{
+public:
+    bool layout(const App::AnimationTrack&, App::Anim::Layout& layout) const override
+    {
+        layout.clear();
+        layout.add(App::Anim::Kind::Scalar, 1);
+        return true;
+    }
+
+    std::string newTrackData(const std::string& hint) const override
+    {
+        // A label names the view as well as its name
+        auto doc = App::GetApplication().getActiveDocument();
+        if (doc && !doc->getObject(hint.c_str())) {
+            for (auto obj : doc->getObjects()) {
+                if (obj->isDerivedFrom(ExplodedView::getClassTypeId()) && hint == obj->Label.getValue()) {
+                    return obj->getNameInDocument();
+                }
+            }
+        }
+        return hint;
+    }
+
+    std::string describe(const App::AnimationTrack& track) const override
+    {
+        return "Explode (" + track.handlerData + ")";
+    }
+
+    bool read(const App::Animation& anim,
+              const App::AnimationTrack& track,
+              std::vector<double>& nums) const override
+    {
+        auto view = viewOf(anim, track);
+        if (!view) {
+            return false;
+        }
+        nums.assign(1, view->posedAt().value_or(0.0));
+        return true;
+    }
+
+    bool write(App::Animation& anim,
+               const App::AnimationTrack& track,
+               const std::vector<double>& nums) override
+    {
+        auto view = viewOf(anim, track);
+        if (!view || nums.size() != 1) {
+            return false;
+        }
+        if (view->posedAt() != nums[0]) {
+            view->pose(nums[0]);
+        }
+        return true;
+    }
+
+    void deactivate(App::Animation& anim, const App::AnimationTrack& track) override
+    {
+        if (auto view = viewOf(anim, track)) {
+            view->unpose();
+        }
+    }
+
+private:
+    static ExplodedView* viewOf(const App::Animation& anim, const App::AnimationTrack& track)
+    {
+        auto doc = anim.getDocument();
+        auto obj = doc ? doc->getObject(track.handlerData.c_str()) : nullptr;
+        return freecad_cast<ExplodedView*>(obj);
+    }
+};
+
+}  // namespace
+
+void Assembly::registerExplodeTrack()
+{
+    App::AnimationTrackHandler::registerHandler("Explode",
+                                                std::make_shared<ExplodeTrackHandler>());
 }
 
 

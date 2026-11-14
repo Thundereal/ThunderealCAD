@@ -1391,9 +1391,22 @@ int Animation::setKey(int trackId, double t, PyObject* value, const Interp* inte
         }
         if (value && value != Py_None) {
             Base::PyGILStateLocker lock;
-            Py::Sequence seq(value);
-            for (Py_ssize_t j = 0; j < seq.size(); ++j) {
-                key.key.v.push_back(static_cast<double>(Py::Float(seq[j])));
+            // A track of one number takes the number; any number, an int too
+            auto number = [](PyObject* item) {
+                double v = PyFloat_AsDouble(item);
+                if (v == -1.0 && PyErr_Occurred()) {
+                    throw Py::Exception();
+                }
+                return v;
+            };
+            if (PyNumber_Check(value) && !PySequence_Check(value)) {
+                key.key.v.push_back(number(value));
+            }
+            else {
+                Py::Sequence seq(value);
+                for (Py_ssize_t j = 0; j < seq.size(); ++j) {
+                    key.key.v.push_back(number(seq[j].ptr()));
+                }
             }
         }
         else if (!handler->read(*this, *track, key.key.v)) {
@@ -2580,19 +2593,31 @@ void Animation::deactivate(bool recompute)
 {
     auto doc = getDocument();
     _pending = false;
-    // A handler's tracks keep their own rest: a camera put back
-    for (auto& track : Tracks.getValues()) {
-        if (track.kind != "Property") {
-            if (auto handler = AnimationTrackHandler::get(track.kind)) {
-                try {
-                    handler->deactivate(*this, track);
+    // A handler's tracks keep their own rest: a camera put back. Those of
+    // the Animations played as strips too, which wrote as this one, as
+    // evaluate() plays them
+    std::function<void(const Animation*, int)> putBack = [&](const Animation* owner, int depth) {
+        for (auto& track : owner->Tracks.getValues()) {
+            if (track.kind == "Strip") {
+                auto child = doc ? doc->getObject(track.strip.child.c_str()) : nullptr;
+                if (depth < 8 && child && child != this
+                    && child->isDerivedFrom(Animation::getClassTypeId())) {
+                    putBack(static_cast<const Animation*>(child), depth + 1);
                 }
-                catch (Base::Exception& e) {
-                    e.ReportException();
+            }
+            else if (track.kind != "Property") {
+                if (auto handler = AnimationTrackHandler::get(track.kind)) {
+                    try {
+                        handler->deactivate(*this, track);
+                    }
+                    catch (Base::Exception& e) {
+                        e.ReportException();
+                    }
                 }
             }
         }
-    }
+    };
+    putBack(this, 0);
     if (_rest.empty()) {
         return;
     }

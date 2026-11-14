@@ -13,8 +13,8 @@ dwin's (the Windows box); this branch stays out of them.
 |---|---|---|
 | E1 | One calculation in C++: placements and trails at a progress through the steps | built |
 | E2 | Showing an explode is not an edit | built |
-| E3 | An "Explode" animation track kind, its value the progress | next |
-| E4 | TechDraw: an exploded view as a drawing view's source, with its trails dashed | after E3 |
+| E3 | An "Explode" animation track kind, its value the progress | built |
+| E4 | TechDraw: an exploded view as a drawing view's source, with its trails dashed | next |
 
 The user agreed with three recommendations:
 - **One track** whose value runs 0..N, each step one unit, so easing and
@@ -117,7 +117,40 @@ Who calls it:
 
 Python: `pose(progress=None)`, `unpose()`, `posedAt()`.
 
-## 4. Tests
+## 4. The animation (E3)
+
+An Animation plays an exploded view through a track of kind `Explode`
+(`docs/Animation.md` sec 3.6), registered by Assembly's App module.
+- **The track.**
+  - Its handler data is the view's name in the Animation's document, so
+    its path is `Explode:<name>`. A label names it too.
+  - Its one number is the progress: 0 to the count of steps.
+  - Each frame poses the view there (sec 3), so playing is no more an
+    edit than the tree's explode is.
+  - Stopping the Animation unposes the view.
+  - A track of a view that is gone writes nothing.
+- **Keys.**
+  - Keyed like any track; keying it now reads the progress on show.
+  - A handler track of one number takes a bare number, an int too
+    (`Animation::setKey`; it took only a list of floats before).
+- **Explode, then assemble.** A strip of the explode Animation in Reverse
+  plays the assemble, from the one recording.
+- **Found on the way: stopping did not put back a strip's handler
+  tracks.** `Animation::deactivate` called `deactivate` on the handlers
+  of its own tracks only, while `evaluate()` writes those of the
+  Animations it plays as strips too. A stopped storyboard left the view
+  exploded, and would have left a strip's camera where it was. It now
+  walks the strips the way the evaluation does, eight deep at most.
+- **No Solved mark.** The parts' `Placement` is never keyed, so the
+  Animation's Solved state for an assembly's placed parts (mini's
+  `addPlacementSolver`) does not apply.
+- **Making one.** `CommandCreateView.makeExplodeAnimation(view,
+  secondsPerStep=1.0)` makes an Animation with two linear keys: 0 at the
+  start, n at n seconds. The view's context menu has **Animate**, which
+  makes one in a single undo step, makes it active and raises the
+  timeline.
+
+## 5. Tests
 
 `src/Mod/Assembly/AssemblyTests/TestExplodedView.py`:
 
@@ -139,6 +172,15 @@ Python: `pose(progress=None)`, `unpose()`, `posedAt()`.
     the design (a revolute joint), the pose back after;
   - an edit while posed is the design;
   - deleting the posed view.
+- `TestExplodeTrack` (4, E3):
+  - playing, at fractions and at the ends, is not an edit, and stopping
+    puts the parts back;
+  - a key by the view's label, and a key of the progress on show;
+  - explode, then a Reverse strip of it assembles, and stopping the
+    storyboard unposes the view;
+  - a track of a deleted view writes nothing.
+- `TestExplodedViewAnimate` (1, GUI only): the context menu's Animate
+  makes the Animation in one undo step.
 - `TestExplodedViewInTree` (1, GUI only): selecting the view with the
   assembly active shows it and the step draws its trail; leaving it puts
   everything back, with no undo step and the document not modified.
@@ -146,9 +188,10 @@ Python: `pose(progress=None)`, `unpose()`, `posedAt()`.
 Score before E2: 13 of 22 headless. The selection case failed on the open
 transaction, and the 8 pose cases had no API. After: 22 of 22 headless,
 23 of 23 in the GUI (`GT_ASSEMBLY_TESTS=AssemblyTests.TestExplodedView
-scripts/gui-test.sh tests/gui/assembly-workbench-suite.py`).
+scripts/gui-test.sh tests/gui/assembly-workbench-suite.py`). With E3:
+26 of 26 headless (2 GUI-only skipped) and 28 of 28 in the GUI.
 
-## 5. Open
+## 6. Open
 
 - Editing a step (its transform, its parts) while the view is posed does
   not re-pose. The tree's explode ends when the selection moves, and the

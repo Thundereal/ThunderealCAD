@@ -177,6 +177,13 @@ private:
 
 using ExplodedViewPython = App::FeaturePythonT<ExplodedView>;
 
+/** Registers the "Explode" animation track kind (docs/AssemblyExplode.md
+ * sec 4): one number, the progress through an exploded view's steps,
+ * shown by ExplodedView::pose(). The track's handler data is the view's
+ * name in the Animation's document.
+ */
+AssemblyExport void registerExplodeTrack();
+
 
 /// One step of an exploded view, a child of it
 class AssemblyExport ExplodedViewStep: public App::DocumentObject

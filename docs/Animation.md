@@ -1039,6 +1039,26 @@ camera track plays only in the view it was keyed in, or in the export view.
 - **Renderer**: time-animated effects read one shared clock (RenderEngine.md,
   "Determinism"). During export that clock follows `Time`, so water and
   fire match the animation frame for frame.
+- **Path traced** (built 2026-11-14): `export(..., renderer="Cycles",
+  cycles={"Samples", "Device", "Denoise"})` traces each frame with
+  `View3DInventorPy.cyclesRender` instead of `saveImage`, under the same
+  exact-mesh hold. `exportAnimation` with no renderer follows the view: a
+  view shaded External exports path traced, with its `Cycles_Samples`,
+  `Cycles_Device` and `Cycles_Denoise` (`viewRenderer`, `cyclesOptions`).
+  `cyclesRender` grew `denoise` and `seed` (`Render::Cycles::StillOptions`:
+  OpenImageDenoise at high quality with the accurate prefilter, the final
+  render's settings, where the viewport uses fast ones). The exporter
+  passes the frame index as the seed: with one seed the noise pattern
+  stands still on the screen while the scene moves under it. Measured on
+  the mini's M2 (Metal, after the StackAllocator fix of
+  CyclesIntegration.md sec 9): the manual's 151 frames at 480 x 270, 32
+  samples, denoised, 147 s -- under a second a frame, most of it the
+  session each still starts; at 640 x 360 the CPU takes 2.4 s a frame at
+  128 samples and Metal 1.5 s. The tracer has no surface for the effect
+  volumes (water, fire, cloud, fountain) or for lines, so those are not in
+  the frames. Each frame is a session of its own; the viewport's
+  incremental scene update (CyclesIntegration.md sec 5.10) would spare
+  the translation, at the cost of keeping a session through the export.
 
 ### 9.1 Streaming, as built
 
@@ -1066,9 +1086,24 @@ it was at is put back when the sweep is done.
 are missing at some frames -- hidden -- keeps its track, with a byte a
 frame saying where it is shown; its poses are measured from the first
 frame it is shown in, and its draws there are kept, so a viewer holding a
-publish taken while it was hidden can still show it. A key whose draws do
-not move rigidly -- a shape rebuilt, a colour or a transparency changed,
-draws moving apart -- is a *sequence*: its draws at every frame are kept,
+publish taken while it was hidden can still show it. A key whose geometry
+moves rigidly (or not at all) but whose **looks** change -- a colour, a
+transparency, a line's width, a style -- keeps its track too, with its
+looks at every frame (built 2026-11-14): `Render::MotionLook`, the 40
+bytes of each draw's material that the baker compares, a record a draw a
+frame, frames that look alike sharing their records (`lookAt`), and a
+`MotionSlot` per draw (type, part, index range) by which a viewer finds
+the draw a record is for whatever order a publish has them in. A changed
+colour builds the object's caches again under new ids, so the baker
+compares a mesh's arrays when its id changed (`sameMesh`) and calls only a
+real change of geometry a rebuild. The viewer sets the looks at its Time
+on the draws it holds, blending colours, widths and shininess between the
+two frames about it (`MotionLook::mix`; flags and patterns that differ
+take the nearer frame), so a fade is as smooth as a move. The manual's
+scene went from 301 blobs to 151: its box's fade is a track now, its
+post's rebuilt height still a sequence. A key whose draws do not move
+rigidly -- a shape rebuilt, draws moving apart -- is a *sequence*: its
+draws at every frame are kept,
 the frames before the one that showed it being made from the moves they
 were. What is kept is a **blob**: the key's draws as a self-contained
 scene snapshot (`Render::motionBlobOf`, `Gui/Renderer/MotionClipBlob.h`,
@@ -1155,16 +1190,20 @@ arrives, through the same store a scene's chunks go through (IndexedDB,
 the batched fetch); one not in yet leaves the publish's draws standing.
 The selection drawn over them is rebuilt from the posed draws.
 `window.fcviewerAnimationState()` says what it is playing: tracks,
-sequences, blobs and how many are in, and what the last pose moved,
-swapped and left out.
+sequences, look rows, blobs and how many are in, and what the last pose
+moved, swapped, left out and set the looks of.
 
 Not in this cut:
 - **A sequence is stepped**, shown at the frame nearest, at `FrameRate`
   (240 frames over the range at most), not blended between frames.
-- **A blob is self-contained**, so a mesh that only changes colour is in
-  every frame's blob again; out-of-band mesh chunks keyed by content
-  would share it. The manual's scene (a post rebuilt, a box made
-  transparent, 151 frames) takes 301 blobs.
+- **A blob is self-contained**: a rebuilt shape whose mesh repeats --
+  a height keyed back and forth -- shares a blob only where the whole
+  draw is the same; out-of-band mesh chunks keyed by content would share
+  more. A colour or a transparency no longer needs a blob at all (the
+  looks above).
+- **Looks are the compared fields only**: a change the Animation makes to
+  a material field outside them (a texture, a PBR parameter) is not in the
+  clip, as before.
 - **Picking while it plays** in the browser is against the draws as the
   viewer has moved them, but the host resolves the pick in the pose its
   own clock is at; the two agree to within a frame, not exactly.

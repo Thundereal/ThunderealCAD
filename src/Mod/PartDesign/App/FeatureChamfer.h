@@ -59,6 +59,12 @@ public:
     /// The face each edge's first size is measured on, the edge's name to
     /// the face's: see firstFaces()
     App::PropertyMap _FirstFaces;
+    /// Behaviour version, hidden. 0 is a chamfer from before the property.
+    /// 1: the face an edge's first size is measured on goes on record
+    /// (_FirstFaces) the first time the edge is chamfered and stays; before,
+    /// it is the edge's first face each time, but for what a file's own
+    /// shapes put on record as the file is opened, see firstFaces().
+    App::PropertyInteger _Version;
 
     /** @name methods override feature */
     //@{
@@ -88,7 +94,8 @@ private:
                                  const std::vector<Part::TopoShape> &edges);
     void firstFaces(const Part::TopoShape &baseShape,
                     const std::vector<Part::TopoShape> &edges,
-                    std::vector<Part::TopoShape::ChamferInfo> *info);
+                    std::vector<Part::TopoShape::ChamferInfo> *info,
+                    bool record);
 
     std::vector<int> edgeIndices;
     /// ChamferInfo was read from the file being restored

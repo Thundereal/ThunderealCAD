@@ -213,7 +213,9 @@ class TestChamfer(unittest.TestCase):
         # (realthunder/FreeCAD#580: OCCT 8.0.1 lists a pad's faces in another
         # order than 7.x did, and a chamfer of 5 and 2 was made again with
         # the 5 where it does not fit). The face is kept by name, in
-        # _FirstFaces.
+        # _FirstFaces: put on record the first time an edge is chamfered, for
+        # a chamfer of version 1, and made of the file's own shape as the
+        # file is opened for one from before, which gets nothing added after.
         import tempfile
 
         body = self.Doc.addObject('PartDesign::Body', 'FaceBody')
@@ -238,6 +240,7 @@ class TestChamfer(unittest.TestCase):
         chamfer.Size2 = 1.0
         self.Doc.recompute()
         self.assertTrue(chamfer.isValid())
+        self.assertEqual(chamfer._Version, 1)
         self.assertAlmostEqual(chamfer.Shape.Volume, 1000.0 - 15.0, places=6)
         record = dict(chamfer._FirstFaces)
         self.assertEqual(list(record), [edgeName])
@@ -268,16 +271,40 @@ class TestChamfer(unittest.TestCase):
         self.assertLess((chamfer.Shape.CenterOfMass - made).Length, 1e-7)
         self.assertEqual(dict(chamfer._FirstFaces), record)
 
-        # a file from before has no record: it is made of the file's own
-        # shape as the file is opened, before anything is made again
+        # a file from before has no record and no version: the record is
+        # made of the file's own shape as the file is opened, before anything
+        # is made again
         chamfer._FirstFaces = {}
+        chamfer._Version = 0
         path = os.path.join(tempfile.gettempdir(), 'PartDesignTestChamfer.FCStd')
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
         try:
             self.assertEqual(self.Doc.Name, 'PartDesignTestChamfer')
-            self.assertEqual(dict(self.Doc.getObject('FaceChamfer')._FirstFaces), record)
+            chamfer = self.Doc.getObject('FaceChamfer')
+            self.assertEqual(chamfer._Version, 0)
+            self.assertEqual(dict(chamfer._FirstFaces), record)
+
+            # and it stays as it was: nothing is put on record after, an
+            # edge not on it measures from its first face each time
+            chamfer._FirstFaces = {}
+            chamfer.touch()
+            self.Doc.recompute()
+            self.assertTrue(chamfer.isValid())
+            self.assertEqual(dict(chamfer._FirstFaces), {})
+            self.assertLess((chamfer.Shape.CenterOfMass - made).Length, 1e-7)
+            # what is on record still holds
+            chamfer._FirstFaces = {edgeName: other}
+            chamfer.touch()
+            self.Doc.recompute()
+            self.assertGreater((chamfer.Shape.CenterOfMass - made).Length, 1e-3)
+            # but a face that is not the edge's is not replaced
+            chamfer._FirstFaces = {edgeName: 'no such face'}
+            chamfer.touch()
+            self.Doc.recompute()
+            self.assertLess((chamfer.Shape.CenterOfMass - made).Length, 1e-7)
+            self.assertEqual(dict(chamfer._FirstFaces), {edgeName: 'no such face'})
         finally:
             os.remove(path)
 

@@ -110,6 +110,7 @@ Chamfer::Chamfer()
     ADD_PROPERTY_TYPE(_FirstFaces, (), "Chamfer",
       static_cast<App::PropertyType>(App::Prop_Hidden | App::Prop_Output),
       "The face each edge's first size is measured on, the edge's name to the face's");
+    ADD_PROPERTY_TYPE(_Version, (0), "Chamfer", App::Prop_Hidden, 0);
 
     updateProperties();
 }
@@ -117,6 +118,7 @@ Chamfer::Chamfer()
 void Chamfer::setupObject()
 {
     DressUp::setupObject();
+    _Version.setValue(1);
     _FilletFixLevel.setValue(Part::OCCTFilletFixLevelLatest);
 }
 
@@ -201,7 +203,7 @@ App::DocumentObjectExecReturn *Chamfer::execute()
         ChamferInfo.getValue(name.c_str(),chamferInfo.back());
     }
     if (chamferType != 0)
-        firstFaces(baseShape, edges, &chamferInfo);
+        firstFaces(baseShape, edges, &chamferInfo, _Version.getValue() >= 1);
 
     this->positionByBaseFeature();
     try {
@@ -359,16 +361,18 @@ void Chamfer::onDocumentRestored()
         catch (const Standard_Failure &) {
         }
     }
-    // And the faces the file's chamfer measured from, which are the first of
-    // each edge in the file's shape and may not be in the one made again
-    if (ChamferType.getValue() != 0 && _FirstFaces.getValues().empty()) {
+    // And, for a chamfer from before version 1, the faces the file's chamfer
+    // measured from, which are the first of each edge in the file's shape
+    // and may not be in the one made again
+    if (_Version.getValue() < 1 && ChamferType.getValue() != 0
+            && _FirstFaces.getValues().empty()) {
         try {
             auto baseShape = getBaseShape();
             baseShape.setTransform(Base::Matrix4D());
             firstFaces(baseShape,
                        UseAllEdges.getValue() ? baseShape.getSubTopoShapes(TopAbs_EDGE)
                                               : getContinuousEdges(baseShape),
-                       nullptr);
+                       nullptr, true);
         }
         catch (const Base::Exception &) {
         }
@@ -399,15 +403,20 @@ std::string nameOf(const Part::TopoShape &shape, const TopoDS_Shape &sub, const 
 // with them swapped and no error. So the face is kept by name: the first
 // time an edge is chamfered its first face is put on record, and from then
 // on the first size is on that face, wherever it comes in the list. A face
-// on record that is no longer the edge's gives way to the first. For a file
-// from before, the record is made of the file's own shape as it is opened.
+// on record that is no longer the edge's gives way to the first.
+// That is a chamfer of version 1. One from before stays as it was: the
+// record is made of the file's own shapes as the file is opened
+// (onDocumentRestored), which keeps the chamfer the file has, and nothing
+// is added to it after -- an edge not on it, or whose face on it is gone,
+// measures from its first face each time, as it did.
 // \a info: the flip of each edge, turned where the face on record is the
-// edge's last now.
+// edge's last now. \a record: put the first face of an edge on record.
 void Chamfer::firstFaces(const Part::TopoShape &baseShape,
                          const std::vector<Part::TopoShape> &edges,
-                         std::vector<Part::TopoShape::ChamferInfo> *info)
+                         std::vector<Part::TopoShape::ChamferInfo> *info,
+                         bool record)
 {
-    auto record = _FirstFaces.getValues();
+    auto faces = _FirstFaces.getValues();
     bool changed = false;
     for (std::size_t i = 0; i < edges.size(); ++i) {
         auto ancestors = baseShape.findAncestorsShapes(edges[i].getShape(), TopAbs_FACE);
@@ -418,18 +427,18 @@ void Chamfer::firstFaces(const Part::TopoShape &baseShape,
         const std::string last = nameOf(baseShape, ancestors.back(), "Face");
         if (edge.empty() || first.empty() || last.empty() || first == last)
             continue;
-        auto it = record.find(edge);
-        if (it != record.end() && it->second == last) {
+        auto it = faces.find(edge);
+        if (it != faces.end() && it->second == last) {
             if (info && i < info->size())
                 (*info)[i].flip = !(*info)[i].flip;
         }
-        else if (it == record.end() || it->second != first) {
-            record[edge] = first;
+        else if (record && (it == faces.end() || it->second != first)) {
+            faces[edge] = first;
             changed = true;
         }
     }
     if (changed)
-        _FirstFaces.setValues(std::move(record));
+        _FirstFaces.setValues(std::move(faces));
 }
 
 void Chamfer::migrateSelectedFaceRule(const Part::TopoShape &baseShape,

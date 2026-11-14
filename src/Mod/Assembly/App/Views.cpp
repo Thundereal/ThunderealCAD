@@ -35,6 +35,12 @@
 #include <App/WriteScope.h>
 #include <Base/BoundBox.h>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <GC_MakeArcOfCircle.hxx>
+#include <GC_MakeCircle.hxx>
+#include <GeomAPI_Interpolate.hxx>
+#include <Geom_Circle.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
+#include <gp_Circ.hxx>
 #include <TopoDS_Edge.hxx>
 #include <gp_Pnt.hxx>
 #include <Precision.hxx>
@@ -294,7 +300,7 @@ bool ExplodedView::isTrailName(const char* mappedName)
     if (!mappedName) {
         return false;
     }
-    static const std::regex trail("Trail[0-9]+(Part[0-9]+)?");
+    static const std::regex trail("Trail[0-9]+");
     std::string name(mappedName);
     return std::regex_match(name.substr(0, name.find(';')), trail);
 }
@@ -375,28 +381,64 @@ Part::TopoShape ExplodedView::getExplodedShape(std::optional<double> progress) c
         };
     collect(assembly, "", 0);
 
-    // The trails, each piece an edge of its own name
+    // The trails, an edge each: a line, a turn's arc of circle, or a curve
+    // through the arc's points where the turn also travels along its axis.
+    // One edge, so that a drawing dashes it end to end (a dash pattern starts
+    // again on each edge)
     std::vector<Part::TopoShape> edges;
     int number = 0;
     for (const auto& trail : pose.trails) {
         ++number;
-        int piece = 0;
-        for (std::size_t j = 1; j < trail.path.size(); ++j) {
-            const auto& a = trail.path[j - 1];
-            const auto& b = trail.path[j];
-            if (Base::Distance(a, b) <= Precision::Confusion()) {
-                continue;
+        std::vector<gp_Pnt> points;
+        for (const auto& p : trail.path) {
+            gp_Pnt q(p.x, p.y, p.z);
+            if (points.empty() || points.back().Distance(q) > Precision::Confusion()) {
+                points.push_back(q);
             }
-            Part::TopoShape edge(
-                BRepBuilderAPI_MakeEdge(gp_Pnt(a.x, a.y, a.z), gp_Pnt(b.x, b.y, b.z)).Edge());
-            ++piece;
-            std::string name = "Trail" + std::to_string(number);
-            if (piece > 1) {
-                name += "Part" + std::to_string(piece);
-            }
-            edge.setElementName(Data::IndexedName::fromConst("Edge", 1), Data::MappedName(name));
-            edges.push_back(edge);
         }
+        if (points.size() < 2) {
+            continue;
+        }
+        TopoDS_Edge edge;
+        try {
+            if (points.size() == 2) {
+                edge = BRepBuilderAPI_MakeEdge(points.front(), points.back()).Edge();
+            }
+            else {
+                const auto& mid = points[points.size() / 2];
+                GC_MakeArcOfCircle arc(points.front(), mid, points.back());
+                bool onArc = arc.IsDone();
+                if (onArc) {
+                    gp_Circ circle = GC_MakeCircle(points.front(), mid, points.back()).Value()->Circ();
+                    for (const auto& q : points) {
+                        if (circle.Distance(q) > 1e-6 * (1.0 + circle.Radius())) {
+                            onArc = false;
+                            break;
+                        }
+                    }
+                }
+                if (onArc) {
+                    edge = BRepBuilderAPI_MakeEdge(arc.Value()).Edge();
+                }
+                else {
+                    Handle(TColgp_HArray1OfPnt) array =
+                        new TColgp_HArray1OfPnt(1, static_cast<int>(points.size()));
+                    for (std::size_t k = 0; k < points.size(); ++k) {
+                        array->SetValue(static_cast<int>(k) + 1, points[k]);
+                    }
+                    GeomAPI_Interpolate curve(array, false, Precision::Confusion());
+                    curve.Perform();
+                    edge = BRepBuilderAPI_MakeEdge(curve.Curve()).Edge();
+                }
+            }
+        }
+        catch (Standard_Failure&) {
+            continue;
+        }
+        Part::TopoShape shape(edge);
+        shape.setElementName(Data::IndexedName::fromConst("Edge", 1),
+                             Data::MappedName("Trail" + std::to_string(number)));
+        edges.push_back(shape);
     }
     if (shapes.empty() && edges.empty()) {
         return {};

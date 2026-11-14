@@ -65,8 +65,8 @@ class ExplodedView(DocumentObject):
         """
         The assembly as explodedAt(progress) puts it, in the document's
         frame, writing nothing: what it shows, the parts moved where the steps
-        put them, and the trails as edges named Trail<n> (Trail<n>Part<k>
-        for the pieces of a turn's arc). The default is the end. It is the
+        put them, and the trails as edges named Trail<n>, one each: a line,
+        or a turn's arc. The default is the end. It is the
         view's shape for anything that asks for one: a TechDraw view of it
         draws the explode.
         """

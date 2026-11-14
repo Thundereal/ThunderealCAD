@@ -140,8 +140,8 @@ public:
 
     /** The assembly as explodedAt(progress) puts it, in the document's
      * frame: what the assembly shows, the parts moved where the steps put
-     * them, and the trails as edges named Trail<n> (Trail<n>Part<k> for the
-     * pieces of a turn's arc). Nothing is written. Its shape for anything
+     * them, and the trails as edges named Trail<n>, one each: a line, or a
+     * turn's arc. Nothing is written. Its shape for anything
      * that asks the view for one (getSubObject): a TechDraw view of it
      * draws the explode (docs/AssemblyExplode.md sec 5).
      */

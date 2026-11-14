@@ -50,7 +50,9 @@ and the trail each left, and writes nothing.
     less, along the powers of the move. A slide's is its two ends.
     Upstream drew a turn's trail as the chord.
   - `Trail.path` carries the points. A step's `Trail` property holds
-    segments, so an arc is several, and its view provider draws each.
+    segments, so an arc is several; its view provider joins the segments
+    that meet into one line, so the dashes run along the arc (a dash
+    pattern starts again on each line).
 - **Radial.**
   - A radial step moves a part away from the assembly's bounding-box
     center, by 4 x the move's length / the assembly's diagonal, as
@@ -163,8 +165,11 @@ nothing:
 - what the assembly shows, its parts moved where the steps put them; a
   part inside an `App::Part` is moved inside it, the rest of that Part
   drawn where it is;
-- the trails as edges named `Trail<n>`, and `Trail<n>Part<k>` for the
-  pieces of a turn's arc (sec 2).
+- the trails as edges named `Trail<n>`, one edge each: a line, a turn's
+  arc of circle, or, for a turn that also travels along its axis, a curve
+  through the arc's points (sec 2). One edge, because TechDraw starts a
+  dash pattern again on each edge: the first version, an edge per 5 deg
+  piece, drew a turn's trail solid, each piece one dash.
 
 `getSubObject` hands it to anything that asks the view for its shape, so
 `Part.getShape(view)` and a TechDraw view whose Source is the exploded
@@ -231,7 +236,8 @@ Found on the way:
   - the shape: both parts, the moved one where the step put it, one trail
     edge named Trail1 from where to where; `Part.getShape(view)` the
     same; the design untouched; at a progress;
-  - a turn's trail as Trail1 and its pieces;
+  - a turn's trail as one edge, Trail1, the quarter circle's length and
+    radius, not the chord's;
   - the assembly's own shape without the view;
   - the shape the same while posed;
   - a TechDraw view of the exploded view: both parts, and projected edges

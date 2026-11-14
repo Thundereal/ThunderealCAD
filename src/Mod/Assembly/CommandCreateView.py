@@ -710,6 +710,18 @@ def makeExplodeAnimation(explodedView, secondsPerStep=1.0):
     return anim
 
 
+def trailPolylines(segments):
+    """Not upstream: segments [(a, b), ...] joined where one ends at the next's
+    start, as point lists"""
+    polylines = []
+    for a, b in segments:
+        if polylines and polylines[-1][-1].isEqual(a, 1e-9):
+            polylines[-1].append(b)
+        else:
+            polylines.append([a, b])
+    return polylines
+
+
 def _unposeViews(assembly):
     group = UtilsAssembly.getViewGroup(assembly) if assembly else None
     for explodedView in group.Group if group else []:
@@ -772,7 +784,23 @@ class ViewProviderExplodedViewStep:
         # Not upstream: the C++ step keeps the trails it made
         if prop == "Trail" and hasattr(self, "lineSetGroup"):
             points = list(stepObj.Trail)
-            self.redrawLines(stepObj, list(zip(points[0::2], points[1::2])))
+            self.drawPolylines(trailPolylines(list(zip(points[0::2], points[1::2]))))
+
+    def drawPolylines(self, polylines):
+        """Not upstream: each run of joined segments one line set, so a turn's
+        arc is dashed end to end (the pattern starts again on each line set)"""
+        self.lineSetGroup.removeAllChildren()
+        for points in polylines:
+            line = coin.SoLineSet()
+            line.numVertices.setValue(len(points))
+            coords = coin.SoCoordinate3()
+            coords.point.setValues(0, points)
+            sep = coin.SoSeparator()
+            sep.addChild(self.draw_style)
+            sep.addChild(self.so_color)
+            sep.addChild(coords)
+            sep.addChild(line)
+            self.lineSetGroup.addChild(sep)
 
     def redrawLines(self, stepObj, positions):
         # Clear existing lines

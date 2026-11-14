@@ -133,6 +133,23 @@ class TestExplodedView(PlacementAsserts, JointTestBase):
         self.assertEqual(len(trail), 2 * (n - 1))
         view.unpose()
 
+    def testStepDrawsAnArcAsOneLine(self):
+        """The 3D view draws the segments that meet as one line, so a turn's
+        arc is dashed end to end"""
+        self.box("B", plc(30, 0, 0))
+        self.box("C", plc(0, 30, 0))
+        view = self.explodedView([(["B."], turn((30, 0, 0), 90), 0), (["C."], plc(0, 0, 20), 0)])
+        view.pose()
+        points = list(view.Group[0].Trail)
+        lines = CommandCreateView.trailPolylines(list(zip(points[0::2], points[1::2])))
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(len(lines[0]), len(points) // 2 + 1)
+        points = list(view.Group[1].Trail)
+        self.assertEqual(
+            len(CommandCreateView.trailPolylines(list(zip(points[0::2], points[1::2])))), 1
+        )
+        view.unpose()
+
     def testSlideTrailIsAStraightLine(self):
         self.box("B", plc(30, 0, 0))
         view = self.explodedView([(["B."], plc(0, 0, 20), 0)])
@@ -701,7 +718,7 @@ def trailNames(shape):
 
 class TestExplodedShape(PlacementAsserts, JointTestBase):
     """The exploded view's shape: the parts where its steps put them, and its
-    trails as edges named Trail<n> (docs/AssemblyExplode.md sec 5)"""
+    trails as edges named Trail<n>, one each (docs/AssemblyExplode.md sec 5)"""
 
     def build(self, steps):
         self.box("A")
@@ -730,12 +747,17 @@ class TestExplodedShape(PlacementAsserts, JointTestBase):
         self.assertAlmostEqual(half.BoundBox.ZMax, 20)
 
     def testTurnTrailIsItsArc(self):
+        """A turn's trail is one curved edge along its arc, not pieces: a
+        drawing dashes it end to end"""
         view = self.build([(["B."], turn((30, 0, 0), 90), 0)])
-        names = [n.split(";")[0] for n in trailNames(view.getExplodedShape())]
-        n = len(view.explodedAt(None, True)[1][0][3]) - 1
-        self.assertEqual(
-            sorted(names), sorted(["Trail1"] + ["Trail1Part%d" % k for k in range(2, n + 1)])
-        )
+        shape = view.getExplodedShape()
+        names = trailNames(shape)
+        self.assertEqual([n.split(";")[0] for n in names], ["Trail1"])
+        edge = shape.getElement(shape.ElementMap[names[0]])
+        # The quarter circle of radius sqrt(50), not its chord of 10
+        self.assertAlmostEqual(edge.Length, math.sqrt(50) * math.pi / 2, 3)
+        mid = edge.valueAt((edge.FirstParameter + edge.LastParameter) / 2)
+        self.assertAlmostEqual(math.hypot(mid.x - 30, mid.y), math.sqrt(50), 3)
 
     def testAssemblyShapeLeavesTheViewOut(self):
         import Part

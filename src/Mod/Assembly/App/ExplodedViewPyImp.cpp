@@ -117,6 +117,53 @@ PyObject* ExplodedViewPy::explodedAt(PyObject* args) const
     PY_CATCH;
 }
 
+PyObject* ExplodedViewPy::pose(PyObject* args)
+{
+    PyObject* pyProgress = Py_None;
+    if (!PyArg_ParseTuple(args, "|O", &pyProgress)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        std::optional<double> progress;
+        if (pyProgress != Py_None) {
+            double value = PyFloat_AsDouble(pyProgress);
+            if (value == -1.0 && PyErr_Occurred()) {
+                return nullptr;
+            }
+            progress = value;
+        }
+        getExplodedViewPtr()->pose(progress);
+        Py_Return;
+    }
+    PY_CATCH;
+}
+
+PyObject* ExplodedViewPy::unpose(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        getExplodedViewPtr()->unpose();
+        Py_Return;
+    }
+    PY_CATCH;
+}
+
+PyObject* ExplodedViewPy::posedAt(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    auto at = getExplodedViewPtr()->posedAt();
+    if (!at) {
+        Py_Return;
+    }
+    return PyFloat_FromDouble(*at);
+}
+
 PyObject* ExplodedViewPy::getCustomAttributes(const char* /*attr*/) const
 {
     return nullptr;

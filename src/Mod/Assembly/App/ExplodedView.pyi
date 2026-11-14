@@ -57,3 +57,21 @@ class ExplodedView(DocumentObject):
         part's bounding box went from and to, in the document's frame.
         """
         ...
+
+    def pose(self, progress: Optional[float] = None, /) -> None:
+        """
+        Show the parts where explodedAt(progress) puts them, and the steps'
+        trails, as an Animation plays: no undo step, no change to the file,
+        nothing touched. Every pose is from the placements at rest, which a
+        save writes and a recompute runs on.
+        """
+        ...
+
+    def unpose(self) -> None:
+        """Put the parts back at rest."""
+        ...
+
+    @constmethod
+    def posedAt(self) -> Optional[float]:
+        """The progress on show, or None."""
+        ...

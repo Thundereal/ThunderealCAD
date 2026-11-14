@@ -22,10 +22,13 @@
  ***************************************************************************/
 
 #include <cstring>
+#include <set>
 
 #include <Standard_Failure.hxx>
 
+#include <App/Document.h>
 #include <App/FeaturePythonPyImp.h>
+#include <App/WriteScope.h>
 #include <Base/BoundBox.h>
 #include <Mod/Part/App/PartFeature.h>
 
@@ -203,6 +206,12 @@ std::vector<App::DocumentObject*> ExplodedView::getSteps() const
 
 void ExplodedView::getCenterAndSize(Base::Vector3d& center, double& size) const
 {
+    if (_posedAt) {
+        // At rest, not as posed
+        center = _center;
+        size = _size;
+        return;
+    }
     center = Base::Vector3d();
     size = 100.0;
     auto assembly = getAssembly();
@@ -228,12 +237,27 @@ void ExplodedView::getCenterAndSize(Base::Vector3d& center, double& size) const
     }
 }
 
-ExplodedPose ExplodedView::explodedAt(std::optional<double> progress) const
+ExplodeFrame ExplodedView::restFrame() const
+{
+    ExplodeFrame frame;
+    if (_posedAt) {
+        frame.center = _center;
+        frame.size = _size;
+        for (const auto& [obj, r] : _rest) {
+            // Written by anyone else since: theirs is the design's
+            frame.rest[obj] = r.prop->getValue() == r.written ? r.rest : r.prop->getValue();
+        }
+    }
+    else {
+        getCenterAndSize(frame.center, frame.size);
+    }
+    return frame;
+}
+
+ExplodedPose ExplodedView::explodeIn(ExplodeFrame& frame, std::optional<double> progress) const
 {
     ExplodedPose pose;
     auto steps = getSteps();
-    ExplodeFrame frame;
-    getCenterAndSize(frame.center, frame.size);
     double at = progress ? *progress : static_cast<double>(steps.size());
     for (int i = 0; i < static_cast<int>(steps.size()); ++i) {
         double fraction = std::min(1.0, at - i);
@@ -246,6 +270,183 @@ ExplodedPose ExplodedView::explodedAt(std::optional<double> progress) const
         pose.moves.push_back({obj, frame.placed[obj]});
     }
     return pose;
+}
+
+ExplodedPose ExplodedView::explodedAt(std::optional<double> progress) const
+{
+    auto frame = restFrame();
+    return explodeIn(frame, progress);
+}
+
+namespace
+{
+
+/// Purges, when it goes, what the writes it saw touched
+class KeepUntouched
+{
+public:
+    explicit KeepUntouched(App::Document* doc)
+        : doc(doc)
+    {
+        for (auto obj : doc->getObjects()) {
+            if (obj->isTouched()) {
+                touched.insert(obj);
+            }
+        }
+    }
+    ~KeepUntouched()
+    {
+        for (auto obj : doc->getObjects()) {
+            if (obj->isTouched() && !touched.count(obj)) {
+                obj->purgeTouched();
+            }
+        }
+    }
+    KeepUntouched(const KeepUntouched&) = delete;
+    KeepUntouched& operator=(const KeepUntouched&) = delete;
+
+private:
+    App::Document* doc;
+    std::set<App::DocumentObject*> touched;
+};
+
+void setTrail(App::DocumentObject* step, const std::vector<Base::Vector3d>& points)
+{
+    auto prop = freecad_cast<App::PropertyVectorList*>(step->getPropertyByName("Trail"));
+    if (prop && (prop->getSize() != 0 || !points.empty())) {
+        prop->setValues(points);
+    }
+}
+
+}  // namespace
+
+void ExplodedView::pose(std::optional<double> progress)
+{
+    auto doc = getDocument();
+    if (!doc) {
+        return;
+    }
+    auto frame = restFrame();
+    if (!_posedAt) {
+        _center = frame.center;
+        _size = frame.size;
+        connectDocument();
+    }
+    auto steps = getSteps();
+    double at = progress ? *progress : static_cast<double>(steps.size());
+    auto shown = explodeIn(frame, at);
+
+    App::WriteScope animated(App::WriteCause::Animation);
+    KeepUntouched untouched(doc);
+    // The rest placements as the frame read them: kept, or theirs now
+    for (auto& [obj, plc] : frame.rest) {
+        auto it = _rest.find(obj);
+        if (it != _rest.end()) {
+            it->second.rest = plc;
+            continue;
+        }
+        auto prop = freecad_cast<App::PropertyPlacement*>(obj->getPropertyByName("Placement"));
+        if (prop) {
+            _rest.emplace(obj, Rest {prop, plc, prop->getValue()});
+        }
+    }
+    for (auto& [obj, r] : _rest) {
+        auto it = frame.placed.find(obj);
+        const auto& target = it != frame.placed.end() ? it->second : r.rest;
+        if (!(r.prop->getValue() == target)) {
+            r.prop->setValue(target);
+        }
+        r.written = target;
+    }
+    std::vector<std::vector<Base::Vector3d>> trails(steps.size());
+    for (const auto& trail : shown.trails) {
+        trails[trail.step].push_back(trail.from);
+        trails[trail.step].push_back(trail.to);
+    }
+    for (std::size_t i = 0; i < steps.size(); ++i) {
+        auto step = steps[i];
+        if (!_stepVisible.count(step)) {
+            _stepVisible[step] = step->Visibility.getValue();
+        }
+        if (!step->Visibility.getValue()) {
+            step->Visibility.setValue(true);
+        }
+        setTrail(step, trails[i]);
+    }
+    _posedAt = at;
+}
+
+void ExplodedView::putBack()
+{
+    auto doc = getDocument();
+    if (!_posedAt || !doc) {
+        _posedAt.reset();
+        return;
+    }
+    {
+        App::WriteScope animated(App::WriteCause::Animation);
+        KeepUntouched untouched(doc);
+        for (auto& [obj, r] : _rest) {
+            if (r.prop->getValue() == r.written) {
+                r.prop->setValue(r.rest);
+            }
+        }
+        for (auto& [step, visible] : _stepVisible) {
+            setTrail(step, {});
+            if (step->Visibility.getValue() != visible) {
+                step->Visibility.setValue(visible);
+            }
+        }
+    }
+    _rest.clear();
+    _stepVisible.clear();
+    _posedAt.reset();
+}
+
+void ExplodedView::unpose()
+{
+    putBack();
+    _resume.reset();
+    _conns.clear();
+}
+
+void ExplodedView::unsetupObject()
+{
+    unpose();
+    App::DocumentObject::unsetupObject();
+}
+
+void ExplodedView::connectDocument()
+{
+    _conns.clear();
+    auto doc = getDocument();
+    // A save writes the design, and a recompute runs on it: off for either,
+    // and back on after (docs/AssemblyExplode.md sec 3)
+    auto off = [this](const App::Document&) {
+        if (_posedAt) {
+            _resume = _posedAt;
+            putBack();
+        }
+    };
+    auto on = [this](const App::Document&) {
+        if (_resume) {
+            auto at = *_resume;
+            _resume.reset();
+            pose(at);
+        }
+    };
+    _conns.emplace_back(doc->signalStartSave.connect(
+        [off](const App::Document& d, const std::string&) { off(d); }));
+    _conns.emplace_back(doc->signalFinishSave.connect(
+        [on](const App::Document& d, const std::string&) { on(d); }));
+    _conns.emplace_back(doc->signalBeforeRecompute.connect(off));
+    _conns.emplace_back(doc->signalRecomputed.connect(
+        [on](const App::Document& d, const std::vector<App::DocumentObject*>&) { on(d); }));
+    _conns.emplace_back(doc->signalDeletedObject.connect([this](const App::DocumentObject& obj) {
+        auto o = const_cast<App::DocumentObject*>(&obj);
+        _rest.erase(o);
+        _stepVisible.erase(o);
+    }));
 }
 
 

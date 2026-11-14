@@ -1334,6 +1334,9 @@ joint's properties:
   dependency link would make a cycle of.
 - **The commands make the C++ objects** (Create Simulation and its
   motions, Create Exploded View and its steps, Snapshot).
+- **The exploded view calculates and shows itself in C++** since
+  2026-11-14: placements and trails at any progress through its steps,
+  shown as an Animation plays and not as an edit. `docs/AssemblyExplode.md`.
 - **The solver builder reads them typed** (`AssemblyObject`'s
   `create_mbdSimulationParameters`, `getMotionsFromSimulation`, and the
   motions of a joint through one `readMotion`), and still by name for an

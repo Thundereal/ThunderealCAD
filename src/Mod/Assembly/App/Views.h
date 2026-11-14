@@ -38,6 +38,8 @@
 
 #include <Mod/Assembly/AssemblyGlobal.h>
 
+#include <fastsignals/signal.h>
+
 #include <map>
 #include <optional>
 #include <vector>
@@ -126,6 +128,51 @@ public:
      * the end. Nothing is written.
      */
     ExplodedPose explodedAt(std::optional<double> progress = std::nullopt) const;
+
+    /** Show the parts where explodedAt(progress) puts them, and each step's
+     * trails, as an Animation plays (docs/AssemblyExplode.md sec 3): under
+     * App::WriteScope of Animation, so no undo step, no change to the file,
+     * nothing touched. The first pose keeps each part's placement at rest;
+     * every pose is from rest. A save writes the rest placements, and a
+     * recompute runs on them, the pose put back after either. A part
+     * written by anyone else while posed keeps their value: it is the
+     * design's now.
+     */
+    void pose(std::optional<double> progress = std::nullopt);
+    /// Put the parts back at rest
+    void unpose();
+    /// The progress on show, if posed
+    std::optional<double> posedAt() const
+    {
+        return _posedAt;
+    }
+
+protected:
+    void unsetupObject() override;
+
+private:
+    /// A frame at rest: the rest placements a pose keeps, the center and size
+    ExplodeFrame restFrame() const;
+    ExplodedPose explodeIn(ExplodeFrame& frame, std::optional<double> progress) const;
+    /// Write the rest placements back and forget them; the connections stay
+    void putBack();
+    void connectDocument();
+
+    struct Rest
+    {
+        App::PropertyPlacement* prop = nullptr;
+        Base::Placement rest;
+        Base::Placement written;
+    };
+    std::map<App::DocumentObject*, Rest> _rest;
+    /// A step's Visibility before the first pose
+    std::map<App::DocumentObject*, bool> _stepVisible;
+    Base::Vector3d _center;
+    double _size = 100.0;
+    std::optional<double> _posedAt;
+    /// What a save or a recompute took off, to put back after it
+    std::optional<double> _resume;
+    std::vector<fastsignals::scoped_connection> _conns;
 };
 
 using ExplodedViewPython = App::FeaturePythonT<ExplodedView>;

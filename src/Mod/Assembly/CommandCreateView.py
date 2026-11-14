@@ -141,6 +141,10 @@ class ExplodedView:
         return positions
 
     def explodeTemporarily(self, viewObj):
+        # Not upstream: shown as an Animation plays, not an edit
+        if viewObj.isDerivedFrom("Assembly::ExplodedView"):
+            viewObj.pose()
+            return
         self.initialPlcs = UtilsAssembly.saveAssemblyPartsPlacements(self.getAssembly(viewObj))
         self.applyMoves(viewObj)
         for move in viewObj.Group:
@@ -177,6 +181,9 @@ class ExplodedView:
         return None
 
     def restoreAssembly(self, viewObj):
+        if viewObj.isDerivedFrom("Assembly::ExplodedView"):
+            viewObj.unpose()
+            return
         if self.initialPlcs is None:
             return
 
@@ -658,6 +665,13 @@ class ExplodedViewStep:
         return positions
 
 
+def _unposeViews(assembly):
+    group = UtilsAssembly.getViewGroup(assembly) if assembly else None
+    for view in group.Group if group else []:
+        if view.isDerivedFrom("Assembly::ExplodedView"):
+            view.unpose()
+
+
 def _writeExplosion(steps, moves, trails):
     """Put the parts where `moves` say, as the panel's edit does, and give
     each of `steps` the trails it made, for its view provider to draw.
@@ -824,6 +838,9 @@ class TaskAssemblyCreateView(QtCore.QObject):
         pref = Preferences.preferences()
         self.form.CheckBox_PartsAsSingleSolid.setChecked(pref.GetBool("PartsAsSingleSolid", True))
 
+        # Not upstream: a view shown from the tree is put back first, so the
+        # panel starts from, and goes back to, the design
+        _unposeViews(self.assembly)
         self.initialPlcs = UtilsAssembly.saveAssemblyPartsPlacements(self.assembly)
         self.moveSpinboxes = {}
         self.moveDirections = {}

@@ -52,6 +52,7 @@
 #include "AutoTransaction.h"
 #include "WriteScope.h"
 #include "Document.h"
+#include "Expression.h"
 #include "PropertyContainerPy.h"
 #include "PropertyGeo.h"
 #include "TransactionValue.h"
@@ -309,6 +310,43 @@ int AnimationTrack::findId(int id) const
     return -1;
 }
 
+namespace
+{
+
+/// A Python span's eased progress: its expression evaluated by the
+/// expression engine, as `(lambda u: (expr))(u)`, under the rules every
+/// expression of the document runs by. An error is said once a text and
+/// leaves the span linear.
+double pythonSpan(const DocumentObject* owner, const Key& key, double u)
+{
+    if (key.python.empty()) {
+        return u;
+    }
+    char number[40];
+    std::snprintf(number, sizeof(number), "%.17g", u);
+    const std::string text = "(lambda u: (" + key.python + "))(" + number + ")";
+    try {
+        Base::PyGILStateLocker lock;
+        ExpressionPtr expr(Expression::parse(owner, text));
+        if (!expr) {
+            return u;
+        }
+        double v = anyToQuantity(expr->getValueAsAny(), "a number").getValue();
+        if (std::isfinite(v)) {
+            return v;
+        }
+    }
+    catch (Base::Exception& e) {
+        static std::set<std::string> said;
+        if (said.insert(key.python).second) {
+            FC_WARN("Python interpolation '" << key.python << "': " << e.what());
+        }
+    }
+    return u;
+}
+
+}  // namespace
+
 void AnimationTrack::makeCurve(Curve& curve) const
 {
     curve.layout = layout;
@@ -316,8 +354,17 @@ void AnimationTrack::makeCurve(Curve& curve) const
     curve.after = after;
     curve.keys.clear();
     curve.keys.reserve(keys.size());
+    bool python = false;
     for (auto& k : keys) {
         curve.keys.push_back(k.key);
+        python = python || k.key.interp == Interp::Python;
+    }
+    curve.python = nullptr;
+    if (python) {
+        auto owner = freecad_dynamic_cast<DocumentObject>(target.getOwner());
+        curve.python = [owner](const Key& key, double u) {
+            return pythonSpan(owner, key, u);
+        };
     }
     curve.prepare();
 }
@@ -531,7 +578,7 @@ void PropertyAnimationTracks::moveKeys(const std::vector<AnimationKeyRef>& refs,
 }
 
 void PropertyAnimationTracks::setInterp(const std::vector<AnimationKeyRef>& refs, Interp interp,
-                                        const Easing* easing)
+                                        const Easing* easing, const std::string* python)
 {
     if (refs.empty()) {
         return;
@@ -549,6 +596,9 @@ void PropertyAnimationTracks::setInterp(const std::vector<AnimationKeyRef>& refs
         t.keys[i].key.interp = interp;
         if (easing) {
             t.keys[i].key.easing = *easing;
+        }
+        if (python) {
+            t.keys[i].key.python = *python;
         }
     }
     hasSetValue();
@@ -823,6 +873,9 @@ void PropertyAnimationTracks::Save(Base::Writer& writer) const
                   << number(key.easing.amplitude) << "\" period=\"" << number(key.easing.period)
                   << "\" overshoot=\"" << number(key.easing.overshoot) << "\"";
             }
+            if (key.interp == Interp::Python) {
+                s << " python=\"" << encodeAttribute(key.python) << "\"";
+            }
             auto handle = [&](const char* side, const Handle& h) {
                 if (h.type == HandleType::AutoClamped) {
                     return;
@@ -919,6 +972,9 @@ void PropertyAnimationTracks::Restore(Base::XMLReader& reader)
                 k.key.easing.amplitude = reader.getAttributeAsFloat("amplitude", "1");
                 k.key.easing.period = reader.getAttributeAsFloat("period", "0.3");
                 k.key.easing.overshoot = reader.getAttributeAsFloat("overshoot", "1.70158");
+            }
+            if (reader.hasAttribute("python")) {
+                k.key.python = reader.getAttribute("python");
             }
             auto handle = [&](const std::string& side, Handle& h) {
                 h.type = enumOf<HandleType>(

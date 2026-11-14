@@ -672,8 +672,11 @@ scalar track and needs none of this.
      component: Blender's 2D F-curve. Directions and quaternions are
      normalised after (3.13). Handles that reach past each other in time are
      shortened together, so the curve stays a function of time.
-   - Python calls the callable with `u`, inside the expression sandbox
-     rules.
+   - Python evaluates the key's expression in `u` with the expression
+     engine, as `(lambda u: (expr))(u)` (2026-11-14), so it is under the
+     rules every expression of the document runs by and calls a function
+     the way an expression does; its value is the eased progress, blended
+     as Easing's is. One that fails is warned once and the span is linear.
 3. Group the tracks by property. For each property, start from the whole
    track's value if there is one, else from the property's current value.
    Apply its part tracks in path order (3.4), then write the property ONCE
@@ -1192,9 +1195,12 @@ anim.clearCache()
 
 The track's options are a method, not attributes of a track object, so a
 track has no Python object to keep alive across an undo. `Tracks` reads as
-a list of dicts and is not written from Python. Not yet: the `Python`
-interpolation (a callable per span), and `Solved` detection, which needs
-the Assembly's view of which parts it solves (both phase 3). Stepped keys
+a list of dicts and is not written from Python. The `Python`
+interpolation: `addKey(path, t, value, python="1 - (1 - u) ** 3")` or
+`setInterp(path, t, "Python", python=...)`; the text is saved on the key
+(`python="..."`), shown as `Python` in the key's dict, and asked for by
+the timeline's Interpolation > Python... (2026-11-14). Not yet: `Solved`
+detection, which needs the Assembly's view of which parts it solves. Stepped keys
 hold the property's own XML, which serves every type that saves itself
 inline; a type that saves to a file of its own in the archive (a shape)
 is not one to step.

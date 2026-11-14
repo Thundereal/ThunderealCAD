@@ -111,10 +111,11 @@ PyObject* AnimationPy::addKey(PyObject* args, PyObject* kwds)
     PyObject* value = Py_None;
     const char* interp = nullptr;
     PyObject* easing = Py_None;
-    static const std::array<const char*, 6> kwlist {"path", "time", "value", "interp", "easing",
-                                                    nullptr};
-    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "sd|OzO", kwlist, &path, &t, &value,
-                                             &interp, &easing)) {
+    const char* python = nullptr;
+    static const std::array<const char*, 7> kwlist {"path",   "time",   "value", "interp",
+                                                    "easing", "python", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "sd|OzOz", kwlist, &path, &t, &value,
+                                             &interp, &easing, &python)) {
         return nullptr;
     }
     PY_TRY
@@ -127,15 +128,22 @@ PyObject* AnimationPy::addKey(PyObject* args, PyObject* kwds)
             e = easingOf(easing);
             i = Anim::Interp::Easing;
         }
+        if (python) {
+            i = Anim::Interp::Python;
+        }
         if (interp) {
             Anim::fromName(interp, i);
         }
-        if (i == Anim::Interp::Python) {
-            FC_THROWM(Base::NotImplementedError, "a Python interpolation");
+        if (i == Anim::Interp::Python && (!python || !python[0])) {
+            FC_THROWM(Base::ValueError, "a Python interpolation needs python, an expression in u");
         }
         int track = trackOfPath(anim, path, true);
-        int id = anim->setKey(track, t, value, (interp || hasEasing) ? &i : nullptr,
+        int id = anim->setKey(track, t, value, (interp || hasEasing || python) ? &i : nullptr,
                               hasEasing ? &e : nullptr);
+        if (i == Anim::Interp::Python) {
+            const std::string text(python);
+            anim->Tracks.setInterp({{anim->Tracks.getTrack(track)->id, id}}, i, nullptr, &text);
+        }
         return Py::new_reference_to(Py::Long(id));
     }
     PY_CATCH
@@ -183,9 +191,11 @@ PyObject* AnimationPy::setInterp(PyObject* args, PyObject* kwds)
     double t;
     const char* interp;
     PyObject* easing = Py_None;
-    static const std::array<const char*, 5> kwlist {"path", "time", "interp", "easing", nullptr};
-    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "sds|O", kwlist, &path, &t, &interp,
-                                             &easing)) {
+    const char* python = nullptr;
+    static const std::array<const char*, 6> kwlist {"path",   "time",   "interp",
+                                                    "easing", "python", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "sds|Oz", kwlist, &path, &t, &interp,
+                                             &easing, &python)) {
         return nullptr;
     }
     PY_TRY
@@ -194,15 +204,16 @@ PyObject* AnimationPy::setInterp(PyObject* args, PyObject* kwds)
         auto track = anim->Tracks.getTrack(trackOfPath(anim, path, false));
         Anim::Interp i;
         Anim::fromName(interp, i);
-        if (i == Anim::Interp::Python) {
-            FC_THROWM(Base::NotImplementedError, "a Python interpolation");
+        if (i == Anim::Interp::Python && (!python || !python[0])) {
+            FC_THROWM(Base::ValueError, "a Python interpolation needs python, an expression in u");
         }
         Anim::Easing e;
         if (easing != Py_None) {
             e = easingOf(easing);
         }
+        const std::string text(python ? python : "");
         anim->Tracks.setInterp({{track->id, track->keys[keyIndex(*track, t)].id}}, i,
-                               easing != Py_None ? &e : nullptr);
+                               easing != Py_None ? &e : nullptr, python ? &text : nullptr);
         Py_Return;
     }
     PY_CATCH
@@ -269,6 +280,9 @@ PyObject* AnimationPy::track(PyObject* args)
             kd.setItem("Interp", Py::String(Anim::nameOf(k.key.interp)));
             if (k.key.interp == Anim::Interp::Easing) {
                 kd.setItem("Easing", easingTuple(k.key.easing));
+            }
+            if (k.key.interp == Anim::Interp::Python) {
+                kd.setItem("Python", Py::String(k.key.python));
             }
             kd.setItem("Handles", Py::TupleN(Py::String(Anim::nameOf(k.key.left.type)),
                                              Py::String(Anim::nameOf(k.key.right.type))));

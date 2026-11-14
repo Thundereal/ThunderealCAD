@@ -24,6 +24,7 @@
 #include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMenu>
@@ -781,6 +782,9 @@ public:
         case App::Anim::Interp::Easing:
             fill = QColor(0x4a, 0x90, 0xe2);
             break;
+        case App::Anim::Interp::Python:
+            fill = QColor(0xa0, 0x6c, 0xd5);
+            break;
         default:
             fill = QColor(0xf0, 0xf0, 0xf0);
             break;
@@ -1067,10 +1071,11 @@ public:
     {
         auto anim = owner->animation();
         using namespace App::Anim;
-        auto setInterp = [this, anim](Interp interp, const Easing* easing) {
+        auto setInterp = [this, anim](Interp interp, const Easing* easing,
+                                      const std::string* python = nullptr) {
             App::AutoTransaction guard(QT_TRANSLATE_NOOP("Command", "Set interpolation"));
             try {
-                anim->Tracks.setInterp(selectedRefs(), interp, easing);
+                anim->Tracks.setInterp(selectedRefs(), interp, easing, python);
             }
             catch (Base::Exception& e) {
                 e.ReportException();
@@ -1082,12 +1087,28 @@ public:
         interp->addAction(tr2("Bezier"), [=] { setInterp(Interp::Bezier, nullptr); });
         // The easing of the first key selected, its type or mode changed
         Easing current;
+        std::string currentPython;
         if (auto t = anim->Tracks.getTrack(selected.begin()->first)) {
             int i = t->findId(selected.begin()->second);
             if (i >= 0) {
                 current = t->keys[i].key.easing;
+                currentPython = t->keys[i].key.python;
             }
         }
+        // An expression in u, the span's progress, giving it eased
+        // (docs/Animation.md sec 4)
+        interp->addAction(tr2("Python..."), [=] {
+            bool ok = false;
+            QString text = QInputDialog::getText(
+                this, tr2("Python interpolation"),
+                tr2("The progress eased, an expression in u (0 to 1):"), QLineEdit::Normal,
+                QString::fromStdString(currentPython.empty() ? std::string("u") : currentPython),
+                &ok);
+            if (ok && !text.trimmed().isEmpty()) {
+                const std::string python = text.trimmed().toStdString();
+                setInterp(Interp::Python, nullptr, &python);
+            }
+        });
         QMenu* easing = menu.addMenu(tr2("Easing"));
         for (int i = 0; i <= static_cast<int>(EaseType::Bounce); ++i) {
             auto type = static_cast<EaseType>(i);

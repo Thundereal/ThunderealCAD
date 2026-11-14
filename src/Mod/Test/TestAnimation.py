@@ -98,6 +98,40 @@ class TestAnimation(unittest.TestCase):
         self.anim.Time = 0.5
         self.assertEqual(self.obj.I, 2)
 
+    def testPythonInterpolation(self):
+        # The span's progress u eased by an expression of it
+        self.anim.addKey("Obj.F", 0.0, 0.0, python="u * u")
+        self.anim.addKey("Obj.F", 2.0, 10.0)
+        self.assertEqual(self.anim.keys("Obj.F")[0][2], "Python")
+        self.assertEqual(self.anim.track("Obj.F")["Keys"][0]["Python"], "u * u")
+        self.anim.Time = 1.0
+        self.assertAlmostEqual(self.obj.F, 2.5)
+        self.anim.Time = 1.5
+        self.assertAlmostEqual(self.obj.F, 5.625)
+        # setInterp, and an expression that calls a function
+        self.anim.setInterp("Obj.F", 0.0, "Python", python="1 - (1 - u) ** 3")
+        self.anim.Time = 1.0
+        self.assertAlmostEqual(self.obj.F, 8.75)
+        # Saved and read back
+        self.anim.stop()
+        self.reopen()
+        self.assertEqual(self.anim.track("Obj.F")["Keys"][0]["Python"], "1 - (1 - u) ** 3")
+        # The Time it was saved at: shown again by activating, not by setting it
+        self.assertAlmostEqual(self.anim.Time.Value, 1.0)
+        self.anim.activate()
+        self.assertAlmostEqual(self.obj.F, 8.75)
+
+    def testPythonInterpolationThatFailsIsLinear(self):
+        self.anim.addKey("Obj.F", 0.0, 0.0, python="no_such_name(u)")
+        self.anim.addKey("Obj.F", 2.0, 10.0)
+        self.anim.Time = 0.5
+        self.assertAlmostEqual(self.obj.F, 2.5)
+        # And one with nothing to evaluate is refused
+        with self.assertRaises(ValueError):
+            self.anim.addKey("Obj.F", 1.0, 3.0, interp="Python")
+        with self.assertRaises(ValueError):
+            self.anim.setInterp("Obj.F", 0.0, "Python")
+
     def testEasing(self):
         self.anim.addKey("Obj.F", 0.0, 0.0, easing=("Quad", "In"))
         self.anim.addKey("Obj.F", 1.0, 1.0)

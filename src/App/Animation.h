@@ -212,8 +212,9 @@ public:
     void removeKey(int track, int key);
     /// Move keys in time; one landing on another key's time replaces it
     void moveKeys(const std::vector<AnimationKeyRef>& keys, double dt);
+    /// \a python: Interp::Python's expression in u
     void setInterp(const std::vector<AnimationKeyRef>& keys, Anim::Interp interp,
-                   const Anim::Easing* easing = nullptr);
+                   const Anim::Easing* easing = nullptr, const std::string* python = nullptr);
     void setHandles(AnimationKeyRef key, const Anim::Handle& left, const Anim::Handle& right);
     /// Label, mute, lock, extrapolation, rotation mode and a strip's options of `options`
     void setTrackOptions(int track, const AnimationTrack& options);

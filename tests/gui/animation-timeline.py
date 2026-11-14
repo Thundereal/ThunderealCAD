@@ -8,7 +8,8 @@ A document with a cylinder, its Height keyed 10 mm at 0 s and 40 mm at
     Height follows: 25 mm;
   - dragging the key at 2 s to 3 s moves it, one undo step; undo takes it
     back;
-  - the key menu's Interpolation > Constant sets the key's interpolation;
+  - the key menu's Interpolation > Constant sets the key's interpolation,
+    and Interpolation > Python... the expression it asks for;
   - a key clicked and Delete pressed is removed;
   - the property editor marks Height: green between keys, yellow on a key,
     orange typed and not keyed;
@@ -257,6 +258,40 @@ def run():
         pump(0.3)
         interp = anim.track("Post.Height")["Keys"][0]["Interp"]
         check("the key menu sets the interpolation", chosen and interp == "Constant", interp)
+
+        # Interpolation > Python...: the expression in u it asks for
+        def pickPython():
+            menu = QtWidgets.QApplication.activePopupWidget()
+            if menu is None:
+                QtCore.QTimer.singleShot(100, pickPython)
+                return
+            for a in menu.actions():
+                if a.text() == "Interpolation" and a.menu() is not None:
+                    for b in a.menu().actions():
+                        if b.text() == "Python...":
+                            chosen.append(b.text())
+                            QtCore.QTimer.singleShot(200, answer)
+                            b.trigger()
+            menu.close()
+
+        # The dialog it asks with: the expression typed, OK
+        def answer():
+            box = QtWidgets.QApplication.activeModalWidget()
+            if not isinstance(box, QtWidgets.QInputDialog):
+                QtCore.QTimer.singleShot(100, answer)
+                return
+            chosen.append(box.textValue())
+            box.setTextValue("u * u")
+            box.accept()
+
+        QtCore.QTimer.singleShot(300, pickPython)
+        QtWidgets.QApplication.sendEvent(view, QtGui.QContextMenuEvent(
+            QtGui.QContextMenuEvent.Mouse, pos, view.mapToGlobal(pos)))
+        pump(0.3)
+        key = anim.track("Post.Height")["Keys"][0]
+        check("Interpolation > Python... sets the expression it asks for",
+              "Python..." in chosen and key["Interp"] == "Python" and key.get("Python") == "u * u",
+              key)
 
         # Delete a key
         anim.addKey("Post.Height", 1.0, 20.0)

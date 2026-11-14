@@ -23,6 +23,7 @@
 
 #include <App/Application.h>
 #include <Base/Color.h>
+#include <Gui/BitmapFactory.h>
 #include <Base/Parameter.h>
 #include <Mod/Assembly/App/Views.h>
 
@@ -32,7 +33,10 @@ using namespace AssemblyGui;
 
 PROPERTY_SOURCE(AssemblyGui::ViewProviderExplodedView, Gui::ViewProviderDocumentObjectGroup)
 
-bool ViewProviderExplodedView::getEdgeInfo(const char* mappedName, EdgeInfo& info) const
+namespace
+{
+
+bool trailEdgeInfo(const char* mappedName, Gui::ViewProvider::EdgeInfo& info)
 {
     if (!Assembly::ExplodedView::isTrailName(mappedName)) {
         return false;
@@ -50,6 +54,50 @@ bool ViewProviderExplodedView::getEdgeInfo(const char* mappedName, EdgeInfo& inf
     info.color = Base::Color(color.r, color.g, color.b, 1.0F);
     info.width = 0;
     return true;
+}
+
+}  // namespace
+
+/// A part's edge: its number in the view's BOM, as a balloon, the edge drawn
+/// as the drawing draws it (docs/AssemblyExplode.md sec 9)
+static bool partEdgeInfo(const App::DocumentObject* view,
+                  const char* mappedName,
+                  Gui::ViewProvider::EdgeInfo& info)
+{
+    auto exploded = freecad_cast<const Assembly::ExplodedView*>(view);
+    if (!exploded) {
+        return false;
+    }
+    auto number = Assembly::ExplodedView::partNumberOf(exploded->Bom.getValue(),
+                                                       exploded->getDocument(),
+                                                       mappedName);
+    if (number.empty()) {
+        return false;
+    }
+    info.styled = false;
+    info.label = number;
+    info.oncePerLabel = true;
+    info.bubble = "Circular";
+    return true;
+}
+
+bool ViewProviderExplodedView::getEdgeInfo(const char* mappedName, EdgeInfo& info) const
+{
+    return trailEdgeInfo(mappedName, info) || partEdgeInfo(getObject(), mappedName, info);
+}
+
+PROPERTY_SOURCE(AssemblyGui::ViewProviderExplodedViewAt, Gui::ViewProviderDocumentObject)
+
+bool ViewProviderExplodedViewAt::getEdgeInfo(const char* mappedName, EdgeInfo& info) const
+{
+    auto at = freecad_cast<Assembly::ExplodedViewAt*>(getObject());
+    return trailEdgeInfo(mappedName, info)
+        || (at && partEdgeInfo(at->View.getValue(), mappedName, info));
+}
+
+QIcon ViewProviderExplodedViewAt::getIcon() const
+{
+    return Gui::BitmapFactory().pixmap("Assembly_ExplodedView");
 }
 
 namespace Gui

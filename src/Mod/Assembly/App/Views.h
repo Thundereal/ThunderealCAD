@@ -125,8 +125,19 @@ public:
     }
     PyObject* getPyObject() override;
 
+    /// The bill of materials whose numbers a drawing of the view gives its
+    /// parts, as balloons (docs/AssemblyExplode.md sec 9)
+    App::PropertyLinkHidden Bom;
+
     /// The assembly whose parts the view moves
     AssemblyObject* getAssembly() const;
+    /** The number `bom` gives the part an edge of this view's shape is of,
+     * by the edge's mapped name: the tag of its object. Empty for a trail,
+     * or a part the BOM has no row of.
+     */
+    static std::string partNumberOf(const App::DocumentObject* bom,
+                                    const App::Document* doc,
+                                    const char* mappedName);
     /// Its steps, in order: what Group holds that has a step's properties
     std::vector<App::DocumentObject*> getSteps() const;
     /** The center of the assembly's bounding box at rest, and its diagonal
@@ -282,6 +293,47 @@ public:
 };
 
 using ExplodedViewStepPython = App::FeaturePythonT<ExplodedViewStep>;
+
+
+/** An exploded view at a progress through its steps, for a drawing of one
+ * step: its shape is the view's there, ExplodedView::getExplodedShape(),
+ * which a TechDraw view of it draws (docs/AssemblyExplode.md sec 8)
+ */
+class AssemblyExport ExplodedViewAt: public App::DocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::ExplodedViewAt);
+
+public:
+    ExplodedViewAt();
+
+    /// The exploded view: in its assembly, while this is outside it (a
+    /// drawing's source), so a global link
+    App::PropertyLinkGlobal View;
+    /// Where through its steps: n is the end of step n; below 0, the end
+    App::PropertyFloat Progress;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderExplodedViewAt";
+    }
+    App::DocumentObjectExecReturn* execute() override;
+    /// Never skipped: its shape is the view's, which its own properties do
+    /// not show changed
+    bool skipRecompute() override
+    {
+        return false;
+    }
+
+protected:
+    void onChanged(const App::Property* prop) override;
+
+public:
+    App::DocumentObject* getSubObject(const char* subname,
+                                      PyObject** pyObj = nullptr,
+                                      Base::Matrix4D* mat = nullptr,
+                                      bool transform = true,
+                                      int depth = 0) const override;
+};
 
 
 /// The placements and visibilities of an assembly's parts, to go back to

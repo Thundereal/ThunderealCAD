@@ -47,10 +47,14 @@
 #include <Precision.hxx>
 #include <regex>
 
+#include <App/ElementNamingUtils.h>
+#include <App/GeoFeatureGroupExtension.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/PartPyCXX.h>
+#include <Mod/Part/App/PropertyTopoShape.h>
 
 #include "AssemblyObject.h"
+#include "BomObject.h"
 #include "AssemblyUtils.h"
 #include "ExplodedViewPy.h"
 #include "ExplodedViewStepPy.h"
@@ -190,6 +194,46 @@ PROPERTY_SOURCE_WITH_EXTENSIONS(Assembly::ExplodedView, App::DocumentObject)
 ExplodedView::ExplodedView()
 {
     GroupExtension::initExtension(this);
+    ADD_PROPERTY_TYPE(Bom, (nullptr), "Exploded View", App::Prop_None,
+                      "The bill of materials whose numbers a drawing of the view gives its parts");
+}
+
+std::string ExplodedView::partNumberOf(const App::DocumentObject* bom,
+                                       const App::Document* doc,
+                                       const char* mappedName)
+{
+    auto table = freecad_cast<const BomObject*>(bom);
+    if (!table || !doc || !mappedName || isTrailName(mappedName)) {
+        return {};
+    }
+    // The tags of the operations the name went through, the last first: the
+    // exploded shape's own, then the part's, then those inside it (a Body's
+    // features). The first object the BOM numbers, or that is inside one, is
+    // the part.
+    std::string name(mappedName);
+    for (int guard = 0; guard < 64; ++guard) {
+        // A tag in hex, or in decimal, the older encoding
+        auto pos = name.rfind(Data::tagPostfix());
+        auto dec = name.rfind(Data::decimalTagPostfix());
+        if (pos == std::string::npos || (dec != std::string::npos && dec > pos)) {
+            pos = dec;
+        }
+        if (pos == std::string::npos) {
+            break;
+        }
+        long tag = 0;
+        Data::MappedName(name).findTagInElementName(&tag, nullptr, nullptr, nullptr, false, false);
+        name.resize(pos);
+        auto obj = tag > 0 ? doc->getObjectByID(tag) : nullptr;
+        for (int up = 0; obj && up < 16; ++up) {
+            auto number = table->getIndexOf(obj);
+            if (!number.empty()) {
+                return number;
+            }
+            obj = App::GeoFeatureGroupExtension::getGroupOfObject(obj);
+        }
+    }
+    return {};
 }
 
 ExplodedView::~ExplodedView()
@@ -973,6 +1017,61 @@ void ExplodedViewStep::explode(const App::DocumentObject& step,
     }
 }
 
+
+
+// ExplodedViewAt ---------------------------------------------------------
+
+PROPERTY_SOURCE(Assembly::ExplodedViewAt, App::DocumentObject)
+
+ExplodedViewAt::ExplodedViewAt()
+{
+    ADD_PROPERTY_TYPE(View, (nullptr), "Exploded View", App::Prop_None,
+                      "The exploded view this is a moment of");
+    ADD_PROPERTY_TYPE(Progress, (-1.0), "Exploded View", App::Prop_None,
+                      "Where through the view's steps: n is the end of step n; below 0, the end");
+}
+
+// Its shape is the view's at Progress, which Part's shape cache would keep
+// past a change of either
+App::DocumentObjectExecReturn* ExplodedViewAt::execute()
+{
+    Part::PropertyShapeCache::clearShapes(this);
+    // What draws it -- a TechDraw view -- has no input of its own changed,
+    // and the recompute's optimization (OptimizeRecompute) would skip it,
+    // the drawing left at the step as it was
+    for (auto obj : getInList()) {
+        obj->enforceRecompute();
+    }
+    return App::DocumentObject::execute();
+}
+
+void ExplodedViewAt::onChanged(const App::Property* prop)
+{
+    Part::PropertyShapeCache::clearShapes(this);
+    App::DocumentObject::onChanged(prop);
+}
+
+App::DocumentObject* ExplodedViewAt::getSubObject(const char* subname,
+                                                  PyObject** pyObj,
+                                                  Base::Matrix4D* mat,
+                                                  bool transform,
+                                                  int depth) const
+{
+    auto view = freecad_cast<ExplodedView*>(View.getValue());
+    if (pyObj && (!subname || !subname[0]) && view) {
+        double at = Progress.getValue();
+        auto shape = view->getExplodedShape(at < 0 ? std::nullopt : std::optional<double>(at));
+        if (!shape.isNull()) {
+            if (mat) {
+                shape.transformShape(*mat, false, true);
+            }
+            Base::PyGILStateLocker lock;
+            *pyObj = Py::new_reference_to(Part::shape2pyshape(shape));
+        }
+        return const_cast<ExplodedViewAt*>(this);
+    }
+    return App::DocumentObject::getSubObject(subname, pyObj, mat, transform, depth);
+}
 
 
 PROPERTY_SOURCE(Assembly::Snapshot, App::DocumentObject)

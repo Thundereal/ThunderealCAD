@@ -385,6 +385,25 @@ class ViewProviderExplodedView:
             )
         )
         action.triggered.connect(lambda: self._animate(explodedView))
+        action = menu.addAction(App.Qt.translate("Assembly", "Drawing of each step"))
+        action.setToolTip(
+            App.Qt.translate(
+                "Assembly",
+                "Make a TechDraw page with a view of each step of this exploded view,\n"
+                "its trails dashed",
+            )
+        )
+        action.triggered.connect(lambda: self._stepDrawings(explodedView))
+        if drawingsOf(explodedView):
+            action = menu.addAction(App.Qt.translate("Assembly", "Number parts in drawings"))
+            action.setToolTip(
+                App.Qt.translate(
+                    "Assembly",
+                    "A balloon on each part in the drawings of this exploded view,\n"
+                    "its number in the bill of materials; again, brings them up to date",
+                )
+            )
+            action.triggered.connect(lambda: self._balloons(explodedView))
 
     def _animate(self, explodedView):
         Gui.addModule("CommandCreateView")
@@ -396,6 +415,25 @@ class ViewProviderExplodedView:
         anim = Gui.doCommandEval("anim")
         # Active, with the timeline raised
         Gui.ActiveDocument.setEdit(anim)
+
+    def _balloons(self, explodedView):
+        Gui.addModule("CommandCreateView")
+        for drawing in drawingsOf(explodedView):
+            Gui.doCommand(
+                "CommandCreateView.addBomBalloons("
+                f'App.ActiveDocument.getObject("{drawing.Name}"))'
+            )
+
+    def _stepDrawings(self, explodedView):
+        Gui.addModule("CommandCreateView")
+        Gui.ActiveDocument.openCommand("Drawing of Each Step")
+        Gui.doCommand(
+            "page = CommandCreateView.makeStepDrawings("
+            f'App.ActiveDocument.getObject("{explodedView.Name}"))'
+        )
+        Gui.ActiveDocument.commitCommand()
+        page = Gui.doCommandEval("page")
+        page.ViewObject.show()
 
     def onDelete(self, vobj, subelements):
         for obj in self.claimChildren():
@@ -720,6 +758,178 @@ def trailPolylines(segments):
         else:
             polylines.append([a, b])
     return polylines
+
+
+def _defaultTemplate():
+    """TechDraw's default template: the user's, else A4 landscape"""
+    import os
+
+    pref = App.ParamGet("User parameter:BaseApp/Preferences/Mod/TechDraw/Files")
+    path = pref.GetString("TemplateFile", "")
+    if path and os.path.isfile(path):
+        return path
+    return os.path.join(App.getResourceDir(), "Mod", "TechDraw", "Templates", "A4_LandscapeTD.svg")
+
+
+def makeStepDrawings(explodedView, page=None, direction=None, xdirection=None):
+    """Not upstream: a TechDraw page with a view of each step of
+    `explodedView` (docs/AssemblyExplode.md sec 8): step k drawn at the end of
+    step k, through an Assembly::ExplodedViewAt, its trails dashed, captioned
+    with the step's label; laid out in a grid above the title block, all at
+    one scale. A new page on TechDraw's default template unless `page` is
+    given. Returns the page."""
+    import math
+
+    import TechDraw  # noqa: F401 -- the page's types
+
+    doc = explodedView.Document
+    steps = explodedView.getSteps()
+    if not steps:
+        raise ValueError("the exploded view has no steps")
+    if direction is None:
+        direction = App.Vector(1, -1, 1)
+        xdirection = App.Vector(1, 1, 0)
+    if xdirection is None:
+        xdirection = App.Vector(1, 0, 0)
+    if page is None:
+        page = doc.addObject("TechDraw::DrawPage", "ExplodedSteps")
+        page.Label = explodedView.Label + " steps"
+        template = doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        template.Template = _defaultTemplate()
+        page.Template = template
+    width, height = page.PageWidth, page.PageHeight
+    # The area above the title block and inside the frame
+    left, right, top, bottom = 20.0, width - 20.0, height - 20.0, 70.0
+    # Each step's outline as the view projects it, the largest of them: a
+    # step's shape is not the end's (a turn half open stands taller)
+    xd = App.Vector(xdirection)
+    zd = App.Vector(direction)
+    zd.normalize()
+    xd = xd - zd * xd.dot(zd)
+    xd.normalize()
+    yd = zd.cross(xd)
+    outlineW = outlineH = 1e-6
+    for k in range(len(steps)):
+        points = [
+            p for e in explodedView.getExplodedShape(k + 1).Edges for p in e.discretize(12)
+        ]
+        if points:
+            xs = [p.dot(xd) for p in points]
+            ys = [p.dot(yd) for p in points]
+            outlineW = max(outlineW, max(xs) - min(xs))
+            outlineH = max(outlineH, max(ys) - min(ys))
+    # Room round a view for its balloons (a ring a balloon out,
+    # docs/AssemblyExplode.md sec 9), and under it for its caption
+    margin, captionH = 18.0, 10.0
+    best = None
+    for cols in range(1, len(steps) + 1):
+        rows = int(math.ceil(len(steps) / cols))
+        cellW, cellH = (right - left) / cols, (top - bottom) / rows
+        fit = min(
+            (cellW - 2 * margin) / outlineW, (cellH - 2 * margin - captionH) / outlineH
+        )
+        if best is None or fit > best[0]:
+            best = (fit, cols, cellW, cellH)
+    fit, cols, cellW, cellH = best
+    # The fit to two figures, down: a scale to write, without the half a
+    # standard scale (1, 2, 5 times a power of ten) can throw away
+    scale = fit
+    if fit > 0:
+        power = 10.0 ** (math.floor(math.log10(fit)) - 1)
+        scale = math.floor(fit / power * (1 + 1e-9)) * power
+    group = doc.addObject("App::DocumentObjectGroup", "ExplodedStepViews")
+    group.Label = explodedView.Label + " at each step"
+    for k, step in enumerate(steps):
+        row, col = divmod(k, cols)
+        x = left + (col + 0.5) * cellW
+        y = top - (row + 0.5) * cellH + captionH / 2
+        at = doc.addObject("Assembly::ExplodedViewAt", "ExplodedViewAt")
+        at.View = explodedView
+        at.Progress = k + 1
+        at.Label = "%s at %d" % (explodedView.Label, k + 1)
+        group.addObject(at)
+        view = doc.addObject("TechDraw::DrawViewPart", "StepView")
+        view.Label = "Step %d" % (k + 1)
+        page.addView(view)
+        view.Source = [at]
+        view.Direction = direction
+        view.XDirection = xdirection
+        view.ScaleType = "Custom"
+        view.Scale = scale
+        view.X, view.Y = x, y
+        caption = doc.addObject("TechDraw::DrawViewAnnotation", "StepCaption")
+        page.addView(caption)
+        caption.Text = ["%d. %s" % (k + 1, step.Label)]
+        # Under the ring of balloons
+        caption.X, caption.Y = x, y - outlineH * scale / 2 - margin - captionH / 2
+    doc.recompute()
+    return page
+
+
+def explodedViewOf(drawing):
+    """Not upstream: the exploded view a TechDraw view draws, through an
+    Assembly::ExplodedViewAt or directly; None if it draws none"""
+    for source in getattr(drawing, "Source", []):
+        if source.isDerivedFrom("Assembly::ExplodedView"):
+            return source
+        if source.isDerivedFrom("Assembly::ExplodedViewAt") and source.View:
+            return source.View
+    return None
+
+
+def drawingsOf(explodedView):
+    """Not upstream: the TechDraw views that draw `explodedView`"""
+    return [
+        o
+        for o in explodedView.Document.Objects
+        if o.isDerivedFrom("TechDraw::DrawViewPart") and explodedViewOf(o) == explodedView
+    ]
+
+
+def assemblyBom(assembly):
+    """Not upstream: the assembly's bill of materials, made if it has none"""
+    group = UtilsAssembly.getBomGroup(assembly)
+    for obj in group.Group:
+        if obj.isDerivedFrom("Assembly::BomObject"):
+            return obj
+    # Made as the Bill of Materials command makes it: its columns
+    # (CommandCreateBom.ColumnNames, a module that needs the GUI), so a link
+    # is counted in its part's row, and its preferences
+    pref = Preferences.preferences()
+    bom = group.newObject("Assembly::BomObject", "Bill of Materials")
+    bom.columnsNames = ["Index", "Name", "Description", "File Name", "Quantity"]
+    bom.onlyParts = pref.GetBool("BOMOnlyParts", False)
+    bom.detailParts = pref.GetBool("BOMDetailParts", True)
+    bom.detailSubAssemblies = pref.GetBool("BOMDetailSubAssemblies", True)
+    return bom
+
+
+def addBomBalloons(drawing, bom=None):
+    """Not upstream: a balloon on each part a TechDraw view of an exploded view
+    shows, its number in `bom` (the view's Bom, else the assembly's, made if
+    none), on the longest piece of the part the drawing shows
+    (docs/AssemblyExplode.md sec 9). TechDraw's Import Edge Labels makes them:
+    run again, they move with their parts, keep a number you wrote, and go
+    with a part gone. Needs the GUI. Returns the balloons."""
+    import FreeCADGui as Gui
+
+    explodedView = explodedViewOf(drawing)
+    if explodedView is None:
+        raise ValueError("%s draws no exploded view" % drawing.Label)
+    if bom is None:
+        bom = explodedView.Bom or assemblyBom(explodedView.getAssembly())
+    if explodedView.Bom != bom:
+        explodedView.Bom = bom
+    bom.recompute()
+    Gui.Selection.clearSelection()
+    Gui.Selection.addSelection(drawing)
+    Gui.runCommand("TechDraw_ImportEdgeLabels")
+    Gui.Selection.clearSelection()
+    return [
+        o
+        for o in drawing.Document.Objects
+        if o.isDerivedFrom("TechDraw::DrawEdgeLabel") and o.SourceView == drawing
+    ]
 
 
 def _unposeViews(assembly):

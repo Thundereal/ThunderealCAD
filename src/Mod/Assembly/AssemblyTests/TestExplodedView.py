@@ -956,3 +956,194 @@ class TestExplodedViewDrawn(PlacementAsserts, JointTestBase):
             return None
         img = Image.open(path).convert("RGB")
         return sum(1 for r, g, b in img.getdata() if g > 120 and r < 90 and b < 90)
+
+
+class TestExplodedViewAtSteps(PlacementAsserts, JointTestBase):
+    """An exploded view at a progress, and a drawing of each step
+    (docs/AssemblyExplode.md sec 8)"""
+
+    def twoSteps(self):
+        self.box("A")
+        self.b = self.box("B", plc(30, 0, 0))
+        view = TestExplodedView.explodedView(
+            self,
+            [
+                (["B."], plc(0, 0, 20), 0),
+                (["B."], plc(20, 0, 0), 0),
+            ],
+        )
+        view.Group[0].Label = "Lift"
+        view.Group[1].Label = "Slide"
+        return view
+
+    def testShapeAtAProgress(self):
+        import Part
+
+        view = self.twoSteps()
+        at = self.doc.addObject("Assembly::ExplodedViewAt", "At")
+        at.View = view
+        at.Progress = 1
+        self.assertAlmostEqual(Part.getShape(at).BoundBox.ZMax, 30)
+        self.assertAlmostEqual(Part.getShape(at).BoundBox.XMax, 40)
+        at.Progress = -1
+        self.assertAlmostEqual(Part.getShape(at).BoundBox.XMax, 60)
+        # A step edited: drawn again at the recompute
+        view.Group[1].MovementTransform = plc(40, 0, 0)
+        self.doc.recompute()
+        self.assertAlmostEqual(Part.getShape(at).BoundBox.XMax, 80)
+        # Recomputed without an error: outside the assembly, its link to the
+        # view inside it is allowed
+        self.assertNotIn("Invalid", at.State)
+        # Nothing written
+        self.assertPlc(self.b.Placement, plc(30, 0, 0))
+
+    def testStepDrawings(self):
+        """A page with a view of each step, captioned, at one scale; GUI
+        only, as TechDraw projects in threads that need an event loop"""
+        if not hasEventLoop():
+            self.skipTest("TechDraw projects in threads, which need an event loop")
+        try:
+            import TechDraw  # noqa: F401
+        except ImportError:
+            self.skipTest("no TechDraw")
+        view = self.twoSteps()
+        page = CommandCreateView.makeStepDrawings(view)
+        waitForWorkers(3000)
+        parts = [v for v in page.Views if v.isDerivedFrom("TechDraw::DrawViewPart")]
+        captions = [v for v in page.Views if v.isDerivedFrom("TechDraw::DrawViewAnnotation")]
+        self.assertEqual(len(parts), 2)
+        self.assertEqual([c.Text for c in captions], [["1. Lift"], ["2. Slide"]])
+        self.assertEqual([v.Source[0].Progress for v in parts], [1, 2])
+        self.assertEqual(len({v.Scale for v in parts}), 1)
+        # Step 1 draws one trail, step 2 two
+        trails = [
+            len({s.split(";")[0] for _n, s, _i in v.getEdgeNames() if s.startswith("Trail")})
+            for v in parts
+        ]
+        self.assertEqual(trails, [1, 2])
+        # Inside the page
+        for v in parts:
+            self.assertTrue(0 < v.X < page.PageWidth and 0 < v.Y < page.PageHeight)
+        # A step edited: its views project it again
+        before = max(e.BoundBox.XMax for e in parts[1].getVisibleEdges())
+        view.Group[1].MovementTransform = plc(60, 0, 0)
+        self.doc.recompute()
+        waitForWorkers(3000)
+        after = max(e.BoundBox.XMax for e in parts[1].getVisibleEdges())
+        self.assertGreater(after, before + 1)
+
+
+class TestExplodedViewBalloons(PlacementAsserts, JointTestBase):
+    """Balloons with the parts' numbers in the BOM on a drawing of an
+    exploded view (docs/AssemblyExplode.md sec 9)"""
+
+    def build(self):
+        self.a = self.box("A")
+        self.b = self.box("B", plc(30, 0, 0))
+        self.link = self.assembly.newObject("App::Link", "LinkA")
+        self.link.LinkedObject = self.a
+        self.link.Placement = plc(0, 30, 0)
+        view = TestExplodedView.explodedView(self, [(["B."], plc(0, 0, 20), 0)])
+        self.bom = CommandCreateView.assemblyBom(self.assembly)
+        self.bom.recompute()
+        return view
+
+    def testBomRows(self):
+        self.build()
+        rows = dict((o.Name, i) for i, o in self.bom.getRows())
+        self.assertIn("A", rows)
+        self.assertIn("B", rows)
+        # A link is numbered as the object it links, as the BOM files it
+        self.assertEqual(self.bom.getIndexOf(self.link), rows["A"])
+        self.assertEqual(self.bom.getIndexOf(self.assembly), "")
+        # A mirrored link is a row of its own; a plain one stays in its part's
+        mirrored = self.assembly.newObject("App::Link", "Mirrored")
+        mirrored.LinkedObject = self.a
+        mirrored.Scale = -1
+        self.doc.recompute()
+        self.bom.recompute()
+        self.assertEqual(self.bom.getIndexOf(self.link), self.bom.getIndexOf(self.a))
+        self.assertNotIn(self.bom.getIndexOf(mirrored), ("", self.bom.getIndexOf(self.a)))
+
+    @unittest.skipIf(not App.GuiUp, "a view provider needs the GUI")
+    def testEdgeInfoGivesPartNumbers(self):
+        view = self.build()
+        CommandCreateView.ViewProviderExplodedView(view.ViewObject)
+        shape = view.getExplodedShape()
+        byTag = {}
+        for name, index in shape.ElementMap.items():
+            if index.startswith("Edge"):
+                history = shape.getElementHistory(name)
+                byTag.setdefault(history[0] if history else None, name)
+        # Without a BOM, a part's edge is the drawing's
+        self.assertIsNone(view.ViewObject.getEdgeInfo(byTag[self.b.ID]))
+        view.Bom = self.bom
+        info = view.ViewObject.getEdgeInfo(byTag[self.b.ID])
+        self.assertEqual(info["Label"], self.bom.getIndexOf(self.b))
+        self.assertFalse(info["Styled"])
+        self.assertTrue(info["OncePerLabel"])
+        self.assertEqual(info["Bubble"], "Circular")
+        self.assertEqual(
+            view.ViewObject.getEdgeInfo(byTag[self.link.ID])["Label"], self.bom.getIndexOf(self.a)
+        )
+        trail = view.ViewObject.getEdgeInfo(trailNames(shape)[0])
+        self.assertEqual((trail["Label"], trail["Style"], trail["Styled"]), ("", 2, True))
+
+    @unittest.skipIf(not App.GuiUp, "a view provider needs the GUI")
+    def testABodysEdgeIsTheBodys(self):
+        """A Body's edges carry its features' tags: numbered as the Body"""
+        body = self.assembly.newObject("PartDesign::Body", "Body")
+        body.newObject("PartDesign::AdditiveBox", "Box")
+        body.Placement = plc(0, 60, 0)
+        view = self.build()
+        CommandCreateView.ViewProviderExplodedView(view.ViewObject)
+        view.Bom = self.bom
+        self.bom.recompute()
+        number = self.bom.getIndexOf(body)
+        self.assertTrue(number)
+        shape = view.getExplodedShape()
+        labels = set()
+        for name, index in shape.ElementMap.items():
+            if index.startswith("Edge"):
+                info = view.ViewObject.getEdgeInfo(name)
+                if info and info["Label"]:  # not the trail
+                    labels.add(info["Label"])
+        # The Body's, A's and B's numbers, each its own
+        self.assertEqual(labels, {number, self.bom.getIndexOf(self.a), self.bom.getIndexOf(self.b)})
+
+    @unittest.skipIf(not App.GuiUp, "balloons are made by a TechDraw command")
+    def testBalloons(self):
+        try:
+            import TechDraw  # noqa: F401
+            from TDTest.TechDrawTestUtilities import createPageWithSVGTemplate
+        except ImportError:
+            self.skipTest("no TechDraw")
+        view = self.build()
+        CommandCreateView.ViewProviderExplodedView(view.ViewObject)
+        page = createPageWithSVGTemplate(self.doc)
+        drawing = self.doc.addObject("TechDraw::DrawViewPart", "Drawing")
+        page.addView(drawing)
+        drawing.Source = [view]
+        drawing.Direction = App.Vector(1, -1, 1)
+        self.doc.recompute()
+        waitForWorkers()
+        balloons = CommandCreateView.addBomBalloons(drawing)
+        self.assertEqual(view.Bom, self.bom)
+        # A and its link share A's number: one balloon for it, one for B
+        texts = sorted(b.Text for b in balloons)
+        self.assertEqual(texts, sorted({self.bom.getIndexOf(self.a), self.bom.getIndexOf(self.b)}))
+        for b in balloons:
+            self.assertEqual(b.BubbleShape, "Circular")
+            self.assertTrue(b.SourceEdge)
+        # On the ring round the view, a balloon (14 mm) and a gap apart on
+        # the paper
+        k = drawing.Scale
+        for i, p in enumerate(balloons):
+            for q in balloons[i + 1 :]:
+                apart = math.hypot((p.X.Value - q.X.Value) * k, (p.Y.Value - q.Y.Value) * k)
+                self.assertGreaterEqual(apart, 17 - 1e-3)
+        # Again: the same balloons, brought up to date
+        names = sorted(b.Name for b in balloons)
+        again = CommandCreateView.addBomBalloons(drawing)
+        self.assertEqual(sorted(b.Name for b in again), names)
+

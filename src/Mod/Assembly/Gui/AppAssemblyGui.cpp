@@ -86,6 +86,7 @@ PyMOD_INIT_FUNC(AssemblyGui)
     AssemblyGui::ViewProviderViewGroup::init();
     AssemblyGui::ViewProviderExplodedView::init();
     AssemblyGui::ViewProviderExplodedViewPython::init();
+    AssemblyGui::ViewProviderExplodedViewAt::init();
     AssemblyGui::ViewProviderSimulationGroup::init();
     AssemblyGui::ViewProviderSnapshotGroup::init();
 

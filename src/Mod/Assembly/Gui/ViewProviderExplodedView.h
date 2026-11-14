@@ -48,4 +48,16 @@ public:
 
 using ViewProviderExplodedViewPython = Gui::ViewProviderFeaturePythonT<ViewProviderExplodedView>;
 
+/// An exploded view at a progress: its trails drawn as the view's
+class AssemblyGuiExport ViewProviderExplodedViewAt: public Gui::ViewProviderDocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(AssemblyGui::ViewProviderExplodedViewAt);
+
+public:
+    ViewProviderExplodedViewAt() = default;
+
+    bool getEdgeInfo(const char* mappedName, EdgeInfo& info) const override;
+    QIcon getIcon() const override;
+};
+
 }  // namespace AssemblyGui

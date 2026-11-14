@@ -159,7 +159,8 @@ PartExport bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
 /// or makes only what was refused (an invalid result is refused), is made at
 /// every level and needs none: below the latest, a fillet the level set does
 /// not make, where a correction above it would have made it differently, is
-/// computed again at the latest.
+/// computed again at each level above it in turn, and the first that makes
+/// it is its shape -- whatever levels come after.
 ///  1 -- a chamfer's guide has an end moved to the edge beyond moved over its
 ///       last quarter alone, not bent whole to it: #631's arm, a chamfer of
 ///       0.8 from 0.52 to 1.37 wide along its edge, exact now (the fork's
@@ -175,7 +176,17 @@ PartExport bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
 ///       realthunder/FreeCAD#474's coil differently, by 0.2 mm3 of 1830
 ///       (the fork's tests/fork/fillet/README.md, "A chamfer of a rim
 ///       beside a chord"). An OCCT without it makes level 2 as level 1.
-constexpr int OCCTFilletFixLevelLatest = 2;
+///  3 -- at a corner of several edges, the line of a fillet or chamfer that
+///       no neighbour crosses and that runs on past the vertex by more than
+///       one and a half times its size is cut at the vertex: a fillet of two
+///       planes is as long as the planes, and its far end was taken for the
+///       corner's reach. It makes the fillets of two edges in one line with
+///       different neighbours, refused before (at every level, so:
+///       realthunder/FreeCAD#962's rail along its teeth), and chamfers of
+///       creases of #273's cup differently, which went on 5.8 past their
+///       end (the fork's tests/fork/fillet/README.md, "Fix level 3"). An
+///       OCCT without it makes level 3 as level 2.
+constexpr int OCCTFilletFixLevelLatest = 3;
 
 /// Sets, for the calling thread, the OCCT fork's fillet fix level
 /// (ChFi3d_SetFixLevel): which of the fork's corrections to fillets and

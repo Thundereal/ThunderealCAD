@@ -254,16 +254,19 @@ class TestSketchExternalGeometry(unittest.TestCase):
 
     def testACircleSeenEdgeOnRunsTheWayItsLineRan(self):
         # A full circle seen edge on projects to a line that could run either
-        # way: the circle has no start of its own. It runs the way the line it
-        # replaces ran, so that what a sketch constrains to its start stays at
-        # that end. Until 2023-08 the line was made from the circle's box,
-        # lower bound first; a sketch saved then and made again had its line
-        # turned round, and its profile reached to the other end of the
-        # circle (realthunder/FreeCAD#613).
+        # way: the circle has no start of its own. In a sketch from before
+        # version 3 it runs the way the line it replaces ran, so that what the
+        # sketch constrains to its start stays at that end: until 2023-08 the
+        # line was made from the circle's box, lower bound first, and a
+        # sketch saved then and made again had its line turned round, its
+        # profile reaching to the other end of the circle
+        # (realthunder/FreeCAD#613). A sketch made now, version 3, has the
+        # line along the cross product of the two normals whatever is stored.
         cyl = self.doc.addObject("Part::Cylinder", "Cyl")
         sketch = self.doc.addObject("Sketcher::SketchObject", "Sketch")
         sketch.Placement = App.Placement(Vector(), App.Rotation(Vector(1, 0, 0), 90))
         self.doc.recompute()
+        self.assertEqual(sketch._Version, 3)
         sketch.addExternal("Cyl", "Edge3")
         self.doc.recompute()
         first = sketch.ExternalGeo[-1]
@@ -271,24 +274,55 @@ class TestSketchExternalGeometry(unittest.TestCase):
         way = first.EndPoint - first.StartPoint
         self.assertAlmostEqual(way.Length, 4.0, places=9)
 
-        # made again, it runs as it ran
-        cyl.Radius = 3
-        self.doc.recompute()
-        geo = sketch.ExternalGeo[-1]
-        self.assertAlmostEqual((geo.EndPoint - geo.StartPoint).Length, 6.0, places=9)
-        self.assertGreater((geo.EndPoint - geo.StartPoint).dot(way), 0)
+        def turnStoredLine():
+            sketch = self.doc.getObject("Sketch")
+            geos = sketch.ExternalGeo
+            line = geos[-1]
+            start, end = line.StartPoint, line.EndPoint
+            line.StartPoint = (start + end) * 0.5
+            line.EndPoint = start
+            line.StartPoint = end
+            sketch.ExternalGeo = geos
 
-        # and the other way round, as a file may have it
-        geos = sketch.ExternalGeo
-        line = geos[-1]
-        start, end = line.StartPoint, line.EndPoint
-        line.StartPoint = (start + end) * 0.5
-        line.EndPoint = start
-        line.StartPoint = end
-        sketch.ExternalGeo = geos
-        cyl.Radius = 4
-        self.doc.recompute()
-        geo = sketch.ExternalGeo[-1]
-        self.assertAlmostEqual((geo.EndPoint - geo.StartPoint).Length, 8.0, places=9)
-        self.assertLess((geo.EndPoint - geo.StartPoint).dot(way), 0)
-        self.assertNotIn("Invalid", sketch.State)
+        def madeAgain(radius):
+            sketch = self.doc.getObject("Sketch")
+            self.doc.getObject("Cyl").Radius = radius
+            self.doc.recompute()
+            geo = sketch.ExternalGeo[-1]
+            self.assertAlmostEqual(
+                (geo.EndPoint - geo.StartPoint).Length, 2.0 * radius, places=9
+            )
+            self.assertNotIn("Invalid", sketch.State)
+            return (geo.EndPoint - geo.StartPoint).dot(way)
+
+        # made again, it runs as it ran
+        self.assertGreater(madeAgain(3), 0)
+
+        # version 3: the stored line turned round, it runs along the cross
+        # product all the same
+        turnStoredLine()
+        self.assertGreater(madeAgain(4), 0)
+
+        # a sketch from before (the file rewritten: the version is not to be
+        # set): made again it runs as it ran, and with the stored line the
+        # other way round, as a file may have it, that way
+        import re
+        from SketcherTests.TestSketchExternalTypes import rewriteSketches
+
+        tmp = tempfile.mkdtemp()
+        saved, forged = os.path.join(tmp, "saved.FCStd"), os.path.join(tmp, "forged.FCStd")
+        self.doc.saveAs(saved)
+        App.closeDocument(self.doc.Name)
+        rewriteSketches(
+            saved,
+            forged,
+            lambda xml: re.sub(
+                r'(<Property name="_Version".*?<Integer value=)"\d+"', r'\1"2"', xml, flags=re.S
+            ),
+        )
+        self.doc = App.openDocument(forged)
+        self.assertEqual(self.doc.getObject("Sketch")._Version, 2)
+        self.assertGreater(madeAgain(3), 0)
+        turnStoredLine()
+        self.assertLess(madeAgain(4), 0)
+        self.assertLess(madeAgain(5), 0)

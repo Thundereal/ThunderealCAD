@@ -109,8 +109,12 @@ def cuts(sketch):
 
 
 def asOldFork(xml):
-    """What this fork wrote before the property: the kind is the flag alone."""
+    """What this fork wrote before the property: the kind is the flag alone,
+    and the sketch's version 2."""
     xml = setFlags(xml, lambda flags, index: flags & ~CUT_FLAG)
+    xml = re.sub(
+        r'(<Property name="_Version".*?<Integer value=)"\d+"', r'\1"2"', xml, flags=re.S
+    )
     return dropProperty(xml, "ExternalTypes")
 
 

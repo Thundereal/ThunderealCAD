@@ -21,6 +21,7 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <functional>
@@ -59,6 +60,13 @@ using namespace Assembly;
 
 namespace
 {
+
+/// The views posed now, for ExplodedView::restValueOf()
+std::set<ExplodedView*>& posedViews()
+{
+    static std::set<ExplodedView*> views;
+    return views;
+}
 
 /// The frame `sub` under `root` names, in the document's: through root's
 /// one parent if it has one, as UtilsAssembly.getGlobalPlacement does
@@ -184,6 +192,11 @@ ExplodedView::ExplodedView()
     GroupExtension::initExtension(this);
 }
 
+ExplodedView::~ExplodedView()
+{
+    posedViews().erase(this);
+}
+
 PyObject* ExplodedView::getPyObject()
 {
     if (PythonObject.is(Py::_None())) {
@@ -264,6 +277,7 @@ ExplodeFrame ExplodedView::restFrame() const
             // Written by anyone else since: theirs is the design's
             frame.rest[obj] = r.prop->getValue() == r.written ? r.rest : r.prop->getValue();
         }
+        frame.restCenter = _restCenter;
     }
     else {
         getCenterAndSize(frame.center, frame.size);
@@ -538,15 +552,26 @@ void ExplodedView::pose(std::optional<double> progress)
     // The rest placements as the frame read them: kept, or theirs now
     for (auto& [obj, plc] : frame.rest) {
         auto it = _rest.find(obj);
-        if (it != _rest.end()) {
-            it->second.rest = plc;
-            continue;
+        if (it == _rest.end()) {
+            auto prop =
+                freecad_cast<App::PropertyPlacement*>(obj->getPropertyByName("Placement"));
+            if (!prop) {
+                continue;
+            }
+            it = _rest.emplace(obj, Rest {prop, plc, prop->getValue(), nullptr}).first;
+            it->second.restProp = std::make_shared<App::PropertyPlacement>();
         }
-        auto prop = freecad_cast<App::PropertyPlacement*>(obj->getPropertyByName("Placement"));
-        if (prop) {
-            _rest.emplace(obj, Rest {prop, plc, prop->getValue()});
+        if (!(it->second.rest == plc)) {
+            it->second.restGeometry.clear();
         }
+        it->second.rest = plc;
+        it->second.restProp->setValue(plc);
     }
+    // Boxed at rest once: a part holding a part moved is not boxed as posed
+    for (auto& [obj, center] : frame.restCenter) {
+        _restCenter.emplace(obj, center);
+    }
+    posedViews().insert(this);
     for (auto& [obj, r] : _rest) {
         auto it = frame.placed.find(obj);
         const auto& target = it != frame.placed.end() ? it->second : r.rest;
@@ -581,6 +606,7 @@ void ExplodedView::putBack()
     auto doc = getDocument();
     if (!_posedAt || !doc) {
         _posedAt.reset();
+        posedViews().erase(this);
         return;
     }
     {
@@ -599,8 +625,10 @@ void ExplodedView::putBack()
         }
     }
     _rest.clear();
+    _restCenter.clear();
     _stepVisible.clear();
     _posedAt.reset();
+    posedViews().erase(this);
 }
 
 void ExplodedView::unpose()
@@ -645,8 +673,87 @@ void ExplodedView::connectDocument()
     _conns.emplace_back(doc->signalDeletedObject.connect([this](const App::DocumentObject& obj) {
         auto o = const_cast<App::DocumentObject*>(&obj);
         _rest.erase(o);
+        _restCenter.erase(o);
         _stepVisible.erase(o);
     }));
+    // A step changed, or the steps: shown again. Not what a pose writes
+    // itself (a step's Trail, its Visibility), nor during an undo, after
+    // which the whole is shown again at once
+    _conns.emplace_back(doc->signalChangedObject.connect(
+        [this](const App::DocumentObject& obj, const App::Property& prop) {
+            if (!_posedAt || _reposing || getDocument()->isPerformingTransaction()) {
+                return;
+            }
+            const char* name = prop.getName();
+            bool changed = false;
+            if (&obj == this) {
+                changed = &prop == &Group;
+            }
+            else if (name
+                     && (std::strcmp(name, "MovementTransform") == 0
+                         || std::strcmp(name, "References") == 0
+                         || std::strcmp(name, "MoveType") == 0)) {
+                const auto& steps = Group.getValues();
+                changed = std::find(steps.begin(), steps.end(), &obj) != steps.end();
+            }
+            if (changed) {
+                repose();
+            }
+        }));
+    auto transacted = [this](const App::Document&) {
+        if (_posedAt) {
+            repose();
+        }
+    };
+    _conns.emplace_back(doc->signalUndo.connect(transacted));
+    _conns.emplace_back(doc->signalRedo.connect(transacted));
+}
+
+void ExplodedView::repose()
+{
+    if (!_posedAt || _reposing) {
+        return;
+    }
+    _reposing = true;
+    struct Done
+    {
+        bool& flag;
+        ~Done()
+        {
+            flag = false;
+        }
+    } done {_reposing};
+    pose(*_posedAt);
+}
+
+const App::Property* ExplodedView::restValueOf(const App::Property& prop)
+{
+    for (auto view : posedViews()) {
+        for (auto& [obj, r] : view->_rest) {
+            if (r.prop == &prop) {
+                // The pose on show: the design's value before the edit is
+                // the rest. What is written next is the design's
+                return r.prop->getValue() == r.written ? r.restProp.get() : nullptr;
+            }
+            // Its shape, placed with it: at rest too. Asked after the edit
+            // of the placement moved it, so it is the shape's own placement
+            // that says whether the pose was on show
+            auto geometry = dynamic_cast<const App::PropertyGeometry*>(&prop);
+            if (geometry && prop.getContainer() == obj) {
+                if (!Base::Placement(geometry->getTransform()).isSame(r.written, 1e-12)) {
+                    return nullptr;
+                }
+                auto& copy = r.restGeometry[&prop];
+                if (!copy) {
+                    copy.reset(prop.Copy());
+                    static_cast<App::PropertyGeometry*>(copy.get())
+                        ->setTransform(r.rest.toMatrix());
+                }
+                return copy.get();
+            }
+        }
+    }
+    return nullptr;
 }
 
 
@@ -732,6 +839,9 @@ void Assembly::registerExplodeTrack()
 {
     App::AnimationTrackHandler::registerHandler("Explode",
                                                 std::make_shared<ExplodeTrackHandler>());
+    // An edit while posed records the design's value as the one before it
+    App::Animation::addRestProvider(
+        [](const App::Property& prop) { return ExplodedView::restValueOf(prop); });
 }
 
 

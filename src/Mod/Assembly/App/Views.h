@@ -42,6 +42,7 @@
 #include <fastsignals/signal.h>
 
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <vector>
@@ -115,6 +116,8 @@ class AssemblyExport ExplodedView: public App::DocumentObject, public App::Group
 
 public:
     ExplodedView();
+    /// Out of the views posed, as a closed document takes it posed
+    ~ExplodedView() override;
 
     const char* getViewProviderName() const override
     {
@@ -189,8 +192,28 @@ private:
         App::PropertyPlacement* prop = nullptr;
         Base::Placement rest;
         Base::Placement written;
+        /// `rest` as a property, what a transaction records as the value
+        /// before an edit while posed (App::Animation::restValueOf())
+        std::shared_ptr<App::PropertyPlacement> restProp;
+        /// The part's geometry at rest, made when a transaction asks: a
+        /// part's shape follows its placement, and an undo puts both back
+        std::map<const App::Property*, std::shared_ptr<App::Property>> restGeometry;
     };
     std::map<App::DocumentObject*, Rest> _rest;
+    /// The centre of each part's box at rest, from before the first pose:
+    /// what a part holding parts moved was boxed as before they moved
+    std::map<App::DocumentObject*, Base::Vector3d> _restCenter;
+    /// Show it again at the progress on show: a step or the steps changed,
+    /// an undo or a redo put back the design
+    void repose();
+    bool _reposing = false;
+
+public:
+    /// The rest value of `prop` while a view poses it, for
+    /// App::Animation::restValueOf()
+    static const App::Property* restValueOf(const App::Property& prop);
+
+private:
     /// A step's Visibility before the first pose
     std::map<App::DocumentObject*, bool> _stepVisible;
     Base::Vector3d _center;

@@ -113,6 +113,22 @@ How it keeps the design:
   The next pose starts from it.
 - **Deleting the view** while posed puts the parts back
   (`unsetupObject`).
+- **Editing a step while posed shows it again**: a step's move, parts or
+  type, or the view's list of steps, re-poses at the progress on show. So
+  does an undo or a redo, at its end, from the design it put back.
+- **An edit while posed records the design as the value before.** A
+  transaction asks `App::Animation::restValueOf()` what a property held
+  before an edit, and the exploded view answers through
+  `addRestProvider()`: a part's rest placement, and its shape at it (a
+  part's shape follows its placement, and is recorded after it, so it is
+  judged by its own placement). The undo of the edit then puts the design
+  back, not the pose. Found on the way: an Animation had the same hole
+  for a shape, the undo of an edit of a Part box played putting back its
+  pose; `Animation.md` sec 5.2.
+- **Rest boxes are kept.** Each part's box at rest is taken at the first
+  pose and kept, so a part holding parts a step moved is not boxed as
+  posed. It was not, before, only because such a part's shape is cached
+  from its last recompute.
 
 Who calls it:
 - `ViewProviderAssembly::explodeTemporarily` and
@@ -214,7 +230,7 @@ Found on the way:
   - a turn's trail on its arc, halfway only as far as it went; a slide's
     two points (2, added with the arc trails);
   - the panel's applyMoves and applyStep; a step's explodeFrom.
-- `TestExplodedViewShown` (9, E2):
+- `TestExplodedViewShown` (13, E2):
   - the tree's explode and restore are not an edit;
   - pose and re-pose from rest; the trails and the steps' visibility;
   - explodedAt while posed;
@@ -222,7 +238,12 @@ Found on the way:
   - a save while posed writes the design; a recompute while posed solves
     the design (a revolute joint), the pose back after;
   - an edit while posed is the design;
-  - deleting the posed view.
+  - deleting the posed view;
+  - editing a step, its parts and the steps while posed, shown again;
+  - the undo of an edit while posed back to the design; an undo while
+    posed shown exploded from the design;
+  - a Part holding a part moved, its rest box kept (4, with the open
+    items).
 - `TestExplodeTrack` (4, E3):
   - playing, at fractions and at the ends, is not an edit, and stopping
     puts the parts back;
@@ -258,16 +279,11 @@ arc trails, 28 of 28 headless and 30 of 30 in the GUI. With E4: 32 of 32
 headless (4 GUI-only skipped), 36 of 36 in the GUI. Before E4: the three
 shape cases had no API; with the view provider's answer off, the drawn
 case failed (the trail a plain stroke), and with its first colour the vg
-page showed no trail at all.
+page showed no trail at all. With the open items: 37 of 37 headless (4
+GUI-only skipped) and 41 of 41 in the GUI; before, the three edit and undo
+cases failed.
 
 ## 7. Open
 
-- Editing a step (its transform, its parts) while the view is posed does
-  not re-pose. The tree's explode ends when the selection moves, and the
-  panel unposes first, so neither user path meets it.
-- An undo that records a part's placement while posed records the pose
-  as the value before. Animation answers this with `restValueOf()`
-  (Animation.md sec 5.2); the exploded view does not take part yet.
-- A part's rest bounding box is that of its shape as the document has
-  it. A part that is an `App::Part` holding parts a step also moved is
-  boxed as posed.
+- Not in this pass, as agreed: an exploded view per step in a drawing,
+  balloons tied to the BOM, auto explode.

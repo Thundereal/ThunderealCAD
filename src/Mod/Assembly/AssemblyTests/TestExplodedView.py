@@ -516,6 +516,77 @@ class TestExplodedViewShown(PlacementAsserts, JointTestBase):
         self.assertPlc(b.Placement, plc(0, 0, 120))
         view.unpose()
 
+    def testEditingAStepWhilePosedShowsIt(self):
+        """A step's move, parts or the steps themselves changed while the
+        view is shown: shown again, from rest"""
+        b, view = self.twoSteps()
+        c = self.box("C", plc(0, 30, 0))
+        self.settle()
+        view.pose()
+        first, second = view.Group
+        first.MovementTransform = plc(0, 0, 30)
+        self.assertPlc(b.Placement, plc(50, 0, 30))
+        first.References = [self.assembly, ["B.", "C."]]
+        self.assertPlc(c.Placement, plc(0, 30, 30))
+        view.Group = [second]
+        self.assertPlc(b.Placement, plc(50, 0, 0))
+        self.assertPlc(c.Placement, plc(0, 30, 0))
+        self.assertEqual(view.posedAt(), 2)
+        view.unpose()
+        self.assertPlc(b.Placement, plc(30, 0, 0))
+        self.assertPlc(c.Placement, plc(0, 30, 0))
+
+    def testUndoOfAnEditWhilePosedGoesBackToTheDesign(self):
+        """An edit of a part while the view is shown records the design's
+        placement as the value before, not the pose (docs/Animation.md
+        sec 5.2): its undo puts the design back"""
+        b, view = self.twoSteps()
+        self.settle()
+        view.pose()
+        self.doc.openTransaction("move B")
+        b.Placement = plc(0, 0, 100)
+        self.doc.commitTransaction()
+        view.unpose()
+        self.assertPlc(b.Placement, plc(0, 0, 100))
+        self.doc.undo()
+        self.assertPlc(b.Placement, plc(30, 0, 0))
+        self.doc.redo()
+        self.assertPlc(b.Placement, plc(0, 0, 100))
+
+    def testUndoWhilePosedShowsTheDesignExploded(self):
+        """An undo while the view is shown: the design it puts back, shown
+        exploded again"""
+        b, view = self.twoSteps()
+        self.settle()
+        self.doc.openTransaction("move B")
+        b.Placement = plc(0, 0, 100)
+        self.doc.commitTransaction()
+        view.pose()
+        self.assertPlc(b.Placement, plc(20, 0, 120))
+        self.doc.undo()
+        self.assertPlc(b.Placement, plc(50, 0, 20))
+        view.unpose()
+        self.assertPlc(b.Placement, plc(30, 0, 0))
+
+    def testPartHoldingAMovedPartKeepsItsRestBox(self):
+        """A Part a step moves, holding a part an earlier step moved: its
+        trail starts at its box at rest whatever is on show"""
+        part = self.assembly.newObject("App::Part", "Part")
+        b = part.newObject("Part::Box", "B")
+        b.Placement = plc(30, 0, 0)
+        view = self.explodedView(
+            [
+                (["Part.B."], plc(0, 0, 50), 0),
+                (["Part."], plc(0, 40, 0), 0),
+            ]
+        )
+        before = view.explodedAt()[1]
+        view.pose()
+        during = view.explodedAt()[1]
+        view.unpose()
+        for (_s1, a1, b1), (_s2, a2, b2) in zip(before, during):
+            self.assertTrue(a1.isEqual(a2, TOL) and b1.isEqual(b2, TOL), (a1, a2, b1, b2))
+
     def testDeletingThePosedViewPutsThePartsBack(self):
         b, view = self.twoSteps()
         self.settle()

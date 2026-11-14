@@ -78,6 +78,37 @@ std::string keyOf(const std::string& path)
     return FileHistory::canonicalPath(path);
 }
 
+/// The document open for \a file -- found by the file it physically is, as
+/// the set's files are keyed, so one open as /var/... is found for the
+/// /private/var/... a merge names -- or else \a file opened. A version or a
+/// branch's document is not the file's. openedFor() only finds it.
+Document* openedFor(const std::string& file)
+{
+    const std::string key = keyOf(file);
+    for (auto doc : GetApplication().getDocuments()) {
+        if (!doc->testStatus(Document::VersionDoc)
+                && keyOf(doc->FileName.getStrValue()) == key)
+            return doc;
+    }
+    return nullptr;
+}
+
+/// \a file as the document open for it spells it, so that a link set to it
+/// finds that document rather than opening the file again; else \a file.
+std::string spelledAs(const std::string& file)
+{
+    if (Document* doc = openedFor(file))
+        return doc->FileName.getStrValue();
+    return file;
+}
+
+Document* openedOrOpen(const std::string& file)
+{
+    if (Document* doc = openedFor(file))
+        return doc;
+    return GetApplication().openDocument(file.c_str(), false);
+}
+
 /// An attribute's value as Persistence::encodeAttribute() wrote it, read.
 std::string decodeAttribute(const std::string& s)
 {
@@ -635,10 +666,8 @@ void gatherRelinks(Document* doc, const std::map<LinkKey, Target>& targets,
                 const Target* found = targetOf(nullptr, old->getDocument());
                 if (!found)
                     continue;
-                Document* to = plainly ? app.getDocumentByPath(found->file.c_str())
+                Document* to = plainly ? openedOrOpen(found->file)
                                        : app.openDocument(nameOf(*found).c_str(), false);
-                if (plainly && !to)
-                    to = app.openDocument(found->file.c_str(), false);
                 auto now = to ? to->getObject(old->getNameInDocument()) : nullptr;
                 if (!now) {
                     FC_WARN("set import: " << prop->getFullName() << " reads "
@@ -725,7 +754,7 @@ int relinkBranch(const std::string& ourFile, const std::string& branch,
         for (auto& [link, target] : changes)
             link->setValue(target, std::vector<std::string>(link->getSubValues()));
         for (auto& [link, file] : plain)
-            link->setPlainFile(file);
+            link->setPlainFile(spelledAs(file));
         applyExpressionRelinks(exprs);
         doc->commitTransaction();
     }
@@ -1190,7 +1219,7 @@ std::map<std::string, Document*> afterMerge(const std::vector<SetMergeFile>& fil
         try {
             const std::string tip = keyOf(f.ourFile) + "@" + f.branch + "@";
             if (!f.branch.empty() && f.action == SetMergeAction::Merge) {
-                Document* ours = app.openDocument(f.ourFile.c_str(), false);
+                Document* ours = openedOrOpen(f.ourFile);
                 auto outcome = ours ? ours->previewMergeResult(f.branch, f.picks, f.fallback)
                                     : Document::MergeOutcome();
                 if (outcome.document) {
@@ -1203,7 +1232,7 @@ std::map<std::string, Document*> afterMerge(const std::vector<SetMergeFile>& fil
             else if (!f.branch.empty() && f.action == SetMergeAction::TakeTheirs)
                 doc = app.openDocument(tip.c_str(), false);
             if (!doc)
-                doc = app.openDocument(f.ourFile.c_str(), false);
+                doc = openedOrOpen(f.ourFile);
         }
         catch (Base::Exception& e) {
             out[i].push_back(std::string("not checked: ") + e.what());
@@ -1258,14 +1287,7 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
         r.action = f.action;
         result.files.push_back(std::move(r));
     }
-    auto docOf = [&app](const std::string& file) -> Document* {
-        for (auto doc : app.getDocuments()) {
-            if (!doc->testStatus(Document::VersionDoc)
-                    && keyOf(doc->FileName.getStrValue()) == keyOf(file))
-                return doc;
-        }
-        return app.openDocument(file.c_str(), false);
-    };
+    auto docOf = [](const std::string& file) -> Document* { return openedOrOpen(file); };
 
     // The set merged before and that merge undone: each file's Keep ours
     // of it is taken back, so that every file is asked again (user,
@@ -1407,7 +1429,7 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
         for (const auto& f : files) {
             if (f.ourFile.empty())
                 continue;
-            if (auto doc = app.getDocumentByPath(f.ourFile.c_str()))
+            if (auto doc = openedFor(f.ourFile))
                 copies[doc] = keyOf(f.ourFile);
         }
         for (auto [i, doc] : read) {
@@ -1420,7 +1442,7 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
                     std::vector<ExpressionRelink> exprs;
                     gatherRelinks(doc, plain, byHeld, true, none, links, &exprs);
                     for (auto& [link, file] : links)
-                        link->setPlainFile(file);
+                        link->setPlainFile(spelledAs(file));
                     applyExpressionRelinks(exprs);
                     ExportSetPaths scope(copies);
                     ExportSetPaths::writing(doc);

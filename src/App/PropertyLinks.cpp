@@ -4595,6 +4595,22 @@ public:
                     return;
                 }
             }
+            // The same file open under another spelling -- through a folder
+            // link, as macOS's /var is /private/var -- is that document, not
+            // a second one opened beside it. The key stays the spelling the
+            // link asked by (the comment on _DocInfoMap): only a file that is
+            // physically one is taken for one.
+            if (myPos->first == fullpath && !l->_selfFile) {
+                if (auto doc = app.getDocumentByPath(fullpath.toUtf8().constData(),
+                        App::Application::PathMatchMode::MatchCanonical)) {
+                    if (!doc->testStatus(App::Document::VersionDoc)
+                            && !(doc->testStatus(App::Document::PartialDoc)
+                                 && !doc->getObject(objName))) {
+                        attach(doc);
+                        return;
+                    }
+                }
+            }
             // An import's link to a file that is not there is broken, as at
             // an open (TransactionLog sec 35 L1), not a stop.
             if ((l->testFlag(PropertyLinkBase::LinkSilentRestore)
@@ -4711,7 +4727,12 @@ public:
         const char *filename = doc.getFileName();
         QString docPath(getFullPath(filename));
 
-        if(path.isEmpty() || path!=docPath) {
+        // A document this was given by the file it physically is (init) is
+        // spelt otherwise, and saving it in place moves nothing
+        const bool samePhysical = !path.isEmpty() && path != docPath
+            && !QFileInfo(path).canonicalFilePath().isEmpty()
+            && QFileInfo(path).canonicalFilePath() == QFileInfo(docPath).canonicalFilePath();
+        if(path.isEmpty() || (path!=docPath && !samePhysical)) {
             FC_LOG("document '" << doc.getName() << "' path changed");
             auto me = shared_from_this();
             auto ret = _DocInfoMap.insert(std::make_pair(docPath,me));

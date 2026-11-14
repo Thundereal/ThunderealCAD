@@ -41,6 +41,7 @@
 #include <Base/Interpreter.h>
 #include <Base/Uuid.h>
 
+#include "Animation.h"
 #include "TransactionLog.h"
 #include "Actor.h"
 #include "Application.h"
@@ -4170,7 +4171,10 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
 
                 bool derived = data.derived;
                 bool waiting = _pending.count(kv.first) != 0;
-                bool same = sameForLog(_config, *data.property, *prop);
+                // A property an Animation shows a pose of is, to the
+                // document, its rest value (docs/Animation.md sec 5.2)
+                const Property* rest = Animation::heldRestValue(*prop);
+                bool same = sameForLog(_config, *data.property, rest ? *rest : *prop);
                 if (!waiting && same)
                     continue;   // a write that changed nothing, sec 9.1
                 if (waiting && same) {
@@ -4222,7 +4226,10 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
         for (std::size_t i = 0; i < newPending.size(); ++i) {
             const Property* live = newPendingProps[i].first;
             const Pending& p = newPending[i].second;
-            std::shared_ptr<Property> copy(live->Copy());
+            // Not the pose an Animation shows: its rest value is the
+            // document's (docs/Animation.md sec 5.2)
+            const Property* rest = Animation::heldRestValue(*live);
+            std::shared_ptr<Property> copy((rest ? rest : live)->Copy());
             copy->setStatusValue(live->getStatus());
             ValueTask v;
             v.copy = copy;
@@ -4303,7 +4310,13 @@ void TransactionLog::resolvePending(const std::set<int64_t>* rows)
             continue;
         }
         ValueTask v;
-        v.copy.reset(prop->Copy());
+        // Not the pose an Animation shows: its rest value is the document's
+        // (docs/Animation.md sec 5.2)
+        const Property* rest = Animation::heldRestValue(*prop);
+        Property* copy = (rest ? rest : prop)->Copy();
+        if (rest)
+            copy->setStatusValue(prop->getStatus());
+        v.copy.reset(copy);
         v.key = kv.first;
         v.tier = kv.second.tier;
         takePending(kv.first, v);

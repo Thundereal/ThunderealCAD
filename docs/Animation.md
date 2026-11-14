@@ -340,11 +340,14 @@ Built, phase 2 (`App/Animation.{h,cpp}`), with these differences:
 - Edits are the methods above with explicit values (`setKey(track, key)`);
   reading the target's current value is the Animation's (`Animation::
   setKey(track, t, value)`), which resolves the path.
-- Not yet re-pointed: a track's path when its object is copied into
-  another document (`CopyOnImportExternal`), when a link replaces it in a
-  group (`CopyOnLinkReplace`), or when a path names an object by label and
-  the label changes. Paths name objects by their name, which does not
-  change, so only the first matters soon.
+- A track's path is re-pointed as an expression's is (2026-11-14): to the
+  copy an import of external objects makes (`CopyOnImportExternal`), to
+  the object a link replaces in a group (`CopyOnLinkReplace`, the same
+  rule as `ObjectIdentifier::replaceObject`), and to a new label when a
+  path names an object by label (`<<Alpha>>.Val`: the labels a path names
+  are registered with the property as an expression's are, so
+  `CopyOnLabelChange` reaches it). A path by name is not touched by a
+  relabel. Tests: `Animation_tests_run`, `AnimationTrackPaths`.
 
 ### 3.4 Track
 
@@ -912,12 +915,16 @@ transaction recording the property clears the written value, since what
 follows is the design's. This works the same for a view provider's
 property, which App sees no signal for.
 
-Known gap: a property already recorded in an open transaction and then
-animated in the same transaction (a script that edits a placement and sets
-`Time` before committing) commits the pose as the value after. The undo
-stack is right -- its inverse copies the rest value -- but the transaction
-log's row holds the pose. Committing before playing avoids it; a fix
-needs a hook at the commit.
+A property already recorded in an open transaction and then animated in
+the same transaction (a script that edits a placement and sets `Time`
+before committing) is logged with its rest value as the value after
+(2026-11-14). The commit copies each value after at once (the log's sec
+25.4) and now takes `Animation::heldRestValue()` where an Animation shows a
+pose -- a lookup that, unlike `restValueOf()`, does not take what comes
+next for an edit -- and so does the comparison that drops a write that
+changed nothing, and `resolvePending`. Before, the undo stack was right
+and the log's row held the pose. Test: `TestAnimation`,
+`testTheLogKeepsTheDesignsValueNotThePoseOfAnEditPlayedInItsTransaction`.
 
 A **user edit to an animated property** while the animation is active:
 - With Record on, it keys the value at the current time (section 6).

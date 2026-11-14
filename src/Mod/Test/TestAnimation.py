@@ -493,6 +493,33 @@ class TestAnimation(unittest.TestCase):
         with self.assertRaises(Exception):
             a1.addStrip(a1)
 
+    # -- the transaction log -----------------------------------------------
+
+    def loggedAfter(self, prop):
+        """The value the transaction log holds for Obj.prop at the row the
+        document is on, as its XML"""
+        self.doc.resolveTransactionLog()
+        ref = self.doc.getTransactionValueAt(self.obj, prop)
+        if not ref:
+            self.skipTest("the transaction log is off")
+        return self.doc.getTransactionValue(ref)[0]
+
+    def testTheLogKeepsTheDesignsValueNotThePoseOfAnEditPlayedInItsTransaction(self):
+        # An edit, then the Animation played, in one transaction: the row
+        # says what was typed, not the pose the Animation shows at commit
+        self.anim.addKey("Obj.F", 0.0, 0.0)
+        self.anim.addKey("Obj.F", 1.0, 10.0)
+        self.doc.openTransaction("edit and play")
+        self.obj.F = 3.0
+        self.anim.Time = 0.5
+        self.assertAlmostEqual(self.obj.F, 5.0)
+        self.doc.commitTransaction()
+        self.assertIn('value="3', self.loggedAfter("F"))
+        self.assertAlmostEqual(self.obj.F, 5.0)
+        # And the pose stays a pose: stopped, the design's value is back
+        self.anim.stop()
+        self.assertAlmostEqual(self.obj.F, 3.0)
+
     # -- export ------------------------------------------------------------
 
     def gltfScene(self):

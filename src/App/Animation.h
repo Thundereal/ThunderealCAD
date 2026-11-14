@@ -229,12 +229,15 @@ public:
     {
         return false;
     }
-    /// Tracks stay on the object a link replaces in a group (not yet re-pointed)
-    Property* CopyOnLinkReplace(const DocumentObject*, DocumentObject*,
-                                DocumentObject*) const override
-    {
-        return nullptr;
-    }
+    /// A track's path re-pointed as an expression's is (docs/Animation.md
+    /// sec 3.3): to the copy an import of external objects made, to the
+    /// label a path names by label, to the object a link replaced in a
+    /// group. Null when no path changes.
+    Property* CopyOnImportExternal(const std::map<std::string, std::string>& nameMap) const override;
+    Property* CopyOnLabelChange(DocumentObject* obj, const std::string& ref,
+                                const char* newLabel) const override;
+    Property* CopyOnLinkReplace(const DocumentObject* parent, DocumentObject* oldObj,
+                                DocumentObject* newObj) const override;
 
     void Save(Base::Writer& writer) const override;
     void Restore(Base::XMLReader& reader) override;
@@ -428,6 +431,10 @@ public:
      * evaluation takes the property's value then as its rest value.
      */
     static const Property* restValueOf(const Property& prop);
+    /// The rest value of prop while an Animation shows a pose of it, and
+    /// nothing changes: the document's value as the transaction log keeps
+    /// it (restValueOf() also takes what comes next for an edit)
+    static const Property* heldRestValue(const Property& prop);
 
     /// What the property editor marks on a row (docs/Animation.md sec 6)
     enum class KeyState : std::uint8_t

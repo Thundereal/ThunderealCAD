@@ -605,6 +605,9 @@ bool PropertyAnimationTracks::layoutOf(const std::string& valueType, RotationMod
 void PropertyAnimationTracks::updateDeps()
 {
     std::map<DocumentObject*, bool> deps;
+    // The labels the paths name objects by: a relabel asks this property
+    // to follow it (CopyOnLabelChange)
+    std::vector<std::string> labels;
     auto owner = freecad_dynamic_cast<DocumentObject>(getContainer());
     for (auto& t : _tracks) {
         if (t.kind == "Strip" && owner && owner->getDocument()) {
@@ -617,7 +620,7 @@ void PropertyAnimationTracks::updateDeps()
             continue;
         }
         try {
-            for (auto& [obj, props] : t.target.getDep(false)) {
+            for (auto& [obj, props] : t.target.getDep(false, &labels)) {
                 if (obj) {
                     deps[obj] = true;  // Hidden: no edge in the graph
                 }
@@ -627,7 +630,104 @@ void PropertyAnimationTracks::updateDeps()
             FC_LOG("no dependency for " << t.target.toString() << ": " << e.what());
         }
     }
+    registerLabelReferences(std::move(labels));
     PropertyXLinkContainer::updateDeps(std::move(deps));
+}
+
+Property* PropertyAnimationTracks::CopyOnImportExternal(
+    const std::map<std::string, std::string>& nameMap) const
+{
+    auto owner = freecad_dynamic_cast<DocumentObject>(getContainer());
+    if (!owner || !owner->getDocument()) {
+        return nullptr;
+    }
+    std::unique_ptr<PropertyAnimationTracks> copy;
+    for (size_t i = 0; i < _tracks.size(); ++i) {
+        const auto& t = _tracks[i];
+        if (t.kind != "Property") {
+            continue;
+        }
+        auto obj = t.target.getDocumentObject();
+        if (!obj) {
+            continue;
+        }
+        ObjectIdentifier::SubNameMap subNames;
+        auto it = nameMap.find(obj->getExportName(true));
+        if (it != nameMap.end()) {
+            subNames.emplace(std::make_pair(obj, std::string()), it->second);
+        }
+        const std::string sub = t.target.getSubObjectName();
+        if (!sub.empty()) {
+            std::string imported = PropertyLinkBase::tryImportSubName(
+                obj, sub.c_str(), owner->getDocument(), nameMap);
+            if (!imported.empty()) {
+                subNames.emplace(std::make_pair(obj, sub), std::move(imported));
+            }
+        }
+        if (subNames.empty()) {
+            continue;
+        }
+        if (!copy) {
+            copy.reset(static_cast<PropertyAnimationTracks*>(Copy()));
+        }
+        copy->_tracks[i].target.importSubNames(subNames);
+    }
+    return copy.release();
+}
+
+Property* PropertyAnimationTracks::CopyOnLabelChange(DocumentObject* obj, const std::string& ref,
+                                                     const char* newLabel) const
+{
+    // ref is the old label as "$label."
+    if (ref.size() <= 2) {
+        return nullptr;
+    }
+    std::unique_ptr<PropertyAnimationTracks> copy;
+    for (size_t i = 0; i < _tracks.size(); ++i) {
+        const auto& t = _tracks[i];
+        if (t.kind != "Property") {
+            continue;
+        }
+        std::vector<std::string> labels;
+        t.target.getDepLabels(labels);
+        const bool named = std::any_of(labels.begin(), labels.end(), [&ref](const auto& label) {
+            return ref.compare(1, ref.size() - 2, label) == 0;
+        });
+        if (!named) {
+            continue;
+        }
+        ObjectIdentifier target = t.target;
+        if (!target.updateLabelReference(obj, ref, newLabel)) {
+            continue;
+        }
+        if (!copy) {
+            copy.reset(static_cast<PropertyAnimationTracks*>(Copy()));
+        }
+        copy->_tracks[i].target = target;
+    }
+    return copy.release();
+}
+
+Property* PropertyAnimationTracks::CopyOnLinkReplace(const DocumentObject* parent,
+                                                     DocumentObject* oldObj,
+                                                     DocumentObject* newObj) const
+{
+    std::unique_ptr<PropertyAnimationTracks> copy;
+    for (size_t i = 0; i < _tracks.size(); ++i) {
+        const auto& t = _tracks[i];
+        if (t.kind != "Property") {
+            continue;
+        }
+        ObjectIdentifier replaced;
+        if (!t.target.replaceObject(replaced, parent, oldObj, newObj)) {
+            continue;
+        }
+        if (!copy) {
+            copy.reset(static_cast<PropertyAnimationTracks*>(Copy()));
+        }
+        copy->_tracks[i].target = replaced;
+    }
+    return copy.release();
 }
 
 void PropertyAnimationTracks::hasSetValue()
@@ -1517,6 +1617,24 @@ const Property* Animation::restValueOf(const Property& prop)
     // as the rest value
     r.written.reset();
     return res;
+}
+
+const Property* Animation::heldRestValue(const Property& prop)
+{
+    if (WriteScope::causes() & WriteCause::Animation) {
+        return nullptr;
+    }
+    auto& owners = restOwners();
+    auto it = owners.find(&prop);
+    if (it == owners.end()) {
+        return nullptr;
+    }
+    auto rit = it->second->_rest.find(&prop);
+    if (rit == it->second->_rest.end()) {
+        return nullptr;
+    }
+    auto& r = *rit->second;
+    return r.rest && r.written && r.written->isSame(prop) ? r.rest.get() : nullptr;
 }
 
 void Animation::dropRest(const DocumentObject* obj, const Property* prop)

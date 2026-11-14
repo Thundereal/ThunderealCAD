@@ -1472,7 +1472,9 @@ class TestFlexibleBody(unittest.TestCase):
         element at its mesh's middle (ChronoFlexible::ownInterface()), in
         the run and in Find Modes. It comes to rest on the rollers pressing
         them its weight, sagging between them as a beam on two supports with
-        its ends hanging over does"""
+        its ends hanging over does. Find Modes shows what it rings at free
+        (step 24), a free beam's first bending, not its modes held at that
+        element"""
         import CommandCreateContact
         import numpy as np
 
@@ -1503,11 +1505,17 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertEqual(list(body.InterfaceFrames), [])
         self.doc.recompute()
         hz = self.assembly.getFlexibleFrequencies(sim, body)
-        self.assertGreater(hz[0], 1000.0)
         weight = 0.0
         for entry in self.assembly.getMassProperties()["Components"]:
             if entry["Object"].Name == bar.Name:
                 weight += entry["Mass"] * 9.80665
+        # A free beam's first bending, 22.3733 / (2 pi) sqrt(E I / (m L^3))
+        youngs = FlexibleBodies.elasticityOf(body)[0]
+        ringing = (22.3733 / (2 * math.pi)) * math.sqrt(
+            1e3 * youngs * (640.0 / 12.0) / ((weight / 9.80665) * 80.0**3)
+        )
+        self.assertEqual(len(hz), body.Modes)
+        self.assertLess(abs(hz[0] - ringing), 0.01 * ringing)
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         results = self.assembly.getSimulationResults()
         times = results["Times"]
@@ -1531,11 +1539,10 @@ class TestFlexibleBody(unittest.TestCase):
         mid = low & (np.abs(rest[:, 0] - 40.0) < 2.5)
         over = low & ((np.abs(rest[:, 0] - 10.0) < 2.5) | (np.abs(rest[:, 0] - 70.0) < 2.5))
         sag = moved[over, 2].mean() - moved[mid, 2].mean()
-        youngs = FlexibleBodies.elasticityOf(body)[0]
         beam = (weight / 80.0) * 3600.0 * (5 * 3600.0 - 2400.0) / (384.0 * youngs * 640.0 / 12.0)
-        print("held by nothing: first mode %.4g Hz; at most %.4g N, resting %.5g N of %.5g; "
-              "sag %.4g um of a beam's %.4g"
-              % (hz[0], max(forces), mean, weight, sag * 1e3, beam * 1e3))
+        print("held by nothing: first mode %.5g Hz of a free beam's %.5g; at most %.4g N, "
+              "resting %.5g N of %.5g; sag %.4g um of a beam's %.4g"
+              % (hz[0], ringing, max(forces), mean, weight, sag * 1e3, beam * 1e3))
         self.assertLess(max(forces), 3.0)
         self.assertLess(abs(mean - weight), 0.01 * weight)
         self.assertLess(abs(sag - beam), 0.03 * beam)

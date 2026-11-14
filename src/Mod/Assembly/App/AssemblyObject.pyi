@@ -418,7 +418,9 @@ class AssemblyObject(Part):
         the model built as the run builds it, the interfaces at its frames,
         not run. The reduction is kept, and the run takes it.
 
-        Returns: the modes' frequencies, Hz, lowest first. Raises when the
+        Returns: the modes' frequencies, Hz, lowest first -- its modes with
+        its interfaces held; of a part no joint holds, what it rings at
+        free, its motion as a whole left out. Raises when the
         study does not bend it -- not Dynamic, the flexible body not in its
         Elements, no mesh (FlexibleBodies.prepare()), a component in a rigid
         group or fixed to the ground -- the report view saying why.

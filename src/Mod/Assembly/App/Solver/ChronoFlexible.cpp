@@ -1228,6 +1228,7 @@ Chrono::flexibleFrequencies(const Model& model, std::size_t index, std::string* 
         // Held by no joint, it has no interface to reduce it about (the
         // reduction read storage that was not its own): one of its own, as
         // a run gives it, unless its contact faces' is to come
+        const bool unheld = interfaces.empty();
         if (interfaces.empty() && (touched.empty() || flexible.contactNodes.empty())) {
             interfaces.push_back(ChronoFlexible::ownInterface(flexible));
         }
@@ -1253,7 +1254,33 @@ Chrono::flexibleFrequencies(const Model& model, std::size_t index, std::string* 
         ch::ChSystemNSC sys;
         sys.SetGravitationalAcceleration(ch::ChVector3d(0, 0, 0));
         ChronoFlexible::Built built = ChronoFlexible::build(sys, flexible, pose, interfaces);
-        return ChronoFlexible::reduce(sys, built, flexible);
+        const std::vector<double> held = ChronoFlexible::reduce(sys, built, flexible);
+        if (!unheld) {
+            return held;
+        }
+        // Nothing holds it at that interface in a run: it rings free. The
+        // frequencies of the model the run has of it then -- its reduction's
+        // K_red and M_red, the interface's six coordinates with its modes --
+        // the six of its motion as a whole, at 0 Hz, left out
+        const auto data = built.assembly->GetReducedData();
+        const Eigen::Index size = data.M_red.rows();
+        if (size <= 6 || data.M_red.cols() != size || data.K_red.rows() != size
+            || data.K_red.cols() != size) {
+            throw std::runtime_error("the flexible body's reduction has no modes of its own");
+        }
+        const Eigen::MatrixXd mass = 0.5 * (data.M_red + data.M_red.transpose());
+        const Eigen::MatrixXd stiffness = 0.5 * (data.K_red + data.K_red.transpose());
+        const Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> own(
+            stiffness, mass, Eigen::EigenvaluesOnly | Eigen::Ax_lBx);
+        if (own.info() != Eigen::Success) {
+            throw std::runtime_error("the flexible body's free modes could not be found");
+        }
+        std::vector<double> hz;
+        for (Eigen::Index k = 6; k < size; ++k) {
+            hz.push_back(std::sqrt(std::max(own.eigenvalues()[k], 0.0))
+                         / (2.0 * std::numbers::pi));
+        }
+        return hz;
     }
     catch (const std::exception& e) {
         if (error) {

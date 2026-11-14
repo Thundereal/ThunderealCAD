@@ -5269,6 +5269,35 @@ Phase D1 is under way (2026-10-28):
   - Tests: TestFlexibleBody.test_sticks_on_a_slope (both frictions: the
     forces and the gain to 1%, the creep under 0.1 mm/s). TestFlexibleBody
     33 (611 s).
+- Built, D4b step 24 (2026-11-14): Find Modes on a part no joint holds
+  shows what it rings at free. Step 21's limit, lifted; the run is as it
+  was.
+  - `Chrono::flexibleFrequencies()` listed such a part's modes with the
+    element at its mesh's middle held (`ownInterface()`), 1874 Hz for the
+    bar 80 x 10 x 4: the modes its reduction keeps, which nothing in a run
+    holds it to. It lists now the frequencies of the model the run has of
+    it -- its reduction's K_red and M_red, that interface's six coordinates
+    with its modes, K x = w^2 M x -- the six of its motion as a whole, at
+    0 Hz, left out: as many as its Modes. So too with contact faces named
+    and no joint. A part a joint holds is listed as before, its interfaces
+    held.
+  - The bar: 3270 Hz for a free beam's first bending, 22.37 / (2 pi)
+    sqrt(E I / (m L^3)), 3271; then 7770, 8824 (the beam's second, 9017),
+    12650, 17704 (its third, 17677).
+  - The strip 1 mm thick, mesh 4: 820.8, 2260 and 4469 Hz for the beam's
+    817.8, 2254 and 4419, with 3797 Hz between, its twisting. With 24
+    modes the first nine of the twelve stay within 4% (4452 for 4469) and
+    the last three, 22.9, 33.5 and 115 kHz, are gone: those are the
+    reduction's own, not the part's.
+  - The six left out come at 0.01 Hz and under, either side of 0.
+  - The panel's "Held at" says "nothing: no joint holds it" of such a part
+    once it is meshed, where it said "nothing yet".
+  - Probe: freemodes.py (FM_T, FM_MESH, FM_MODES), which finds the same
+    from the part's kept Reduction with numpy.
+  - Tests: TestFlexibleBody.test_held_by_nothing takes Find Modes' first
+    for the free beam's to 1%, and as many as Modes. TestFlexibleBody 33
+    (611 s), TestDynamics 90, TestJointFriction 4, TestContact 63; ctest
+    25; TestGuiCommands 76; the earlier probes to the digits they print.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

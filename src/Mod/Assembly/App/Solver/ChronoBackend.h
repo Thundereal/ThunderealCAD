@@ -79,8 +79,10 @@ AssemblyExport bool hasFlexibleBodies();
 
 // The modes of the model's flexible body at 'index' (Dynamics::flexibles),
 // as a dynamic run reduces it -- Craig-Bampton, its interfaces held --
-// their frequencies, Hz, lowest first. Empty, and the reason in 'error',
-// when it cannot be reduced or the backend has no flexible bodies.
+// their frequencies, Hz, lowest first. One no joint holds rings free: the
+// frequencies of the model a run has of it, its motion as a whole's six left
+// out. Empty, and the reason in 'error', when it cannot be reduced or the
+// backend has no flexible bodies.
 AssemblyExport std::vector<double>
 flexibleFrequencies(const Model& model, std::size_t index, std::string* error = nullptr);
 

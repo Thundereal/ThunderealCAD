@@ -1271,9 +1271,23 @@ Phase 5, built so far (2026-11-12):
   stepped through its frames and each node's placement written as LINEAR
   samples, a visibility that switches as a STEP scale of 1 or 0 (glTF has
   no visibility to animate). Baking is what makes strips, easing, Turns
-  and expression-driven placements come out right with no case for each;
-  the one-to-one mapping of LINEAR, STEP and Bezier keys in section 9 is
-  not done, and costs only file size. What does not fit is named in the
+  and expression-driven placements come out right with no case for each.
+  Then (2026-11-14) the one-to-one mapping of section 9: an object whose
+  Placement has a whole track of all Constant, all Linear, or Bezier (and
+  Linear) spans gets STEP, LINEAR or CUBICSPLINE channels on the key
+  times, the tangents a second-order difference off each side of a key
+  (1e-4 s and 2e-4 s). Translation and rotation each take the keys only
+  when the channel gives back every baked frame (1 um; 1 - |dot| 1e-9,
+  about 1e-4 rad), else that one stays samples -- so a part track, easing,
+  Turns, a strip or an expression needs no rule of its own. A Bezier
+  rotation blends its control points by slerp, a curve on the sphere a
+  CUBICSPLINE on the components does not follow: a 30 deg turn fits, the
+  manual lid's 110 deg misses by about 1.3 deg mid-span and is sampled,
+  its position keyed (`PartlyKeyed`). A visibility is written where it
+  switches only. The same pass found that both exporters began from the
+  design at rest: a Time already at the range's start is no change and
+  activates nothing, so frame 0 was the rest value wherever the first key
+  is not it; each step now activates the Animation. What does not fit is named in the
   result's `Skipped`: an object whose shape the animation rebuilds
   (exported as it rests), a colour or transparency that changes, camera
   tracks.

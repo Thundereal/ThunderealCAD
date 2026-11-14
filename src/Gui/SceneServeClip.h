@@ -57,6 +57,10 @@ public:
         std::function<const Render::DrawCallList*()> capture;
         /// Ask the source for a publish
         std::function<void()> publish;
+        /// True while a client is fed from every publish and cannot play
+        /// the clip -- a Cycles stream, which traces the scene each
+        /// publish states: nothing is held then. Null: no such client.
+        std::function<bool()> unclipped;
     };
 
     SceneServeClip(App::Document* doc, Host host, QObject* parent = nullptr);

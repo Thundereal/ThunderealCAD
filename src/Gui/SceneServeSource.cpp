@@ -323,6 +323,17 @@ struct CyclesStreams {
         }
         return out;
     }
+
+    /// A stream is tracing (one lost and not yet swept is not)
+    bool live()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        for (const auto &entry : byClient) {
+            if (!entry.second->lost())
+                return true;
+        }
+        return false;
+    }
 };
 
 /// The sub-view a cycles op names (0 when it names none).
@@ -1863,6 +1874,10 @@ SceneServeSource::SceneServeSource(Document *doc)
             return pimpl->renderer->sceneFeed();
         };
         clipHost.publish = [this]() { schedulePublish(); };
+        // A Cycles stream is fed from each publish (feedCyclesStreams) and
+        // has no clip to play: while one traces, the Animation's frames
+        // publish, or its picture would stay at the pose play started from
+        clipHost.unclipped = [streams = pimpl->streams]() { return streams->live(); };
         pimpl->clip = std::make_unique<SceneServeClip>(doc->getDocument(),
                                                        std::move(clipHost));
         // The source must not outlive its document: the pick handler,

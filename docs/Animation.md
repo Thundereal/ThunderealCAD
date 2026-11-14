@@ -1126,6 +1126,16 @@ Animation writes publishes as it always did, and the viewer still plays
 what the clip does say between the publishes that bring the rest. Pausing, scrubbing and stopping always publish, so a viewer that is
 not playing holds the very pose the host is in.
 
+**Nothing is held while a Cycles stream traces** (2026-11-14). A served
+path-traced viewport (`docs/CyclesIntegration.md` sec 7.1) is fed from each
+publish and has no clip to play: with the publishes held, its picture stayed
+at the pose play started from until a pause. The clip's host asks the serve
+source (`SceneServeClip::Host::unclipped`), which answers from its live
+streams; while one runs, the Animation's frames publish as they did before
+the clip, the raster viewers still playing the clip between them. The
+stream traces each pose it is given, so while it plays it shows a few
+samples a frame, and it converges once the animation pauses.
+
 **A real edit makes the clip stale.** Any change not made by the
 Animation, a change of its tracks or range, an object added or removed:
 the viewers are told there is no clip, publishes flow, and if it is still
@@ -1158,8 +1168,6 @@ Not in this cut:
 - **Picking while it plays** in the browser is against the draws as the
   viewer has moved them, but the host resolves the pick in the pose its
   own clock is at; the two agree to within a frame, not exactly.
-- The desktop's own mirror of a served scene and the Cycles stream do not
-  read the clip.
 - The clip rides the control channel as base64: a few hundred kilobytes
   for some tens of moving objects, sent once per bake.
 

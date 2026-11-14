@@ -92,7 +92,8 @@ bool SceneServeClip::playing() const
 
 bool SceneServeClip::holding() const
 {
-    return valid && theClip.exact && !theClip.empty() && !told.empty() && playing();
+    return valid && theClip.exact && !theClip.empty() && !told.empty() && playing()
+        && !(host.unclipped && host.unclipped());
 }
 
 bool SceneServeClip::changed(const App::Property& prop)

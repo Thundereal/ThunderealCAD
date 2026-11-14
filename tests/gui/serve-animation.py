@@ -29,6 +29,7 @@ The drawing half is tests/gui/serve-animation-browser.py.
 import base64
 import hashlib
 import json as jsonlib
+import math
 import os
 import urllib.request
 import struct
@@ -229,6 +230,58 @@ def run():
         check("and nothing is published for it", len(scenes) == 0, len(scenes))
         beats = client.since(t1, "time", t2)
         check("the clock is said again as it plays", 1 <= len(beats) <= 4, len(beats))
+
+        # A Cycles stream traces each publish and has no clip to play: while
+        # one runs, nothing is held, or its picture would stay at the pose
+        # play started from (SceneServeClip::Host::unclipped)
+        tracer = WS(port)
+        tracer.hello("tracer")
+        tracer.next_binary(20.0)
+        asked = [70]
+
+        def ask(fields, timeout=30.0):
+            # The host answers a cycles op on the GUI thread, which is this
+            # one: pump it while the answer is waited for
+            asked[0] += 1
+            fields = dict(fields, op="cycles", id=asked[0])
+            tracer.send(1, jsonlib.dumps(fields).encode())
+            deadline = clock() + timeout
+            while clock() < deadline:
+                pump(0.02)
+                text = tracer.next_text(0.02)
+                if not text:
+                    continue
+                try:
+                    answer = jsonlib.loads(text.decode("utf-8"))
+                except Exception:
+                    continue
+                if answer.get("id") == asked[0]:
+                    return answer
+            return {}
+
+        f = 1.0 / math.tan(math.radians(22.5))
+        proj = [f / (4.0 / 3.0), 0, 0, 0, 0, f, 0, 0, 0, 0, -1.002, -1, 0, 0, -2.002, 0]
+        view = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -200, 1]
+        started = ask({"action": "start", "device": "CPU", "samples": 2, "denoise": False,
+                       "view": view, "proj": proj, "width": 64, "height": 48})
+        pump(1.0)
+        before = ask({"action": "status"}).get("updates", 0)
+        t1c = clock()
+        pump(1.5)
+        traced = client.since(t1c, "scene", clock())
+        after = ask({"action": "status"}).get("updates", 0)
+        check("a Cycles stream starts on the served document",
+              started.get("ok") and started.get("running"), started)
+        check("while it traces, the frames are published", len(traced) >= 5, len(traced))
+        check("and the stream takes them", after > before, (before, after))
+        ask({"action": "stop"})
+        tracer.close()
+        pump(0.5)
+        t1d = clock()
+        pump(1.0)
+        check("with it stopped they are held again",
+              len(client.since(t1d, "scene", clock())) == 0,
+              len(client.since(t1d, "scene", clock())))
 
         # --- pausing
         t3 = clock()

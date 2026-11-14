@@ -313,7 +313,10 @@ SetImportPlan App::planSetImport(Document& ourTop, const std::string& theirTop)
         THROWM(Base::RuntimeError, "'" + theirTop + "' is a file of this set, not another's");
     const QDir theirDir = QFileInfo(qs(topKey)).absoluteDir();
     const std::string ourTopFile = ourTop.FileName.getStrValue();
-    const QDir ourDir = QFileInfo(qs(ourTopFile)).absoluteDir();
+    // By its key, as our files are keyed (oursOf): a folder spelt through
+    // a link -- macOS's /var for /private/var -- would put every one of
+    // them outside it, and no relative path would pair
+    const QDir ourDir = QFileInfo(qs(keyOf(ourTopFile))).absoluteDir();
 
     // L2: their set, from the files. Ours by the same file are shared.
     SetImportPlan plan;

@@ -1218,6 +1218,21 @@ Document* Application::openDocumentPrivate(const char * FileName,
                                                      isMainDoc && createView, objNames);
             if (forLinks && doc->testStatus(Document::FrozenVersion))
                 doc->setStatus(Document::OpenedForPin, true);
+            // Named as it was asked for: the history knows the file by its
+            // canonical path, and a link keys it by the path it reads
+            // (PropertyLinks' DocInfo, the spelling given) -- on macOS a
+            // file under $TMPDIR is /var/... to the one and /private/var/...
+            // to the other, and the link would never find the version
+            {
+                const std::string named = doc->FileName.getStrValue();
+                std::string base = named;
+                FileHistory::splitVersion(base);
+                if (!base.empty() && base != parts.file
+                    && FileHistory::samePath(base, parts.file)) {
+                    Base::FlagToggler<> quiet(doc->d->bookkeeping, false);
+                    doc->FileName.setValue(parts.file + named.substr(base.size()));
+                }
+            }
             if (!DocFileMap.empty())
                 DocFileMap[FileInfo(doc->FileName.getValue()).filePath()] = doc;
             return doc;

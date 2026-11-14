@@ -10245,8 +10245,19 @@ Document* Document::_openVersionDocument(const std::shared_ptr<FileHistory>& his
         ~Cleanup() { Base::FileInfo(dir).deleteDirectoryRecursive(); }
     } cleanup {dir};
 
-    // Named after the document it came from, or else the file.
-    const std::string fileName = from ? from->FileName.getStrValue() : history->path();
+    // Named after the document it came from, or else the file -- as the
+    // document of the file spells it, when one is open: the history keys
+    // the file by its canonical path, and on macOS a document saved under
+    // $TMPDIR is /var/... where that path is /private/var/..., so a version
+    // opened by a link's pin would carry a name no document of the file
+    // matches, in the link lookup, the export sets and the merges.
+    std::string fileName = from ? from->FileName.getStrValue() : history->path();
+    if (!from) {
+        const Document* home = history->home();
+        const std::string homeFile = home ? home->FileName.getStrValue() : std::string();
+        if (!homeFile.empty() && FileHistory::samePath(homeFile, fileName))
+            fileName = homeFile;
+    }
     std::string baseName = from ? std::string(from->getName())
                                 : Base::FileInfo(fileName).fileNamePure();
     std::string label = from ? std::string(from->Label.getValue()) : history->fileLabel();

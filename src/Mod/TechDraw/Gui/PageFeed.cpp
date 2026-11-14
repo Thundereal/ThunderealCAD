@@ -362,7 +362,7 @@ EdgeStroke resolveEdgeStroke(TechDraw::DrawViewPart* dvp,
     // lines, an exploded view's trails -- as QGIViewPart::drawAllEdges asks
     Gui::ViewProvider::EdgeInfo source;
     const bool fromSource = !geom->getCosmetic() && !format
-        && sourceEdgeInfo(dvp, geom->getSource3d(), source);
+        && sourceEdgeInfo(dvp, geom->getSource3d(), source) && source.styled;
     if (fromSource) {
         const double width = source.width > 0
             ? (vp ? vp->formatWeightScaled(source.width) : source.width)

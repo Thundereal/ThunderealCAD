@@ -447,7 +447,8 @@ void QGIViewPart::drawAllEdges()
                 item->setWidth(Rez::guiX(vp->formatWeightScaled(gf->m_format.m_weight)));
                 showItem = gf->m_format.m_visible;
             } else if (Gui::ViewProvider::EdgeInfo source;
-                       sourceFormat(sourceViews, (*itGeom)->getSource3d(), source)) {
+                       sourceFormat(sourceViews, (*itGeom)->getSource3d(), source)
+                       && source.styled) {
                 // as the source's view draws it: a sheet's flat, its bend
                 // lines up and down (docs/SheetMetal.md sec 5.6)
                 const double width = source.width > 0 ? vp->formatWeightScaled(source.width)

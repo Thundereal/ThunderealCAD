@@ -21,10 +21,141 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <cstring>
+
+#include <Standard_Failure.hxx>
+
+#include <App/FeaturePythonPyImp.h>
+#include <Base/BoundBox.h>
+#include <Mod/Part/App/PartFeature.h>
+
+#include "AssemblyObject.h"
+#include "AssemblyUtils.h"
+#include "ExplodedViewPy.h"
+#include "ExplodedViewStepPy.h"
 #include "Views.h"
 
 using namespace Assembly;
 
+namespace
+{
+
+/// The frame `sub` under `root` names, in the document's: through root's
+/// one parent if it has one, as UtilsAssembly.getGlobalPlacement does
+Base::Placement globalPlacementOf(const App::DocumentObject* root, const std::string& sub)
+{
+    auto parents = root->getParents();
+    if (parents.size() == 1 && parents[0].first) {
+        return parents[0].first->getPlacementOf(parents[0].second + sub);
+    }
+    return root->getPlacementOf(sub);
+}
+
+App::PropertyPlacement* placementOf(App::DocumentObject* obj)
+{
+    return obj ? freecad_cast<App::PropertyPlacement*>(obj->getPropertyByName("Placement"))
+               : nullptr;
+}
+
+/** The frame of `obj`'s parent, along `sub` under `root`, in the document's
+ * frame, with every object on the way that `frame` holds a rest placement
+ * of put at it: the parent frame at rest, whatever is on show
+ */
+Base::Placement parentFrameOf(App::DocumentObject* root,
+                              const std::string& sub,
+                              App::DocumentObject* obj,
+                              ExplodeFrame& frame)
+{
+    std::vector<int> sizes;
+    auto objs = root->getSubObjectList(sub.c_str(), &sizes);
+    int index = -1;
+    for (int i = static_cast<int>(objs.size()) - 1; i >= 0; --i) {
+        if (objs[i] == obj) {
+            index = i;
+            break;
+        }
+    }
+    // Each object's own transform on the way, as the document has it now,
+    // from the frames of the paths that end at it and at its parent
+    auto atRest = [&](App::DocumentObject* o, const Base::Placement& local) {
+        auto it = frame.rest.find(o);
+        auto prop = placementOf(o);
+        if (it == frame.rest.end() || !prop) {
+            return local;
+        }
+        return local * prop->getValue().inverse() * it->second;
+    };
+    Base::Placement above;
+    auto rootPlc = globalPlacementOf(root, "");
+    if (auto prop = placementOf(root)) {
+        above = rootPlc * prop->getValue().inverse();
+    }
+    // The root's own frame, then down the path to the parent
+    Base::Placement result = above * atRest(root, above.inverse() * rootPlc);
+    if (index <= 0) {
+        return index == 0 ? above : result;
+    }
+    Base::Placement doc = rootPlc;
+    for (int i = 1; i < index; ++i) {
+        auto next = globalPlacementOf(root, sub.substr(0, sizes[i]));
+        result = result * atRest(objs[i], doc.inverse() * next);
+        doc = next;
+    }
+    return result;
+}
+
+}  // namespace
+
+
+// ExplodeFrame -----------------------------------------------------------
+
+Base::Placement ExplodeFrame::restOf(App::DocumentObject* obj)
+{
+    auto it = rest.find(obj);
+    if (it != rest.end()) {
+        return it->second;
+    }
+    auto prop = placementOf(obj);
+    auto plc = prop ? prop->getValue() : Base::Placement();
+    rest.emplace(obj, plc);
+    return plc;
+}
+
+Base::Placement ExplodeFrame::placedOf(App::DocumentObject* obj)
+{
+    auto it = placed.find(obj);
+    return it != placed.end() ? it->second : restOf(obj);
+}
+
+Base::Vector3d ExplodeFrame::restCenterOf(App::DocumentObject* obj)
+{
+    auto it = restCenter.find(obj);
+    if (it != restCenter.end()) {
+        return it->second;
+    }
+    auto plc = restOf(obj);
+    Base::Vector3d center = plc.getPosition();
+    try {
+        // Its shape where it is at rest, in its parent's frame
+        Base::Matrix4D mat = plc.toMatrix();
+        auto shape = Part::Feature::getTopoShape(obj, nullptr, false, &mat, nullptr, true, false);
+        if (!shape.isNull()) {
+            auto box = shape.getBoundBox();
+            if (box.IsValid()) {
+                center = box.GetCenter();
+            }
+        }
+    }
+    catch (Base::Exception&) {
+    }
+    catch (Standard_Failure&) {
+    }
+    restCenter.emplace(obj, center);
+    return center;
+}
+
+
+// ExplodedView -----------------------------------------------------------
 
 PROPERTY_SOURCE_WITH_EXTENSIONS(Assembly::ExplodedView, App::DocumentObject)
 
@@ -33,6 +164,92 @@ ExplodedView::ExplodedView()
     GroupExtension::initExtension(this);
 }
 
+PyObject* ExplodedView::getPyObject()
+{
+    if (PythonObject.is(Py::_None())) {
+        PythonObject = Py::Object(new ExplodedViewPy(this), true);
+    }
+    return Py::new_reference_to(PythonObject);
+}
+
+AssemblyObject* ExplodedView::getAssembly() const
+{
+    // In the assembly's group of views, or upstream's ViewGroup in it
+    for (auto obj : getInList()) {
+        if (auto assembly = freecad_cast<AssemblyObject*>(obj)) {
+            return assembly;
+        }
+    }
+    auto obj = const_cast<App::DocumentObject*>(static_cast<const App::DocumentObject*>(this));
+    for (int depth = 0; obj && depth < 16; ++depth) {
+        obj = App::GroupExtension::getGroupOfObject(obj);
+        if (auto assembly = freecad_cast<AssemblyObject*>(obj)) {
+            return assembly;
+        }
+    }
+    return nullptr;
+}
+
+std::vector<App::DocumentObject*> ExplodedView::getSteps() const
+{
+    std::vector<App::DocumentObject*> steps;
+    for (auto obj : Group.getValues()) {
+        if (ExplodedViewStep::isStep(obj)) {
+            steps.push_back(obj);
+        }
+    }
+    return steps;
+}
+
+void ExplodedView::getCenterAndSize(Base::Vector3d& center, double& size) const
+{
+    center = Base::Vector3d();
+    size = 100.0;
+    auto assembly = getAssembly();
+    if (!assembly) {
+        return;
+    }
+    try {
+        Base::Matrix4D mat = globalPlacementOf(assembly, "").toMatrix();
+        auto shape =
+            Part::Feature::getTopoShape(assembly, nullptr, false, &mat, nullptr, true, false);
+        if (shape.isNull()) {
+            return;
+        }
+        auto box = shape.getBoundBox();
+        if (box.IsValid() && box.CalcDiagonalLength() > 0) {
+            center = box.GetCenter();
+            size = box.CalcDiagonalLength();
+        }
+    }
+    catch (Base::Exception&) {
+    }
+    catch (Standard_Failure&) {
+    }
+}
+
+ExplodedPose ExplodedView::explodedAt(std::optional<double> progress) const
+{
+    ExplodedPose pose;
+    auto steps = getSteps();
+    ExplodeFrame frame;
+    getCenterAndSize(frame.center, frame.size);
+    double at = progress ? *progress : static_cast<double>(steps.size());
+    for (int i = 0; i < static_cast<int>(steps.size()); ++i) {
+        double fraction = std::min(1.0, at - i);
+        if (fraction <= 0.0) {
+            break;
+        }
+        ExplodedViewStep::explode(*steps[i], frame, fraction, i, pose.trails);
+    }
+    for (auto obj : frame.order) {
+        pose.moves.push_back({obj, frame.placed[obj]});
+    }
+    return pose;
+}
+
+
+// ExplodedViewStep -------------------------------------------------------
 
 PROPERTY_SOURCE(Assembly::ExplodedViewStep, App::DocumentObject)
 
@@ -47,7 +264,93 @@ ExplodedViewStep::ExplodedViewStep()
                       "the start placement * this placement.");
     ADD_PROPERTY_TYPE(MoveType, (0L), "Exploded Move", App::Prop_None, "The type of the move");
     MoveType.setEnums(MoveTypeEnums);
+    ADD_PROPERTY_TYPE(Trail, (), "Exploded Move",
+                      App::PropertyType(App::Prop_Transient | App::Prop_Hidden
+                                        | App::Prop_Output | App::Prop_NoRecompute),
+                      "The trail each part the move moved left, as pairs of points");
 }
+
+PyObject* ExplodedViewStep::getPyObject()
+{
+    if (PythonObject.is(Py::_None())) {
+        PythonObject = Py::Object(new ExplodedViewStepPy(this), true);
+    }
+    return Py::new_reference_to(PythonObject);
+}
+
+bool ExplodedViewStep::isStep(const App::DocumentObject* obj)
+{
+    return obj
+        && freecad_cast<App::PropertyXLinkSub*>(obj->getPropertyByName("References"))
+        && freecad_cast<App::PropertyPlacement*>(obj->getPropertyByName("MovementTransform"));
+}
+
+void ExplodedViewStep::explode(const App::DocumentObject& step,
+                               ExplodeFrame& frame,
+                               double fraction,
+                               int stepIndex,
+                               std::vector<ExplodedPose::Trail>& trails)
+{
+    auto refs = freecad_cast<App::PropertyXLinkSub*>(step.getPropertyByName("References"));
+    auto moveProp =
+        freecad_cast<App::PropertyPlacement*>(step.getPropertyByName("MovementTransform"));
+    auto typeProp = freecad_cast<App::PropertyEnumeration*>(step.getPropertyByName("MoveType"));
+    auto root = refs ? refs->getValue() : nullptr;
+    if (!root || !moveProp || fraction <= 0.0) {
+        return;
+    }
+    fraction = std::min(1.0, fraction);
+    const char* type = typeProp && typeProp->hasEnums() ? typeProp->getValueAsString() : nullptr;
+    bool radial = type && std::strcmp(type, "Radial") == 0;
+    const auto& move = moveProp->getValue();
+    // A radial step goes away from the center by four times its move's
+    // length over the assembly's size, as upstream's
+    double factor = radial && frame.size > 0 ? 4.0 * move.getPosition().Length() / frame.size : 0;
+    auto part = radial ? Base::Placement() : (fraction >= 1.0 ? move : move.pow(fraction));
+
+    for (const auto& sub : refs->getSubValues()) {
+        if (sub.find('?') != std::string::npos) {
+            continue;
+        }
+        auto obj = getObjFromRef(root, sub);
+        if (!placementOf(obj)) {
+            continue;
+        }
+        auto parent = parentFrameOf(root, sub, obj, frame);
+        auto rest = frame.restOf(obj);
+        auto now = frame.placedOf(obj);
+        auto center = frame.restCenterOf(obj);
+        Base::Vector3d from;
+        (now * rest.inverse()).multVec(center, from);
+
+        Base::Placement next;
+        if (radial) {
+            Base::Vector3d away;
+            parent.multVec(from, away);
+            away -= frame.center;
+            Base::Vector3d local;
+            parent.getRotation().inverse().multVec(away, local);
+            next = now;
+            next.setPosition(now.getPosition() + local * (factor * fraction));
+        }
+        else {
+            next = part * now;
+        }
+        Base::Vector3d to;
+        (next * rest.inverse()).multVec(center, to);
+
+        if (frame.placed.find(obj) == frame.placed.end()) {
+            frame.order.push_back(obj);
+        }
+        frame.placed[obj] = next;
+        ExplodedPose::Trail trail;
+        trail.step = stepIndex;
+        parent.multVec(from, trail.from);
+        parent.multVec(to, trail.to);
+        trails.push_back(trail);
+    }
+}
+
 
 
 PROPERTY_SOURCE(Assembly::Snapshot, App::DocumentObject)
@@ -77,6 +380,15 @@ const char* Assembly::ExplodedViewPython::getViewProviderName() const
 {
     return "Gui::ViewProviderPythonFeature";
 }
+template<>
+PyObject* Assembly::ExplodedViewPython::getPyObject()
+{
+    if (PythonObject.is(Py::_None())) {
+        PythonObject =
+            Py::Object(new App::FeaturePythonPyT<Assembly::ExplodedViewPy>(this), true);
+    }
+    return Py::new_reference_to(PythonObject);
+}
 template class AssemblyExport FeaturePythonT<Assembly::ExplodedView>;
 
 PROPERTY_SOURCE_TEMPLATE(Assembly::ExplodedViewStepPython, Assembly::ExplodedViewStep)
@@ -84,6 +396,15 @@ template<>
 const char* Assembly::ExplodedViewStepPython::getViewProviderName() const
 {
     return "Gui::ViewProviderPythonFeature";
+}
+template<>
+PyObject* Assembly::ExplodedViewStepPython::getPyObject()
+{
+    if (PythonObject.is(Py::_None())) {
+        PythonObject =
+            Py::Object(new App::FeaturePythonPyT<Assembly::ExplodedViewStepPy>(this), true);
+    }
+    return Py::new_reference_to(PythonObject);
 }
 template class AssemblyExport FeaturePythonT<Assembly::ExplodedViewStep>;
 

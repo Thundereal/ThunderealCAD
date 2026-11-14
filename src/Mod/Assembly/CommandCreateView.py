@@ -125,6 +125,13 @@ class ExplodedView:
         pass
 
     def applyMoves(self, viewObj, com=None, size=None):
+        # Not upstream: the C++ view calculates (Assembly::ExplodedView), from
+        # where the parts are now, with the assembly's center and size of its
+        # own; the panel's com and size are for the Python steps below
+        if viewObj.isDerivedFrom("Assembly::ExplodedView"):
+            moves, trails = viewObj.explodedAt()
+            return _writeExplosion(viewObj.getSteps(), moves, trails)
+
         positions = []  # [[p1start, p1end], [p2start, p2end], ...]
         if com is None:
             com, size = UtilsAssembly.getComAndSize(self.getAssembly(viewObj))
@@ -186,6 +193,11 @@ class ExplodedView:
             - A dictionary mapping {part_object: final_placement}.
             - A list of [start_pos, end_pos] for explosion lines.
         """
+        # Not upstream: the C++ view calculates
+        if viewObj.isDerivedFrom("Assembly::ExplodedView"):
+            moves, trails = viewObj.explodedAt()
+            return dict(moves), [[a, b] for _step, a, b in trails]
+
         final_placements = {}
         line_positions = []
         factor = 1
@@ -608,6 +620,11 @@ class ExplodedViewStep:
         if not UtilsAssembly.isRefValid(move.References, 1):
             return
 
+        # Not upstream: the C++ step calculates (Assembly::ExplodedViewStep)
+        if move.isDerivedFrom("Assembly::ExplodedViewStep"):
+            moves, trails = move.explodeFrom(com, size)
+            return _writeExplosion([move], moves, [(0, a, b) for a, b in trails])
+
         positions = []
         if move.MoveType == "Radial":
             distance = move.MovementTransform.Base.Length
@@ -639,6 +656,23 @@ class ExplodedViewStep:
             move.ViewObject.Proxy.redrawLines(move, positions)
 
         return positions
+
+
+def _writeExplosion(steps, moves, trails):
+    """Put the parts where `moves` say, as the panel's edit does, and give
+    each of `steps` the trails it made, for its view provider to draw.
+    Returns the trails as upstream's applyMoves did: [[start, end], ...]"""
+    for obj, placement in moves:
+        obj.Placement = placement
+        obj.purgeTouched()
+    perStep = [[] for _ in steps]
+    for step, start, end in trails:
+        if 0 <= step < len(steps):
+            perStep[step] += [start, end]
+    for step, points in zip(steps, perStep):
+        if hasattr(step, "Trail"):
+            step.Trail = points
+    return [[start, end] for _step, start, end in trails]
 
 
 class ViewProviderExplodedViewStep:
@@ -673,7 +707,10 @@ class ViewProviderExplodedViewStep:
     def updateData(self, stepObj, prop):
         """If a property of the handled feature has changed we have the chance to handle this here"""
         # stepObj is the handled feature, prop is the name of the property that has changed
-        pass
+        # Not upstream: the C++ step keeps the trails it made
+        if prop == "Trail" and hasattr(self, "lineSetGroup"):
+            points = list(stepObj.Trail)
+            self.redrawLines(stepObj, list(zip(points[0::2], points[1::2])))
 
     def redrawLines(self, stepObj, positions):
         # Clear existing lines

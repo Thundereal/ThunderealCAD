@@ -96,6 +96,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestElementJoint.py
     AssemblyTests/TestMigrateJoints.py
     AssemblyTests/TestMigrateTwins.py
+    AssemblyTests/TestExplodedView.py
     AssemblyTests/TestAssemblyGroups.py
     AssemblyTests/TestImportAsm3.py
     AssemblyTests/TestMultiplyJoint.py

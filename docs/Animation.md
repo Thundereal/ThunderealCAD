@@ -1371,8 +1371,18 @@ Phase 5, built so far (2026-11-12):
   activates nothing, so frame 0 was the rest value wherever the first key
   is not it; each step now activates the Animation. What does not fit is named in the
   result's `Skipped`: an object whose shape the animation rebuilds
-  (exported as it rests), a colour or transparency that changes, camera
-  tracks.
+  (exported as it rests), camera tracks. A colour or transparency that
+  changes was in that list until 2026-11-14; now (`Recoloured`) the
+  object's mesh gets materials of its own (`gltfscene.animatedMeshOf`:
+  faces whose colour went the same way through the frames share one, and
+  nothing else shares them) and each material's `baseColorFactor` is a
+  channel of a sample a frame, LINEAR, targeted by JSON pointer through
+  `KHR_animation_pointer` (in `extensionsUsed`, not `extensionsRequired`:
+  a reader without it keeps the first frame's colours). A material that
+  is transparent at any frame is `BLEND` throughout. Khronos' validator
+  (2.0.0-dev.3.10) finds no error or warning in such a file, only the
+  note that its own support of the extension is incomplete; the manual's
+  export.glb animates its box's fade this way.
 - Tests: `TestAnimation` (glTF channels and samples read back from the
   file, what is skipped, the formats), `tests/gui/animation-export.py`
   (12 checks: sequence, GIF, video, cancel, the animation left as it

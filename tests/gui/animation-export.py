@@ -232,10 +232,91 @@ def run():
             pump(0.5)
 
         App.closeDocument(doc.Name)
+        colourInGltf()
     except Exception:
         note("ABORT\n" + traceback.format_exc())
     note("DONE")
     QtCore.QTimer.singleShot(200, QtWidgets.QApplication.quit)
+
+
+def colourInGltf():
+    """A colour and a transparency that change, in an animated glTF: the
+    materials of their own, a baseColorFactor channel each by
+    KHR_animation_pointer; what does not change shares its material"""
+    import json
+
+    from freecad import animationgltf, gltfscene
+
+    doc = App.newDocument("AnimationGltfColour")
+    boxes = {}
+    for name, x in (("Paint", 0), ("Glass", 20), ("Plain", 40), ("Plain2", 60)):
+        boxes[name] = doc.addObject("Part::Box", name)
+        boxes[name].Placement.Base = App.Vector(x, 0, 0)
+    doc.recompute()
+    boxes["Paint"].ViewObject.ShapeColor = (1.0, 0.0, 0.0)
+    anim = doc.addObject("App::Animation", "Anim")
+    anim.FrameRate = 10
+    anim.addKey("Paint.ViewObject.ShapeColor", 0.0, (1.0, 0.0, 0.0))
+    anim.addKey("Paint.ViewObject.ShapeColor", 1.0, (0.0, 0.0, 1.0))
+    anim.addKey("Glass.ViewObject.Transparency", 0.0, 0)
+    anim.addKey("Glass.ViewObject.Transparency", 1.0, 60)
+    doc.recompute()
+    pump(0.3)
+    path = os.path.join(OUT, "colour.gltf")
+    done = animationgltf.exportGltf(anim, path)
+    with open(path, encoding="utf-8") as f:
+        gltf = json.load(f)
+    check("the colour and the transparency are animated, nothing skipped for them",
+          done["Recoloured"] == 2 and not done["Skipped"], done)
+    check("by KHR_animation_pointer, used and not required",
+          "KHR_animation_pointer" in gltf.get("extensionsUsed", [])
+          and "KHR_animation_pointer" not in gltf.get("extensionsRequired", []),
+          gltf.get("extensionsUsed"))
+    pointers = {}
+    for ch in gltf["animations"][0]["channels"]:
+        ext = ch["target"].get("extensions", {}).get("KHR_animation_pointer")
+        if ext:
+            pointers[ext["pointer"]] = gltf["animations"][0]["samplers"][ch["sampler"]]
+    nodes = {n.get("extras", {}).get("name"): n for n in gltf["nodes"]}
+
+    def materials(name):
+        mesh = gltf["meshes"][nodes[name]["mesh"]]
+        return sorted({p["material"] for p in mesh["primitives"]})
+
+    def values(sampler):
+        acc = gltf["accessors"][sampler["output"]]
+        view = gltf["bufferViews"][acc["bufferView"]]
+        with open(os.path.splitext(path)[0] + ".bin", "rb") as f:
+            f.seek(view.get("byteOffset", 0))
+            raw = f.read(view["byteLength"])
+        import struct
+
+        flat = struct.unpack("<%df" % (len(raw) // 4), raw)
+        return [flat[i:i + 4] for i in range(0, len(flat), 4)]
+
+    paint, glass = materials("Paint"), materials("Glass")
+    target = lambda m: "/materials/%d/pbrMetallicRoughness/baseColorFactor" % m
+    check("each animated box a material of its own, with its channel",
+          len(paint) == 1 and len(glass) == 1 and paint != glass
+          and target(paint[0]) in pointers and target(glass[0]) in pointers,
+          (paint, glass, sorted(pointers)))
+    if target(paint[0]) in pointers:
+        v = values(pointers[target(paint[0])])
+        red, blue = gltfscene.baseColor((1, 0, 0), 0), gltfscene.baseColor((0, 0, 1), 0)
+        check("red at the first frame, blue at the last, a sample a frame",
+              len(v) == 11 and all(abs(a - b) < 1e-5 for a, b in zip(v[0], red))
+              and all(abs(a - b) < 1e-5 for a, b in zip(v[-1], blue)), (v[0], v[-1]))
+    if target(glass[0]) in pointers:
+        v = values(pointers[target(glass[0])])
+        mat = gltf["materials"][glass[0]]
+        check("the glass from opaque to 0.4, blended throughout",
+              abs(v[0][3] - 1.0) < 1e-6 and abs(v[-1][3] - 0.4) < 1e-5
+              and mat.get("alphaMode") == "BLEND", (v[0][3], v[-1][3], mat.get("alphaMode")))
+    check("the two that do not change share one material, no channel",
+          materials("Plain") == materials("Plain2")
+          and target(materials("Plain")[0]) not in pointers,
+          (materials("Plain"), materials("Plain2")))
+    App.closeDocument(doc.Name)
 
 
 QtCore.QTimer.singleShot(1000, run)

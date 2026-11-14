@@ -1945,6 +1945,27 @@ TEST_F(StringHasherTest, compactKeepsWhatHistoryUses)  // NOLINT
     EXPECT_GT(Hasher()->getID("new").value(), d);
 }
 
+TEST_F(StringHasherTest, compactDropsWhatAStringNamesTwice)  // NOLINT
+{
+    // A string's list of what it is built from may name one string twice
+    // -- an edge named from two faces takes the ids of both, and both hold
+    // the sketch edge they came from (docs/TopoNamingEnhance.md sec 9.11).
+    // The string holds it twice then, and it goes with the string all the
+    // same.
+    long a = 0, c = 0;
+    {
+        auto ra = Hasher()->getID("A");
+        QVector<App::StringIDRef> sids {ra, ra};
+        auto rc = Hasher()->getID(Data::MappedName("Edge3;:H2,E"), sids);
+        a = ra.value();
+        c = rc.value();
+    }
+    Hasher()->compact();
+    EXPECT_FALSE(Hasher()->hasID(c));
+    EXPECT_FALSE(Hasher()->hasID(a));
+    EXPECT_EQ(Hasher()->size(), 0u);
+}
+
 TEST_F(StringHasherTest, collectorListsItsHashersIds)  // NOLINT
 {
     // Sec 27.49, 27.50 item 4: with a collector on the thread, an element

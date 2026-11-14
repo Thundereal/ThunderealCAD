@@ -653,8 +653,21 @@ directory name this document uses throughout -- and points
 `CMAKE_POLICY_VERSION_MINIMUM=3.5` (for bgfx's old cmake_minimum_required under
 cmake 4), `BUILD_ENABLE_CXX_STD=C++20`, `BUILD_BGFX=ON`, `BUILD_FEM=ON` +
 `BUILD_FEM_NETGEN=ON` + `FREECAD_USE_EXTERNAL_SMESH=ON`,
-`ENABLE_DEVELOPER_TESTS=ON`, `CMAKE_DISABLE_FIND_PACKAGE_Spnav=TRUE` and
-`BUILD_WEB=OFF`.
+`ENABLE_DEVELOPER_TESTS=ON`, `CMAKE_DISABLE_FIND_PACKAGE_Spnav=TRUE` and,
+since 2026-11-13, `BUILD_ASSEMBLY_CHRONO=ON` (it no longer sets `BUILD_WEB`:
+"`BUILD_WEB` defaults OFF" below).
+
+*** **`BUILD_ASSEMBLY_CHRONO=ON` is in the preset because the option's own
+default is OFF and the Assembly's dynamics are tested only with it.** Without
+it the tests of the dynamic studies skip -- 297 cases of the Assembly GUI
+suite skipped on this box without it, 132 with it -- and a tree that skips
+them reports green: `main`'s 3dd48e3f6d moved
+`TestProfileContact.test_half_disc_rocks` past its bound, and the gates of
+this tree, Chrono off, could not see it.
+It needs the `chrono` and `spectra` submodules
+(`src/3rdParty/ChronoCore.cmake`; the configure stops with the command to
+run when `chrono` is missing, and builds without the modal module when
+`spectra` is).
 
 *** **Note the name: `conda-linux-801-relwithdebinfo`, not
 `conda-relwithdebinfo-801`.** The older name is what boxes set up before this

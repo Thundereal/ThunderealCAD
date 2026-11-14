@@ -128,6 +128,7 @@ public:
     };
     static const UTSClearanceDefinition UTSHoleDiameters[23];
 
+    void Restore(Base::XMLReader& reader) override;
     void onDocumentRestored() override;
 
     virtual void updateProps();
@@ -302,6 +303,13 @@ private:
     /// with it, a type change keeps the pitch among sizes of a diameter
     double threadPitch = 0.0;
     bool changingThreadType = false;
+    /// The ThreadDiameter the file being read holds, negative if it holds
+    /// none: what tells which table its ThreadSize counts in
+    double storedThreadDiameter = -1.0;
+    void restoreThreadSize();
+    /// Whether a modelled thread is cut with the profile of this fork's
+    /// builds before 2026-09-30, which the hole was made with
+    bool isLegacyThread() const;
     void rotateToNormal(const gp_Dir& helixAxis, const gp_Dir& normalAxis, TopoDS_Shape& helixShape) const;
     gp_Vec computePerpendicular(const gp_Vec&) const;
     TopoDS_Shape makeThread(const gp_Vec&, const gp_Vec&, double);

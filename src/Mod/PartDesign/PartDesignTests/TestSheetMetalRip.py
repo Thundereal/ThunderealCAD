@@ -20,6 +20,8 @@ import FreeCAD
 import Part
 import PartDesign
 
+from . import SheetMetalNames
+
 V = FreeCAD.Vector
 L = 30
 WALL = 18 * 1 * L
@@ -33,7 +35,7 @@ class TestSheetMetalRip(unittest.TestCase):
         self.Body = self.Doc.addObject("PartDesign::Body", "Body")
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def square(self):
         sketch = self.Body.newObject("Sketcher::SketchObject", "Sketch")

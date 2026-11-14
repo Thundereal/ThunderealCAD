@@ -1531,8 +1531,10 @@ void Hole::updateDiameterParam()
 {
     int threadType = ThreadType.getValue();
     int threadSize = ThreadSize.getValue();
-    // the first size (index 0) is a size too
-    if (threadType > 0 && threadSize >= 0 && !changingThreadType) {
+    // the first size (index 0) is a size too. While the object is read,
+    // ThreadDiameter is the file's to say: onDocumentRestored() comes here
+    // again once the size is settled
+    if (threadType > 0 && threadSize >= 0 && !changingThreadType && !isRestoring()) {
         ThreadDiameter.setValue(
             threadDescription[threadType][threadSize].diameter
         );
@@ -1596,7 +1598,12 @@ void Hole::onChanged(const App::Property* prop)
                 Base::StateLocker guard(changingThreadType);
                 ThreadSize.setEnums(getThreadDesignations(ThreadType.getValue()));
             }
-            if (type != "None")
+            // A size is looked for where the type changed. A file read, or
+            // a transaction undone, states the size itself: looking by the
+            // diameter there put an M8x1.0 back as M8x0.75, the first M8 of
+            // the table, and a hole of a file without ThreadDiameter as the
+            // size nearest its bore
+            if (type != "None" && !isRestoring() && !_isRestoring(getDocument()))
                 findClosestDesignation();
         }
 
@@ -1913,12 +1920,17 @@ void Hole::onChanged(const App::Property* prop)
         // a changed diameter means we also need to check the hole cut
         // because the hole cut diameter must not be <= than the diameter
         updateHoleCutParams();
-        if (ThreadType.getValue() == 0) {
+        if (ThreadType.getValue() == 0 && !isRestoring()) {
             // Profile is None but this is needed to find the closest
-            // designation if the user switch to threaded
+            // designation if the user switch to threaded. Not while the
+            // object is read: the type may only not be there yet
             ThreadDiameter.setValue(Diameter.getValue());
             threadPitch = 0.0;
         }
+    }
+    else if (prop == &ThreadDiameter) {
+        if (isRestoring())
+            storedThreadDiameter = ThreadDiameter.getValue();
     }
     else if (prop == &HoleCutType) {
         ProfileBased::onChanged(&HoleCutDiameter);
@@ -2076,9 +2088,74 @@ short Hole::mustExecute() const
     return ProfileBased::mustExecute();
 }
 
+void Hole::Restore(Base::XMLReader& reader)
+{
+    storedThreadDiameter = -1.0;
+    ProfileBased::Restore(reader);
+}
+
+void Hole::restoreThreadSize()
+{
+    // ThreadSize is saved as its place in the table of its type, so a file
+    // means the table of the build that wrote it
+    int threadType = ThreadType.getValue();
+    int threadSize = ThreadSize.getValue();
+    double stored = storedThreadDiameter;
+    storedThreadDiameter = -1.0;
+    if (threadType <= 0 || threadType >= static_cast<int>(std::size(threadDescription))
+        || threadSize < 0) {
+        return;
+    }
+    const auto& sizes = threadDescription[threadType];
+    int count = 0;
+    while (count < static_cast<int>(std::size(sizes)) && sizes[count].designation)
+        ++count;
+
+    if (stored < 0.0) {
+        // No ThreadDiameter: written before UNF 1 3/16 joined its table
+        // ahead of 1 1/4, 1 3/8 and 1 1/2 (the two came together upstream,
+        // in 1.1, and ThreadDiameter first here), and before the thread's
+        // profile changed. The fork's own hole says so from here on, see
+        // isLegacyThread(): the next file of it has a ThreadDiameter
+        if (_ProfileBasedVersion.getValue() == 2)
+            _ProfileBasedVersion.setValue(1);
+        const int firstMoved = 21;
+        if (std::string(ThreadType.getValueAsString()) == "UNF"
+            && threadSize >= firstMoved && threadSize + 1 < count) {
+            ThreadSize.setValue(threadSize + 1);
+        }
+        return;
+    }
+
+    // With one, the size at that place has that diameter, or the table has
+    // moved since and the size is looked for
+    if (threadSize < count && std::abs(sizes[threadSize].diameter - stored) < 1e-6)
+        return;
+    {
+        Base::StateLocker guard(changingThreadType);
+        ThreadDiameter.setValue(stored);
+    }
+    threadPitch = 0.0;
+    findClosestDesignation();
+}
+
+bool Hole::isLegacyThread() const
+{
+    // _ProfileBasedVersion is 0 for upstream's hole and 2 for one made
+    // here. 1 is this fork's hole of before 2026-09-30, by its own number
+    // or by restoreThreadSize(): its thread keeps the six-point profile it
+    // was made with, so that an earlier file's hole stays the shape it was.
+    // The two have the same flanks and crest and differ inside the bore,
+    // which shows where the thread runs past a flat bottom into the
+    // material. That profile never followed a taper, and the tapered hole
+    // takes today's.
+    return _ProfileBasedVersion.getValue() == 1 && !Tapered.getValue();
+}
+
 void Hole::onDocumentRestored()
 {
     ProfileBased::onDocumentRestored();
+    restoreThreadSize();
     updateProps();
 }
 
@@ -2740,6 +2817,15 @@ TopoDS_Shape Hole::makeThread(const gp_Vec& xDir, const gp_Vec& zDir, double len
         gp_Pnt p2 = toPnt(RmajC * xDir + 7 * Pitch / 16 * zDir);
         gp_Pnt p3 = toPnt(RmajC * xDir + 9 * Pitch / 16 * zDir);
         gp_Pnt p4 = toPnt((RmajC - h + marginX) * xDir + (Pitch - marginZ) * zDir);
+        // An earlier hole's profile, see isLegacyThread(): the same flanks,
+        // from the thread's own minor radius on, an eighth of the pitch off
+        // the pitch lines, and closed at nine tenths of that radius
+        const bool legacy = isLegacyThread() && threadTypeStr != "ISOTyre";
+        const double minor = Rmaj - 5 * H / 8;
+        if (legacy) {
+            p1 = toPnt((minor + clearance) * xDir + Pitch / 8 * zDir);
+            p4 = toPnt((minor + clearance) * xDir + 7 * Pitch / 8 * zDir);
+        }
 
         mkThreadWire.Add(BRepBuilderAPI_MakeEdge(p1, p2).Edge());
         if (threadTypeStr == "ISOTyre") {
@@ -2752,7 +2838,16 @@ TopoDS_Shape Hole::makeThread(const gp_Vec& xDir, const gp_Vec& zDir, double len
             mkThreadWire.Add(BRepBuilderAPI_MakeEdge(p2, p3).Edge());
         }
         mkThreadWire.Add(BRepBuilderAPI_MakeEdge(p3, p4).Edge());
-        mkThreadWire.Add(BRepBuilderAPI_MakeEdge(p4, p1).Edge());
+        if (legacy) {
+            gp_Pnt p5 = toPnt(0.9 * minor * xDir + 7 * Pitch / 8 * zDir);
+            gp_Pnt p6 = toPnt(0.9 * minor * xDir + Pitch / 8 * zDir);
+            mkThreadWire.Add(BRepBuilderAPI_MakeEdge(p4, p5).Edge());
+            mkThreadWire.Add(BRepBuilderAPI_MakeEdge(p5, p6).Edge());
+            mkThreadWire.Add(BRepBuilderAPI_MakeEdge(p6, p1).Edge());
+        }
+        else {
+            mkThreadWire.Add(BRepBuilderAPI_MakeEdge(p4, p1).Edge());
+        }
     }
 
     mkThreadWire.Build();

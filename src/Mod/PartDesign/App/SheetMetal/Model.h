@@ -46,7 +46,9 @@ namespace PartDesign::SheetMetal
  * A wall is a slab: its frame's origin on its first skin, its Z the
  * normal from there into the material, the second skin a thickness along
  * it. A bend is a CylBend, between the wall it starts from (before) and
- * the one it ends in (after).
+ * the one it ends in (after). A cone is a ConeBend, a lofted flange's
+ * (M5): a sheet of its own, joining no wall, its frame its startFrame(),
+ * where it lies flat.
  */
 struct PartDesignExport Element
 {
@@ -54,6 +56,7 @@ struct PartDesignExport Element
     {
         Wall,
         Bend,
+        Cone,
     };
     Kind kind = Kind::Wall;
     /// Its name by role, as the feature that made it gave it ("Wall1", "Bend2")
@@ -62,6 +65,8 @@ struct PartDesignExport Element
     gp_Ax3 frame;
     /// A bend's geometry
     CylBend bend;
+    /// A cone's
+    ConeBend cone;
     /// A bend's walls, by index
     int before = -1;
     int after = -1;
@@ -70,10 +75,43 @@ struct PartDesignExport Element
     /// their slabs and tubes would overlap; a bend's sides, where its flange
     /// ends inside the wall's end and its tube runs on through the wall
     std::vector<gp_Pln> limits;
+    /// A bend's rims where they run across its strip at a slant (a lofted
+    /// flange's): planes through its inner skin unrolled -- a point at
+    /// angle a about the axis to a times the radius along the frame's Y
+    /// from where the skin starts, its height along Z (rimPoint()) -- its
+    /// material on the side against each normal
+    std::vector<gp_Pln> rims;
     /// A wall's cross break (docs/SheetMetal.md sec 12): the angle its
     /// diagonals bend by, rad, rising along the frame's normal where above 0
     /// and against it where below; 0 for none
     double crossBreak = 0;
+};
+
+/** A form pressed into a wall (docs/SheetMetal.md sec 4.8): a dimple, a
+ * louver, a user's tool. Not a wall nor a bend: it is owned by the wall it
+ * sits on and goes flat rigidly with it, and what it takes of the part is
+ * a box (or a cylinder) in its frame, so a face of it is told by lying in
+ * that whole.
+ */
+struct PartDesignExport Form
+{
+    /// Its name by role ("Form1")
+    std::string name;
+    /// Its wall, by index
+    int wall = -1;
+    /// Where it sits on its wall's skin, Z the way it rises out of it, X
+    /// along its length
+    gp_Ax3 frame;
+    /// What it takes of the part, in its frame: |x| up to halfLength and |y|
+    /// up to halfWidth -- within a radius of halfLength where halfWidth is
+    /// 0 -- and z from zMin to zMax
+    double halfLength = 0;
+    double halfWidth = 0;
+    double zMin = 0;
+    double zMax = 0;
+
+    /// Whether the point is in what it takes of the part, within tol
+    bool contains(const gp_Pnt& point, double tol = 1e-7) const;
 };
 
 /** A sheet's walls and bends, and how they lie flat
@@ -83,26 +121,50 @@ struct PartDesignExport Element
  * it meets, short of any of its limits. Flat, a chosen wall (the root) stays where it is, and every
  * other element moves with the bends between it and the root unrolled.
  */
+/// Where a point of a bend lies on its inner skin unrolled, as its rims
+/// (Element::rims) take it
+PartDesignExport gp_Pnt rimPoint(const CylBend& bend, const gp_Pnt& point);
+
+/// The number a name is prefix and then ("Wall", "Wall12": 12), 0 for a
+/// name that is not that
+PartDesignExport int numberOf(const std::string& name, const std::string& prefix);
+
 class PartDesignExport Model
 {
 public:
     double thickness = 0;
     std::vector<Element> elements;
+    /// The forms pressed into its walls
+    std::vector<Form> forms;
 
     /// Add a wall; returns its index
     int addWall(const std::string& name, const gp_Ax3& frame);
     /// Add a bend between two walls already added; returns its index.
     /// Throws Base::IndexError for a wall that is not one.
     int addBend(const std::string& name, const CylBend& bend, int before, int after);
+    /// Add a cone, a sheet of its own; returns its index
+    int addCone(const std::string& name, const ConeBend& cone);
     /// The element of that name, -1 for none
     int find(const std::string& name) const;
+    /** The highest number its walls' names (Wall3) and its bends' (Bend2, a
+     * cone's too) end in, 0 for none: a feature numbers what it makes on
+     * from these while it builds, and the names they keep are given as the
+     * model is stored (SheetMetalExtension::storeModel())
+     */
+    void numbers(int& walls, int& bends) const;
 
     /// Whether the point is in the element's material, within tol
     bool contains(int index, const gp_Pnt& point, double tol = 1e-7) const;
     /// The element the point is in, bends tried first; -1 for none
     int owner(const gp_Pnt& point, double tol = 1e-7) const;
-    /// The element a face is in, by a point inside it; -1 for none
+    /// The element a face is in, by a point inside it; -1 for none. A
+    /// form's face is in the form's wall.
     int owner(const TopoDS_Face& face, double tol = 1e-7) const;
+    /// The form a face is of: lying in what it takes of the part whole;
+    /// -1 for none
+    int formOf(const TopoDS_Face& face, double tol = 1e-6) const;
+    /// The form of that name, -1 for none
+    int findForm(const std::string& name) const;
     /// Move every element
     void transform(const gp_Trsf& trsf);
     /** Take an element out, every index after it moved down. A bend's walls
@@ -118,9 +180,9 @@ public:
     int cutOff() const;
 
     /** What moves an element flat with root fixed: for a wall all of it,
-     * for a bend what follows its own map (CylBend::toFlat()). Throws
-     * Base::ValueError for a root that is not a wall, Base::IndexError for an
-     * element not joined to it.
+     * for a bend or a cone what follows its own map (CylBend::toFlat(),
+     * ConeBend::toFlat()). Throws Base::ValueError for a root that is not a
+     * wall or a cone, Base::IndexError for an element not joined to it.
      */
     gp_Trsf placement(int index, int root) const;
     /// Where a point of the element lies flat with root fixed

@@ -71,6 +71,7 @@
 
 #include "TaskSketchBasedParameters.h"
 #include "ReferenceSelection.h"
+#include <App/ElementNamingUtils.h>
 #include "Utils.h"
 
 FC_LOG_LEVEL_INIT("PartDesignGui",true,true)
@@ -466,11 +467,22 @@ void LinkSubWidget::init(const QString &title)
     selectionConf.setFlag(AllowSelection::WIRE);
     selectionConf.setFlag(AllowSelection::POINT);
 
+    // the button, the table and the clear button in a row; under them the
+    // line saying what was found again by name (showRefound())
+    auto vlayout = new QVBoxLayout();
+    vlayout->setSpacing(2);
+    vlayout->setContentsMargins(0,0,0,0);
+    setLayout(vlayout);
     QHBoxLayout *hlayout = new QHBoxLayout();
     hlayout->setSpacing(2);
-    setLayout(hlayout);
+    vlayout->addLayout(hlayout);
     hlayout->setContentsMargins(0,0,0,0);
     setContentsMargins(0,0,0,0);
+    refoundLabel = new QLabel(this);
+    refoundLabel->setObjectName(QStringLiteral("labelRefound"));
+    refoundLabel->setWordWrap(true);
+    refoundLabel->hide();
+    vlayout->addWidget(refoundLabel);
     button = new QPushButton(this);
     hlayout->addWidget(button, 0, Qt::AlignTop);
 
@@ -817,31 +829,48 @@ void LinkSubWidget::refresh()
     shadows.resize(subs.size());
 
     // On first show, a reference to an element that is gone is replaced by
-    // the element it most likely became
+    // what answers for it by its name's history: one that holds a single
+    // element where one answers, a list by all that do -- an edge cut in
+    // two is its two halves. Kept to be shown (showRefound(); ruled
+    // 2026-11-11: not taken silently; the first that answered was taken
+    // before, whatever else did).
     bool touched = false;
     if (!linkInited) {
-        std::set<std::pair<App::DocumentObject*, std::string>> subSet;
+        std::map<App::DocumentObject*, std::set<std::string>> used;
         for (std::size_t i = 0; i < subs.size(); ++i) {
-            subSet.emplace(links[i], shadows[i].first);
-            subSet.emplace(links[i], shadows[i].second);
+            used[links[i]].insert(shadows[i].first);
+            used[links[i]].insert(shadows[i].second);
         }
-        std::string indexedName;
+        std::vector<App::DocumentObject*> newLinks;
+        std::vector<std::string> newSubs;
         for (std::size_t i = 0; i < subs.size(); ++i) {
-            if (!App::GeoFeature::hasMissingElement(subs[i].c_str()) || !links[i])
+            if (!App::GeoFeature::hasMissingElement(subs[i].c_str()) || !links[i]) {
+                newLinks.push_back(links[i]);
+                newSubs.push_back(subs[i]);
                 continue;
-            auto related = Part::Feature::getRelatedElements(links[i], shadows[i].first.c_str());
-            if (related.empty())
+            }
+            const auto answers = PartDesignGui::refoundAnswers(
+                    links[i], shadows[i].first, used[links[i]], singleElement);
+            if (answers.empty()) {
+                newLinks.push_back(links[i]);
+                newSubs.push_back(subs[i]);
                 continue;
-            indexedName.clear();
-            related.front().index.appendToStringBuffer(indexedName);
-            FC_WARN("guess element reference in " << prop->getFullName()
-                    << ": " << subs[i] << " -> " << indexedName);
-            if (subSet.emplace(links[i], indexedName).second)
-                subs[i] = indexedName;
-            else
-                subs[i].clear();
+            }
+            std::string was = subs[i];
+            if (boost::starts_with(was, Data::missingPrefix()))
+                was.erase(0, Data::missingPrefix().size());
+            for (const auto &now : answers) {
+                FC_WARN("guess element reference in " << prop->getFullName()
+                        << ": " << subs[i] << " -> " << now);
+                used[links[i]].insert(now);
+                newLinks.push_back(links[i]);
+                newSubs.push_back(now);
+                refound.push_back({links[i], was, now});
+            }
             touched = true;
         }
+        links = std::move(newLinks);
+        subs = std::move(newSubs);
     }
 
     LinkRows rows;
@@ -883,8 +912,43 @@ void LinkSubWidget::refresh()
     if (touched) {
         linkInited = true;
         setRows(std::move(rows));
+        // and selected in the view, once the panel is up
+        QTimer::singleShot(0, this, [this]() {
+            PartDesignGui::selectRefound(refound);
+        });
     }
     linkInited = true;
+    showRefound();
+}
+
+void LinkSubWidget::showRefound()
+{
+    // those found again by name, while they are listed: their cells marked,
+    // each saying what it was, and all said in a line under the table
+    std::vector<PartDesignGui::RefoundReference> listed;
+    const auto rows = getRows();
+    for (const auto &found : refound) {
+        for (int row = 0; row < (int)rows.size(); ++row) {
+            if (rows[row].first != found.object)
+                continue;
+            for (int col = 0; col < (int)rows[row].second.size(); ++col) {
+                auto item = table->item(row, col + 1);
+                if (!item || rows[row].second[col] != found.now)
+                    continue;
+                QSignalBlocker guard(table);
+                item->setForeground(PartDesignGui::refoundColor());
+                item->setToolTip(PartDesignGui::refoundTip(found.was));
+                listed.push_back(found);
+            }
+        }
+    }
+    if (refoundLabel) {
+        const QString note = PartDesignGui::refoundNote(listed);
+        refoundLabel->setVisible(!note.isEmpty());
+        refoundLabel->setText(note.isEmpty() ? QString()
+                : QStringLiteral("<font color='%1'>%2</font>")
+                        .arg(PartDesignGui::refoundColor().name(), note.toHtmlEscaped()));
+    }
 }
 
 bool LinkSubWidget::setLinks(const std::vector<App::SubObjectT> &objs)
@@ -1057,6 +1121,12 @@ LinkSubListWidget::LinkSubListWidget(TaskSketchBasedParameters *parent,
     listWidget->setMouseTracking(true);
     listWidget->installEventFilter(this);
     layout->addWidget(listWidget);
+    // what was found again by name, said under the list (showRefound())
+    refoundLabel = new QLabel(this);
+    refoundLabel->setObjectName(QStringLiteral("labelRefound"));
+    refoundLabel->setWordWrap(true);
+    refoundLabel->hide();
+    layout->addWidget(refoundLabel);
     QObject::connect(listWidget, &QListWidget::itemEntered, [this](QListWidgetItem *item) {
         PartDesignGui::highlightObjectOnTop(qvariant_cast<SubInfo>(item->data(Qt::UserRole)).objT);
     });
@@ -1354,39 +1424,50 @@ void LinkSubListWidget::refresh()
     auto subset = prop->getSubListValues();
 
     if (!linkInited && prop->getShadowSubs().size() == prop->getValues().size()) {
-        std::map<App::DocumentObject*, std::set<std::string>> resolveMap;
+        // Each element that is gone, by what answers for it by its name's
+        // history: all that do, a list's -- an edge cut in two is its two
+        // halves -- in its place. Kept to be shown (showRefound(); ruled
+        // 2026-11-11: not taken silently; only the first that was gone was
+        // looked for before, and added past its missing self).
+        std::map<App::DocumentObject*, std::set<std::string>> used;
         size_t i = 0;
-        std::string indexedName;
-        bool hasResolved = false;
         for (const auto &shadow : prop->getShadowSubs()) {
             auto link = prop->getValues()[i++];
-
-            if (App::GeoFeature::hasMissingElement(shadow.second.c_str())) {
-                auto related = Part::Feature::getRelatedElements(link, shadow.first.c_str());
-                if (!related.empty()) {
-                    hasResolved = true;
-                    indexedName.clear();
-                    const auto &element = related.front();
-                    element.index.appendToStringBuffer(indexedName);
-                    FC_WARN("guess element reference in " << prop->getFullName()
-                            << ": " << shadow.second << " -> " << element.index);
-                    resolveMap[link].insert(indexedName);
-                    break;
-                }
-            }
+            used[link].insert(shadow.first);
+            used[link].insert(shadow.second);
         }
+        std::map<std::pair<App::DocumentObject*, std::string>, std::vector<std::string>> answered;
+        i = 0;
+        for (const auto &shadow : prop->getShadowSubs()) {
+            auto link = prop->getValues()[i++];
+            if (!link || !App::GeoFeature::hasMissingElement(shadow.second.c_str()))
+                continue;
+            const auto answers = PartDesignGui::refoundAnswers(link, shadow.first, used[link], false);
+            if (answers.empty())
+                continue;
+            std::string was = shadow.second;
+            if (boost::starts_with(was, Data::missingPrefix()))
+                was.erase(0, Data::missingPrefix().size());
+            for (const auto &now : answers) {
+                FC_WARN("guess element reference in " << prop->getFullName()
+                        << ": " << shadow.second << " -> " << now);
+                used[link].insert(now);
+                refound.push_back({link, was, now});
+            }
+            answered[std::make_pair(link, shadow.second)] = answers;
+        }
+        bool hasResolved = !answered.empty();
         if (hasResolved) {
             for (auto &v : subset) {
-                auto it = resolveMap.find(v.first);
-                if (it == resolveMap.end())
-                    continue;
-                for (auto itSub = v.second.begin(); itSub != v.second.end();) {
-                    if (it->second.count(*itSub))
-                        itSub = v.second.erase(itSub);
+                std::vector<std::string> subs;
+                for (const auto &sub : v.second) {
+                    auto it = answered.find(std::make_pair(v.first, sub));
+                    if (it == answered.end())
+                        subs.push_back(sub);
                     else
-                        ++itSub;
+                        subs.insert(subs.end(), it->second.begin(), it->second.end());
                 }
-                v.second.insert(v.second.end(), it->second.begin(), it->second.end());
+                v.second = std::move(subs);
             }
             try {
                 parentTask->setupTransaction();
@@ -1398,12 +1479,53 @@ void LinkSubListWidget::refresh()
         }
     }
 
-    QSignalBlocker guard(listWidget);
-    listWidget->clear();
-    for (const auto &v : subset)
-        addItem(v.first, v.second);
+    {
+        QSignalBlocker guard(listWidget);
+        listWidget->clear();
+        for (const auto &v : subset)
+            addItem(v.first, v.second);
+    }
 
+    const bool first = !linkInited;
     linkInited = true;
+    showRefound();
+    // and selected in the view, once the panel is up
+    if (first && !refound.empty()) {
+        QTimer::singleShot(0, this, [this]() {
+            PartDesignGui::selectRefound(refound);
+        });
+    }
+}
+
+void LinkSubListWidget::showRefound()
+{
+    // those found again by name, while they are listed: their items marked,
+    // saying what each was, and all said in a line under the list
+    std::vector<PartDesignGui::RefoundReference> listed;
+    for (int i = 0; i < listWidget->count(); ++i) {
+        auto item = listWidget->item(i);
+        const auto info = qvariant_cast<SubInfo>(item->data(Qt::UserRole));
+        QStringList tips;
+        for (const auto &found : refound) {
+            if (info.objT.getObject() != found.object
+                    || std::find(info.subs.begin(), info.subs.end(), found.now) == info.subs.end())
+                continue;
+            listed.push_back(found);
+            tips << QStringLiteral("%1: %2").arg(QString::fromStdString(found.now),
+                                                PartDesignGui::refoundTip(found.was));
+        }
+        if (!tips.isEmpty()) {
+            item->setForeground(PartDesignGui::refoundColor());
+            item->setToolTip(tips.join(QStringLiteral("\n")));
+        }
+    }
+    if (refoundLabel) {
+        const QString note = PartDesignGui::refoundNote(listed);
+        refoundLabel->setVisible(!note.isEmpty());
+        refoundLabel->setText(note.isEmpty() ? QString()
+                : QStringLiteral("<font color='%1'>%2</font>")
+                        .arg(PartDesignGui::refoundColor().name(), note.toHtmlEscaped()));
+    }
 }
 
 

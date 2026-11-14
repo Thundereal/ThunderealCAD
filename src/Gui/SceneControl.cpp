@@ -945,7 +945,9 @@ bool isBrowserSafeCommand(const QString &name)
     // (docs/SheetMetal.md sec 8.2). Export Flat to DXF asks for a file, and
     // is not here.
     static const QSet<QString> sheetMetal = {
+        QStringLiteral("PartDesign_SheetMetalStarter"),
         QStringLiteral("PartDesign_SheetMetalBaseWall"),
+        QStringLiteral("PartDesign_SheetMetalLoftedFlange"),
         QStringLiteral("PartDesign_SheetMetalFlange"),
         QStringLiteral("PartDesign_SheetMetalContourFlange"),
         QStringLiteral("PartDesign_SheetMetalJoin"),
@@ -955,6 +957,9 @@ bool isBrowserSafeCommand(const QString &name)
         QStringLiteral("PartDesign_SheetMetalCornerClosure"),
         QStringLiteral("PartDesign_SheetMetalRip"),
         QStringLiteral("PartDesign_SheetMetalCrossBreak"),
+        QStringLiteral("PartDesign_SheetMetalForm"),
+        QStringLiteral("PartDesign_SheetMetalLocatingTabs"),
+        QStringLiteral("PartDesign_SheetMetalSlots"),
         QStringLiteral("PartDesign_SheetMetalCutout"),
         QStringLiteral("PartDesign_SheetMetalFold"),
         QStringLiteral("PartDesign_SheetMetalJog"),

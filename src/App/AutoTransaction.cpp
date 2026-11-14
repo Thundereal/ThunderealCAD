@@ -165,8 +165,13 @@ int Application::InvocationScope::depth()
 
 void Application::commitImplicitTransactions()
 {
-    for (auto& v : DocMap)
-        v.second->commitImplicitTransaction();
+    // Not a document's that recomputes: the closer that asks runs from an
+    // event loop the recompute pumps, and the recompute commits its own as
+    // it ends -- one step, however long it takes
+    for (auto& v : DocMap) {
+        if (!v.second->testStatus(Document::Recomputing))
+            v.second->commitImplicitTransaction();
+    }
 }
 
 const Application::BoundTransaction *Application::_boundTransaction(const Document *doc) const
@@ -535,8 +540,9 @@ void Application::closeActiveTransaction(bool abort, int id) {
     }
 
     if(_TransactionLock) {
+        // What the lock does at its end; an abort asked stays one
         if(_TransactionClosed >= 0)
-            _TransactionLock = abort?-1:1;
+            _TransactionClosed = abort?-1:1;
         FC_LOG("pending " << (abort?"abort":"close") << " transaction");
         return;
     }

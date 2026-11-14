@@ -188,7 +188,7 @@ TopoDS_Shape radial(const CylBend& b, const TopoDS_Face& flat, double inner, dou
                 c2d = new Geom2d_BSplineCurve(poles, knots, mults, s->Degree());
             }
             TopoDS_Edge on = BRepBuilderAPI_MakeEdge(c2d, surfaces[k]).Edge();
-            BRepLib::BuildCurves3d(on);
+            BRepLib::BuildCurves3d(on, 1e-7);
             if (e.Orientation() == TopAbs_REVERSED) {
                 on.Reverse();
             }

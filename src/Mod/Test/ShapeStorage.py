@@ -1960,6 +1960,40 @@ class ForeignBaseShapeCases(ShapeTestCase):
         reopened.save()
         self.assertEqual(self.subs(asmPath), ["?Face3", "?Face3"])
 
+    def testAnUpgradeFindsAnUnnamedShapesReference(self):
+        """A shape saved with no names by an earlier release has no map to
+        regenerate, and what refers into it does so by number.  Its first
+        new value is still an upgrade: the reference is found again by
+        geometry, as one into a named shape is.  Here the two boxes of a
+        compound come back the other way round, so the first box's Face1
+        is Face7; the shape used to take today's version when it was read,
+        and the reference stayed on Face1, a face of the other box."""
+        doc = self.newDocument("OldDoc")
+        first = Part.makeBox(10, 10, 10)
+        second = Part.makeBox(10, 10, 10, FreeCAD.Vector(30, 0, 0))
+        base = doc.addObject("Part::Feature", "Base")
+        base.Shape = Part.makeCompound([first, second])
+        ref = doc.addObject("App::FeaturePython", "Ref")
+        ref.addProperty("App::PropertyLinkSub", "Ref")
+        ref.Ref = (base, ("Face1",))
+        doc.recompute()
+        self.assertEqual(base.Shape.ElementMapSize, 0)
+        version = base.getElementMapVersion("Shape")
+        path = os.path.join(self.tmp, "old.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        self.ageElementMap(path, version)
+
+        reopened = self.openDocument(path)
+        base = reopened.getObject("Base")
+        ref = reopened.getObject("Ref")
+        self.assertEqual(ref.Ref[1], ["Face1"])
+        self.assertNotEqual(base.getElementMapVersion("Shape", True), version)
+        base.Shape = Part.makeCompound([second, first])
+        self.assertEqual(ref.Ref[1], ["Face7"])
+        reopened.recompute()
+        self.assertEqual(ref.Ref[1], ["Face7"])
+
     def xref(self, asm):
         (key,) = [k for k in self.refs(asm) if "#" in k]
         return key

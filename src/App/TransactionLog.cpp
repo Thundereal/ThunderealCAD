@@ -286,6 +286,10 @@ public:
     std::vector<std::pair<long, long>> lastGeoIds() override { return inner().lastGeoIds(); }
     void addLastGeoIds(const std::vector<std::pair<long, long>>& ids) override
     { inner().addLastGeoIds(ids); }
+    std::vector<std::tuple<long, int, long>> objectCounts() override
+    { return inner().objectCounts(); }
+    void addObjectCounts(const std::vector<std::tuple<long, int, long>>& counts) override
+    { inner().addObjectCounts(counts); }
     std::vector<long> objectIdsInOps() override { return inner().objectIdsInOps(); }
     void removeObjectState(const std::vector<long>& ids) override
     { inner().removeObjectState(ids); }
@@ -696,6 +700,9 @@ void TransactionLogCore::openStore()
     // And the last geometry id of each object (item 4).
     for (const auto& g : _store->lastGeoIds())
         _history.noteGeoId(g.first, g.second);
+    // And what each object counts (sec 39.5).
+    for (const auto& c : _store->objectCounts())
+        _history.noteObjectCount(std::get<0>(c), std::get<1>(c), std::get<2>(c));
     // What compaction would drop, as estimated so far (sec 27.48).
     const std::string estimate = _store->getMeta("compact_estimate");
     if (!estimate.empty())
@@ -1402,6 +1409,11 @@ TransactionLog::Embedded TransactionLogCore::beginEmbed(int64_t branch, const st
     _store->addObjectNames(names);
     _store->addObjectUids({_history.objectUids().begin(), _history.objectUids().end()});
     _store->addLastGeoIds({_history.lastGeoIds().begin(), _history.lastGeoIds().end()});
+    std::vector<std::tuple<long, int, long>> counts;
+    counts.reserve(_history.objectCounts().size());
+    for (const auto& c : _history.objectCounts())
+        counts.emplace_back(c.first.first, c.first.second, c.second);
+    _store->addObjectCounts(counts);
     return out;
 }
 

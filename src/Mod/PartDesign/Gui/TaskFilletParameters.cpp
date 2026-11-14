@@ -1559,7 +1559,8 @@ void TaskFilletParameters::refreshEdgeRow(QTreeWidgetItem *item)
     item->setData(GroupColumn, Qt::UserRole, group);
     item->setText(GroupColumn, group > 0 ? QString::number(group) : QString());
     item->setIcon(GroupColumn, group > 0 ? groupIcon(group) : QIcon());
-    item->setToolTip(0, edgeModeTip(edgeMode(pcFillet->Segments.getValue(edge.c_str())), group));
+    item->setToolTip(0, withRefound(item,
+                edgeModeTip(edgeMode(pcFillet->Segments.getValue(edge.c_str())), group)));
     int j = 0;
     for (const auto &segment : pcFillet->Segments.getValue(edge.c_str())) {
         setSegment(j<item->childCount() ? item->child(j) : new QTreeWidgetItem(item),

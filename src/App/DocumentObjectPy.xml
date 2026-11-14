@@ -417,6 +417,24 @@ or else tuple(obj, newElementName, oldElementName, geoFeature).
                 </UserDocu>
             </Documentation>
         </Methode>
+        <Methode Name="getReferencesElsewhere" Const="true">
+            <Documentation>
+                <UserDocu>
+getReferencesElsewhere() -> [(property, object, element, elsewhere), ...]
+
+The element references of this object that go by their names while the
+elements they were on lie elsewhere: a name that held a place has become
+another element's when the object referred to was recomputed, and the
+element as it was is still there, unchanged, under another name. The
+reference keeps the name; this says so.
+
+property: the name of the link property holding the reference
+object: the object referred to
+element: the element the reference names now
+elsewhere: the element it was on, as the object has it now
+                </UserDocu>
+            </Documentation>
+        </Methode>
         <Methode Name="adjustRelativeLinks">
             <Documentation>
                 <UserDocu>adjustRelativeLinks(parent,recursive=True) -- auto correct potential cyclic dependencies</UserDocu>

@@ -334,7 +334,7 @@ App::DocumentObjectExecReturn* SheetMetalTab::execute()
                                    Part::OpCodes::Refine);
         }
         Shape.setValue(fused);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

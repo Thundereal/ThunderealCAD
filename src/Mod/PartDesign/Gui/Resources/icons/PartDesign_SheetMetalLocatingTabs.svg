@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's locating tabs: a wall standing up, seen from the front,
+     two tabs out of its foot, down through a plate's edge -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the plate it stands on, its edge -->
+  <path
+     d="M 2,46 62,46 62,54 2,54 Z"
+     style="fill:#a4aeb8;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the wall, and its two tabs down into the plate -->
+  <path
+     d="M 8,8 56,8 56,46 46,46 46,54 36,54 36,46 28,46 28,54 18,54 18,46 8,46 Z"
+     style="fill:#d4dce4;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+</svg>

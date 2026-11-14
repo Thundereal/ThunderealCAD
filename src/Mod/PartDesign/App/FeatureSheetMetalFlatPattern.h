@@ -71,6 +71,9 @@ public:
     App::PropertyBool Grain;
     /// The grain's direction, from the flat's X
     App::PropertyAngle GrainAngle;
+    /// How the flat shows its forms: Formed, Outline or CentreMark
+    /// (SheetMetal::FormDisplay)
+    App::PropertyEnumeration FormDisplay;
     /// Objects whose edges are drawn on the blank's top, the flat's only
     App::PropertyLinkList Markings;
     /// A notch where each bend's line meets the outline, the flat's only:

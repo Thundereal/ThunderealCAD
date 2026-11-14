@@ -345,11 +345,29 @@ std::vector<long> StringHasher::compact(const std::function<bool(long)>& keep)
         dropped.push_back(sid.value());
         sid._sid->_hasher = nullptr;
         sid._sid->unref();
-        for (auto & sid : sid._sid->_sids) {
-            if (sid._sid->_hasher == this
-                    && !kept(*sid._sid)
-                    && sid._sid->getRefCount() == 2)
-                pendings.push_back(sid);
+        // What the dropped string was built from goes with it once nothing
+        // else holds it: the table and this string alone. The string holds
+        // one reference for each time its list names the other, and a list
+        // of ten or less may name one twice (getID() sorts out the longer
+        // ones only), which a count of two never met: it stayed for good.
+        const auto & related = sid._sid->_sids;
+        for (int i = 0; i < related.size(); ++i) {
+            const StringID *child = related[i]._sid;
+            if (child->_hasher != this || kept(*child))
+                continue;
+            int held = 0;
+            for (int j = 0; j < related.size(); ++j) {
+                if (related[j]._sid != child)
+                    continue;
+                if (j < i) {
+                    // counted where the list named it first
+                    held = 0;
+                    break;
+                }
+                ++held;
+            }
+            if (held && child->getRefCount() == 1 + held)
+                pendings.push_back(related[i]);
         }
     }
     std::sort(dropped.begin(), dropped.end());

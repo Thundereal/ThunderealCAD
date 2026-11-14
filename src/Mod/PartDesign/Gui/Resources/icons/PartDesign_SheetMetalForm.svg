@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Sheet metal's form: a wall, seen from above at a slant, a dimple
+     pressed up out of it -->
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1">
+  <!-- the wall -->
+  <path
+     d="M 4,40 22,14 60,24 42,52 Z"
+     style="fill:#c4cdd6;stroke:#1c2128;stroke-width:2;stroke-linejoin:round;" />
+  <!-- the dimple: its foot on the wall, its slant, its top -->
+  <ellipse
+     cx="32"
+     cy="34"
+     rx="15"
+     ry="8"
+     style="fill:#a4aeb8;stroke:#1c2128;stroke-width:1.5;" />
+  <path
+     d="M 21,32 C 22,24 42,24 43,32 Z"
+     style="fill:#d4dce4;stroke:none;" />
+  <ellipse
+     cx="32"
+     cy="25"
+     rx="9"
+     ry="4.5"
+     style="fill:#e4eaf0;stroke:#1c2128;stroke-width:1.5;" />
+  <path
+     d="M 17,34 23,26 M 47,34 41,26"
+     style="fill:none;stroke:#1c2128;stroke-width:1.5;" />
+</svg>

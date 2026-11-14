@@ -340,6 +340,35 @@ struct U
 
 }  // namespace
 
+// The highest numbers a sheet's names hold, what a feature numbers on from:
+// not its counts, once a wall or a bend keeps its number
+TEST(SheetMetalModel, numbers)
+{
+    using PartDesign::SheetMetal::numberOf;
+    EXPECT_EQ(numberOf("Wall12", "Wall"), 12);
+    EXPECT_EQ(numberOf("Bend3", "Bend"), 3);
+    EXPECT_EQ(numberOf("Bend3", "Wall"), 0);
+    EXPECT_EQ(numberOf("Wall", "Wall"), 0);
+    EXPECT_EQ(numberOf("Wall2Skin1", "Wall"), 0);
+    EXPECT_EQ(numberOf("Bend2Part2", "Bend"), 0);
+    EXPECT_EQ(numberOf("BaseWall", "Wall"), 0);
+
+    int walls = -1, bends = -1;
+    Model().numbers(walls, bends);
+    EXPECT_EQ(walls, 0);
+    EXPECT_EQ(bends, 0);
+
+    U u;
+    u.model.numbers(walls, bends);
+    EXPECT_EQ(walls, 3);
+    EXPECT_EQ(bends, 2);
+    u.model.elements[u.side].name = "Wall7";
+    u.model.elements[u.up].name = "Bend5";
+    u.model.numbers(walls, bends);
+    EXPECT_EQ(walls, 7);
+    EXPECT_EQ(bends, 5);
+}
+
 // Which element a point is in, and none for a point outside the sheet
 TEST(SheetMetalModel, owner)
 {

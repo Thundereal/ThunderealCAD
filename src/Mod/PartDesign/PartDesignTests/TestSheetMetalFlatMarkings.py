@@ -22,6 +22,8 @@ import PartDesign
 
 from PartDesignTests.TestSheetMetalFlat import readDXF, readSVG
 
+from . import SheetMetalNames
+
 V = FreeCAD.Vector
 FAR = ((0, 20, 1), (40, 20, 1))
 
@@ -54,7 +56,7 @@ class TestSheetMetalFlatMarkings(unittest.TestCase):
         self.Doc.recompute()
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def edge(self, feature, a, b):
         for i, e in enumerate(feature.Shape.Edges):

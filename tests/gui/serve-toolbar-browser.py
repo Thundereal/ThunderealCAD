@@ -126,13 +126,18 @@ SURFACE_COMMANDS = {"Surface_Network", "Surface_Trim", "Surface_Split", "Surface
                     "Surface_Filling", "Surface_GeomFillSurface"}
 
 
-SHEET_METAL_COMMANDS = {"PartDesign_SheetMetalBaseWall", "PartDesign_SheetMetalFlange",
+SHEET_METAL_COMMANDS = {"PartDesign_SheetMetalStarter",
+                        "PartDesign_SheetMetalBaseWall", "PartDesign_SheetMetalFlange",
                         "PartDesign_SheetMetalContourFlange", "PartDesign_SheetMetalJoin",
                         "PartDesign_SheetMetalBendCuts",
                         "PartDesign_SheetMetalExtendWall", "PartDesign_SheetMetalHem",
                         "PartDesign_SheetMetalCornerClosure",
                         "PartDesign_SheetMetalRip",
                         "PartDesign_SheetMetalCrossBreak",
+                        "PartDesign_SheetMetalForm",
+                        "PartDesign_SheetMetalLocatingTabs",
+                        "PartDesign_SheetMetalLoftedFlange",
+                        "PartDesign_SheetMetalSlots",
                         "PartDesign_SheetMetalCutout",
                         "PartDesign_SheetMetalFold",
                         "PartDesign_SheetMetalJog",

@@ -68,7 +68,7 @@ struct PartDesignExport SheetBendRow
 /// What is wrong with a sheet, found by checkSheet()
 struct PartDesignExport SheetProblem
 {
-    /// Overlap, Relief, ShortFlange, HoleNearBend, or NoFlat
+    /// Overlap, Relief, ShortFlange, HoleNearBend, Approximated, or NoFlat
     std::string kind;
     std::string message;
     /// The feature it is of, where it is one feature's

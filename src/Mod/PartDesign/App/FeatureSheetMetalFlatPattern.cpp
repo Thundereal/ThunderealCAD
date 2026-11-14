@@ -85,6 +85,15 @@ SheetMetalFlatPattern::SheetMetalFlatPattern()
                       App::Prop_None,
                       "Objects whose edges are drawn on the blank's top, the flat's only: a\n"
                       "sketch parallel to XY, read where one taken from the tip's flat lies");
+    ADD_PROPERTY_TYPE(FormDisplay,
+                      (1L),
+                      "Flat",
+                      App::Prop_None,
+                      "How the flat shows its forms: Formed, kept as they are; Outline, the\n"
+                      "blank flat and each form's outline on its top; CentreMark, a cross at\n"
+                      "each one's middle");
+    static const char* formDisplays[] = {"Formed", "Outline", "CentreMark", nullptr};
+    FormDisplay.setEnums(formDisplays);
     ADD_PROPERTY_TYPE(Notch,
                       (0L),
                       "Flat",
@@ -142,6 +151,7 @@ FlatSettings SheetMetalFlatPattern::settings() const
     res.tangentLines = TangentLines.getValue();
     res.grain = Grain.getValue();
     res.grainAngle = GrainAngle.getValue();
+    res.formDisplay = static_cast<SheetMetal::FormDisplay>(FormDisplay.getValue());
     return res;
 }
 
@@ -260,7 +270,7 @@ short SheetMetalFlatPattern::mustExecute() const
 {
     if (Sheet.isTouched() || Root.isTouched() || SecondSkin.isTouched() || AlignEdge.isTouched()
         || TangentLines.isTouched() || Grain.isTouched() || GrainAngle.isTouched()
-        || Markings.isTouched() || Notch.isTouched() || NotchDepth.isTouched()
+        || FormDisplay.isTouched() || Markings.isTouched() || Notch.isTouched() || NotchDepth.isTouched()
         || NotchWidth.isTouched()) {
         return 1;
     }
@@ -330,7 +340,7 @@ void SheetMetalFlatPattern::onChanged(const App::Property* prop)
         }
     }
     else if (prop == &Root || prop == &SecondSkin || prop == &AlignEdge || prop == &TangentLines
-             || prop == &Grain || prop == &GrainAngle) {
+             || prop == &Grain || prop == &GrainAngle || prop == &FormDisplay) {
         if (auto solid = getSheet()) {
             solid->flatSettingsChanged();
         }

@@ -530,9 +530,12 @@ struct SceneSnapshot {
     /// every publish, and it is the single largest item in the stream.
     std::shared_ptr<const TextureImage> hatch;
 
-    /// Camera and viewport at capture time (GL-layout matrices).
-    float viewMatrix[16];
-    float projMatrix[16];
+    /// Camera and viewport at capture time (GL-layout matrices). Zeroed
+    /// until a capture sets them: a snapshot made without a camera (a
+    /// motion clip's blob, MotionClipBlob.h) is written whole, and its
+    /// content key is the hash of its bytes, so none may be left unset.
+    float viewMatrix[16] = {};
+    float projMatrix[16] = {};
     int width = 0;
     int height = 0;
     /// Clear/background color at capture, packed 0xRRGGBBAA.

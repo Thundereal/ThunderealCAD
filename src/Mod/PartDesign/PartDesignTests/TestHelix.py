@@ -443,6 +443,42 @@ class TestHelix(unittest.TestCase):
         # the auxiliary spine's cone, 2.8% short of the exact 3.8829e5
         self.assertAlmostEqual(helix.Shape.Volume / 1e5, 3.7757, places=4)
 
+    def testEarlierFilesPlacement(self):
+        """A helix of this fork's earlier files is stored with its sketch's
+        placement, which the feature no longer takes.  Its first recompute
+        moved the path by that placement and the profile by none, and the
+        helix came out wound about the sketch's normal, a tenth of its
+        volume (realthunder/FreeCAD#474); made again it was right."""
+        body = self.Doc.addObject("PartDesign::Body", "Body")
+        sketch = self.Doc.addObject("Sketcher::SketchObject", "Sketch")
+        body.addObject(sketch)
+        sketch.AttachmentSupport = (body.Origin.OriginFeatures[4], [""])
+        sketch.MapMode = "FlatFace"
+        TestSketcherApp.CreateRectangleSketch(sketch, (-13, 11), (4, 2))
+        self.Doc.recompute()
+        helix = self.Doc.addObject("PartDesign::AdditiveHelix", "AdditiveHelix")
+        body.addObject(helix)
+        helix.Profile = sketch
+        helix.ReferenceAxis = (sketch, "V_Axis")
+        helix.Pitch = 5
+        helix.Height = 16
+        helix.Mode = 0
+        helix._ProfileBasedVersion = 1
+        self.Doc.recompute()
+        volume = helix.Shape.Volume
+        top = helix.Shape.BoundBox.ZMax
+        # the profile's 8 mm2 round 3.2 turns of radius 11
+        self.assertAlmostEqual(volume / 1e3, 1.7694, places=1)
+        self.assertGreater(top, 28)
+
+        # as such a file has it
+        helix.Placement = sketch.Placement
+        self.assertFalse(helix.Placement.Rotation.isIdentity())
+        self.Doc.recompute()
+        self.assertAlmostEqual(helix.Shape.Volume, volume, places=3)
+        self.assertAlmostEqual(helix.Shape.BoundBox.ZMax, top, places=6)
+        self.assertTrue(helix.Placement.Rotation.isIdentity())
+
     def testSubtractiveOutside(self):
         """Outside keeps what the helix shares with the base: it is the
         Operation's Intersecting, which took the boolean over and left

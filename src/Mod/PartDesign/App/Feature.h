@@ -90,6 +90,11 @@ public:
 
     virtual bool isElementGenerated(const TopoShape &shape, const Data::MappedName &name) const;
 
+    /// Whether the element's history passes through this feature: the test of
+    /// isElementGenerated() for a feature that builds its pieces itself and
+    /// joins them to its base, their names then ending in the join's step
+    bool isElementTraced(const TopoShape &shape, const Data::MappedName &name) const;
+
     virtual void getGeneratedIndices(std::vector<int> &faces,
                                      std::vector<int> &edges,
                                      std::vector<int> &vertices) const;

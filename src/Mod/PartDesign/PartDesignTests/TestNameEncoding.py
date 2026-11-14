@@ -11,6 +11,12 @@ a pocket and a pad from sketches attached to faces, a fillet on a face and a
 chamfer on an edge. FaceRefs_v1-1-4.FCStd was made by FreeCAD 1.1.4, and
 FaceRefs_fork_whole_names.FCStd by this fork before the change. Neither file
 says which encoding it used; the table shows it.
+
+Both are older files besides: their element names are of element map version
+15, where an edge the kernel tells nothing of was named from one face and its
+place among that face's edges (docs/TopoNamingEnhance.md sec 9). Such a file
+asks for its recompute at load, and is recomputed here before it is edited,
+as the prompt has the user do.
 """
 
 import os
@@ -53,9 +59,22 @@ class TestNameEncoding(unittest.TestCase):
                 names += list(subs) if isinstance(subs, (list, tuple)) else [subs]
         return names
 
+    def migrate(self):
+        """The recompute an older file asks for at load: every shape made
+        again as it is, and every reference found by where its element is"""
+        pending = [obj for obj in self.Doc.Objects if "MigrationPending" in obj.State]
+        self.assertTrue(pending, "an older file asks for its recompute")
+        self.Doc.recompute()
+        for obj in self.Doc.Objects:
+            self.assertNotIn("MigrationPending", obj.State, obj.Name)
+            self.assertNotIn("Invalid", obj.State, obj.Name)
+        for name in self.subNames():
+            self.assertFalse(name.startswith("?"), "missing reference %s" % name)
+
     def editAndCheck(self, volumes):
         """Lengthen both pads of every body, which moves every referenced
         element, and check each reference still finds its element"""
+        self.migrate()
         for obj in self.Doc.Objects:
             if obj.Name.startswith("PadA_"):
                 obj.Length = 14

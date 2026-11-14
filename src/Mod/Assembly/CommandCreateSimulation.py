@@ -3469,9 +3469,21 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
                 for rate in (1.0 / 888, 1.0 / 88.8, 1.0 / 8.88e4, 888)
             ],
         }
+        # Measured as the label sizes itself, by its own hint: that is its
+        # text laid out, the width rounded up, and its margin and indent --
+        # a pixel more than the font's advance where the advance has a
+        # fraction ("Frame 100": advance 64, hint 65, DejaVu Sans 9 pt), and
+        # the label then a pixel wider at those frames than at the others.
+        # The hint is never under the minimum width, so that goes first
         for label, texts in widest.items():
-            metrics = label.fontMetrics()
-            label.setMinimumWidth(max(metrics.horizontalAdvance(t) for t in texts))
+            shown = label.text()
+            label.setMinimumWidth(0)
+            width = 0
+            for text in texts:
+                label.setText(text)
+                width = max(width, label.sizeHint().width())
+            label.setText(shown)
+            label.setMinimumWidth(width)
 
     def showTime(self, time, frame, rate):
         """The labels and the plot at the run's time, its frame nearest"""

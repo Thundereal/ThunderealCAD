@@ -584,6 +584,10 @@ class TestLoft(unittest.TestCase):
             with frozen(on):
                 doc = FreeCAD.openDocument(path)
                 try:
+                    # The file is of an older naming and asks for its
+                    # recompute, which it gets before anything is changed
+                    # (docs/TopoNamingEnhance.md sec 9.11)
+                    doc.recompute()
                     loft = doc.getObject("Loft_loft")
                     inputs = [link[0] for link in [loft.Profile] + list(loft.Sections)]
                     # the pads lengthened as TestNameEncoding has them, where

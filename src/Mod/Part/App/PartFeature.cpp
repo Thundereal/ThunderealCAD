@@ -91,6 +91,7 @@ typedef boost::iterator_range<const char*> CharRange;
 #include <Mod/Material/App/Materials.h>
 
 #include "ForeignBaseShapes.h"
+#include "OCCTFork.h"
 #include "PartFeature.h"
 #include "PartFeaturePy.h"
 #include "PartParams.h"
@@ -1085,8 +1086,25 @@ Feature::getRelatedElements(App::DocumentObject *obj, const char *name, bool sam
 
     char element_type = shape.elementType(mapped.name);
     TopAbs_ShapeEnum type = TopoShape::shapeType(element_type,true);
-    if(type == TopAbs_SHAPE)
-        return ret;
+    // A name that tells no kind is a primitive's role (Part::PrimitiveNames,
+    // "RearT"): it has no step of a history in it, and this shape has it no
+    // more once a feature after the primitive changed the element -- where
+    // nothing answered, a reference to a primitive's element lost for good.
+    // Every kind is looked through then, each element's history followed as
+    // its own kind's: a role is answered by what came of that very element,
+    // of its kind (a step's name is looked up in the shape of the object
+    // the step is tagged with, the primitive's), and not by the same role
+    // of a later primitive, whose own elements are tagged with it negated
+    // and are no plain names of its shape.
+    std::vector<TopAbs_ShapeEnum> types;
+    if(type != TopAbs_SHAPE)
+        types.push_back(type);
+    else {
+        const std::string plain = mapped.name.toString();
+        if(plain.empty() || plain.find_first_of(";#") != std::string::npos)
+            return ret;
+        types = {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX};
+    }
 
     auto source = getElementSource(owner,shape,mapped.name,sameType?element_type:0);
     for(auto &src : source) {
@@ -1100,32 +1118,35 @@ Feature::getRelatedElements(App::DocumentObject *obj, const char *name, bool sam
 
     std::map<int,QVector<Data::MappedElement> > retMap;
 
-    const char *shapetype = TopoShape::shapeName(type).c_str();
-    std::ostringstream ss;
-    for(size_t i=1;i<=shape.countSubShapes(type);++i) {
-        Data::MappedElement related;
-        related.index = Data::IndexedName::fromConst(shapetype, i);
-        related.name = shape.getMappedName(related.index);
-        if (!related.name)
-            continue;
-        auto src = getElementSource(owner,shape,related.name,sameType?element_type:0);
-        int idx = (int)source.size()-1;
-        for(auto rit=src.rbegin();idx>=0&&rit!=src.rend();++rit,--idx) {
-            // TODO: shall we ignore source tag when comparing? It could cause
-            // matching unrelated element, but it does help dealing with feature
-            // reording in PartDesign::Body.
+    for(auto each : types) {
+        const char *shapetype = TopoShape::shapeName(each).c_str();
+        // the kind each element's history is followed as
+        const char traced = type == TopAbs_SHAPE ? shapetype[0] : (sameType?element_type:0);
+        for(size_t i=1;i<=shape.countSubShapes(each);++i) {
+            Data::MappedElement related;
+            related.index = Data::IndexedName::fromConst(shapetype, i);
+            related.name = shape.getMappedName(related.index);
+            if (!related.name)
+                continue;
+            auto src = getElementSource(owner,shape,related.name,traced);
+            int idx = (int)source.size()-1;
+            for(auto rit=src.rbegin();idx>=0&&rit!=src.rend();++rit,--idx) {
+                // TODO: shall we ignore source tag when comparing? It could cause
+                // matching unrelated element, but it does help dealing with feature
+                // reording in PartDesign::Body.
 #if 0
-            if(*rit != source[idx])
+                if(*rit != source[idx])
 #else
-            if(rit->second != source[idx].second)
+                if(rit->second != source[idx].second)
 #endif
-            {
-                ++idx;
-                break;
+                {
+                    ++idx;
+                    break;
+                }
             }
+            if(idx < (int)source.size())
+                retMap[idx].push_back(related);
         }
-        if(idx < (int)source.size())
-            retMap[idx].push_back(related);
     }
     if(retMap.size())
         ret = retMap.begin()->second;
@@ -1770,6 +1791,18 @@ void Feature::onBeforeChange(const App::Property *prop) {
                 _shapeVersions.insert(_shapeVersions.begin(), std::move(version));
             }
         }
+        // Held, the shape set now is one no reference was resolved against,
+        // and that is so from this announcement on, not from the end of
+        // onChanged(): on its way there the placement the new shape brings
+        // is written to Placement, which sets the shape once more. That
+        // second announcement found nothing flagged, retained the new shape
+        // as a generation and moved every healthy referrer onto it; found
+        // there by position, each reference kept its number in a shape
+        // numbered otherwise (realthunder/FreeCAD#474: four sketches on a
+        // helix's end face, Face1 in the file and Face17 made again, stayed
+        // on Face1, a side of the helix: "No planar face").
+        if (_holdingReferences && prop == getPropertyOfGeometry())
+            _heldShapeChange = true;
     }
     GeoFeature::onBeforeChange(prop);
 }
@@ -2130,6 +2163,23 @@ static void searchLiveShape(const PropertyPartShape *propShape,
 {
     TopoShape newShape = propShape->getShape();
     newShape.searchSubShape(sub, &names, options, tol, atol);
+    if (names.empty()) {
+        // Not there to the tolerance.  A feature made again by another
+        // build may put the same element a little off -- in
+        // realthunder/FreeCAD#474 the spline edges of a swept helix come
+        // back 4e-7 from where the file has them, and the search is at
+        // 1e-7 -- so look once more, as far off as the shapes themselves
+        // say a thing may be: ReferenceSearchTolerance (10 unless set) times
+        // the larger of the tolerance the element had and the tolerance of
+        // the element found.  What is found is taken only where it is the
+        // one element there: two that close cannot be told apart, and the
+        // reference stays missing.
+        std::vector<std::string> loose;
+        newShape.searchSubShapeNear(sub, &loose, PartParams::getReferenceSearchTolerance(),
+                                    options, tol, atol);
+        if (loose.size() == 1)
+            names = std::move(loose);
+    }
     if (names.empty()) {
         // Can't find any shape with the same geometry. But in
         // case the new shape has only one sub-shape with the
@@ -2880,7 +2930,15 @@ FilletBase::FilletBase()
     ADD_PROPERTY(Edges,(0,0,0));
     ADD_PROPERTY_TYPE(EdgeLinks,(0), 0, 
             (App::PropertyType)(App::Prop_ReadOnly|App::Prop_Hidden),0);
+    ADD_PROPERTY_TYPE(_FilletFixLevel, (0), "Base", App::Prop_Hidden,
+            "The OCCT fork's fillet fix level the object recomputes at");
     Edges.setSize(0);
+}
+
+void FilletBase::setupObject()
+{
+    Feature::setupObject();
+    _FilletFixLevel.setValue(OCCTFilletFixLevelLatest);
 }
 
 void Feature::copyMaterial(Feature* feature)

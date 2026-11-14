@@ -51,6 +51,7 @@
 #include "FeatureSheetMetalRule.h"
 #include "SheetMetal/Dxf.h"
 #include "SheetMetal/Flat.h"
+#include "SheetMetal/Pieces.h"
 #include "SheetMetal/Svg.h"
 #include "SheetMetalExtension.h"
 #include "SheetMetalFlat.h"
@@ -78,8 +79,10 @@ TopoShape flatShape(const TopoShape& solid, const SheetMetal::FlatResult& flat, 
                      std::vector<TopoShape>& out) {
         for (std::size_t k = 0; k < segments.size(); ++k) {
             TopoShape edge(segments[k]);
-            edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
-                                Data::MappedName(k ? name + "Part" + std::to_string(k + 1) : name));
+            const std::string part = k ? name + "Part" + std::to_string(k + 1) : name;
+            edge.setElementName(Data::IndexedName::fromConst("Edge", 1), Data::MappedName(part));
+            // its ends too: Bend1V1, Bend1V2
+            SheetMetal::nameRest(edge, part);
             out.push_back(edge);
         }
     };
@@ -102,6 +105,7 @@ TopoShape flatShape(const TopoShape& solid, const SheetMetal::FlatResult& flat, 
             TopoShape edge(edges[k]);
             edge.setElementName(Data::IndexedName::fromConst("Edge", 1),
                                 Data::MappedName(nameOf(k)));
+            SheetMetal::nameRest(edge, nameOf(k));
             res.push_back(edge);
         }
         if (!res.empty()) {
@@ -120,6 +124,17 @@ TopoShape flatShape(const TopoShape& solid, const SheetMetal::FlatResult& flat, 
         }
     }
     named(crossEdges, [&](std::size_t k) { return crossNames[k]; });
+    // each form's outline, Form1Outline1, ..., or its cross, Form1Mark1, 2
+    std::vector<TopoDS_Edge> formEdges;
+    std::vector<std::string> formNames;
+    for (const auto& form : flat.forms) {
+        for (std::size_t k = 0; k < form.edges.size(); ++k) {
+            formEdges.push_back(form.edges[k]);
+            formNames.push_back(form.name + (form.centre ? "Mark" : "Outline")
+                                + std::to_string(k + 1));
+        }
+    }
+    named(formEdges, [&](std::size_t k) { return formNames[k]; });
     named(flat.markings, [](std::size_t k) { return "Marking" + std::to_string(k + 1); });
     TopoShape res(0, hasher);
     res.makECompound(parts, nullptr, /*force*/ true);
@@ -164,14 +179,17 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     int root = -1;
     if (!settings.root.empty()) {
         root = model.find(settings.root);
-        if (root < 0 || model.elements[root].kind != SheetMetal::Element::Kind::Wall) {
+        if (root < 0 || model.elements[root].kind == SheetMetal::Element::Kind::Bend) {
             FC_THROWM(Base::ValueError, "The sheet has no wall " << settings.root << " to lay on");
         }
     }
     else {
-        for (std::size_t i = 0; i < model.elements.size() && root < 0; ++i) {
-            if (model.elements[i].kind == SheetMetal::Element::Kind::Wall) {
-                root = static_cast<int>(i);
+        // the first wall; a sheet of none, a lofted flange's cone, on itself
+        for (auto kind : {SheetMetal::Element::Kind::Wall, SheetMetal::Element::Kind::Cone}) {
+            for (std::size_t i = 0; i < model.elements.size() && root < 0; ++i) {
+                if (model.elements[i].kind == kind) {
+                    root = static_cast<int>(i);
+                }
             }
         }
     }
@@ -186,7 +204,8 @@ SheetFlat layFlat(const App::DocumentObject* part, const FlatSettings& settings)
     }
 
     SheetMetal::FlatResult flat =
-        SheetMetal::flatten(folded.getShape(), model, root, settings.secondSkin, alongX);
+        SheetMetal::flatten(folded.getShape(), model, root, settings.secondSkin, alongX,
+                            settings.formDisplay);
     if (settings.grain) {
         flat.grain = SheetMetal::grainArrow(flat.solid, Base::toRadians(settings.grainAngle));
     }

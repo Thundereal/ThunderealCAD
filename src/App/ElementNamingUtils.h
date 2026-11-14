@@ -25,7 +25,12 @@ AppExport const std::string& childTagPostfix();
 
 /// Special postfix to mark the index of an array element
 AppExport const std::string& indexPostfix();
+/// Marks a name made from one upper element and the element's place in it.
+/// No longer written (element map version 16), see boundaryPostfix()
 AppExport const std::string& upperPostfix();
+/// Marks a name made from all the upper elements the element bounds: an edge
+/// from its faces, a vertex from its edges
+AppExport const std::string& boundaryPostfix();
 AppExport const std::string& lowerPostfix();
 AppExport const std::string& modPostfix();
 AppExport const std::string& genPostfix();

@@ -53,6 +53,19 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// A lofted flange, its panel its values; it holds its two sketches
+class PartDesignGuiExport ViewProviderSheetMetalLoftedFlange: public ViewProviderSketchBased
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalLoftedFlange);
+
+public:
+    ViewProviderSheetMetalLoftedFlange();
+
+protected:
+    std::vector<App::DocumentObject*> _claimChildren() const override;
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A flange, its panel its edges and values
 class PartDesignGuiExport ViewProviderSheetMetalFlange: public ViewProviderAddSub
 {
@@ -197,6 +210,43 @@ protected:
     TaskDlgFeatureParameters* getEditDialog() override;
 };
 
+/// Forms pressed into a wall, its panel the face, the kind, the points'
+/// sketch, the angle and the way, and a dimple's sizes
+class PartDesignGuiExport ViewProviderSheetMetalForm: public ViewProvider
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalForm);
+
+public:
+    ViewProviderSheetMetalForm();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
+/// Locating tabs on a wall's end, its panel the face, the count and the sizes
+class PartDesignGuiExport ViewProviderSheetMetalLocatingTabs: public ViewProvider
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalLocatingTabs);
+
+public:
+    ViewProviderSheetMetalLocatingTabs();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
+/// Slots for another part's tabs, its panel the clearance
+class PartDesignGuiExport ViewProviderSheetMetalSlots: public ViewProvider
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderSheetMetalSlots);
+
+public:
+    ViewProviderSheetMetalSlots();
+
+protected:
+    TaskDlgFeatureParameters* getEditDialog() override;
+};
+
 /// A part converted, its panel its fixed face, open faces, rip edges and side
 class PartDesignGuiExport ViewProviderSheetMetalConvert: public ViewProvider
 {
@@ -299,6 +349,10 @@ public:
     App::PropertyColor CrossBreakColor;
     App::PropertyEnumeration CrossBreakStyle;
     App::PropertyFloatConstraint CrossBreakWidth;
+    App::PropertyBool ShowForms;
+    App::PropertyColor FormColor;
+    App::PropertyEnumeration FormStyle;
+    App::PropertyFloatConstraint FormWidth;
     //@}
 
     void attach(App::DocumentObject* obj) override;
@@ -345,7 +399,7 @@ private:
         /// Each of its edges' index in the object's shape, by its own
         std::vector<int> edges;
     };
-    std::array<Kind, 6> kinds;
+    std::array<Kind, 7> kinds;
     /// The markings' views, drawn while this view is shown
     Gui::CoinPtr<SoSwitch> pcMarkings;
     /// How many edges the blank has: the shape's first ones

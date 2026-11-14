@@ -2275,7 +2275,12 @@ Phase D1 is under way (2026-10-28):
     on its arc from 10 deg, its angle against the exact model of one
     freedom integrated by RK4 -- frictionless, its point sliding along the
     arc and the line, to 0.034 deg for a second, every turn within 0.012
-    deg of 10, its centre of mass not across by 1e-11 mm; on friction of
+    deg of 10, its centre of mass not across by 1e-11 mm (measured again
+    2026-11-13: 0.071 deg in the run's steps of 1 ms since a standing
+    contact steps as a resting one, step 13 below -- the steps' error, as
+    their square: 0.030 at 0.5 ms, 0.020 at 0.25, 0.017 at 0.1, which is
+    the disc's sink; the test runs it at 0.25 ms to 0.03, and at 1 ms to
+    0.1); on friction of
     0.5 it rolls, to 0.059 deg, its circle's centre where rolling puts it
     to 0.0011 mm, each turn 0.008 deg lower than the last (the stiction's
     slip). A disc of radius 5 swinging 10 deg in a hollow of 25,
@@ -4708,6 +4713,562 @@ Phase D1 is under way (2026-10-28):
     within a tenth of its mean over the turn, the mean under 50 N). The
     rest hold: TestFlexibleBody 21, TestDynamics 90, TestJointFriction 4,
     TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 16 (2026-11-12): two flexible parts touching each other
+  anywhere -- the last of step 12's limits; such a pair is no longer
+  refused.
+  - **A load's side A on a mesh of its own** (`ContactLoad::flexibleA`,
+    `onMeshA`, `forcesOnA`). Of two flexible parts touched anywhere the
+    set's first is A, the second B. A's points are placed on A's surface and
+    follow its modes as B's do (`FlexibleContact::place()` and `refresh()`
+    by side, `loadsA`); `ComputeQ()` takes A's point and speed from A's mesh
+    and leaves A's force out of the bodies' load, and A's part takes it on
+    its reduced coordinates, T_A' (-f) (`IntLoadResidual_F()`). The
+    coupling is in B's block: each flexible A's reduced variables follow
+    B's and the bodies' there (`setVariables()`, `Part`), and a point adds
+    T_B' h T_B, -T_B' h T_A and its transpose, and T_A' h T_A
+    (`LoadKRMMatrices()`). The readers of a point's speed -- the contact's
+    substep, a contact found late, the patches' approach -- take A's from
+    its surface too (`speedOnA()`).
+  - That alone ran, and wrong: the rod of step 13 on its plate made
+    flexible too, held all along its underside (mesh 4), took 826 s for its
+    0.1 s, 706 frames, the force from 20.2 to 43.7 N, its mean 34.9, where
+    the rigid plate has 42.5 to 46.7 in 6 s. At t = 0 it was right (44.66
+    N), the terms above all there by a trace, and the sides swapped gave
+    the same numbers. Three things, each from a trace of every point of
+    every detection (its face, its triangles, its normal against each
+    triangle's own, its depth):
+    - **The curved face's point was not moved to where the face is deepest
+      when the curved face is A's.** Of each detection's points 95% were on
+      a curved face of the rod against a flat triangle of the plate, the
+      normal the plate's (`Point::face` 2), and step 13's move
+      (`Surface::farthest()`) was B's against a face of A alone: the rod's
+      middle sat 55 to 90 um clear on its quarter triangles, its ends alone
+      pressing. Now a flexible A's curved face against a flat face of B
+      goes to its farthest towards B, B's point slid along with it and
+      placed after (`placeOnFlexibles()`: each point's side that moves the
+      other's first). Not against a curved face of another flexible part.
+    - **One point in twenty had the rod's facet's own normal**, 10 to 17
+      deg off the plate's and turning with the rod: the pair of triangles
+      parted least along the rod's triangle where the plate's lay to one
+      side of it. A point between a curved face of one part and a flat
+      face of the other is the flat face's now, within 45 deg: its normal
+      that face's own, the flat side's point under the curved side's on its
+      plane (`flatFaces()`, before the patches).
+    - **One detection in twenty was two patches, each with the set's
+      spring**: the rows of the facets' corners either side of the rod's
+      line, no quarter of the one sharing a corner with the other's -- 80
+      to 95 N for 41. A curved face's quarter meets its neighbours by its
+      face's corners (`FlexibleContact::faceKeys()`, `patchesOf()`), on a
+      load of two flexible parts.
+    With these the first 10 ms ran in 6.2 s for 24.9, always one patch, but
+    from 33 to 47 N: the rod's middle still had no pressing point.
+    - **A triangle gone through the other's surface was "apart" from it**
+      (`satApart()`). The plain test of two triangles took each at its grown
+      place alone -- grown by the envelope and, on a flexible part, its
+      faces' bulge, 0.09 mm here -- so the rod's triangles along its line,
+      0.05 mm into the plate, lay 0.04 mm past the plate's top and were
+      proven apart, 41.6 um for a threshold of 6: of the 73 triangles of the
+      rod with points at the first detection, 5 reached its line, all at
+      its ends, and the 68 mid rod were the ones clear of the plate. A
+      triangle reaches now from its grown place back through its own and
+      the safe margin behind it (0.1 mm, `safeMargin`), the skin the
+      penetrations stay in. A box or a hull is a solid and never had it:
+      the rigid plate's points were on the line. The first detection then
+      has 376 points, 220 pressing, for 127 and 8.
+  - Three more, the pair's first limits, each from the same trace:
+    - **A part past the edge of another's flat face.** A point under a
+      flat face of one part, the normal that face's own, is under the face
+      -- of that one and the flat ones it meets at a convex edge
+      (`FlexibleContact::facesAbout()`, `edgeFaces`, as the part is at
+      rest) -- it is least deep under that faces the other part's surface
+      there, within 45 deg of that surface's triangle's normal the other
+      way and within the margin and the surface's bulge; one outside
+      through any of them, through the one it is farthest out of
+      (`flatFaces()`): step 14's rule for a rigid box, of a mesh's faces.
+      The rod on a plate from x = 5 to 35, both flexible, had a node 0.04
+      mm past the plate's end and 0.05 under its top taken through the
+      end, a patch of its own with the set's spring, 40 N along the rod:
+      over the turn 35.2 to 130.2 N, its mean 55.8, in 195 s; now 39.6 to
+      47.1, its mean 45.3, in 26 s (the rigid plate's 41.7 to 47.3). Where
+      none of the faces faces the other's surface -- that one's triangle a
+      side of its own, an edge on an edge -- the point is left as found:
+      with the least deep of them all taken then, two strips crossed, both
+      flexible, pressed 0.58 N sideways for 0.92 down.
+    - **Two flat faces meeting at their edges** are that same rule's. A
+      strip 200 x 20 x 2 turned 0.06 rad down onto the free end of a second
+      strip 20 x 100 x 2 across under it, clamped at its far end, both
+      flexible (mesh 8, 1000 N/mm, no friction): the force leaned 0.22 to
+      0.69 of its size along the lower strip, a side face's points a patch
+      of their own; now 0.027 at the end, the lower strip's own slope, one
+      patch, 9.80 N for a rigid lower strip's 14.06.
+    - **Two rounds.** A flexible part's shapes' convex cylinders and
+      spheres are kept as they ride its carrier at rest
+      (`FlexibleContact::rounds`), and each curved face of its surface
+      whose nodes are all on one is that round's (`matchRounds()`). A
+      point between two curved faces has B's go to its face's nearest A's
+      round's axis or centre, as against a rigid round (step 15,
+      `deepestOnFace()`), the round where A's mesh has it now
+      (`roundAt()`): its radius its own, a cylinder's axis the round's at
+      rest turned as the face's corners have turned, its centre where the
+      face's six nodes are all the radius from it. A's goes against B's
+      round where A's own face is of none. The other part's point, set on
+      its round's surface, is placed there as set (`ContactLoad::given`):
+      its offset from the face's point, not from the flat triangle's --
+      from the triangle's the rod's points were up to 0.034 mm outside the
+      rod, a roller's 0.044, and the depths read 0.05 to 0.094 mm for 0.05.
+      The rod on a roller R 5 held at both ends, both flexible: on their
+      quarter triangles the run did not end in 18 minutes; now 504 frames
+      in 112 s, over the turn 43.47 to 45.26 N, its mean 44.29 (a rigid
+      roller's 42.0 to 46.7).
+    A face walked into from a curved one's edge (step 15) took a flat
+    face's edge nodes for its first corner, which stands for them in
+    `Surface`: they are at its edges' middles now.
+  - Numbers (mesh 4, the rod R 5 x 40 turned once in 0.1 s, 0.05 mm into
+    the plate, 1000 N/mm, no friction). Both flexible: 504 frames in 21.8
+    s, over the turn 43.76 to 47.21 N, its mean 46.1. The set's groups
+    swapped, the plate A and the rod B: the same to 0.04 N, 20.3 s. The
+    rigid rod on the flexible plate 49.08 N throughout, as it was. Every
+    probe of steps 12 to 15 as it was, frame for frame: the two bars on
+    both laws, the roller and the plate at mesh 4 and 2, the plate's edge.
+    (Later the same day the box ran the plate in 36 s, this commit and the
+    one before it alike.)
+  - Limits.
+    - Two curved faces neither of a cylinder or a sphere of its part's
+      shapes -- a tooth's flank, a torus -- stay on their quarter
+      triangles, each facet's own normal; so do hollow rounds.
+    - A point slid or set by the other part's is placed on the triangle
+      it was found on, its offset from it rigid: past that triangle's edge
+      it is not handed to the next one.
+    - A flat face's neighbours are those across its own convex edges: at
+      a corner where three faces meet, the third is not looked at.
+    - Friction between two flexible parts is run, not checked: the two
+      strips with a friction of 0.3 press 9.85 N at the end for 9.80
+      without, as straight; the friction's own force is against no closed
+      form yet.
+    - Two rounds cost five times the plate, 112 s for 22: each point's
+      round is found again at each detection.
+    - `satApart()`'s skin is every mesh triangle's, a rigid mesh's too. A
+      rigid mesh's flat faces are large triangles, and the pair's
+      threshold goes by their size: TestContact.test_mesh_on_mesh rested
+      before as it does now.
+  - Tests: TestFlexibleBody.test_round_on_flexible_plate (the rod on the
+    plate, both flexible: within a tenth of its mean over the turn, the
+    mean under 50 N, the run under 120 s -- 46.1 N, from 43.76 to 47.21),
+    test_round_past_flexible_edge (the plate from 5 to 35: within 15% of
+    its mean), test_round_on_flexible_roller (over 0.03 to 0.045 s of the
+    turn, within a tenth) and test_strip_on_flexible_strip (the two
+    strips, to 0.035 s: 2.3 to 3.3 N at the end, rising, leaning under
+    0.05 of it). The rest hold: TestFlexibleBody 25, TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 17 (2026-11-13): the friction on a flexible part
+  touched anywhere against its closed form -- step 16's limit -- and what
+  the check found: a point slid over a curved face is slid again at every
+  update of a substep.
+  - **The check.** Step 13's rod (R 5 x 40, mesh 4, turned once in 0.1 s
+    by a motion, 0.05 mm into the plate, 1000 N/mm, no gravity) with a
+    friction of 0.3 slides all the turn, at up to 470 mm/s: the motion
+    turning it gives mu N R, the rod's radius the friction's arm. The
+    friction's force was mu N in every case, 0.300; the motion's torque,
+    over 0.03 to 0.08 s, as its share of N R:
+
+    | rod | under it | before | now |
+    |---|---|---|---|
+    | rigid | rigid plate | 0.2998 | 0.2998 |
+    | rigid | flexible plate | 0.2999 | 0.2999 |
+    | flexible | rigid plate | 0.2838 | 0.2987 |
+    | flexible | flexible plate | 0.2820 | 0.2972 |
+    | flexible | rigid roller R 5 | 0.3102 | 0.2983 |
+    | flexible | flexible roller R 5 | -- | 0.2978 |
+
+    Not the friction, and not the pair of flexible parts: a flexible rod's
+    torque was 5% under on a plate and 3% over on a roller, with a ripple
+    of 7% on the roller (0.273 to 0.333), and with no friction at all the
+    motion gave -2.18 N mm on the plate for none.
+  - **A point placed at a substep's start is a point of the mesh.**
+    `FlexibleContact::place()` slides a curved face's point to the face's
+    farthest towards a flat face (step 13) or its deepest in a round (step
+    15) once, at collision detection, and `refresh()` then moves it with
+    the mesh. A rod turning carries it round, w h R past where the rod is
+    deepest by the substep's end, 0.085 mm at 85 rad/s and 0.2 ms; the
+    normal's force, still along the plate's normal, turns the rod on. With
+    no friction, at output steps of 0.2, 0.1 and 0.05 ms: -2.18, -1.15 and
+    -0.58 N mm, in proportion; with 0.3, 63.6, 65.5 and 66.2 for 67.2. A
+    rigid round's point had the same and its cure (`rollAlong()`).
+    Now each such point is slid again as the bodies are at every update
+    (`FlexibleContact::follow()`, from `refresh()` at `Update()`), by what
+    `place()` kept of it (`ContactLoad::OnMesh::slides`): towards a flat
+    face, its face's nodes and the point found on its flat triangle
+    (`towardsFlat()`), the normal turned with the face's body as the
+    load's follow turns it; into a round, the face it was placed on, its
+    area coordinates there, the station it is held at and the round
+    (`deepestOnFace()`). The other part's point under one slid along a
+    flat face stays under it where that part is rigid. The plate's cases
+    were right with that alone: no friction -0.06 N mm, 0.2987 and 0.2972.
+  - **On a round the first try never ended its first substep**, and then
+    was wrong the other way, -2.25 N mm with no friction for +0.75. Three
+    things, from a trace of every point's search:
+    - `deepestOnFace()` held each point, by a tenth of a weight, at the
+      station along the round's axis of the point it started from: found
+      again at each of Newton's iterations from where it last was, a point
+      on a rod lying along a roller crept along it each time. It is held
+      at the station its placing took now (`OnMesh::station`), and started
+      from where it was placed each time: a way of the state alone.
+    - **Its steps were Gauss and Newton's, without the face's curve**, and
+      such a step is the face's own radius short of the way: against a
+      roller of the rod's radius it goes twice as far as the deepest, to as
+      far beyond it and no nearer, and stops. The trace had the points in
+      two sets, a substep's turn (0.09 mm) either side of the rod's line,
+      some 0.2 to 0.6 mm off it -- at placing too, step 15's and step
+      16's. The steps are Newton's now, with the face's second rates, which
+      are the same all over a quadratic face (the Gauss and Newton's where
+      those leave no way down). The roller without friction: -0.39 N mm,
+      and 0.2981 with 0.3.
+    - **And then 283 s for 8**: a fifth of the substeps did not converge
+      (250 of 1417 in the first 26 ms; none on the plate) and were taken
+      again an eighth as long. A point gone on into the next face at one
+      of Newton's iterations and not at the next: the edge it leaves by
+      was read off the step as halved twelve times, so the deepest was
+      0.016 mm beyond the edge before the point went after it, and went
+      that far at once. The edge is read off the step as taken now; and
+      within a substep a point stays on the face it was placed on, stopped
+      at its edges -- a substep's turn is a fiftieth of a face. No substep
+      unconverged since, the run 7.5 s.
+  - **A point set on its round by the other flexible part is on its face
+    there** (`setGiven()`, step 16's second limit): its weights the face's
+    at the point nearest where it is set, across into the faces beyond its
+    edges at placing, its offset from that -- not the weights of where it
+    was found, its offset all the way from there. On a rod turning on a
+    flexible roller the roller's points go to their deepest in the rod and
+    the rod's are set under them: those were still the rod's own points
+    where they were found, carried round with it, and the torque 0.288 of
+    N R. Both parts' points are slid before either part's are read
+    (`refresh()`), whichever is updated first. 0.2978.
+  - Numbers (mesh 4, steps of 0.2 ms, friction 0.3; N R the mean normal
+    force by the rod's 5 mm). The flexible rod on the rigid plate: 44.81 N,
+    66.94 N mm, 0.2987 (0.2845 to 0.3147 over the turn), in 7.3 s; on the
+    flexible plate 46.02 N, 68.38 N mm, 0.2972, in 26 s; on the rigid
+    roller 44.60 N, 66.52 N mm, 0.2983 (0.2895 to 0.3081), in 9.7 s; on
+    the flexible roller 44.71 N, 66.57 N mm, 0.2978, in 182 s. With no
+    friction, the motion's torque for none: -0.06 N mm on the plate, -0.11
+    on the roller. Without friction, both flexible: the plate 43.75 to
+    47.20 N in 21 s (step 16's 43.76 to 47.21), past its ends 39.59 to
+    47.23 (39.62 to 47.14), the roller 44.09 to 45.37 in 136 s (43.47 to
+    45.26 in 112), the two strips 9.80 N at the end as they were, in 159 s
+    as they were. The strip between two bars
+    as it was, frame for frame, on both laws (19.09 and 16.85 N, 18.73 and
+    3.526): its faces are flat. The rod on the rigid roller 42.35 to 46.81
+    N at mesh 4 and 41.59 to 46.93 at mesh 2 (42.0 to 46.7, 40.5 to 46.2),
+    on the rigid plate 42.28 to 46.78 and 42.18 to 46.68, past its ends
+    41.81 to 47.30.
+  - Limits.
+    - Within a substep a slid point stops at the edges of the face it was
+      placed on, and one set by the other part at its own face's: the next
+      detection places it on.
+    - The flat part's point under a point slid along its face is moved
+      with it where that part is rigid; a flexible flat face's stays the
+      point of its mesh it was placed on.
+    - Two rounds, both flexible, cost four to six times the plate: 136 s
+      for 21 without friction, 182 for 26 with.
+    - The friction is checked sliding; sticking, and the two strips, are
+      against no closed form.
+    - Step 16's others stand: two curved faces of no cylinder or sphere,
+      hollow rounds, a corner of three flat faces.
+  - Tests: TestFlexibleBody.test_friction_on_flexible_round,
+    test_friction_on_roller and test_friction_between_flexible_parts (the
+    rod with a friction of 0.3 on the rigid plate, the rigid roller and the
+    flexible plate: the motion's torque 0.3 N R to 0.006 N R -- 0.2994,
+    0.2985 and 0.2975 over 0.03 to 0.1 s); and every round's test of steps
+    13 to 16 holds the motion's torque to none within the same (-0.0013 to
+    0.0004 N R). The rest hold: TestFlexibleBody 28 (548 s), TestDynamics
+    90, TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 18 (2026-11-13): hollow rounds -- a pin in a bore, one
+  of them flexible or both, step 16's limit -- and with them a round's
+  points thinned to one a place.
+  - **Where it stood.** Step 17's rod (R 5 x 40, mesh 4, turned once in
+    0.1 s, friction 0.3) in a block 55 x 20 x 20 with a bore R 5.5 along
+    it, the bore's wall 0.05 mm into the rod's underside. Both rigid: 50 N,
+    0.2998 N R. The rod flexible in the rigid block: not over in 10
+    minutes. The rod rigid in the block flexible, held all along its
+    underside: 47.6 N steady and 0.3018 N R, in 430 s.
+  - **A hollow round's deepest is the face's point farthest from its axis**
+    (`deepestOnFace()`, which refused one): the same steps the other way,
+    Newton's Hessian the other sign, the Gauss and Newton's still the
+    metric where that leaves no way down; the normal still out of the axis
+    through the point, and the load's the other way, from the hollow part
+    in (`place()`, `follow()`). The mesh's faces on a bore are its round's
+    too (`matchRounds()`; `roundAt()`'s centre out of the part there), so
+    of two flexible parts the pin's face goes into the bore's round.
+  - **3500 points on the one line.** A pair of triangles each gives its
+    points; the rod's triangles a third of the way round it, against each
+    of the bore's mesh's about them, all go to where the rod's face is
+    deepest -- a roller has 130. Each substep took 0.4 s, none unconverged:
+    the points, not the solver. The points slid into a round are thinned
+    after they are placed (`thinOut()`): one place is a patch's points, slid
+    on the same side, within a quarter of their face's first edge along the
+    round's axis and a whole edge across it -- a ball's, a quarter all
+    round. The places are gathered about their deepest points, and of a
+    place's points the middle one by depth is kept. Not the first found:
+    41.7 N for 44.5. Not the deepest: the same to a newton here, but it is
+    the place's outlier. And not the points slid towards a flat face, which
+    are held nowhere along a rod's line: thinned, the rod's force on a plate
+    ran from 39.5 to 46.3 N for 42.3 to 46.8. About 100 points then, the
+    solve a tenth of what it was.
+  - **Thinned, the strays weigh.** Three kinds, each from a dump of the
+    points kept:
+    - A third of them were 1 to 3 mm off the line, stopped at a face's
+      edge: `deepestOnFace()` read the edge it leaves by only once the
+      steps along the edge had stopped getting nearer, and a point slid
+      along its edge for its sixteen steps with the deepest across it. It
+      is read at each step now -- on an edge, Newton's step out across it by
+      a millionth of the face or more -- and the faces gone through are
+      eight at most, for three: at a mesh's node the way round is that
+      long.
+    - A cylinder's end. A point found past it was refused, and the wall's
+      points at a rod's two ends stayed on their flat triangles, which
+      stand in from a hollow face: 0.08 and 0.13 mm deep for 0.05. It is
+      held at the end's station now -- the rim of a pin's end on a bore's
+      wall is its side's line there -- and taken as the end's within a
+      twentieth of the radius: held by a tenth of a weight, a point is
+      microns off its station where the face leans along the axis.
+    - What is still left on a curved face's triangle, in a patch whose
+      others were slid into the round, is left out (`thinOut()`): one such
+      at a rod's rim, 0.7 mm off its triangle and 0.12 mm deep among
+      forty-six at 0.05, had the rigid rod press the flexible bore 53.8 N.
+  - **A slid point is on its part's round**, where its face is of one
+    (`ontoRound()`, from `place()`): its offset the way from the face's
+    point to the round the mesh has there (`roundAt()`), kept through the
+    substep. A quadratic face through nodes on a round stands in from it
+    between them. Measured on the rod's mesh (`faceerror.py`): its faces'
+    corners span 26.5 deg, 38.8 at most, and the faces are 0.21 um inside
+    the R 5 on the mean, 1.75 at most -- of the 50 pressed, 0.4%, and the
+    rod's force on a plate rose 0.2%. Not the plate's ripple, then, which
+    stays.
+  - Numbers (mesh 4, steps of 0.2 ms, friction 0.3, over 0.03 to 0.08 s).
+
+    | rod | under it | N | of N R | run | before |
+    |---|---|---|---|---|---|
+    | flexible | rigid plate | 44.92 (42.52 to 46.67) | 0.2987 | 8 s | 44.81, 0.2987 |
+    | flexible | flexible plate | 46.13 (45.05 to 47.03) | 0.2973 | 42 s | 46.02, 0.2972 |
+    | flexible | rigid roller | 45.64 (44.70 to 46.61) | 0.2974 | 6 s | 44.60, 0.2983, 10 s |
+    | flexible | flexible roller | 45.15 (44.69 to 45.58) | 0.2982 | 59 s | 44.71, 0.2978, 182 s |
+    | flexible | rigid bore | 45.53 (44.99 to 46.04) | 0.2988 | 140 s | not over in 600 s |
+    | rigid | flexible bore | 49.98 (49.98 to 49.98) | 0.2999 | 31 s | 47.56, 0.3018, 440 s |
+    | flexible | flexible bore | 45.50 (45.04 to 45.98) | 0.2984 | 276 s | -- |
+
+    The flexible rod presses 45.2 to 45.6 N on a roller and in a bore, rigid
+    or flexible; a rigid roller's ripple is 3.8% of the mean for 10.0 (44.88
+    to 46.60 N over the turn, 44.41 to 46.55 at mesh 2). Without friction,
+    both flexible: the plate 43.76 to 47.21 N, past its ends 39.51 to 47.25,
+    the roller 44.71 to 45.54 in 49 s (step 17's 44.09 to 45.37 in 136), the
+    two strips 9.80 N at the end as they were. The strip between two bars
+    as it was, frame for frame.
+  - Limits.
+    - A flexible rod in a rigid bore is 140 s for a roller's 6: the rigid
+      bore is a mesh, and every triangle of the rod is tried against each
+      of its triangles near it at each detection, 0.07 s.
+    - The points slid towards a flat face are not thinned: two flexible
+      parts' line on a flat face has a point for each pair of triangles.
+    - The flexible rod's force itself, 45 N of the rigid 50, is against no
+      closed form: it is one within 1% on a plate's edge, a roller and a
+      bore, rigid or flexible.
+    - A partial round's reach about its axis (a D shaft's) is not looked at
+      where a face's point is slid into it.
+    - Step 17's stand: within a substep a slid point stops at its face's
+      edges; sticking friction against no closed form.
+  - Tests: TestFlexibleBody.test_round_in_bore (the flexible rod in the
+    rigid bore over 0.03 to 0.045 s: 45.63 N, within a tenth, the motion's
+    torque none to 0.006 N R) and test_rigid_round_in_flexible_bore (the
+    rigid rod in the flexible bore with a friction of 0.3: 49.98 N steady,
+    0.2987 N R). The rest hold: TestFlexibleBody 30 (587 s), TestDynamics
+    90, TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 19 (2026-11-13): a flexible part held by a part nothing
+  joins to the ground.
+  - **The scene.** A grounded pin R 5 x 30; a hanger 10 x 20 x 80 on it by
+    a bore R 5.2, 12 mm under its top; a block 30 x 30 x 30 fixed under the
+    hanger, 114 g the two. Gravity, the contact 1000 N/mm, the bore's wall
+    0.01 mm over the pin. Rigid, the hanger lands at 5.1 N, bounces once
+    and rests in 6 ms; let go 30 deg off the vertical it swings to -28.97
+    and back to 26.68 in 0.6 s, a run of 2 s. Flexible, each landing was
+    harder -- 4, 10, 26, 600 N -- and it left the pin.
+  - **Not the contact.** With no contact asked of, the two falling: the
+    block fell 19.63 um in 2 ms, g, and the flexible body's deformation at
+    its interface grew as t^2, a turn about x of 5.7e-4 rad at 1.2 ms, 800
+    rad/s^2; three of its modal coordinates with it, the rest at 1e-13.
+    Its modes: 0.0015, 0.0026 and 0.0034 Hz, then 5.4 kHz. In the contact's
+    run the bore, 68 mm over the interface, was 36.6 um off the pin's axis
+    sideways by the first touch, the contact 0.95 mm round from the pin's
+    top, a sixth of its force sideways.
+  - **Its record had no nodes for the joint.** A flexible body's interfaces
+    are the frames on its body, each with the nodes its mesh has for it
+    (`FlexibleBody::InterfaceFrames`), and were listed with its record, in
+    `addForces()`. The joints of parts nothing joins to the ground are put
+    in the model after that, once a contact, a spring or the flexible body
+    itself has made a part of theirs a body (`buildSimulation()`): the
+    hanger's joint to the block came after its record, so the record had
+    no interface for it, the backend took the frame as one with no nodes --
+    tied at the node nearest -- and the hanger turned about that node, its
+    first three modes. A flexible part hinged or fixed to the ground, or to
+    a part that is, has its joint in the model from the start: every test
+    before this one.
+    The interfaces are listed once those joints are in
+    (`AssemblyObject::flexibleInterfaces()`, from `buildSimulation()`
+    before the masses).
+  - **Find Modes with a contact set.** `Chrono::flexibleFrequencies()` took
+    every frame on the body for an interface, a contact shape's too -- at
+    the node nearest it -- where a run leaves those to the first interface
+    or to the contact faces' (`ChronoSession::load()`): its modes were not
+    the run's, and the hanger's reduction failed to factor (SparseLU), the
+    process with it. With no interface at all it read storage not its own.
+    It takes them as the run does now, and says "nothing holds the flexible
+    body" of one held by nothing.
+  - Numbers (mesh 4). Falling free, the hanger and the block both 19.627 um
+    in 2 ms; its modal coordinates under 1e-10. Its modes 1382, 2644, 7450
+    Hz, with the contact set or without. Let down straight: 5.15 N at the
+    landing, one bounce of 2.5, then 1.128 N over 0.02 to 0.03 s for a
+    weight of 1.116, in 9.7 s. Let go at 30 deg, a friction of 0.1: to
+    -28.95 deg and back to 26.61 in 0.6 s, the rigid hanger's -28.97 and
+    26.68; 843 frames in 209 s. Every probe of steps 12 to 18 as it was.
+  - Limits.
+    - The swing is 209 s for the rigid hanger's 2. Before the fix its
+      substeps were the contact's own, 25 us: the contact was never at rest
+      by the 2% its deepest point's depth, 1 um here, may move over its
+      period. Not looked at again since.
+    - Resting, the force on the pin ripples between 1.0 and 1.24 N about
+      its 1.12.
+    - A flexible part held by no joint at all is still refused.
+  - Tests: TestFlexibleBody.test_held_by_a_free_part (the hanger let down
+    straight for 0.03 s: its first mode over 1 kHz, the landing under 10 N,
+    the force at rest its weight to 5% -- 1382 Hz, 5.15 N, 1.128 N of
+    1.116). The rest hold: TestFlexibleBody 31 (604 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 20 (2026-11-14): a contact on a flexible part's round
+  at rest -- step 19's swing, 209 s for the rigid hanger's 2.
+  - **Never at rest.** A contact rests while its deepest point's depth
+    keeps within 2% of itself, or within the tolerance, over one of its
+    periods (`resting()`), and a resting one steps over its period.
+    The hanger's bore is 1.3 um into its pin, 1.1 N at 1000 N/mm; the
+    deepest point, found again on the mesh's faces at every detection,
+    wandered 0.3 um as the bore slid round the pin -- 1.22 to 2.19 um over
+    the swing -- and 2% of it is 28 nm. Every substep was a fiftieth of the
+    contact's period, 25 us: 4000 to 0.1 s, two thirds of each in collision
+    detection.
+  - **Within the faces' own accuracy.** On a flexible part's curved faces
+    a contact rests within a hundredth of how far those stand out of their
+    flat triangles too (`Surface::bulge()`): 0.9 um for the hanger, where
+    step 18 measured a rod's quadratic faces 0.2 um off its round on the
+    mean and 1.75 at most, of 90. A part of flat faces alone has none, and
+    a contact deeper than fifty times that is within its 2% first: the
+    probes of steps 12 to 18, 50 um deep, are as they were, frame for
+    frame. With 0.1 um instead the swing took 191 s, and with a two
+    hundredth of the bulge 85.
+  - Numbers. The swing of 0.6 s: 4195 substeps for some 24000, 54 s for
+    209; to -28.95 deg and back to 26.61 as before. The pin's force over
+    it from 0.02 s on: mean 1.196 N, 0.79 to 1.74, from frame to frame
+    0.109 N rms -- before, 1.208, 0.50 to 1.70 and 0.109; the rigid
+    hanger's 1.154, 0.94 to 1.37 and 0.015. Let down straight, 1.112 N at
+    rest for a weight of 1.116 (1.128).
+  - Limits.
+    - The force on a flexible bore sunk a micron is seven times as rough
+      as on a rigid one, frame to frame: its mesh's accuracy, a third of
+      that depth. A contact by the materials' law, stiffer, is sunk less
+      and rougher still; there the bore is better named a contact face.
+    - 54 s is still the rigid hanger's 2 many times: a resting contact on
+      a flexible round steps by how fast its depth moves (`standingStep()`),
+      which is that roughness too.
+  - Tests: none new; TestFlexibleBody.test_held_by_a_free_part rests at
+    1.112 N of 1.116. TestFlexibleBody 31 (593 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 21 (2026-11-14): a flexible part no joint holds.
+  - **Refused.** A flexible body is reduced about its interfaces -- the
+    frames on its body, each a boundary body tied to its mesh's nodes
+    there -- and has no motion as a whole but theirs: its coordinates are
+    the interfaces' six each and the modes' (`ChModalAssembly`). One with no
+    joint on it had no interface: "nothing holds the flexible body" (step
+    19; before that the reduction read storage not its own).
+  - **An interface of its own.** `ChronoFlexible::ownInterface()`: the
+    tetrahedron nearest its mesh's middle -- the tetrahedra's, each by its
+    volume -- its ten nodes tied to a boundary body at that tetrahedron's
+    middle. Nothing is on that body: it is the part's motion as a whole,
+    and the modes are the mesh's with that element held. Given in the run
+    (`buildFlexibles()`) and in Find Modes (`Chrono::flexibleFrequencies()`)
+    to a body with no frame but its contact shapes'. With contact faces
+    named their interface is the one, as it was to be, and the part goes as
+    those faces do, rigid.
+  - Numbers. A bar 80 x 10 x 4, 8.64 g, across two grounded rollers R 5
+    60 mm apart, 0.01 mm over them; 1000 N/mm, a friction of 0.1; mesh 4,
+    2788 nodes.
+    - Falling free, no contact asked of: 19.65 um in 2 ms for g t^2/2's
+      19.61, its modal coordinates under 1e-19.
+    - On the rollers: lands at 1.435 N (rigid 1.85), at rest by 17 ms,
+      0.08473 N for a weight of 0.084729; 165 frames in 2.2 s (rigid 0.1
+      s).
+    - Its sag between the rollers at rest, its underside at midspan
+      against its underside over them, for a beam's on two supports with
+      its ends hanging over, w L^2 (5 L^2 - 24 a^2) / (384 E I): 0.0409 um
+      of 0.0415. 2 mm thick (mesh 2) 0.1637 of 0.1660; 1 mm thick 0.657 of
+      0.664 (mesh 4) and 0.656 (mesh 2). 1 to 1.5% under, all four.
+    - Its modes by Find Modes: 1874, 2063, 2169 Hz.
+    - Its underside named its contact face: lands at 1.844 N as the rigid
+      bar does, sags 3e-11 um, its modes from 177 kHz.
+    - 1 mm thick, let fall 5 mm: lands at 12.05 N (rigid 20.1), bent 73 um
+      between the rollers at 32.4 ms, springs 0.77 mm off them, and is at
+      rest by 0.15 s, 0.0212 N for 0.02118; 335 frames in 79 s.
+  - Limits.
+    - Find Modes shows such a part's modes about its middle element, not
+      its free ones: the bar's 1874 Hz is half of it clamped at the middle
+      (a beam's 2.06 kHz), where a free bar's first bending is 3.3 kHz by
+      the beam's formula. The run does not hold it there: the interface's
+      six coordinates go with those modes.
+    - Falling free it is 0.04 um ahead of g t^2/2 at 2 ms and 0.10 at 5
+      ms, a speed of 0.02 mm/s from the start; step 19's hanger and block,
+      19.627 um, had a third of it. Step 22.
+    - The strip 1 mm thick still rings at rest at 0.05 s, 0.0207 to 0.0217
+      N: its 479 Hz mode.
+  - Tests: TestFlexibleBody.test_held_by_nothing (the bar on the rollers
+    for 0.05 s: no interface listed, its first mode over 1 kHz, the landing
+    under 3 N, the force at rest its weight to 1%, its sag the beam's to
+    3% -- 1874 Hz, 1.435 N, 0.08473 N, 0.0409 um of 0.0415). The rest
+    hold: TestFlexibleBody 32 (615 s), TestDynamics 90, TestJointFriction
+    4, TestContact 63; ctest 25; TestGuiCommands 76; every probe of steps
+    12 to 18 as it was.
+- Built, D4b step 22 (2026-11-14): a flexible body starts at the
+  velocities it has.
+  - **2 us of acceleration ahead.** Step 21's bar falling free was ahead of
+    g t^2/2 by 0.0196 um at 1 ms, 0.0392 at 2 and 0.098 at 5: a speed of
+    0.019613 mm/s from the start, g times 2e-6 s to its last digit. The
+    start's assembly projects the velocities twice, each a step of 1e-6 s
+    under the forces, and takes those 2e-6 s of acceleration back off the
+    bodies (`assembleFull()`) -- off the rigid ones: a flexible
+    body is none of those, its coordinates its interfaces' bodies and its
+    modes'. Step 19's hanger, 41 g of the 114 falling, was 0.36 of it
+    ahead: 19.627 um for 19.613.
+  - Taken back off a flexible body's interface bodies and its modes' rates
+    too.
+  - Numbers. The bar falling free: 1.225831, 4.903325, 19.613300 and
+    122.583125 um at 0.5, 1, 2 and 5 ms, g t^2/2 to the last digit. On the
+    rollers it lands at 1.443 N for 1.435, and rests and sags as it did,
+    0.08473 N and 0.0409 um. Step 19's hanger lands at 5.17 N for 5.15 and
+    rests at 1.121 N for 1.112, of 1.116. The probes of steps 12 to 18
+    are as they were, to the digits they print.
+  - Tests: none new. TestFlexibleBody 32 (601 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Checked, D4b step 23 (2026-11-14): a flexible part sticks as a rigid
+  one does. No change to the solver.
+  - Step 17 checked the friction on a flexible part sliding, mu N; whether
+    one is held was left open. A bar 40 x 10 x 4 no joint holds (step 21),
+    4.32 g, lying on a grounded plate tilted 5 deg, tan 0.0875, touched
+    anywhere, 1000 N/mm; 0.1 s.
+  - A friction of 0.2: the plate presses it 0.042204 N, its weight's
+    cosine, and holds it 0.0036923 N, its weight's sine, both to the last
+    digit; it creeps down at 0.04582 mm/s, steadily -- the friction's slip,
+    the rigid bar's 0.04582 too.
+  - A friction of 0.05: 0.0021102 N, mu N, and it gains 366.24 mm/s^2 for
+    g (sin a - mu cos a)'s 366.24; 1.832 mm down the slope at 0.1 s, the
+    rigid bar's 1.8317.
+  - 162 frames in 3.4 s, the rigid bar's 0.1 s.
+  - Tests: TestFlexibleBody.test_sticks_on_a_slope (both frictions: the
+    forces and the gain to 1%, the creep under 0.1 mm/s). TestFlexibleBody
+    33 (611 s).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

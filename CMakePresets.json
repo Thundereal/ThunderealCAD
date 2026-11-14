@@ -348,6 +348,10 @@
             "type": "BOOL",
             "value": "ON"
           },
+          "BUILD_ASSEMBLY_CHRONO": {
+            "type": "BOOL",
+            "value": "ON"
+          },
           "FREECAD_FCX_IMAGE_WHEEL": {
             "type": "FILEPATH",
             "value": "${sourceDir}/build/pyodide-guest/dist/fcx_image-0.1.0-cp314-cp314-pyodide_2026_0_wasm32.whl"

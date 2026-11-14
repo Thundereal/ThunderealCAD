@@ -90,6 +90,11 @@ public:
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
+    /// it remakes the part: every face is its own
+    bool isElementGenerated(const Part::TopoShape&, const Data::MappedName&) const override
+    {
+        return true;
+    }
     bool shouldApplyPlacement() override
     {
         // the base's shape as it is, in place

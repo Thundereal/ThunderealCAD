@@ -183,6 +183,12 @@ void writeDXF(std::ostream& out, const FlatResult& flat, bool tangents)
     for (const TopoDS_Edge& e : flat.markings) {
         w.edge("MARKING", e);
     }
+    // each form's outline or cross (FormDisplay)
+    for (const auto& form : flat.forms) {
+        for (const TopoDS_Edge& e : form.edges) {
+            w.edge("FORMS", e);
+        }
+    }
     w.pair(0, "ENDSEC");
     w.pair(0, "EOF");
 }

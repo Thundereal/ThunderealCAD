@@ -31,6 +31,7 @@
 
 #include <BRepBndLib.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
@@ -126,7 +127,52 @@ struct Side
     /// material near the corner reaches
     gp_Pnt middle;
     double back = 0;
+    /// where the side ended along toward, at an end square across it: a
+    /// gap's, with a bend relief beside it
+    double end = 0;
+    bool square = false;
 };
+
+/** The bend relief the feature that made a bend cut beside it, where the
+ * bend ends inside its wall's end: the feature's own (ReliefShape,
+ * ReliefWidth, ReliefDepth, as a flange has them) or the rule's; obround
+ * where its end is a half circle, the depth to its far side. False for
+ * none reaching past where the bend starts: a tear, or a feature that cuts
+ * no relief.
+ */
+bool reliefOf(const App::DocumentObject* closure, const std::string& bend,
+              const SheetMetalRule& rule, double& width, double& depth, bool& obround)
+{
+    for (auto ext = SheetMetalExtension::findBefore(closure); ext;
+         ext = SheetMetalExtension::findBefore(ext->getExtendedObject())) {
+        const Model model = ext->SheetModel.getValue();
+        bool made = false;
+        for (int index : ext->ownBends(model)) {
+            made = made || model.elements[index].name == bend;
+        }
+        if (!made) {
+            continue;
+        }
+        auto feature = ext->getExtendedObject();
+        auto shape =
+            dynamic_cast<App::PropertyEnumeration*>(feature->getPropertyByName("ReliefShape"));
+        auto own = dynamic_cast<App::PropertyLength*>(feature->getPropertyByName("ReliefWidth"));
+        auto deep = dynamic_cast<App::PropertyLength*>(feature->getPropertyByName("ReliefDepth"));
+        if (!shape || !own || !deep) {
+            return false;
+        }
+        const bool ruled = shape->isValue("Rule");
+        // a tear stops where the bend starts
+        if (ruled ? rule.ReliefShape.isValue("Tear") : shape->isValue("Tear")) {
+            return false;
+        }
+        obround = ruled ? rule.ReliefShape.isValue("Obround") : shape->isValue("Obround");
+        width = ruled ? rule.ReliefWidth.getValue() : own->getValue();
+        depth = ruled ? rule.ReliefDepth.getValue() : deep->getValue();
+        return width > Precision::Confusion() && depth > Precision::Confusion();
+    }
+    return false;
+}
 
 double along(const gp_Pnt& p, const gp_Dir& d)
 {
@@ -209,13 +255,17 @@ App::DocumentObjectExecReturn* SheetMetalCornerClosure::execute()
             side.legAlong = leg.XDirection();
             side.legOut = leg.Direction();
             double length = 0, back = std::numeric_limits<double>::max();
+            double front = std::numeric_limits<double>::lowest();
             for (TopExp_Explorer v(faces[i], TopAbs_VERTEX); v.More(); v.Next()) {
                 const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(v.Current()));
                 length = std::max(length, gp_Vec(side.legStart, p).Dot(gp_Vec(side.legAlong)));
                 back = std::min(back, along(p, side.toward));
+                front = std::max(front, along(p, side.toward));
             }
             side.legLength = length;
             side.back = back;
+            side.end = back;
+            side.square = front - back < Precision::Confusion();
         }
         for (int i = 0; i < 2; ++i) {
             Side& side = sides[i];
@@ -277,6 +327,62 @@ App::DocumentObjectExecReturn* SheetMetalCornerClosure::execute()
             const gp_Pnt backAt = gp_Pnt(side.toward.XYZ() * side.back);
             cuts.push_back(
                 common(halfSpace(backAt, side.toward), halfSpace(side.start, side.out)));
+        }
+        // What a gap's bend relief left in the wall below where the side's
+        // bend starts, beside where the side ended (the part in front is cut
+        // above): the wall there again, the relief's shape as it was cut
+        // (SheetMetal::reliefCuts()) and no further than where the other
+        // side's bend starts
+        std::vector<TopoShape> fills;
+        for (int i = 0; i < 2; ++i) {
+            const Side& side = sides[i];
+            const Side& other = sides[1 - i];
+            double width = 0, depth = 0;
+            bool obround = false;
+            if (!side.square
+                || !reliefOf(this,
+                             model.elements[side.bend].name,
+                             *rule,
+                             width,
+                             depth,
+                             obround)) {
+                continue;
+            }
+            const gp_Dir up = side.b.frame.XDirection().Reversed();
+            // on the wall's skin, where the bend starts and the side ended
+            const gp_Pnt at = side.start.Translated(
+                gp_Vec(side.toward) * (side.end - along(side.start, side.toward)));
+            const std::string name = model.elements[model.elements[side.bend].before].name
+                + "Fill" + std::to_string(i + 1);
+            // an obround's straight part stops at its half circle's middle
+            const double straight = obround ? depth - width / 2 : depth;
+            std::vector<TopoShape> parts;
+            if (straight > Precision::Confusion()) {
+                parts.push_back(TopoShape(0, hasher).makEPrism(
+                    SheetMetal::wallSection(at.Translated(gp_Vec(side.out) * -straight),
+                                            side.out,
+                                            straight,
+                                            up.Reversed(),
+                                            T,
+                                            name),
+                    gp_Vec(side.toward) * width));
+            }
+            if (obround) {
+                const gp_Pnt center = at.Translated(gp_Vec(side.toward) * (width / 2)
+                                                    - gp_Vec(side.out) * straight);
+                TopoShape round(
+                    BRepPrimAPI_MakeCylinder(gp_Ax2(center, up.Reversed()), width / 2, T).Solid());
+                SheetMetal::nameRest(round, name + "Round");
+                // what of it lies past where the bend starts is the bend's
+                parts.push_back(cut(round, halfSpace(side.start, side.out)));
+            }
+            for (const TopoShape& part : parts) {
+                const TopoShape fill =
+                    part.isNull() ? part : cut(part, halfSpace(other.start, other.out));
+                if (!fill.isNull()) {
+                    fills.push_back(fill);
+                }
+            }
         }
         // the planes each side stops at, its material against each normal
         std::vector<gp_Pln> bendStops[2], legStops[2];
@@ -356,12 +462,13 @@ App::DocumentObjectExecReturn* SheetMetalCornerClosure::execute()
         if (pieces.empty()) {
             THROWM(Base::ValueError, "A corner closure leaves nothing of its legs");
         }
+        pieces.insert(pieces.end(), fills.begin(), fills.end());
 
         for (const TopoShape& c : cuts) {
             SheetMetal::storePCurves(c);
         }
         base = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut,
-                                                {base, TopoShape().makECompound(cuts)});
+                                                {base, SheetMetal::toolOf(getID(), cuts)});
         base = getSolid(base);
         TopoShape tool = pieces.size() == 1 ? pieces.front()
                                              : TopoShape(0, hasher).makEFuse(pieces);
@@ -383,11 +490,11 @@ App::DocumentObjectExecReturn* SheetMetalCornerClosure::execute()
                                           rule->CornerReliefCover.getValue());
             if (!reliefs.empty()) {
                 result = getSolid(TopoShape(0, hasher).makEBoolean(
-                    Part::OpCodes::Cut, {result, TopoShape().makECompound(reliefs)}));
+                    Part::OpCodes::Cut, {result, SheetMetal::toolOf(getID(), reliefs)}));
             }
         }
         Shape.setValue(result);
-        SheetModel.setValue(model);
+        storeModel(model);
     }
     catch (const Base::Exception& e) {
         return new App::DocumentObjectExecReturn(e.what());

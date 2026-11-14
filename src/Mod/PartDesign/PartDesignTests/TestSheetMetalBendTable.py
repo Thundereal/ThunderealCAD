@@ -19,6 +19,8 @@ import FreeCAD
 import Part
 import PartDesign
 
+from . import SheetMetalNames
+
 V = FreeCAD.Vector
 FAR = ((0, 20, 1), (40, 20, 1))
 NEAR = ((0, 0, 1), (40, 0, 1))
@@ -41,7 +43,7 @@ class TestSheetMetalBendTable(unittest.TestCase):
         self.Second = self.flange(NEAR, self.First)
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def edge(self, feature, a, b):
         for i, e in enumerate(feature.Shape.Edges):

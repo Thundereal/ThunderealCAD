@@ -11,6 +11,8 @@ import unittest
 
 import FreeCAD
 
+from . import SheetMetalNames
+
 
 def card(gauges=(), method=None, table=None, name="Sheet test"):
     """A material with the SheetMetal model: gauges as (thickness, radius, K,
@@ -57,7 +59,7 @@ class TestSheetMetalRule(unittest.TestCase):
         self.Body = self.Doc.addObject("PartDesign::Body", "Body")
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def rule(self, body=None):
         rule = (body or self.Body).newObject("PartDesign::SheetMetalRule", "Rule")

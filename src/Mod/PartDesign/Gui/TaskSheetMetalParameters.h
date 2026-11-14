@@ -78,6 +78,14 @@ struct SheetMetalReferences
  * the panel, never in a dialog. With refs, the property listing the
  * feature's edges or faces (element), their list, picked in the view from the
  * feature built on; or several such lists, each said by its property's name.
+ *
+ * A reference the feature built on has no more -- its edge trimmed by a
+ * feature put in or suppressed before -- leaves the feature in error, as a
+ * dress-up's does. Opened on it, the panel finds the element again by its
+ * name's history where one element answers (findAgain()), as a dress-up's
+ * panel does, and shows what it found for the user to see: its row marked
+ * and saying what it was, the element lit in the view, and a line in the
+ * panel; OK keeps it, Cancel leaves the reference as it was.
  */
 class TaskSheetMetalParameters: public TaskFeatureParameters, public Gui::SelectionObserver
 {
@@ -117,6 +125,13 @@ private:
     void startPick(int index, bool on);
     void removeCurrent(int index);
     void showStatus();
+    /** Each reference the feature built on has no more, found again by its
+     * name's history (Part::Feature::getRelatedElements()) where that gives
+     * one element of the list's kind that no other reference has; none
+     * where it gives several, or none. Inside the panel's transaction,
+     * recomputed, and shown (refound).
+     */
+    void findAgain();
     /** The feature as View says (docs/SheetMetal.md sec 12, 2026-11-04):
      * folded, laid flat in its place, or both, the flat moved off it by the
      * sheet's flat object's placement, else beside it; drawn under the
@@ -135,6 +150,15 @@ private:
         QToolButton* add = nullptr;
     };
     std::vector<RefList> refLists;
+    /// A reference found again when the panel opened: its list, what it
+    /// was and what it is now
+    struct Refound
+    {
+        int list;
+        std::string was, now;
+    };
+    std::vector<Refound> refound;
+    QLabel* refoundNote = nullptr;
     QLabel* rule;
     QLabel* status;
     QLabel* notice;

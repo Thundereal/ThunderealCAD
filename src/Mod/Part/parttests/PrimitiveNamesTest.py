@@ -323,3 +323,123 @@ class PrimitiveNamesBodyTest(unittest.TestCase):
         self.assertIn("Top;:H-%x,F" % cyl.ID, made)
         self.assertTrue([n for n in made if n.startswith("Lateral;:M;FUS;:H-%x" % cyl.ID)], made)
         self.assertFalse([n for n in made if n.startswith("Face")], made)
+
+    # A reference to a primitive's element holds the role alone, a name with
+    # no step of a history and no type in it. When a feature put in after
+    # the primitive changes that element the reference is lost, and a panel
+    # asks which elements of the new shape answer for the name
+    # (Part.getRelatedElements(), docs/SheetMetal.md sec 12): it found none,
+    # the type of the element not being told by such a name.
+
+    def box(self):
+        box = self.body.newObject("PartDesign::AdditiveBox", "Box")
+        box.Length, box.Width, box.Height = 40, 20, 10
+        self.doc.recompute()
+        return box
+
+    def pocket(self, name, x0, y0, x1, y1):
+        """A pocket 3 deep into the box's top"""
+        import Part
+
+        sketch = self.body.newObject("Sketcher::SketchObject", name + "Sketch")
+        sketch.MapMode = "Deactivated"
+        sketch.Placement = App.Placement(App.Vector(0, 0, 10), App.Rotation())
+        pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            sketch.addGeometry(
+                Part.LineSegment(App.Vector(a[0], a[1], 0), App.Vector(b[0], b[1], 0))
+            )
+        pocket = self.body.newObject("PartDesign::Pocket", name)
+        pocket.Profile = sketch
+        pocket.Length = 3
+        self.doc.recompute()
+        self.assertNotIn("Invalid", pocket.State)
+        return pocket
+
+    def edgesOn(self, obj, y, z):
+        return sorted(
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(obj.Shape.Edges)
+            if len(e.Vertexes) == 2
+            and all(abs(v.Point.y - y) < 1e-7 and abs(v.Point.z - z) < 1e-7 for v in e.Vertexes)
+        )
+
+    def related(self, obj, role):
+        """The elements of obj that answer for a role, asked as a reference
+        holds it: a mapped name, marked as one"""
+        import Part
+
+        return sorted(index for _, index in Part.getRelatedElements(obj, ";" + role))
+
+    def testAnEdgeCutInTwoIsFoundByItsRole(self):
+        box = self.box()
+        self.assertEqual(box.Shape.getElementMappedName(self.edgesOn(box, 20, 10)[0]), "RearT")
+        notch = self.pocket("Notch", 15, 15, 25, 25)
+        halves = self.edgesOn(notch, 20, 10)
+        self.assertEqual(len(halves), 2)
+        self.assertEqual(self.related(notch, "RearT"), halves)
+
+    def testAnEdgeTrimmedIsFoundByItsRole(self):
+        box = self.box()
+        self.assertEqual(box.Shape.getElementMappedName(self.edgesOn(box, 0, 10)[0]), "FrontT")
+        corner = self.pocket("Corner", -5, -5, 5, 5)
+        trimmed = self.edgesOn(corner, 0, 10)
+        self.assertEqual(len(trimmed), 1)
+        self.assertEqual(self.related(corner, "FrontT"), trimmed)
+
+    def testAFaceAndAVertexAreFoundByTheirRoles(self):
+        box = self.box()
+        notch = self.pocket("Notch", 15, 15, 25, 25)
+        tops = sorted(
+            "Face%d" % (i + 1)
+            for i, f in enumerate(notch.Shape.Faces)
+            if abs(f.BoundBox.ZMin - 10) < 1e-7 and abs(f.BoundBox.ZMax - 10) < 1e-7
+        )
+        self.assertEqual(len(tops), 1)
+        self.assertEqual(self.related(notch, "Top"), tops)
+        at = App.Vector(40, 20, 10)
+        was = [
+            "Vertex%d" % (i + 1)
+            for i, v in enumerate(box.Shape.Vertexes)
+            if v.Point.isEqual(at, 1e-7)
+        ]
+        now = [
+            "Vertex%d" % (i + 1)
+            for i, v in enumerate(notch.Shape.Vertexes)
+            if v.Point.isEqual(at, 1e-7)
+        ]
+        role = box.Shape.getElementMappedName(was[0])
+        self.assertTrue(role and ";" not in role, role)
+        self.assertEqual(self.related(notch, role), now)
+
+    def testOnlyWhatIsOfTheRolesKindAnswers(self):
+        """The pocket's walls come of the top's edges it cut, and the top's
+        new edges of the top: an edge's role is answered by edges alone, a
+        face's by faces, unless asked for any kind"""
+        self.box()
+        notch = self.pocket("Notch", 15, 15, 25, 25)
+        edges = self.related(notch, "RearT")
+        faces = self.related(notch, "Top")
+        self.assertTrue(edges and all(n.startswith("Edge") for n in edges), edges)
+        self.assertTrue(faces and all(n.startswith("Face") for n in faces), faces)
+        # and a role no element has is answered by none
+        self.assertEqual(self.related(notch, "NoSuchRole"), [])
+
+    def testARoleIsNotAnsweredByAnotherPrimitivesSameRole(self):
+        """A cylinder standing through the box's top: the box's `Top` is the
+        face about it, not the cylinder's own top; and a role the box never
+        had is answered by none"""
+        self.box()
+        cyl = self.body.newObject("PartDesign::AdditiveCylinder", "Cyl")
+        cyl.Radius, cyl.Height = 3, 20
+        cyl.Placement.Base = App.Vector(20, 10, 0)
+        self.doc.recompute()
+        tops = sorted(
+            "Face%d" % (i + 1)
+            for i, f in enumerate(cyl.Shape.Faces)
+            if abs(f.BoundBox.ZMin - 10) < 1e-7 and abs(f.BoundBox.ZMax - 10) < 1e-7
+        )
+        self.assertEqual(len(tops), 1)
+        self.assertEqual(self.related(cyl, "Top"), tops)
+        self.assertEqual(self.related(cyl, "Lateral"), [])

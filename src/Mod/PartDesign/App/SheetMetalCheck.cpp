@@ -328,6 +328,29 @@ SheetCheck checkSheet(const App::DocumentObject* obj)
         }
     }
 
+    // what is cut in a bend otherwise than square to the sheet lies flat
+    // approximately: told, with its faces (docs/SheetMetal.md sec 10 risk 2)
+    if (flat && !flat->result.approximated.empty()) {
+        std::set<int> faces;
+        for (const TopoDS_Shape& face : flat->result.approximated) {
+            auto it = indices.find(face.TShape().get());
+            if (it != indices.end()) {
+                faces.insert(it->second);
+            }
+        }
+        SheetProblem problem;
+        problem.kind = "Approximated";
+        problem.feature = part->getNameInDocument();
+        problem.value = static_cast<double>(flat->result.approximated.size());
+        problem.message = std::to_string(flat->result.approximated.size())
+            + (flat->result.approximated.size() == 1 ? " face" : " faces")
+            + " cut in a bend otherwise than square to the sheet: the flat has "
+            + (flat->result.approximated.size() == 1 ? "it" : "them")
+            + " approximately, drill and countersink after bending";
+        addFaces(faces, problem.elements, problem.flatElements);
+        res.problems.push_back(std::move(problem));
+    }
+
     // the bend table
     for (std::size_t i = 0; i < model.elements.size(); ++i) {
         const Element& element = model.elements[i];
@@ -513,10 +536,15 @@ SheetCheck checkSheet(const App::DocumentObject* obj)
             }
             SheetProblem problem;
             problem.kind = "HoleNearBend";
-            problem.value = distance.Value();
+            // a hole drilled in the bend touches the line: across it, not
+            // the 1e-11 mm from it the distance comes to
+            const bool across = distance.Value() < LengthTolerance;
+            problem.value = across ? 0.0 : distance.Value();
             problem.limit = limit;
-            problem.message = "A hole is " + format(distance.Value()) + " mm from " + line.name
-                + "'s line, nearer than " + format(limit) + " mm";
+            problem.message = across
+                ? "A hole lies across " + line.name + "'s line, in the bend"
+                : "A hole is " + format(distance.Value()) + " mm from " + line.name
+                    + "'s line, nearer than " + format(limit) + " mm";
             addFaces(faces, problem.elements, problem.flatElements);
             res.problems.push_back(std::move(problem));
         }

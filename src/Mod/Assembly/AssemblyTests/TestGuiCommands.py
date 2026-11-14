@@ -1759,6 +1759,14 @@ class TestGuiCommands(unittest.TestCase):
             self.assertEqual([n > 1 for n in widths()], [True, True, True])
             panel.fitPlayerLabels(len(times))
             self.assertEqual(widths(), [1, 1, 1])
+            # Fitted to the run it is given, not to the widest it was given:
+            # a shorter run's frame label is narrower, and the run's again
+            # as wide as it was
+            fitted = [label.minimumWidth() for label in labels]
+            panel.fitPlayerLabels(5)
+            self.assertLess(panel.form.FrameLabel.minimumWidth(), fitted[0])
+            panel.fitPlayerLabels(len(times))
+            self.assertEqual([label.minimumWidth() for label in labels], fitted)
             # Auto's slow motion, the study's
             self.assertFalse(panel.slowSpin.isHidden())
             self.assertEqual(sim.SlowMotion, 1.0)
@@ -2428,12 +2436,19 @@ class TestGuiCommands(unittest.TestCase):
 
         task.findButton.click()
         _process()
-        self.assertEqual(len(task.frequencies), 4, task.modesLabel.text())
-        self.assertEqual(task.frequencies, sorted(task.frequencies))
-        self.assertGreater(task.frequencies[0], 0.0)
-        self.assertTrue(task.modesLabel.text().startswith("4 modes"))
-        self.assertEqual(FlexibleBodies.meshState(flexible), "current")
-        self.assertIn("Contact faces", task.interfacesLabel.text())
+        import AssemblyApp
+
+        if "Chrono" in AssemblyApp.getAvailableSolvers():
+            self.assertEqual(len(task.frequencies), 4, task.modesLabel.text())
+            self.assertEqual(task.frequencies, sorted(task.frequencies))
+            self.assertGreater(task.frequencies[0], 0.0)
+            self.assertTrue(task.modesLabel.text().startswith("4 modes"))
+            self.assertEqual(FlexibleBodies.meshState(flexible), "current")
+            self.assertIn("Contact faces", task.interfacesLabel.text())
+        else:
+            # the modes are Chrono's to find: a build without it says so
+            self.assertEqual(len(task.frequencies), 0)
+            self.assertIn("Chrono", task.modesLabel.text())
 
         Gui.Control.activeTaskDialog().reject()
         _process()
@@ -2451,8 +2466,12 @@ class TestGuiCommands(unittest.TestCase):
         player shows, coloured by its stress, the scale's legend beside it
         and its largest stress in the Results box; the panel closed, the
         drawing and the legend go and the component shows again"""
+        import AssemblyApp
         import CommandCreateSimulation
         import FlexibleBodies
+
+        if "Chrono" not in AssemblyApp.getAvailableSolvers():
+            self.skipTest("the Chrono backend is not built: a dynamic run is its alone")
 
         base = self.box
         base.Length, base.Width, base.Height = 10, 10, 10

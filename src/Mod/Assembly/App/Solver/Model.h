@@ -626,7 +626,8 @@ struct Flexible
     std::vector<Interface> interfaces;
     // The nodes a contact on it touches it through (D4b step 5): the faces
     // it is touched on, one interface of their own that every contact
-    // shape on the body rides; empty, none is
+    // shape on the body rides; empty, a contact touches its mesh anywhere
+    // (D4b step 8)
     std::vector<Id> contactNodes;
     // Its reduction kept in the document (FlexibleBody::Reduction), a
     // backend's as it handed it over (ModeShapes::reduction): taken where it

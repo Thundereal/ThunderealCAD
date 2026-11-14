@@ -95,4 +95,51 @@ private:
     double from() const;
 };
 
+/** A conical bend and how it lies flat (docs/SheetMetal.md sec 4.1, M5's
+ * lofted flange)
+ *
+ * The frame's origin is on the cone's axis, its Z the axis, the way the
+ * cone opens, and its X the way from the axis to where the sheet starts.
+ * The inner skin, the side facing the axis, passes through the circle of
+ * the radius about the origin in the frame's XY plane and opens at
+ * semiAngle (0 <= semiAngle < 90 deg; 0 a cylinder); the outer skin is a
+ * thickness further out, square to it. The sheet runs from angle 0 about Z
+ * through angle.
+ *
+ * A point of the sheet is told by its angle a about the axis, t, how far
+ * along the cone's line it is from that circle, and d, its depth under the
+ * inner skin, square to it. Flat, the sheet lies on the plane touching the
+ * inner skin where it starts (startFrame()), and the neutral cone, a K T
+ * under the inner skin, unrolls onto it: its apex goes to a point on the
+ * start line, a point at a from the start to a sin(semiAngle) about it at
+ * its distance from the apex, the same depth under the plane -- every fibre
+ * the neutral fibre's length, as for a cylinder.
+ */
+struct PartDesignExport ConeBend
+{
+    gp_Ax3 frame;
+    double radius = 0;
+    double semiAngle = 0;
+    double thickness = 0;
+    double angle = 0;
+    double k = 0.44;
+
+    /// The neutral cone's radius where the inner skin's is the radius
+    double neutral() const;
+    /// The plane the sheet lies flat on: its origin on the inner skin where
+    /// the sheet starts, in the frame's XY plane, its Z square to the skin
+    /// into the material, its X along the cone's line, the way it opens
+    gp_Ax3 startFrame() const;
+    /// Where a point of the bend's material lies flat
+    gp_Pnt toFlat(const gp_Pnt& folded) const;
+    /// Where a point of the flat lies folded: toFlat()'s inverse
+    gp_Pnt toFolded(const gp_Pnt& flat) const;
+    /// Whether the point is in the bend's material: in its angle, and
+    /// between its skins within tol
+    bool contains(const gp_Pnt& point, double tol = 1e-7) const;
+    /// The point's angle about the axis, taken from halfway round the turn
+    /// the sheet leaves out, its t and its d
+    void local(const gp_Pnt& point, double& a, double& t, double& d) const;
+};
+
 }  // namespace PartDesign::SheetMetal

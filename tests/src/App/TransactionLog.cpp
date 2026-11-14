@@ -3699,6 +3699,68 @@ TEST_F(TransactionLogTest, aStoreOfLayoutOneGetsObjectUids)
     Base::FileInfo(path).deleteFile();
 }
 
+TEST_F(TransactionLogTest, aStoreKeepsWhatAnObjectCounts)
+{
+    // docs/TransactionLogJournal.md sec 39.5: the last number an object gave of
+    // each kind of thing it numbers, table `objcount`. A row is raised,
+    // never lowered; an object's rows go with its other state. The table
+    // came with no new layout: a store written before it gets it when
+    // opened, and has no counts.
+    using Counts = std::map<std::pair<long, int>, long>;
+    auto read = [](App::TransactionStore& store) {
+        Counts counts;
+        for (const auto& c : store.objectCounts())
+            counts[std::make_pair(std::get<0>(c), std::get<1>(c))] = std::get<2>(c);
+        return counts;
+    };
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-counts") + ".db";
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        EXPECT_TRUE(store->objectCounts().empty());
+        store->addObjectCounts({{5, 0, 3}, {5, 1, 2}, {6, 0, 1}});
+        store->addObjectCounts({{5, 0, 2}, {5, 1, 4}});
+        EXPECT_EQ(read(*store), (Counts {{{5, 0}, 3}, {{5, 1}, 4}, {{6, 0}, 1}}));
+    }
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        EXPECT_EQ(read(*store), (Counts {{{5, 0}, 3}, {{5, 1}, 4}, {{6, 0}, 1}}));
+        store->removeObjectState({5});
+        EXPECT_EQ(read(*store), (Counts {{{6, 0}, 1}}));
+    }
+    const int version = rawInt(path, "PRAGMA user_version");
+    rawSql(path, "DROP TABLE objcount;");
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        EXPECT_TRUE(store->objectCounts().empty());
+        store->addObjectCounts({{7, 1, 9}});
+        EXPECT_EQ(read(*store), (Counts {{{7, 1}, 9}}));
+    }
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), version);
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST_F(TransactionLogTest, aFileCountsForItsObjects)
+{
+    // Sec 39.5: the next of an object's count is above its floor and above
+    // every number given before, each kind apart; an object nothing refers
+    // to any more is forgotten with its counts.
+    auto& history = doc()->getFileHistory();
+    EXPECT_EQ(history.nextObjectCount(5, 0, 0), 1);
+    EXPECT_EQ(history.nextObjectCount(5, 0, 0), 2);
+    EXPECT_EQ(history.nextObjectCount(5, 1, 0), 1);
+    EXPECT_EQ(history.nextObjectCount(5, 0, 7), 8);
+    EXPECT_EQ(history.nextObjectCount(5, 0, 3), 9);
+    EXPECT_EQ(history.nextObjectCount(6, 0, 0), 1);
+    history.noteObjectCount(5, 1, 4);
+    history.noteObjectCount(5, 1, 2);
+    EXPECT_EQ(history.nextObjectCount(5, 1, 0), 5);
+    std::size_t names = 0;
+    history.forgetObjects({6}, names);
+    EXPECT_EQ(history.objectCounts().size(), 1U);
+    EXPECT_EQ(history.objectCounts().count(std::make_pair(6L, 0)), 1U);
+    EXPECT_EQ(history.nextObjectCount(5, 0, 0), 1);
+}
+
 TEST_F(TransactionLogTest, aStoreOfLayoutTwoGetsItsOpsPacked)
 {
     // docs/TransactionLogJournal.md sec 37.4 P2: layout 3 keeps an op's hashes as

@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -208,6 +209,27 @@ public:
             last = id;
     }
     const std::unordered_map<long, long>& lastGeoIds() const { return _lastGeoIds; }
+    /** What an object counts, file wide (docs/TransactionLogJournal.md sec
+     * 39.5): the last number it gave of each kind of thing it numbers, the
+     * kinds 0, 1, ... as the object's class has them -- a body's sheet metal
+     * walls and bends. As the last geometry id is: a number given is given to
+     * no other, in any version or branch of the file, whatever was deleted
+     * or undone since. `floor` is the largest the object holds itself.
+     */
+    using ObjectCounts = std::map<std::pair<long, int>, long>;
+    long nextObjectCount(long objectId, int kind, long floor)
+    {
+        long& last = _objectCounts[std::make_pair(objectId, kind)];
+        last = std::max(last, floor) + 1;
+        return last;
+    }
+    void noteObjectCount(long objectId, int kind, long count)
+    {
+        long& last = _objectCounts[std::make_pair(objectId, kind)];
+        if (count > last)
+            last = count;
+    }
+    const ObjectCounts& objectCounts() const { return _objectCounts; }
 
     /** The object ids, the names and the geometry ids start over
      * (docs/TransactionLogJournal.md sec 33.3): for a temporary document emptied
@@ -223,6 +245,7 @@ public:
         _idOfUid.clear();
         _uidOfId.clear();
         _lastGeoIds.clear();
+        _objectCounts.clear();
     }
 
     /** The bytes of name and geometry-id entries estimated to be referred
@@ -233,10 +256,10 @@ public:
     std::size_t compactEstimate() const { return _compactEstimate; }
     void setCompactEstimate(std::size_t n) { _compactEstimate = n; }
 
-    /** Compaction (docs/TransactionLogJournal.md sec 27.47): forget the name and
-     * the last geometry id of every object not in `used`. The counters stay
-     * where they are. Returns the ids forgotten, and in `names` how many
-     * names went.
+    /** Compaction (docs/TransactionLogJournal.md sec 27.47): forget the name,
+     * the last geometry id and the counts (sec 39.5) of every object not in
+     * `used`. The counters stay where they are. Returns the ids forgotten,
+     * and in `names` how many names went.
      */
     std::vector<long> forgetObjects(const std::unordered_set<long>& used, std::size_t& names)
     {
@@ -268,6 +291,14 @@ public:
             }
             gone.insert(it->first);
             it = _lastGeoIds.erase(it);
+        }
+        for (auto it = _objectCounts.begin(); it != _objectCounts.end();) {
+            if (used.count(it->first.first)) {
+                ++it;
+                continue;
+            }
+            gone.insert(it->first.first);
+            it = _objectCounts.erase(it);
         }
         return {gone.begin(), gone.end()};
     }
@@ -381,6 +412,7 @@ private:
     StringHasherRef _hasher;
     std::unordered_set<std::string> _tables;
     std::unordered_map<long, long> _lastGeoIds;
+    ObjectCounts _objectCounts;
     std::size_t _compactEstimate {0};
     std::string _dir;
     std::string _path;

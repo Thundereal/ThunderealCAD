@@ -33,6 +33,7 @@
 
 #include <App/Document.h>
 #include "FeatureChamfer.h"
+#include "OCCTFork.h"
 #include "TopoShapeOpCode.h"
 
 
@@ -50,6 +51,7 @@ App::DocumentObjectExecReturn *Chamfer::execute()
     copyMaterial(link);
 
     try {
+        OCCTFilletFixLevel fixLevel(_FilletFixLevel.getValue());
         TopoShape baseTopoShape = Feature::getTopoShape(link);
         auto baseShape = baseTopoShape.getShape();
         BRepFilletAPI_MakeChamfer mkChamfer(baseShape);

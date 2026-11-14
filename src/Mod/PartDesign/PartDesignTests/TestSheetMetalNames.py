@@ -1,0 +1,617 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+# Sheet metal's names across an edit before the feature (docs/SheetMetal.md
+# sec 12, the audit of 2026-11-10 and the ruling of 2026-11-11).
+#
+# A feature names the faces it makes after its walls and bends, by its own
+# count of them: a reference to one is then found by its name, not by where it
+# lies, and holds when the edit moves it too.
+#
+# The sheet's own names -- its walls and bends as the model, the bend table
+# and the flat's lines have them -- hold as well: a wall or a bend takes the
+# next number of its body when its feature first makes it, and keeps it
+# (WallNumbers, BendNumbers). A number is not handed out again, its feature
+# deleted or not (ruled 2026-11-11): the body's count of each is the file's,
+# as an object's name is, so a deletion taken back out of order brings back
+# no name another has.
+#
+# Each test: a plate 40 x 20, 1 thick; a flange on its left edge; the feature
+# on the result, clear of that flange. The faces the feature made keep their
+# names with the flange suppressed, and with it back, and so do its walls and
+# bends. (What each feature's highlight and names must be at all is
+# SheetMetalNames.py, asked of every sheet metal test's document.)
+
+import os
+import tempfile
+import unittest
+
+import FreeCAD
+import Part
+import PartDesign
+
+from . import SheetMetalNames
+from .SheetMetalFlatView import Flat
+from .TestSheetMetalContourFlange import edgeOf
+
+V = FreeCAD.Vector
+RIGHT = ((40, 0, 1), (40, 20, 1))
+
+
+class TestSheetMetalNames(unittest.TestCase):
+    def setUp(self):
+        self.Doc = FreeCAD.newDocument("PartDesignTestSheetMetalNames")
+        self.Body = self.Doc.addObject("PartDesign::Body", "Body")
+        sketch = self.Body.newObject("Sketcher::SketchObject", "Sketch")
+        pts = [(0, 0), (40, 0), (40, 20), (0, 20)]
+        for i in range(4):
+            a, b = pts[i], pts[(i + 1) % 4]
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        self.Plate = self.Body.newObject("PartDesign::SheetMetalBaseWall", "Plate")
+        self.Plate.Profile = sketch
+        self.Doc.recompute()
+        self.Early = self.Body.newObject("PartDesign::SheetMetalFlange", "Early")
+        self.Early.Edges = (self.Plate, [edgeOf(self.Plate, (0, 0, 1), (0, 20, 1))])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", self.Early.State)
+
+    def tearDown(self):
+        SheetMetalNames.close(self, self.Doc)
+
+    def line(self, x=30):
+        """A sketch on the plate's top, a line across it at x"""
+        sketch = self.Body.newObject("Sketcher::SketchObject", "Line")
+        sketch.MapMode = "Deactivated"
+        sketch.Placement = FreeCAD.Placement(V(0, 0, 1), FreeCAD.Rotation())
+        sketch.addGeometry(Part.LineSegment(V(x, -5, 0), V(x, 25, 0)))
+        self.Doc.recompute()
+        return sketch
+
+    def made(self, feature):
+        """The names of the faces feature made, by where each lies"""
+        shape = feature.Shape
+        res = {}
+        for name in feature.getGeneratedElements():
+            if not name.startswith("Face"):
+                continue
+            face = shape.getElement(name)
+            c = face.CenterOfMass
+            key = (round(face.Area, 5), round(c.x, 5), round(c.y, 5), round(c.z, 5))
+            res[key] = shape.getElementName(name, 1)
+        return res
+
+    def checkNamesHold(self, feature, least):
+        """feature's faces, least of them at least, keep their names with
+        the flange before it suppressed and with it back"""
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", feature.State)
+        before = self.made(feature)
+        self.assertGreaterEqual(len(before), least)
+        for suppress in (True, False):
+            self.Early.Suppress = suppress
+            self.Doc.recompute()
+            self.assertNotIn("Invalid", feature.State)
+            after = self.made(feature)
+            # every face the feature made is where it was, the flange being
+            # clear of it
+            self.assertEqual(sorted(after), sorted(before), suppress)
+            renamed = {
+                key: (before[key], after[key]) for key in before if before[key] != after[key]
+            }
+            self.assertEqual(renamed, {}, suppress)
+
+    def testFlange(self):
+        """A flange's bend, leg and ends"""
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        flange.Edges = (self.Early, [edgeOf(self.Early, *RIGHT)])
+        self.checkNamesHold(flange, 8)
+
+    def testFlangeOnFlange(self):
+        """A flange on the leg of a flange after the first: its own names,
+        and its reference to that leg's edge"""
+        first = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        first.Edges = (self.Early, [edgeOf(self.Early, *RIGHT)])
+        self.Doc.recompute()
+        top = first.Shape.BoundBox.ZMax
+        second = self.Body.newObject("PartDesign::SheetMetalFlange", "Second")
+        second.Edges = (first, [edgeOf(first, (40, 0, top), (40, 20, top))])
+        second.Angle = 45
+        self.checkNamesHold(second, 8)
+
+    def testHem(self):
+        """A hem's bend and leg"""
+        hem = self.Body.newObject("PartDesign::SheetMetalHem", "Hem")
+        hem.Edges = (self.Early, [edgeOf(self.Early, *RIGHT)])
+        hem.Length = 6
+        self.checkNamesHold(hem, 6)
+
+    def testContourFlange(self):
+        """A contour flange's two bends and two walls"""
+        s = self.Body.newObject("Sketcher::SketchObject", "ContourSketch")
+        s.MapMode = "Deactivated"
+        # x along the plate's x, y up, on the plane y 10
+        s.Placement = FreeCAD.Placement(
+            V(0, 10, 0), FreeCAD.Rotation(V(1, 0, 0), V(0, 0, 1), V(0, -1, 0), "ZXY")
+        )
+        pts = [(40, 1), (40, 11), (50, 11)]
+        for p, q in zip(pts, pts[1:]):
+            s.addGeometry(Part.LineSegment(V(p[0], p[1], 0), V(q[0], q[1], 0)))
+        self.Doc.recompute()
+        contour = self.Body.newObject("PartDesign::SheetMetalContourFlange", "ContourFlange")
+        contour.Edges = (self.Early, [edgeOf(self.Early, *RIGHT)])
+        contour.Profile = s
+        self.checkNamesHold(contour, 12)
+
+    def testFold(self):
+        """A fold's bend"""
+        fold = self.Body.newObject("PartDesign::SheetMetalFold", "Fold")
+        fold.Profile = self.line()
+        self.checkNamesHold(fold, 4)
+
+    def testJog(self):
+        """A jog's two bends and its run"""
+        jog = self.Body.newObject("PartDesign::SheetMetalJog", "Jog")
+        jog.Profile = self.line()
+        jog.Offset = 5
+        self.checkNamesHold(jog, 12)
+
+    # the sheet's own names
+
+    def sheet(self, feature):
+        """feature's walls and bends: the name of each, by where it lies"""
+        res = {}
+        for e in feature.SheetModel["Elements"]:
+            p = e["Origin"] if e["Kind"] == "Wall" else e["Center"]
+            res[(e["Kind"], round(p.x, 5), round(p.y, 5), round(p.z, 5))] = e["Name"]
+        return res
+
+    def rightFlange(self):
+        on = self.Early
+        flange = self.Body.newObject("PartDesign::SheetMetalFlange", "Flange")
+        flange.Edges = (on, [edgeOf(on, *RIGHT)])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flange.State)
+        return flange
+
+    def checkSheetNamesHold(self, feature, least):
+        """The walls and bends of feature's sheet, least of them at least
+        beside the first flange's, keep their names with that flange
+        suppressed and with it back"""
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", feature.State)
+        early = set(self.sheet(self.Early)) - set(self.sheet(self.Plate))
+        before = {k: v for k, v in self.sheet(feature).items() if k not in early}
+        self.assertGreaterEqual(len(before), least)
+        self.assertEqual(len(set(before.values())), len(before))
+        for suppress in (True, False):
+            self.Early.Suppress = suppress
+            self.Doc.recompute()
+            self.assertNotIn("Invalid", feature.State)
+            after = {k: v for k, v in self.sheet(feature).items() if k not in early}
+            self.assertEqual(after, before, suppress)
+
+    def testSheetFlange(self):
+        """A flange's bend and wall"""
+        self.checkSheetNamesHold(self.rightFlange(), 3)
+
+    def testSheetFlangeOnFlange(self):
+        first = self.rightFlange()
+        top = first.Shape.BoundBox.ZMax
+        second = self.Body.newObject("PartDesign::SheetMetalFlange", "Second")
+        second.Edges = (first, [edgeOf(first, (40, 0, top), (40, 20, top))])
+        second.Angle = 45
+        self.checkSheetNamesHold(second, 5)
+
+    def testSheetHem(self):
+        hem = self.Body.newObject("PartDesign::SheetMetalHem", "Hem")
+        hem.Edges = (self.Early, [edgeOf(self.Early, *RIGHT)])
+        hem.Length = 6
+        self.checkSheetNamesHold(hem, 3)
+
+    def testSheetContourFlange(self):
+        s = self.Body.newObject("Sketcher::SketchObject", "ContourSketch")
+        s.MapMode = "Deactivated"
+        s.Placement = FreeCAD.Placement(
+            V(0, 10, 0), FreeCAD.Rotation(V(1, 0, 0), V(0, 0, 1), V(0, -1, 0), "ZXY")
+        )
+        pts = [(40, 1), (40, 11), (50, 11)]
+        for p, q in zip(pts, pts[1:]):
+            s.addGeometry(Part.LineSegment(V(p[0], p[1], 0), V(q[0], q[1], 0)))
+        self.Doc.recompute()
+        contour = self.Body.newObject("PartDesign::SheetMetalContourFlange", "ContourFlange")
+        contour.Edges = (self.Early, [edgeOf(self.Early, *RIGHT)])
+        contour.Profile = s
+        self.checkSheetNamesHold(contour, 5)
+
+    def testSheetFold(self):
+        fold = self.Body.newObject("PartDesign::SheetMetalFold", "Fold")
+        fold.Profile = self.line()
+        self.checkSheetNamesHold(fold, 3)
+
+    def testSheetJog(self):
+        jog = self.Body.newObject("PartDesign::SheetMetalJog", "Jog")
+        jog.Profile = self.line()
+        jog.Offset = 5
+        self.checkSheetNamesHold(jog, 5)
+
+    def testBendTable(self):
+        """The bend table's row of a flange's bend keeps its name"""
+        flange = self.rightFlange()
+
+        def rows():
+            return [r["Name"] for r in PartDesign.sheetBends(flange) if r["Feature"] == flange.Name]
+
+        before = rows()
+        self.assertEqual(len(before), 1)
+        for suppress in (True, False):
+            self.Early.Suppress = suppress
+            self.Doc.recompute()
+            self.assertEqual(rows(), before, suppress)
+
+    def testFlatLine(self):
+        """The flat's line of a flange's bend keeps its name: a drawing's
+        dimension to it finds it by that"""
+        flange = self.rightFlange()
+
+        def lines():
+            shape = Flat(flange).Shape
+            res = set()
+            for i, edge in enumerate(shape.SubShapes[1].Edges):
+                if edge.CenterOfMass.x > 20:
+                    for j, other in enumerate(shape.Edges):
+                        if other.isSame(edge):
+                            res.add(shape.getElementName("Edge%d" % (j + 1), 1).split(";")[0])
+            return res
+
+        before = lines()
+        self.assertEqual(len(before), 1)
+        self.assertTrue(min(before).startswith("Bend"), before)
+        for suppress in (True, False):
+            self.Early.Suppress = suppress
+            self.Doc.recompute()
+            self.assertEqual(lines(), before, suppress)
+
+    def testOverrideByName(self):
+        """A bend's own K is asked for by the bend's name, which holds"""
+        flange = self.rightFlange()
+        (bend,) = [
+            r["Name"] for r in PartDesign.sheetBends(flange) if r["Feature"] == flange.Name
+        ]
+        flange.setBendKFactor(bend, 0.3)
+        self.Doc.recompute()
+        for suppress in (True, False):
+            self.Early.Suppress = suppress
+            self.Doc.recompute()
+            self.assertAlmostEqual(flange.bendKFactor(bend), 0.3, places=12, msg=suppress)
+
+    def testAddedWhileSuppressed(self):
+        """A flange made while the one before it is suppressed takes numbers
+        that flange does not hold: with it back, neither is renamed"""
+        early = self.sheet(self.Early)
+        self.Early.Suppress = True
+        self.Doc.recompute()
+        flange = self.rightFlange()
+        made = self.sheet(flange)
+        self.Early.Suppress = False
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flange.State)
+        both = self.sheet(flange)
+        self.assertEqual(len(set(both.values())), len(both))
+        for had in (early, made):
+            self.assertEqual({k: both.get(k) for k in had}, had)
+
+    def testInsertedBefore(self):
+        """A flange put into the body before another takes the next numbers
+        of the body, the one after it keeping its own"""
+
+        def own(feature):
+            return sorted(
+                set(self.sheet(feature).values()) - set(self.sheet(feature.BaseFeature).values())
+            )
+
+        flange = self.rightFlange()
+        before = own(flange)
+        self.assertEqual(len(before), 2)
+        mid = self.Doc.addObject("PartDesign::SheetMetalFlange", "Mid")
+        self.Body.insertObject(mid, self.Early, True)
+        mid.Edges = (self.Early, [edgeOf(self.Early, (0, 0, 1), (40, 0, 1))])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", mid.State)
+        self.assertEqual(flange.BaseFeature, mid)
+        # its edge is one of the feature it now builds on
+        flange.Edges = (mid, [edgeOf(mid, *RIGHT)])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flange.State)
+        self.assertEqual(own(flange), before)
+        self.assertEqual(len(own(mid)), 2)
+        names = list(self.sheet(flange).values())
+        self.assertEqual(len(names), 7)
+        self.assertEqual(len(set(names)), 7)
+
+    def testRemovedBefore(self):
+        """The flange before another deleted, the other keeps its names"""
+        flange = self.rightFlange()
+        early = set(self.sheet(self.Early)) - set(self.sheet(self.Plate))
+        before = {k: v for k, v in self.sheet(flange).items() if k not in early}
+        self.Body.removeObject(self.Early)
+        self.Doc.removeObject(self.Early.Name)
+        self.Early = None
+        # its edge is one of the feature it now builds on
+        flange.Edges = (self.Plate, [edgeOf(self.Plate, *RIGHT)])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flange.State)
+        self.assertEqual(self.sheet(flange), before)
+
+    def testNumberTaken(self):
+        """A feature holding a number another before it has -- a copy of
+        that one -- takes a new one: no name is twice in a sheet"""
+        flange = self.rightFlange()
+        self.assertEqual(len(flange.BendNumbers), 1)
+        self.assertEqual(len(flange.WallNumbers), 1)
+        flange.BendNumbers = self.Early.BendNumbers
+        flange.WallNumbers = self.Early.WallNumbers
+        flange.touch()
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flange.State)
+        names = self.sheet(flange)
+        self.assertEqual(len(set(names.values())), len(names))
+        self.assertNotEqual(flange.BendNumbers, self.Early.BendNumbers)
+        self.assertNotEqual(flange.WallNumbers, self.Early.WallNumbers)
+
+    def testSavedAndReopened(self):
+        """The numbers are the document's: reopened, and the flange before
+        suppressed there, the names are as they were"""
+        flange = self.rightFlange()
+        early = set(self.sheet(self.Early)) - set(self.sheet(self.Plate))
+        before = {k: v for k, v in self.sheet(flange).items() if k not in early}
+        path = os.path.join(tempfile.mkdtemp(), "SheetMetalNames.FCStd")
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        flange = self.Doc.getObject("Flange")
+        self.Early = self.Doc.getObject("Early")
+        self.Early.Suppress = True
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", flange.State)
+        self.assertEqual(self.sheet(flange), before)
+
+    # no number twice, the feature that had it deleted or not
+
+    def own(self, feature):
+        """The names of the walls and bends feature made"""
+        return sorted(
+            set(self.sheet(feature).values()) - set(self.sheet(feature.BaseFeature).values())
+        )
+
+    def number(self, name):
+        return int(name[4:])
+
+    def checkNewer(self, flange, gone):
+        """flange's wall and bend are numbered above those of gone, the
+        names a deleted flange had"""
+        made = self.own(flange)
+        self.assertEqual(len(made), 2)
+        self.assertEqual([n[:4] for n in made], [n[:4] for n in gone])
+        for new, old in zip(made, gone):
+            self.assertGreater(self.number(new), self.number(old), (made, gone))
+
+    def testNumberNotGivenAgain(self):
+        """The last flange deleted and another made: it does not take the
+        numbers of the one deleted"""
+        flange = self.rightFlange()
+        gone = self.own(flange)
+        self.Body.removeObject(flange)
+        self.Doc.removeObject(flange.Name)
+        self.Doc.recompute()
+        self.checkNewer(self.rightFlange(), gone)
+
+    def testNumberNotGivenAgainUndone(self):
+        """A flange made and undone, and another made"""
+        self.Doc.UndoMode = 1
+        self.Doc.openTransaction("flange")
+        flange = self.rightFlange()
+        self.Doc.commitTransaction()
+        gone = self.own(flange)
+        self.Doc.undo()
+        self.Doc.recompute()
+        self.assertIsNone(self.Doc.getObject("Flange"))
+        self.Doc.openTransaction("another")
+        again = self.rightFlange()
+        self.Doc.commitTransaction()
+        self.checkNewer(again, gone)
+
+    def testNumberNotGivenAgainReopened(self):
+        """Deleted, the document saved and opened again, and another made:
+        the count is the file's"""
+        flange = self.rightFlange()
+        gone = self.own(flange)
+        self.Body.removeObject(flange)
+        self.Doc.removeObject(flange.Name)
+        self.Doc.recompute()
+        path = os.path.join(tempfile.mkdtemp(), "SheetMetalNames.FCStd")
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        self.Body = self.Doc.getObject("Body")
+        self.Early = self.Doc.getObject("Early")
+        self.checkNewer(self.rightFlange(), gone)
+
+    def testDeletionTakenBackOutOfOrder(self):
+        """A flange deleted, another made, and the deletion taken back from
+        the log, the making of the other left: the flange is back under its
+        names, which the other did not take"""
+        self.Doc.UndoMode = 1
+        self.Doc.openTransaction("flange")
+        flange = self.rightFlange()
+        self.Doc.commitTransaction()
+        had = self.own(flange)
+        self.Doc.openTransaction("delete")
+        self.Body.removeObject(flange)
+        self.Doc.removeObject("Flange")
+        self.Doc.recompute()
+        self.Doc.commitTransaction()
+        self.Doc.openTransaction("another")
+        other = self.Body.newObject("PartDesign::SheetMetalFlange", "Other")
+        other.Edges = (self.Early, [edgeOf(self.Early, (0, 0, 1), (40, 0, 1))])
+        self.Doc.recompute()
+        self.Doc.commitTransaction()
+        self.assertNotIn("Invalid", other.State)
+        made = self.own(other)
+        self.assertEqual(len(made), 2)
+        rows = [r for r in self.Doc.getTransactionLog() if r["kind"] == "user"]
+        seq = [r["seq"] for r in rows if r.get("name") == "delete"][-1]
+        # the body's list of features changed since: that is left as it is
+        self.assertTrue(self.Doc.undoTransactionFromLog([seq], "skip"))
+        self.Doc.recompute()
+        flange = self.Doc.getObject("Flange")
+        self.assertIsNotNone(flange)
+        self.assertNotIn("Invalid", flange.State)
+        self.assertEqual(self.own(flange), had)
+        self.assertEqual(self.own(other), made)
+        self.assertEqual(set(had) & set(made), set())
+
+    # by the edge, not by its place in the feature's list (2026-11-11): a
+    # flange's or a hem's wall and bend go with the edge they are on, so the
+    # edges put in another order, one taken out or one put in first rename
+    # none of the others; a bend's own K goes with the bend
+
+    NEAR = ((0, 0, 1), (40, 0, 1))
+    FAR = ((0, 20, 1), (40, 20, 1))
+
+    def onEdges(self, kind, *edges, name="Sides"):
+        feature = self.Body.newObject(kind, name)
+        feature.Edges = (self.Early, [edgeOf(self.Early, *e) for e in edges])
+        if kind.endswith("Hem"):
+            feature.Length = 6
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        return feature
+
+    def setEdges(self, feature, *edges):
+        feature.Edges = (self.Early, [edgeOf(self.Early, *e) for e in edges])
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+
+    def checkEdgesReordered(self, kind):
+        feature = self.onEdges(kind, self.NEAR, self.FAR)
+        before = self.sheet(feature)
+        self.assertEqual(len(self.own(feature)), 4)
+        self.setEdges(feature, self.FAR, self.NEAR)
+        self.assertEqual(self.sheet(feature), before)
+
+    def testFlangeEdgesReordered(self):
+        """A flange's two edges the other way round: each side's wall and
+        bend as they were"""
+        self.checkEdgesReordered("PartDesign::SheetMetalFlange")
+
+    def testHemEdgesReordered(self):
+        self.checkEdgesReordered("PartDesign::SheetMetalHem")
+
+    def testFlangeEdgeRemoved(self):
+        """The first of a flange's two edges taken out: the other side's
+        names stay; put back, last, it has the names it had"""
+        feature = self.onEdges("PartDesign::SheetMetalFlange", self.NEAR, self.FAR)
+        before = self.sheet(feature)
+        self.setEdges(feature, self.FAR)
+        after = self.sheet(feature)
+        self.assertEqual(len(self.own(feature)), 2)
+        self.assertEqual({k: before[k] for k in after}, after)
+        self.setEdges(feature, self.FAR, self.NEAR)
+        self.assertEqual(self.sheet(feature), before)
+
+    def testFlangeEdgeAddedFirst(self):
+        """An edge put before a flange's one edge: that one's names stay,
+        the new side takes the next numbers"""
+        feature = self.onEdges("PartDesign::SheetMetalFlange", self.FAR)
+        before = self.sheet(feature)
+        had = self.own(feature)
+        self.setEdges(feature, self.NEAR, self.FAR)
+        after = self.sheet(feature)
+        self.assertEqual({k: after.get(k) for k in before}, before)
+        new = sorted(set(self.own(feature)) - set(had))
+        self.assertEqual(len(new), 2)
+        for made, old in zip(new, had):
+            self.assertGreater(self.number(made), self.number(old))
+
+    def testOverrideFollowsBend(self):
+        """A bend's own K is the bend's: the flange's edges the other way
+        round, it is still on the bend where it was"""
+
+        def factors():
+            res = {}
+            for e in feature.SheetModel["Elements"]:
+                if e["Kind"] == "Bend":
+                    c = e["Center"]
+                    res[(round(c.x, 5), round(c.y, 5), round(c.z, 5))] = round(e["KFactor"], 9)
+            return res
+
+        feature = self.onEdges("PartDesign::SheetMetalFlange", self.NEAR, self.FAR)
+        second = sorted(
+            r["Name"] for r in PartDesign.sheetBends(feature) if r["Feature"] == feature.Name
+        )[1]
+        feature.setBendKFactor(second, 0.3)
+        self.Doc.recompute()
+        before = factors()
+        self.assertEqual(sorted(before.values()).count(0.3), 1)
+        self.setEdges(feature, self.FAR, self.NEAR)
+        self.assertEqual(factors(), before)
+        self.assertAlmostEqual(feature.bendKFactor(second), 0.3, places=12)
+
+    # a base wall and a lofted flange put on a sheet that is there already:
+    # walls and bends of their own beside it, numbered on from it
+
+    def lines(self, points, z, name):
+        sketch = self.Body.newObject("Sketcher::SketchObject", name)
+        sketch.MapMode = "Deactivated"
+        sketch.Placement = FreeCAD.Placement(V(0, 0, z), FreeCAD.Rotation())
+        for i in range(len(points)):
+            a, b = points[i], points[(i + 1) % len(points)]
+            sketch.addGeometry(Part.LineSegment(V(a[0], a[1], 0), V(b[0], b[1], 0)))
+        self.Doc.recompute()
+        return sketch
+
+    def checkBeside(self, feature, own):
+        """feature made own walls and bends beside the sheet's, and they
+        and its faces keep their names"""
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", feature.State, feature.getStatusString())
+        had = set(self.sheet(self.Early).values())
+        names = self.sheet(feature)
+        self.assertEqual(len(set(names.values())), len(names))
+        self.assertTrue(had <= set(names.values()), (had, names))
+        self.assertEqual(len(names) - len(had), own)
+        self.checkSheetNamesHold(feature, own)
+        self.checkNamesHold(feature, 6)
+
+    def testBaseWallOnSheet(self):
+        """A second plate, above the first: one wall more"""
+        wall = self.Body.newObject("PartDesign::SheetMetalBaseWall", "Second")
+        wall.Profile = self.lines([(5, 5), (25, 5), (25, 15), (5, 15)], 30, "SecondSketch")
+        self.checkBeside(wall, 1)
+
+    def testProfileWallOnSheet(self):
+        """A second base wall drawn as a profile: two walls and a bend"""
+        s = self.Body.newObject("Sketcher::SketchObject", "ProfileSketch")
+        s.MapMode = "Deactivated"
+        s.Placement = FreeCAD.Placement(
+            V(0, 10, 30), FreeCAD.Rotation(V(1, 0, 0), V(0, 0, 1), V(0, -1, 0), "ZXY")
+        )
+        for p, q in (((5, 0), (25, 0)), ((25, 0), (25, 12))):
+            s.addGeometry(Part.LineSegment(V(p[0], p[1], 0), V(q[0], q[1], 0)))
+        self.Doc.recompute()
+        wall = self.Body.newObject("PartDesign::SheetMetalBaseWall", "Second")
+        wall.Profile = s
+        wall.Length = 10
+        self.checkBeside(wall, 3)
+
+    def testLoftedFlangeOnSheet(self):
+        """A duct above the plate, a square to the same square: four walls
+        and their bends, open along one corner"""
+        square = [(10, 5), (22, 5), (22, 17), (10, 17)]
+        loft = self.Body.newObject("PartDesign::SheetMetalLoftedFlange", "Loft")
+        loft.Profile = self.lines(square, 30, "LoftBottom")
+        loft.Section = self.lines(square, 50, "LoftTop")
+        self.Doc.recompute()
+        self.assertNotIn("Invalid", loft.State, loft.getStatusString())
+        own = len(self.sheet(loft)) - len(self.sheet(self.Early))
+        self.assertGreaterEqual(own, 7)
+        self.checkBeside(loft, own)

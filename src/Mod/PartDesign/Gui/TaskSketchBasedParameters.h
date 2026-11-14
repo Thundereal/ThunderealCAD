@@ -38,6 +38,9 @@
 #include "ReferenceSelection.h"
 #include "TaskFeatureParameters.h"
 #include "EnumFlags.h"
+#include "Utils.h"
+
+class QLabel;
 
 class QComboBox;
 class QCheckBox;
@@ -271,6 +274,12 @@ protected:
     bool multiObject = false;
     bool hideLinked = true;
     bool linkInited = false;
+    /// The references found again by name when the widget was first shown
+    /// (PartDesignGui::RefoundReference): their cells marked while they are
+    /// listed, and said in a line under the table
+    std::vector<PartDesignGui::RefoundReference> refound;
+    QLabel *refoundLabel = nullptr;
+    void showRefound();
 };
 
 class LinkSubListWidget: public QGroupBox
@@ -328,6 +337,11 @@ protected:
     AllowSelectionFlags selectionConf;
     fastsignals::scoped_connection connModeChange;
     bool linkInited = false;
+    /// As LinkSubWidget's: found again by name, marked in the list and said
+    /// in a line under it
+    std::vector<PartDesignGui::RefoundReference> refound;
+    QLabel *refoundLabel = nullptr;
+    void showRefound();
 };
 
 

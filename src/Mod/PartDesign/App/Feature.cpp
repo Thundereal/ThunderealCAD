@@ -455,6 +455,21 @@ bool Feature::isElementGenerated(const TopoShape &shape, const Data::MappedName 
     return shape.isElementGenerated(name);
 }
 
+bool Feature::isElementTraced(const TopoShape &shape, const Data::MappedName &name) const
+{
+    bool res = false;
+    shape.traceElement(name,
+        [&] (const Data::MappedName &, int, long tag2, long) {
+            if (std::abs(tag2) == this->getID()) {
+                res = true;
+                return true;
+            }
+            return false;
+        });
+
+    return res;
+}
+
 App::DocumentObjectExecReturn *Feature::recompute(void)
 {
     // a feature added to a body of a material takes it, unless it has its

@@ -27,6 +27,8 @@ import PartDesign
 
 from PartDesignTests.TestSheetMetalFlat import readDXF, readSVG
 
+from . import SheetMetalNames
+
 V = FreeCAD.Vector
 FAR = ((0, 20, 1), (40, 20, 1))
 TOP = (20, 10, 1)
@@ -88,7 +90,7 @@ class TestSheetMetalCrossBreak(unittest.TestCase):
         self.assertNotIn("Invalid", self.Flange.State)
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def crossBreak(self, *points, **props):
         # faces of the tip, which the feature builds on

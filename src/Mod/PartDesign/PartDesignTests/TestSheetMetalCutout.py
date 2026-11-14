@@ -27,6 +27,7 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat, flatObject
 
 V = FreeCAD.Vector
@@ -69,7 +70,7 @@ class TestSheetMetalCutout(unittest.TestCase):
         self.Tip = self.Plate
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def flange(self, name, edge):
         flange = self.Body.newObject("PartDesign::SheetMetalFlange", name)

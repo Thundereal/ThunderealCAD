@@ -435,7 +435,7 @@ class TestProfileContact(unittest.TestCase):
             )
         )
 
-    def rocker(self, friction):
+    def rocker(self, friction, step=1e-3):
         """A half disc of radius 10 on its arc on a plate, its flat side
         up, tipped by 10 deg about its circle's centre and let go, gravity
         in the plane: its point slides along the arc, and along the line
@@ -447,7 +447,7 @@ class TestProfileContact(unittest.TestCase):
         the run's angles and circle's centres, and the model's angles."""
         import Part
 
-        r, end, step = 10.0, 1.0, 1e-3
+        r, end = 10.0, 1.0
         plate = self.plate(Part.makeBox(120, 20, 10, App.Vector(-60, -20, 0)))
         half = self.assembly.newObject("Part::Feature", "Half")
         shape = Part.makeCylinder(r, 10, App.Vector(), App.Vector(0, 0, 1), 180)
@@ -515,14 +515,15 @@ class TestProfileContact(unittest.TestCase):
 
     def test_half_disc_rocks(self):
         """A half disc rocking on its arc, frictionless: its point slides
-        along the arc and along the line. Its angle to 0.06 deg of the exact
-        model for a second, 0.034 measured -- the model's rigid, the run's
-        disc sunk 0.01 mm on the contact's spring; every turn at 10 deg to
+        along the arc and along the line. Its angle to 0.03 deg of the exact
+        model for a second, 0.020 measured, in steps of 0.25 ms -- the
+        model's rigid, the run's disc sunk 0.01 mm on the contact's spring,
+        0.017 of it that and the rest the steps'; every turn at 10 deg to
         0.02, and its centre of mass straight above where it started, to
         1e-6 mm (1e-11 measured): nothing pushes it sideways."""
-        angles, centres, model = self.rocker(0.0)
+        angles, centres, model = self.rocker(0.0, 2.5e-4)
         worst = max(abs(a - m) for a, m in zip(angles, model))
-        self.assertLess(math.degrees(worst), 0.06)
+        self.assertLess(math.degrees(worst), 0.03)
         turns = self.turns(angles)
         self.assertGreaterEqual(len(turns), 6)
         for k, turn in enumerate(turns):
@@ -535,6 +536,22 @@ class TestProfileContact(unittest.TestCase):
             "Half disc rocking: %.3g deg off the model, %d turns within %.3g deg of 10,"
             " its centre of mass across by %.3g mm\n"
             % (math.degrees(worst), len(turns), max(abs(t - 10) for t in turns), drift)
+        )
+
+    def test_half_disc_rocks_in_steps_of_a_millisecond(self):
+        """The same in steps of 1 ms: to 0.1 deg of the model (0.071), the
+        steps' own error, as their square (0.030 at 0.5 ms, 0.020 at 0.25).
+        The disc stands on its contact the whole run and steps as a part at
+        rest does, at the run's step; its contact's period is 5 ms, which a
+        step of 1 damps. It was 0.034 while a standing contact whose depth
+        had ranged 2% fell out of rest and stepped at a fiftieth of that
+        period, before 3dd48e3f6d: 6504 substeps for the second then, 1345
+        now."""
+        angles, _, model = self.rocker(0.0)
+        worst = max(abs(a - m) for a, m in zip(angles, model))
+        self.assertLess(math.degrees(worst), 0.1)
+        App.Console.PrintMessage(
+            "Half disc rocking in steps of 1 ms: %.3g deg off the model\n" % math.degrees(worst)
         )
 
     def test_half_disc_rolls(self):

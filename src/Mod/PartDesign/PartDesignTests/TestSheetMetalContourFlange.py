@@ -13,6 +13,7 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
 V = FreeCAD.Vector
@@ -64,7 +65,7 @@ class TestSheetMetalContourFlange(unittest.TestCase):
         return body, plate
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def sketch(self, points, y=10, turn=0, arc=None, closed=False):
         """A chain of lines through points (x, z) on the plane y, square to

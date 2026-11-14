@@ -2700,6 +2700,11 @@ public:
 
     std::string getElementMapVersion() const override;
     bool checkElementMapVersion(const char * ver) const override;
+    /** Whether a shape's saved version string says a naming older than this
+     * build's (OpCodes::Version), whatever kernel and map format it names
+     * besides. Reads this fork's "1.15.80001.4" and upstream's "15.70200.5".
+     */
+    static bool isOlderNamingVersion(const char *ver);
 
     void flushElementMap() const override;
 
@@ -2773,6 +2778,28 @@ public:
                                           std::vector<std::string> *names=nullptr,
                                           Data::SearchOptions options = Data::SearchOption::CheckGeometry,
                                           double tol=1e-7, double atol=1e-12) const;
+
+    /** Search sub shape as far off as the tolerance of the shapes allows
+     *
+     * For an element searchSubShape() does not find to 'tol': the elements
+     * that lie within 'factor' times the shape tolerance of where
+     * 'subshape' is. The shape tolerance is the larger of the tolerance of
+     * 'subshape' and that of the element found, each taken with its edges
+     * and vertices, and never less than 'tol'. The angular tolerance grows
+     * by the same ratio.
+     *
+     * @param subshape: a sub shape to search
+     * @param names: optional output of found sub shape indexed based name
+     * @param factor: multiple of the shape tolerance; nothing is found at 0
+     * @param checkGeometry: whether to compare shape geometry
+     * @param tol: tolerance of the exact search, the least a shape counts for
+     * @param atol: tolerance to check for same angles at 'tol'
+     */
+    std::vector<TopoShape> searchSubShapeNear(const TopoShape &subshape,
+                                              std::vector<std::string> *names,
+                                              double factor,
+                                              Data::SearchOptions options = Data::SearchOption::CheckGeometry,
+                                              double tol=1e-7, double atol=1e-12) const;
     //@}
 
     /** @name Convenience function to obtain the shape type and the corresponding string name

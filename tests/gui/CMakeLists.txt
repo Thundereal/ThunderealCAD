@@ -28,13 +28,29 @@ set(_fc_gui_work "${CMAKE_BINARY_DIR}/Testing/gui")
 
 # One test = one script; its work directory (result.txt, run.log, the
 # isolated configuration) is named after it under Testing/gui.
+#
+# ctest's own limit is the driver's (--timeout, 300 without) and a minute,
+# and no less than 600: the driver's ends the test with its result read and
+# its processes gone, ctest's only kills it. At 600 for every test, one that
+# asks its driver for 1200 was killed at 600 -- the Assembly's suite, once
+# its dynamic cases run (BUILD_ASSEMBLY_CHRONO), under a loaded ctest -j.
 function(fc_add_gui_test name script)
     add_test(NAME ${name}
              COMMAND "${_fc_gui_run}" "${CMAKE_CURRENT_SOURCE_DIR}/${script}"
                      "${_fc_gui_work}/${name}" ${ARGN})
+    set(_limit 600)
+    list(FIND ARGN "--timeout" _at)
+    if(_at GREATER -1)
+        math(EXPR _at "${_at} + 1")
+        list(GET ARGN ${_at} _asked)
+        math(EXPR _asked "${_asked} + 60")
+        if(_asked GREATER _limit)
+            set(_limit ${_asked})
+        endif()
+    endif()
     set_tests_properties(${name} PROPERTIES
         ENVIRONMENT "FC_BUILD=${CMAKE_BINARY_DIR}"
-        TIMEOUT 600)
+        TIMEOUT ${_limit})
 endfunction()
 
 # The live-import nested-loop crash (docs/DocumentLoad.md sec 15.2): a
@@ -377,6 +393,24 @@ fc_add_gui_test(GuiOverlayListRowBandsInView_tests_run overlay-list-row-bands-in
 fc_add_gui_test(GuiDressUpListSort_tests_run dressup-list-sort.py
                 --timeout 200)
 
+# Ruled 2026-11-11 (docs/SheetMetal.md sec 12): a dress-up's reference found
+# again by name when its panel opens is taken where one element answers,
+# and shown -- the row marked, the element selected, a line in the panel --
+# not taken silently; OK keeps it, Cancel leaves it missing.
+fc_add_gui_test(GuiDressUpRefoundEdge_tests_run dressup-refound-edge.py
+                --timeout 200)
+# And one that was not missing: a reference whose name has become another
+# element's in a recompute, the element it was on still there (the guard of
+# docs/TopoNamingEnhance.md sec 9.12). The panel takes that element, shown
+# the same way.
+fc_add_gui_test(GuiDressUpMovedReference_tests_run dressup-moved-reference.py
+                --timeout 200)
+# And the other PartDesign panels that look a lost reference up by name: a
+# pad's face, a draft's plane, a pipe's spine. A list takes every element
+# that answers, one that holds a single element only where one does.
+fc_add_gui_test(GuiPdRefoundReferences_tests_run pd-refound-references.py
+                --timeout 300)
+
 # Entry 214, a crash on stage28: a group typed into a fillet's Group cell
 # filled the list anew inside Qt's commit of it, the row deleted under the
 # commit (heap corruption). The edge's row is changed in place now.
@@ -451,6 +485,12 @@ fc_add_gui_test(GuiDressUpGroupColorsKept_tests_run dressup-group-colors-kept.py
 # Entry 228: each fine undo step of a fillet's or chamfer's panel is named
 # for what it did.
 fc_add_gui_test(GuiPdUndoStepNames_tests_run pd-undo-step-names.py
+                --timeout 200)
+
+# OK of a PartDesign panel is a step of its own holding the recompute it
+# makes, not left empty by the edit's end before it; with nothing to make
+# again it is no step.
+fc_add_gui_test(GuiPdOkStep_tests_run pd-ok-step.py
                 --timeout 200)
 
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a

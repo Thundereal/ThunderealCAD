@@ -60,13 +60,40 @@ public:
     /** The K of each bend this feature makes that does not take the rule's
      * (docs/SheetMetal.md sec 4.6, ruled 2026-11-05)
      *
-     * Keyed by the bend's place among the feature's own, counted from 1 in
-     * the order it makes them, not by its name: a bend added earlier in the
-     * sheet renames every later one, and the key holds. A key past the
-     * bends the feature makes is kept and changes nothing. Check Sheet's
-     * bend table edits it, through setBendKFactor().
+     * Keyed by the bend's number, 3 for Bend3, which the bend keeps
+     * (BendNumbers; until 2026-11-11 by its place among the feature's own,
+     * which the feature's edges in another order moved to another bend). A
+     * key that is no bend of the feature's is kept and changes nothing.
+     * Check Sheet's bend table edits it, through setBendKFactor().
      */
     App::PropertyMap BendKFactors;
+    /** The numbers of the walls and of the bends this feature makes, each
+     * list in the order it makes them (docs/SheetMetal.md sec 12, ruled
+     * 2026-11-11): Wall4, Bend3
+     *
+     * A wall or a bend takes the next number of its body the first time its
+     * feature makes it, and keeps it: a feature suppressed, put in or taken
+     * out before this one renames nothing of this one's, in the bend table
+     * or on the flat's lines. A number past what the feature makes is kept,
+     * and taken up again when it makes that many. No number is given twice,
+     * its feature deleted or not: the body's count of each kind is the
+     * file's (Document::nextObjectCount()), as an object's id and name are.
+     * Filled by storeModel().
+     *
+     * WallKeys and BendKeys tell what each number is of, where the feature
+     * says: a flange's and a hem's, the edge the wall or bend is on (its
+     * reference, and the wall's or bend's place among that edge's). A
+     * number then goes with its edge: the edges in another order, one taken
+     * out or one put in first rename none of the others. A wall or bend
+     * with no key, or whose key is not found (the edge's reference
+     * changed), takes the numbers left over, in the order made.
+     */
+    App::PropertyIntegerList WallNumbers;
+    App::PropertyIntegerList BendNumbers;
+    /// And of the forms it presses (Form3), the body's third count
+    App::PropertyIntegerList FormNumbers;
+    App::PropertyStringList WallKeys;
+    App::PropertyStringList BendKeys;
 
     /// The rule, null if none
     SheetMetalRule* getRule() const;
@@ -98,6 +125,30 @@ public:
      * is stored. Throws Base::ValueError for a key or a value that is none.
      */
     void applyBendOverrides(SheetMetal::Model& model) const;
+    /** Store the model this feature made as its SheetModel: its own walls
+     * and bends -- those the sheet it builds on has not, all of them where
+     * it remade the sheet (a convert) -- named by their numbers
+     * (WallNumbers, BendNumbers), its bends with their K (BendKFactors).
+     *
+     * A number is new where the feature has none for that wall or bend yet,
+     * or has one the sheet before it holds too (a copy of a feature): the
+     * next of the body's count, above every number of the sheet before it
+     * and of every sheet metal feature of its body, suppressed or not, and
+     * above every one given before. keys, where given, has for each element
+     * of the model what it is of (edgeKeys()), empty for none. Throws as
+     * applyBendOverrides() does.
+     */
+    void storeModel(SheetMetal::Model model, bool remade = false,
+                    const std::vector<std::string>& keys = {});
+    /** The keys of what a feature made on each of its edges, for
+     * storeModel(): starts has, for each edge in the order they were made,
+     * how many elements the model had before and the edge's reference. An
+     * element from there to the next edge's start is that edge's: its key
+     * the reference and its place among the edge's walls, or bends.
+     */
+    static std::vector<std::string>
+    edgeKeys(const SheetMetal::Model& model,
+             const std::vector<std::pair<std::size_t, std::string>>& starts);
     /// The K of one of this feature's bends, by its name, where the bend has
     /// one of its own
     std::optional<double> bendKFactor(const std::string& bend) const;

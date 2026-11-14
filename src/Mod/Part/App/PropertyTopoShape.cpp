@@ -1719,6 +1719,7 @@ void PropertyPartShape::Restore(Base::XMLReader &reader)
 
     auto owner = Base::freecad_dynamic_cast<App::DocumentObject>(getContainer());
     _Ver = "?";
+    _VerRead.clear();
     bool has_ver = reader.hasAttribute("ElementMap");
     if(has_ver)
         _Ver = reader.getAttribute("ElementMap");
@@ -1826,8 +1827,20 @@ void PropertyPartShape::Restore(Base::XMLReader &reader)
             if (owner ? owner->checkElementMapVersion(this, _Ver.c_str())
                       : _Shape.checkElementMapVersion(_Ver.c_str())) {
                 auto ver = owner?owner->getElementMapVersion(this):_Shape.getElementMapVersion();
-                if(!owner || !owner->getNameInDocument() || !_Shape.getElementMapSize()) {
+                if(!owner || !owner->getNameInDocument()) {
                     _Ver = ver;
+                } else if(!_Shape.getElementMapSize()) {
+                    // A shape saved with no names has nothing to regenerate, and
+                    // asks for no recompute. It keeps the version it was saved
+                    // with all the same: what refers into it does so by number,
+                    // and when a recompute names it -- and may number it another
+                    // way, as a primitive built otherwise since is -- the version
+                    // is seen to change, and those references are found again by
+                    // geometry (GeoFeature::updateElementReference). Taking the
+                    // current version here said the numbers were today's.
+                    //
+                    // Or its names are still to come: see afterRestore().
+                    _VerRead = _Ver;
                 } else {
                     // version mismatch, signal for regenerating.
                     static const char *warnedDoc=0;
@@ -1898,6 +1911,37 @@ void PropertyPartShape::afterRestore()
         if (owner && owner->getDocument()
                   && !owner->getDocument()->testStatus(App::Document::PartialDoc))
             owner->getDocument()->addRecomputeObject(owner);
+    }
+    if (!_VerRead.empty()) {
+        // A file of upstream's format keeps a shape's map in a file of its
+        // own, read after the document's XML: Restore() had the version and
+        // no map, and took the shape for one with nothing to make again. So
+        // a file upstream wrote was never asked for its recompute, whatever
+        // its version. Its names are of naming 15 where this build's are of a
+        // later one (docs/TopoNamingEnhance.md sec 9.11), and a reference to an edge
+        // named the old way is lost at the first edit that moves the edge
+        // unless the shape is made again as it is first. Only the naming is
+        // compared: the kernel and the map format upstream writes are other
+        // than this fork's in every file, and were let through before.
+        std::string read;
+        read.swap(_VerRead);
+        auto owner = Base::freecad_dynamic_cast<App::DocumentObject>(getContainer());
+        if (!_Shape.isRestoreFailed() && _Shape.getElementMapSize() != 0
+                && TopoShape::isOlderNamingVersion(read.c_str())
+                && owner && owner->getNameInDocument() && owner->getDocument()
+                && !owner->getDocument()->testStatus(App::Document::PartialDoc)) {
+            static const char *warnedDoc = nullptr;
+            if (warnedDoc != owner->getDocument()->getName()) {
+                warnedDoc = owner->getDocument()->getName();
+                FC_WARN("Recomputation required for document '" << warnedDoc
+                        << "' on geo element version change in " << getFullName()
+                        << ": " << read << " -> " << owner->getElementMapVersion(this));
+            }
+            // What GeoFeature::updateElementReference() compares, so that
+            // the recompute looks every reference up again
+            _Ver = read;
+            owner->getDocument()->addRecomputeObject(owner);
+        }
     }
     App::PropertyGeometry::afterRestore();
 }

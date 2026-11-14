@@ -143,9 +143,16 @@ std::string buildLinkSubListPythonStr(const std::vector<App::DocumentObject*> & 
  * @param canTouch: if set to True, the check if the element reference exists,
  *                  and try to guess a related element if not found.
  *
+ * @param refound: where the element was found again, what it was and is
+ *                 now, for the panel to show (PartDesignGui::RefoundReference)
+ *
+ * A reference found again is taken where one element answers, and its label
+ * marked for as long as it is the one shown.
+ *
  * @return Return true if the property is changed due to missing element.
  */
-bool populateRefElement(App::PropertyLinkSub *prop, QLabel *label, bool canTouch);
+bool populateRefElement(App::PropertyLinkSub *prop, QLabel *label, bool canTouch,
+                        struct RefoundReference *refound = nullptr);
 
 } //namespace PartDesignGui
 

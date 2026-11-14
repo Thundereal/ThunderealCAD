@@ -23,6 +23,8 @@ import PartDesign
 
 from PartDesignTests.TestSheetMetalFlat import readDXF, readSVG
 
+from . import SheetMetalNames
+
 V = FreeCAD.Vector
 FAR = ((0, 20, 1), (40, 20, 1))
 RIGHT = ((40, 0, 1), (40, 20, 1))
@@ -82,7 +84,7 @@ class TestSheetMetalFlatNotches(unittest.TestCase):
         self.Doc.recompute()
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def flange(self, name, edge):
         flange = self.Body.newObject("PartDesign::SheetMetalFlange", name)

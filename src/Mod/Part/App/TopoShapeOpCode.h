@@ -43,7 +43,7 @@ public:
      * element map to be regenerated after recompute
      */
 
-    static constexpr const int Version = 15;
+    static constexpr const int Version = 17;
 
     /** @name Op codes that are also accepted by TopoShape::makEBoolean() */
     //@{

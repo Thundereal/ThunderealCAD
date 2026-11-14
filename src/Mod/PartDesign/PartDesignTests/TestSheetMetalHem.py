@@ -16,6 +16,7 @@ import unittest
 import FreeCAD
 import Part
 
+from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
 V = FreeCAD.Vector
@@ -37,7 +38,7 @@ class TestSheetMetalHem(unittest.TestCase):
         self.Doc.recompute()
 
     def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
+        SheetMetalNames.close(self, self.Doc)
 
     def edge(self, feature, a, b):
         """The name of the edge of a feature's shape from a to b"""
@@ -297,6 +298,103 @@ class TestSheetMetalHem(unittest.TestCase):
         self.assertAlmostEqual(
             hem.Shape.Volume, 40 * 20 + 30 * (CLOSED + 4.95), places=6
         )
+
+    # The relief overridden per hem, as a flange's (sec 5.2): ReliefShape
+    # "Rule" follows the rule, and ReliefWidth and ReliefDepth are read only
+    # then; another shape is the hem's own, its width and depth starting
+    # from the rule's and no longer following it. A tear is still the rule's
+    # Gap wide, to where the fold starts.
+
+    def testReliefOverride(self):
+        """A rectangle 2 wide, 0.5 deep past the fold, the rule's left as it
+        is"""
+        hem = self.far(Gap1=5, Gap2=5)
+        self.assertEqual(hem.ReliefShape, "Rule")
+        self.assertIn("ReadOnly", hem.getPropertyStatus("ReliefWidth"))
+        self.assertIn("ReadOnly", hem.getPropertyStatus("ReliefDepth"))
+        hem.ReliefShape = "Rectangle"
+        self.assertNotIn("ReadOnly", hem.getPropertyStatus("ReliefWidth"))
+        self.assertNotIn("ReadOnly", hem.getPropertyStatus("ReliefDepth"))
+        self.assertAlmostEqual(hem.ReliefWidth.Value, 1)
+        self.assertAlmostEqual(hem.ReliefDepth.Value, 1)
+        hem.ReliefWidth = 2
+        hem.ReliefDepth = 0.5
+        self.Doc.recompute()
+        self.checkValid(hem)
+        self.assertAlmostEqual(
+            hem.Shape.Volume,
+            40 * 20 - 30 * 1.05 - 2 * 2 * 1.55 + 30 * (CLOSED + 4.95),
+            places=6,
+        )
+        self.assertAlmostEqual(hem.Rule.ReliefWidth.Value, 1)
+        self.assertAlmostEqual(hem.Rule.ReliefDepth.Value, 1)
+        self.assertNotIn(None, self.owners(hem))
+        self.checkFlat(hem, 40, 18.95 + 0.55 * math.pi + 4.95)
+
+    def testReliefOverrideIgnoresRule(self):
+        """Overridden, the hem's relief no longer follows the rule's shape,
+        width or depth; back to Rule, it does again"""
+        hem = self.far(Gap1=5, Gap2=5, ReliefShape="Obround")
+        rule = hem.Rule
+        rule.ReliefShape = "Tear"
+        rule.ReliefWidth = 3
+        rule.ReliefDepth = 2
+        self.Doc.recompute()
+        self.checkValid(hem)
+        relief = 1 * 1.55 + math.pi / 8
+        self.assertAlmostEqual(
+            hem.Shape.Volume,
+            40 * 20 - 30 * 1.05 - 2 * relief + 30 * (CLOSED + 4.95),
+            places=6,
+        )
+        hem.ReliefShape = "Rule"
+        self.Doc.recompute()
+        self.checkValid(hem)
+        self.assertIn("ReadOnly", hem.getPropertyStatus("ReliefWidth"))
+        self.assertAlmostEqual(
+            hem.Shape.Volume,
+            40 * 20 - 30 * 1.05 - 2 * 0.1 * 1.05 + 30 * (CLOSED + 4.95),
+            places=6,
+        )
+
+    def testReliefOverrideTear(self):
+        """A tear on the hem, the rule's a rectangle: the rule's Gap wide"""
+        hem = self.far(Gap1=5, Gap2=5, ReliefShape="Tear")
+        self.checkValid(hem)
+        self.assertAlmostEqual(
+            hem.Shape.Volume,
+            40 * 20 - 30 * 1.05 - 2 * 0.1 * 1.05 + 30 * (CLOSED + 4.95),
+            places=6,
+        )
+        self.checkFlat(hem, 40, 18.95 + 0.55 * math.pi + 4.95)
+
+    def testReliefOverrideSaved(self):
+        """The override survives a save and reopen, read only status and all"""
+        hem = self.far(Gap1=5, Gap2=5, ReliefShape="Rectangle")
+        hem.ReliefWidth = 2
+        self.Doc.recompute()
+        volume = hem.Shape.Volume
+        path = os.path.join(tempfile.mkdtemp(), "hemrelief.FCStd")
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        hem = self.Doc.getObject("Hem")
+        self.assertEqual(hem.ReliefShape, "Rectangle")
+        self.assertNotIn("ReadOnly", hem.getPropertyStatus("ReliefWidth"))
+        hem.touch()
+        self.Doc.recompute()
+        self.assertAlmostEqual(hem.Shape.Volume, volume, places=9)
+
+    def testReliefOverrideChecked(self):
+        """Check Sheet tells a hem's own relief narrower than the rule's, as
+        a flange's"""
+        import PartDesign
+
+        hem = self.far(Gap1=5, Gap2=5, ReliefShape="Rectangle")
+        hem.ReliefWidth = 0.5
+        self.Doc.recompute()
+        kinds = [p["Kind"] for p in PartDesign.checkSheet(hem)["Problems"]]
+        self.assertIn("Relief", kinds)
 
     def testGapsLeaveNothing(self):
         hem = self.far(Gap1=20, Gap2=20)

@@ -303,6 +303,12 @@ public:
     /// ForceElement records of the model's dynamics block; a component held
     /// by nothing else becomes a body of its own
     void addForces(Solver::Model& model, App::DocumentObject* sim);
+    /// Each flexible body's interfaces (Solver::Flexible::interfaces): the
+    /// model's frames on its body, each with the nodes its mesh has for it
+    /// (FlexibleBody::InterfaceFrames, InterfaceNodes). After addForces(),
+    /// which makes the records, and after the joints of the parts nothing
+    /// joins to the ground, whose frames come last
+    void flexibleInterfaces(Solver::Model& model, App::DocumentObject* sim) const;
     /// A model built, as for a solve, with its dynamics block: each body's
     /// inertia, and the components that make it up
     struct BodyInertia

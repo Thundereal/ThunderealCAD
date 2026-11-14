@@ -121,6 +121,8 @@ struct DocumentP
     /// The last geometry id of each object while the document has no file
     /// history; the history takes them when it comes (sec 27.40 item 4).
     std::unordered_map<long, long> lastGeoIds;
+    /// And what each object counts, by kind (sec 39.5), the same way.
+    std::map<std::pair<long, int>, long> objectCounts;
     mutable std::pair<long, long> treeRanks = std::make_pair(0,0);
     long treeRankRevision = 0;
     long revision = 0; // will increase on object add or remove
@@ -183,6 +185,12 @@ struct DocumentP
     /// 37.4 P4).
     int64_t lastCommitSeq {0};
     double lastCommitTime {0};
+    /// A commit of the step open asked while the document recomputes: made
+    /// as the recompute ends (Document::_commitHeld()), so the recompute's
+    /// writes are the step's however long it takes. A recompute that pumps
+    /// the event loop -- its progress bar's checkAbort(), every 500 ms --
+    /// runs the closers queued there, a panel's step among them.
+    bool commitHeld {false};
     bool snapshotting {false};
     /// The save in progress writes the string table as a member of its own
     /// (docs/TransactionLogJournal.md sec 27.50 item 1) -- or, snapshotting, names

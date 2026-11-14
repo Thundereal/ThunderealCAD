@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <TColgp_Array2OfPnt.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
+#include <TColStd_HArray1OfReal.hxx>
 #include <gtest/gtest.h>
 #include "src/App/InitApplication.h"
 #include <Mod/Part/App/Geometry.h>
@@ -10,6 +14,7 @@
 #include "PartTestHelpers.h"
 
 #include <functional>
+#include <set>
 // std::numbers::pi below: libstdc++ hands it over through another header,
 // MSVC does not.
 #include <numbers>
@@ -18,7 +23,14 @@
 #include <BRepAdaptor_CompCurve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <ShapeFix_ShapeTolerance.hxx>
+#include <BRep_Builder.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Tool.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Compound.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -28,14 +40,20 @@
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <Geom_Circle.hxx>
+#include <Geom_CylindricalSurface.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
+#include <GeomAPI_Interpolate.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <Geom_BezierSurface.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <gp_Circ.hxx>
 #include <gp_Pln.hxx>
 #include <ShapeFix_Wireframe.hxx>
 #include <ShapeBuild_ReShape.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -1357,6 +1375,280 @@ TEST_F(TopoShapeExpansionTest, searchSubShapeCylinderFace)
     EXPECT_EQ(names[0], "Face1");
 }
 
+// The same search finds a face whose arc is written another way: the same
+// circle with its angle counted from another direction, or the other way
+// round.  A feature made again may give that (the arc of a pad's top in
+// realthunder/FreeCAD#333 came back a quarter turn on), and the face is
+// the same face; the arc's complement, with the same ends, is not.
+TEST_F(TopoShapeExpansionTest, searchSubShapeArcWrittenAnotherWay)
+{
+    // Arrange
+    const double r = 6;
+    const double quarter = std::numbers::pi / 2;
+    auto slice = [&](const gp_Ax2& axes, double first, double last) {
+        TopoDS_Edge arc = BRepBuilderAPI_MakeEdge(gp_Circ(axes, r), first, last).Edge();
+        TopoDS_Edge in = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(r, 0, 0)).Edge();
+        TopoDS_Edge out = BRepBuilderAPI_MakeEdge(gp_Pnt(0, r, 0), gp_Pnt(0, 0, 0)).Edge();
+        TopoDS_Wire wire = BRepBuilderAPI_MakeWire(in, arc, out).Wire();
+        return std::make_pair(TopoShape(BRepBuilderAPI_MakeFace(wire).Face()), arc);
+    };
+    const gp_Pnt o(0, 0, 0);
+    auto [face, arc] = slice(gp_Ax2(o, gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), 0, quarter);
+    auto [turned, arcTurned] = slice(gp_Ax2(o, gp_Dir(0, 0, 1), gp_Dir(0, 1, 0)), -quarter, 0);
+    auto [flipped, arcFlipped]
+        = slice(gp_Ax2(o, gp_Dir(0, 0, -1), gp_Dir(1, 0, 0)), 3 * quarter, 4 * quarter);
+    const gp_Circ circleTurned(gp_Ax2(o, gp_Dir(0, 0, 1), gp_Dir(0, 1, 0)), r);
+    TopoDS_Edge rest = BRepBuilderAPI_MakeEdge(circleTurned, 0, 3 * quarter).Edge();
+    std::unique_ptr<Geometry> g(Geometry::fromShape(arc));
+    std::unique_ptr<Geometry> gTurned(Geometry::fromShape(arcTurned));
+    std::unique_ptr<Geometry> gFlipped(Geometry::fromShape(arcFlipped));
+    std::unique_ptr<Geometry> gRest(Geometry::fromShape(rest));
+    for (auto* other : {&turned, &flipped}) {
+        std::vector<std::string> names;
+        // Act
+        other->searchSubShape(face, &names, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+        // Assert
+        ASSERT_EQ(names.size(), 1);
+        EXPECT_EQ(names[0], "Face1");
+    }
+    EXPECT_TRUE(g->isSame(*gTurned, 1e-7, 1e-10));
+    EXPECT_TRUE(g->isSame(*gFlipped, 1e-7, 1e-10));
+    EXPECT_FALSE(g->isSame(*gRest, 1e-7, 1e-10));
+}
+
+// And a face of a cylinder written another way: the same cylinder with its
+// axis the other way round and its origin moved along it (in
+// realthunder/FreeCAD#363 a cut's hole and a pocket's wall came back so).
+// A cylinder beside it, or of another radius, is not the same.
+TEST_F(TopoShapeExpansionTest, searchSubShapeCylinderWrittenAnotherWay)
+{
+    // Arrange
+    const double pi = std::numbers::pi;
+    const gp_Dir x(1, 0, 0);
+    Handle(Geom_CylindricalSurface) up
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), x), 2);
+    Handle(Geom_CylindricalSurface) down
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, 7), gp_Dir(0, 0, -1), x), 2);
+    Handle(Geom_CylindricalSurface) beside
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 1e-3, 0), gp_Dir(0, 0, 1), x), 2);
+    Handle(Geom_CylindricalSurface) wider
+        = new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), x), 2.001);
+    TopoShape face {BRepBuilderAPI_MakeFace(up, 0, pi, 0, 5, 1e-7).Face()};
+    TopoShape other {BRepBuilderAPI_MakeFace(down, pi, 2 * pi, 2, 7, 1e-7).Face()};
+    std::vector<std::string> names;
+    // Act
+    other.searchSubShape(face, &names, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    // Assert
+    ASSERT_EQ(names.size(), 1);
+    EXPECT_EQ(names[0], "Face1");
+    EXPECT_TRUE(GeomCylinder(up).isSame(GeomCylinder(down), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomCylinder(up).isSame(GeomCylinder(beside), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomCylinder(up).isSame(GeomCylinder(wider), 1e-7, 1e-10));
+}
+
+// And an edge on a B-spline written another way: the same points with the
+// parameter running otherwise along them, so the poles and the knots differ
+// (in realthunder/FreeCAD#363 the curves where a cylinder cuts another came
+// back so, 9e-7 off in their poles and 1e-9 as curves). A curve that leaves
+// it between the same ends is not the same.
+TEST_F(TopoShapeExpansionTest, searchSubShapeBSplineWrittenAnotherWay)
+{
+    // Arrange: a helix interpolated at 41 points, three times -- evenly
+    // spaced; spaced unevenly; and on a radius that swells by 2e-6 midway
+    const double pi = std::numbers::pi;
+    const int count = 41;
+    const double sweep = 0.5;
+    auto helix = [&](double shift, double swell) {
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, count);
+        Handle(TColStd_HArray1OfReal) params = new TColStd_HArray1OfReal(1, count);
+        for (int i = 0; i < count; ++i) {
+            const double s = double(i) / (count - 1);
+            const double angle = sweep * s + shift * std::sin(3 * pi * s);
+            const double radius = 10 + swell * std::sin(pi * s);
+            points->SetValue(
+                i + 1,
+                gp_Pnt(radius * std::cos(angle), radius * std::sin(angle), 3 * angle)
+            );
+            params->SetValue(i + 1, s);
+        }
+        GeomAPI_Interpolate interpolate(points, params, false, 1e-9);
+        interpolate.Perform();
+        return interpolate.Curve();
+    };
+    Handle(Geom_BSplineCurve) even = helix(0, 0);
+    Handle(Geom_BSplineCurve) uneven = helix(1e-5, 0);
+    Handle(Geom_BSplineCurve) swollen = helix(0, 2e-6);
+    double poleDistance = 0;
+    for (int i = 1; i <= even->NbPoles(); ++i) {
+        poleDistance = std::max(poleDistance, even->Pole(i).Distance(uneven->Pole(i)));
+    }
+    TopoShape edge {BRepBuilderAPI_MakeEdge(even).Edge()};
+    TopoShape other {BRepBuilderAPI_MakeEdge(uneven).Edge()};
+    std::vector<std::string> names;
+    // Act
+    other.searchSubShape(edge, &names, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    // Assert
+    ASSERT_EQ(even->NbPoles(), uneven->NbPoles());
+    EXPECT_GT(poleDistance, 1e-5);
+    ASSERT_EQ(names.size(), 1);
+    EXPECT_EQ(names[0], "Edge1");
+    EXPECT_TRUE(GeomBSplineCurve(even).isSame(GeomBSplineCurve(uneven), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(uneven).isSame(GeomBSplineCurve(even), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomBSplineCurve(even).isSame(GeomBSplineCurve(swollen), 1e-7, 1e-10));
+}
+
+// Nor does the make of a B-spline say where it runs, or the way it is run:
+// the same curve with its degree raised, and reversed, is found again, alone
+// and at the tolerance it is off by (in realthunder/FreeCAD#474 an edge of a
+// swept helix has 21 poles of degree 11 in the file and 34 of degree 9 made
+// again, 4e-7 off, and another comes back reversed).
+TEST_F(TopoShapeExpansionTest, searchSubShapeBSplineOfAnotherMakeOrDirection)
+{
+    // Arrange: a helix interpolated at 41 points; the same with its degree
+    // raised; reversed; and on a radius 4e-7 larger with its degree raised
+    const int count = 41;
+    auto helix = [&](double radius) {
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, count);
+        for (int i = 0; i < count; ++i) {
+            const double angle = 0.5 * i / (count - 1);
+            points->SetValue(
+                i + 1,
+                gp_Pnt(radius * std::cos(angle), radius * std::sin(angle), 3 * angle)
+            );
+        }
+        GeomAPI_Interpolate interpolate(points, false, 1e-9);
+        interpolate.Perform();
+        return interpolate.Curve();
+    };
+    Handle(Geom_BSplineCurve) plain = helix(10);
+    Handle(Geom_BSplineCurve) raised = Handle(Geom_BSplineCurve)::DownCast(plain->Copy());
+    raised->IncreaseDegree(plain->Degree() + 2);
+    Handle(Geom_BSplineCurve) reversed = Handle(Geom_BSplineCurve)::DownCast(plain->Reversed());
+    Handle(Geom_BSplineCurve) off = helix(10 + 4e-7);
+    off->IncreaseDegree(plain->Degree() + 2);
+    TopoShape edge {BRepBuilderAPI_MakeEdge(plain).Edge()};
+    auto found = [&](const Handle(Geom_BSplineCurve) & curve, double tol) {
+        TopoShape other {BRepBuilderAPI_MakeEdge(curve).Edge()};
+        std::vector<std::string> names;
+        other.searchSubShape(edge, &names, Data::SearchOption::CheckGeometry, tol, 1e-10);
+        return names.size();
+    };
+    // Act, Assert
+    ASSERT_GT(raised->NbPoles(), plain->NbPoles());
+    EXPECT_EQ(found(raised, 1e-7), 1);
+    EXPECT_EQ(found(reversed, 1e-7), 1);
+    EXPECT_EQ(found(off, 1e-7), 0);
+    EXPECT_EQ(found(off, 1e-5), 1);
+    EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(raised), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(raised).isSame(GeomBSplineCurve(plain), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(reversed), 1e-7, 1e-10));
+    EXPECT_FALSE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(off), 1e-7, 1e-10));
+    EXPECT_TRUE(GeomBSplineCurve(plain).isSame(GeomBSplineCurve(off), 1e-5, 1e-10));
+}
+
+// The second look for an element not found in place: as far off as the
+// tolerance of the two elements says, times a factor (PartParams
+// ReferenceSearchTolerance where a reference is looked for).
+TEST_F(TopoShapeExpansionTest, searchSubShapeNearGoesByTheShapesTolerance)
+{
+    // Arrange: a helix, the same 4e-6 further out, and one far from both
+    const int count = 41;
+    auto helix = [&](double radius) {
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, count);
+        for (int i = 0; i < count; ++i) {
+            const double angle = 0.5 * i / (count - 1);
+            points->SetValue(
+                i + 1,
+                gp_Pnt(radius * std::cos(angle), radius * std::sin(angle), 3 * angle)
+            );
+        }
+        GeomAPI_Interpolate interpolate(points, false, 1e-9);
+        interpolate.Perform();
+        return BRepBuilderAPI_MakeEdge(interpolate.Curve()).Edge();
+    };
+    auto withTolerance = [](TopoDS_Shape shape, double tolerance) {
+        ShapeFix_ShapeTolerance().SetTolerance(shape, tolerance);
+        return shape;
+    };
+    auto found = [](const TopoDS_Shape& in, const TopoDS_Shape& sought, double factor) {
+        std::vector<std::string> names;
+        TopoShape(in).searchSubShapeNear(TopoShape(sought), &names, factor);
+        return names;
+    };
+    const std::vector<std::string> none;
+    const std::vector<std::string> first {"Edge1"};
+
+    // Act, Assert: both at the kernel's 1e-7, the edge 4e-6 off is beyond
+    // ten times that, and within a hundred times
+    EXPECT_EQ(found(helix(10 + 4e-6), helix(10), 10), none);
+    EXPECT_EQ(found(helix(10 + 4e-6), helix(10), 100), first);
+    EXPECT_EQ(found(helix(10 + 4e-6), helix(10), 0), none);
+    // either one of tolerance 1e-6 puts it within ten times
+    EXPECT_EQ(found(helix(10 + 4e-6), withTolerance(helix(10), 1e-6), 10), first);
+    EXPECT_EQ(found(withTolerance(helix(10 + 4e-6), 1e-6), helix(10), 10), first);
+    // and one in place is found whatever the tolerance
+    EXPECT_EQ(found(helix(10), helix(10), 10), first);
+
+    // an element is held to its own tolerance, not to the largest of the
+    // shape it is in: a loose edge elsewhere lets nothing nearer in
+    BRep_Builder builder;
+    TopoDS_Compound both;
+    builder.MakeCompound(both);
+    builder.Add(both, helix(10 + 4e-6));
+    builder.Add(both, withTolerance(helix(20), 1e-3));
+    EXPECT_EQ(found(both, helix(10), 10), none);
+    EXPECT_EQ(found(both, withTolerance(helix(10), 1e-6), 10), first);
+}
+
+// And a straight edge written as a B-spline of degree 1: a line is found
+// again as that spline and the spline as the line, alone and as an edge of
+// a face (in realthunder/FreeCAD#474 three edges of a helix's end face came
+// back so, and the sketches on the face lost it).
+TEST_F(TopoShapeExpansionTest, searchSubShapeLineWrittenAsBSpline)
+{
+    // Arrange: a rectangle of lines, and the same of splines of degree 1
+    const gp_Pnt corners[] = {gp_Pnt(0, 0, 0), gp_Pnt(4, 0, 0), gp_Pnt(4, 2, 0), gp_Pnt(0, 2, 0)};
+    BRepBuilderAPI_MakeWire lines;
+    BRepBuilderAPI_MakeWire splines;
+    for (int i = 0; i < 4; ++i) {
+        const gp_Pnt& from = corners[i];
+        const gp_Pnt& to = corners[(i + 1) % 4];
+        lines.Add(BRepBuilderAPI_MakeEdge(from, to).Edge());
+        TColgp_Array1OfPnt poles(1, 2);
+        poles.SetValue(1, from);
+        poles.SetValue(2, to);
+        TColStd_Array1OfReal knots(1, 2);
+        knots.SetValue(1, 0);
+        knots.SetValue(2, 1);
+        TColStd_Array1OfInteger mults(1, 2);
+        mults.Init(2);
+        Handle(Geom_BSplineCurve) spline = new Geom_BSplineCurve(poles, knots, mults, 1);
+        splines.Add(BRepBuilderAPI_MakeEdge(spline).Edge());
+    }
+    TopoShape lineFace {BRepBuilderAPI_MakeFace(lines.Wire()).Face()};
+    TopoShape splineFace {BRepBuilderAPI_MakeFace(splines.Wire()).Face()};
+    std::vector<std::string> inSplines;
+    std::vector<std::string> inLines;
+    std::vector<std::string> edgeInSplines;
+    // Act
+    splineFace.searchSubShape(lineFace, &inSplines, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    lineFace.searchSubShape(splineFace, &inLines, Data::SearchOption::CheckGeometry, 1e-7, 1e-10);
+    splineFace.searchSubShape(
+        lineFace.getSubTopoShape(TopAbs_EDGE, 2),
+        &edgeInSplines,
+        Data::SearchOption::CheckGeometry,
+        1e-7,
+        1e-10
+    );
+    // Assert
+    ASSERT_EQ(inSplines.size(), 1);
+    EXPECT_EQ(inSplines[0], "Face1");
+    ASSERT_EQ(inLines.size(), 1);
+    EXPECT_EQ(inLines[0], "Face1");
+    ASSERT_EQ(edgeInSplines.size(), 1);
+    EXPECT_EQ(edgeInSplines[0], "Edge2");
+}
+
 TEST_F(TopoShapeExpansionTest, makEShellInvalid)
 {
     // Arrange
@@ -1538,7 +1830,7 @@ TEST_F(TopoShapeExpansionTest, makEBooleanCut)
             "Edge2",
             "Edge2;:M;CUT;:H2:7,E",
             "Edge3",
-            "Edge3;:M;CUT;:H2:7,E",
+            "Edge3;:H2,E",
             "Edge4",
             "Edge4;:M;CUT;:H2:7,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);CUT;:H1:1b,V",
@@ -1561,9 +1853,9 @@ TEST_F(TopoShapeExpansionTest, makEBooleanCut)
             "Vertex1",
             "Vertex2",
             "Vertex3",
-            "Vertex3;:M;CUT;:H2:7,V",
+            "Vertex3;:H2,V",
             "Vertex4",
-            "Vertex4;:M;CUT;:H2:7,V",
+            "Vertex4;:H2,V",
             "Vertex7",
             "Vertex8",
         }
@@ -1593,36 +1885,36 @@ TEST_F(TopoShapeExpansionTest, makEBooleanFuse)
             "Edge1",
             "Edge10;:G(Edge2;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge10;:H2,E",
-            "Edge10;:M2;FUS;:H1:8,E",
+            "Edge10;:M-1;FUS;:H1:9,E",
             "Edge10;:M;FUS;:H1:7,E",
             "Edge11",
-            "Edge11;:M2;FUS;:H2:8,E",
+            "Edge11;:M-1;FUS;:H2:9,E",
             "Edge11;:M;FUS;:H2:7,E",
             "Edge12",
-            "Edge12;:M2;FUS;:H2:8,E",
+            "Edge12;:M-1;FUS;:H2:9,E",
             "Edge12;:M;FUS;:H2:7,E",
             "Edge1;:H2,E",
             "Edge2",
-            "Edge2;:M2;FUS;:H2:8,E",
+            "Edge2;:M-1;FUS;:H2:9,E",
             "Edge2;:M;FUS;:H2:7,E",
             "Edge3",
             "Edge4",
-            "Edge4;:M2;FUS;:H2:8,E",
+            "Edge4;:M-1;FUS;:H2:9,E",
             "Edge4;:M;FUS;:H2:7,E",
             "Edge5;:H2,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge6;:H2,E",
-            "Edge6;:M2;FUS;:H1:8,E",
+            "Edge6;:M-1;FUS;:H1:9,E",
             "Edge6;:M;FUS;:H1:7,E",
             "Edge7",
             "Edge7;:H2,E",
             "Edge8;:G(Edge11;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge8;:H2,E",
-            "Edge8;:M2;FUS;:H1:8,E",
+            "Edge8;:M-1;FUS;:H1:9,E",
             "Edge8;:M;FUS;:H1:7,E",
             "Edge9;:G(Edge4;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge9;:H2,E",
-            "Edge9;:M2;FUS;:H1:8,E",
+            "Edge9;:M-1;FUS;:H1:9,E",
             "Edge9;:M;FUS;:H1:7,E",
             "Face1",
             "Face1;:M;FUS;:H2:7,F",
@@ -1634,10 +1926,10 @@ TEST_F(TopoShapeExpansionTest, makEBooleanFuse)
             "Face3;:M;FUS;:H1:7,F",
             "Face4",
             "Face4;:M;FUS;:H2:7,F",
-            "Face5;:M2(Face5;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face5;:M(Face5;:H2,F);FUS;:H1:14,F",
             "Face5;:M;FUS;:H1:7,F",
             "Face5;:M;FUS;:H2:7,F",
-            "Face6;:M2(Face6;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face6;:M(Face6;:H2,F);FUS;:H1:14,F",
             "Face6;:M;FUS;:H1:7,F",
             "Face6;:M;FUS;:H2:7,F",
             "Vertex1",
@@ -1678,7 +1970,11 @@ TEST_F(TopoShapeExpansionTest, makEDraft)
     EXPECT_NEAR(getVolume(result.getShape()), 4.3333333333, 1e-06);  // Truncated pyramid
     // Assert elementMap is correct
     EXPECT_EQ(elements.size(), 26);  // Cubes have 6 Faces, 12 Edges, 8 Vertexes
-    EXPECT_EQ(elements[IndexedName("Edge", 1)], MappedName("Face1;:G;DFT;:H1:7,F;:U;DFT;:H1:7,E"));
+    // between the drafts of two faces, and named from both
+    EXPECT_EQ(
+        elements[IndexedName("Edge", 1)],
+        MappedName("Face1;:G;DFT;:H1:7,F;:B(Face3;:G;DFT;:H1:7,F);DFT;:H1:1d,E")
+    );
 }
 
 TEST_F(TopoShapeExpansionTest, makEDraftTopoShapes)
@@ -2025,38 +2321,38 @@ TEST_F(TopoShapeExpansionTest, makEGeneralFuse)
             "Edge1",
             "Edge10;:G(Edge2;K-1;:H2:4,E);GFS;:H1:1a,V",
             "Edge10;:H2,E",
-            "Edge10;:M2;GFS;:H1:8,E",
+            "Edge10;:M-1;GFS;:H1:9,E",
             "Edge10;:M;GFS;:H1:7,E",
             "Edge11",
-            "Edge11;:M2;GFS;:H2:8,E",
+            "Edge11;:M-1;GFS;:H2:9,E",
             "Edge11;:M;GFS;:H2:7,E",
             "Edge12",
-            "Edge12;:M2;GFS;:H2:8,E",
+            "Edge12;:M-1;GFS;:H2:9,E",
             "Edge12;:M;GFS;:H2:7,E",
             "Edge1;:H2,E",
             "Edge2",
-            "Edge2;:M2;GFS;:H2:8,E",
+            "Edge2;:M-1;GFS;:H2:9,E",
             "Edge2;:M;GFS;:H2:7,E",
             "Edge3",
-            "Edge3;:M;GFS;:H2:7,E",
+            "Edge3;:H2,E",
             "Edge4",
-            "Edge4;:M2;GFS;:H2:8,E",
+            "Edge4;:M-1;GFS;:H2:9,E",
             "Edge4;:M;GFS;:H2:7,E",
+            "Edge5",
             "Edge5;:H2,E",
-            "Edge5;:M;GFS;:H1:7,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);GFS;:H1:1b,V",
             "Edge6;:H2,E",
-            "Edge6;:M2;GFS;:H1:8,E",
+            "Edge6;:M-1;GFS;:H1:9,E",
             "Edge6;:M;GFS;:H1:7,E",
             "Edge7",
             "Edge7;:H2,E",
             "Edge8;:G(Edge11;K-1;:H2:4,E);GFS;:H1:1b,V",
             "Edge8;:H2,E",
-            "Edge8;:M2;GFS;:H1:8,E",
+            "Edge8;:M-1;GFS;:H1:9,E",
             "Edge8;:M;GFS;:H1:7,E",
             "Edge9;:G(Edge4;K-1;:H2:4,E);GFS;:H1:1a,V",
             "Edge9;:H2,E",
-            "Edge9;:M2;GFS;:H1:8,E",
+            "Edge9;:M-1;GFS;:H1:9,E",
             "Edge9;:M;GFS;:H1:7,E",
             "Face1",
             "Face1;:M2;GFS;:H2:8,F",
@@ -2072,10 +2368,10 @@ TEST_F(TopoShapeExpansionTest, makEGeneralFuse)
             "Face4",
             "Face4;:M2;GFS;:H2:8,F",
             "Face4;:M;GFS;:H2:7,F",
-            "Face5;:M2(Face5;K2;:H2:3,F);GFS;:H1:1a,F",
+            "Face5;:M(Face5;:H2,F);GFS;:H1:14,F",
             "Face5;:M;GFS;:H1:7,F",
             "Face5;:M;GFS;:H2:7,F",
-            "Face6;:M2(Face6;K2;:H2:3,F);GFS;:H1:1a,F",
+            "Face6;:M(Face6;:H2,F);GFS;:H1:14,F",
             "Face6;:M;GFS;:H1:7,F",
             "Face6;:M;GFS;:H2:7,F",
             "Vertex1",
@@ -2083,13 +2379,13 @@ TEST_F(TopoShapeExpansionTest, makEGeneralFuse)
             "Vertex2",
             "Vertex2;:H2,V",
             "Vertex3",
-            "Vertex3;:M;GFS;:H2:7,V",
+            "Vertex3;:H2,V",
             "Vertex4",
-            "Vertex4;:M;GFS;:H2:7,V",
+            "Vertex4;:H2,V",
+            "Vertex5",
             "Vertex5;:H2,V",
-            "Vertex5;:M;GFS;:H1:7,V",
+            "Vertex6",
             "Vertex6;:H2,V",
-            "Vertex6;:M;GFS;:H1:7,V",
             "Vertex7",
             "Vertex7;:H2,V",
             "Vertex8",
@@ -2121,36 +2417,36 @@ TEST_F(TopoShapeExpansionTest, makEFuse)
             "Edge1",
             "Edge10;:G(Edge2;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge10;:H2,E",
-            "Edge10;:M2;FUS;:H1:8,E",
+            "Edge10;:M-1;FUS;:H1:9,E",
             "Edge10;:M;FUS;:H1:7,E",
             "Edge11",
-            "Edge11;:M2;FUS;:H2:8,E",
+            "Edge11;:M-1;FUS;:H2:9,E",
             "Edge11;:M;FUS;:H2:7,E",
             "Edge12",
-            "Edge12;:M2;FUS;:H2:8,E",
+            "Edge12;:M-1;FUS;:H2:9,E",
             "Edge12;:M;FUS;:H2:7,E",
             "Edge1;:H2,E",
             "Edge2",
-            "Edge2;:M2;FUS;:H2:8,E",
+            "Edge2;:M-1;FUS;:H2:9,E",
             "Edge2;:M;FUS;:H2:7,E",
             "Edge3",
             "Edge4",
-            "Edge4;:M2;FUS;:H2:8,E",
+            "Edge4;:M-1;FUS;:H2:9,E",
             "Edge4;:M;FUS;:H2:7,E",
             "Edge5;:H2,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge6;:H2,E",
-            "Edge6;:M2;FUS;:H1:8,E",
+            "Edge6;:M-1;FUS;:H1:9,E",
             "Edge6;:M;FUS;:H1:7,E",
             "Edge7",
             "Edge7;:H2,E",
             "Edge8;:G(Edge11;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge8;:H2,E",
-            "Edge8;:M2;FUS;:H1:8,E",
+            "Edge8;:M-1;FUS;:H1:9,E",
             "Edge8;:M;FUS;:H1:7,E",
             "Edge9;:G(Edge4;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge9;:H2,E",
-            "Edge9;:M2;FUS;:H1:8,E",
+            "Edge9;:M-1;FUS;:H1:9,E",
             "Edge9;:M;FUS;:H1:7,E",
             "Face1",
             "Face1;:M;FUS;:H2:7,F",
@@ -2162,10 +2458,10 @@ TEST_F(TopoShapeExpansionTest, makEFuse)
             "Face3;:M;FUS;:H1:7,F",
             "Face4",
             "Face4;:M;FUS;:H2:7,F",
-            "Face5;:M2(Face5;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face5;:M(Face5;:H2,F);FUS;:H1:14,F",
             "Face5;:M;FUS;:H1:7,F",
             "Face5;:M;FUS;:H2:7,F",
-            "Face6;:M2(Face6;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face6;:M(Face6;:H2,F);FUS;:H1:14,F",
             "Face6;:M;FUS;:H1:7,F",
             "Face6;:M;FUS;:H2:7,F",
             "Vertex1",
@@ -2220,7 +2516,7 @@ TEST_F(TopoShapeExpansionTest, makECut)
             "Edge2",
             "Edge2;:M;CUT;:H2:7,E",
             "Edge3",
-            "Edge3;:M;CUT;:H2:7,E",
+            "Edge3;:H2,E",
             "Edge4",
             "Edge4;:M;CUT;:H2:7,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);CUT;:H1:1b,V",
@@ -2243,13 +2539,341 @@ TEST_F(TopoShapeExpansionTest, makECut)
             "Vertex1",
             "Vertex2",
             "Vertex3",
-            "Vertex3;:M;CUT;:H2:7,V",
+            "Vertex3;:H2,V",
             "Vertex4",
-            "Vertex4;:M;CUT;:H2:7,V",
+            "Vertex4;:H2,V",
             "Vertex7",
             "Vertex8",
         }
     ));
+}
+
+// The three tests below: how an element is named that the maker says nothing
+// of (docs/TopoNamingEnhance.md sec 9.11).
+
+namespace
+{
+/// A maker that tells of one face what it became, and of nothing else
+struct OneFaceMapper: TopoShape::Mapper
+{
+    TopoDS_Shape from, to;
+    const std::vector<TopoDS_Shape>& modified(const TopoDS_Shape& s) const override
+    {
+        _res.clear();
+        if (s.IsSame(from)) {
+            _res.push_back(to);
+        }
+        return _res;
+    }
+    const std::vector<TopoDS_Shape>& generated(const TopoDS_Shape&) const override
+    {
+        _res.clear();
+        return _res;
+    }
+};
+}  // namespace
+
+// An edge is named from all the named faces it lies between, and a vertex
+// from the edges that meet in it, not from one of them and its place there
+TEST_F(TopoShapeExpansionTest, makEChamferNamesAnElementFromAllItsUpperElements)
+{
+    // Arrange
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape cube {cube1, 1L};
+    auto edges = cube.getSubTopoShapes(TopAbs_EDGE);
+    // Act: one edge chamfered. The kernel tells of the chamfer's face (made
+    // from the edge) and of the cube's faces (modified); of the chamfer's
+    // four edges and their vertices it says nothing
+    cube.makEChamfer({cube}, {edges[0]}, .05, .05);
+    auto elements = elementMap(cube);
+    // Assert
+    const std::string chamfer = "Edge1;:G;CHF;:H1:7,F";
+    TopTools_IndexedDataMapOfShapeListOfShape facesOf;
+    TopExp::MapShapesAndAncestors(cube.getShape(), TopAbs_EDGE, TopAbs_FACE, facesOf);
+    int chamferFace = 0;
+    for (int i = 1; i <= static_cast<int>(cube.countSubShapes(TopAbs_FACE)); ++i) {
+        if (elements[IndexedName("Face", i)].toString() == chamfer) {
+            chamferFace = i;
+        }
+    }
+    ASSERT_NE(chamferFace, 0);
+    int count = 0;
+    for (TopExp_Explorer xp(cube.getSubShape(TopAbs_FACE, chamferFace), TopAbs_EDGE); xp.More();
+         xp.Next()) {
+        // the face across the edge
+        std::string across;
+        for (TopTools_ListIteratorOfListOfShape it(facesOf.FindFromKey(xp.Current())); it.More();
+             it.Next()) {
+            int j = cube.findShape(it.Value());
+            if (j != chamferFace) {
+                across = elements[IndexedName("Face", j)].toString();
+            }
+        }
+        ASSERT_FALSE(across.empty());
+        const std::string name
+            = elements[IndexedName("Edge", cube.findShape(xp.Current()))].toString();
+        // one of the two is the base, the other in the postfix, and no number
+        EXPECT_TRUE(
+            name.starts_with(chamfer + ";:B(" + across + ")")
+            || name.starts_with(across + ";:B(" + chamfer + ")")
+        ) << name;
+        ++count;
+    }
+    EXPECT_EQ(count, 4);
+    for (const auto& [indexed, mapped] : elements) {
+        const std::string name = mapped.toString();
+        EXPECT_EQ(name.find(";:U"), std::string::npos) << name;
+        if (indexed.getType() == std::string("Vertex") && name.find(";:B") != std::string::npos) {
+            // from more than one edge
+            EXPECT_NE(name.find(";:B("), std::string::npos) << name;
+        }
+    }
+}
+
+// Elements in the very same upper elements are told apart by a number
+TEST_F(TopoShapeExpansionTest, makESHAPENumbersElementsOfTheSameUpperElements)
+{
+    // Arrange: a face, and a copy of it with a geometry of its own
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape source {TopoShape(cube1, 1L).getSubShape(TopAbs_FACE, 1), 1L};
+    OneFaceMapper mapper;
+    mapper.from = source.getShape();
+    mapper.to = BRepBuilderAPI_Copy(source.getShape(), true).Shape();
+    TopoShape result {2L};
+    // Act
+    result.makESHAPE(mapper.to, mapper, {source}, "TST");
+    auto elements = elementMap(result);
+    // Assert: the face by its history, its four edges from it alone
+    const std::string face = "Face1;:M;TST;:H1:7,F";
+    EXPECT_EQ(elements[IndexedName("Face", 1)].toString(), face);
+    std::set<std::string> names;
+    for (int i = 1; i <= 4; ++i) {
+        names.insert(elements[IndexedName("Edge", i)].toString());
+    }
+    EXPECT_EQ(
+        names,
+        (std::set<std::string> {
+            face + ";:B;TST;:H1:7,E",
+            face + ";:B2;TST;:H1:8,E",
+            face + ";:B3;TST;:H1:8,E",
+            face + ";:B4;TST;:H1:8,E",
+        })
+    );
+}
+
+// An element the maker says nothing of, on the very surface or curve of one
+// input element, is that element modified
+TEST_F(TopoShapeExpansionTest, makESHAPETakesAnInputElementsGeometryForHistory)
+{
+    // Arrange: a cube; a face on the surface of its first face, half of it,
+    // and an edge on the curve of its first edge, half of it
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape source {cube1, 1L};
+    TopLoc_Location loc;
+    const TopoDS_Face face1 = TopoDS::Face(source.getSubShape(TopAbs_FACE, 1));
+    double u1 {}, u2 {}, v1 {}, v2 {};
+    BRepTools::UVBounds(face1, u1, u2, v1, v2);
+    TopoDS_Shape halfFace = BRepBuilderAPI_MakeFace(
+                                BRep_Tool::Surface(face1, loc),
+                                u1,
+                                (u1 + u2) / 2,
+                                v1,
+                                v2,
+                                Precision::Confusion()
+    ).Shape();
+    double first {}, last {};
+    const TopoDS_Edge edge1 = TopoDS::Edge(source.getSubShape(TopAbs_EDGE, 1));
+    auto curve1 = BRep_Tool::Curve(edge1, loc, first, last);
+    TopoDS_Shape halfEdge = BRepBuilderAPI_MakeEdge(curve1, first, (first + last) / 2).Shape();
+    BRep_Builder builder;
+    TopoDS_Compound made;
+    builder.MakeCompound(made);
+    builder.Add(made, halfFace);
+    builder.Add(made, halfEdge);
+    TopoShape result {2L};
+    // Act: a maker with no history at all
+    result.makESHAPE(made, TopoShape::Mapper(), {source}, "TST");
+    auto elements = elementMap(result);
+    // Assert
+    EXPECT_EQ(elements[IndexedName("Face", 1)].toString(), "Face1;:M;TST;:H1:7,F");
+    EXPECT_EQ(
+        elements[IndexedName("Edge", result.findShape(halfEdge))].toString(),
+        "Edge1;:M;TST;:H1:7,E"
+    );
+
+    // Arrange: the same surface under two input faces
+    TopoShape face {TopoShape(cube1, 1L).getSubShape(TopAbs_FACE, 1), 1L};
+    TopoShape twin {BRepBuilderAPI_Copy(face.getShape(), false).Shape(), 3L};
+    TopoShape other {4L};
+    // Act
+    other.makESHAPE(halfFace, TopoShape::Mapper(), {face, twin}, "TST");
+    // Assert: which of the two it came from is not to be told, and it is not
+    EXPECT_TRUE(elementMap(other).empty());
+}
+
+// The three tests below: docs/TopoNamingEnhance.md sec 9.12.
+
+// An element made again as it was -- the same surface or curve and the same
+// bounds, another shape -- is named as the one passed on is
+TEST_F(TopoShapeExpansionTest, makESHAPENamesAnElementMadeAgainAsOnePassedOn)
+{
+    // Arrange: a cube, and a copy that shares its geometry
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape source {cube1, 1L};
+    TopoDS_Shape remade = BRepBuilderAPI_Copy(cube1, false).Shape();
+    TopoShape passed {2L};
+    TopoShape result {2L};
+    // Act: the cube itself, and the copy, each with no history
+    passed.makESHAPE(cube1, TopoShape::Mapper(), {source}, "TST");
+    result.makESHAPE(remade, TopoShape::Mapper(), {source}, "TST");
+    // Assert
+    auto expected = elementMap(passed);
+    EXPECT_EQ(expected.size(), 26);
+    EXPECT_EQ(expected[IndexedName("Face", 1)].toString(), "Face1;:H1,F");
+    EXPECT_EQ(elementMap(result), expected);
+}
+
+namespace
+{
+/// A maker that tells what it is told to
+struct ListMapper: TopoShape::Mapper
+{
+    std::vector<std::pair<TopoDS_Shape, std::vector<TopoDS_Shape>>> mod, gen;
+    const std::vector<TopoDS_Shape>& find(
+        const std::vector<std::pair<TopoDS_Shape, std::vector<TopoDS_Shape>>>& lists,
+        const TopoDS_Shape& s
+    ) const
+    {
+        _res.clear();
+        for (const auto& [from, to] : lists) {
+            if (s.IsSame(from)) {
+                _res = to;
+            }
+        }
+        return _res;
+    }
+    const std::vector<TopoDS_Shape>& modified(const TopoDS_Shape& s) const override
+    {
+        return find(mod, s);
+    }
+    const std::vector<TopoDS_Shape>& generated(const TopoDS_Shape& s) const override
+    {
+        return find(gen, s);
+    }
+};
+
+TopoDS_Compound compoundOf(const std::vector<TopoDS_Shape>& shapes)
+{
+    BRep_Builder builder;
+    TopoDS_Compound compound;
+    builder.MakeCompound(compound);
+    for (const auto& shape : shapes) {
+        builder.Add(compound, shape);
+    }
+    return compound;
+}
+}  // namespace
+
+// A result is numbered among the results of the very same sources, not by
+// its place in the list of one of them: a result more in that list, of other
+// sources, moves no name
+TEST_F(TopoShapeExpansionTest, makESHAPENumbersAResultAmongThoseOfTheSameSources)
+{
+    // Arrange: a cube's faces as the sources, five edges of their own as the
+    // results, and a sixth
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape source {cube1, 1L};
+    auto faces = source.getSubShapes(TopAbs_FACE);
+    std::vector<TopoDS_Shape> made;
+    for (int i = 1; i <= 6; ++i) {
+        made.push_back(BRepBuilderAPI_Copy(source.getSubShape(TopAbs_EDGE, i), true).Shape());
+    }
+    const TopoDS_Shape &a = made[0], &b = made[1], &c = made[2], &d = made[3], &e = made[4],
+                       &x = made[5];
+    ListMapper mapper;
+    mapper.gen = {{faces[0], {a, b, c}}, {faces[1], {b}}, {faces[2], {c}}, {faces[3], {d, e}}};
+    TopoShape result {2L};
+    // Act
+    result.makESHAPE(compoundOf({a, b, c, d, e}), mapper, {source}, "TST");
+    auto elements = elementMap(result);
+    auto name = [&](const TopoShape& shape, const TopoDS_Shape& edge) {
+        return elementMap(shape)[IndexedName("Edge", shape.findShape(edge))].toString();
+    };
+    // Assert: no number where the sources tell a result apart, one where
+    // they do not
+    EXPECT_EQ(name(result, a), "Face1;:G;TST;:H1:7,E");
+    EXPECT_TRUE(name(result, b).starts_with("Face1;:G(Face2")) << name(result, b);
+    EXPECT_TRUE(name(result, c).starts_with("Face1;:G(Face3")) << name(result, c);
+    EXPECT_EQ(name(result, d), "Face4;:G;TST;:H1:7,E");
+    EXPECT_EQ(name(result, e), "Face4;:G2;TST;:H1:8,E");
+
+    // Arrange: the first face makes one more, with the fifth, and lists it first
+    mapper.gen[0].second = {x, a, b, c};
+    mapper.gen.push_back({faces[4], {x}});
+    TopoShape more {2L};
+    // Act
+    more.makESHAPE(compoundOf({x, a, b, c, d, e}), mapper, {source}, "TST");
+    // Assert: the five are named as they were
+    for (const auto& edge : {a, b, c, d, e}) {
+        EXPECT_EQ(name(more, edge), name(result, edge));
+    }
+    EXPECT_TRUE(name(more, x).starts_with("Face1;:G(Face5")) << name(more, x);
+}
+
+// The pieces of an edge are numbered along its curve, whatever order the
+// maker lists them in. The piece at an end keeps its name whichever of them
+// is cut again; one between the ends says how many pieces there are, and has
+// another name when there are more
+TEST_F(TopoShapeExpansionTest, makESHAPENumbersThePiecesOfAnEdgeAlongItsCurve)
+{
+    // Arrange: an edge, and pieces of it on its own curve
+    auto [cube1, cube2] = CreateTwoCubes();
+    TopoShape source {TopoShape(cube1, 1L).getSubShape(TopAbs_EDGE, 1), 1L};
+    TopLoc_Location loc;
+    double first {}, last {};
+    auto curve = BRep_Tool::Curve(TopoDS::Edge(source.getShape()), loc, first, last);
+    auto piece = [&](double from, double to) {
+        return BRepBuilderAPI_MakeEdge(
+                   curve,
+                   first + from * (last - first),
+                   first + to * (last - first)
+        ).Shape();
+    };
+    auto name = [&](const TopoShape& shape, const TopoDS_Shape& edge) {
+        return elementMap(shape)[IndexedName("Edge", shape.findShape(edge))].toString();
+    };
+    const TopoDS_Shape head = piece(0, 0.3), tail = piece(0.3, 1);
+    ListMapper mapper;
+    mapper.mod = {{source.getShape(), {tail, head}}};
+    TopoShape two {2L};
+    // Act
+    two.makESHAPE(compoundOf({tail, head}), mapper, {source}, "TST");
+    // Assert
+    EXPECT_EQ(name(two, head), "Edge1;:M;TST;:H1:7,E");
+    EXPECT_EQ(name(two, tail), "Edge1;:M-1;TST;:H1:9,E");
+
+    // Arrange: the head cut again
+    const TopoDS_Shape head1 = piece(0, 0.1), head2 = piece(0.1, 0.3);
+    mapper.mod = {{source.getShape(), {head2, tail, head1}}};
+    TopoShape three {2L};
+    // Act
+    three.makESHAPE(compoundOf({head2, tail, head1}), mapper, {source}, "TST");
+    // Assert: the tail is the tail still
+    EXPECT_EQ(name(three, head1), "Edge1;:M;TST;:H1:7,E");
+    EXPECT_EQ(name(three, head2), "Edge1;:M2-3;TST;:H1:a,E");
+    EXPECT_EQ(name(three, tail), name(two, tail));
+
+    // Arrange: and the tail
+    const TopoDS_Shape tail1 = piece(0.3, 0.6), tail2 = piece(0.6, 1);
+    mapper.mod = {{source.getShape(), {tail2, head2, tail1, head1}}};
+    TopoShape four {2L};
+    // Act
+    four.makESHAPE(compoundOf({tail2, head2, tail1, head1}), mapper, {source}, "TST");
+    // Assert: the second of three is not the second of four
+    EXPECT_EQ(name(four, head1), name(three, head1));
+    EXPECT_EQ(name(four, head2), "Edge1;:M2-4;TST;:H1:a,E");
+    EXPECT_EQ(name(four, tail1), "Edge1;:M3-4;TST;:H1:a,E");
+    EXPECT_EQ(name(four, tail2), name(two, tail));
 }
 
 TEST_F(TopoShapeExpansionTest, makEChamfer)
@@ -2271,89 +2895,89 @@ TEST_F(TopoShapeExpansionTest, makEChamfer)
         cube1TS,
         {
             "Edge10;:G;CHF;:H1:7,F",
-            "Edge10;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge10;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge10;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge10;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge10;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge10;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge10;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge10;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge11;:G;CHF;:H1:7,F",
-            "Edge11;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge11;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge11;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge11;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge11;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge11;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge11;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge11;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge12;:G;CHF;:H1:7,F",
-            "Edge12;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge12;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge12;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge12;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge12;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge12;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge12;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge12;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge1;:G;CHF;:H1:7,F",
-            "Edge1;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge1;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge1;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge1;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge1;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge1;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge1;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge1;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge1;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge2;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge2;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge1;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge4;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge4;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge1;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge10;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge10;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge1;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge1;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge9;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge9;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge1;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge1;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge2;:G;CHF;:H1:7,F",
-            "Edge2;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge2;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge2;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge2;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge2;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge2;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge2;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge2;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge2;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge2;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge3;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge3;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge2;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge2;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge2;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge10;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge10;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge2;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge2;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge12;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge12;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge2;:G;CHF;:H1:7,F;:B(Vertex1;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge2;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge3;:G;CHF;:H1:7,F",
-            "Edge3;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge3;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge3;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge3;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge3;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge3;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge3;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge3;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge3;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge3;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge4;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge4;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge3;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge3;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge3;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge12;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge12;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge3;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge3;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge11;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge11;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge3;:G;CHF;:H1:7,F;:B(Vertex3;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge3;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge4;:G;CHF;:H1:7,F",
-            "Edge4;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge4;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge4;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge4;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge4;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge4;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge4;:G;CHF;:H1:7,F;:B(Face1;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge4;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge4;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge4;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge9;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge9;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge4;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge4;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge11;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge11;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge4;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge4;:G;CHF;:H1:7,F;:B(Vertex4;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge5;:G;CHF;:H1:7,F",
-            "Edge5;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge5;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge5;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge5;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge5;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge5;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge5;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge5;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge5;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge6;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge6;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge5;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge8;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge8;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge5;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge10;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge10;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge5;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge5;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge9;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge9;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge5;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge5;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge6;:G;CHF;:H1:7,F",
-            "Edge6;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge6;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge6;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge6;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge6;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge6;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge6;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge6;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge6;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge6;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge7;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge7;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge6;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge6;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge6;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge10;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge10;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge6;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge6;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge12;:G;CHF;:H1:7,F;:B(Face6;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge12;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge6;:G;CHF;:H1:7,F;:B(Vertex5;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge6;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge7;:G;CHF;:H1:7,F",
-            "Edge7;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge7;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge7;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge7;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge7;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge7;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge7;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge7;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge7;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge7;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge8;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge8;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge7;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge7;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge7;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge12;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge12;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge7;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge7;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge11;:G;CHF;:H1:7,F;:B(Face4;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge11;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge7;:G;CHF;:H1:7,F;:B(Vertex7;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge7;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge8;:G;CHF;:H1:7,F",
-            "Edge8;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge8;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U2;CHF;:H1:8,V",
-            "Edge8;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E;:U;CHF;:H1:7,V",
-            "Edge8;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge8;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge8;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge8;:G;CHF;:H1:7,F;:B(Face2;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge8;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge8;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge8;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge9;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge9;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bd,V",
+            "Edge8;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E;:B(Edge8;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E|Edge11;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E|Edge11;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E);CHF;:H1:bf,V",
+            "Edge8;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge8;:G;CHF;:H1:7,F;:B(Vertex8;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Edge9;:G;CHF;:H1:7,F",
-            "Edge9;:G;CHF;:H1:7,F;:U2;CHF;:H1:8,E",
-            "Edge9;:G;CHF;:H1:7,F;:U3;CHF;:H1:8,E",
-            "Edge9;:G;CHF;:H1:7,F;:U4;CHF;:H1:8,E",
-            "Edge9;:G;CHF;:H1:7,F;:U;CHF;:H1:7,E",
+            "Edge9;:G;CHF;:H1:7,F;:B(Face3;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge9;:G;CHF;:H1:7,F;:B(Face5;:M;CHF;:H1:7,F);CHF;:H1:1d,E",
+            "Edge9;:G;CHF;:H1:7,F;:B(Vertex2;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
+            "Edge9;:G;CHF;:H1:7,F;:B(Vertex6;:G;CHF;:H1:7,F);CHF;:H1:1f,E",
             "Face1;:M;CHF;:H1:7,F",
             "Face2;:M;CHF;:H1:7,F",
             "Face3;:M;CHF;:H1:7,F",
@@ -2390,89 +3014,89 @@ TEST_F(TopoShapeExpansionTest, makEFillet)
         cube1TS,
         {
             "Edge10;:G;FLT;:H1:7,F",
-            "Edge10;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge10;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge10;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge10;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge10;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge10;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge10;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge10;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge11;:G;FLT;:H1:7,F",
-            "Edge11;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge11;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge11;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge11;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge11;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge11;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge11;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge11;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge12;:G;FLT;:H1:7,F",
-            "Edge12;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge12;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge12;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge12;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge12;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge12;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge12;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge12;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge1;:G;FLT;:H1:7,F",
-            "Edge1;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge1;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge1;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge1;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge1;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge1;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge1;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge1;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge1;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge2;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge2;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge1;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge4;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge4;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge1;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge10;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge10;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge1;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge1;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge9;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge9;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge1;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge1;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge2;:G;FLT;:H1:7,F",
-            "Edge2;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge2;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge2;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge2;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge2;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge2;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge2;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge2;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge2;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge2;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge3;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge3;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge2;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge2;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge2;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge10;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge10;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex1;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge2;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge2;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge12;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge12;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge2;:G;FLT;:H1:7,F;:B(Vertex1;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge2;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge3;:G;FLT;:H1:7,F",
-            "Edge3;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge3;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge3;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge3;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge3;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge3;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge3;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge3;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge3;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge3;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge4;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge4;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge3;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge3;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge3;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge12;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge12;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex3;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge3;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge3;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge11;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge11;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge3;:G;FLT;:H1:7,F;:B(Vertex3;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge3;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge4;:G;FLT;:H1:7,F",
-            "Edge4;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge4;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge4;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge4;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge4;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge4;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge4;:G;FLT;:H1:7,F;:B(Face1;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge4;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge4;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge4;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge9;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge9;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex2;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e3,V",
+            "Edge4;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge4;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge11;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge11;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex4;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge4;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge4;:G;FLT;:H1:7,F;:B(Vertex4;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge5;:G;FLT;:H1:7,F",
-            "Edge5;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge5;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge5;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge5;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge5;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge5;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge5;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge5;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge5;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge6;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge6;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge5;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge8;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge8;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge5;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge10;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge10;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge5;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge5;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge9;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge9;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge5;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge5;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge6;:G;FLT;:H1:7,F",
-            "Edge6;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge6;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge6;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge6;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge6;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge6;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge6;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge6;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge6;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge6;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge7;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge7;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge6;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge6;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge6;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge10;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge10;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex5;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge6;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge6;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge12;:G;FLT;:H1:7,F;:B(Face6;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge12;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge6;:G;FLT;:H1:7,F;:B(Vertex5;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge6;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge7;:G;FLT;:H1:7,F",
-            "Edge7;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge7;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge7;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge7;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge7;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge7;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge7;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge7;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge7;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge7;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge8;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge8;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bd,V",
+            "Edge7;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge7;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge7;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge12;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge12;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex7;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge7;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge7;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge11;:G;FLT;:H1:7,F;:B(Face4;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge11;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E);FLT;:H1:bf,V",
+            "Edge7;:G;FLT;:H1:7,F;:B(Vertex7;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge7;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge8;:G;FLT;:H1:7,F",
-            "Edge8;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge8;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U2;FLT;:H1:8,V",
-            "Edge8;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E;:U;FLT;:H1:7,V",
-            "Edge8;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge8;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge8;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge8;:G;FLT;:H1:7,F;:B(Face2;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge8;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge8;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge8;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge9;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge9;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex6;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e3,V",
+            "Edge8;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E;:B(Edge8;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Edge11;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E|Edge11;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E|Vertex8;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E);FLT;:H1:e5,V",
+            "Edge8;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge8;:G;FLT;:H1:7,F;:B(Vertex8;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Edge9;:G;FLT;:H1:7,F",
-            "Edge9;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
-            "Edge9;:G;FLT;:H1:7,F;:U3;FLT;:H1:8,E",
-            "Edge9;:G;FLT;:H1:7,F;:U4;FLT;:H1:8,E",
-            "Edge9;:G;FLT;:H1:7,F;:U;FLT;:H1:7,E",
+            "Edge9;:G;FLT;:H1:7,F;:B(Face3;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge9;:G;FLT;:H1:7,F;:B(Face5;:M;FLT;:H1:7,F);FLT;:H1:1d,E",
+            "Edge9;:G;FLT;:H1:7,F;:B(Vertex2;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
+            "Edge9;:G;FLT;:H1:7,F;:B(Vertex6;:G;FLT;:H1:7,F);FLT;:H1:1f,E",
             "Face1;:M;FLT;:H1:7,F",
             "Face2;:M;FLT;:H1:7,F",
             "Face3;:M;FLT;:H1:7,F",
@@ -2480,21 +3104,21 @@ TEST_F(TopoShapeExpansionTest, makEFillet)
             "Face5;:M;FLT;:H1:7,F",
             "Face6;:M;FLT;:H1:7,F",
             "Vertex1;:G;FLT;:H1:7,F",
-            "Vertex1;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex1;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex2;:G;FLT;:H1:7,F",
-            "Vertex2;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex2;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex3;:G;FLT;:H1:7,F",
-            "Vertex3;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex3;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex4;:G;FLT;:H1:7,F",
-            "Vertex4;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex4;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex5;:G;FLT;:H1:7,F",
-            "Vertex5;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex5;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex6;:G;FLT;:H1:7,F",
-            "Vertex6;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex6;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex7;:G;FLT;:H1:7,F",
-            "Vertex7;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex7;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
             "Vertex8;:G;FLT;:H1:7,F",
-            "Vertex8;:G;FLT;:H1:7,F;:U2;FLT;:H1:8,E",
+            "Vertex8;:G;FLT;:H1:7,F;:B;FLT;:H1:7,E",
         }
     ));
 }
@@ -2517,13 +3141,13 @@ TEST_F(TopoShapeExpansionTest, makESlice)
     EXPECT_TRUE(elementsMatch(
         result,
         {
+            "Face1;:G2;SLC;:H1:8,E;SLC;:H1:4,E",
             "Face1;:G2;SLC;:H1:8,V;SLC;:H1:4,V",
+            "Face1;:G3;SLC;:H1:8,E;SLC;:H1:4,E",
             "Face1;:G3;SLC;:H1:8,V;SLC;:H1:4,V",
+            "Face1;:G4;SLC;:H1:8,E;SLC;:H1:4,E",
             "Face1;:G4;SLC;:H1:8,V;SLC;:H1:4,V",
-            "Face1;:G5;SLC;:H1:8,E;SLC;:H1:4,E",
-            "Face1;:G6;SLC;:H1:8,E;SLC;:H1:4,E",
-            "Face1;:G7;SLC;:H1:8,E;SLC;:H1:4,E",
-            "Face1;:G8;SLC;:H1:8,E;SLC;:H1:4,E",
+            "Face1;:G;SLC;:H1:7,E;SLC;:H1:4,E",
             "Face1;:G;SLC;:H1:7,V;SLC;:H1:4,V",
         }
     ));
@@ -2553,30 +3177,30 @@ TEST_F(TopoShapeExpansionTest, makESlices)
     EXPECT_TRUE(elementsMatch(
         result,
         {
-            "Edge10;:G(Face1;K-2;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
-            "Edge10;:G(Face1;K-2;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
-            "Edge10;:G(Face1;K-2;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
-            "Edge11;:G(Face1;K-3;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
-            "Edge11;:G(Face1;K-3;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
-            "Edge11;:G(Face1;K-3;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
-            "Edge12;:G(Face1;K-4;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
-            "Edge12;:G(Face1;K-4;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
-            "Edge12;:G(Face1;K-4;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
+            "Edge10;:G(Face1;K-1;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
+            "Edge10;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
+            "Edge10;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
+            "Edge11;:G(Face1;K-1;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
+            "Edge11;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
+            "Edge11;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
+            "Edge12;:G(Face1;K-1;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
+            "Edge12;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
+            "Edge12;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
             "Edge9;:G(Face1;K-1;:H1:4,F);SLC;:H1:1a,V;SLC;:H1:4,V",
             "Edge9;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,V;SLC_2;:H1:6,V",
             "Edge9;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,V;SLC_3;:H1:6,V",
-            "Face1;:G5(Face3;K-1;:H1:4,F);SLC;:H1:1b,E;SLC;:H1:4,E",
-            "Face1;:G6(Face4;K-1;:H1:4,F);SLC;:H1:1b,E;SLC;:H1:4,E",
-            "Face1;:G7(Face5;K-1;:H1:4,F);SLC;:H1:1b,E;SLC;:H1:4,E",
-            "Face1;:G8(Face6;K-1;:H1:4,F);SLC;:H1:1b,E;SLC;:H1:4,E",
-            "Face3;:G(Face1;K-5;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
-            "Face3;:G(Face1;K-5;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
-            "Face4;:G(Face1;K-6;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
-            "Face4;:G(Face1;K-6;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
-            "Face5;:G(Face1;K-7;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
-            "Face5;:G(Face1;K-7;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
-            "Face6;:G(Face1;K-8;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
-            "Face6;:G(Face1;K-8;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
+            "Face1;:G(Face3;K-1;:H1:4,F);SLC;:H1:1a,E;SLC;:H1:4,E",
+            "Face1;:G(Face4;K-1;:H1:4,F);SLC;:H1:1a,E;SLC;:H1:4,E",
+            "Face1;:G(Face5;K-1;:H1:4,F);SLC;:H1:1a,E;SLC;:H1:4,E",
+            "Face1;:G(Face6;K-1;:H1:4,F);SLC;:H1:1a,E;SLC;:H1:4,E",
+            "Face3;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
+            "Face3;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
+            "Face4;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
+            "Face4;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
+            "Face5;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
+            "Face5;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
+            "Face6;:G(Face1;K-1;:H2:4,F);SLC_2;:H1:1c,E;SLC_2;:H1:6,E",
+            "Face6;:G(Face1;K-1;:H3:4,F);SLC_3;:H1:1c,E;SLC_3;:H1:6,E",
         }
     ));
     EXPECT_FALSE(subTopoShapes[0].getElementMap().empty());  // Changed with PR#12471. Probably will
@@ -2660,36 +3284,36 @@ TEST_F(TopoShapeExpansionTest, makETransformWithMap)
             "Edge1",
             "Edge10;:G(Edge2;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge10;:H2,E",
-            "Edge10;:M2;FUS;:H1:8,E",
+            "Edge10;:M-1;FUS;:H1:9,E",
             "Edge10;:M;FUS;:H1:7,E",
             "Edge11",
-            "Edge11;:M2;FUS;:H2:8,E",
+            "Edge11;:M-1;FUS;:H2:9,E",
             "Edge11;:M;FUS;:H2:7,E",
             "Edge12",
-            "Edge12;:M2;FUS;:H2:8,E",
+            "Edge12;:M-1;FUS;:H2:9,E",
             "Edge12;:M;FUS;:H2:7,E",
             "Edge1;:H2,E",
             "Edge2",
-            "Edge2;:M2;FUS;:H2:8,E",
+            "Edge2;:M-1;FUS;:H2:9,E",
             "Edge2;:M;FUS;:H2:7,E",
             "Edge3",
             "Edge4",
-            "Edge4;:M2;FUS;:H2:8,E",
+            "Edge4;:M-1;FUS;:H2:9,E",
             "Edge4;:M;FUS;:H2:7,E",
             "Edge5;:H2,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge6;:H2,E",
-            "Edge6;:M2;FUS;:H1:8,E",
+            "Edge6;:M-1;FUS;:H1:9,E",
             "Edge6;:M;FUS;:H1:7,E",
             "Edge7",
             "Edge7;:H2,E",
             "Edge8;:G(Edge11;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge8;:H2,E",
-            "Edge8;:M2;FUS;:H1:8,E",
+            "Edge8;:M-1;FUS;:H1:9,E",
             "Edge8;:M;FUS;:H1:7,E",
             "Edge9;:G(Edge4;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge9;:H2,E",
-            "Edge9;:M2;FUS;:H1:8,E",
+            "Edge9;:M-1;FUS;:H1:9,E",
             "Edge9;:M;FUS;:H1:7,E",
             "Face1",
             "Face1;:M;FUS;:H2:7,F",
@@ -2701,10 +3325,10 @@ TEST_F(TopoShapeExpansionTest, makETransformWithMap)
             "Face3;:M;FUS;:H1:7,F",
             "Face4",
             "Face4;:M;FUS;:H2:7,F",
-            "Face5;:M2(Face5;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face5;:M(Face5;:H2,F);FUS;:H1:14,F",
             "Face5;:M;FUS;:H1:7,F",
             "Face5;:M;FUS;:H2:7,F",
-            "Face6;:M2(Face6;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face6;:M(Face6;:H2,F);FUS;:H1:14,F",
             "Face6;:M;FUS;:H1:7,F",
             "Face6;:M;FUS;:H2:7,F",
             "Vertex1",
@@ -2771,36 +3395,36 @@ TEST_F(TopoShapeExpansionTest, makEGTransformWithMap)
             "Edge1",
             "Edge10;:G(Edge2;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge10;:H2,E",
-            "Edge10;:M2;FUS;:H1:8,E",
+            "Edge10;:M-1;FUS;:H1:9,E",
             "Edge10;:M;FUS;:H1:7,E",
             "Edge11",
-            "Edge11;:M2;FUS;:H2:8,E",
+            "Edge11;:M-1;FUS;:H2:9,E",
             "Edge11;:M;FUS;:H2:7,E",
             "Edge12",
-            "Edge12;:M2;FUS;:H2:8,E",
+            "Edge12;:M-1;FUS;:H2:9,E",
             "Edge12;:M;FUS;:H2:7,E",
             "Edge1;:H2,E",
             "Edge2",
-            "Edge2;:M2;FUS;:H2:8,E",
+            "Edge2;:M-1;FUS;:H2:9,E",
             "Edge2;:M;FUS;:H2:7,E",
             "Edge3",
             "Edge4",
-            "Edge4;:M2;FUS;:H2:8,E",
+            "Edge4;:M-1;FUS;:H2:9,E",
             "Edge4;:M;FUS;:H2:7,E",
             "Edge5;:H2,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge6;:H2,E",
-            "Edge6;:M2;FUS;:H1:8,E",
+            "Edge6;:M-1;FUS;:H1:9,E",
             "Edge6;:M;FUS;:H1:7,E",
             "Edge7",
             "Edge7;:H2,E",
             "Edge8;:G(Edge11;K-1;:H2:4,E);FUS;:H1:1b,V",
             "Edge8;:H2,E",
-            "Edge8;:M2;FUS;:H1:8,E",
+            "Edge8;:M-1;FUS;:H1:9,E",
             "Edge8;:M;FUS;:H1:7,E",
             "Edge9;:G(Edge4;K-1;:H2:4,E);FUS;:H1:1a,V",
             "Edge9;:H2,E",
-            "Edge9;:M2;FUS;:H1:8,E",
+            "Edge9;:M-1;FUS;:H1:9,E",
             "Edge9;:M;FUS;:H1:7,E",
             "Face1",
             "Face1;:M;FUS;:H2:7,F",
@@ -2812,10 +3436,10 @@ TEST_F(TopoShapeExpansionTest, makEGTransformWithMap)
             "Face3;:M;FUS;:H1:7,F",
             "Face4",
             "Face4;:M;FUS;:H2:7,F",
-            "Face5;:M2(Face5;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face5;:M(Face5;:H2,F);FUS;:H1:14,F",
             "Face5;:M;FUS;:H1:7,F",
             "Face5;:M;FUS;:H2:7,F",
-            "Face6;:M2(Face6;K2;:H2:3,F);FUS;:H1:1a,F",
+            "Face6;:M(Face6;:H2,F);FUS;:H1:14,F",
             "Face6;:M;FUS;:H1:7,F",
             "Face6;:M;FUS;:H2:7,F",
             "Vertex1",
@@ -2966,21 +3590,22 @@ TEST_F(TopoShapeExpansionTest, makEPrism)
         result,
         {
             "Edge1;:G;XTR;:H2:7,F",
-            "Edge1;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E",
-            "Edge1;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E;:U2;XTR;:H2:8,V",
-            "Edge1;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E;:U;XTR;:H2:7,V",
+            "Edge1;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E",
+            "Edge1;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E;:B(Edge2;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E|Vertex1;:G;XTR;:H2:7,E);XTR;:H2:43,V",
+            "Edge1;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E;:B(Edge4;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E|Vertex2;:G;XTR;:H2:7,E);XTR;:H2:43,V",
             "Edge1;:H2,E",
             "Edge2;:G;XTR;:H2:7,F",
-            "Edge2;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E",
-            "Edge2;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E;:U;XTR;:H2:7,V",
+            "Edge2;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E",
+            "Edge2;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E;:B(Edge3;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E|Vertex3;:G;XTR;:H2:7,E);XTR;:H2:43,V",
             "Edge2;:H2,E",
             "Edge3;:G;XTR;:H2:7,F",
-            "Edge3;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E",
-            "Edge3;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E;:U2;XTR;:H2:8,V",
+            "Edge3;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E",
+            "Edge3;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E;:B(Edge4;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E|Vertex4;:G;XTR;:H2:7,E);XTR;:H2:43,V",
             "Edge3;:H2,E",
             "Edge4;:G;XTR;:H2:7,F",
-            "Edge4;:G;XTR;:H2:7,F;:U;XTR;:H2:7,E",
+            "Edge4;:G;XTR;:H2:7,F;:B;XTR;:H2:7,E",
             "Edge4;:H2,E",
+            "Face1;:G0;XTR;:H2:8,F",
             "Face1;:H2,F",
             "Vertex1;:G;XTR;:H2:7,E",
             "Vertex1;:H2,V",
@@ -3259,7 +3884,7 @@ TEST_F(TopoShapeExpansionTest, traceElement)
             "Edge2",
             "Edge2;:M;CUT;:H2:7,E",
             "Edge3",
-            "Edge3;:M;CUT;:H2:7,E",
+            "Edge3;:H2,E",
             "Edge4",
             "Edge4;:M;CUT;:H2:7,E",
             "Edge6;:G(Edge12;K-1;:H2:4,E);CUT;:H1:1b,V",
@@ -3282,9 +3907,9 @@ TEST_F(TopoShapeExpansionTest, traceElement)
             "Vertex1",
             "Vertex2",
             "Vertex3",
-            "Vertex3;:M;CUT;:H2:7,V",
+            "Vertex3;:H2,V",
             "Vertex4",
-            "Vertex4;:M;CUT;:H2:7,V",
+            "Vertex4;:H2,V",
             "Vertex7",
             "Vertex8",
         }
@@ -3323,89 +3948,89 @@ TEST_F(TopoShapeExpansionTest, makEOffset)
         result,
         {
             "Edge10;:G;OFS;:H1:7,F",
-            "Edge10;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge10;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge10;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge10;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge10;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge10;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge10;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge10;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge11;:G;OFS;:H1:7,F",
-            "Edge11;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge11;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge11;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge11;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge11;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge11;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge11;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge11;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge12;:G;OFS;:H1:7,F",
-            "Edge12;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge12;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge12;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge12;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge12;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge12;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge12;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge12;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge1;:G;OFS;:H1:7,F",
-            "Edge1;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge1;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge1;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge1;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge1;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge1;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge1;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge1;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge1;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge2;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge2;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge1;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge4;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge4;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge1;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge10;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge10;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge1;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge1;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge9;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge9;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge1;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge1;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge2;:G;OFS;:H1:7,F",
-            "Edge2;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge2;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge2;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge2;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge2;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge2;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge2;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge2;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge2;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge2;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge3;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge3;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge2;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge2;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge2;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge10;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge10;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge2;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge2;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge12;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge12;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge2;:G;OFS;:H1:7,F;:B(Vertex1;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge2;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge3;:G;OFS;:H1:7,F",
-            "Edge3;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge3;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge3;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge3;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge3;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge3;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge3;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge3;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge3;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge3;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge4;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge4;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge3;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge3;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge3;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge12;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge12;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge3;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge3;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge11;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge11;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge3;:G;OFS;:H1:7,F;:B(Vertex3;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge3;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge4;:G;OFS;:H1:7,F",
-            "Edge4;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge4;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge4;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge4;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge4;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge4;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge4;:G;OFS;:H1:7,F;:B(Face1;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge4;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge4;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge4;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge9;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge9;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge4;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge4;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge11;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge11;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge4;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge4;:G;OFS;:H1:7,F;:B(Vertex4;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge5;:G;OFS;:H1:7,F",
-            "Edge5;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge5;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge5;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge5;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge5;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge5;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge5;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge5;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge5;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge6;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge6;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge5;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge8;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge8;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge5;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge10;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge10;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge5;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge5;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge9;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge9;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge5;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge5;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge6;:G;OFS;:H1:7,F",
-            "Edge6;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge6;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge6;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge6;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge6;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge6;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge6;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge6;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge6;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge6;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge7;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge7;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge6;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge6;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge6;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge10;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge10;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge6;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge6;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge12;:G;OFS;:H1:7,F;:B(Face6;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge12;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge6;:G;OFS;:H1:7,F;:B(Vertex5;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge6;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge7;:G;OFS;:H1:7,F",
-            "Edge7;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge7;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge7;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge7;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge7;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge7;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge7;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge7;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge7;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge7;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge8;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge8;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge7;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge7;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge7;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge12;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge12;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge7;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge7;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge11;:G;OFS;:H1:7,F;:B(Face4;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge11;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge7;:G;OFS;:H1:7,F;:B(Vertex7;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge7;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge8;:G;OFS;:H1:7,F",
-            "Edge8;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge8;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U2;OFS;:H1:8,V",
-            "Edge8;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E;:U;OFS;:H1:7,V",
-            "Edge8;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge8;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge8;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge8;:G;OFS;:H1:7,F;:B(Face2;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge8;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge8;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge8;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge9;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge9;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bd,V",
+            "Edge8;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E;:B(Edge8;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E|Edge11;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E|Edge11;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E);OFS;:H1:bf,V",
+            "Edge8;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge8;:G;OFS;:H1:7,F;:B(Vertex8;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Edge9;:G;OFS;:H1:7,F",
-            "Edge9;:G;OFS;:H1:7,F;:U2;OFS;:H1:8,E",
-            "Edge9;:G;OFS;:H1:7,F;:U3;OFS;:H1:8,E",
-            "Edge9;:G;OFS;:H1:7,F;:U4;OFS;:H1:8,E",
-            "Edge9;:G;OFS;:H1:7,F;:U;OFS;:H1:7,E",
+            "Edge9;:G;OFS;:H1:7,F;:B(Face3;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge9;:G;OFS;:H1:7,F;:B(Face5;:G;OFS;:H1:7,F);OFS;:H1:1d,E",
+            "Edge9;:G;OFS;:H1:7,F;:B(Vertex2;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
+            "Edge9;:G;OFS;:H1:7,F;:B(Vertex6;:G;OFS;:H1:7,F);OFS;:H1:1f,E",
             "Face1;:G;OFS;:H1:7,F",
             "Face2;:G;OFS;:H1:7,F",
             "Face3;:G;OFS;:H1:7,F",
@@ -3446,18 +4071,18 @@ TEST_F(TopoShapeExpansionTest, makEOffsetFace)
         result,
         {
             "Edge1;:G;OFF;:H1:7,E",
-            "Edge1;:G;OFF;:H1:7,E;:U2;OFF;:H1:8,V",
-            "Edge1;:G;OFF;:H1:7,E;:U;OFF;:H1:7,V",
+            "Edge1;:G;OFF;:H1:7,E;:B(Vertex1;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
+            "Edge1;:G;OFF;:H1:7,E;:B(Vertex2;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
             "Edge1;:G;OFF;:H1:7,E;FAC;:H1:4,F",
             "Edge2;:G;OFF;:H1:7,E",
-            "Edge2;:G;OFF;:H1:7,E;:U2;OFF;:H1:8,V",
-            "Edge2;:G;OFF;:H1:7,E;:U;OFF;:H1:7,V",
+            "Edge2;:G;OFF;:H1:7,E;:B(Vertex2;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
+            "Edge2;:G;OFF;:H1:7,E;:B(Vertex3;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
             "Edge3;:G;OFF;:H1:7,E",
-            "Edge3;:G;OFF;:H1:7,E;:U2;OFF;:H1:8,V",
-            "Edge3;:G;OFF;:H1:7,E;:U;OFF;:H1:7,V",
+            "Edge3;:G;OFF;:H1:7,E;:B(Vertex3;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
+            "Edge3;:G;OFF;:H1:7,E;:B(Vertex4;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
             "Edge4;:G;OFF;:H1:7,E",
-            "Edge4;:G;OFF;:H1:7,E;:U2;OFF;:H1:8,V",
-            "Edge4;:G;OFF;:H1:7,E;:U;OFF;:H1:7,V",
+            "Edge4;:G;OFF;:H1:7,E;:B(Vertex1;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
+            "Edge4;:G;OFF;:H1:7,E;:B(Vertex4;:G;OFF;:H1:7,E);OFF;:H1:1f,V",
             "Edge5;:H1,E",
             "Vertex1;:G;OFF;:H1:7,E",
             "Vertex2;:G;OFF;:H1:7,E",

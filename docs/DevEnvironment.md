@@ -4303,8 +4303,12 @@ It needed two fixes: the fork's `ChClassFactory.h` did not include
 not pass `CMAKE_OSX_DEPLOYMENT_TARGET`/`SYSROOT`/`ARCHITECTURES` on, so Chrono
 was built for the running system (13.0) and every link warned. CalculiX
 (`calculix` from conda-forge, `ccx`) is in the env for the dynamics tests
-that run it. With both, the Assembly tests skip only what needs the GUI or
-holds references recorded on win32. `TestProfileContact.test_half_disc_rocks`
+that run it. With both, the Assembly tests skip only what needs the GUI.
+The solver gate's 120 cases skipped here until 2026-11-14 for a record taken
+on win32; they run now, the record's numbers against this box's solves (all
+within 1e-9) and this box's own digests of the solver input
+(`SolverGateDigests.darwin-arm64.json`, docs/AssemblySolverInterface.md).
+`TestProfileContact.test_half_disc_rocks`
 measured 0.071 deg here before `main` was merged, as on Linux: step-size
 error, not the platform (ded38fc20f, the section above).
 

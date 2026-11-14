@@ -109,14 +109,25 @@ numbers.
 To re-record after a change that is meant to alter the solver input or its
 results: run with ASM_SOLVER_GATE_RECORD=1; the file in the source tree is
 rewritten (SolverGateReference.json beside this file, or the path the
-variable gives if it is not "1"). The references are this platform's: on
-another platform the gate skips.
+variable gives if it is not "1"). Take them on the platform they were taken
+on (the file says which, "platform").
+
+On another platform the record's numbers are the gate all the same --
+statuses exactly, placements and frames within TOL -- and only the digests
+are not the record's: the model text writes its numbers to the last bit, and
+a platform that rounds a centre or an inertia otherwise writes another text
+for the same solve (macOS arm64: every case's export differs from win32's,
+every number within TOL, 2026-11-14). Such a platform keeps its digests in
+SolverGateDigests.<sys.platform>-<machine>.json, taken there with
+ASM_SOLVER_GATE_RECORD_DIGESTS=1; with no such file its digests are not
+compared. Until 2026-11-14 the whole gate skipped off the record's platform.
 """
 
 import hashlib
 import json
 import math
 import os
+import platform
 import sys
 import tempfile
 
@@ -190,6 +201,58 @@ def source_reference_path():
 RECORDING = bool(os.environ.get("ASM_SOLVER_GATE_RECORD"))
 _references = None
 _recorded = {}
+
+# The digests of the model text are bytes, and its numbers are written to the
+# last bit: a platform whose libm or OCCT rounds a centre or an inertia
+# differently writes another text for the same solve. So the record's
+# numbers -- statuses exactly, placements and frames within TOL -- are the
+# gate everywhere (measured 2026-11-14: all 120 cases on macOS arm64 against
+# the win32 record), and the digests the record's own platform's; another
+# platform keeps its digests in a file of its own, SolverGateDigests.<tag>.json,
+# taken with ASM_SOLVER_GATE_RECORD_DIGESTS=1 once its numbers pass.
+RECORDING_DIGESTS = bool(os.environ.get("ASM_SOLVER_GATE_RECORD_DIGESTS"))
+_digests = None
+
+
+def platform_tag():
+    """This platform as a digest file names it: sys.platform and the machine."""
+    return "%s-%s" % (sys.platform, platform.machine().lower())
+
+
+def digest_name():
+    return "SolverGateDigests.%s.json" % platform_tag()
+
+
+def own_platform():
+    """Whether the record was taken here: then its digests are this platform's."""
+    return references().get("platform") == sys.platform
+
+
+def digests():
+    """This platform's digests ({where: digest}), when the record's are not;
+    None when it has none."""
+    global _digests
+    if _digests is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), digest_name())
+        _digests = {}
+        if os.path.exists(path):
+            with open(path) as f:
+                _digests = json.load(f).get("digests", {})
+    return _digests or None
+
+
+def record_digest(where, value):
+    """Adds one digest to this platform's digest file (digest record mode)."""
+    path = os.path.join(os.path.dirname(source_reference_path()), digest_name())
+    data = {"platform": platform_tag(), "digests": {}}
+    if os.path.exists(path):
+        with open(path) as f:
+            data = json.load(f)
+    data["digests"][where] = value
+    data["digests"] = dict(sorted(data["digests"].items()))
+    with open(path, "w", newline="\n") as f:
+        json.dump(data, f, indent=1, sort_keys=False)
+        f.write("\n")
 
 
 def references():
@@ -328,10 +391,6 @@ class SolverGateBase(JointTestBase):
         self.p.SetString("SolverDumpFile", self.dump_file)
         self.reset_hooks = []
         self.doc_alias = None
-        if not RECORDING:
-            ref = references()
-            if ref.get("platform") != sys.platform:
-                self.skipTest("references recorded on %s" % ref.get("platform"))
 
     def tearDown(self):
         dump, solve_on_recompute = self._saved
@@ -816,6 +875,21 @@ class SolverGateBase(JointTestBase):
             self.assertEqual(len(expected), len(actual), where)
             for i, (e, a) in enumerate(zip(expected, actual)):
                 self.check(e, a, "%s[%d]" % (where, i), export_text)
+        elif (where.endswith("/export") or where.endswith("/dump")) and not own_platform():
+            # A digest of the model text: this platform's own, if it has them
+            if RECORDING_DIGESTS:
+                record_digest(where, actual)
+                return
+            mine = digests()
+            if mine is None:
+                return
+            self.assertIn(where, mine, "%s: no digest recorded for %s" % (where, platform_tag()))
+            if mine[where] != actual and where.endswith("/export"):
+                path = os.path.join(tempfile.gettempdir(), "solver_gate_failed.asmt")
+                with open(path, "w", newline="\n") as f:
+                    f.write(canonical_asmt(export_text))
+                self.fail("%s: the ASMT export changed (canonical text in %s)" % (where, path))
+            self.assertEqual(mine[where], actual, where)
         elif expected != actual and where.endswith("/export"):
             # Keep the text a failure was about, for a diff against a re-record.
             path = os.path.join(tempfile.gettempdir(), "solver_gate_failed.asmt")

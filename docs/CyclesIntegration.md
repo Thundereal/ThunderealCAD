@@ -3177,3 +3177,15 @@ Each of these has already cost time somewhere in this tree:
 - **A vendored tree setting the HOST's compiler flags.** Blender build
   code assumes it is the top-level project and `FORCE`s the global cache
   variables. Section 2.1.
+- **An allocator that is not one, met by a library that copies it**
+  (2026-11-14). `util/stack_allocator.h` gave each copy a stack of its own,
+  and conda's libc++ grows a vector through a temporary copy of its
+  allocator: the block lived in the dead temporary and the vector's own
+  allocator handed its address to `free()`. Every BVH2 build aborted in
+  `BVHBuild::create_leaf_node`, so the Metal device on the mini (an M2,
+  no MetalRT) rendered nothing; CPU renders were untouched (Embree builds
+  their BVH). Found by `atos` on the abort's return address -- the
+  function's closing brace -- and a 40-line program with the same
+  allocator under the same toolchain. Fixed in the fork, a1dfb93f0: a
+  copy allocates from the heap. Metal at 640x360, 128 samples, renders the
+  animation probe's frames in 1.5 s against the CPU's 2.4 s.

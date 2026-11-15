@@ -394,6 +394,14 @@ materials:
   A part's balloon is made with a straight leader (`KinkLength` 0), as the
   ring lays them: TechDraw's default shoulder could cross a neighbour's,
   which the manual's page showed.
+- a leader starts on the piece of its part whose way to the balloon
+  crosses fewest of the drawing's lines, the nearest of those -- not the
+  middle of its longest piece, which may be on the far side of the part.
+  The pieces are chosen once the ring has spread the balloons, and again
+  after leaders that crossed swapped. A drawing's line is its visible
+  edge by its ends and middle. On the test's three boxes the leaders
+  crossed 5 lines before and none after; a part inside another's outline
+  (the manual's knob in its lid) still crosses its outline;
 
 How a drawing learns a part's number, with no TechDraw code that knows the
 Assembly:
@@ -537,8 +545,8 @@ included.
 
 - A dragged balloon is kept where it was put against its part, even if
   the view grew over it; delete it and run again to lay it.
-- Leaders can cross the drawing's edges on their way to the ring; only
-  crossings between leaders are taken out.
+- A leader crosses as few of the drawing's lines as a start on its own
+  part allows; the balloon's place on the ring does not look at them.
 - A loose part goes straight away from the joined parts' middle, which
   can be a little up or down (the manual's bracket goes 2.2 mm down);
   nothing looks at what it would pass through.

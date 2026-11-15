@@ -25,6 +25,7 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <set>
@@ -61,20 +62,30 @@ struct Found
     /// One label for the text, not for each edge (EdgeInfo::oncePerLabel)
     bool once = false;
     std::string bubble;
+    /// A part's number: every visible piece of it, its middle and its source
+    /// edge, for the leader to start on the one that suits its balloon
+    std::vector<std::pair<Base::Vector3d, std::string>> pieces;
 };
+
+/// Where a leader starts: a point on a piece of its part, and the piece's
+/// source edge
+using Anchor = std::pair<Base::Vector3d, std::string>;
 
 /** Where each part's number to lay stands, by its text: on the box of the
  * view's visible edges grown by a balloon and a gap, where the line from the
  * box's middle through its piece meets it, then spread along the box so no
- * two meet -- nor meet one the user moved (`kept`) that stands on it -- and
- * then swapped in pairs while two leaders cross. In the view's scaled frame,
- * Y down, as the edges are. `laid`: the texts to lay, new ones and those
- * not moved since the last import.
+ * two meet -- nor meet one the user moved (`kept`) that stands on it. Each
+ * leader then starts on the piece of its part whose way to its balloon
+ * crosses fewest of the drawing's lines (`anchors`, by text), and two whose
+ * leaders cross swap places, the pieces chosen again after. In the view's
+ * scaled frame, Y down, as the edges are. `laid`: the texts to lay, new
+ * ones and those not moved since the last import.
  */
 std::map<std::string, Base::Vector3d> ringStands(DrawViewPart* dvp,
                                                  const std::map<std::string, Found>& found,
                                                  const std::set<std::string>& laid,
-                                                 const std::vector<Base::Vector3d>& kept)
+                                                 const std::vector<Base::Vector3d>& kept,
+                                                 std::map<std::string, Anchor>& anchors)
 {
     // a balloon of a number or two, its circle about 13 mm across on the
     // paper at the default label size (measured on the vg page), and a gap
@@ -95,6 +106,31 @@ std::map<std::string, Base::Vector3d> ringStands(DrawViewPart* dvp,
     if (xmin > xmax) {
         return stands;
     }
+    // The drawing's lines, as a leader would cross them: each visible edge
+    // by its ends and middle
+    std::vector<std::array<Base::Vector3d, 3>> lines;
+    for (const auto& geom : dvp->getEdgeGeometry()) {
+        if (geom && geom->getHlrVisible()) {
+            lines.push_back({geom->getStartPoint(), geom->getMidPoint(), geom->getEndPoint()});
+        }
+    }
+    auto side = [](const Base::Vector3d& p, const Base::Vector3d& q, const Base::Vector3d& r) {
+        return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+    };
+    // Strictly: a segment ending on the other, as a leader on its own piece
+    // does, does not cross it
+    auto meets = [&side](const Base::Vector3d& a, const Base::Vector3d& b,
+                         const Base::Vector3d& c, const Base::Vector3d& d) {
+        return side(a, b, c) * side(a, b, d) < -1e-9 && side(c, d, a) * side(c, d, b) < -1e-9;
+    };
+    auto crossings = [&](const Base::Vector3d& from, const Base::Vector3d& to) {
+        int count = 0;
+        for (const auto& l : lines) {
+            count += meets(from, to, l[0], l[1]) ? 1 : 0;
+            count += meets(from, to, l[1], l[2]) ? 1 : 0;
+        }
+        return count;
+    };
     const Base::Vector3d middle((xmin + xmax) / 2, (ymin + ymax) / 2, 0);
     const double hw = (xmax - xmin) / 2 + diameter / 2 + gap;
     const double hh = (ymax - ymin) / 2 + diameter / 2 + gap;
@@ -147,16 +183,19 @@ std::map<std::string, Base::Vector3d> ringStands(DrawViewPart* dvp,
     {
         std::string text;
         double t;
-        /// Where its leader starts: the middle of its piece
+        /// Where its leader starts: the middle of its longest piece, then
+        /// of the piece whose leader to the stand crosses fewest lines
         Base::Vector3d anchor;
         /// One the user moved, standing on the ring: the others keep clear
         bool fixed = false;
+        const Found* found = nullptr;
+        std::string edge;
     };
     std::vector<Stand> todo;
     for (const auto& [key, f] : found) {
         if (f.once && laid.count(f.text)) {
             const Base::Vector3d anchor = (f.start + f.end) / 2;
-            todo.push_back({f.text, place(anchor), anchor});
+            todo.push_back({f.text, place(anchor), anchor, false, &f, f.source});
         }
     }
     if (todo.empty()) {
@@ -195,33 +234,58 @@ std::map<std::string, Base::Vector3d> ringStands(DrawViewPart* dvp,
             break;
         }
     }
-    // Two leaders crossing: swap their places. Each swap makes the leaders
-    // shorter in all, so it ends; the places stay as spread
-    auto crosses = [&](const Stand& a, const Stand& b) {
-        auto side = [](const Base::Vector3d& p, const Base::Vector3d& q, const Base::Vector3d& r) {
-            return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
-        };
-        const Base::Vector3d pa = point(a.t), pb = point(b.t);
-        return side(a.anchor, pa, b.anchor) * side(a.anchor, pa, pb) < -1e-9
-            && side(b.anchor, pb, a.anchor) * side(b.anchor, pb, pa) < -1e-9;
-    };
-    for (std::size_t round = 0; round < 4 * n * n; ++round) {
-        bool swapped = false;
-        for (std::size_t i = 0; i < n; ++i) {
-            for (std::size_t j = i + 1; j < n; ++j) {
-                if (!todo[i].fixed && !todo[j].fixed && crosses(todo[i], todo[j])) {
-                    std::swap(todo[i].t, todo[j].t);
-                    swapped = true;
-                }
+    // Each leader from the piece of its part that crosses fewest of the
+    // drawing's lines on the way to its stand, the nearest of those; then
+    // two leaders crossing swap their places -- each swap makes the leaders
+    // shorter in all, so it ends, and the places stay as spread -- and the
+    // pieces are chosen again for the places swapped
+    auto choose = [&](Stand& st) {
+        const Base::Vector3d to = point(st.t);
+        int best = -1;
+        double nearest = 0;
+        for (const auto& [at, edge] : st.found->pieces) {
+            const int count = crossings(at, to);
+            const double far = (to - at).Length();
+            if (best < 0 || count < best || (count == best && far < nearest - 1e-9)) {
+                best = count;
+                nearest = far;
+                st.anchor = at;
+                st.edge = edge;
             }
         }
-        if (!swapped) {
+    };
+    auto crosses = [&](const Stand& a, const Stand& b) {
+        return meets(a.anchor, point(a.t), b.anchor, point(b.t));
+    };
+    for (int pass = 0; pass < 4; ++pass) {
+        for (auto& st : todo) {
+            if (!st.fixed) {
+                choose(st);
+            }
+        }
+        bool swappedAny = false;
+        for (std::size_t round = 0; round < 4 * n * n; ++round) {
+            bool swapped = false;
+            for (std::size_t i = 0; i < n; ++i) {
+                for (std::size_t j = i + 1; j < n; ++j) {
+                    if (!todo[i].fixed && !todo[j].fixed && crosses(todo[i], todo[j])) {
+                        std::swap(todo[i].t, todo[j].t);
+                        swapped = swappedAny = true;
+                    }
+                }
+            }
+            if (!swapped) {
+                break;
+            }
+        }
+        if (!swappedAny) {
             break;
         }
     }
     for (const auto& st : todo) {
         if (!st.fixed) {
             stands[st.text] = point(st.t);
+            anchors[st.text] = {st.anchor, st.edge};
         }
     }
     return stands;
@@ -279,8 +343,13 @@ int importEdgeLabels(DrawViewPart* dvp)
         const Base::Vector3d start = geom->getStartPoint(), end = geom->getEndPoint();
         Found& f = found[key];
         if ((end - start).Length() > f.length) {
+            auto pieces = std::move(f.pieces);
             f = {info.label, start, end, (end - start).Length(), name, info.oncePerLabel,
                  info.bubble};
+            f.pieces = std::move(pieces);
+        }
+        if (info.oncePerLabel) {
+            f.pieces.emplace_back(geom->getMidPoint(), name);
         }
     }
 
@@ -325,7 +394,9 @@ int importEdgeLabels(DrawViewPart* dvp)
                               0);
         }
     }
-    const std::map<std::string, Base::Vector3d> ring = ringStands(dvp, found, laid, kept);
+    std::map<std::string, Anchor> anchors;
+    const std::map<std::string, Base::Vector3d> ring =
+        ringStands(dvp, found, laid, kept, anchors);
     // the edges in order across the view, by their middles
     std::vector<std::pair<std::string, const Found*>> order;
     for (const auto& [name, f] : found) {
@@ -338,7 +409,7 @@ int importEdgeLabels(DrawViewPart* dvp)
     });
     for (std::size_t i = 0; i < order.size(); ++i) {
         const Found& f = *order[i].second;
-        const std::string& name = f.source;
+        std::string name = f.source;
         // the end it stands past -- the upper one, or the left one of an
         // edge across, then the other for the next edge -- and the way out
         // of the edge there; the view's Y runs down
@@ -351,8 +422,14 @@ int importEdgeLabels(DrawViewPart* dvp)
         Base::Vector3d at;
         if (f.once) {
             // A part's number: on the middle of its piece, standing out from
-            // the view's middle, where the view is placed
+            // the view's middle, where the view is placed -- laid on the
+            // ring, on the piece its leader crosses fewest lines from
             at = (f.start + f.end) / 2;
+            auto anchor = anchors.find(f.text);
+            if (anchor != anchors.end()) {
+                at = anchor->second.first;
+                name = anchor->second.second;
+            }
             out = at;
         }
         if (out.Length() < 1e-9) {

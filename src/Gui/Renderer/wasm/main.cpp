@@ -6702,6 +6702,9 @@ static void feedOverlays()
 // selection drawn over them see what the canvas shows.
 
 static Render::MotionClip s_clip;
+/// A clip told whose body (the poses, sequences and looks) is on its way:
+/// it becomes s_clip when that lands, and until then nothing is posed
+static Render::MotionClip s_clipPending;
 static std::unordered_map<uint64_t, size_t> s_clipTracks;
 static std::unordered_map<uint64_t, size_t> s_clipSeqs;
 /// Track number -> its row of looks, for the tracks whose looks change
@@ -6742,6 +6745,7 @@ static size_t s_clipHidden = 0;
 static size_t s_clipLooked = 0;
 
 static void clipWantBlobs();
+static void clipWantBody();
 
 /// The scene was assembled again: its draws are where the publish has
 /// them, whatever was moved before
@@ -6980,8 +6984,22 @@ static void clipWantMesh(const std::string &key, uint32_t size);
 /// A blob of the clip landed: the draws it holds, once the mesh chunks
 /// it names are in too -- each fetched once, however many blobs name it,
 /// and what the cache holds (a publish's mesh, another clip's) not at all
+static void clipReady();
+
 static bool clipBlobResolved(const std::string &key, const uint8_t *data, size_t size)
 {
+    // The body of the clip told last
+    if (s_clipPending.pending() && key == s_clipPending.body) {
+        Render::MotionClip clip = std::move(s_clipPending);
+        s_clipPending = Render::MotionClip();
+        if (!clip.readBody(data, size)) {
+            std::printf("fcviewer: clip %u: its body would not read\n", clip.id);
+            return true;
+        }
+        s_clip = std::move(clip);
+        clipReady();
+        return true;
+    }
     auto it = s_clipBlobWanted.find(key);
     if (it == s_clipBlobWanted.end())
         return clipMeshResolved(key, data, size);
@@ -7030,6 +7048,12 @@ static bool clipMeshResolved(const std::string &key, const uint8_t *data, size_t
 
 static void clipBlobFailed(const std::string &key)
 {
+    // A body that cannot be had: no clip, the publishes as they come
+    if (s_clipPending.pending() && key == s_clipPending.body) {
+        std::printf("fcviewer: clip %u: its body could not be had\n", s_clipPending.id);
+        s_clipPending = Render::MotionClip();
+        return;
+    }
     s_clipBlobWanted.erase(key);
     // A blob whose mesh cannot be had stays out: the publish's draws stand
     auto it = s_clipMeshWanted.find(key);
@@ -7048,7 +7072,26 @@ static void applyClip(const char *json)
     Render::MotionClip clip;
     if (!clip.fromJson(json))
         std::printf("fcviewer: clip %u would not parse\n", clip.id);
+    s_clipPending = Render::MotionClip();
+    if (clip.pending()) {
+        // Nothing posed by the clip before it, nor by this one until its
+        // body is in: the body is fetched as its blobs are, cache first
+        s_clip = Render::MotionClip();
+        clipReady();
+        s_clipPending = std::move(clip);
+        std::printf("fcviewer: clip %u: its body, %u bytes, asked for\n", s_clipPending.id,
+                    s_clipPending.bodySize);
+        clipWantBody();
+        markDirty();
+        return;
+    }
     s_clip = std::move(clip);
+    clipReady();
+}
+
+/// s_clip as it now stands: its rows indexed, its blobs asked for
+static void clipReady()
+{
     s_clipTracks.clear();
     for (size_t i = 0; i < s_clip.keys.size(); ++i)
         s_clipTracks[s_clip.keys[i]] = i;
@@ -7065,9 +7108,10 @@ static void applyClip(const char *json)
     s_clipBlobsIn = 0;
     s_clipMeshesIn = 0;
     s_clipRawValid = false;
-    std::printf("fcviewer: clip %u: %zu tracks, %zu sequences, %zu blobs, %u frames\n",
-                s_clip.id, s_clip.keys.size(), s_clip.seqKeys.size(), s_clip.blobs.size(),
-                s_clip.frames);
+    if (s_clip.id)
+        std::printf("fcviewer: clip %u: %zu tracks, %zu sequences, %zu blobs, %u frames\n",
+                    s_clip.id, s_clip.keys.size(), s_clip.seqKeys.size(), s_clip.blobs.size(),
+                    s_clip.frames);
     clipWantBlobs();
     markDirty();
 }
@@ -8571,6 +8615,18 @@ static void pageWantChunk(const std::string &key, uint32_t size)
         return;
     }
     requestBlob(key, size);
+}
+
+/// The body of the clip told: the cache answers now, the network through
+/// blobResolved
+static void clipWantBody()
+{
+    const std::string key = s_clipPending.body;
+    auto it = s_blobCache.find(key);
+    if (it != s_blobCache.end() && it->second)
+        clipBlobResolved(key, it->second->data(), it->second->size());
+    else
+        requestBlob(key, s_clipPending.bodySize);
 }
 
 /// The clip's blobs: the cache answers now, everything else answers

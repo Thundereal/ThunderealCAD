@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "Renderer.h"
+#include "SceneDump.h"
 
 namespace Render
 {
@@ -657,13 +658,37 @@ struct MotionClip {
         return true;
     }
 
+    /// The bulk of the clip -- the poses, the shown bytes, the sequences
+    /// and the looks -- as one binary body: "FMC1", then each of the five
+    /// a little-endian u32 count of bytes and the bytes. Served by its
+    /// content key like a blob (`body`, `bodySize`), so it rides no
+    /// control message, carries no base64, and a viewer fetches it with
+    /// the clip's blobs.
+    std::vector<uint8_t> bodyBytes() const
+    {
+        std::vector<uint8_t> out = {'F', 'M', 'C', '1'};
+        auto put = [&out](const void *p, size_t size) {
+            const uint32_t n = uint32_t(size);
+            for (int i = 0; i < 4; ++i)
+                out.push_back(uint8_t((n >> (8 * i)) & 0xff));
+            const auto *b = static_cast<const uint8_t *>(p);
+            out.insert(out.end(), b, b + size);
+        };
+        put(data.data(), data.size() * sizeof(float));
+        put(shown.data(), shown.size());
+        put(seq.data(), seq.size() * sizeof(int32_t));
+        put(lookAt.data(), lookAt.size() * sizeof(int32_t));
+        put(looks.data(), looks.size() * sizeof(MotionLook));
+        return out;
+    }
+
     /// {"cmd":"clip","doc":..,"id":..,"start":..,"step":..,"frames":..,
-    ///  "keys":["<hex>",..],"data":"<base64 of the float32s>",
-    ///  "shown":"<base64, a byte a track a frame>","refs":[frame,blob,..],
-    ///  "seqKeys":["<hex>",..],"seq":"<base64 of the int32s>",
-    ///  "blobs":["<sha1>",..],"sizes":[..],
+    ///  "keys":["<hex>",..],"refs":[frame,blob,..],"seqKeys":["<hex>",..],
+    ///  "blobs":["<sha1>",..],"sizes":[..],"chunks":[..],"chunkSizes":[..],
     ///  "lookTracks":[..],"lookCount":[..],"lookSlots":[type,part,start,count,..],
-    ///  "lookAt":"<base64 of the int32s>","looks":"<base64 of the records>"}.
+    ///  "body":"<sha1>","bodySize":n} when `body` names the body served
+    /// apart (bodyBytes()); without it the five arrays inline, base64:
+    ///  "data","shown","seq","lookAt","looks".
     /// \a doc is written as given: already quoted and escaped.
     std::string toJson(const std::string &quotedDoc) const
     {
@@ -684,7 +709,10 @@ struct MotionClip {
             }
             json += "]";
         };
+        const bool apart = !none && !body.empty();
         auto bytes = [&](const char *name, const void *p, size_t size) {
+            if (apart)
+                return;
             json += ",\"";
             json += name;
             json += "\":\"";
@@ -735,11 +763,17 @@ struct MotionClip {
         });
         bytes("lookAt", lookAt.data(), lookAt.size() * sizeof(int32_t));
         bytes("looks", looks.data(), looks.size() * sizeof(MotionLook));
+        if (apart) {
+            std::snprintf(buf, sizeof(buf), ",\"bodySize\":%u", bodySize);
+            json += ",\"body\":\"" + body + "\"" + buf;
+        }
         json += "}";
         return json;
     }
 
-    /// Reads what toJson() wrote; false, and empty, when it is not that
+    /// Reads what toJson() wrote; false, and empty, when it is not that.
+    /// With a body apart the clip is read but for it: pending() until
+    /// readBody() is given its bytes.
     bool fromJson(const char *json)
     {
         *this = MotionClip();
@@ -760,104 +794,154 @@ struct MotionClip {
             return true;
         };
         bool ok = hexKeys("keys", keys) && hexKeys("seqKeys", seqKeys);
-        std::vector<uint8_t> bytes, seqBytes;
-        ok = ok && Motion::jsonBytes(json, "data", bytes)
-            && Motion::jsonBytes(json, "shown", shown)
-            && Motion::jsonBytes(json, "seq", seqBytes);
-        std::vector<long long> refs, sizes, chunkBytes;
+        std::vector<long long> refs, sizes, chunkBytes, rows, counts, slots;
         Motion::jsonInts(json, "refs", refs);
         Motion::jsonInts(json, "sizes", sizes);
         Motion::jsonStrings(json, "blobs", blobs);
         Motion::jsonStrings(json, "chunks", chunks);
         Motion::jsonInts(json, "chunkSizes", chunkBytes);
-        std::vector<long long> rows, counts, slots;
-        std::vector<uint8_t> atBytes, lookBytes;
         Motion::jsonInts(json, "lookTracks", rows);
         Motion::jsonInts(json, "lookCount", counts);
         Motion::jsonInts(json, "lookSlots", slots);
-        ok = ok && Motion::jsonBytes(json, "lookAt", atBytes)
-            && Motion::jsonBytes(json, "looks", lookBytes);
-        const size_t want = keys.size() * size_t(frames) * 7;
-        const size_t cells = keys.size() * size_t(frames);
-        ok = ok && bytes.size() == want * sizeof(float)
-            && (shown.empty() || (shown.size() == cells && refs.size() == keys.size() * 2))
-            && seqBytes.size() == seqKeys.size() * size_t(frames) * sizeof(int32_t)
-            && sizes.size() == blobs.size() && chunkBytes.size() == chunks.size();
+        ok = ok && refs.size() % 2 == 0 && sizes.size() == blobs.size()
+            && chunkBytes.size() == chunks.size() && counts.size() == rows.size()
+            && slots.size() % 4 == 0;
         if (ok) {
-            for (long long s : chunkBytes)
-                chunkSizes.push_back(uint32_t(s));
-            data.resize(want);
-            if (want)
-                std::memcpy(data.data(), bytes.data(), bytes.size());
-            seq.resize(seqBytes.size() / sizeof(int32_t));
-            if (!seq.empty())
-                std::memcpy(seq.data(), seqBytes.data(), seqBytes.size());
             for (size_t i = 0; i + 1 < refs.size(); i += 2) {
                 refFrame.push_back(int32_t(refs[i]));
                 refBlob.push_back(int32_t(refs[i + 1]));
             }
             for (long long s : sizes)
                 blobSizes.push_back(uint32_t(s));
-            // The looks: every row a track, every frame's records inside
-            size_t slotTotal = 0;
+            for (long long s : chunkBytes)
+                chunkSizes.push_back(uint32_t(s));
+            for (long long r : rows)
+                lookTracks.push_back(uint32_t(r));
             for (long long c : counts)
-                slotTotal += c > 0 ? size_t(c) : 0;
-            ok = counts.size() == rows.size() && slots.size() == slotTotal * 4
-                && atBytes.size() == rows.size() * size_t(frames) * sizeof(int32_t)
-                && lookBytes.size() % sizeof(MotionLook) == 0
-                && std::all_of(rows.begin(), rows.end(), [this](long long r) {
-                       return r >= 0 && size_t(r) < keys.size();
-                   })
-                && std::all_of(counts.begin(), counts.end(), [](long long c) {
-                       return c > 0;
-                   });
-            if (ok) {
-                for (long long r : rows)
-                    lookTracks.push_back(uint32_t(r));
-                for (long long c : counts)
-                    lookCount.push_back(uint32_t(c));
-                for (size_t i = 0; i + 3 < slots.size(); i += 4) {
-                    MotionSlot s;
-                    s.type = int32_t(slots[i]);
-                    s.partIndex = int32_t(slots[i + 1]);
-                    s.indexStart = int32_t(slots[i + 2]);
-                    s.indexCount = int32_t(slots[i + 3]);
-                    lookSlots.push_back(s);
-                }
-                lookAt.resize(atBytes.size() / sizeof(int32_t));
-                if (!lookAt.empty())
-                    std::memcpy(lookAt.data(), atBytes.data(), atBytes.size());
-                looks.resize(lookBytes.size() / sizeof(MotionLook));
-                if (!looks.empty())
-                    std::memcpy(static_cast<void *>(looks.data()), lookBytes.data(),
-                                lookBytes.size());
-                for (size_t r = 0; ok && r < lookTracks.size(); ++r) {
-                    for (uint32_t f = 0; f < frames; ++f) {
-                        const int32_t at = lookAt[r * frames + f];
-                        if (at < 0 || size_t(at) + lookCount[r] > looks.size()) {
-                            ok = false;
-                            break;
-                        }
-                    }
+                lookCount.push_back(uint32_t(std::max(0LL, c)));
+            for (size_t i = 0; i + 3 < slots.size(); i += 4) {
+                MotionSlot s;
+                s.type = int32_t(slots[i]);
+                s.partIndex = int32_t(slots[i + 1]);
+                s.indexStart = int32_t(slots[i + 2]);
+                s.indexCount = int32_t(slots[i + 3]);
+                lookSlots.push_back(s);
+            }
+            if (const char *p = std::strstr(json, "\"body\":\"")) {
+                const char *q = std::strchr(p + 8, '"');
+                if (q && q > p + 8) {
+                    body.assign(p + 8, q);
+                    bodySize = uint32_t(Motion::jsonNumber(json, "bodySize", 0.0));
+                    return true;  // pending: the arrays come with the body
                 }
             }
-            const auto blobOk = [this](int32_t b) {
-                return b >= -1 && b < int32_t(blobs.size());
-            };
-            ok = ok && std::all_of(seq.begin(), seq.end(), blobOk)
-                && std::all_of(refBlob.begin(), refBlob.end(), blobOk)
-                && std::all_of(refFrame.begin(), refFrame.end(), [this](int32_t f) {
-                       return f >= -1 && f < int32_t(frames);
-                   });
+            std::vector<uint8_t> dataBytes, shownBytes, seqBytes, atBytes, lookBytes;
+            ok = Motion::jsonBytes(json, "data", dataBytes)
+                && Motion::jsonBytes(json, "shown", shownBytes)
+                && Motion::jsonBytes(json, "seq", seqBytes)
+                && Motion::jsonBytes(json, "lookAt", atBytes)
+                && Motion::jsonBytes(json, "looks", lookBytes)
+                && adopt(dataBytes, shownBytes, seqBytes, atBytes, lookBytes);
         }
-        if (!ok) {
-            const uint32_t keep = id;
-            const bool nothing = want == 0 && seqKeys.empty();
-            *this = MotionClip();
-            id = keep;
-            return nothing;
+        return ok || fail();
+    }
+
+    /// The body is apart and not read yet: a clip of anything has poses
+    /// or sequences once it is
+    bool pending() const
+    {
+        return !body.empty() && data.empty() && seq.empty();
+    }
+
+    /// The body named by `body`: the five arrays; false, and the clip
+    /// empty, when the bytes are not that body
+    bool readBody(const uint8_t *p, size_t size)
+    {
+        std::vector<uint8_t> parts[5];
+        if (size < 4 || std::memcmp(p, "FMC1", 4) != 0)
+            return fail();
+        size_t at = 4;
+        for (auto &part : parts) {
+            if (at + 4 > size)
+                return fail();
+            const uint32_t n = uint32_t(p[at]) | (uint32_t(p[at + 1]) << 8)
+                | (uint32_t(p[at + 2]) << 16) | (uint32_t(p[at + 3]) << 24);
+            at += 4;
+            if (at + n > size)
+                return fail();
+            part.assign(p + at, p + at + n);
+            at += n;
         }
-        return true;
+        return (at == size && adopt(parts[0], parts[1], parts[2], parts[3], parts[4]))
+            || fail();
+    }
+
+    /// The content key of the body served apart, empty when inline, and
+    /// its size
+    std::string body;
+    uint32_t bodySize = 0;
+
+private:
+    /// Empty but for its id. True for a clip of nothing, which is what
+    /// "no clip" is told as.
+    bool fail()
+    {
+        const uint32_t keep = id;
+        const bool nothing = keys.empty() && seqKeys.empty();
+        *this = MotionClip();
+        id = keep;
+        return nothing;
+    }
+
+    /// The five arrays taken and every index in them checked against the
+    /// rest of the clip
+    bool adopt(const std::vector<uint8_t> &dataBytes, const std::vector<uint8_t> &shownBytes,
+               const std::vector<uint8_t> &seqBytes, const std::vector<uint8_t> &atBytes,
+               const std::vector<uint8_t> &lookBytes)
+    {
+        const size_t want = keys.size() * size_t(frames) * 7;
+        const size_t cells = keys.size() * size_t(frames);
+        size_t slotTotal = 0;
+        for (uint32_t c : lookCount)
+            slotTotal += c;
+        bool ok = dataBytes.size() == want * sizeof(float)
+            && (shownBytes.empty()
+                || (shownBytes.size() == cells && refFrame.size() == keys.size()))
+            && seqBytes.size() == seqKeys.size() * size_t(frames) * sizeof(int32_t)
+            && lookSlots.size() == slotTotal
+            && atBytes.size() == lookTracks.size() * size_t(frames) * sizeof(int32_t)
+            && lookBytes.size() % sizeof(MotionLook) == 0
+            && std::all_of(lookTracks.begin(), lookTracks.end(),
+                           [this](uint32_t r) { return size_t(r) < keys.size(); })
+            && std::all_of(lookCount.begin(), lookCount.end(), [](uint32_t c) { return c > 0; });
+        if (!ok)
+            return false;
+        data.resize(want);
+        if (want)
+            std::memcpy(data.data(), dataBytes.data(), dataBytes.size());
+        shown = shownBytes;
+        seq.resize(seqBytes.size() / sizeof(int32_t));
+        if (!seq.empty())
+            std::memcpy(seq.data(), seqBytes.data(), seqBytes.size());
+        lookAt.resize(atBytes.size() / sizeof(int32_t));
+        if (!lookAt.empty())
+            std::memcpy(lookAt.data(), atBytes.data(), atBytes.size());
+        looks.resize(lookBytes.size() / sizeof(MotionLook));
+        if (!looks.empty())
+            std::memcpy(static_cast<void *>(looks.data()), lookBytes.data(), lookBytes.size());
+        for (size_t r = 0; r < lookTracks.size(); ++r) {
+            for (uint32_t f = 0; f < frames; ++f) {
+                const int32_t i = lookAt[r * frames + f];
+                if (i < 0 || size_t(i) + lookCount[r] > looks.size())
+                    return false;
+            }
+        }
+        const auto blobOk = [this](int32_t b) { return b >= -1 && b < int32_t(blobs.size()); };
+        ok = std::all_of(seq.begin(), seq.end(), blobOk)
+            && std::all_of(refBlob.begin(), refBlob.end(), blobOk)
+            && std::all_of(refFrame.begin(), refFrame.end(),
+                           [this](int32_t f) { return f >= -1 && f < int32_t(frames); });
+        return ok;
     }
 };
 
@@ -1102,6 +1186,10 @@ private:
         int type = 0;
         /// The material as far as an Animation changes it in place
         MotionLook look;
+        /// The rest of it, which no look carries -- a texture, a PBR
+        /// parameter, a finish: told by materialIdentity() with the look
+        /// set alike. Changed, the draw is not what the publish held.
+        uint64_t rest = 0;
     };
     struct Object {
         /// The draws at refFrame, what the poses are measured from
@@ -1257,13 +1345,18 @@ private:
         s.indexCount = draw.indexCount;
         s.type = draw.material.type;
         s.look = MotionLook::of(draw.material);
+        Material rest = draw.material;
+        MotionLook().applyTo(rest);
+        s.rest = materialIdentity(rest);
         return s;
     }
 
     /// The one rigid transform that takes the object's draws at refFrame
     /// to \a now, and how each of them looks there; false when there is
     /// none. The looks may differ from refFrame's: a colour or a
-    /// transparency the Animation changes rides the track.
+    /// transparency the Animation changes rides the track. The rest of the
+    /// material may not: a draw whose texture or PBR parameter changed is
+    /// a draw of its own, and the object a sequence.
     static bool measure(const Object &obj, const std::vector<const DrawCall *> &now,
                         Motion::Pose &pose, std::vector<MotionLook> &looks)
     {
@@ -1283,7 +1376,8 @@ private:
             if ((is.mesh != was.mesh
                  && !sameMesh(now[i]->mesh.get(), obj.refDraws[i].mesh.get()))
                 || is.partIndex != was.partIndex || is.indexStart != was.indexStart
-                || is.indexCount != was.indexCount || is.type != was.type)
+                || is.indexCount != was.indexCount || is.type != was.type
+                || is.rest != was.rest)
                 return false;
             looks.push_back(is.look);
             double expect[16];

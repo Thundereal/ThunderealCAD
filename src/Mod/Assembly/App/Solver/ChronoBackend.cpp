@@ -1423,6 +1423,9 @@ public:
         // it is where the round is deepest in the part
         int leaving = -1;
         ShapeOn round;
+        // Taken to the line its face's round and that one touch along
+        // (FlexibleContact::restation()), and held on it within the substep
+        bool lined = false;
     };
     std::vector<OnMesh> onMesh;
     bool meshed(std::size_t i) const
@@ -2144,6 +2147,198 @@ public:
         return true;
     }
 
+    // The stretch of a round's axis that a point slid into that round
+    // (slides 2) lies along it over, its own face's round and that one lying
+    // one way: from 'low' to 'high', as deepestOnFace() stations a point --
+    // from the round's middle along its axis -- where both rounds reach.
+    // False where the point's face is of no round, either is a ball, or
+    // their axes are a degree apart: they touch at a point then
+    bool reachAlong(const ContactLoad::OnMesh& on,
+                    const ch::ChBody& roundBody,
+                    double& low,
+                    double& high) const
+    {
+        if (on.slides != 2 || on.round.ball > 0.0 || on.face >= faceRound.size()
+            || faceRound[on.face] < 0) {
+            return false;
+        }
+        const ShapeOn& own = rounds[static_cast<std::size_t>(faceRound[on.face])];
+        if (own.ball > 0.0) {
+            return false;
+        }
+        const ch::ChFramed theirs = on.round.frame >> roundBody;
+        const ch::ChFramed mine = own.frame >> *carrier;
+        const ch::ChVector3d axis = theirs.GetRotMat().GetAxisZ();
+        if (!(std::abs(ch::Vdot(axis, mine.GetRotMat().GetAxisZ())) > 0.9998)) {
+            return false;
+        }
+        const double middle = ch::Vdot(axis, mine.GetPos() - theirs.GetPos());
+        low = std::max(-on.round.half, middle - own.half);
+        high = std::min(on.round.half, middle + own.half);
+        return high > low;
+    }
+
+    // A point slid into a round (slides 2), its own face a round's too and
+    // the two lying one way, to the line they touch along, at 'station' along
+    // that round's axis (deepestOnFace()'s): the normal out of that round's
+    // axis through it and that round's surface there, absolute, as
+    // deepestOnFace() gives them. The line is where the part's own round,
+    // as the mesh has it there (roundAt()), is nearest the other's axis --
+    // in a hollow one, farthest -- and the point the face's nearest it.
+    // Not the faces' deepest in the round: a bore R 5.2 on a pin R 5 is
+    // within a micron of the pin 6 deg either side of the line, and its
+    // faces stand in from it between their nodes by 0.65 um, so the faces'
+    // deepest was 1 to 2 deg off the line, and 6 deg off it at one face's
+    // corner -- 1.1 um less deep, of the 1.45 um a hanger's weight presses
+    // one end of its bore. 'walk', through the faces on the way, the point
+    // left on the face it came to; else on its own face, stopped at its
+    // edges, and from where it was placed each time (follow()). False, the
+    // point as it was, where the faces do not take it there
+    bool toLine(ContactLoad::OnMesh& placed,
+                const ch::ChBody& roundBody,
+                double station,
+                bool walk,
+                ch::ChVector3d& normal,
+                ch::ChVector3d& onRound) const
+    {
+        ContactLoad::OnMesh on = placed;
+        if (!mesh || !on.placed || on.slides != 2 || on.face >= faceTriangle.size()
+            || faceTriangle[on.face] < 0 || on.face >= faceRound.size()) {
+            return false;
+        }
+        std::array<ch::ChVector3d, 6> x;
+        cornersOf(on.face, x);
+        std::size_t faceNow = on.face;
+        std::array<double, 3> L = on.L;
+        ch::ChVector3d at = ch::VNULL;
+        {
+            const auto weights = ChronoFlexible::Surface::shape(L);
+            for (std::size_t k = 0; k < 6; ++k) {
+                at += x[k] * weights[k];
+            }
+        }
+        // The part's own round where the mesh has it, and the other's axis,
+        // in the carrier's frame
+        ShapeOn own;
+        if (!roundAt(faceTriangle[on.face], at, own) || own.ball > 0.0 || !(own.radius > 0.0)) {
+            return false;
+        }
+        const ch::ChFramed theirs = on.round.frame >> roundBody;
+        const ch::ChVector3d axis =
+            carrier->TransformDirectionParentToLocal(theirs.GetRotMat().GetAxisZ());
+        const ch::ChVector3d centre = carrier->TransformPointParentToLocal(theirs.GetPos());
+        const ch::ChVector3d ownAxis = own.frame.GetRotMat().GetAxisZ();
+        const double lean = ch::Vdot(axis, ownAxis);
+        if (!(std::abs(lean) > 0.9)) {
+            return false;
+        }
+        // Its own axis's point at the station, and the way from there to the
+        // line: towards the other's axis, or in a hollow one away from it
+        const ch::ChVector3d middle = own.frame.GetPos()
+            + ownAxis * ((station - ch::Vdot(axis, own.frame.GetPos() - centre)) / lean);
+        ch::ChVector3d out = middle - centre;
+        out -= axis * ch::Vdot(axis, out);
+        out -= ownAxis * ch::Vdot(ownAxis, out);
+        const double apart = out.Length();
+        if (!(apart > 1e-9 * own.radius)) {
+            return false;
+        }
+        out *= (on.round.concave ? 1.0 : -1.0) / apart;
+        const ch::ChVector3d target = middle + out * own.radius;
+        // The face's point nearest it: the one nearest a ball's centre a
+        // quarter of the radius under it, which the faces are walked to as
+        // to a round's deepest (deepest())
+        ShapeOn under;
+        under.ball = 0.25 * own.radius;
+        under.frame = ch::ChFramed(roundBody.TransformPointParentToLocal(
+            carrier->TransformPointLocalToParent(target - out * under.ball)));
+        ch::ChVector3d ballNormal;
+        ch::ChVector3d onBall;
+        int left = -1;
+        bool found = false;
+        if (walk) {
+            for (int more = 0; more < 4; ++more) {
+                double none = std::numeric_limits<double>::quiet_NaN();
+                found = deepest(under, roundBody, faceNow, L, x, ballNormal, onBall, none, &left);
+                if (!found || left < 0) {
+                    break;
+                }
+            }
+        }
+        else {
+            double none = std::numeric_limits<double>::quiet_NaN();
+            found =
+                deepestOnFace(under, roundBody, *carrier, x, L, ballNormal, onBall, left, &none);
+        }
+        // On a face of that round of its own still
+        if (!found || faceNow >= faceRound.size() || faceRound[faceNow] != faceRound[on.face]) {
+            return false;
+        }
+        const auto weights = ChronoFlexible::Surface::shape(L);
+        at = ch::VNULL;
+        for (std::size_t k = 0; k < 6; ++k) {
+            at += x[k] * weights[k];
+        }
+        // The faces took it there
+        if (walk && !((at - target).Length() < 0.1 * faceSize(on))) {
+            return false;
+        }
+        ch::ChVector3d radial = at - centre;
+        const double reached = ch::Vdot(axis, radial);
+        radial -= axis * reached;
+        const double away = radial.Length();
+        if (!(away > 1e-12)) {
+            return false;
+        }
+        normal = carrier->TransformDirectionLocalToParent(radial / away);
+        onRound = carrier->TransformPointLocalToParent(
+                      centre + axis * std::clamp(reached, -on.round.half, on.round.half))
+            + normal * on.round.radius;
+        on.weights = weights;
+        on.offset = ch::VNULL;
+        ontoRound(faceNow, at, on.offset);
+        if (walk) {
+            on.leaving = left;
+            on.nodes = surface->face(faceNow);
+            on.face = faceNow;
+            on.L = L;
+            on.station = reached;
+            on.lined = true;
+        }
+        placed = on;
+        return true;
+    }
+
+    // A load's point slid into a round taken to the two rounds' line at
+    // 'station' (toLine()), through the faces on the way, and left there as
+    // place() leaves one. False, the point as it was, where the faces do not
+    // take it there, or it would be round the part on another of its sides
+    bool restation(ContactLoad& load, std::size_t i, bool sideA, double station) const
+    {
+        auto& placedOn = sideA ? load.onMeshA : load.onMesh;
+        if (i >= placedOn.size() || i >= load.points.size()) {
+            return false;
+        }
+        const ch::ChBody& roundBody = sideA ? *load.GetBodyB() : *load.GetBodyA();
+        ContactLoad::OnMesh on = placedOn[i];
+        ch::ChVector3d normal;
+        ch::ChVector3d onRound;
+        if (!toLine(on, roundBody, station, true, normal, onRound)) {
+            return false;
+        }
+        auto& point = load.points[i];
+        const ch::ChVector3d turned =
+            (sideA ? -normal : normal) * (on.round.concave ? -1.0 : 1.0);
+        if (!(ch::Vdot(turned, point.normal) > 0.7)) {
+            return false;
+        }
+        point.normal = turned;
+        point.normalOn = carrier->TransformDirectionParentToLocal(point.normal);
+        (sideA ? point.onB : point.onA) = roundBody.TransformPointParentToLocal(onRound);
+        placedOn[i] = on;
+        return true;
+    }
+
     // How long the first edge is of the face a slid point is on, as the
     // collision mesh has it (thinOut())
     double faceSize(const ContactLoad::OnMesh& on) const
@@ -2279,20 +2474,25 @@ public:
             // iterations and not at the next left a fifth of a rod's
             // substeps on a roller unconverged, each taken again an eighth
             // as long
-            double station = on.station;
-            int leaving = -1;
-            if (!deepestOnFace(on.round,
-                               otherBody,
-                               *carrier,
-                               x,
-                               L,
-                               normal,
-                               onRound,
-                               leaving,
-                               &station)) {
-                continue;
+            // One taken to two rounds' line, on the line still (toLine()):
+            // found again as its face's deepest it left the line for where
+            // the face stands in most
+            if (!(on.lined && toLine(on, otherBody, on.station, false, normal, onRound))) {
+                double station = on.station;
+                int leaving = -1;
+                if (!deepestOnFace(on.round,
+                                   otherBody,
+                                   *carrier,
+                                   x,
+                                   L,
+                                   normal,
+                                   onRound,
+                                   leaving,
+                                   &station)) {
+                    continue;
+                }
+                on.weights = ChronoFlexible::Surface::shape(L);
             }
-            on.weights = ChronoFlexible::Surface::shape(L);
             point.normal = (sideA ? -normal : normal) * (on.round.concave ? -1.0 : 1.0);
             point.normalOn = carrier->TransformDirectionParentToLocal(point.normal);
             const ch::ChVector3d local = otherBody.TransformPointParentToLocal(onRound);
@@ -3065,6 +3265,161 @@ void thinOut(ContactLoad& load)
             }
         }
     }
+    // A round lying along another, their axes one way -- a bore on its pin:
+    // the places along their line are where collision detection happened to
+    // find points, here two at one end, there five, and the force on the
+    // part is at their middle, off the line's own. A hanger on a pin, its
+    // bore 10 mm long, rocked on it by 2.5 mrad, where a rigid one hangs
+    // square, the pin's force 0.11 N rms from frame to frame for 0.015. Two
+    // points then, at the ends of the stretch both rounds reach
+    // (reachAlong()) as two rigid rounds' are, each taken there through the
+    // faces on the way (restation()), a hundredth of the stretch in, and the
+    // line's other places go: the force is the same then whichever places
+    // were found -- twelve places at depths from 0.2 to 1.9 um press 1.28 N
+    // by their shares, the two at the ends 1.74. A line is the places
+    // against one round whose normals are within a quarter turn of its
+    // deepest's -- a rod R 5 sunk 0.05 mm in a bore R 5.5 presses it for 25
+    // deg either side of their line, and one place 21 deg off it, 31 from
+    // the first found, was left a line of its own: a third point 12 um
+    // deep for one substep, the rod's 44.8 N stepping 1.1 -- of whichever
+    // patches: places on triangles with no corner in common are two patches
+    // (patchesOf()), a spring each, and the line's two are of one. Its ends
+    // are of those pressing on the part's own round's faces -- one on the
+    // flat face beside the bore, at its rim, is not taken along it, and
+    // goes: the line's end is there already. One such place alone stays
+    // where it is: a pin cocked in its bore touches at an end. The hanger's
+    // bore then lies along its pin within 0.03 mrad, the pin's force 0.015
+    // N rms from frame to frame as a rigid hanger's is
+    struct Line
+    {
+        const Kept* first;
+        std::size_t deepest;
+        std::vector<std::size_t> points;
+    };
+    std::vector<Line> lines;
+    // The deepest place first: a line's first
+    std::vector<const Kept*> deepestFirst;
+    for (const Kept& k : kept) {
+        if (k.axis.Length2() > 0.0) {
+            deepestFirst.push_back(&k);
+        }
+    }
+    std::stable_sort(deepestFirst.begin(),
+                     deepestFirst.end(),
+                     [&](const Kept* a, const Kept* b) {
+                         return depth[a->points[a->points.size() / 2]]
+                             > depth[b->points[b->points.size() / 2]];
+                     });
+    for (const Kept* each : deepestFirst) {
+        const Kept& k = *each;
+        const std::size_t middle = k.points[k.points.size() / 2];
+        const auto& on = k.way == 2 ? load.onMeshA[middle] : load.onMesh[middle];
+        bool found = false;
+        for (Line& line : lines) {
+            const Kept& f = *line.first;
+            const auto& first = f.way == 2 ? load.onMeshA[line.deepest] : load.onMesh[line.deepest];
+            if (f.way != k.way || !(ch::Vdot(f.axis, k.axis) > 0.9998)
+                || first.round.radius != on.round.radius
+                || (first.round.frame.GetPos() - on.round.frame.GetPos()).Length2() > 0.0
+                || !(ch::Vdot(load.points[line.deepest].normal, load.points[middle].normal)
+                     > 0.0)) {
+                continue;
+            }
+            line.points.push_back(middle);
+            found = true;
+            break;
+        }
+        if (!found) {
+            lines.push_back({&k, middle, {middle}});
+        }
+    }
+    bool movedA = false;
+    bool movedB = false;
+    for (const Line& line : lines) {
+        const bool sideA = line.first->way == 2;
+        FlexibleContact* part = sideA ? load.flexibleA : load.flexible;
+        auto& placedOn = sideA ? load.onMeshA : load.onMesh;
+        const ch::ChBody& roundBody = sideA ? *load.GetBodyB() : *load.GetBodyA();
+        // Those on the faces of one round of the part's own
+        std::int32_t own = -1;
+        std::vector<std::size_t> onRound;
+        for (const std::size_t i : line.points) {
+            const std::size_t f = placedOn[i].face;
+            const std::int32_t r = f < part->faceRound.size() ? part->faceRound[f] : -1;
+            if (r < 0) {
+                continue;
+            }
+            if (own < 0) {
+                own = r;
+            }
+            // And pressing: the bore's next facet round is a place of the
+            // line too, its normal within the 30 deg, 20 um clear of the pin
+            // where the line presses 1.4 um -- taken for the line's end, that
+            // end had no point and the part rocked on the other
+            if (r == own && depth[i] > 0.0) {
+                onRound.push_back(i);
+            }
+        }
+        // Two of them at least: a line that does not press has no force to
+        // place
+        double low = 0.0;
+        double high = 0.0;
+        if (onRound.size() < 2
+            || !part->reachAlong(placedOn[onRound.front()], roundBody, low, high)) {
+            continue;
+        }
+        const double in = 0.01 * (high - low);
+        // The place nearest each end, the low end's first
+        std::size_t nearLow = onRound.front();
+        for (const std::size_t i : onRound) {
+            if (placedOn[i].station < placedOn[nearLow].station) {
+                nearLow = i;
+            }
+        }
+        std::size_t nearHigh = nearLow;
+        for (const std::size_t i : onRound) {
+            if (i != nearLow
+                && (nearHigh == nearLow || placedOn[i].station > placedOn[nearHigh].station)) {
+                nearHigh = i;
+            }
+        }
+        const ContactLoad::OnMesh wasLow = placedOn[nearLow];
+        const ContactLoad::Point pointLow = load.points[nearLow];
+        if (!part->restation(load, nearLow, sideA, low + in)) {
+            continue;
+        }
+        if (!part->restation(load, nearHigh, sideA, high - in)) {
+            placedOn[nearLow] = wasLow;
+            load.points[nearLow] = pointLow;
+            continue;
+        }
+        (sideA ? movedA : movedB) = true;
+        for (const std::size_t i : line.points) {
+            if (i != nearLow && i != nearHigh) {
+                gone[i] = 1;
+                any = true;
+            }
+        }
+        load.points[nearLow].patch = line.first->patch;
+        load.points[nearHigh].patch = line.first->patch;
+        // And the part's points along the line that were not slid into the
+        // round: on its flat faces' triangles at the rim
+        const ch::ChFramed theirs = placedOn[nearLow].round.frame >> roundBody;
+        const ch::ChVector3d axis = theirs.GetRotMat().GetAxisZ();
+        const ch::ChVector3d normal = load.points[line.deepest].normal;
+        for (std::size_t i = 0; i < count; ++i) {
+            if (gone[i] || !(sideA ? load.meshedA(i) : load.meshed(i))
+                || placedOn[i].slides != 0) {
+                continue;
+            }
+            const double along = ch::Vdot(axis, placedOn[i].at - theirs.GetPos());
+            if (ch::Vdot(load.points[i].normal, normal) > 0.5 && along > low - 5.0 * in
+                && along < high + 5.0 * in) {
+                gone[i] = 1;
+                any = true;
+            }
+        }
+    }
     // And a point left on a curved face's triangle, in a patch whose others
     // on that side were slid into the round: found against the round's end,
     // a rod's rim on a bore's wall, where the round's side is the line's
@@ -3092,7 +3447,7 @@ void thinOut(ContactLoad& load)
             }
         }
     }
-    if (!any) {
+    if (!any && !movedA && !movedB) {
         return;
     }
     auto thin = [&](auto& all) {
@@ -3114,6 +3469,13 @@ void thinOut(ContactLoad& load)
     thin(load.onMesh);
     thin(load.onMeshA);
     thin(load.given);
+    // The moved points where the modes have them
+    if (movedB && load.flexible) {
+        load.flexible->refresh(load, false);
+    }
+    if (movedA && load.flexibleA) {
+        load.flexibleA->refresh(load, true);
+    }
 }
 #endif
 

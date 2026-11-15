@@ -219,6 +219,139 @@ PyObject* AnimationPy::setInterp(PyObject* args, PyObject* kwds)
     PY_CATCH
 }
 
+namespace
+{
+
+Py::Tuple handleTuple(const Anim::Handle& h)
+{
+    Py::Tuple dv(h.dv.size());
+    for (std::size_t i = 0; i < h.dv.size(); ++i) {
+        dv.setItem(i, Py::Float(h.dv[i]));
+    }
+    return Py::TupleN(Py::String(Anim::nameOf(h.type)), Py::Float(h.dt), dv);
+}
+
+/// A side of setHandles(): \a now as the curve has it, changed by \a arg;
+/// true when \a arg gave its values
+bool handleOf(PyObject* arg, const Anim::Handle& now, std::size_t size, Anim::Handle& out)
+{
+    out = now;
+    if (PyUnicode_Check(arg)) {
+        Anim::fromName(PyUnicode_AsUTF8(arg), out.type);
+        return false;
+    }
+    Py::Sequence seq(arg);
+    if (seq.size() != 3) {
+        FC_THROWM(Base::TypeError, "a handle is a type name or (type, dt, dv)");
+    }
+    Anim::fromName(Py::String(seq[0]).as_std_string("utf-8").c_str(), out.type);
+    out.dt = Py::Float(seq[1]);
+    Py::Object dv(seq[2]);
+    out.dv.assign(size, 0.0);
+    if (PyNumber_Check(dv.ptr())) {
+        if (size != 1) {
+            FC_THROWM(Base::ValueError, "the value has " << size << " numbers: give dv for each");
+        }
+        out.dv[0] = Py::Float(dv);
+    }
+    else {
+        Py::Sequence nums(dv);
+        if (static_cast<std::size_t>(nums.size()) != size) {
+            FC_THROWM(Base::ValueError, "the value has " << size << " numbers, dv " << nums.size());
+        }
+        for (std::size_t i = 0; i < size; ++i) {
+            out.dv[i] = Py::Float(nums[i]);
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+PyObject* AnimationPy::handles(PyObject* args)
+{
+    const char* path;
+    double t;
+    if (!PyArg_ParseTuple(args, "sd", &path, &t)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto anim = getAnimationPtr();
+        auto track = anim->Tracks.getTrack(trackOfPath(anim, path, false));
+        const int i = keyIndex(*track, t);
+        Anim::Curve curve;
+        track->makeCurve(curve);
+        const auto& k = curve.keys[i];
+        return Py::new_reference_to(Py::TupleN(handleTuple(k.left), handleTuple(k.right)));
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::setHandles(PyObject* args, PyObject* kwds)
+{
+    const char* path;
+    double t;
+    PyObject* left = Py_None;
+    PyObject* right = Py_None;
+    static const std::array<const char*, 5> kwlist {"path", "time", "left", "right", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "sd|OO", kwlist, &path, &t, &left,
+                                             &right)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto anim = getAnimationPtr();
+        auto track = anim->Tracks.getTrack(trackOfPath(anim, path, false));
+        if (track->stepped()) {
+            FC_THROWM(Base::TypeError, track->pathString() << " is stepped: it has no handles");
+        }
+        const int i = keyIndex(*track, t);
+        Anim::Curve curve;
+        track->makeCurve(curve);
+        const auto& now = curve.keys[i];
+        const std::size_t size = now.v.size();
+        Anim::Handle l = track->keys[i].key.left;
+        Anim::Handle r = track->keys[i].key.right;
+        bool lGiven = false;
+        bool rGiven = false;
+        if (left != Py_None) {
+            lGiven = handleOf(left, now.left, size, l);
+        }
+        if (right != Py_None) {
+            rGiven = handleOf(right, now.right, size, r);
+        }
+        // The side not given values turned onto the line of the one that
+        // was: an Aligned one, or, left alone opposite an Aligned one given,
+        // a computed one -- which would otherwise turn that one onto its
+        // own line (Curve::prepare), as Blender makes both Aligned when one
+        // handle of an Auto key is dragged
+        using Anim::HandleType;
+        auto computed = [](HandleType type) {
+            return type == HandleType::AutoClamped || type == HandleType::Auto
+                || type == HandleType::Vector;
+        };
+        auto follow = [&](const Anim::Handle& by, PyObject* arg, const Anim::Handle& was,
+                          Anim::Handle& other) {
+            if (other.type == HandleType::Aligned
+                || (arg == Py_None && by.type == HandleType::Aligned && computed(other.type))) {
+                other = was;
+                other.type = HandleType::Aligned;
+                Anim::alignHandle(by, other);
+            }
+        };
+        if (lGiven && !rGiven) {
+            follow(l, right, now.right, r);
+        }
+        else if (rGiven && !lGiven) {
+            follow(r, left, now.left, l);
+        }
+        anim->Tracks.setHandles({track->id, track->keys[i].id}, l, r);
+        Py_Return;
+    }
+    PY_CATCH
+}
+
 PyObject* AnimationPy::addTrack(PyObject* args)
 {
     const char* path;

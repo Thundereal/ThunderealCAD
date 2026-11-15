@@ -414,9 +414,14 @@ class TaskFlexibleBody(QtCore.QObject):
                     interfaceName(self.doc, label), len(ids)
                 )
             )
-        self.interfacesLabel.setText(
-            "\n".join(held) if held else translate("Assembly", "nothing yet")
-        )
+        if held:
+            text = "\n".join(held)
+        elif state in ("none", "stale"):
+            text = translate("Assembly", "nothing yet")
+        else:
+            # Meshed as the model is, and no joint on it: it moves free
+            text = translate("Assembly", "nothing: no joint holds it")
+        self.interfacesLabel.setText(text)
         self.showMeshBox.setEnabled(state != "none")
         if self.meshRoot is not None:
             self.showMesh(False)

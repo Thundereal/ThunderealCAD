@@ -25,7 +25,12 @@ A document with a cylinder, its Height keyed 10 mm at 0 s and 40 mm at
   - the curve editor: Curves on, the Radius track chosen by its name, its
     key at 2 s dragged up with Shift: its value up by what the drag spans,
     its time kept, one undo step; the key at 0 s's right handle dragged
-    up: Free, and the curve at 0.5 s higher;
+    up: Aligned, and the curve at 0.5 s higher; a key between, its right
+    handle dragged up: both its handles Aligned, on one line, the curve
+    smooth through it; its menu's Bezier handles > Free: Free, the curve
+    as it was; > Auto clamped: computed again;
+  - a Shortest placement track with a Bezier span turning 170 deg: its
+    row's tip suggests Turns; once Turns, and for 45 deg, it does not;
   - strips: two Animations selected, Add as strips: two strips, one after
     the other; the second's bar dragged 0.5 s right: its offset 0.5, one
     undo step; made On click, Play stops at its start;
@@ -435,10 +440,101 @@ def run():
         drag(view, a, QtCore.QPoint(a.x(), a.y() - 40))
         tr = anim.track("Post.Radius")
         after = anim.value("Post.Radius", 0.5).Value
-        check("a handle dragged: Free", tr["Keys"][0]["Handles"][1] == "Free", tr["Keys"][0])
+        check("a handle of a smooth key dragged: Aligned",
+              tr["Keys"][0]["Handles"] == ("Aligned", "Aligned"), tr["Keys"][0])
         check("and the curve follows it", after > before + 0.05, (before, after))
+        doc.undo()
+        pump(0.3)
+
+        # A key between: its right handle dragged up, the left kept in line
+        anim.addKey("Post.Radius", 1.0, 5.0, interp="Bezier")
+        pump(0.3)
+        layout = Layout(view, anim)
+        left0, right0 = anim.handles("Post.Radius", 1.0)
+        a = QtCore.QPoint(layout.x(1.0 + right0[1]), y(5.0 + right0[2][0]))
+        drag(view, a, QtCore.QPoint(a.x(), a.y() - 30))
+        left, right = anim.handles("Post.Radius", 1.0)
+        rise = (right[2][0] / right[1], left[2][0] / left[1])
+        check("a middle key's handle dragged: both Aligned, on one line",
+              (left[0], right[0]) == ("Aligned", "Aligned") and right[2][0] > right0[2][0] + 0.3
+              and abs(rise[0] - rise[1]) < 1e-9 and abs(left[1] - left0[1]) < 1e-9,
+              (left0, right0, left, right))
+        f = lambda t: anim.value("Post.Radius", t).Value
+        slopes = ((f(1.0) - f(1.0 - 1e-4)) / 1e-4, (f(1.0 + 1e-4) - f(1.0)) / 1e-4)
+        check("so the curve stays smooth through it", abs(slopes[0] - slopes[1]) < 0.05,
+              slopes)
+
+        # Right-click it: Bezier handles > Free
+        def pickHandles(which):
+            def pick():
+                menu = QtWidgets.QApplication.activePopupWidget()
+                if menu is None:
+                    QtCore.QTimer.singleShot(100, pick)
+                    return
+                for a in menu.actions():
+                    if a.text() == "Bezier handles" and a.menu() is not None:
+                        for b in a.menu().actions():
+                            if b.text().startswith(which):
+                                chosen.append(b.text())
+                                b.trigger()
+                menu.close()
+            return pick
+
+        del chosen[:]
+        v12 = f(1.2)
+        QtCore.QTimer.singleShot(300, pickHandles("Free"))
+        pos = QtCore.QPoint(layout.x(1.0), y(5.0))
+        QtWidgets.QApplication.sendEvent(view, QtGui.QContextMenuEvent(
+            QtGui.QContextMenuEvent.Mouse, pos, view.mapToGlobal(pos)))
+        pump(0.3)
+        left, right = anim.handles("Post.Radius", 1.0)
+        check("the key menu makes its handles Free, the curve as it was",
+              chosen and (left[0], right[0]) == ("Free", "Free") and abs(f(1.2) - v12) < 1e-9
+              and abs(right[2][0] / right[1] - rise[0]) < 1e-9, (chosen, left, right, v12))
+        del chosen[:]
+        QtCore.QTimer.singleShot(300, pickHandles("Auto clamped"))
+        QtWidgets.QApplication.sendEvent(view, QtGui.QContextMenuEvent(
+            QtGui.QContextMenuEvent.Mouse, pos, view.mapToGlobal(pos)))
+        pump(0.3)
+        left, right = anim.handles("Post.Radius", 1.0)
+        check("and back to Auto clamped: computed again",
+              chosen and (left[0], right[0]) == ("AutoClamped", "AutoClamped")
+              and abs(right[2][0] - right0[2][0]) < 1e-9, (chosen, left, right))
         curvesButton.setChecked(False)
         anim.removeTrack("Post.Radius")
+        pump(0.2)
+
+        # A large Bezier turn on a Shortest track: the row's tip says Turns
+        def rowTip(path):
+            paths = sorted(t["Path"] for t in anim.Tracks)
+            pos = QtCore.QPoint(30, 22 + paths.index(path) * 20 + 10)
+            QtWidgets.QApplication.sendEvent(view, QtGui.QMouseEvent(
+                QtCore.QEvent.MouseMove, QtCore.QPointF(pos), QtCore.QPointF(view.mapToGlobal(pos)),
+                Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+            pump(0.1)
+            return view.toolTip()
+
+        rest = post.Placement
+        turned = App.Placement(rest.Base, App.Rotation(App.Vector(0, 0, 1), 170))
+        anim.addKey("Post.Placement", 0.0, rest, interp="Bezier")
+        anim.addKey("Post.Placement", 2.0, turned, interp="Bezier")
+        pump(0.3)
+        tip = rowTip("Post.Placement")
+        check("a Bezier span turning 170 deg: the row's tip suggests Turns",
+              "turns 170 deg" in tip and "Turns" in tip, tip)
+        anim.setTrack("Post.Placement", rotation="Turns")
+        pump(0.3)
+        tip = rowTip("Post.Placement")
+        check("and says nothing of it once the track is Turns", "turns 170" not in tip, tip)
+        anim.removeTrack("Post.Placement")
+        anim.addKey("Post.Placement", 0.0, rest, interp="Bezier")
+        anim.addKey("Post.Placement", 2.0,
+                    App.Placement(rest.Base, App.Rotation(App.Vector(0, 0, 1), 45)), interp="Bezier")
+        pump(0.3)
+        tip = rowTip("Post.Placement")
+        check("nor of a turn of 45 deg", " deg here" not in tip, tip)
+        anim.removeTrack("Post.Placement")
+        post.Placement = rest
         pump(0.2)
 
         # Strips

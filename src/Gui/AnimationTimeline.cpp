@@ -262,9 +262,10 @@ void AnimationPlayer::play(App::Animation* a)
     if (!a) {
         return;
     }
-    if (timer.isActive() && animation() != a) {
+    if (isPlaying() && animation() != a) {
         pause();
     }
+    held = false;
     anim = App::DocumentObjectT(a);
     double start = a->Start.getValue();
     double end = a->endTime();
@@ -287,12 +288,33 @@ void AnimationPlayer::play(App::Animation* a)
 void AnimationPlayer::pause()
 {
     timer.stop();
+    held = false;
     Q_EMIT stateChanged();
+}
+
+void AnimationPlayer::hold()
+{
+    if (timer.isActive()) {
+        timer.stop();
+        held = true;
+    }
+}
+
+void AnimationPlayer::release(double from)
+{
+    if (!held) {
+        return;
+    }
+    held = false;
+    startTime = from;
+    clock.start();
+    timer.start();  // at the interval play() set
 }
 
 void AnimationPlayer::stop()
 {
     timer.stop();
+    held = false;
     if (auto a = animation()) {
         if (a->Active.getValue()) {
             a->Active.setValue(false);  // the rest values back
@@ -489,6 +511,17 @@ public:
             default:
                 break;
             }
+            // A large Bezier turn on a Shortest track: the numbers of the
+            // quaternion blended run a few degrees ahead early in the span
+            // (measured with the phase 4 notes, docs/Animation.md); Turns
+            // eases the angle
+            if (double turn = largestBezierTurn(*t); turn > 90.0) {
+                row.tip += tr2("\nA Bezier span turns %1 deg here. Shortest blends the "
+                               "rotation's numbers, which run a few degrees ahead early in a "
+                               "large span; for a turn about one axis, the track's Rotation > "
+                               "Turns eases the angle itself.")
+                               .arg(std::lround(turn));
+            }
             for (auto& k : t->keys) {
                 row.keys.push_back({k.id, k.key.t, k.key.interp});
                 if (selected.count({t->id, k.id})) {
@@ -551,6 +584,38 @@ public:
         view1 = end + margin;
     }
 
+    /// The largest turn between two keys of a Bezier span of a Shortest
+    /// track's rotation, degrees; 0 for none
+    static double largestBezierTurn(const App::AnimationTrack& t)
+    {
+        using namespace App::Anim;
+        if (t.rotation != RotationMode::Shortest || t.stepped()) {
+            return 0.0;
+        }
+        double worst = 0.0;
+        std::size_t offset = 0;
+        for (auto& g : t.layout.groups) {
+            if (g.kind == Kind::Quaternion) {
+                for (std::size_t i = 0; i + 1 < t.keys.size(); ++i) {
+                    const auto& a = t.keys[i].key;
+                    const auto& b = t.keys[i + 1].key.v;
+                    if (a.interp != Interp::Bezier || a.v.size() < offset + 4
+                        || b.size() < offset + 4) {
+                        continue;
+                    }
+                    double dot = 0.0;
+                    for (std::size_t k = 0; k < 4; ++k) {
+                        dot += a.v[offset + k] * b[offset + k];
+                    }
+                    dot = std::min(1.0, std::fabs(dot));
+                    worst = std::max(worst, 2.0 * std::acos(dot) * 57.29577951308232);
+                }
+            }
+            offset += static_cast<std::size_t>(g.size);
+        }
+        return worst;
+    }
+
     static QString tr2(const char* text)
     {
         return AnimationTimeline::tr(text);
@@ -594,6 +659,9 @@ public:
     /// The key under `pos`, or {-1, -1}
     std::pair<int, int> keyAt(const QPoint& pos) const
     {
+        if (curves && pos.x() >= gutter() && pos.y() >= rulerHeight) {
+            return curveKeyAt(pos);
+        }
         int r = rowAt(pos.y());
         if (r < 0 || pos.x() < gutter()) {
             return {-1, -1};
@@ -1109,6 +1177,29 @@ public:
                 setInterp(Interp::Python, nullptr, &python);
             }
         });
+        // The handles of a Bezier key, Blender's five
+        QMenu* handles = menu.addMenu(tr2("Bezier handles"));
+        HandleType currentHandle = HandleType::AutoClamped;
+        if (auto t = anim->Tracks.getTrack(selected.begin()->first)) {
+            int i = t->findId(selected.begin()->second);
+            if (i >= 0) {
+                currentHandle = t->keys[i].key.left.type;
+            }
+        }
+        const std::pair<HandleType, const char*> handleTypes[] = {
+            {HandleType::AutoClamped, QT_TR_NOOP("Auto clamped: smooth, flat at a peak")},
+            {HandleType::Auto, QT_TR_NOOP("Auto: smooth")},
+            {HandleType::Vector, QT_TR_NOOP("Vector: straight at the neighbours")},
+            {HandleType::Aligned, QT_TR_NOOP("Aligned: dragged, the other kept in line")},
+            {HandleType::Free, QT_TR_NOOP("Free: each dragged on its own")},
+        };
+        for (auto& [type, text] : handleTypes) {
+            auto action = handles->addAction(tr2(text), [this, type = type] {
+                setHandleType(type);
+            });
+            action->setCheckable(true);
+            action->setChecked(currentHandle == type);
+        }
         QMenu* easing = menu.addMenu(tr2("Easing"));
         for (int i = 0; i <= static_cast<int>(EaseType::Bounce); ++i) {
             auto type = static_cast<EaseType>(i);
@@ -1333,6 +1424,67 @@ public:
     // ----------------------------------------------------------------------
     // The curve editor (docs/Animation.md phase 4): the chosen track's
     // numbers over time, its keys and, where a span is Bezier, their handles
+
+    /// The key of the curve shown whose point is under \a pos, any number
+    std::pair<int, int> curveKeyAt(const QPoint& pos) const
+    {
+        auto track = currentTrack();
+        if (!track || track->stepped()) {
+            return {-1, -1};
+        }
+        std::vector<int> shown;
+        std::vector<bool> editable;
+        components(*track, shown, editable);
+        for (auto& k : track->keys) {
+            for (int c : shown) {
+                if (c < static_cast<int>(k.key.v.size())
+                    && std::hypot(xOf(k.key.t) - pos.x(), yOfValue(k.key.v[c]) - pos.y())
+                        <= 6.0) {
+                    return {track->id, k.id};
+                }
+            }
+        }
+        return {-1, -1};
+    }
+
+    /// Both handles of each key selected made \a type: an Aligned or Free
+    /// one starting where the curve has it now, an Aligned pair turned
+    /// onto the line of the side that reaches into a span (the left first)
+    void setHandleType(App::Anim::HandleType type)
+    {
+        using App::Anim::HandleType;
+        auto anim = owner->animation();
+        if (!anim) {
+            return;
+        }
+        App::AutoTransaction guard(QT_TRANSLATE_NOOP("Command", "Set handle type"));
+        try {
+            for (auto& ref : selectedRefs()) {
+                auto track = anim->Tracks.getTrack(ref.track);
+                int i = track ? track->findId(ref.key) : -1;
+                if (i < 0 || track->stepped()) {
+                    continue;
+                }
+                App::Anim::Curve curve;
+                track->makeCurve(curve);
+                App::Anim::Handle l = curve.keys[i].left;
+                App::Anim::Handle r = curve.keys[i].right;
+                l.type = r.type = type;
+                if (type == HandleType::Aligned) {
+                    if (l.dt != 0) {
+                        App::Anim::alignHandle(l, r);
+                    }
+                    else {
+                        App::Anim::alignHandle(r, l);
+                    }
+                }
+                anim->Tracks.setHandles(ref, l, r);
+            }
+        }
+        catch (Base::Exception& e) {
+            e.ReportException();
+        }
+    }
 
     const App::AnimationTrack* currentTrack() const
     {
@@ -1583,8 +1735,8 @@ public:
                     }
                     if (near(QPointF(xOf(k.t + h.dt), yOfValue(k.v[c] + h.dv[c])))) {
                         grab = {track->keys[i].id, side, c};
-                        grabLeft = k.left;
-                        grabRight = k.right;
+                        grabLeft = grabLeft0 = k.left;
+                        grabRight = grabRight0 = k.right;
                         grabFrom = side < 0 ? QPointF(k.left.dt, k.left.dv[c])
                                             : QPointF(k.right.dt, k.right.dv[c]);
                         return true;
@@ -1626,19 +1778,42 @@ public:
             }
         }
         else {
-            // The handle dragged becomes Free; Alt mirrors it on the other side
+            // From the handles as they were at the press, each move
+            using App::Anim::HandleType;
+            grabLeft = grabLeft0;
+            grabRight = grabRight0;
             auto& h = grab.side < 0 ? grabLeft : grabRight;
-            h.type = App::Anim::HandleType::Free;
+            auto& o = grab.side < 0 ? grabRight : grabLeft;
+            const HandleType was = h.type;
             h.dt = grab.side < 0 ? std::min(-1e-4, grabFrom.x() + dt)
                                  : std::max(1e-4, grabFrom.x() + dt);
             h.dv[grab.comp] = grabFrom.y() + dv;
+            auto smooth = [](HandleType type) {
+                return type == HandleType::AutoClamped || type == HandleType::Auto
+                    || type == HandleType::Aligned;
+            };
             if (ev->modifiers() & Qt::AltModifier) {
-                auto& o = grab.side < 0 ? grabRight : grabLeft;
-                o.type = App::Anim::HandleType::Free;
+                // Alt: both Free, the other side the mirror of this one
+                h.type = HandleType::Free;
+                o.type = HandleType::Free;
                 o.dt = -h.dt;
                 if (grab.comp < static_cast<int>(o.dv.size())) {
                     o.dv[grab.comp] = -h.dv[grab.comp];
                 }
+            }
+            else if (smooth(was)) {
+                // A smooth key stays smooth, as Blender keeps it: both
+                // sides Aligned, the other turned onto this one's line and
+                // keeping its own reach in time
+                h.type = HandleType::Aligned;
+                if (smooth(o.type)) {
+                    o.type = HandleType::Aligned;
+                    App::Anim::alignHandle(h, o);
+                }
+            }
+            else {
+                // A Vector or Free handle is dragged on its own
+                h.type = HandleType::Free;
             }
         }
         update();
@@ -1697,6 +1872,9 @@ public:
     double grabDv = 0;
     App::Anim::Handle grabLeft;
     App::Anim::Handle grabRight;
+    /// The key's handles as the curve had them at the press
+    App::Anim::Handle grabLeft0;
+    App::Anim::Handle grabRight0;
 
     AnimationTimeline* owner;
     std::vector<Row> rows;
@@ -1779,7 +1957,9 @@ AnimationTimeline::AnimationTimeline(QWidget* parent)
     curvesButton->setCheckable(true);
     curvesButton->setToolTip(tr("Show the curves of the track chosen (click its name): drag a "
                                 "key in time and value, Shift in value only; drag a Bezier "
-                                "handle, Alt to mirror it"));
+                                "handle -- a smooth key's other handle stays in line, Alt "
+                                "mirrors it instead and frees both; right-click a key for its "
+                                "handle type"));
     bar->addWidget(curvesButton);
     connect(curvesButton, &QToolButton::toggled, this, [this](bool on) {
         keys->curves = on;

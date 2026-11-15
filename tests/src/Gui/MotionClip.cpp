@@ -238,6 +238,44 @@ TEST(MotionClipBaker, aChangedColourRidesItsTrackAndTheClipIsExact)
     EXPECT_EQ(at[0].diffuse, feed(2, 3, a, b)[0].material.diffuse);
 }
 
+TEST(MotionClipBaker, aMaterialChangedOutsideTheLooksIsARebuild)
+{
+    // A roughness no look carries: a viewer moving the publish's draws
+    // would show the old one, so the object is its draws at every frame
+    auto a = mesh(11), b = mesh(12);
+    std::vector<std::vector<uint8_t>> kept;
+    MotionClipBaker baker([&kept](const DrawCallList& draws) {
+        kept.push_back(motionBlobOf(draws));
+        return int32_t(kept.size() - 1);
+    });
+    baker.frame(feed(0, 3, a, b));
+    DrawCallList rougher = feed(1, 3, a, b);
+    rougher[0].material.roughness = 0.8F;
+    baker.frame(rougher);
+    baker.frame(feed(2, 3, a, b));
+    MotionClip clip = baker.finish(1, 0.0, 1.0);
+    EXPECT_TRUE(clip.exact);
+    ASSERT_EQ(clip.seqKeys.size(), 1U);
+    EXPECT_EQ(clip.seqKeys[0], 1U);
+    EXPECT_TRUE(clip.lookTracks.empty());
+    ASSERT_EQ(clip.seq.size(), 3U);
+    EXPECT_NE(clip.seq[0], clip.seq[1]);
+    // The colour of the same draw still rides a track
+    MotionClipBaker coloured;
+    coloured.frame(feed(0, 3, a, b));
+    DrawCallList red = feed(1, 3, a, b);
+    red[0].material.diffuse = 0xFF0000FF;
+    coloured.frame(red);
+    MotionClip plain = coloured.finish(2, 0.0, 1.0);
+    EXPECT_TRUE(plain.seqKeys.empty());
+    EXPECT_EQ(plain.lookTracks.size(), 1U);
+    // Without a store it is left out, and the clip says it is not exact
+    MotionClipBaker bare;
+    bare.frame(feed(0, 3, a, b));
+    bare.frame(rougher);
+    EXPECT_FALSE(bare.finish(3, 0.0, 1.0).exact);
+}
+
 TEST(MotionClipBaker, theSameGeometryUnderANewCacheIdIsNoRebuild)
 {
     // A colour changed builds the caches again: new ids, the same arrays
@@ -363,6 +401,76 @@ TEST(MotionClip, looksAreWrittenAndRead)
     MotionClip broken;
     EXPECT_FALSE(broken.fromJson(json.c_str()));
     EXPECT_TRUE(broken.lookTracks.empty());
+}
+
+TEST(MotionClip, aClipWithItsBodyApartIsReadWhenTheBodyComes)
+{
+    // Poses, a hidden stretch, a sequence and looks: all five arrays
+    auto a = mesh(11), b = mesh(12);
+    std::vector<std::vector<uint8_t>> kept;
+    MotionClipBaker baker([&kept](const DrawCallList& draws) {
+        kept.push_back(motionBlobOf(draws));
+        return int32_t(kept.size() - 1);
+    });
+    for (int i = 0; i < 5; ++i) {
+        DrawCallList f = feed(i, 5, a, i == 2 ? mesh(13) : b);
+        f[0].material.diffuse = 0x10203000U | uint32_t(255 - 40 * i);
+        if (i == 3) {
+            f.erase(f.begin());  // object 1 hidden
+        }
+        baker.frame(f);
+    }
+    MotionClip clip = baker.finish(9, 0.0, 0.25);
+    // Named as the host names them, by content key
+    for (const auto& blob : kept) {
+        clip.blobs.push_back(sha1Hex(blob.data(), blob.size()));
+        clip.blobSizes.push_back(uint32_t(blob.size()));
+    }
+    ASSERT_FALSE(clip.data.empty());
+    ASSERT_FALSE(clip.shown.empty());
+    ASSERT_FALSE(clip.seq.empty());
+    ASSERT_FALSE(clip.lookAt.empty());
+    const std::vector<uint8_t> body = clip.bodyBytes();
+    clip.body = "0123456789abcdef0123456789abcdef01234567";
+    clip.bodySize = uint32_t(body.size());
+
+    // The message: the key and the size, none of the five
+    const std::string json = clip.toJson("\"Doc\"");
+    for (const char* inline_ : {"\"data\"", "\"shown\"", "\"seq\"", "\"lookAt\"", "\"looks\""}) {
+        EXPECT_EQ(json.find(inline_), std::string::npos) << inline_;
+    }
+    EXPECT_NE(json.find("\"body\":\"" + clip.body + "\""), std::string::npos);
+
+    MotionClip read;
+    ASSERT_TRUE(read.fromJson(json.c_str()));
+    EXPECT_TRUE(read.pending());
+    EXPECT_EQ(read.body, clip.body);
+    EXPECT_EQ(read.bodySize, body.size());
+    EXPECT_EQ(read.keys, clip.keys);
+    EXPECT_EQ(read.refFrame, clip.refFrame);
+    ASSERT_TRUE(read.readBody(body.data(), body.size()));
+    EXPECT_FALSE(read.pending());
+    EXPECT_EQ(read.data, clip.data);
+    EXPECT_EQ(read.shown, clip.shown);
+    EXPECT_EQ(read.seq, clip.seq);
+    EXPECT_EQ(read.lookAt, clip.lookAt);
+    EXPECT_EQ(read.looks, clip.looks);
+
+    // A body cut short, or another clip's, is no clip
+    MotionClip cut;
+    ASSERT_TRUE(cut.fromJson(json.c_str()));
+    EXPECT_FALSE(cut.readBody(body.data(), body.size() - 3));
+    EXPECT_TRUE(cut.keys.empty());
+    EXPECT_EQ(cut.id, 9U);
+    MotionClip other;
+    ASSERT_TRUE(other.fromJson(json.c_str()));
+    MotionClip small;
+    small.frames = 2;
+    small.keys = {1};
+    small.data.assign(14, 0.0F);
+    const std::vector<uint8_t> wrong = small.bodyBytes();
+    EXPECT_FALSE(other.readBody(wrong.data(), wrong.size()));
+    EXPECT_TRUE(other.keys.empty());
 }
 
 TEST(MotionClipBaker, anObjectThatGoesOrComesWithNowhereToKeepItsDrawsIsNotExact)

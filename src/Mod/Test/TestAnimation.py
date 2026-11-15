@@ -132,6 +132,93 @@ class TestAnimation(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.anim.setInterp("Obj.F", 0.0, "Python")
 
+    def bezierThree(self):
+        """Three Bezier keys on Obj.F: 0 at 0 s, 10 at 1 s, 4 at 3 s"""
+        for t, v in ((0.0, 0.0), (1.0, 10.0), (3.0, 4.0)):
+            self.anim.addKey("Obj.F", t, v, interp="Bezier")
+
+    def slopes(self, t, h=1e-4):
+        """The curve's slope just before and just after t"""
+        f = lambda x: self.anim.value("Obj.F", x)
+        return (f(t) - f(t - h)) / h, (f(t + h) - f(t)) / h
+
+    def testHandlesAreTheCurves(self):
+        self.bezierThree()
+        left, right = self.anim.handles("Obj.F", 1.0)
+        # Auto clamped at a peak: flat, a third of each span long
+        self.assertEqual((left[0], right[0]), ("AutoClamped", "AutoClamped"))
+        self.assertAlmostEqual(left[1], -1.0 / 3)
+        self.assertAlmostEqual(right[1], 2.0 / 3)
+        self.assertAlmostEqual(left[2][0], 0.0)
+        self.assertAlmostEqual(right[2][0], 0.0)
+        with self.assertRaises(IndexError):
+            self.anim.handles("Obj.F", 2.0)
+
+    def testAnAlignedHandleTurnsTheOtherOntoItsLine(self):
+        self.bezierThree()
+        # The left handle given, rising: the right, computed, becomes
+        # Aligned and follows, its own reach kept
+        self.anim.setHandles("Obj.F", 1.0, left=("Aligned", -0.25, -1.0))
+        left, right = self.anim.handles("Obj.F", 1.0)
+        self.assertEqual((left[0], right[0]), ("Aligned", "Aligned"))
+        self.assertAlmostEqual(left[1], -0.25)
+        self.assertAlmostEqual(left[2][0], -1.0)
+        self.assertAlmostEqual(right[1], 2.0 / 3)
+        self.assertAlmostEqual(right[2][0] / right[1], left[2][0] / left[1])
+        # So the curve goes through the key smoothly, at that slope
+        before, after = self.slopes(1.0)
+        self.assertAlmostEqual(before, 4.0, delta=0.05)
+        self.assertAlmostEqual(after, 4.0, delta=0.05)
+        # And the right given: the left follows it now
+        self.anim.setHandles("Obj.F", 1.0, right=("Aligned", 0.5, -1.0))
+        left, right = self.anim.handles("Obj.F", 1.0)
+        self.assertAlmostEqual(left[1], -0.25)
+        self.assertAlmostEqual(left[2][0], 0.5)
+        before, after = self.slopes(1.0)
+        self.assertAlmostEqual(before, after, delta=0.05)
+        # Kept through a save
+        self.reopen()
+        left, right = self.anim.handles("Obj.F", 1.0)
+        self.assertEqual((left[0], right[0]), ("Aligned", "Aligned"))
+        self.assertAlmostEqual(left[2][0], 0.5)
+        self.assertAlmostEqual(right[2][0], -1.0)
+
+    def testAFreeHandleIsOnItsOwn(self):
+        self.bezierThree()
+        self.anim.setHandles("Obj.F", 1.0, left=("Free", -0.25, -1.0))
+        left, right = self.anim.handles("Obj.F", 1.0)
+        self.assertEqual((left[0], right[0]), ("Free", "AutoClamped"))
+        self.assertAlmostEqual(right[2][0], 0.0)
+        before, after = self.slopes(1.0)
+        self.assertAlmostEqual(before, 4.0, delta=0.05)
+        self.assertAlmostEqual(after, 0.0, delta=0.05)
+
+    def testAnAlignedHandleOppositeAComputedOneFollowsIt(self):
+        self.bezierThree()
+        # Both given: the left Aligned, the right Vector -- the left lies on
+        # the right's line, pointing away from the key at 3 s
+        self.anim.setHandles("Obj.F", 1.0, left=("Aligned", -0.25, 5.0), right="Vector")
+        left, right = self.anim.handles("Obj.F", 1.0)
+        self.assertEqual((left[0], right[0]), ("Aligned", "Vector"))
+        self.assertAlmostEqual(right[2][0], (4.0 - 10.0) / 3)
+        self.assertAlmostEqual(left[2][0] / left[1], right[2][0] / right[1])
+        before, after = self.slopes(1.0)
+        self.assertAlmostEqual(before, after, delta=0.05)
+
+    def testAHandleTypeByNameStartsWhereTheCurveIs(self):
+        self.bezierThree()
+        was = [self.anim.value("Obj.F", t / 10.0) for t in range(31)]
+        self.anim.setHandles("Obj.F", 1.0, left="Free", right="Free")
+        left, right = self.anim.handles("Obj.F", 1.0)
+        self.assertEqual((left[0], right[0]), ("Free", "Free"))
+        now = [self.anim.value("Obj.F", t / 10.0) for t in range(31)]
+        for a, b in zip(was, now):
+            self.assertAlmostEqual(a, b)
+        with self.assertRaises(ValueError):
+            self.anim.setHandles("Obj.F", 1.0, left=("Free", -0.2, (1.0, 2.0)))
+        with self.assertRaises(Exception):
+            self.anim.setHandles("Obj.F", 1.0, left="Sideways")
+
     def testEasing(self):
         self.anim.addKey("Obj.F", 0.0, 0.0, easing=("Quad", "In"))
         self.anim.addKey("Obj.F", 1.0, 1.0)

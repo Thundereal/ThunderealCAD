@@ -5542,6 +5542,55 @@ Phase D1 is under way (2026-10-28):
     hold the force within a hundredth of its mean (a tenth, 0.15 and a
     tenth before). TestFlexibleBody 34 (531 s), TestDynamics 90,
     TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Faster, D4b step 29 (2026-11-15): a flexible round in a rigid bore. The
+  rod turned in a bore R 5.5 took 139 s for its 0.1 s, on a plate 3.4.
+  - **Measured first.** Timers about the step, the detection and its
+    stages, the rod in the bore to 0.03 s (62.3 s), over its first 300
+    steps: the steps 5.0 s; the detections 20.7 s, of which the points
+    onto the part's surface (`placeOnFlexibles()`) 11.1, their patches
+    (`patchesOf()`) 6.0, the thinning 0.7. A detection there gives 8600
+    points before the copies go, each pair of the two meshes' triangles
+    along the line its own. On a plate the same stages together are under
+    a second.
+  - **One point slid for a face's eighth.** `FlexibleContact::place()`
+    keeps the points it has slid into a rigid cylinder by the face each
+    was found on, the round, and how far along the round's axis it was
+    found, in eighths of the face's first edge; a later one found there
+    is the same point, not slid again. That alone: 62.3 s to 53.1, the
+    placing 11.1 s to 7.4 -- the sliding was a third of it.
+  - **Not placed by the modes twice.** The rest was `refresh()`, where
+    the modes have each point and its map: asked of the modal assembly
+    for every point's nodes at each detection. A point that is the same
+    as an earlier one takes that one's. 53.1 s to 40.5, the placing 3.4 s.
+  - **The patches without each against each.** `patchesOf()` put each
+    point of a pair of corners to each before it, for the copies and for
+    the patches, many points to a pair of the bore's long triangles'
+    corners. The copies are found sorted along x (a copy is
+    within a nanometre), and while a pair's points so far are of one
+    patch, a point within 45 deg of one of them is of it and is not put
+    to the rest. The same copies and the same patches: the run's forces
+    the same to every digit printed. 40.5 s to 36.5, the patches 4.0 s --
+    what is left of them is the making and sorting of 77000 entries, nine
+    a point.
+  - Numbers. The rod in the rigid bore, the whole turn with a friction of
+    0.3: 80.0 s for 139.4, its force and torque as they were (44.75 N,
+    44.71 to 44.79; 66.97 N mm, 0.2993 N R). In a flexible block's bore
+    253.5 s for 277.0, the patches' share alone: two flexible parts'
+    points are not kept by the face's eighth. The hanger's swing of 0.6 s
+    as the manual's video runs it 18.6 s for 22.7, 622 frames for 623.
+    TestFlexibleBody 491 s for 531. The probes' results are all as they
+    were; of the tests' printed digits two moved: the rod in a bore's
+    torque with no friction 0.06424 N mm for 0.06421, and the hanger's
+    bore off its pin's axis by 6.38 urad at most for 6.49.
+  - Limits.
+    - Of a detection in the bore now, by the same timers: a third is
+      Bullet's own search and what else the detection does, a third the
+      patches' entries, a quarter the placing of the points left.
+    - Two flexible parts' rounds, and a ball, are slid each for itself.
+  - Tests: none new; TestFlexibleBody 34 (491 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76 (run
+    again by themselves: the chain's own run ended at a PermissionError
+    writing its result file, 56 tests in and all passing).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

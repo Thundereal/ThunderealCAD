@@ -2794,6 +2794,19 @@ public:
         const std::size_t count = mesh ? mesh->GetCoordsVertices().size() : 0;
         const FlexibleContact* other = sideA ? load.flexible : load.flexibleA;
         ShapeOn roundNow;
+        // The points already slid into a rigid cylinder, by the face each was
+        // found on, the round, and how far along the round's axis it was
+        // found, in eighths of the face's first edge: one found on that face
+        // within the same eighth goes where that one went. A rod in a bore
+        // of nearly its radius has thousands of points along its line, each
+        // pair of the two meshes' triangles its own, and placing them was
+        // half of a detection's time, 30 ms of 55 -- a third of that the
+        // sliding
+        std::map<std::tuple<std::size_t, const ShapeOn*, long long>, std::size_t> slidBefore;
+        // And the one each such point is the same as, for refresh(): where
+        // the modes have each point was the rest of it
+        const std::size_t none = load.points.size();
+        std::vector<std::size_t> same(load.points.size(), none);
         for (std::size_t i = 0; i < load.points.size(); ++i) {
             if (only && !(*only)[i]) {
                 continue;
@@ -2946,6 +2959,34 @@ public:
                         ch::ChVector3d normal;
                         ch::ChVector3d onRound;
                         std::size_t faceNow = surface->faceIndex(it->second);
+                        // One slid from this face at this place along the
+                        // round already: there too
+                        std::tuple<std::size_t, const ShapeOn*, long long> slot {faceNow,
+                                                                                 nullptr,
+                                                                                 0};
+                        const double eighth = 0.125 * (x[1] - x[0]).Length();
+                        if (!other && !(against->ball > 0.0) && eighth > 0.0) {
+                            const ch::ChFramed theirs = against->frame >> roundBody;
+                            const double along =
+                                ch::Vdot(theirs.GetRotMat().GetAxisZ(),
+                                         carrier->TransformPointLocalToParent(onB)
+                                             - theirs.GetPos());
+                            slot = {faceNow,
+                                    against,
+                                    static_cast<long long>(std::floor(along / eighth))};
+                            const auto before = slidBefore.find(slot);
+                            if (before != slidBefore.end()) {
+                                const std::size_t j = before->second;
+                                on = placedOn[j];
+                                same[i] = j;
+                                point.normal = load.points[j].normal;
+                                point.face = load.points[j].face;
+                                point.normalOn = load.points[j].normalOn;
+                                (sideA ? point.onB : point.onA) =
+                                    sideA ? load.points[j].onB : load.points[j].onA;
+                                continue;
+                            }
+                        }
                         double station = std::numeric_limits<double>::quiet_NaN();
                         int left = -1;
                         if (deepest(*against,
@@ -2991,6 +3032,9 @@ public:
                             if (other && i < load.given.size()) {
                                 load.given[i] = sideA ? 2 : 1;
                             }
+                            if (std::get<1>(slot)) {
+                                slidBefore.emplace(slot, i);
+                            }
                         }
                     }
                     continue;
@@ -3006,14 +3050,21 @@ public:
             on.weights = found.weights;
             on.offset = onB - carrierAt.TransformPointParentToLocal(found.at);
         }
-        refresh(load, sideA);
+        refresh(load, sideA, false, &same);
     }
 
     // A load's points where the modes have them, and their maps; each one's
     // onB on the carrier there, for what reads a point by its bodies
-    void refresh(ContactLoad& load, bool sideA = false, bool slide = false)
+    void refresh(ContactLoad& load,
+                 bool sideA = false,
+                 bool slide = false,
+                 const std::vector<std::size_t>* same = nullptr)
     {
         auto& placedOn = sideA ? load.onMeshA : load.onMesh;
+        // A point the same as an earlier one (place()) is where that one is
+        auto copyOf = [&](std::size_t i) {
+            return same && i < same->size() && (*same)[i] < i ? (*same)[i] : i;
+        };
         // At an update, the points slid over their curved faces first: this
         // part's, and the other flexible part's, which set this part's on its
         // round (setGiven()) -- whichever of the two is updated first, and
@@ -3026,8 +3077,9 @@ public:
         }
         // Each point's nodes that weigh: a flat face's corners alone
         std::vector<const ch::fea::ChNodeFEAxyz*> asked;
-        for (const auto& on : placedOn) {
-            if (on.placed) {
+        for (std::size_t i = 0; i < placedOn.size(); ++i) {
+            const auto& on = placedOn[i];
+            if (on.placed && copyOf(i) == i) {
                 for (std::size_t j = 0; j < on.nodes.size(); ++j) {
                     if (on.weights[j] != 0.0) {
                         const Id n = on.nodes[j];
@@ -3054,17 +3106,25 @@ public:
             if (!on.placed) {
                 continue;
             }
-            on.at = carrier->GetRot().Rotate(on.offset);
-            on.speed = ch::VNULL;
-            on.T.setZero(3, maps.front().cols());
-            for (std::size_t j = 0; j < on.nodes.size(); ++j) {
-                if (on.weights[j] == 0.0) {
-                    continue;
+            if (copyOf(i) != i) {
+                const auto& first = placedOn[copyOf(i)];
+                on.at = first.at;
+                on.speed = first.speed;
+                on.T = first.T;
+            }
+            else {
+                on.at = carrier->GetRot().Rotate(on.offset);
+                on.speed = ch::VNULL;
+                on.T.setZero(3, maps.front().cols());
+                for (std::size_t j = 0; j < on.nodes.size(); ++j) {
+                    if (on.weights[j] == 0.0) {
+                        continue;
+                    }
+                    on.at += pos[k] * on.weights[j];
+                    on.speed += vel[k] * on.weights[j];
+                    on.T += maps[k] * on.weights[j];
+                    ++k;
                 }
-                on.at += pos[k] * on.weights[j];
-                on.speed += vel[k] * on.weights[j];
-                on.T += maps[k] * on.weights[j];
-                ++k;
             }
             if (i < load.points.size()) {
                 (sideA ? load.points[i].onA : load.points[i].onB) =
@@ -4146,24 +4206,57 @@ void patchesOf(ContactLoad& load)
     }
     std::sort(entries.begin(), entries.end());
     const double within = std::cos(pi / 4.0);
+    // Not each of a key's points against each before it: a rod in a bore of
+    // nearly its radius has 8600 points at a detection, many to a pair of
+    // the bore's long triangles' corners, and comparing them all was 5 ms
+    // of a detection's 55. The copies by
+    // their place, sorted along x: a copy is within a nanometre. And the
+    // patches: while a key's points so far are all of one patch, a point
+    // within 45 deg of one of them is of it, and need not be put to the
+    // rest
+    std::vector<std::pair<double, std::size_t>> along;
     for (std::size_t first = 0; first < entries.size();) {
         std::size_t last = first + 1;
         while (last < entries.size() && std::get<0>(entries[last]) == std::get<0>(entries[first])
                && std::get<1>(entries[last]) == std::get<1>(entries[first])) {
             ++last;
         }
-        for (std::size_t m = first + 1; m < last; ++m) {
-            const std::size_t i = std::get<2>(entries[m]);
-            for (std::size_t k = first; k < m; ++k) {
-                const std::size_t j = std::get<2>(entries[k]);  // j < i
-                const double turn = ch::Vdot(points[i].normal, points[j].normal);
-                if (turn > 1.0 - 1e-9 && (points[i].onA - points[j].onA).Length2() < 1e-18) {
-                    copy[i] = true;
-                }
-                if (turn > within && find(i) != find(j)) {
-                    root[find(i)] = find(j);
+        if (last - first > 1) {
+            along.clear();
+            for (std::size_t m = first; m < last; ++m) {
+                const std::size_t i = std::get<2>(entries[m]);
+                along.emplace_back(points[i].onA.x(), i);
+            }
+            std::sort(along.begin(), along.end());
+            for (std::size_t a = 0; a < along.size(); ++a) {
+                for (std::size_t b = a + 1;
+                     b < along.size() && along[b].first - along[a].first < 1e-9;
+                     ++b) {
+                    // The later of the two is the copy
+                    const std::size_t i = std::max(along[a].second, along[b].second);
+                    const std::size_t j = std::min(along[a].second, along[b].second);
+                    if (!copy[i] && ch::Vdot(points[i].normal, points[j].normal) > 1.0 - 1e-9
+                        && (points[i].onA - points[j].onA).Length2() < 1e-18) {
+                        copy[i] = true;
+                    }
                 }
             }
+        }
+        const std::size_t lead = std::get<2>(entries[first]);
+        bool together = true;
+        for (std::size_t m = first + 1; m < last; ++m) {
+            const std::size_t i = std::get<2>(entries[m]);
+            bool joined = together && find(i) == find(lead);
+            for (std::size_t k = first; k < m && !joined; ++k) {
+                const std::size_t j = std::get<2>(entries[k]);  // j < i
+                if (ch::Vdot(points[i].normal, points[j].normal) > within) {
+                    if (find(i) != find(j)) {
+                        root[find(i)] = find(j);
+                    }
+                    joined = together;
+                }
+            }
+            together = joined;
         }
         first = last;
     }

@@ -221,7 +221,7 @@ private:
 
 public:
     /// The rest value of `prop` while a view poses it, for
-    /// App::Animation::restValueOf()
+    /// App::Animation::restValueOf() and heldRestValue(): it changes nothing
     static const App::Property* restValueOf(const App::Property& prop);
 
 private:

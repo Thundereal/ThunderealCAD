@@ -446,7 +446,8 @@ public:
 
     /// The rest value of prop while an Animation shows a pose of it, and
     /// nothing changes: the document's value as the transaction log keeps
-    /// it (restValueOf() also takes what comes next for an edit)
+    /// it (restValueOf() also takes what comes next for an edit). A rest
+    /// provider (addRestProvider()) is asked too
     static const Property* heldRestValue(const Property& prop);
 
     /** Whether a module that places parts -- an Assembly -- solves obj's

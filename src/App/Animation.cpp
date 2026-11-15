@@ -1790,6 +1790,14 @@ const Property* Animation::heldRestValue(const Property& prop)
     auto& owners = restOwners();
     auto it = owners.find(&prop);
     if (it == owners.end()) {
+        // Posed by something that is not an Animation (an exploded view):
+        // a provider's answer is the rest while its pose is on show, and
+        // asking it changes nothing
+        for (auto& provider : restProviders()) {
+            if (auto rest = provider(prop)) {
+                return rest;
+            }
+        }
         return nullptr;
     }
     auto rit = it->second->_rest.find(&prop);

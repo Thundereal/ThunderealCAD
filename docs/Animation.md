@@ -947,6 +947,11 @@ next for an edit -- and so does the comparison that drops a write that
 changed nothing, and `resolvePending`. Before, the undo stack was right
 and the log's row held the pose. Test: `TestAnimation`,
 `testTheLogKeepsTheDesignsValueNotThePoseOfAnEditPlayedInItsTransaction`.
+`heldRestValue()` asks the rest providers too (2026-11-15), so an exploded
+view shown after an edit in one transaction logs the design as well: the
+merge of the two branches had left it logging the pose. Test:
+`TestExplodedViewShown`,
+`testTheLogKeepsTheDesignNotThePoseOfAnEditPosedInItsTransaction`.
 
 A **user edit to an animated property** while the animation is active:
 - With Record on, it keys the value at the current time (section 6).

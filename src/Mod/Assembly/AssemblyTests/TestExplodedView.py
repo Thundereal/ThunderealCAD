@@ -568,6 +568,29 @@ class TestExplodedViewShown(PlacementAsserts, JointTestBase):
         view.unpose()
         self.assertPlc(b.Placement, plc(30, 0, 0))
 
+    def testTheLogKeepsTheDesignNotThePoseOfAnEditPosedInItsTransaction(self):
+        """An edit, then the view shown, in one transaction: the transaction
+        log's row says what was typed, not the pose on show at the commit
+        (docs/Animation.md sec 5.2)"""
+        b, view = self.twoSteps()
+        self.settle()
+        self.doc.openTransaction("move B")
+        b.Placement = plc(0, 0, 100)
+        view.pose()
+        self.assertPlc(b.Placement, plc(20, 0, 120))
+        self.doc.commitTransaction()
+        self.doc.resolveTransactionLog()
+        ref = self.doc.getTransactionValueAt(b, "Placement")
+        if not ref:
+            self.skipTest("the transaction log is off")
+        logged = self.doc.getTransactionValue(ref)[0]
+        self.assertIn('Px="0', logged)
+        self.assertIn('Pz="100', logged)
+        # And the pose stays a pose
+        self.assertPlc(b.Placement, plc(20, 0, 120))
+        view.unpose()
+        self.assertPlc(b.Placement, plc(0, 0, 100))
+
     def testPartHoldingAMovedPartKeepsItsRestBox(self):
         """A Part a step moves, holding a part an earlier step moved: its
         trail starts at its box at rest whatever is on show"""

@@ -125,6 +125,11 @@ How it keeps the design:
   back, not the pose. Found on the way: an Animation had the same hole
   for a shape, the undo of an edit of a Part box played putting back its
   pose; `Animation.md` sec 5.2.
+- **The transaction log keeps the design too.** An edit, then the view
+  shown, in one transaction: the log's row is the edit, not the pose, as
+  `Animation::heldRestValue()` asks the same providers (`Animation.md` sec
+  5.2). The merge of main on 2026-11-15 brought that lookup for
+  Animations only; the row held the pose (20, 0, 120) until then.
 - **Rest boxes are kept.** Each part's box at rest is taken at the first
   pose and kept, so a part holding parts a step moved is not boxed as
   posed. It was not, before, only because such a part's shape is cached
@@ -470,6 +475,11 @@ added when the manual's scene showed it: 1 of 7 auto explode cases failed
 before (the bolt sent 24 mm down). After: 54 of 54 headless (8 GUI-only
 skipped), 54 of 54 in the GUI. TechDraw, sheet metal and Assembly
 ctests: 54 of 54.
+
+After the merge of main (2026-11-15), 1 more: the transaction log's row
+of an edit then posed in one transaction, failing before (it held the
+pose). 55 of 55 headless (8 GUI-only skipped), 55 of 55 in the GUI;
+TestAnimation 59 OK.
 
 ## 12. Open
 

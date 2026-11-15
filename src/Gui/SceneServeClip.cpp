@@ -466,13 +466,22 @@ void SceneServeClip::endBake(App::Animation* anim, bool done)
         theClip.chunks = std::move(b->chunks);
         theClip.chunkSizes = std::move(b->chunkSizes);
         blobBytes = b->bytes;
+        // The poses, sequences and looks as one body served by its key,
+        // not base64 on the control channel (MotionClip::bodyBytes)
+        if (!theClip.empty()) {
+            std::vector<uint8_t> bytes = theClip.bodyBytes();
+            theClip.body = Render::sha1Hex(bytes.data(), bytes.size());
+            theClip.bodySize = static_cast<uint32_t>(bytes.size());
+            b->kept[theClip.body] = std::move(bytes);
+        }
         valid = true;
         FC_LOG("animation clip " << theClip.id << " of " << doc->getName() << ": "
                                  << theClip.keys.size() << " tracks, "
                                  << theClip.seqKeys.size() << " sequences, "
                                  << theClip.blobs.size() << " blobs and "
                                  << theClip.chunks.size() << " meshes (" << blobBytes
-                                 << " bytes), " << theClip.frames << " frames in "
+                                 << " bytes), a body of " << theClip.bodySize << " bytes, "
+                                 << theClip.frames << " frames in "
                                  << b->clock.elapsed() << " ms"
                                  << (theClip.exact ? ", exact" : ""));
         // The chunks the clip names, which no publish does

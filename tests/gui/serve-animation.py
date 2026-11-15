@@ -65,7 +65,7 @@ OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
 DOC = "ServeAnimation"
 
-state = {"done": False, "client": None}
+state = {"done": False, "client": None, "port": 0}
 
 
 def note(msg):
@@ -138,7 +138,32 @@ class Client(threading.Thread):
 
     def last(self, kind, when=0.0):
         found = self.since(when, kind)
-        return found[-1][2] if found else None
+        msg = found[-1][2] if found else None
+        return expand(msg) if kind == "clip" else msg
+
+
+BODIES = {}
+
+
+def expand(clip):
+    """A clip message with its body apart: the body fetched by its key, as
+    a viewer fetches it, and its five arrays laid into the message the way
+    they were once sent inline (base64), for the checks that read them"""
+    if not clip or not clip.get("body") or "data" in clip:
+        return clip
+    key = clip["body"]
+    if key not in BODIES:
+        BODIES[key] = urllib.request.urlopen(
+            "http://127.0.0.1:%d/blob?key=%s" % (state["port"], key), timeout=10).read()
+    raw = BODIES[key]
+    assert raw[:4] == b"FMC1", raw[:4]
+    at = 4
+    for name in ("data", "shown", "seq", "lookAt", "looks"):
+        n = struct.unpack_from("<I", raw, at)[0]
+        clip[name] = base64.b64encode(raw[at + 4:at + 4 + n]).decode()
+        at += 4 + n
+    clip["bodyRead"] = len(raw) == clip.get("bodySize") and at == len(raw)
+    return clip
 
 
 class Slow:
@@ -202,7 +227,7 @@ def run():
         doc.recompute()
         pump(0.5)
 
-        port = free_port()
+        port = state["port"] = free_port()
         if not check("the document is served", Gui.serveDocument(doc, port), "port %d" % port):
             return finish()
         client = state["client"] = Client(port)
@@ -225,6 +250,11 @@ def run():
         if not check("playing sends a clip", clip is not None and clip.get("id", 0) > 0, clip
                      and {k: clip[k] for k in ("id", "start", "step", "frames", "keys")}):
             return finish()
+        raw = [f[2] for f in client.since(t0, "clip") if f[2].get("id", 0) > 0]
+        check("its poses ride a body apart, fetched by its key, not the message",
+              bool(raw) and raw[-1].get("bodyRead") and len(raw[-1]["body"]) == 40
+              and hashlib.sha1(BODIES[raw[-1]["body"]]).hexdigest() == raw[-1]["body"],
+              raw and {k: raw[-1].get(k) for k in ("body", "bodySize", "bodyRead")})
         check("of the Animation's range at its frame rate",
               clip["frames"] == 41 and abs(clip["start"]) < 1e-9
               and abs(clip["step"] - 0.05) < 1e-9, (clip["frames"], clip["start"], clip["step"]))

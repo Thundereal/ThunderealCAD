@@ -1198,13 +1198,28 @@ the capture budget would stand in for a while.
 header the desktop and the browser's viewer share:
 
     {"cmd":"clip","doc":..,"id":N,"start":s,"step":dt,"frames":F,
-     "keys":["<objectKey, hex>",..],"data":"<base64: F x 7 float32 a key>",
-     "shown":"<base64: F bytes a key, or empty>","refs":[frame,blob,..],
-     "seqKeys":["<objectKey, hex>",..],"seq":"<base64: F int32 a key>",
-     "blobs":["<sha1>",..],"sizes":[bytes,..]}
+     "keys":["<objectKey, hex>",..],"refs":[frame,blob,..],
+     "seqKeys":["<objectKey, hex>",..],
+     "blobs":["<sha1>",..],"sizes":[bytes,..],"chunks":[..],"chunkSizes":[..],
+     "lookTracks":[..],"lookCount":[..],"lookSlots":[..],
+     "body":"<sha1>","bodySize":bytes}
     {"cmd":"time","doc":..,"clip":N,"active":..,"playing":..,"t":..,
      "raw":..,"speed":..,"start":..,"end":..,"loop":..,
      "v":<manifest version>,"baseActive":..,"base":<Time of that publish>}
+
+The bulk of a clip is its **body** (2026-11-15; it was five base64 fields
+of this message): the poses (F x 7 float32 a key), the shown bytes (F a
+key), the sequences (F int32 a key), the look rows' record numbers and the
+look records, as "FMC1" and five byte-counted arrays
+(`MotionClip::bodyBytes`/`readBody`). It is held with the blobs and
+served by its content key (`/blob?key=`), so it travels raw, a third
+smaller than base64, does not sit in the control channel ahead of the
+clock behind it, and goes through the viewer's blob path -- its fetch
+batched with the blobs', its bytes kept in IndexedDB as every blob's
+are. A viewer told a clip whose body is not in yet
+poses nothing (`s_clipPending`) and draws the publishes as they come;
+the body in, it plays. A clip without `body` is still read with the
+five inline, as before.
 
 `time` is the host's clock: sent when the player's state changes, when
 `Speed`, `Loop` or the range do, after every publish, and once a second
@@ -1342,8 +1357,10 @@ Not in this cut:
   Textures are told apart by pointer, as the identity tells them, so a
   texture built again with the same pixels counts as a change too:
   heavier, not wrong.
-- The clip rides the control channel as base64: a few hundred kilobytes
-  for some tens of moving objects, sent once per bake.
+- The clip's size: its body is served apart since 2026-11-15 (above),
+  not as base64 on the control channel. The poses grow with the frames,
+  now a frame of the rate each (up to 1800): some tens of moving objects
+  over a minute are a few megabytes, once per bake.
 
 ## 10. Python
 

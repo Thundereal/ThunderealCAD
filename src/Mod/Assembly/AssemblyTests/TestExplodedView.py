@@ -1353,6 +1353,52 @@ class TestExplodedViewBalloons(PlacementAsserts, JointTestBase):
                 self.assertGreaterEqual(apart, 17 - 1e-3, (p.Text, q.Text))
                 self.assertFalse(cross(leader(p), leader(q)), (p.Text, q.Text))
 
+    def leaderCrossings(self, drawing, balloons):
+        """For each balloon, how many of the drawing's lines its leader
+        crosses, its own piece not counted"""
+        import Part
+
+        k = drawing.Scale
+        edges = drawing.getVisibleEdges()
+        lines = []
+        for e in edges:
+            points = e.discretize(12)
+            lines += list(zip(points, points[1:]))
+        whole = Part.Compound(edges)
+
+        # The view's edges may run Y down: the way its leaders start on them
+        def off(sign):
+            return sum(
+                whole.distToShape(Part.Vertex(b.OriginX.Value * k, sign * b.OriginY.Value * k, 0))[0]
+                for b in balloons
+            )
+
+        sign = 1 if off(1) <= off(-1) else -1
+
+        def side(p, q, r):
+            return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+        out = {}
+        for b in balloons:
+            a = (b.OriginX.Value * k, sign * b.OriginY.Value * k)
+            z = (b.X.Value * k, sign * b.Y.Value * k)
+            count = 0
+            for p, q in lines:
+                p, q = (p.x, p.y), (q.x, q.y)
+                if side(a, z, p) * side(a, z, q) < -1e-6 and side(p, q, a) * side(p, q, z) < -1e-6:
+                    count += 1
+            out[b.Text] = count
+        return out
+
+    @unittest.skipIf(not App.GuiUp, "balloons are made by a TechDraw command")
+    def testLeadersStartOnTheSideOfTheirBalloon(self):
+        """A leader starts on the piece of its part whose way to the balloon
+        crosses fewest of the drawing's lines: here, none"""
+        drawing, _boxes, balloons = self.drawingWithBalloons([("C", plc(60, 0, 0))])
+        self.assertLaidOut(drawing, balloons)
+        crossings = self.leaderCrossings(drawing, balloons)
+        self.assertEqual(sum(crossings.values()), 0, crossings)
+
     @unittest.skipIf(not App.GuiUp, "balloons are made by a TechDraw command")
     def testBalloonsAreLaidAgainAfterAMove(self):
         """Run again after the parts moved: each balloon not dragged is laid

@@ -1395,6 +1395,42 @@ class TestFlexibleBody(unittest.TestCase):
         taken once those joints are in (AssemblyObject::
         flexibleInterfaces()): its first mode is over 1 kHz, and it comes to
         rest on the pin, pressing it its weight and the block's"""
+        hanger, block, held, contact = self.hangerOnPin(0.0, 0.0)
+        sim = self.study(0.03, 1e-3)
+        sim.Elements = [contact]
+        body = FlexibleBodies.makeFlexibleBody(self.assembly, hanger)
+        body.MeshSize = 4.0
+        FlexibleBodies.prepare(body)
+        self.assertEqual(list(body.InterfaceFrames), [held.FullName])
+        self.doc.recompute()
+        hz = self.assembly.getFlexibleFrequencies(sim, body)
+        self.assertGreater(hz[0], 1000.0)
+        weight = 0.0
+        for entry in self.assembly.getMassProperties()["Components"]:
+            if entry["Object"].Name in (hanger.Name, block.Name):
+                weight += entry["Mass"] * 9.80665
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        values = [
+            c["Values"]
+            for c in results["Channels"]
+            if c["Quantity"] == "ContactNormalForce" and c["Name"] == contact.Name
+        ]
+        self.assertEqual(len(values), 1)
+        forces = [v.Length * 1e-3 for v in values[0]]
+        resting = [f for t, f in zip(results["Times"], forces) if t >= 0.02]
+        mean = sum(resting) / len(resting)
+        print("held by a free part: first mode %.4g Hz; at most %.4g N, resting %.4g N of %.4g"
+              % (hz[0], max(forces), mean, weight))
+        self.assertLess(max(forces), 10.0)
+        self.assertLess(abs(mean - weight), 0.05 * weight)
+
+    def hangerOnPin(self, angle, mu):
+        """A hanger 10 x 20 x 80 hung on a grounded pin R 5 along x by a bore
+        R 5.2, its wall 0.01 mm over the pin, a block 30 x 30 x 30 fixed
+        under it; the two turned 'angle' deg about the pin, and a contact
+        between the pin and the hanger, 1000 N/mm, of friction 'mu'. The
+        hanger, the block, their joint and the contact"""
         import CommandCreateContact
         import Part
 
@@ -1426,6 +1462,10 @@ class TestFlexibleBody(unittest.TestCase):
         held.Reference2 = (hanger, [under])
         held.Placement1 = block.Placement.inverse().multiply(at)
         held.Placement2 = hanger.Placement.inverse().multiply(at)
+        if angle:
+            turn = App.Placement(App.Vector(0, 0, 0), App.Rotation(App.Vector(1, 0, 0), angle))
+            hanger.Placement = turn.multiply(hanger.Placement)
+            block.Placement = turn.multiply(block.Placement)
         self.doc.recompute()
         self.assertEqual(self.assembly.solve(), 0)
         contact = CommandCreateContact.newContactSet(self.assembly, [pin], [hanger])
@@ -1433,23 +1473,33 @@ class TestFlexibleBody(unittest.TestCase):
         contact.Stiffness = 1000.0
         contact.Exponent = 1.0
         contact.FrictionFrom = "Value"
-        contact.StaticFriction = 0.0
-        contact.DynamicFriction = 0.0
-        sim = self.study(0.03, 1e-3)
+        contact.StaticFriction = mu
+        contact.DynamicFriction = mu
+        return hanger, block, held, contact
+
+    def test_swings_on_a_pin(self):
+        """A flexible part swinging on a pin lies along it as a rigid one
+        does (D4b step 25): the hanger of test_held_by_a_free_part let go 30
+        deg off the vertical, a friction of 0.1. The places along the bore's
+        line on the pin were where collision detection found them, two at
+        one end and five at the other, each put where its faces are deepest
+        in the pin -- which a bore 0.2 mm over its pin is within a micron of
+        for 6 deg either side of the line. The bore rocked on the pin by
+        2.5 mrad and the pin's force stepped 0.11 N rms from frame to frame.
+        Two points now, at the ends of the line the two rounds touch along
+        (FlexibleContact::toLine()): the bore within 0.1 mrad of the pin,
+        the force's steps under 0.03 N rms -- a rigid hanger's are 0.015 --
+        and the force between 0.8 and 1.6 N"""
+        hanger, block, held, contact = self.hangerOnPin(30.0, 0.1)
+        sim = self.study(0.2, 1e-3)
         sim.Elements = [contact]
         body = FlexibleBodies.makeFlexibleBody(self.assembly, hanger)
         body.MeshSize = 4.0
         FlexibleBodies.prepare(body)
-        self.assertEqual(list(body.InterfaceFrames), [held.FullName])
         self.doc.recompute()
-        hz = self.assembly.getFlexibleFrequencies(sim, body)
-        self.assertGreater(hz[0], 1000.0)
-        weight = 0.0
-        for entry in self.assembly.getMassProperties()["Components"]:
-            if entry["Object"].Name in (hanger.Name, block.Name):
-                weight += entry["Mass"] * 9.80665
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         results = self.assembly.getSimulationResults()
+        times = results["Times"]
         values = [
             c["Values"]
             for c in results["Channels"]
@@ -1457,12 +1507,27 @@ class TestFlexibleBody(unittest.TestCase):
         ]
         self.assertEqual(len(values), 1)
         forces = [v.Length * 1e-3 for v in values[0]]
-        resting = [f for t, f in zip(results["Times"], forces) if t >= 0.02]
-        mean = sum(resting) / len(resting)
-        print("held by a free part: first mode %.4g Hz; at most %.4g N, resting %.4g N of %.4g"
-              % (hz[0], max(forces), mean, weight))
-        self.assertLess(max(forces), 10.0)
-        self.assertLess(abs(mean - weight), 0.05 * weight)
+        late = [k for k, t in enumerate(times) if t >= 0.02]
+        steps = [forces[k] - forces[k - 1] for k in late[1:]]
+        rough = math.sqrt(sum(d * d for d in steps) / len(steps))
+        # The bore's axis, the hanger's x, off the pin's
+        off = 0.0
+        swung = []
+        for k in late:
+            self.assembly.updateForFrame(k)
+            along = hanger.Placement.Rotation.multVec(App.Vector(1, 0, 0))
+            off = max(off, math.hypot(along.y, along.z))
+            centre = block.Placement.multVec(App.Vector(15, 15, 15))
+            swung.append(math.degrees(math.atan2(centre.y, -centre.z)))
+        print("swings on a pin: %d frames, from %.3g to %.3g deg; the pin's force %.4g to %.4g N, "
+              "%.4g N rms from frame to frame; the bore off the pin's axis by %.3g urad at most"
+              % (len(times), swung[0], swung[-1], min(forces[k] for k in late),
+                 max(forces[k] for k in late), rough, off * 1e6))
+        self.assertLess(swung[-1], -15.0)
+        self.assertLess(rough, 0.03)
+        self.assertLess(off, 1e-4)
+        self.assertGreater(min(forces[k] for k in late), 0.8)
+        self.assertLess(max(forces[k] for k in late), 1.6)
 
     def test_held_by_nothing(self):
         """A flexible part no joint holds (D4b step 21): a bar 80 x 10 x 4

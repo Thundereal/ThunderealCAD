@@ -5298,6 +5298,83 @@ Phase D1 is under way (2026-10-28):
     for the free beam's to 1%, and as many as Modes. TestFlexibleBody 33
     (611 s), TestDynamics 90, TestJointFriction 4, TestContact 63; ctest
     25; TestGuiCommands 76; the earlier probes to the digits they print.
+- Built, D4b step 25 (2026-11-15): a flexible part's round lying along
+  another round touches it at the two ends of their line. Step 20's first
+  limit, lifted: the pin's force on the flexible hanger is as smooth as on
+  a rigid one.
+  - **What was rough.** Step 20 put the hanger's 0.109 N rms from frame to
+    frame, a rigid hanger's 0.015, down to its mesh's accuracy. It was two
+    things, neither the mesh's. The places along the bore's line on the
+    pin were where collision detection found them, two at one end and
+    five at the other, each a share of one spring (F = k sum s^2 / sum s):
+    twelve places at depths from 0.2 to 1.9 um press 1.28 N, the two at
+    the ends 1.74, and the force is at their middle, off the line's -- the
+    bore rocked on the pin by 2.5 mrad, where a rigid one lies square. And
+    each place was put where its faces are deepest in the pin
+    (`deepestOnFace()`): a bore R 5.2 on a pin R 5 is within 1.1 um of the
+    pin 6 deg either side of their line, and its quadratic faces stand in
+    from the round by 0.65 um between their nodes, so the faces' deepest
+    was 1 to 2 deg off the line and, at one face's corner, 6 deg off --
+    1.1 um less deep, of the 1.45 um the hanger's weight presses each end.
+  - **Two points, on the line.** In `thinOut()` the places of one of the
+    part's rounds against one round of the other part, their axes within a
+    degree, their normals within a quarter turn of the deepest's, are a
+    line. The two pressing places nearest its ends are taken to the ends
+    of the stretch both rounds reach (`reachAlong()`), a hundredth of it
+    in, as two rigid rounds' points are; the line's other places go, and
+    the points on the flat face beside the bore, at its rim. One pressing
+    place alone stays where it is: a pin cocked in its bore touches at an
+    end.
+  - **Where the line is.** `FlexibleContact::toLine()`: the part's own
+    round as the mesh has it at the point (`roundAt()`) and the other
+    round's axis give the line's direction outright -- towards that axis,
+    or in a hollow round away from it -- and the point is the face's
+    nearest it, the faces walked as to a round's deepest (`deepest()`,
+    given a ball a quarter of the radius under the target). Its normal and
+    the other round's surface under it are that round's own. Within the
+    substep the point is found again the same way on its own face
+    (`follow()`, `OnMesh::lined`): found as its face's deepest it left the
+    line for where the face stands in most.
+  - Two wrong turns on the way, each found by a trace. The line's end was
+    taken from its highest place, pressing or not: the bore's next facet
+    round is a place too, 20 um clear of the pin, and that end then had no
+    point. And a line was the places within 30 deg of the first found: a
+    rod R 5 sunk 0.05 mm in a bore R 5.5 presses it for 25 deg either side
+    of their line, and a place 21 deg off it was left a line of its own, a
+    third point 12 um deep for one substep, the rod's 44.8 N stepping 1.1.
+  - Numbers. The hanger's swing of 0.6 s: 623 frames in 13.4 s for 54;
+    to -28.95 deg and back to 26.63. The pin's force from 0.02 s on: mean
+    1.198 N, 0.95 to 1.46, from frame to frame 0.0147 N rms, no step over
+    0.1 N -- before 1.196, 0.78 to 1.74 and 0.109; the rigid hanger's
+    1.154, 0.94 to 1.37 and 0.015. The bore's axis off the pin's by 25 urad
+    at most, for 2.5 mrad -- that with follow()'s way out to the round found
+    again as the point slid, tried first and dropped: 0.121 N rms for 0.109.
+  - The other rounds along a round. The flexible rod on a rigid roller,
+    turned, 0.05 mm in: 44.77 N, 44.52 to 45.06, for 45.67, 44.88 to 46.60
+    (mesh 2: 44.79, 44.65 to 44.95, for 45.68, 44.41 to 46.55); with a
+    friction of 0.3, 44.76 N and the motion's torque 0.2977 N R as before.
+    In a rigid bore R 5.5: 44.76 N, 44.74 to 44.78, for 45.63, 44.95 to
+    46.05. A rigid rod in a flexible bore 50.00 N for 49.98. The rod on a
+    plate, past an edge, on a flexible plate and on a flexible roller, and
+    the strips, are as they were to the digits printed.
+  - Limits.
+    - The line's force is by its two ends' depths. A rod that bends under
+      it is pressed 44.8 N so, where its places' shares gave 45.7: neither
+      has a closed form to be held to.
+    - Smooth, the hanger's force shows what the roughness hid: 7% over the
+      rigid hanger's as it passes the vertical, 1.437 N for 1.344, and the
+      same at the swing's ends -- an excess that goes as the swing's speed
+      squared, 41% of the rigid one's centripetal part, the two swinging
+      alike to 0.03 deg. Not looked into yet.
+    - Two flexible rounds along each other keep their places as found.
+    - A part's round that is not all the way round may not hold the line's
+      end: the places stay as found there.
+    - 13 s is still the rigid hanger's 2 several times.
+  - Tests: TestFlexibleBody.test_swings_on_a_pin (the hanger let go at 30
+    deg for 0.2 s: the force's steps under 0.03 N rms, the force between
+    0.8 and 1.6 N, the bore within 0.1 mrad of the pin -- 0.0156, 0.97 to
+    1.46 and 6.5 urad). TestFlexibleBody 34 (609 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

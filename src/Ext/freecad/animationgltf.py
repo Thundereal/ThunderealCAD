@@ -29,11 +29,24 @@ node does there is written:
     the frames sharing one, and each material's baseColorFactor is a
     channel of a sample a frame by KHR_animation_pointer (in
     extensionsUsed, not required: a reader without it shows the first
-    frame's colours). One that turns transparent is blended throughout.
+    frame's colours). One that turns transparent is blended throughout;
+  - a shape the animation rebuilds: each shape it takes is a mesh, once
+    however many frames have it, on a child node of the object's that is
+    shown (scale 1, STEP) at the frames that shape is the object's and
+    hidden (0) at the others. glTF does not blend one mesh into another
+    of other topology, so the shape is stepped at the frame rate. Two
+    shapes are one when their counts of faces, edges and vertices, their
+    box, area and volume are;
+  - a camera track: a glTF camera, perspective or orthographic as the
+    track was keyed, on a node sampled at every frame where the view's
+    camera stands -- turning about the point it looks at as the view
+    does -- its angle or height a channel too when it changes
+    (KHR_animation_pointer). An orthographic camera stands back as far as
+    the scene needs, which changes nothing it shows.
 
-What does not fit is left out and named in the result's "Skipped": an
-object whose shape the animation rebuilds (it is in the file as it rests),
-and camera tracks.
+What does not fit is left out and named in the result's "Skipped": a
+camera track that cannot be read (no 3D view to say what a camera is, as
+in FreeCADCmd) and a camera track of a strip's Animation.
 
 The Animation is left as it was. Times in the file start at 0; the asset's
 extras give the range's start.
@@ -66,20 +79,23 @@ def _isHidden(obj):
     return not gltfscene.isShown(obj)
 
 
-def _signature(obj):
-    """What tells one shape of obj from another, cheaply: its faces and the
-    box of it in its own coordinates"""
-    try:
-        shape = Part.getShape(obj, "", needSubElement=False, transform=False)
-    except Exception:  # pylint: disable=broad-except
+def _signature(shape):
+    """What tells one shape from another, cheaply: its counts of faces,
+    edges and vertices, and its box, area and volume in its own
+    coordinates. A rebuild that gives the same geometry is the same."""
+    if shape is None:
         return None
-    if shape.isNull():
-        return None
+    counts = (len(shape.Faces), len(shape.Edges), len(shape.Vertexes))
     box = shape.BoundBox
     if not box.isValid():
-        return (len(shape.Faces),)
-    return (len(shape.Faces),) + tuple(
-        round(v, 6) for v in (box.XMin, box.YMin, box.ZMin, box.XMax, box.YMax, box.ZMax)
+        return counts
+    try:
+        measures = (shape.Area, shape.Volume if shape.Solids else 0.0)
+    except Exception:  # pylint: disable=broad-except
+        measures = ()
+    return counts + tuple(
+        round(v, 6)
+        for v in (box.XMin, box.YMin, box.ZMin, box.XMax, box.YMax, box.ZMax) + measures
     )
 
 
@@ -93,6 +109,9 @@ class _Item:
         self.placements = []
         self.shown = []
         self.signatures = []
+        # Each shape it took, by its signature, in the order first met: the
+        # shape and what appearance() gave at that frame
+        self.variants = {}
         self.looks = []
         self.node = None
         # The keys of the object's own Placement track, when a channel may
@@ -246,6 +265,149 @@ def _roots(doc):
     return [o for o in doc.Objects if o not in held]
 
 
+def _sceneSphere(items):
+    """The centre (mm) of the scene and a radius it stays in, moving as the
+    frames move it: the box of the shapes now, and the farthest any object
+    stood from where it is now"""
+    box = App.BoundBox()
+    drift = 0.0
+    for item in items:
+        if item.parent is not None:
+            continue
+        try:
+            shape = Part.getShape(item.obj, "", needSubElement=False)
+        except Exception:  # pylint: disable=broad-except
+            shape = None
+        if shape is not None and not shape.isNull() and shape.BoundBox.isValid():
+            box.add(shape.BoundBox)
+        now = getattr(item.obj, "Placement", None)
+        if now is not None and item.placements:
+            drift = max(drift, max((p.Base - now.Base).Length for p in item.placements))
+    if not box.isValid():
+        return App.Vector(), 1.0 + drift
+    return box.Center, box.DiagonalLength / 2.0 + drift
+
+
+def _viewAspect():
+    """The width over the height of the active 3D view, 1 without one"""
+    try:
+        import FreeCADGui as Gui
+
+        width, height = Gui.ActiveDocument.ActiveView.getSize()
+        return float(width) / float(height) if height else 1.0
+    except Exception:  # pylint: disable=broad-except
+        return 1.0
+
+
+def _cameras(anim, doc, writer, root, items, times, channel, skipped, numpy):
+    """A glTF camera a camera track of anim, on a node under root sampled
+    at every frame. -> how many"""
+    import math
+
+    for track in anim.Tracks:
+        if track.get("Kind") != "Strip":
+            continue
+        child = doc.getObject(track.get("Path", "").split(":", 1)[-1])
+        if child is None or not child.isDerivedFrom("App::Animation"):
+            continue
+        for inner in child.Tracks:
+            if inner.get("Kind") == "Camera":
+                skipped.append(
+                    "the camera track %s of the strip %s" % (inner.get("Path", ""), child.Label)
+                )
+    tracks = [t for t in anim.Tracks if t.get("Kind") == "Camera" and not t.get("Mute")]
+    if not tracks:
+        return 0
+    centre, radius = _sceneSphere(items)
+    aspect = _viewAspect()
+    count = len(times)
+    made = 0
+    for track in tracks:
+        path = track.get("Path", "")
+        try:
+            values = [anim.value(path, t) for t in times]
+        except Exception:  # pylint: disable=broad-except
+            values = None
+        if not values or any(v is None or len(v) != 9 for v in values):
+            skipped.append("the camera track %s: no 3D view to read it by" % path)
+            continue
+        # A key is the point looked at, the orientation, the distance to the
+        # point and the size: an orthographic height, a perspective angle in
+        # degrees (Gui/AnimationCamera.cpp)
+        perspective = path.endswith("/perspective")
+        focals = [App.Vector(*v[0:3]) for v in values]
+        turns = [App.Rotation(*v[3:7]) for v in values]
+        distances = [float(v[7]) for v in values]
+        sizes = [float(v[8]) for v in values]
+        # From a point looked at, the farthest the scene reaches, mm
+        reach = radius + max((f - centre).Length for f in focals)
+        translations = numpy.empty((count, 3), dtype=numpy.float64)
+        rotations = numpy.empty((count, 4), dtype=numpy.float64)
+        for k in range(count):
+            # An orthographic picture is the same from any distance back:
+            # back far enough that nothing is behind the camera
+            back = distances[k] if perspective else max(distances[k], reach)
+            looking = turns[k].multVec(App.Vector(0, 0, -1))
+            stand = App.Placement(focals[k] - looking * back, turns[k])
+            translations[k], rotations[k] = gltfscene.trs(stand)
+            if k and numpy.dot(rotations[k], rotations[k - 1]) < 0.0:
+                rotations[k] = -rotations[k]
+        if perspective:
+            near = max(1e-6, min(distances) * 1e-5)
+            far = (max(distances) + reach) * 1.01e-3
+            camera = {
+                "type": "perspective",
+                "perspective": {"yfov": math.radians(sizes[0]), "znear": near, "zfar": far},
+            }
+        else:
+            far = (max(max(distances), reach) + reach) * 1.01e-3
+            ymag = sizes[0] * 0.5e-3
+            camera = {
+                "type": "orthographic",
+                "orthographic": {"xmag": ymag * aspect, "ymag": ymag, "znear": 0.0, "zfar": far},
+            }
+        cameras = writer.gltf.setdefault("cameras", [])
+        cameras.append(camera)
+        index = len(cameras) - 1
+        name = track.get("Label") or "Camera (%s)" % path.split(":", 1)[-1].split("/")[0]
+        node = writer.node(
+            {
+                "name": name,
+                "camera": index,
+                "translation": [float(v) for v in translations[0]],
+                "rotation": [float(v) for v in rotations[0]],
+                "extras": {"track": path},
+            },
+            root,
+        )
+        if float(numpy.ptp(translations, axis=0).max()) > 0.0 or float(
+            numpy.ptp(rotations, axis=0).max()
+        ) > 0.0:
+            channel(node, "translation", translations, "VEC3", "LINEAR")
+            channel(node, "rotation", rotations, "VEC4", "LINEAR")
+        if max(sizes) != min(sizes):
+            if perspective:
+                channel(
+                    None,
+                    "/cameras/%d/perspective/yfov" % index,
+                    numpy.radians(numpy.array(sizes, dtype=numpy.float64)),
+                    "SCALAR",
+                    "LINEAR",
+                )
+            else:
+                heights = numpy.array(sizes, dtype=numpy.float64) * 0.5e-3
+                channel(None, "/cameras/%d/orthographic/ymag" % index, heights, "SCALAR", "LINEAR")
+                channel(
+                    None,
+                    "/cameras/%d/orthographic/xmag" % index,
+                    heights * aspect,
+                    "SCALAR",
+                    "LINEAR",
+                )
+        made += 1
+    return made
+
+
 def exportGltf(anim, path):
     """Writes anim as an animated glTF at path: .glb binary, else JSON with
     a .bin beside it.
@@ -254,8 +416,10 @@ def exportGltf(anim, path):
     switch), Keyed (the nodes whose move is written on its keys, not on
     every frame), PartlyKeyed (those whose translation or rotation is, the
     other sampled), Recoloured (the nodes whose colours are animated),
-    Meshes, Bytes (the file's, with its .bin) and Skipped (a
-    line for each thing the animation does that the file does not hold)."""
+    Rebuilt (the nodes whose shape changes), Shapes (the meshes of their
+    shapes, together), Cameras, Meshes, Bytes (the file's, with its .bin)
+    and Skipped (a line for each thing the animation does that the file
+    does not hold)."""
     import numpy
 
     doc = anim.Document
@@ -290,9 +454,14 @@ def exportGltf(anim, path):
                     obj.Placement if hasattr(obj, "Placement") else App.Placement()
                 )
                 if not item.group:
-                    item.looks.append(gltfscene.appearance(obj))
+                    look = gltfscene.appearance(obj)
+                    item.looks.append(look)
                     if rebuilds:
-                        item.signatures.append(_signature(obj))
+                        shape = gltfscene.shapeOf(obj)
+                        signature = _signature(shape)
+                        item.signatures.append(signature)
+                        if signature not in item.variants:
+                            item.variants[signature] = (shape, look)
         # Where the keys are, and either side of them for a tangent
         for t in reads:
             at(t)
@@ -343,6 +512,8 @@ def exportGltf(anim, path):
             to = {"node": node, "path": target}
         channels.append({"sampler": len(samplers) - 1, "target": to})
 
+    rebuiltNodes = 0
+    shapes = 0
     for item in items:
         obj = item.obj
         ever = any(item.shown)
@@ -350,8 +521,10 @@ def exportGltf(anim, path):
             continue
         mesh = None
         recoloured = []
-        if not item.group:
-            if item.looks and any(look != item.looks[0] for look in item.looks[1:]):
+        rebuilt = not item.group and len(item.variants) > 1
+        relooked = bool(item.looks) and any(look != item.looks[0] for look in item.looks[1:])
+        if not item.group and not rebuilt:
+            if relooked:
                 mesh, recoloured = gltfscene.animatedMeshOf(writer, obj, item.looks)
             else:
                 mesh = gltfscene.meshOf(writer, obj)
@@ -409,6 +582,38 @@ def exportGltf(anim, path):
             )
             channel(item.node, "scale", scales, "VEC3", "STEP", [times[k] for k in switches])
             moved = True
+        if rebuilt:
+            # A child a shape, shown at the frames it is the object's
+            made = 0
+            for k, (signature, (shape, look)) in enumerate(item.variants.items()):
+                if relooked:
+                    piece, colours = gltfscene.animatedMeshOf(writer, obj, item.looks, shape)
+                else:
+                    piece, colours = gltfscene.meshOf(writer, obj, shape, look), []
+                if piece is None:
+                    continue
+                on = [s == signature for s in item.signatures]
+                child = {
+                    "name": "%s.%d" % (obj.Label, k),
+                    "mesh": piece,
+                    "extras": {"name": obj.Name, "shape": k},
+                }
+                if not on[0]:
+                    child["scale"] = [0.0, 0.0, 0.0]
+                index = writer.node(child, item.node)
+                switches = [f for f, s in enumerate(on) if f and s != on[f - 1]]
+                if switches:
+                    switches = [0] + switches
+                    scales = numpy.array(
+                        [[1.0, 1.0, 1.0] if on[f] else [0.0, 0.0, 0.0] for f in switches],
+                        dtype=numpy.float64,
+                    )
+                    channel(index, "scale", scales, "VEC3", "STEP", [times[f] for f in switches])
+                recoloured += colours
+                made += 1
+            shapes += made
+            rebuiltNodes += 1
+            moved = True
         # A colour or a transparency that changes: its materials' base
         # colour at every frame, by KHR_animation_pointer
         for material, history in recoloured:
@@ -427,12 +632,8 @@ def exportGltf(anim, path):
             looked += 1
         if moved:
             animated += 1
-        if item.signatures and any(s != item.signatures[0] for s in item.signatures[1:]):
-            skipped.append("%s: its shape changes; exported as it rests" % obj.Label)
 
-    for track in anim.Tracks:
-        if track.get("Kind") == "Camera":
-            skipped.append("the camera track %s" % track.get("Path", ""))
+    cameras = _cameras(anim, doc, writer, root, items, times, channel, skipped, numpy)
 
     if channels:
         writer.gltf["animations"] = [
@@ -448,6 +649,9 @@ def exportGltf(anim, path):
         "Keyed": keyed,
         "PartlyKeyed": partly,
         "Recoloured": looked,
+        "Rebuilt": rebuiltNodes,
+        "Shapes": shapes,
+        "Cameras": cameras,
         "Meshes": meshes,
         "Bytes": size,
         "Skipped": skipped,

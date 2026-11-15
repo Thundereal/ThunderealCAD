@@ -140,17 +140,27 @@ def deflection(obj, shape):
     return max(size * deviation / 100.0, 1e-3)
 
 
-def meshOf(writer, obj):
-    """A glTF mesh of obj's shape in its own coordinates, in metres; None when
-    it has no faces. Two components showing one shape the same way share it."""
+def shapeOf(obj):
+    """obj's shape in its own coordinates; None when it has none"""
     try:
         shape = Part.getShape(obj, "", needSubElement=False, transform=False)
     except Exception:
         return None
-    if shape.isNull() or not shape.Faces:
+    return None if shape.isNull() else shape
+
+
+def meshOf(writer, obj, shape=None, colors=None):
+    """A glTF mesh of obj's shape in its own coordinates, in metres; None when
+    it has no faces. Two components showing one shape the same way share it.
+    `shape` and `colors` (what appearance() gives) stand in for obj's own
+    now: a shape it had at another time, as it looked then."""
+    if shape is None:
+        shape = shapeOf(obj)
+        if colors is None:
+            colors = appearance(obj)
+    if shape is None or not shape.Faces:
         return None
     faces = shape.Faces
-    colors = appearance(obj)
     if colors is None:
         colors = [(GREY, 0.0)]
     if len(colors) != len(faces):
@@ -168,17 +178,15 @@ def meshOf(writer, obj):
     return mesh
 
 
-def animatedMeshOf(writer, obj, looks):
+def animatedMeshOf(writer, obj, looks, shape=None):
     """A glTF mesh of obj's shape whose colours change: `looks` is what
     appearance() gave at each frame. Faces whose colour went the same way
     through every frame share a material of their own, which no other mesh
     shares. -> (mesh, [(material, [(colour, transparency) a frame]), ...]);
-    mesh None when it has no faces."""
-    try:
-        shape = Part.getShape(obj, "", needSubElement=False, transform=False)
-    except Exception:
-        return None, []
-    if shape.isNull() or not shape.Faces:
+    mesh None when it has no faces. `shape` stands in for obj's own now."""
+    if shape is None:
+        shape = shapeOf(obj)
+    if shape is None or not shape.Faces:
         return None, []
     faces = shape.Faces
 

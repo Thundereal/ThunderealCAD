@@ -814,22 +814,82 @@ class TestAnimation(unittest.TestCase):
             self.assertAlmostEqual(dot, 1.0, places=6, msg="at %s" % t)
         self.assertEqual(done["Keyed"], 1 if len(times) == 2 else 0)
 
-    def testGltfExportSaysWhatItLeavesOut(self):
+    def testGltfARebuiltShapeIsAMeshAShapeShownAtItsFrames(self):
         from freecad import animationgltf
 
         box, _cyl, _still = self.gltfScene()
-        self.anim.addKey("Box.Height", 0.0, 10)
-        self.anim.addKey("Box.Height", 1.0, 30)
+        # 10 high, 30 from 0.5 s, 10 again at 1 s: two shapes over 11 frames
+        self.anim.addKey("Box.Height", 0.0, 10, interp="Constant")
+        self.anim.addKey("Box.Height", 0.5, 30, interp="Constant")
+        self.anim.addKey("Box.Height", 1.0, 10)
         folder = tempfile.mkdtemp(prefix="AnimGltf")
-        name = os.path.join(folder, "anim.glb")
+        name = os.path.join(folder, "rebuilt.gltf")
+        self.files += [name, os.path.join(folder, "rebuilt.bin")]
+        done = animationgltf.exportGltf(self.anim, name)
+        self.assertEqual(done["Skipped"], [])
+        self.assertEqual(done["Rebuilt"], 1)
+        self.assertEqual(done["Shapes"], 2)
+        self.assertAlmostEqual(box.Height.Value, 10.0)
+
+        gltf, values = self.readGltf(name)
+        nodes = gltf["nodes"]
+        boxNode = [n for n in nodes if n["name"] == "Box"][0]
+        # The object's node keeps its move and holds no mesh of its own
+        self.assertNotIn("mesh", boxNode)
+        children = [nodes[i] for i in boxNode["children"]]
+        self.assertEqual(len(children), 2)
+        tops = []
+        for child in children:
+            prim = gltf["meshes"][child["mesh"]]["primitives"][0]
+            tops.append(round(gltf["accessors"][prim["attributes"]["POSITION"]]["max"][2], 6))
+        self.assertEqual(tops, [0.01, 0.03])
+        # The first shown at the start, the second not
+        self.assertNotIn("scale", children[0])
+        self.assertEqual(children[1]["scale"], [0.0, 0.0, 0.0])
+        anim = gltf["animations"][0]
+        switch = {}
+        for ch in anim["channels"]:
+            target = ch["target"]
+            if target.get("path") == "scale":
+                switch[target["node"]] = anim["samplers"][ch["sampler"]]
+        for i, shown in zip(boxNode["children"], ([1.0, 0.0, 1.0], [0.0, 1.0, 0.0])):
+            sampler = switch[i]
+            self.assertEqual(sampler["interpolation"], "STEP")
+            self.assertEqual([round(v[0], 5) for v in values(sampler["input"])], [0.0, 0.5, 1.0])
+            self.assertEqual([v[0] for v in values(sampler["output"])], shown)
+
+    def testGltfAShapeEveryFrameIsAMeshAFrameAndOneThatRecursIsOne(self):
+        from freecad import animationgltf
+
+        self.gltfScene()
+        # Up and back down: frames 0.2 s and 0.8 s rebuild the same box
+        self.anim.addKey("Box.Height", 0.0, 10)
+        self.anim.addKey("Box.Height", 0.5, 20)
+        self.anim.addKey("Box.Height", 1.0, 10)
+        folder = tempfile.mkdtemp(prefix="AnimGltf")
+        name = os.path.join(folder, "heights.glb")
         self.files.append(name)
         done = animationgltf.exportGltf(self.anim, name)
-        self.assertEqual(len(done["Skipped"]), 1, done["Skipped"])
-        self.assertIn("Box", done["Skipped"][0])
-        self.assertIn("shape", done["Skipped"][0])
+        self.assertEqual(done["Rebuilt"], 1)
+        # 0, 0.1, ... 0.5: six heights, the way down the same six
+        self.assertEqual(done["Shapes"], 6)
         with open(name, "rb") as f:
             self.assertEqual(f.read(4), b"glTF")
-        self.assertAlmostEqual(box.Height.Value, 10.0)
+
+    def testGltfAShapeRebuiltTheSameIsNotRebuilt(self):
+        from freecad import animationgltf
+
+        self.gltfScene()
+        self.anim.addKey("Box.Height", 0.0, 10)
+        self.anim.addKey("Box.Height", 1.0, 10)
+        self.anim.Recompute = "Full"
+        folder = tempfile.mkdtemp(prefix="AnimGltf")
+        name = os.path.join(folder, "same.glb")
+        self.files.append(name)
+        done = animationgltf.exportGltf(self.anim, name)
+        self.assertEqual(done["Rebuilt"], 0)
+        self.assertEqual(done["Shapes"], 0)
+        self.assertEqual(done["Meshes"], 3)
 
     # -- the frame cache ---------------------------------------------------
 

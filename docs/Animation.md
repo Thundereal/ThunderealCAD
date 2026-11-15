@@ -1032,7 +1032,8 @@ camera track plays only in the view it was keyed in, or in the export view.
   - easing and Turns are baked to samples at the frame rate.
 
   Tracks that rebuild geometry do not fit glTF. They export as a sampled
-  mesh sequence or not at all, and the exporter says which.
+  mesh sequence or not at all, and the exporter says which. (Built
+  2026-11-15 as the sequence: a mesh a shape, switched by scale.)
 - **Streaming**: the SceneServer sends `Time`, and the web viewer plays
   placement and visibility tracks locally. The rest it receives as scene
   updates.
@@ -1427,10 +1428,42 @@ Phase 5, built so far (2026-11-12):
   (2.0.0-dev.3.10) finds no error or warning in such a file, only the
   note that its own support of the extension is incomplete; the manual's
   export.glb animates its box's fade this way.
+- Then (2026-11-15) the other two out of that list. **A shape the
+  animation rebuilds** (`Rebuilt`, `Shapes`) is a mesh a shape it takes,
+  once however many frames have it, each on a child node of the object's
+  that is scaled 1 at the frames that shape is the object's and 0 at the
+  others (STEP, at the switches only), the object's own node keeping its
+  move and its visibility. That is the motion clip's idea (9.1) in glTF's
+  terms: a pad keyed 10, 30, 10 high on Constant keys is two meshes over
+  its 11 frames, a box eased up and back down six. glTF cannot blend one
+  mesh into another of other topology (morph targets need the same
+  vertices), so the shape steps at the frame rate, as the browser's
+  sequence does. Two shapes are one when their counts of faces, edges and
+  vertices, their box, area and volume are, so a rebuild to the same
+  geometry is no new mesh. A colour that changes on a rebuilt object
+  animates each shape's own materials. **A camera track** (`Cameras`) is
+  a glTF camera, orthographic or perspective as it was keyed, on a node
+  under the document's root sampled at every frame where the view's
+  camera stands -- the point looked at less the view direction times the
+  distance, so it turns about the point as the view does, the frames
+  LINEAR between them. An orthographic height is `ymag` (half of it) and
+  `xmag` by the active view's aspect, a perspective angle `yfov`; a size
+  that changes is a channel by `KHR_animation_pointer`. An orthographic
+  camera stands back as far as the scene reaches from its point (the
+  picture is the same from any distance), so nothing is behind it and
+  `znear` is 0. Left in `Skipped`: a camera track when there is no 3D view
+  handler to read it by (FreeCADCmd), and a camera track of a strip's
+  Animation.
 - Tests: `TestAnimation` (glTF channels and samples read back from the
-  file, what is skipped, the formats), `tests/gui/animation-export.py`
-  (12 checks: sequence, GIF, video, cancel, the animation left as it
-  was, not modified, the command).
+  file, a rebuilt shape's meshes and their switches, the formats),
+  `tests/gui/animation-export.py` (43 checks: sequence, GIF, video,
+  cancel, the animation left as it was, not modified, the command, the
+  colours, a frame of another shape than the view's not stretched, and
+  an orthographic and a perspective camera track: the camera's kind,
+  node, frames, turn, aim and planes, its zoom). Khronos' validator finds
+  no error or warning in a rebuilt shape's file or a camera's; three.js
+  plays the manual's scene through the exported camera where the
+  application draws it (manual `core/animation/export-gltf.py`).
 - The renderer's clock follows the frame during export (section 9):
   `Render::AnimationClock` pins the clock every time-animated effect
   reads, process-wide; `Gui.setRenderClock(seconds or None)` and

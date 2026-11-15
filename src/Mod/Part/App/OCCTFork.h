@@ -186,7 +186,16 @@ PartExport bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
 ///       creases of #273's cup differently, which went on 5.8 past their
 ///       end (the fork's tests/fork/fillet/README.md, "Fix level 3"). An
 ///       OCCT without it makes level 3 as level 2.
-constexpr int OCCTFilletFixLevelLatest = 3;
+///  4 -- a fillet whose result is invalid where several of its corners were
+///       closed by a filling patch has each of those corners set back alone
+///       first, and all of them together only where none alone makes it:
+///       set back together, the sound corners lost their shape with the one
+///       at fault. 25 fillets at the vertices of realthunder/FreeCAD#474's
+///       coil are made differently by it, nearer the same edges filleted
+///       alone and with tolerances of 0.0005 for 0.066; it makes nothing
+///       that was refused (the fork's tests/fork/fillet/README.md, "Fix
+///       level 4"). An OCCT without it makes level 4 as level 3.
+constexpr int OCCTFilletFixLevelLatest = 4;
 
 /// Sets, for the calling thread, the OCCT fork's fillet fix level
 /// (ChFi3d_SetFixLevel): which of the fork's corrections to fillets and

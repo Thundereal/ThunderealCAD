@@ -179,6 +179,43 @@ of memory onto disk; Loaded, how many were read back</UserDocu>
         <UserDocu>clearCache(): drop every frame the cache keeps</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="prepareFrames" Keyword="true">
+      <Documentation>
+        <UserDocu>prepareFrames(times=None, force=False) -> int: start worker processes making the
+frames of `times` (every frame when None) the cache has not got, each a ThunderealCmd on a
+copy of the document; what they make comes into the cache as frames on disk, and a frame a
+worker is making when Time comes to it is waited for. Needs Active and Cache on. Not when
+making the frames here is quicker than starting a worker (WorkerMinSeconds of
+Preferences/Animation), unless `force`. Returns the workers running; workerInfo()["Reason"]
+says why there are none</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="stopWorkers">
+      <Documentation>
+        <UserDocu>stopWorkers(): end the worker processes; the frames they made stay</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="workerInfo">
+      <Documentation>
+        <UserDocu>workerInfo() -> dict: Running; Workers, the processes alive; Limit, the most
+there may be; Queued, frames not handed out yet; Busy, the times being made; Prepared,
+frames a worker made that the cache took; Failed, frames a worker could not make;
+Resident, the most bytes a worker held; Reason, why none run or why they stopped</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="waitWorkers">
+      <Documentation>
+        <UserDocu>waitWorkers(seconds=-1) -> bool: take in what the workers have made, waiting
+up to `seconds` for them to finish (for ever when negative). True when none run</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="writeFrame">
+      <Documentation>
+        <UserDocu>writeFrame(index, file, tables) -> dict: in a worker process, make frame
+`index` and write it to `file`, the string table to the directory `tables`. Returns Bytes,
+Cost (the recompute's seconds), Table (its hash) and Resident (this process's bytes)</UserDocu>
+      </Documentation>
+    </Methode>
     <CustomAttributes />
   </PythonExport>
 </GenerateModel>

@@ -547,6 +547,7 @@ SET(Document_CPP_SRCS
     SavedView.cpp
     Animation.cpp
     AnimationPyImp.cpp
+    AnimationWorkers.cpp
     License.h
 )
 
@@ -636,6 +637,7 @@ SET(Document_HPP_SRCS
     PatternExtension.h
     SavedView.h
     Animation.h
+    AnimationWorkers.h
 )
 SET(Document_SRCS
     ${Document_CPP_SRCS}

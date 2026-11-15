@@ -397,6 +397,7 @@ public:
         long replayed = 0;           ///< frames put back instead, ever
         long spilled = 0;            ///< frames moved out of memory onto disk, ever
         long loaded = 0;             ///< frames read back from disk, ever
+        long prepared = 0;           ///< frames a worker made, taken in, ever
     };
     CacheInfo cacheInfo() const;
     void clearCache();
@@ -407,6 +408,52 @@ public:
     /// Whether an active Animation of `doc`, or of any document when
     /// null, keeps its frames: the shapes shown are then meshed exact
     static bool cachingIn(const Document* doc = nullptr);
+
+    /** Frames made by worker processes (docs/Animation.md sec 4.2): each a
+     * ThunderealCmd holding a copy of the document, given frames one at a
+     * time, writing each as the cache writes a frame to disk. What they
+     * write comes into the cache as frames on disk, and the frame a
+     * worker is making when Time comes to it is waited for, not made a
+     * second time. With Cache on; any change of the design stops them.
+     */
+    struct WorkerInfo
+    {
+        bool running = false;
+        int workers = 0;            ///< processes alive
+        int limit = 0;              ///< most there may be
+        std::size_t queued = 0;     ///< frames not handed out yet
+        std::vector<double> busy;   ///< the frames being made
+        long prepared = 0;          ///< frames a worker made and the cache took, ever
+        long failed = 0;            ///< frames a worker could not make, ever
+        std::size_t resident = 0;   ///< the most a worker of these held
+        std::string reason;         ///< why none run, or why they stopped
+    };
+    /** Start workers on the frames of `times` (every frame when empty) the
+     * cache has not got. Not when the frames are quicker made here than a
+     * worker is started (WorkerMinSeconds of Preferences/Animation, 2),
+     * unless `force`. Returns the workers running; workerInfo().reason
+     * says why there are none.
+     */
+    int prepareFrames(const std::vector<double>& times = {}, bool force = false);
+    void stopWorkers(const char* reason = nullptr);
+    WorkerInfo workerInfo() const;
+    /// Take in what the workers have done, and with `seconds` > 0 wait as
+    /// long for more; < 0 until they are done. True when none run.
+    bool waitWorkers(double seconds);
+    /// In a worker: make frame `index` and write it to `file`, its string
+    /// table to `tables` (a directory) unless the one written last is the
+    /// same. Returns the file's size and the seconds the recompute took.
+    struct FrameWritten
+    {
+        std::size_t bytes = 0;
+        double cost = 0;
+        std::string table;
+        std::size_t resident = 0;  ///< what this process holds after it
+    };
+    FrameWritten writeFrame(long index, const std::string& file, const std::string& tables);
+    /// Frames of an Animation came into its cache, or its workers took one
+    /// up or stopped, from outside a change of its Time
+    static fastsignals::signal<void(const Animation&)> signalCacheChanged;
 
     /// Parse `path` relative to this Animation
     ObjectIdentifier parsePath(const std::string& path) const;
@@ -505,7 +552,16 @@ private:
     bool spillFrame(long index, Frame& frame);
     bool loadFrame(Frame& frame);
     std::string cacheDir() const;
+    std::string framePath(const Frame& frame) const;
     void trimCache();
+    struct FrameOut;
+    void writeFrameFile(FrameOut& out, Capture& capture, double cost);
+    bool adoptFrame(long index, const std::string& file);
+    double meanFrameCost() const;
+    struct Workers;
+    std::unique_ptr<Workers> _workers;
+    FrameOut* _frameOut = nullptr;
+    long _cachePrepared = 0;
 
     std::map<const Property*, std::unique_ptr<Rest>> _rest;
     std::vector<fastsignals::scoped_connection> _conns;

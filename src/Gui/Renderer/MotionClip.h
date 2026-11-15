@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "Renderer.h"
+#include "SceneDump.h"
 
 namespace Render
 {
@@ -1102,6 +1103,10 @@ private:
         int type = 0;
         /// The material as far as an Animation changes it in place
         MotionLook look;
+        /// The rest of it, which no look carries -- a texture, a PBR
+        /// parameter, a finish: told by materialIdentity() with the look
+        /// set alike. Changed, the draw is not what the publish held.
+        uint64_t rest = 0;
     };
     struct Object {
         /// The draws at refFrame, what the poses are measured from
@@ -1257,13 +1262,18 @@ private:
         s.indexCount = draw.indexCount;
         s.type = draw.material.type;
         s.look = MotionLook::of(draw.material);
+        Material rest = draw.material;
+        MotionLook().applyTo(rest);
+        s.rest = materialIdentity(rest);
         return s;
     }
 
     /// The one rigid transform that takes the object's draws at refFrame
     /// to \a now, and how each of them looks there; false when there is
     /// none. The looks may differ from refFrame's: a colour or a
-    /// transparency the Animation changes rides the track.
+    /// transparency the Animation changes rides the track. The rest of the
+    /// material may not: a draw whose texture or PBR parameter changed is
+    /// a draw of its own, and the object a sequence.
     static bool measure(const Object &obj, const std::vector<const DrawCall *> &now,
                         Motion::Pose &pose, std::vector<MotionLook> &looks)
     {
@@ -1283,7 +1293,8 @@ private:
             if ((is.mesh != was.mesh
                  && !sameMesh(now[i]->mesh.get(), obj.refDraws[i].mesh.get()))
                 || is.partIndex != was.partIndex || is.indexStart != was.indexStart
-                || is.indexCount != was.indexCount || is.type != was.type)
+                || is.indexCount != was.indexCount || is.type != was.type
+                || is.rest != was.rest)
                 return false;
             looks.push_back(is.look);
             double expect[16];

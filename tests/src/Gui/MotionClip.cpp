@@ -238,6 +238,44 @@ TEST(MotionClipBaker, aChangedColourRidesItsTrackAndTheClipIsExact)
     EXPECT_EQ(at[0].diffuse, feed(2, 3, a, b)[0].material.diffuse);
 }
 
+TEST(MotionClipBaker, aMaterialChangedOutsideTheLooksIsARebuild)
+{
+    // A roughness no look carries: a viewer moving the publish's draws
+    // would show the old one, so the object is its draws at every frame
+    auto a = mesh(11), b = mesh(12);
+    std::vector<std::vector<uint8_t>> kept;
+    MotionClipBaker baker([&kept](const DrawCallList& draws) {
+        kept.push_back(motionBlobOf(draws));
+        return int32_t(kept.size() - 1);
+    });
+    baker.frame(feed(0, 3, a, b));
+    DrawCallList rougher = feed(1, 3, a, b);
+    rougher[0].material.roughness = 0.8F;
+    baker.frame(rougher);
+    baker.frame(feed(2, 3, a, b));
+    MotionClip clip = baker.finish(1, 0.0, 1.0);
+    EXPECT_TRUE(clip.exact);
+    ASSERT_EQ(clip.seqKeys.size(), 1U);
+    EXPECT_EQ(clip.seqKeys[0], 1U);
+    EXPECT_TRUE(clip.lookTracks.empty());
+    ASSERT_EQ(clip.seq.size(), 3U);
+    EXPECT_NE(clip.seq[0], clip.seq[1]);
+    // The colour of the same draw still rides a track
+    MotionClipBaker coloured;
+    coloured.frame(feed(0, 3, a, b));
+    DrawCallList red = feed(1, 3, a, b);
+    red[0].material.diffuse = 0xFF0000FF;
+    coloured.frame(red);
+    MotionClip plain = coloured.finish(2, 0.0, 1.0);
+    EXPECT_TRUE(plain.seqKeys.empty());
+    EXPECT_EQ(plain.lookTracks.size(), 1U);
+    // Without a store it is left out, and the clip says it is not exact
+    MotionClipBaker bare;
+    bare.frame(feed(0, 3, a, b));
+    bare.frame(rougher);
+    EXPECT_FALSE(bare.finish(3, 0.0, 1.0).exact);
+}
+
 TEST(MotionClipBaker, theSameGeometryUnderANewCacheIdIsNoRebuild)
 {
     // A colour changed builds the caches again: new ids, the same arrays

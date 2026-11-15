@@ -21,7 +21,14 @@ shape is made, the camera set (not animated), the GUI pumped three times,
 then three shots at 360 x 300 on white -- one that does not wait (the
 frame as it stands), one that does, and one more after 1.5 s of settling.
 Then the shape is replaced by itself scaled by 1.1 and the same is done
-again. An edge pixel is one darker than 110/110/120.
+again. The edges are drawn red and an edge pixel is a red one: red over
+green and blue by more than 60 each. (It was one darker than 110/110/120,
+which counted shaded faces too: the coarse rung's flat facets at the
+silhouette are darker than the exact smooth ones, so a frame without
+edges could count more "edge" pixels than one with them -- how many
+depending on the backend's lighting and on how far the frame is shrunk to
+360 x 300, which on Linux tipped it when captures of another shape than
+the view's stopped being stretched, 6851be58bb.)
 
 What is asserted of each:
   - the case arose: the shot that does not wait has under 80% of the edge
@@ -61,7 +68,7 @@ def edge_pixels(png):
     for y in range(img.height()):
         for x in range(img.width()):
             c = QtGui.QColor(img.pixel(x, y))
-            if c.red() < 110 and c.green() < 110 and c.blue() < 120:
+            if c.red() - c.green() > 60 and c.red() - c.blue() > 60:
                 n += 1
     return n
 
@@ -129,7 +136,7 @@ def run():
             Gui.updateGui()
             obj = doc.addObject("Part::Feature", "S")
             obj.Shape = shape
-            obj.ViewObject.LineColor = (0.15, 0.15, 0.2)
+            obj.ViewObject.LineColor = (1.0, 0.0, 0.0)
             obj.ViewObject.LineWidth = 1.5
             doc.recompute()
             view = Gui.ActiveDocument.ActiveView

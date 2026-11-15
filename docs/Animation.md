@@ -430,6 +430,17 @@ on the components and is normalised, as Blender does (3.13). Free handles
 on rotations would need a handle on the sphere, which no CAD user asked
 for.
 
+**Aligned** (2026-11-15) is stored like Free but kept in line with the
+other side of its key: the slope of each number the same on both sides,
+each handle keeping its own reach in time (`Anim::alignHandle`). Who
+changes one side keeps the other on its line -- the curve editor's drag,
+the key menu's Bezier handles > Aligned, `setHandles` in Python -- and
+`Curve::prepare()` turns an Aligned side onto the line of a computed
+(Auto, AutoClamped, Vector) one opposite it, so a key with one Aligned
+handle is smooth whatever the other is. The reach in time is what is
+kept, not a length on screen: the graph's two axes have no common unit,
+and Blender's length in its view depends on the zoom.
+
 Moving a key onto the time of another key of the same track replaces it,
 as in Blender. The timeline snaps to frames, but the model does not:
 a key at 1.0333 s stays there when the frame rate changes.
@@ -1094,8 +1105,9 @@ viewer plays the motion by itself and the host publishes nothing for it.
 
 **The clip is baked from the feed, not from the tracks.** When the player
 starts an Animation of a served document that somebody is watching, the
-serve source steps it through its range -- at `FrameRate`, 240 frames at
-most -- and after each step traverses the served graph and reads the draws
+serve source steps it through its range -- a frame of `FrameRate` each
+(see "The bake runs between events" below) -- and after each step
+traverses the served graph and reads the draws
 it would publish (`Render::MotionClipBaker`, `Gui/Renderer/MotionClip.h`).
 An object, on this wire, is an `objectKey`: one occurrence of a document
 object, as its node path has it. Where every draw of a key moved by one
@@ -1106,6 +1118,37 @@ easing, Turns, strips, an expression reading `Time`, a group or a Link
 moving its children all come out right with no case for each -- the same
 argument as the glTF exporter's baking, one level further down. The time
 it was at is put back when the sweep is done.
+
+**The bake runs between events** (2026-11-15; it was one call, the
+window frozen for its length, at most 240 frames spread over the range).
+Each frame is the Animation written at that Time -- a recompute, for one
+that rebuilds shapes -- and a traversal, so a long or heavily parametric
+range took seconds to a minute with nothing answering. Now
+`SceneServeClip::bakeSlice()` steps frames for 40 ms and lets the events
+in, the main window's status bar saying how far it is
+("frame 120 of 601"). Meanwhile the player is **held**
+(`AnimationPlayer::hold()`): it counts as playing, its clock stopped, so
+nothing else writes the Time the sweep is writing, and it plays on from
+where it was when the clip is ready (`release()`), the viewers starting
+with it rather than as many seconds behind as the bake took. The serve
+source publishes nothing while a bake runs (`baking()`; the scene is at
+a pose of the sweep) and publishes the player's pose when it ends; the
+clock it sends says the Time the player waits at. A pause, a stop,
+another Animation played, or an edit (anything `invalidate()` hears)
+ends the bake at its next slice -- the edit, from inside whatever signal
+reported it, only marks it -- with the Time put back unless a stop put
+the rest values back; an edit then bakes again once the edits stop, as
+before. Moving the Time while it bakes moves where the player plays on
+from.
+
+With that the frames follow the rate: one a frame of `FrameRate`, at the
+Times the player plays a kept frame at (`start + i / FrameRate`, so a
+bake also fills an Animation's frame cache, and a shape rebuilt at a
+frame shows at that frame in the browser), up to 1800 (a minute at
+30 fps). Fewer, spread evenly over the range, only where the poses would
+not fit the blob budget (`StreamBlobMB`) at 128 bytes an object a frame
+-- what the baker holds of each -- and never fewer than 240. A 20 s
+range at 30 fps is 601 frames.
 
 **What is not a move rides the clip too** (2026-11-14). A key whose draws
 are missing at some frames -- hidden -- keeps its track, with a byte a
@@ -1238,7 +1281,8 @@ moved, swapped, left out and set the looks of.
 
 Not in this cut:
 - **A sequence is stepped**, shown at the frame nearest, at `FrameRate`
-  (240 frames over the range at most), not blended between frames.
+  (up to 1800 frames, see "The bake runs between events"), not blended
+  between frames.
 - **A blob's meshes are chunks of their own** (built 2026-11-14, was "a
   blob is self-contained"). A blob is the key's draws -- transforms,
   materials -- naming each mesh by the content key a publish would give
@@ -1267,8 +1311,21 @@ Not in this cut:
   `'E'` frames of an edit mode are sent only while editing, and an edit
   mode run while an Animation plays meets the host's own pose.
 - **Looks are the compared fields only**: a change the Animation makes to
-  a material field outside them (a texture, a PBR parameter) is not in the
-  clip, as before.
+  a material field outside them -- a texture, a PBR parameter, a finish
+  -- does not ride a track. It did not make the object anything else
+  either, until 2026-11-15: the bake compared the mesh, the placement and
+  the look, so a key on `Render_Roughness` left the object a still or a
+  moving track, the clip exact, the publishes held, and the browser
+  showing the roughness Play started with. Now the baker also compares
+  the rest of each draw's material (`Shape::rest`, `materialIdentity()`
+  with the look fields set alike), and a draw whose rest changed makes
+  the object a sequence -- its draws at every frame, the same as a
+  rebuilt shape, so the browser shows it stepped at `FrameRate`
+  (tests/gui/serve-animation.py, "a roughness that changes";
+  `MotionClipBaker.aMaterialChangedOutsideTheLooksIsARebuild`).
+  Textures are told apart by pointer, as the identity tells them, so a
+  texture built again with the same pixels counts as a change too:
+  heavier, not wrong.
 - The clip rides the control channel as base64: a few hundred kilobytes
   for some tens of moving objects, sent once per bake.
 
@@ -1300,6 +1357,9 @@ anim.stop()                      # rest values back, Active off
 anim.Cache = True                # keep what each frame recomputes to (4.1)
 anim.cacheInfo()                 # dict: Times, OnDisk, Bytes, DiskBytes, Stored, Replayed ...
 anim.clearCache()
+anim.handles("Obj.F", 1.0)       # ((type, dt, (dv, ...)), (type, dt, (dv, ...))) as the curve has them
+anim.setHandles("Obj.F", 1.0, left=("Aligned", -0.25, -1.0))  # the right follows onto its line
+anim.setHandles("Obj.F", 1.0, left="Free", right="Free")      # by name: from where the curve is
 ```
 
 The track's options are a method, not attributes of a track object, so a
@@ -1376,7 +1436,13 @@ Phase 4, built so far (2026-11-12):
   kind, "Camera" or "Camera:View1/ortho".
 - The curve editor (3edee73b72): the timeline's Curves mode, keys
   dragged in time and value, Bezier handles dragged Free (Alt mirrors).
-  Each drag one undo step.
+  Each drag one undo step. Since 2026-11-15 a handle of a smooth key
+  (AutoClamped, Auto, Aligned) dragged makes both sides Aligned, the
+  other turned onto its line, as Blender does; Alt still makes both Free
+  and mirrored; a Vector or Free handle is dragged on its own. The key
+  menu has Bezier handles (the five types; Aligned and Free start from
+  the curve as it is), and a right-click in Curves mode finds the key by
+  its point on the curve.
 - Strips (41c6e29972): a track of kind "Strip" names the child Animation
   and carries its start (At, After, With, Click), offset, scale, repeat,
   reverse and blend. The Animation evaluates its own tracks, then each
@@ -1389,8 +1455,13 @@ Phase 4, built so far (2026-11-12):
   On click starts. A strip playing its parent is refused; nesting stops
   at eight.
 - Phase 4 is done. Left for later: Squad for rotations if Bezier on the
-  components ever shows, Aligned handles kept in line by the curve
-  editor (it makes a dragged handle Free).
+  components ever shows. Measured 2026-11-15 against the same keys
+  played as Turns (the angle a Bezier scalar), about one axis: 0.26 deg
+  at most for keys 45 deg apart, 2.0 deg for 90, 2.2 for 0-120-0, and
+  6.8 deg in one span of 170 deg -- the path the same, the speed along
+  it not (the components' curve, normalised, runs ahead early in a
+  span). Aligned handles kept in line by the curve editor: built
+  2026-11-15 (above).
 | 4 | Bezier handles in a curve editor; camera track; strips (section 7) | |
 | 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache (4.1) | |
 

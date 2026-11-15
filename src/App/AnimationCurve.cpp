@@ -680,6 +680,20 @@ int Curve::find(double t) const
     return -1;
 }
 
+void App::Anim::alignHandle(const Handle& by, Handle& other, int comp)
+{
+    if (by.dt == 0 || other.dt == 0) {
+        return;
+    }
+    const double f = other.dt / by.dt;
+    const std::size_t n = std::min(by.dv.size(), other.dv.size());
+    for (std::size_t c = 0; c < n; ++c) {
+        if (comp < 0 || static_cast<int>(c) == comp) {
+            other.dv[c] = by.dv[c] * f;
+        }
+    }
+}
+
 void Curve::prepare()
 {
     const int n = layout.size();
@@ -794,6 +808,14 @@ void Curve::prepare()
                 };
                 side(k.left, k.left.dt, prev);
                 side(k.right, k.right.dt, next);
+                // An Aligned side opposite a computed one follows it
+                if (own && k.left.type == HandleType::Aligned && computed(k.right.type)) {
+                    alignHandle(k.right, k.left, c);
+                }
+                else if (own && k.right.type == HandleType::Aligned
+                         && computed(k.left.type)) {
+                    alignHandle(k.left, k.right, c);
+                }
             }
         }
     }

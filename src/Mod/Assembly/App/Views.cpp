@@ -886,6 +886,33 @@ void Assembly::registerExplodeTrack()
     // An edit while posed records the design's value as the one before it
     App::Animation::addRestProvider(
         [](const App::Property& prop) { return ExplodedView::restValueOf(prop); });
+    // A view depends on its steps, not on the parts it shows (they are its
+    // assembly's, which holds it), so what draws it -- a TechDraw view, a
+    // view at a step -- did not see a part no step moves move, by hand or
+    // by the solve. An assembly recomputed has moved them: its views' shapes
+    // are made again, and what draws them is recomputed, in this pass if it
+    // comes later, else in the recompute's second (docs/AssemblyExplode.md
+    // sec 8). Nothing in the assembly is: it would touch the assembly again.
+    static auto recomputed = App::GetApplication().signalRecomputedObject.connect(
+        [](const App::Document& doc, const App::DocumentObject& obj) {
+            if (!obj.isDerivedFrom<AssemblyObject>()) {
+                return;
+            }
+            auto assembly = const_cast<App::DocumentObject*>(&obj);
+            for (auto o : doc.getObjectsOfType(ExplodedView::getClassTypeId())) {
+                auto view = static_cast<ExplodedView*>(o);
+                if (view->getAssembly() != assembly) {
+                    continue;
+                }
+                Part::PropertyShapeCache::clearShapes(view);
+                for (auto drawing : view->getInList()) {
+                    if (drawing != assembly && !assembly->isInOutListRecursive(drawing)) {
+                        drawing->enforceRecompute();
+                    }
+                }
+            }
+        });
+    (void)recomputed;
 }
 
 

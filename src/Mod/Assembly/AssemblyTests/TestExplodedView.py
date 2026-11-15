@@ -1056,6 +1056,79 @@ class TestExplodedViewAtSteps(PlacementAsserts, JointTestBase):
         self.assertGreater(after, before + 1)
 
 
+class TestExplodedViewRedrawn(PlacementAsserts, JointTestBase):
+    """A drawing of an exploded view, or of a step of one, is drawn again
+    when a part moves that no step moves: by hand or by the solve
+    (docs/AssemblyExplode.md sec 8)"""
+
+    def drawn(self, source):
+        if not hasEventLoop():
+            self.skipTest("TechDraw projects in threads, which need an event loop")
+        try:
+            import TechDraw  # noqa: F401
+            from TDTest.TechDrawTestUtilities import createPageWithSVGTemplate
+        except ImportError:
+            self.skipTest("no TechDraw")
+        page = getattr(self, "page", None) or createPageWithSVGTemplate(self.doc)
+        self.page = page
+        drawing = self.doc.addObject("TechDraw::DrawViewPart", "Drawing")
+        page.addView(drawing)
+        drawing.Source = [source]
+        drawing.Direction = App.Vector(0, -1, 0)
+        return drawing
+
+    def height(self, drawing):
+        import Part
+
+        waitForWorkers()
+        return Part.Compound(drawing.getVisibleEdges()).BoundBox.YLength
+
+    def views(self):
+        self.box("B", plc(30, 0, 0))
+        view = TestExplodedView.explodedView(self, [(["B."], plc(0, 0, 20), 0)])
+        at = self.doc.addObject("Assembly::ExplodedViewAt", "At")
+        at.View = view
+        return [self.drawn(view), self.drawn(at)]
+
+    def testAPartNoStepMovesByHand(self):
+        self.box("A")
+        c = self.box("C", plc(60, 0, 0))
+        drawings = self.views()
+        self.doc.recompute()
+        before = [self.height(d) for d in drawings]
+        c.Placement = plc(60, 0, 100)
+        self.doc.recompute()
+        for d, h in zip(drawings, before):
+            self.assertAlmostEqual(self.height(d), h + 80, 3, d.Source[0].Name)
+            self.assertNotIn("Touched", d.State)
+        # And nothing left touched: the assembly is not recomputed again
+        self.assertEqual([o.Name for o in self.doc.Objects if "Touched" in o.State], [])
+
+    def testAPartTheSolveMoves(self):
+        a = self.box("A")
+        c = self.box("C", plc(60, 0, 0))
+        self.ground(a)
+        joint = self.joint(
+            "Fixed",
+            (a, ["Face6", "Face6"]),
+            plc(5, 5, 10),
+            (c, ["Face5", "Face5"]),
+            plc(5, 5, 0),
+        )
+        drawings = self.views()
+        self.doc.recompute()
+        self.assertAlmostEqual(c.Placement.Base.z, 10, 6)
+        before = [self.height(d) for d in drawings]
+        joint.Placement1 = plc(5, 5, 110)
+        self.doc.recompute()
+        self.assertAlmostEqual(c.Placement.Base.z, 110, 6)
+        for d, h in zip(drawings, before):
+            self.assertAlmostEqual(self.height(d), h + 90, 3, d.Source[0].Name)
+            self.assertNotIn("Touched", d.State)
+        # And nothing left touched: the assembly is not recomputed again
+        self.assertEqual([o.Name for o in self.doc.Objects if "Touched" in o.State], [])
+
+
 class TestExplodedViewBalloons(PlacementAsserts, JointTestBase):
     """Balloons with the parts' numbers in the BOM on a drawing of an
     exploded view (docs/AssemblyExplode.md sec 9)"""

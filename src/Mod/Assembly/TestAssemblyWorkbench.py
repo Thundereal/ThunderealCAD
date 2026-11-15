@@ -68,6 +68,7 @@ from AssemblyTests.TestExplodedView import (
     TestExplodedShape,
     TestExplodedViewDrawn,
     TestExplodedViewAtSteps,
+    TestExplodedViewRedrawn,
     TestExplodedViewBalloons,
     TestAutoExplode,
 )
@@ -142,6 +143,7 @@ True if TestExplodedViewAnimate else False
 True if TestExplodedShape else False
 True if TestExplodedViewDrawn else False
 True if TestExplodedViewAtSteps else False
+True if TestExplodedViewRedrawn else False
 True if TestExplodedViewBalloons else False
 True if TestAutoExplode else False
 True if TestAssemblyGroups else False

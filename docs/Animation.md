@@ -1283,8 +1283,21 @@ Not in this cut:
   `'E'` frames of an edit mode are sent only while editing, and an edit
   mode run while an Animation plays meets the host's own pose.
 - **Looks are the compared fields only**: a change the Animation makes to
-  a material field outside them (a texture, a PBR parameter) is not in the
-  clip, as before.
+  a material field outside them -- a texture, a PBR parameter, a finish
+  -- does not ride a track. It did not make the object anything else
+  either, until 2026-11-15: the bake compared the mesh, the placement and
+  the look, so a key on `Render_Roughness` left the object a still or a
+  moving track, the clip exact, the publishes held, and the browser
+  showing the roughness Play started with. Now the baker also compares
+  the rest of each draw's material (`Shape::rest`, `materialIdentity()`
+  with the look fields set alike), and a draw whose rest changed makes
+  the object a sequence -- its draws at every frame, the same as a
+  rebuilt shape, so the browser shows it stepped at `FrameRate`
+  (tests/gui/serve-animation.py, "a roughness that changes";
+  `MotionClipBaker.aMaterialChangedOutsideTheLooksIsARebuild`).
+  Textures are told apart by pointer, as the identity tells them, so a
+  texture built again with the same pixels counts as a change too:
+  heavier, not wrong.
 - The clip rides the control channel as base64: a few hundred kilobytes
   for some tens of moving objects, sent once per bake.
 

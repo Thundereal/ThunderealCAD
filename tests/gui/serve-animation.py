@@ -19,6 +19,9 @@ but it reads the wire, and the wire is what is asserted:
     kept, every blob servable under the key the clip names;
   - with no room for those blobs the clip still plays the box, it is not
     exact, and the publishes flow;
+  - a render roughness that changes, which no look carries, makes the
+    object a sequence, its draws at every frame -- not a still object
+    whose publishes are held with the roughness Play started with;
   - a long range, a part rebuilt at every frame slowly, is baked a frame
     of its rate each (601 for 20 s at 30 fps), between events: they go on
     meanwhile, the clock says the player waits at its Time, a pause ends
@@ -571,6 +574,52 @@ def run():
         anim.removeTrack("Step.Placement.Base.x")
         doc.removeObject("Step")
         doc.recompute()
+
+        # --- a PBR parameter that changes: no look carries it, so the
+        # object is its draws at every frame
+        shine = doc.addObject("Part::Box", "Shine")
+        shine.Placement.Base = App.Vector(-30, -30, 0)
+        doc.recompute()
+        shine.ViewObject.addProperty("App::PropertyFloat", "Render_Roughness", "Render")
+        shine.ViewObject.Render_Roughness = 0.1
+        pump(0.3)
+        # The sequences before it is keyed
+        t13 = clock()
+        Gui.runCommand("Std_AnimationPlay")
+        pump(1.5)
+        before9 = client.last("clip", t13)
+        Gui.runCommand("Std_AnimationStop")
+        pump(0.5)
+        anim.addKey("Shine.ViewObject.Render_Roughness", 0.0, 0.1)
+        anim.addKey("Shine.ViewObject.Render_Roughness", 2.0, 0.9)
+        pump(0.3)
+        t13 = clock()
+        Gui.runCommand("Std_AnimationPlay")
+        pump(1.5)
+        clip9 = client.last("clip", t13)
+        if clip9 is not None:
+            frames9 = clip9["frames"]
+            seq9 = struct.unpack("<%di" % (len(base64.b64decode(clip9["seq"])) // 4),
+                                 base64.b64decode(clip9["seq"])) if clip9["seq"] else ()
+            old = set((before9 or {}).get("seqKeys") or [])
+            rows = [seq9[i * frames9:(i + 1) * frames9]
+                    for i, key in enumerate(clip9["seqKeys"]) if key not in old]
+            check("a roughness that changes is the object's draws at every frame",
+                  before9 is not None and len(rows) == 1 and len(set(rows[0])) == frames9
+                  and all(b >= 0 for b in rows[0]),
+                  (sorted(old), clip9["seqKeys"], [len(set(r)) for r in rows]))
+        else:
+            check("a roughness that changes is the object's draws at every frame", False)
+        t13b = clock()
+        pump(1.0)
+        check("and nothing is published for it either",
+              len(client.since(t13b, "scene")) == 0, len(client.since(t13b, "scene")))
+        Gui.runCommand("Std_AnimationStop")
+        pump(0.5)
+        anim.removeTrack("Shine.ViewObject.Render_Roughness")
+        doc.removeObject("Shine")
+        doc.recompute()
+        pump(0.3)
 
         # --- a long range: a frame of its rate each, baked between events,
         # a part rebuilt at every one of them that takes its time

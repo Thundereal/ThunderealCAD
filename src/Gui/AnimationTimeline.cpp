@@ -262,9 +262,10 @@ void AnimationPlayer::play(App::Animation* a)
     if (!a) {
         return;
     }
-    if (timer.isActive() && animation() != a) {
+    if (isPlaying() && animation() != a) {
         pause();
     }
+    held = false;
     anim = App::DocumentObjectT(a);
     double start = a->Start.getValue();
     double end = a->endTime();
@@ -287,12 +288,33 @@ void AnimationPlayer::play(App::Animation* a)
 void AnimationPlayer::pause()
 {
     timer.stop();
+    held = false;
     Q_EMIT stateChanged();
+}
+
+void AnimationPlayer::hold()
+{
+    if (timer.isActive()) {
+        timer.stop();
+        held = true;
+    }
+}
+
+void AnimationPlayer::release(double from)
+{
+    if (!held) {
+        return;
+    }
+    held = false;
+    startTime = from;
+    clock.start();
+    timer.start();  // at the interval play() set
 }
 
 void AnimationPlayer::stop()
 {
     timer.stop();
+    held = false;
     if (auto a = animation()) {
         if (a->Active.getValue()) {
             a->Active.setValue(false);  // the rest values back

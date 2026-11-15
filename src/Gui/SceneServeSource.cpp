@@ -2626,6 +2626,10 @@ void SceneServeSource::onPublishTimeout()
     // traversal of the served graph whether or not it ends up with
     // anything to send, so a tick asked for by a text announcement
     // alone does not take one.
+    // While an Animation's clip bakes the scene is at a pose of the sweep:
+    // kept dirty, published when the bake ends and asks for it.
+    if (pimpl->clip && pimpl->clip->baking())
+        return;
     if (pimpl->sceneDirty) {
         pimpl->sceneDirty = false;
         publishNow();

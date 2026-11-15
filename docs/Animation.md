@@ -1077,8 +1077,9 @@ viewer plays the motion by itself and the host publishes nothing for it.
 
 **The clip is baked from the feed, not from the tracks.** When the player
 starts an Animation of a served document that somebody is watching, the
-serve source steps it through its range -- at `FrameRate`, 240 frames at
-most -- and after each step traverses the served graph and reads the draws
+serve source steps it through its range -- a frame of `FrameRate` each
+(see "The bake runs between events" below) -- and after each step
+traverses the served graph and reads the draws
 it would publish (`Render::MotionClipBaker`, `Gui/Renderer/MotionClip.h`).
 An object, on this wire, is an `objectKey`: one occurrence of a document
 object, as its node path has it. Where every draw of a key moved by one
@@ -1089,6 +1090,37 @@ easing, Turns, strips, an expression reading `Time`, a group or a Link
 moving its children all come out right with no case for each -- the same
 argument as the glTF exporter's baking, one level further down. The time
 it was at is put back when the sweep is done.
+
+**The bake runs between events** (2026-11-15; it was one call, the
+window frozen for its length, at most 240 frames spread over the range).
+Each frame is the Animation written at that Time -- a recompute, for one
+that rebuilds shapes -- and a traversal, so a long or heavily parametric
+range took seconds to a minute with nothing answering. Now
+`SceneServeClip::bakeSlice()` steps frames for 40 ms and lets the events
+in, the main window's status bar saying how far it is
+("frame 120 of 601"). Meanwhile the player is **held**
+(`AnimationPlayer::hold()`): it counts as playing, its clock stopped, so
+nothing else writes the Time the sweep is writing, and it plays on from
+where it was when the clip is ready (`release()`), the viewers starting
+with it rather than as many seconds behind as the bake took. The serve
+source publishes nothing while a bake runs (`baking()`; the scene is at
+a pose of the sweep) and publishes the player's pose when it ends; the
+clock it sends says the Time the player waits at. A pause, a stop,
+another Animation played, or an edit (anything `invalidate()` hears)
+ends the bake at its next slice -- the edit, from inside whatever signal
+reported it, only marks it -- with the Time put back unless a stop put
+the rest values back; an edit then bakes again once the edits stop, as
+before. Moving the Time while it bakes moves where the player plays on
+from.
+
+With that the frames follow the rate: one a frame of `FrameRate`, at the
+Times the player plays a kept frame at (`start + i / FrameRate`, so a
+bake also fills an Animation's frame cache, and a shape rebuilt at a
+frame shows at that frame in the browser), up to 1800 (a minute at
+30 fps). Fewer, spread evenly over the range, only where the poses would
+not fit the blob budget (`StreamBlobMB`) at 128 bytes an object a frame
+-- what the baker holds of each -- and never fewer than 240. A 20 s
+range at 30 fps is 601 frames.
 
 **What is not a move rides the clip too** (2026-11-14). A key whose draws
 are missing at some frames -- hidden -- keeps its track, with a byte a
@@ -1221,7 +1253,8 @@ moved, swapped, left out and set the looks of.
 
 Not in this cut:
 - **A sequence is stepped**, shown at the frame nearest, at `FrameRate`
-  (240 frames over the range at most), not blended between frames.
+  (up to 1800 frames, see "The bake runs between events"), not blended
+  between frames.
 - **A blob's meshes are chunks of their own** (built 2026-11-14, was "a
   blob is self-contained"). A blob is the key's draws -- transforms,
   materials -- naming each mesh by the content key a publish would give

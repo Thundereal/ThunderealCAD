@@ -78,9 +78,22 @@ public:
     void pause();
     /// Pause and put the rest values back
     void stop();
+    /// Playing, held or not
     bool isPlaying() const
     {
-        return timer.isActive();
+        return timer.isActive() || held;
+    }
+    /** Playing with the clock stopped, while what playing needs is made
+     * ready -- a served document's browser clip (SceneServeClip): the
+     * Animation is not moved meanwhile, and nothing says the state
+     * changed. Pause, stop and play let go of it.
+     */
+    void hold();
+    /// Play on from \a from (s), the clock started again; nothing unless held
+    void release(double from);
+    bool isHeld() const
+    {
+        return held;
     }
     App::Animation* animation() const;
     /// The count Loop folds into Time: where playing started plus the wall
@@ -99,6 +112,7 @@ private:
     App::DocumentObjectT anim;
     double startTime = 0;
     int direction = 1;
+    bool held = false;
 };
 
 namespace DockWnd

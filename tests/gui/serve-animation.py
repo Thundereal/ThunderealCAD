@@ -19,6 +19,11 @@ but it reads the wire, and the wire is what is asserted:
     kept, every blob servable under the key the clip names;
   - with no room for those blobs the clip still plays the box, it is not
     exact, and the publishes flow;
+  - a long range, a part rebuilt at every frame slowly, is baked a frame
+    of its rate each (601 for 20 s at 30 fps), between events: they go on
+    meanwhile, the clock says the player waits at its Time, a pause ends
+    the bake with the Time put back, and the player plays on from where
+    it was when the clip is ready;
   - an edit while playing drops the clip, and it is baked again;
   - stopping says the document is as designed again.
 
@@ -127,6 +132,30 @@ class Client(threading.Thread):
     def last(self, kind, when=0.0):
         found = self.since(when, kind)
         return found[-1][2] if found else None
+
+
+class Slow:
+    """A box that takes SLOW_S to rebuild, the cost of a heavily parametric
+    part: what makes a bake take long enough to see the events go on"""
+
+    SLOW_S = 0.005
+
+    def __init__(self, obj):
+        obj.addProperty("App::PropertyLength", "Height").Height = 5
+        obj.Proxy = self
+
+    def execute(self, obj):
+        import Part
+        end = clock() + self.SLOW_S
+        while clock() < end:
+            pass
+        obj.Shape = Part.makeBox(5, 5, max(0.1, obj.Height.Value))
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
 
 
 def clip_poses(clip):
@@ -542,6 +571,82 @@ def run():
         anim.removeTrack("Step.Placement.Base.x")
         doc.removeObject("Step")
         doc.recompute()
+
+        # --- a long range: a frame of its rate each, baked between events,
+        # a part rebuilt at every one of them that takes its time
+        slow = doc.addObject("Part::FeaturePython", "Slow")
+        Slow(slow)
+        slow.ViewObject.Proxy = 0
+        slow.Placement.Base = App.Vector(0, -30, 0)
+        doc.recompute()
+        anim.addKey("Slow.Height", 0.0, 5.0)
+        anim.addKey("Slow.Height", 20.0, 25.0)
+        anim.FrameRate = 30
+        anim.End = 20.0
+        pump(0.3)
+        beats = []
+        metronome = QtCore.QTimer()
+        metronome.setInterval(10)
+        metronome.timeout.connect(lambda: beats.append(clock()))
+        metronome.start()
+
+        def baked(since, timeout):
+            end = clock() + timeout
+            while clock() < end:
+                got = [f for f in client.since(since, "clip") if f[2].get("id", 0) > 0]
+                if got:
+                    return got[-1]
+                pump(0.02)
+            return None
+
+        t14 = clock()
+        Gui.runCommand("Std_AnimationPlay")
+        kept14 = anim.Time.Value
+        pump(0.1)
+        waiting = [f[2] for f in client.since(t14, "time")]
+        check("while it bakes the clock says playing, at the Time it was played from",
+              bool(waiting) and waiting[-1]["playing"] and waiting[-1]["clip"] == 0
+              and abs(waiting[-1]["t"] - kept14) < 1e-6,
+              waiting[-1] if waiting else None)
+        # Pausing it then: no clip, the Time put back
+        Gui.runCommand("Std_AnimationPlay")
+        pump(0.5)
+        paused = client.last("time", t14)
+        check("a pause while it bakes ends it, the Time where it was",
+              not [f for f in client.since(t14, "clip") if f[2].get("id", 0) > 0]
+              and abs(anim.Time.Value - kept14) < 1e-9
+              and paused is not None and not paused["playing"],
+              (anim.Time.Value, kept14, paused))
+        del beats[:]
+        t15 = clock()
+        Gui.runCommand("Std_AnimationPlay")
+        kept15 = anim.Time.Value
+        long_clip = baked(t15, 120.0)
+        took = (long_clip[0] - t15) if long_clip else None
+        gaps = [b - a for a, b in zip(beats, beats[1:])]
+        metronome.stop()
+        clip8 = long_clip[2] if long_clip else None
+        check("played again it bakes a frame of its rate each, past 240",
+              clip8 is not None and clip8["frames"] == 601
+              and abs(clip8["step"] - 1.0 / 30) < 1e-9,
+              clip8 and (clip8["frames"], clip8["step"]))
+        note("the bake of 601 frames took %s s, the longest the events waited %s s, %d beats"
+             % (took and round(took, 2), gaps and round(max(gaps), 3), len(beats)))
+        check("and the events go on while it bakes",
+              took is not None and took > 601 * Slow.SLOW_S and gaps and max(gaps) < 0.25
+              and len(beats) > took / 0.1, (took, gaps and max(gaps), len(beats)))
+        pump(0.5)
+        played = anim.Time.Value - kept15
+        check("the player waited for it and plays on from where it was",
+              0.2 < played < 1.5, (kept15, anim.Time.Value))
+        Gui.runCommand("Std_AnimationStop")
+        pump(0.5)
+        anim.End = 0.0
+        anim.FrameRate = 20
+        anim.removeTrack("Slow.Height")
+        doc.removeObject("Slow")
+        doc.recompute()
+        pump(0.3)
 
         # --- an edit while playing
         t7 = clock()

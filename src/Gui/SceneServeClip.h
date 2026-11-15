@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 
 #include <QObject>
@@ -29,8 +30,11 @@ namespace Gui
  * (docs/Animation.md sec 9, "Streaming").
  *
  * When the player starts an Animation of the document, the clip is baked:
- * the Animation is stepped through its range and each object's pose read
- * from the feed the source would publish (Render::MotionClipBaker). The
+ * the Animation is stepped through its range, a frame of its FrameRate at
+ * a time, and each object's pose read from the feed the source would
+ * publish (Render::MotionClipBaker). The bake runs a slice at a time
+ * between events, the player held meanwhile and the main window saying
+ * how far it is; a pause, a stop or an edit ends it. The
  * clients are sent the clip and, on every change of the player's state and
  * once a second while it plays, the clock (Render::MotionClock). Each
  * publish is named to them with the Time its pose was taken at, which is
@@ -78,9 +82,11 @@ public:
     /// Clients came or went
     void syncClients();
 
+    /// A bake is under way: what the source would publish now is a pose
+    /// the sweep left, not the one the player is at
     bool baking() const
     {
-        return isBaking;
+        return job != nullptr;
     }
     const Render::MotionClip& clip() const
     {
@@ -112,6 +118,8 @@ private:
     bool holding() const;
     void onPlayerState();
     void bake(App::Animation* anim);
+    void bakeSlice();
+    void endBake(App::Animation* anim, bool done);
     void announce();
     Render::MotionClock clock() const;
 
@@ -132,6 +140,9 @@ private:
     double baseTime = 0;
     QTimer heartbeat;
     QTimer rebake;
+    struct Bake;
+    std::unique_ptr<Bake> job;
+    QTimer slice;
 };
 
 }  // namespace Gui

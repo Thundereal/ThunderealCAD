@@ -2756,3 +2756,9 @@ fc_add_gui_test(GuiFemWorkbench_tests_run
 # property editor's marks and I key, Record of a property and of a view's,
 # none of it marking the document modified.
 fc_add_gui_test(GuiAnimationTimeline_tests_run animation-timeline.py --timeout 240)
+
+# Frames of an Animation made by worker processes (docs/Animation.md 4.2):
+# taken in through the event loop, marked on the timeline, the pictures of
+# the frames made here, an export handing its frames to them, an edit
+# stopping them.
+fc_add_gui_test(GuiAnimationWorkers_tests_run animation-workers.py --timeout 600)

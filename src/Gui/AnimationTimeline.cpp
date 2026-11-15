@@ -282,6 +282,14 @@ void AnimationPlayer::play(App::Animation* a)
     double rate = std::max(1.0, a->FrameRate.getValue());
     timer.start(std::max(1, static_cast<int>(std::lround(1000.0 / rate))));
     clock.start();
+    // The frames not kept yet made ahead by worker processes, where they
+    // pay (docs/Animation.md sec 4.2)
+    try {
+        a->prepareFrames();
+    }
+    catch (Base::Exception& e) {
+        e.ReportException();
+    }
     Q_EMIT stateChanged();
 }
 
@@ -726,6 +734,15 @@ public:
                 if (x1 > x0) {
                     p.fillRect(QRectF(x0, rulerHeight - 3, x1 - x0, 3),
                                spilled ? QColor(0x40, 0x80, 0xd0) : QColor(0x3c, 0xa8, 0x54));
+                }
+            }
+            // ... and an amber one where a worker process is making the
+            // frame (docs/Animation.md sec 4.2)
+            for (double t : anim->workerInfo().busy) {
+                double x0 = std::max<double>(g, xOf(t - half));
+                double x1 = xOf(t + half);
+                if (x1 > x0) {
+                    p.fillRect(QRectF(x0, rulerHeight - 3, x1 - x0, 3), QColor(0xe0, 0x9a, 0x20));
                 }
             }
         }
@@ -2090,6 +2107,13 @@ AnimationTimeline::AnimationTimeline(QWidget* parent)
     conns.emplace_back(app.signalDeletedObject.connect([this](const App::DocumentObject&) {
         refreshTimer.start();
     }));
+    // Frames a worker made come in between changes of Time
+    conns.emplace_back(App::Animation::signalCacheChanged.connect(
+        [this](const App::Animation& anim) {
+            if (&anim == animation()) {
+                keys->update();
+            }
+        }));
     conns.emplace_back(app.signalUndo.connect([this] { refreshTimer.start(); }));
     conns.emplace_back(app.signalRedo.connect([this] { refreshTimer.start(); }));
     conns.emplace_back(Application::Instance->signalActiveDocument.connect(

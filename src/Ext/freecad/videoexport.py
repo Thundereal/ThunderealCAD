@@ -465,18 +465,25 @@ def exportAnimation(
         renderer = viewRenderer(view)
     wasActive = bool(anim.Active)
     time = anim.Time
+    times = anim.frames()
+    workers = []
 
-    def show(_index, t):
+    def show(index, t):
         anim.Time = t
         # A Time already at t is no change, and activates nothing: the
         # first frame would be the design as it rests
         if not anim.Active:
             anim.activate()
+        # The frames after it made ahead by worker processes, where they
+        # pay (docs/Animation.md sec 4.2): with Cache on, and frames slow
+        # enough to make. One a worker is making is waited for
+        if index == 0 and hasattr(anim, "prepareFrames"):
+            workers.append(anim.prepareFrames(times[1:]))
 
     try:
         return export(
             path,
-            anim.frames(),
+            times,
             show,
             view=view,
             size=size,
@@ -487,6 +494,8 @@ def exportAnimation(
             cycles=cycles,
         )
     finally:
+        if any(workers):
+            anim.stopWorkers()
         if wasActive:
             anim.Time = time
         else:

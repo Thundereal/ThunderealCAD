@@ -417,6 +417,16 @@ void SceneServeClip::bakeSlice()
                 std::sort(objects.begin(), objects.end());
                 objects.erase(std::unique(objects.begin(), objects.end()), objects.end());
                 b.count = frameCount(b.end - b.start, b.rate, objects.size(), b.limit, b.step);
+                // The frames after this one made ahead by worker processes,
+                // where they pay (docs/Animation.md sec 4.2): the sweep waits
+                // for one a worker is making instead of making it again
+                std::vector<double> times;
+                for (int k = 1; k < b.count; ++k) {
+                    times.push_back(k + 1 == b.count
+                                        ? std::min(b.end, b.start + (b.count - 1) * b.step)
+                                        : b.start + k * b.step);
+                }
+                anim->prepareFrames(times);
             }
             b.baker.frame(*draws);
             ++b.next;

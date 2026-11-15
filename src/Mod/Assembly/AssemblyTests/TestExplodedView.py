@@ -1536,6 +1536,36 @@ class TestAutoExplode(PlacementAsserts, JointTestBase):
             self.assertAway(moves[name], way, 1.5 * extent)
         self.assertPlc(a.Placement, plc())
 
+    def testALoosePartGoesRoundAPartInItsWay(self):
+        """Its way out runs into another part: the clear axis nearest it,
+        up first"""
+        a = self.box("A")
+        b = self.box("B", plc(40, 0, 0))
+        self.ground(a)
+        self.ground(b)
+        self.box("E", plc(25, 0, 0))
+        self.doc.recompute()
+        view = CommandCreateView.makeAutoExplode(self.assembly)
+        ((subs, move),) = self.steps(view)
+        self.assertEqual(subs, ["E."])
+        # Away from A and B's middle (25, 5, 5) is +X, into B
+        self.assertPlc(move, plc(0, 0, 15))
+
+    def testALoosePinComesOutOfThePlateItIsIn(self):
+        """A part it starts in does not stop it: it comes out of that one"""
+        plate = self.box("Plate", size=30)
+        plate.Height = 5
+        self.ground(plate)
+        self.cylinder("Pin", 2, 20, plc(25, 15, -5))
+        self.doc.recompute()
+        view = CommandCreateView.makeAutoExplode(self.assembly)
+        ((subs, move),) = self.steps(view)
+        self.assertEqual(subs, ["Pin."])
+        # Away from the plate's middle (15, 15, 2.5) to the pin's (25, 15, 5)
+        way = App.Vector(10, 0, 2.5)
+        way.normalize()
+        self.assertAway(move, way, 1.5 * (4 * abs(way.x) + 20 * abs(way.z)))
+
     def testALoosePartAtTheMiddleGoesUp(self):
         a = self.box("A", size=30)
         self.ground(a)

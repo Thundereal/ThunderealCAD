@@ -483,6 +483,12 @@ with them:
   middle, so one near it hardly moves; a step a way keeps the rule the
   joined parts go by. Found on the way: a part not recomputed yet had an
   endless box, and a move to infinity; a box not valid is taken as none.
+  Where that way runs into another part's box -- the box swept from where
+  it is to where it goes, sharing more than a touch -- it takes the clear
+  axis of the assembly nearest that way, up first among equals; with none
+  clear it keeps the first. A part whose box it starts in does not count:
+  a pin through a plate comes out of it (2026-11-15; before, a loose part
+  between two grounded ones went 15 mm into the far one);
 
 The panel works it out from the design: it puts the parts back before,
 and shows the view's steps after. The manual's housing, joined (the plate
@@ -548,5 +554,6 @@ included.
 - A leader crosses as few of the drawing's lines as a start on its own
   part allows; the balloon's place on the ring does not look at them.
 - A loose part goes straight away from the joined parts' middle, which
-  can be a little up or down (the manual's bracket goes 2.2 mm down);
-  nothing looks at what it would pass through.
+  can be a little up or down (the manual's bracket goes 2.2 mm down). Its
+  way is checked against the other parts' boxes, not their shapes: a part
+  in a hollow one's box is taken as blocked by it.

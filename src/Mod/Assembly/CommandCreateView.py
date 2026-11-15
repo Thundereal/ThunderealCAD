@@ -965,6 +965,15 @@ def _extentAlong(box, way):
     return abs(way.x) * box.XLength + abs(way.y) * box.YLength + abs(way.z) * box.ZLength
 
 
+def _overlap(a, b, tol):
+    """Whether two bounding boxes share more than a touch"""
+    return (
+        min(a.XMax, b.XMax) - max(a.XMin, b.XMin) > tol
+        and min(a.YMax, b.YMax) - max(a.YMin, b.YMin) > tol
+        and min(a.ZMax, b.ZMax) - max(a.ZMin, b.ZMin) > tol
+    )
+
+
 def autoExplodeSteps(assembly, factor=1.5):
     """Not upstream: the steps auto explode makes of `assembly`'s joints
     (docs/AssemblyExplode.md sec 10), in the order to play them, as
@@ -980,8 +989,10 @@ def autoExplodeSteps(assembly, factor=1.5):
     Parts at one depth moving the same way move in one step. A part no joint
     reaches -- loose: nothing holds it, it holds nothing -- moves before
     them all, away from the middle of the parts the joints reach, by
-    `factor` times its own size that way; up, at that middle. With no joint
-    at all the largest part stays and the others are loose."""
+    `factor` times its own size that way; up, at that middle. Where that way
+    runs into another part's box, the clear axis of the assembly nearest it
+    (up first); a part it starts in does not count, it comes out of that.
+    With no joint at all the largest part stays and the others are loose."""
     import JointObject
     import Part
 
@@ -1083,15 +1094,44 @@ def autoExplodeSteps(assembly, factor=1.5):
     for name in depth:
         if boxes[name] is not None:
             held.add(boxes[name])
+    toGlobal = inverse.Rotation.inverted()
+    tol = 1e-6 * max(held.DiagonalLength, 1.0) if held.isValid() else 1e-6
+
+    def clear(p, box, w):
+        """Whether `box` goes `w` (the assembly's frame) without running into
+        another part's box -- one it starts in aside"""
+        shift = toGlobal.multVec(w * (factor * _extentAlong(box, w)))
+        end = App.BoundBox(box)
+        end.move(shift)
+        swept = App.BoundBox(box)
+        swept.add(end)
+        for o in parts:
+            other = boxes[o.Name]
+            if o == p or other is None or _overlap(box, other, tol):
+                continue
+            if _overlap(swept, other, tol):
+                return False
+        return True
+
+    axes = [App.Vector(0, 0, 1), App.Vector(0, 0, -1)] + [
+        App.Vector(*v) for v in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0))
+    ]
     loose = []  # [way, [parts]]
     for p in parts:
         box = boxes[p.Name]
         if p.Name in depth or box is None or not held.isValid():
             continue
         w = inverse.Rotation.multVec(box.Center - held.Center)
-        if w.Length <= 1e-6 * max(held.DiagonalLength, 1.0):
+        if w.Length <= tol:
             w = App.Vector(0, 0, 1)
         w.normalize()
+        if not clear(p, box, w):
+            # The clear axis nearest the way out, up first among equals
+            order = sorted(range(len(axes)), key=lambda i: (-axes[i].dot(w), i))
+            for i in order:
+                if clear(p, box, axes[i]):
+                    w = axes[i]
+                    break
         for g in loose:
             if g[0].dot(w) > 1 - 1e-9:
                 g[1].append(p)

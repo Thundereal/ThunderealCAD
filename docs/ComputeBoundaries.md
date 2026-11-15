@@ -1,6 +1,9 @@
 # Compute Boundaries — Headless Engine, Parallel Recompute, and the Unified Protocol
 
-Status: design notes / direction. Not yet implemented.
+Status: design notes / direction. Not yet implemented, but for one use:
+whole-document workers making an Animation's frames (2026-11-16,
+[Animation.md](./Animation.md) sec 4.2) -- frames in place of sub-graphs,
+the transport the cache's frame file, the strings taken in by content.
 Companion to [RoadMap.md](./RoadMap.md).
 
 This document details the architecture for turning the non-GUI side of FreeCAD into a

@@ -370,7 +370,7 @@ Part::TopoShape ExplodedView::getExplodedShape(std::optional<double> progress) c
     // here would ask this again
     static thread_local std::set<const ExplodedView*> building;
     if (!assembly || building.count(this)) {
-        return {};
+        return Part::TopoShape();
     }
     building.insert(this);
     struct Done
@@ -499,7 +499,7 @@ Part::TopoShape ExplodedView::getExplodedShape(std::optional<double> progress) c
         edges.push_back(shape);
     }
     if (shapes.empty() && edges.empty()) {
-        return {};
+        return Part::TopoShape();
     }
     auto hasher = shapes.empty() ? App::StringHasherRef() : shapes.front().Hasher;
     std::vector<Part::TopoShape> parts;

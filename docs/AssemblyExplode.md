@@ -465,7 +465,16 @@ with them:
   them;
 - parts at one depth moving the same way move in one step, labelled
   "Move" and their labels;
-- a part no joint reaches does not move.
+- a part no joint reaches is loose -- nothing holds it, it holds
+  nothing -- and moves first, away from the middle of the box of the
+  parts the joints reach, by `factor` times its own size that way; a
+  loose part at that middle goes up (the assembly's Z). Loose parts going
+  the same way share a step. With no joint at all, the largest part stays
+  and every other one is loose (2026-11-15; it made no step before). A
+  radial step was the other way: it moves a part by its distance from the
+  middle, so one near it hardly moves; a step a way keeps the rule the
+  joined parts go by. Found on the way: a part not recomputed yet had an
+  endless box, and a move to infinity; a box not valid is taken as none.
 
 The panel works it out from the design: it puts the parts back before,
 and shows the view's steps after. The manual's housing, joined (the plate
@@ -530,5 +539,6 @@ included.
   the view grew over it; delete it and run again to lay it.
 - Leaders can cross the drawing's edges on their way to the ring; only
   crossings between leaders are taken out.
-- A part no joint reaches is left where it is by auto explode; a radial
-  step moves it.
+- A loose part goes straight away from the joined parts' middle, which
+  can be a little up or down (the manual's bracket goes 2.2 mm down);
+  nothing looks at what it would pass through.

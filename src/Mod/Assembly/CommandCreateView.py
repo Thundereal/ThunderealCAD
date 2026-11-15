@@ -978,7 +978,10 @@ def autoExplodeSteps(assembly, factor=1.5):
     `factor` times its own size that way; the parts furthest out move
     first, and a part takes with it the parts outside it, moved already.
     Parts at one depth moving the same way move in one step. A part no joint
-    reaches does not move."""
+    reaches -- loose: nothing holds it, it holds nothing -- moves before
+    them all, away from the middle of the parts the joints reach, by
+    `factor` times its own size that way; up, at that middle. With no joint
+    at all the largest part stays and the others are loose."""
     import JointObject
     import Part
 
@@ -994,9 +997,11 @@ def autoExplodeSteps(assembly, factor=1.5):
     boxes = {}
     for p in parts:
         try:
-            boxes[p.Name] = Part.getShape(p).BoundBox
+            box = Part.getShape(p).BoundBox
         except Exception:
-            boxes[p.Name] = None
+            box = None
+        # A shape not made yet has no box, not an endless one
+        boxes[p.Name] = box if box is not None and box.isValid() else None
     inverse = assembly.getGlobalPlacement().inverse()
     joints = []  # (part1, part2, joint)
     grounded = []
@@ -1026,9 +1031,7 @@ def autoExplodeSteps(assembly, factor=1.5):
 
     if not grounded:
         joined = [p for p in parts if any(p in (a, b) for a, b, _j in joints)]
-        if not joined:
-            return []
-        grounded = [max(joined, key=lambda p: (volume(p), -index[p.Name]))]
+        grounded = [max(joined or parts, key=lambda p: (volume(p), -index[p.Name]))]
     # Outwards from the ground: each part's depth and the joint it is reached by
     depth = {p.Name: 0 for p in grounded}
     reached = {}  # name: (inner part, joint, side of the part)
@@ -1075,6 +1078,31 @@ def autoExplodeSteps(assembly, factor=1.5):
         return found
 
     steps = []
+    # Loose: away from the middle of what the joints hold together, first
+    held = App.BoundBox()
+    for name in depth:
+        if boxes[name] is not None:
+            held.add(boxes[name])
+    loose = []  # [way, [parts]]
+    for p in parts:
+        box = boxes[p.Name]
+        if p.Name in depth or box is None or not held.isValid():
+            continue
+        w = inverse.Rotation.multVec(box.Center - held.Center)
+        if w.Length <= 1e-6 * max(held.DiagonalLength, 1.0):
+            w = App.Vector(0, 0, 1)
+        w.normalize()
+        for g in loose:
+            if g[0].dot(w) > 1 - 1e-9:
+                g[1].append(p)
+                break
+        else:
+            loose.append([w, [p]])
+    for w, group in loose:
+        distance = factor * max(_extentAlong(boxes[p.Name], w) for p in group)
+        labels = [p.Label for p in group]
+        label = "Move " + ", ".join(labels[:3]) + (", ..." if len(labels) > 3 else "")
+        steps.append((group, w * distance, label))
     moving = sorted(reached, key=lambda n: (-depth[n], index[n]))
     groups = []  # [depth, way, [parts]]
     for name in moving:

@@ -1452,11 +1452,53 @@ class TestAutoExplode(PlacementAsserts, JointTestBase):
         self.assertEqual(subs, ["B."])
         self.assertPlc(move, plc(0, 0, 15))
 
-    def testAPartNoJointReachesStays(self):
+    def assertAway(self, move, way, distance):
+        """move is `distance` along `way` (normalized here)"""
+        way = App.Vector(way)
+        way.normalize()
+        self.assertPlc(move, App.Placement(way * distance, App.Rotation()))
+
+    def testAPartNoJointReachesMovesAwayFirst(self):
+        """Loose: away from the middle of the parts the joints reach, by half
+        again its size that way, before the rest -- nothing holds it"""
         self.stack()
         self.box("E", plc(50, 50, 0))
+        self.doc.recompute()
         view = CommandCreateView.makeAutoExplode(self.assembly)
-        self.assertFalse(any("E." in s for s, _m in self.steps(view)))
+        steps = self.steps(view)
+        self.assertEqual([s for s, _m in steps], [["E."], ["C."], ["B.", "C."], ["D."]])
+        self.assertEqual(view.Group[0].Label, "Move E")
+        # From A..D's middle (10, 5, 15) to E's (55, 55, 5)
+        way = App.Vector(45, 50, -10)
+        way.normalize()
+        extent = 10 * (abs(way.x) + abs(way.y) + abs(way.z))
+        self.assertAway(steps[0][1], way, 1.5 * extent)
+
+    def testWithNoJointTheLargestStaysTheRestMoveAway(self):
+        a = self.box("A", size=20)
+        b = self.box("B", plc(40, 0, 0))
+        c = self.box("C", plc(-30, 0, 0))
+        self.doc.recompute()
+        view = CommandCreateView.makeAutoExplode(self.assembly)
+        steps = self.steps(view)
+        self.assertEqual(sorted(s[0] for s, _m in steps), ["B.", "C."])
+        moves = {s[0]: m for s, m in steps}
+        # From A's middle (10, 10, 10): to B's (45, 5, 5), C's (-25, 5, 5)
+        for name, way in (("B.", App.Vector(35, -5, -5)), ("C.", App.Vector(-35, -5, -5))):
+            way.normalize()
+            extent = 10 * (abs(way.x) + abs(way.y) + abs(way.z))
+            self.assertAway(moves[name], way, 1.5 * extent)
+        self.assertPlc(a.Placement, plc())
+
+    def testALoosePartAtTheMiddleGoesUp(self):
+        a = self.box("A", size=30)
+        self.ground(a)
+        self.box("E", plc(10, 10, 10))
+        self.doc.recompute()
+        view = CommandCreateView.makeAutoExplode(self.assembly)
+        ((subs, move),) = self.steps(view)
+        self.assertEqual(subs, ["E."])
+        self.assertPlc(move, plc(0, 0, 15))
 
     def testFactorAndAfterTheViewsSteps(self):
         self.stack()

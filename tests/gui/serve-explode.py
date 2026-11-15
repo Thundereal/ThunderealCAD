@@ -22,6 +22,7 @@ import struct
 import threading
 import time
 import traceback
+import urllib.request
 
 import FreeCAD as App
 import FreeCADGui as Gui
@@ -34,7 +35,7 @@ clock = time.perf_counter
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
 
-state = {"client": None, "test": None}
+state = {"client": None, "test": None, "port": 0}
 
 
 def note(msg):
@@ -101,9 +102,24 @@ class Client(threading.Thread):
         return found[-1][2] if found else None
 
 
+def clip_data(clip):
+    """A clip's poses as bytes: from its body, fetched by its key the way a
+    viewer fetches it ("FMC1", then five byte-counted arrays, the poses
+    first -- docs/Animation.md sec 9.1), or inline (base64) for a clip
+    without one"""
+    key = clip.get("body")
+    if not key:
+        return base64.b64decode(clip.get("data", ""))
+    body = urllib.request.urlopen(
+        "http://127.0.0.1:%d/blob?key=%s" % (state["port"], key), timeout=10).read()
+    assert body[:4] == b"FMC1", body[:4]
+    n = struct.unpack_from("<I", body, 4)[0]
+    return body[8:8 + n]
+
+
 def clip_poses(clip):
-    """A clip message's data as {key: [(tx, ty, tz, qx, qy, qz, qw), ...]}"""
-    raw = base64.b64decode(clip.get("data", ""))
+    """A clip message's poses as {key: [(tx, ty, tz, qx, qy, qz, qw), ...]}"""
+    raw = clip_data(clip)
     frames = clip.get("frames", 0)
     values = struct.unpack("<%df" % (len(raw) // 4), raw)
     out = {}
@@ -137,7 +153,7 @@ def run():
         doc.recompute()
         pump(0.5)
 
-        port = free_port()
+        port = state["port"] = free_port()
         if not check("the document is served", Gui.serveDocument(doc, port), "port %d" % port):
             return finish()
         client = state["client"] = Client(port)

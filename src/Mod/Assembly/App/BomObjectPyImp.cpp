@@ -23,6 +23,8 @@
  ***************************************************************************/
 
 
+#include <App/DocumentObjectPy.h>
+
 // inclusion of the generated files (generated out of BomObject.xml)
 #include "BomObjectPy.h"
 #include "BomObjectPy.cpp"
@@ -33,6 +35,39 @@ using namespace Assembly;
 std::string BomObjectPy::representation() const
 {
     return {"<Bill of Materials object>"};
+}
+
+PyObject* BomObjectPy::getRows(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto bom = getBomObjectPtr();
+        Py::List rows;
+        for (std::size_t i = 0; i < bom->obj_list.size() && i < bom->obj_index_list.size(); ++i) {
+            auto obj = bom->obj_list[i];
+            rows.append(Py::TupleN(Py::String(bom->obj_index_list[i]),
+                                   obj ? Py::asObject(obj->getPyObject()) : Py::None()));
+        }
+        return Py::new_reference_to(rows);
+    }
+    PY_CATCH;
+}
+
+PyObject* BomObjectPy::getIndexOf(PyObject* args) const
+{
+    PyObject* pyObj = nullptr;
+    if (!PyArg_ParseTuple(args, "O!", &App::DocumentObjectPy::Type, &pyObj)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto obj = static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr();
+        return Py::new_reference_to(Py::String(getBomObjectPtr()->getIndexOf(obj)));
+    }
+    PY_CATCH;
 }
 
 PyObject* BomObjectPy::getCustomAttributes(const char* /*attr*/) const

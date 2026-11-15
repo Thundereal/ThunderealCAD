@@ -148,6 +148,8 @@ void BomObject::generateBOM()
     clearAll();
     obj_list.clear();
     obj_mirrored_list.clear();
+    obj_index_list.clear();
+    obj_child_list.clear();
     size_t row = 0;
     size_t col = 0;
 
@@ -195,6 +197,7 @@ void BomObject::addObjectChildrenToBom(
         }
 
         bool isMirrored = isObjMirrored(child);
+        auto* held = child;
 
         if (auto* asmLink = freecad_cast<AssemblyLink*>(child)) {
             child = asmLink->getLinkedAssembly();
@@ -246,6 +249,8 @@ void BomObject::addObjectChildrenToBom(
         ++sub_i;
 
         addObjectToBom(child, row, sub_index, isMirrored);
+        obj_child_list.resize(obj_list.size(), nullptr);
+        obj_child_list.back() = held;
         ++row;
 
         if ((child->isDerivedFrom<AssemblyObject>() && detailSubAssemblies.getValue())
@@ -262,14 +267,18 @@ bool BomObject::isObjMirrored(App::DocumentObject* obj)
     // We multiply scales to handle nested mirroring (e.g., Mirrored LinkElement inside Mirrored
     // LinkGroup = Normal).
     double accumulatedScale = 1.0;
-    if (auto element = static_cast<App::LinkElement*>(obj)) {
+    // Not upstream: checked casts. A static_cast of any object is not null,
+    // so a Part::Box's memory was read as a link element's Scale, and
+    // whether a link was counted in its part's row depended on what lay
+    // there (seen once in a full run of the explode tests)
+    if (auto element = freecad_cast<App::LinkElement*>(obj)) {
         accumulatedScale *= element->Scale.getValue();
 
         if (auto group = element->getLinkGroup()) {
             accumulatedScale *= group->Scale.getValue();
         }
     }
-    else if (auto link = static_cast<App::Link*>(obj)) {
+    else if (auto link = freecad_cast<App::Link*>(obj)) {
         accumulatedScale *= link->Scale.getValue();
     }
     return accumulatedScale < 0.0;
@@ -279,6 +288,7 @@ void BomObject::addObjectToBom(App::DocumentObject* obj, size_t row, std::string
 {
     obj_list.push_back(obj);
     obj_mirrored_list.push_back(isMirrored);
+    obj_index_list.push_back(index);
     size_t col = 0;
     for (auto& columnName : columnsNames.getValues()) {
         if (columnName == "Index") {
@@ -367,6 +377,30 @@ AssemblyObject* BomObject::getAssembly() const
         }
     }
     return nullptr;
+}
+
+std::string BomObject::getIndexOf(const App::DocumentObject* obj) const
+{
+    // Its own row, a link's included, where the BOM gave it one
+    for (std::size_t i = 0; i < obj_child_list.size() && i < obj_index_list.size(); ++i) {
+        if (obj_child_list[i] == obj) {
+            return obj_index_list[i];
+        }
+    }
+    // Else the row of what it links, which a Quantity column counts it in
+    for (int depth = 0; obj && depth < 8; ++depth) {
+        for (std::size_t i = 0; i < obj_list.size() && i < obj_index_list.size(); ++i) {
+            if (obj_list[i] == obj) {
+                return obj_index_list[i];
+            }
+        }
+        auto linked = obj->getLinkedObject(false);
+        if (!linked || linked == obj) {
+            break;
+        }
+        obj = linked;
+    }
+    return {};
 }
 
 bool BomObject::hasQuantityColumn() const

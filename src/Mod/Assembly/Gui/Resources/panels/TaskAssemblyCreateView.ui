@@ -57,6 +57,16 @@
      </property>
     </widget>
    </item>
+   <item row="6" column="0">
+    <widget class="QPushButton" name="btnAutoExplosion">
+     <property name="toolTip">
+      <string>Add steps made from the joints: each part moves along its joint's axis, away from the part it is joined to, the outer parts first</string>
+     </property>
+     <property name="text">
+      <string>Explode Automatically</string>
+     </property>
+    </widget>
+   </item>
   </layout>
  </widget>
  <customwidgets>

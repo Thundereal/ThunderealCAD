@@ -94,6 +94,14 @@ public:
     std::vector<BomDataElement> dataElements;
     std::vector<App::DocumentObject*> obj_list;
     std::vector<bool> obj_mirrored_list;
+    /// Each row's index, "1", "1.2": a part's number (not upstream)
+    std::vector<std::string> obj_index_list;
+    /// Each row's object as its parent holds it, a link itself where
+    /// obj_list has what it links (not upstream)
+    std::vector<App::DocumentObject*> obj_child_list;
+    /// The index of the row of `obj`, as the BOM resolves a link: empty if
+    /// it has none (not upstream, docs/AssemblyExplode.md sec 9)
+    std::string getIndexOf(const App::DocumentObject* obj) const;
 
 private:
     std::string getBomPropertyValue(App::DocumentObject* obj, const std::string& baseName);

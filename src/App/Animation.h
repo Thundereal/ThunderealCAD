@@ -435,9 +435,19 @@ public:
      * evaluation takes the property's value then as its rest value.
      */
     static const Property* restValueOf(const Property& prop);
+    /** Another holder of rest values, asked by restValueOf() for a property
+     * no Animation holds: something that shows the model posed as an
+     * Animation does without being one -- an exploded view
+     * (docs/AssemblyExplode.md sec 3). It answers as restValueOf() does,
+     * and the same call tells it the write that follows is the design's.
+     */
+    using RestProvider = std::function<const Property*(const Property&)>;
+    static void addRestProvider(RestProvider provider);
+
     /// The rest value of prop while an Animation shows a pose of it, and
     /// nothing changes: the document's value as the transaction log keeps
-    /// it (restValueOf() also takes what comes next for an edit)
+    /// it (restValueOf() also takes what comes next for an edit). A rest
+    /// provider (addRestProvider()) is asked too
     static const Property* heldRestValue(const Property& prop);
 
     /** Whether a module that places parts -- an Assembly -- solves obj's
@@ -494,6 +504,8 @@ private:
     void writeTrackAdd(const AnimationTrack& track, const Target& target, double t,
                        const Property& from);
     Rest& restOf(const Target& target);
+    /// The rest of a shape its object's animated placement places
+    static const Property* restGeometryOf(const Property& prop);
     void dropRest(const DocumentObject* obj, const Property* prop);
     void connectDocument();
     void evaluateAt(double t);

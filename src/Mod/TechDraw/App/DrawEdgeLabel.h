@@ -51,9 +51,17 @@ public:
     /// The text the source gave at the last import; Text other than it is
     /// the user's own
     App::PropertyString SourceText;
+    /// Where the last import stood it against its edge, (X - OriginX,
+    /// Y - OriginY); a label not there now was moved by the user. Empty for
+    /// one from before it was kept: taken as moved
+    App::PropertyFloatList ImportOffset;
 
     /// Whether the user wrote their own text
     bool isCustomized() const;
+    /// Whether the user moved it from where the last import stood it
+    bool isMoved() const;
+    /// Record where an import stands it now
+    void setImported();
 };
 
 }  // namespace TechDraw

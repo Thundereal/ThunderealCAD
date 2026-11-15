@@ -918,6 +918,15 @@ That is its *rest* value, the design's.
   `TransactionObject::setProperty()`). Undoing the edit then puts the
   design's value back, and the redo step it makes records the edit. Built,
   phase 2.
+  - **A shape its placement places** (a Part feature's) is recorded too:
+    the placement's edit moves it, after the placement was recorded. Its
+    rest is the shape at the rest placement (`restGeometryOf()`). Before
+    this (2026-11-14), the undo of an edit of a Part box's placement while
+    it played put back the pose: the recorded shape carried it, and the
+    placement followed the shape.
+  - **Others than Animations hold rest values**: an exploded view shows the
+    model posed without being one. They answer through
+    `Animation::addRestProvider()` (docs/AssemblyExplode.md sec 3).
 
 How the rest value follows the design, without a signal per property:
 each property keeps, beside its rest value, the value the last evaluation
@@ -938,6 +947,11 @@ next for an edit -- and so does the comparison that drops a write that
 changed nothing, and `resolvePending`. Before, the undo stack was right
 and the log's row held the pose. Test: `TestAnimation`,
 `testTheLogKeepsTheDesignsValueNotThePoseOfAnEditPlayedInItsTransaction`.
+`heldRestValue()` asks the rest providers too (2026-11-15), so an exploded
+view shown after an edit in one transaction logs the design as well: the
+merge of the two branches had left it logging the pose. Test:
+`TestExplodedViewShown`,
+`testTheLogKeepsTheDesignNotThePoseOfAnEditPosedInItsTransaction`.
 
 A **user edit to an animated property** while the animation is active:
 - With Record on, it keys the value at the current time (section 6).
@@ -1034,6 +1048,9 @@ camera track plays only in the view it was keyed in, or in the export view.
   Tracks that rebuild geometry do not fit glTF. They export as a sampled
   mesh sequence or not at all, and the exporter says which. (Built
   2026-11-15 as the sequence: a mesh a shape, switched by scale.)
+  Lines an object draws that change -- an exploded view's trails -- come
+  the same way, a mesh of LINES a shape, from the object's proxy's
+  `gltfLines(obj)` (docs/AssemblyExplode.md sec 4).
 - **Streaming**: the SceneServer sends `Time`, and the web viewer plays
   placement and visibility tracks locally. The rest it receives as scene
   updates.

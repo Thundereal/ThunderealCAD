@@ -156,6 +156,8 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::ExplodedViewPython::init();
     Assembly::ExplodedViewStep::init();
     Assembly::ExplodedViewStepPython::init();
+    Assembly::registerExplodeTrack();
+    Assembly::ExplodedViewAt::init();
     Assembly::Snapshot::init();
     Assembly::SnapshotPython::init();
     Assembly::PhysicsItem::init();

@@ -1534,7 +1534,9 @@ stored flat and this option do what it was for.
     run moves each with its edge -- keeping where the user put it against the edge -- and gives
     it the source's new text unless the user wrote their own (`Text` other than `SourceText`).
     One whose edge is gone goes, unless its text is the user's (kept, and said). Generic: any
-    source whose view gives labels.
+    source whose view gives labels. `ImportOffset` (2026-11-15) records where the import stood
+    it; a part's number not moved from there is laid on its ring again (docs/AssemblyExplode.md
+    sec 9). A bend note still keeps its offset.
   - `PartDesign::sheetBends(obj)` (`PartDesign.sheetBends()`): the bend table alone, checkSheet's
     rows without the faces and problems, the direction from the sheet's flat (`flatOf()`);
     checkSheet builds its rows with the same code.

@@ -1231,6 +1231,9 @@ class TestExplodedViewBalloons(PlacementAsserts, JointTestBase):
         for b in balloons:
             self.assertEqual(b.BubbleShape, "Circular")
             self.assertTrue(b.SourceEdge)
+            # A straight leader, as the ring lays them: a kink's shoulder
+            # could cross a neighbour's
+            self.assertEqual(b.KinkLength.Value, 0)
         # On the ring round the view, a balloon (14 mm) and a gap apart on
         # the paper
         k = drawing.Scale
@@ -1242,6 +1245,97 @@ class TestExplodedViewBalloons(PlacementAsserts, JointTestBase):
         names = sorted(b.Name for b in balloons)
         again = CommandCreateView.addBomBalloons(drawing)
         self.assertEqual(sorted(b.Name for b in again), names)
+
+    def drawingWithBalloons(self, more=()):
+        """A drawing of the exploded view of build(), with `more` boxes (name,
+        placement) in the assembly, and its balloons"""
+        try:
+            import TechDraw  # noqa: F401
+            from TDTest.TechDrawTestUtilities import createPageWithSVGTemplate
+        except ImportError:
+            self.skipTest("no TechDraw")
+        boxes = [self.box(name, at) for name, at in more]
+        view = self.build()
+        CommandCreateView.ViewProviderExplodedView(view.ViewObject)
+        page = createPageWithSVGTemplate(self.doc)
+        drawing = self.doc.addObject("TechDraw::DrawViewPart", "Drawing")
+        page.addView(drawing)
+        drawing.Source = [view]
+        drawing.Direction = App.Vector(1, -1, 1)
+        self.doc.recompute()
+        waitForWorkers()
+        return drawing, boxes, CommandCreateView.addBomBalloons(drawing)
+
+    def assertLaidOut(self, drawing, balloons, kept=()):
+        """No balloon on the drawing, no two meet (14 mm and a gap on the
+        paper) and no two leaders cross; `kept` (dragged) excepted"""
+        import Part
+
+        k = drawing.Scale
+        box = Part.Compound(drawing.getVisibleEdges()).BoundBox
+        balloons = [b for b in balloons if b not in kept]
+        for b in balloons:
+            x, y = b.X.Value * k, b.Y.Value * k
+            inside = box.XMin < x < box.XMax and box.YMin < y < box.YMax
+            self.assertFalse(inside, "%s at (%.1f, %.1f) on the drawing %s" % (b.Text, x, y, box))
+
+        def leader(b):
+            return (b.OriginX.Value, b.OriginY.Value), (b.X.Value, b.Y.Value)
+
+        def cross(s, t):
+            def side(a, b, c):
+                return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+            (p, q), (r, u) = s, t
+            return (side(p, q, r) * side(p, q, u) < -1e-9) and (
+                side(r, u, p) * side(r, u, q) < -1e-9
+            )
+
+        for i, p in enumerate(balloons):
+            for q in balloons[i + 1 :]:
+                apart = math.hypot((p.X.Value - q.X.Value) * k, (p.Y.Value - q.Y.Value) * k)
+                self.assertGreaterEqual(apart, 17 - 1e-3, (p.Text, q.Text))
+                self.assertFalse(cross(leader(p), leader(q)), (p.Text, q.Text))
+
+    @unittest.skipIf(not App.GuiUp, "balloons are made by a TechDraw command")
+    def testBalloonsAreLaidAgainAfterAMove(self):
+        """Run again after the parts moved: each balloon not dragged is laid
+        on the ring again, not kept at its offset from its part"""
+        drawing, _boxes, balloons = self.drawingWithBalloons([("C", plc(60, 0, 0))])
+        self.assertLaidOut(drawing, balloons)
+        names = sorted(b.Name for b in balloons)
+        # C goes far up: the view is another shape, the balloons at their
+        # offsets would stand on it
+        self.doc.getObject("C").Placement = plc(0, 0, 150)
+        self.doc.recompute()
+        waitForWorkers()
+        again = CommandCreateView.addBomBalloons(drawing)
+        self.assertEqual(sorted(b.Name for b in again), names)
+        self.assertLaidOut(drawing, again)
+
+    @unittest.skipIf(not App.GuiUp, "balloons are made by a TechDraw command")
+    def testLeadersDoNotCross(self):
+        """Parts crowded round the view's middle, near and far from it: the
+        balloons spread along the ring would cross their leaders"""
+        more = [("P%d" % i, plc(12 * i - 40, 60, 0)) for i in range(10)]
+        drawing, _boxes, balloons = self.drawingWithBalloons(more)
+        self.assertEqual(len(balloons), 12)
+        self.assertLaidOut(drawing, balloons)
+
+    @unittest.skipIf(not App.GuiUp, "balloons are made by a TechDraw command")
+    def testADraggedBalloonStays(self):
+        drawing, _boxes, balloons = self.drawingWithBalloons([("C", plc(60, 0, 0))])
+        dragged = balloons[0]
+        dragged.X = dragged.X.Value + 40
+        at = (dragged.X.Value - dragged.OriginX.Value, dragged.Y.Value - dragged.OriginY.Value)
+        self.doc.getObject("C").Placement = plc(0, 0, 150)
+        self.doc.recompute()
+        waitForWorkers()
+        again = CommandCreateView.addBomBalloons(drawing)
+        # Where the user put it against its part; the others laid again
+        self.assertAlmostEqual(dragged.X.Value - dragged.OriginX.Value, at[0], 6)
+        self.assertAlmostEqual(dragged.Y.Value - dragged.OriginY.Value, at[1], 6)
+        self.assertLaidOut(drawing, again, kept=[dragged])
 
 
 class TestAutoExplode(PlacementAsserts, JointTestBase):

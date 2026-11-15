@@ -365,9 +365,20 @@ materials:
   middle through its piece meets the ring, and neighbours are pushed apart
   along the ring until none meet. The first version stood each 12 mm out
   from its piece, and on a small view of eight parts four pairs met;
-- run again, after a step or the BOM changed, the balloons move with
-  their parts, a balloon whose number you typed keeps it, and a part gone
-  takes its balloon.
+- run again, after a step, a part or the BOM changed, the balloons are
+  laid on the ring again, the view's new one: a balloon whose number you
+  typed keeps it, and a part gone takes its balloon. One you dragged stays
+  where you put it against its part, and the others keep clear of it. A
+  label records where the import stood it (`DrawEdgeLabel.ImportOffset`,
+  against its edge); one standing elsewhere was dragged. A label from
+  before the record (2026-11-15) is taken as dragged;
+- no two leaders cross: after the spread, two balloons whose leaders cross
+  change places, until none do. Each swap shortens the leaders in all, so
+  it ends, and the places stay as spread. Parts in a row through the
+  view's middle share a ray from it, and the spread crossed their leaders.
+  A part's balloon is made with a straight leader (`KinkLength` 0), as the
+  ring lays them: TechDraw's default shoulder could cross a neighbour's,
+  which the manual's page showed.
 
 How a drawing learns a part's number, with no TechDraw code that knows the
 Assembly:
@@ -396,7 +407,17 @@ Assembly:
   piece. `QGIViewPart` and `PageFeed` take a source's line style only when
   `styled` is set.
 
-Found on the way: **the BOM's mirrored check read memory it did not
+Found on the way: **a drawing was not drawn again when a part no step
+moves moved**, by hand or by the solve. The view depends on its steps,
+not on the parts it shows (they are its assembly's, which holds it), so
+nothing told what draws it. When an assembly is recomputed now, its
+views' shapes are made again and what draws them -- a TechDraw view, a
+view at a step -- is recomputed: in the same pass if it comes later,
+else in the recompute's second. Nothing inside the assembly is, as that
+would touch the assembly again. Before, a part moved 100 mm up left its
+drawing 30 mm tall (`TestExplodedViewRedrawn`, 2 of 2 failing).
+
+Found on the way, too: **the BOM's mirrored check read memory it did not
 own.** `BomObject::isObjMirrored` (upstream's) cast any object to a link
 element with `static_cast`, never null, and read its `Scale`: for a
 `Part::Box`, whatever lay there. A link is counted in its part's row only
@@ -481,12 +502,18 @@ of an edit then posed in one transaction, failing before (it held the
 pose). 55 of 55 headless (8 GUI-only skipped), 55 of 55 in the GUI;
 TestAnimation 59 OK.
 
+After the balloon follow-up (2026-11-15): `TestExplodedViewRedrawn` 2
+new, both failing before; balloons 3 new: laid again after a move and a
+dragged one kept failed before (a balloon on the drawing), and leaders
+crossing failed with the swap off. 60 of 60 in the GUI, 60 headless (13
+GUI-only skipped); sheet metal commands 111, its edge-label re-import
+included.
+
 ## 12. Open
 
-- Balloons are laid out when made. Run again, each keeps its offset from
-  its part, so one can meet another, or a caption, after a big move; drag
-  it, or delete it and run again.
-- Leaders can cross: the ring keeps the order of the parts' angles round
-  the view, not of where their leaders land.
+- A dragged balloon is kept where it was put against its part, even if
+  the view grew over it; delete it and run again to lay it.
+- Leaders can cross the drawing's edges on their way to the ring; only
+  crossings between leaders are taken out.
 - A part no joint reaches is left where it is by auto explode; a radial
   step moves it.

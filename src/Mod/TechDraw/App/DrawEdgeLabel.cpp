@@ -24,6 +24,7 @@
 
 #include "PreCompiled.h"
 
+#include <cmath>
 #include <cstring>
 
 #include "DrawEdgeLabel.h"
@@ -40,9 +41,28 @@ DrawEdgeLabel::DrawEdgeLabel()
     ADD_PROPERTY_TYPE(SourceText, (""), group, App::Prop_ReadOnly,
                       "The text the source gave at the last import: a Text other than it is "
                       "the user's own, kept");
+    ADD_PROPERTY_TYPE(ImportOffset, (), group,
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
+                      "Where the last import stood it against its edge: a label not there now "
+                      "was moved by the user, kept where they put it");
 }
 
 bool DrawEdgeLabel::isCustomized() const
 {
     return std::strcmp(Text.getValue(), SourceText.getValue()) != 0;
+}
+
+bool DrawEdgeLabel::isMoved() const
+{
+    const auto& at = ImportOffset.getValues();
+    if (at.size() != 2) {
+        return true;
+    }
+    return std::abs(X.getValue() - OriginX.getValue() - at[0]) > 1e-6
+        || std::abs(Y.getValue() - OriginY.getValue() - at[1]) > 1e-6;
+}
+
+void DrawEdgeLabel::setImported()
+{
+    ImportOffset.setValues({X.getValue() - OriginX.getValue(), Y.getValue() - OriginY.getValue()});
 }

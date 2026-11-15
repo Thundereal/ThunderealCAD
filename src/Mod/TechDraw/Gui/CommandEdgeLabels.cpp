@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -62,14 +63,18 @@ struct Found
     std::string bubble;
 };
 
-/** Where each new part's number stands, by its text: on the box of the
+/** Where each part's number to lay stands, by its text: on the box of the
  * view's visible edges grown by a balloon and a gap, where the line from the
  * box's middle through its piece meets it, then spread along the box so no
- * two meet. In the view's scaled frame, Y down, as the edges are.
+ * two meet -- nor meet one the user moved (`kept`) that stands on it -- and
+ * then swapped in pairs while two leaders cross. In the view's scaled frame,
+ * Y down, as the edges are. `laid`: the texts to lay, new ones and those
+ * not moved since the last import.
  */
 std::map<std::string, Base::Vector3d> ringStands(DrawViewPart* dvp,
                                                  const std::map<std::string, Found>& found,
-                                                 const std::map<std::string, DrawEdgeLabel*>& existing)
+                                                 const std::set<std::string>& laid,
+                                                 const std::vector<Base::Vector3d>& kept)
 {
     // a balloon of a number or two, its circle about 13 mm across on the
     // paper at the default label size (measured on the vg page), and a gap
@@ -137,54 +142,87 @@ std::map<std::string, Base::Vector3d> ringStands(DrawViewPart* dvp,
         }
         return 3 * hh + 4 * hw + (p.y + hh);
     };
+    const double need = diameter + gap;
     struct Stand
     {
         std::string text;
         double t;
+        /// Where its leader starts: the middle of its piece
+        Base::Vector3d anchor;
+        /// One the user moved, standing on the ring: the others keep clear
+        bool fixed = false;
     };
     std::vector<Stand> todo;
     for (const auto& [key, f] : found) {
-        if (!f.once) {
-            continue;
-        }
-        bool there = existing.count(f.source) > 0;
-        for (const auto& [name, label] : existing) {
-            there = there || f.text == label->SourceText.getValue();
-        }
-        if (!there) {
-            todo.push_back({f.text, place((f.start + f.end) / 2)});
+        if (f.once && laid.count(f.text)) {
+            const Base::Vector3d anchor = (f.start + f.end) / 2;
+            todo.push_back({f.text, place(anchor), anchor});
         }
     }
     if (todo.empty()) {
         return stands;
     }
+    for (const auto& at : kept) {
+        const double t = place(at);
+        if ((point(t) - at).Length() < need) {
+            todo.push_back({std::string(), t, at, true});
+        }
+    }
     std::sort(todo.begin(), todo.end(), [](const Stand& l, const Stand& r) {
         return l.t < r.t;
     });
     // Push neighbours apart along the ring until none meet, or as near as a
-    // ring that full allows
-    const double need = diameter + gap;
+    // ring that full allows; one the user moved stays
     const std::size_t n = todo.size();
     for (int round = 0; round < 500 && n > 1; ++round) {
         bool moved = false;
         for (std::size_t i = 0; i < n; ++i) {
             Stand& l = todo[i];
             Stand& r = todo[(i + 1) % n];
+            if (l.fixed && r.fixed) {
+                continue;
+            }
             const double apart = (point(r.t) - point(l.t)).Length();
             if (apart >= need - 1e-6) {
                 continue;
             }
             const double push = std::min(need, need - apart) / 2 + 1e-3;
-            l.t -= push;
-            r.t += push;
+            l.t -= r.fixed ? 2 * push : (l.fixed ? 0 : push);
+            r.t += l.fixed ? 2 * push : (r.fixed ? 0 : push);
             moved = true;
         }
         if (!moved) {
             break;
         }
     }
+    // Two leaders crossing: swap their places. Each swap makes the leaders
+    // shorter in all, so it ends; the places stay as spread
+    auto crosses = [&](const Stand& a, const Stand& b) {
+        auto side = [](const Base::Vector3d& p, const Base::Vector3d& q, const Base::Vector3d& r) {
+            return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+        };
+        const Base::Vector3d pa = point(a.t), pb = point(b.t);
+        return side(a.anchor, pa, b.anchor) * side(a.anchor, pa, pb) < -1e-9
+            && side(b.anchor, pb, a.anchor) * side(b.anchor, pb, pa) < -1e-9;
+    };
+    for (std::size_t round = 0; round < 4 * n * n; ++round) {
+        bool swapped = false;
+        for (std::size_t i = 0; i < n; ++i) {
+            for (std::size_t j = i + 1; j < n; ++j) {
+                if (!todo[i].fixed && !todo[j].fixed && crosses(todo[i], todo[j])) {
+                    std::swap(todo[i].t, todo[j].t);
+                    swapped = true;
+                }
+            }
+        }
+        if (!swapped) {
+            break;
+        }
+    }
     for (const auto& st : todo) {
-        stands[st.text] = point(st.t);
+        if (!st.fixed) {
+            stands[st.text] = point(st.t);
+        }
     }
     return stands;
 }
@@ -257,7 +295,37 @@ int importEdgeLabels(DrawViewPart* dvp)
     // the view's geometry is scaled, Y down; a balloon's places are the
     // view's own, unscaled, Y up
     const double scale = dvp->getScale() > 0 ? dvp->getScale() : 1;
-    const std::map<std::string, Base::Vector3d> ring = ringStands(dvp, found, existing);
+    // A part's number is laid on the ring when new, or again when the user
+    // has not moved it since the last import; one moved stays, and the
+    // others keep clear of it
+    auto earlier = [&existing](const Found& f) -> DrawEdgeLabel* {
+        auto it = existing.find(f.source);
+        if (it == existing.end() && f.once) {
+            it = std::find_if(existing.begin(), existing.end(), [&f](const auto& e) {
+                return f.text == e.second->SourceText.getValue();
+            });
+        }
+        return it != existing.end() ? it->second : nullptr;
+    };
+    std::set<std::string> laid;
+    std::vector<Base::Vector3d> kept;
+    for (const auto& [key, f] : found) {
+        if (!f.once) {
+            continue;
+        }
+        auto label = earlier(f);
+        if (!label || !label->isMoved()) {
+            laid.insert(f.text);
+        }
+        else {
+            // where it will stand: at its offset from its piece's middle
+            const Base::Vector3d at = (f.start + f.end) / 2;
+            kept.emplace_back(at.x + (label->X.getValue() - label->OriginX.getValue()) * scale,
+                              at.y - (label->Y.getValue() - label->OriginY.getValue()) * scale,
+                              0);
+        }
+    }
+    const std::map<std::string, Base::Vector3d> ring = ringStands(dvp, found, laid, kept);
     // the edges in order across the view, by their middles
     std::vector<std::pair<std::string, const Found*>> order;
     for (const auto& [name, f] : found) {
@@ -304,6 +372,9 @@ int importEdgeLabels(DrawViewPart* dvp)
                 return f.text == e.second->SourceText.getValue();
             });
         }
+        // a part's number on the ring around the view; Y up
+        auto onRing = f.once ? ring.find(f.text) : ring.end();
+        bool stood = false;
         if (it != existing.end()) {
             label = it->second;
             existing.erase(it);
@@ -318,18 +389,30 @@ int importEdgeLabels(DrawViewPart* dvp)
             label->SourceView.setValue(dvp);
             label->SourceEdge.setValue(name);
             label->BubbleShape.setValue(f.bubble.empty() ? "None" : f.bubble.c_str());
+            if (f.once) {
+                // a straight leader, as the ring lays them: a kink's
+                // shoulder could cross a neighbour's
+                label->KinkLength.setValue(0.0);
+            }
             // 12 mm on the paper past the end, clear of the view's frame and
-            // its name; a part's number on the ring around the view; Y up
-            auto onRing = f.once ? ring.find(f.text) : ring.end();
-            const Base::Vector3d stand =
-                onRing != ring.end() ? onRing->second : (f.once ? at : tip) + out * 12;
+            // its name
+            const Base::Vector3d stand = (f.once ? at : tip) + out * 12;
             dx = stand.x / scale - ox;
             dy = -stand.y / scale - oy;
+            stood = true;
+        }
+        if (onRing != ring.end()) {
+            dx = onRing->second.x / scale - ox;
+            dy = -onRing->second.y / scale - oy;
+            stood = true;
         }
         label->OriginX.setValue(ox);
         label->OriginY.setValue(oy);
         label->X.setValue(ox + dx);
         label->Y.setValue(oy + dy);
+        if (stood) {
+            label->setImported();
+        }
         if (!label->isCustomized()) {
             label->Text.setValue(f.text);
         }

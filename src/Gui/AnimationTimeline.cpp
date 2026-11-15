@@ -1753,7 +1753,7 @@ public:
         std::vector<int> shown;
         std::vector<bool> editable;
         components(*track, shown, editable);
-        auto near = [&](QPointF a) {
+        auto nearby = [&](QPointF a) {
             return std::hypot(a.x() - pos.x(), a.y() - pos.y()) <= 6.0;
         };
         // Handles first: they lie over keys at small zooms
@@ -1771,7 +1771,7 @@ public:
                     if (!(side < 0 ? bezierIn : bezierOut) || c >= static_cast<int>(h.dv.size())) {
                         continue;
                     }
-                    if (near(QPointF(xOf(k.t + h.dt), yOfValue(k.v[c] + h.dv[c])))) {
+                    if (nearby(QPointF(xOf(k.t + h.dt), yOfValue(k.v[c] + h.dv[c])))) {
                         grab = {track->keys[i].id, side, c};
                         grabLeft = grabLeft0 = k.left;
                         grabRight = grabRight0 = k.right;
@@ -1786,7 +1786,7 @@ public:
             auto& k = curve.keys[i];
             for (std::size_t s = 0; s < shown.size(); ++s) {
                 int c = shown[s];
-                if (near(QPointF(xOf(k.t), yOfValue(k.v[c])))) {
+                if (nearby(QPointF(xOf(k.t), yOfValue(k.v[c])))) {
                     grab = {track->keys[i].id, 0, editable[s] ? c : -1};
                     grabFrom = QPointF(k.t, k.v[c]);
                     grabDt = 0;

@@ -81,6 +81,19 @@ public:
     void published(uint64_t version);
     /// Clients came or went
     void syncClients();
+    /** The document went into an edit session, or out of it. While it is
+     * in one the clip is set aside: the clients are told an empty one and
+     * draw each publish as it comes, the host's own pose, and nothing is
+     * held -- an edit mode's input ('E' frames) is replayed against the
+     * host's pose, and a viewer drawing the clip at its own clock's Time
+     * would show the object somewhere else than where that input lands.
+     * The clip itself is kept, and told again when the edit ends.
+     */
+    void setEditing(bool on);
+    bool editing() const
+    {
+        return inEdit;
+    }
 
     /// A bake is under way: what the source would publish now is a pose
     /// the sweep left, not the one the player is at
@@ -133,6 +146,7 @@ private:
     bool valid = false;
     bool isBaking = false;
     bool announced = false;
+    bool inEdit = false;
     unsigned heldCount = 0;
     size_t blobBytes = 0;
     uint64_t baseVersion = 0;

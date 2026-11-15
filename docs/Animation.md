@@ -1312,11 +1312,20 @@ Not in this cut:
   its draws once every mesh it names is in; a mesh that cannot be had
   leaves the publish's draws standing, as a missing blob does. A colour
   or a transparency needs no blob at all (the looks above).
-- **Picking resolves through the clip; edit input does not.** A click
-  carries its Time (above) and lands through the client's mirror view
-  (`MirrorViewer`, docs/ThinClient.md sec 8) where the viewer drew. The
-  `'E'` frames of an edit mode are sent only while editing, and an edit
-  mode run while an Animation plays meets the host's own pose.
+- **Picking resolves through the clip; edit input does not need to.** A
+  click carries its Time (above) and lands through the client's mirror
+  view (`MirrorViewer`, docs/ThinClient.md sec 8) where the viewer drew.
+  The `'E'` frames of an edit mode are pointer positions replayed against
+  the host's own pose, which a viewer playing the clip at its own clock's
+  Time does not show. So while the document is in an edit session
+  (2026-11-15, `SceneServeClip::setEditing`, from the source's
+  `signalInEdit`/`signalResetEdit`) the clip is set aside: every client is
+  told an empty one, the clock names none, nothing is held, and each
+  publish -- the host's pose as it moves -- is drawn as it comes; the edit
+  over, the same clip is told again and the publishes are held again.
+  Playing goes on through an edit, as section 3.10 wants; what the
+  browser loses for that while is only the smoothness of its own frame
+  rate (tests/gui/serve-animation.py, "an edit session while it plays").
 - **Looks are the compared fields only**: a change the Animation makes to
   a material field outside them -- a texture, a PBR parameter, a finish
   -- does not ride a track. It did not make the object anything else

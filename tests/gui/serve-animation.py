@@ -28,6 +28,10 @@ but it reads the wire, and the wire is what is asserted:
     the bake with the Time put back, and the player plays on from where
     it was when the clip is ready;
   - an edit while playing drops the clip, and it is baked again;
+  - an edit session while playing (the box's Transform) sets the clip
+    aside: the clients are told an empty one, the clock names none, the
+    host's pose is published as it moves; the edit over, the same clip is
+    told again and nothing is published;
   - stopping says the document is as designed again.
 
 The drawing half is tests/gui/serve-animation-browser.py.
@@ -716,6 +720,35 @@ def run():
         check("and it is baked again once the edits stop",
               clip3 is not None and clip4 is not None and clip4["id"] > clip3["id"],
               clip4 and clip4["id"])
+
+        # --- an edit session while playing: the clip set aside, the host's
+        # pose published, and the clip told again when it ends
+        held = client.last("clip", t8)
+        t16 = clock()
+        Gui.ActiveDocument.setEdit(box, 1)
+        pump(1.0)
+        t17 = clock()
+        pump(1.0)
+        aside = client.last("clip", t16)
+        tick = client.last("time", t17)
+        check("an edit session while it plays tells the clients no clip",
+              held is not None and held["id"] > 0 and aside is not None and aside["id"] == 0,
+              (held and held["id"], aside and aside["id"]))
+        check("the clock names none, and plays on",
+              tick is not None and tick["clip"] == 0 and tick["playing"], tick)
+        flowing = client.since(t17, "scene")
+        check("and the host's pose is published as it moves", len(flowing) >= 3, len(flowing))
+        t18 = clock()
+        Gui.ActiveDocument.resetEdit()
+        pump(1.0)
+        back = client.last("clip", t18)
+        check("the edit over, the same clip is told again",
+              back is not None and held is not None and back["id"] == held["id"],
+              (back and back["id"], held and held["id"]))
+        t19 = clock()
+        pump(1.0)
+        check("and nothing is published while it plays",
+              len(client.since(t19, "scene")) == 0, len(client.since(t19, "scene")))
 
         # --- stopping
         t9 = clock()

@@ -212,7 +212,7 @@ bool SceneServeClip::playing() const
 bool SceneServeClip::movePick(uint32_t clipId, double time, uint64_t key, float origin[3],
                               float dir[3]) const
 {
-    if (!valid || !clipId || clipId != theClip.id || theClip.empty())
+    if (!valid || inEdit || !clipId || clipId != theClip.id || theClip.empty())
         return false;
     App::Animation* anim = animation();
     if (!anim || !anim->Active.getValue())
@@ -236,7 +236,7 @@ bool SceneServeClip::movePick(uint32_t clipId, double time, uint64_t key, float 
 
 bool SceneServeClip::holding() const
 {
-    return valid && theClip.exact && !theClip.empty() && !told.empty() && playing()
+    return valid && !inEdit && theClip.exact && !theClip.empty() && !told.empty() && playing()
         && !(host.unclipped && host.unclipped());
 }
 
@@ -501,7 +501,7 @@ void SceneServeClip::endBake(App::Animation* anim, bool done)
 Render::MotionClock SceneServeClip::clock() const
 {
     Render::MotionClock c;
-    c.clip = valid ? theClip.id : 0;
+    c.clip = valid && !inEdit ? theClip.id : 0;
     if (App::Animation* anim = animation()) {
         auto player = AnimationPlayer::instance();
         c.active = anim->isActive();
@@ -527,20 +527,27 @@ void SceneServeClip::announce()
     server.clients(clients);
     const std::string time = clock().toJson(host.quotedGroup);
     std::map<uint64_t, uint32_t> here;
+    // In an edit session the clients are told none (setEditing)
+    const uint32_t shown = inEdit ? 0U : theClip.id;
     for (const auto& info : clients) {
         if (info.doc != host.group) {
             continue;
         }
         auto it = told.find(info.id);
         // The clip before the clock that names it
-        if (it == told.end() || it->second != theClip.id) {
-            if (clipJson.empty()) {
-                clipJson = theClip.toJson(host.quotedGroup);
+        if (it == told.end() || it->second != shown) {
+            if (inEdit) {
+                server.sendControl(info.id, Render::MotionClip().toJson(host.quotedGroup));
             }
-            server.sendControl(info.id, clipJson);
+            else {
+                if (clipJson.empty()) {
+                    clipJson = theClip.toJson(host.quotedGroup);
+                }
+                server.sendControl(info.id, clipJson);
+            }
         }
         server.sendControl(info.id, time);
-        here[info.id] = theClip.id;
+        here[info.id] = shown;
     }
     told = std::move(here);
     announced = true;
@@ -554,6 +561,23 @@ void SceneServeClip::published(uint64_t version)
     baseTime = anim ? anim->Time.getValue() : 0.0;
     if (announced) {
         announce();
+    }
+}
+
+void SceneServeClip::setEditing(bool on)
+{
+    if (inEdit == on) {
+        return;
+    }
+    inEdit = on;
+    FC_LOG("animation clip of " << doc->getName() << (on ? " set aside: in edit" : " told again"));
+    if (announced) {
+        announce();
+    }
+    // The pose the host is at, which the clients now draw as it comes --
+    // or, the edit over, the one they move by the clip from
+    if (host.publish) {
+        host.publish();
     }
 }
 

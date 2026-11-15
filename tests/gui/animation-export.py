@@ -252,6 +252,9 @@ def run():
 
         App.closeDocument(doc.Name)
         colourInGltf()
+        roundInAnotherShape()
+        cameraInGltf("Orthographic")
+        cameraInGltf("Perspective")
     except Exception:
         note("ABORT\n" + traceback.format_exc())
     note("DONE")
@@ -335,6 +338,178 @@ def colourInGltf():
           materials("Plain") == materials("Plain2")
           and target(materials("Plain")[0]) not in pointers,
           (materials("Plain"), materials("Plain2")))
+    App.closeDocument(doc.Name)
+
+
+def roundInAnotherShape():
+    """Frames of another shape than the view's are not stretched: a sphere
+    is round in a 360 x 270 export and a 270 x 360 one of a view far wider
+    than either, and as high in the first as in the view (the camera keeps
+    its height, as Coin maps it)"""
+    from freecad import videoexport
+
+    doc = App.newDocument("AnimationExportShape")
+    ball = doc.addObject("Part::Sphere", "Ball")
+    ball.Radius = 10
+    doc.recompute()
+    ball.ViewObject.ShapeColor = (1.0, 0.0, 0.0)
+    anim = doc.addObject("App::Animation", "Anim")
+    anim.FrameRate = 2
+    anim.End = 0.5
+    anim.addKey("Ball.Placement", 0.0)
+    anim.addKey("Ball.Placement", 0.5, App.Placement(App.Vector(1, 0, 0), App.Rotation()))
+    doc.recompute()
+    view = Gui.ActiveDocument.ActiveView
+    view.viewIsometric()
+    view.fitAll()
+    pump(0.3)
+
+    def blob(path):
+        img = QtGui.QImage(path)
+        xs, ys = [], []
+        for y in range(img.height()):
+            for x in range(img.width()):
+                c = QtGui.QColor(img.pixel(x, y))
+                if c.red() > 150 and c.green() < 80 and c.blue() < 80:
+                    xs.append(x)
+                    ys.append(y)
+        return (max(xs) - min(xs) + 1, max(ys) - min(ys) + 1) if xs else (0, 0)
+
+    width, height = view.getSize()
+    full = os.path.join(OUT, "shape-view.png")
+    view.saveImage(full, width, height, "Current")
+    _w, tall = blob(full)
+    sizes = {}
+    for w, h in ((360, 270), (270, 360)):
+        seq = os.path.join(OUT, "shape-%dx%d" % (w, h), "frame.png")
+        os.makedirs(os.path.dirname(seq), exist_ok=True)
+        videoexport.exportAnimation(anim, seq, size=(w, h))
+        sizes[(w, h)] = blob(videoexport.frameName(seq, 0))
+    scale = 270.0 / height
+    check("frames of another shape than the view's are not stretched",
+          all(w > 0 and abs(w - h) <= 2 for w, h in sizes.values())
+          and (width * 3 <= height * 4 or abs(sizes[(360, 270)][1] - tall * scale) <= 3),
+          (view.getSize(), tall, sizes))
+    App.closeDocument(doc.Name)
+
+
+def cameraInGltf(kind):
+    """A camera track in an animated glTF: a camera of the track's kind on a
+    node sampled at every frame, standing where it looks at what the view
+    looked at, the scene between its near and far planes; turned from the
+    isometric to the top as the view was, its size a channel when it
+    changes"""
+    import json
+    import math
+    import struct
+
+    from freecad import animationgltf
+
+    doc = App.newDocument("AnimationGltfCamera" + kind)
+    box = doc.addObject("Part::Box", "Box")
+    box.Placement.Base = App.Vector(30, 10, 0)
+    doc.recompute()
+    anim = doc.addObject("App::Animation", "Anim")
+    anim.FrameRate = 10
+    anim.End = 1.0
+    doc.recompute()
+    view = Gui.ActiveDocument.ActiveView
+    view.setCameraType(kind)
+    view.viewIsometric()
+    view.fitAll()
+    pump(0.3)
+    anim.Time = 0.0
+    Gui.runCommand("Std_AnimationKeyCamera")
+    iso = view.getCameraOrientation()
+    anim.Time = 1.0
+    view.viewTop()
+    view.fitAll()
+    if kind == "Orthographic":
+        cam = view.getCameraNode()
+        cam.height.setValue(cam.height.getValue() * 2.0)
+    pump(0.3)
+    top = view.getCameraOrientation()
+    Gui.runCommand("Std_AnimationKeyCamera")
+    tracks = [t for t in anim.Tracks if t["Kind"] == "Camera"]
+    path = tracks[0]["Path"] if tracks else ""
+    keys = [anim.value(path, t) for t in (0.0, 1.0)] if path else []
+    anim.stop()
+    out = os.path.join(OUT, "camera-%s.gltf" % kind.lower())
+    done = animationgltf.exportGltf(anim, out)
+    with open(out, encoding="utf-8") as f:
+        gltf = json.load(f)
+    with open(os.path.splitext(out)[0] + ".bin", "rb") as f:
+        blob = f.read()
+
+    def values(index):
+        acc = gltf["accessors"][index]
+        bv = gltf["bufferViews"][acc["bufferView"]]
+        width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}[acc["type"]]
+        flat = struct.unpack_from("<%df" % (acc["count"] * width), blob, bv.get("byteOffset", 0))
+        return [flat[i:i + width] for i in range(0, len(flat), width)]
+
+    glType = kind.lower()
+    cameras = gltf.get("cameras", [])
+    check("%s: a camera track is a glTF camera of its kind, nothing skipped" % kind,
+          done["Cameras"] == 1 and not done["Skipped"] and len(cameras) == 1
+          and cameras[0]["type"] == glType, (done, cameras))
+    if not cameras or len(keys) != 2:
+        App.closeDocument(doc.Name)
+        return
+    node = [i for i, n in enumerate(gltf["nodes"]) if "camera" in n][0]
+    root = gltf["scenes"][0]["nodes"][0]
+    check("%s: its node is under the document's root, Z up turned to Y up" % kind,
+          node in gltf["nodes"][root].get("children", []))
+    anim0 = gltf["animations"][0]
+    by = {}
+    for ch in anim0["channels"]:
+        target = ch["target"]
+        if target.get("node") == node:
+            by[target["path"]] = anim0["samplers"][ch["sampler"]]
+        ext = target.get("extensions", {}).get("KHR_animation_pointer")
+        if ext:
+            by[ext["pointer"]] = anim0["samplers"][ch["sampler"]]
+    moves = values(by["translation"]["output"]) if "translation" in by else []
+    turns = values(by["rotation"]["output"]) if "rotation" in by else []
+    check("%s: the camera's node sampled at every frame" % kind,
+          len(moves) == 11 and len(turns) == 11, (len(moves), len(turns)))
+    if len(turns) == 11:
+        def same(q, rot):
+            dot = abs(sum(a * b for a, b in zip(q, rot.Q)))
+            return abs(dot - 1.0) < 1e-6
+
+        check("%s: it turns from the isometric to the top" % kind,
+              same(turns[0], iso) and same(turns[-1], top),
+              (turns[0], iso.Q, turns[-1], top.Q))
+        # It looks at what the view looked at, from in front of the scene
+        aims = []
+        planes = cameras[0][glType]
+        for (stand, turn, key) in ((moves[0], turns[0], keys[0]), (moves[-1], turns[-1], keys[1])):
+            at = App.Vector(*stand) * 1000.0
+            looking = App.Rotation(*turn).multVec(App.Vector(0, 0, -1))
+            focal = App.Vector(*key[0:3])
+            along = (focal - at).dot(looking)
+            aims.append(((focal - at) - looking * along).Length)
+            depths = [(App.Vector(*c) - at).dot(looking) * 1e-3
+                      for c in [box.Shape.BoundBox.getPoint(i) for i in range(8)]]
+            aims.append(0.0 if planes["znear"] <= min(depths) and max(depths) <= planes["zfar"]
+                        else 1.0)
+            if kind == "Perspective":
+                aims.append(abs(along - key[7]))
+        check("%s: it looks at the view's point, the box between its planes" % kind,
+              max(aims) < 1e-3, aims)
+    if kind == "Orthographic":
+        ymag = "/cameras/0/orthographic/ymag"
+        sizes = [v[0] for v in values(by[ymag]["output"])] if ymag in by else []
+        check("Orthographic: its height doubles, a channel by pointer",
+              len(sizes) == 11 and abs(sizes[0] - keys[0][8] * 0.5e-3) < 1e-6
+              and abs(sizes[-1] - keys[1][8] * 0.5e-3) < 1e-6
+              and abs(keys[1][8] / keys[0][8] - 2.0) < 0.05,
+              (sizes[:1], sizes[-1:], keys[0][8], keys[1][8]))
+    else:
+        yfov = cameras[0]["perspective"]["yfov"]
+        check("Perspective: its angle is the view's", abs(yfov - math.radians(keys[0][8])) < 1e-6,
+              (yfov, keys[0][8]))
     App.closeDocument(doc.Name)
 
 

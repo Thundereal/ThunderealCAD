@@ -20,14 +20,18 @@ Animation; stop() puts the design back.</UserDocu>
     </Documentation>
     <Methode Name="addKey" Keyword="true">
       <Documentation>
-        <UserDocu>addKey(path, time, value=None, interp=None, easing=None) -> int
+        <UserDocu>addKey(path, time, value=None, interp=None, easing=None, python=None) -> int
 
 Key the property at path at time (seconds) with value, or with its current
 value when value is None, making the track if there is none. A key already
 at that time is replaced. Returns the key's id.
 
-interp: 'Constant', 'Linear', 'Bezier' or 'Easing', for the span that
-leaves the key.
+interp: 'Constant', 'Linear', 'Bezier', 'Easing' or 'Python', for the span
+that leaves the key.
+python: for 'Python', an expression in u, the span's progress from 0 to 1,
+giving the progress eased: '1 - (1 - u) ** 3'. The expression engine
+evaluates it, under the rules of every expression of the document; giving
+it makes interp 'Python'.
 easing: a type name ('Quad', 'Cubic', 'Quart', 'Quint', 'Sine', 'Expo',
 'Circ', 'Elastic', 'Back', 'Bounce'), or a tuple (type, mode[, amplitude,
 period, overshoot]) with mode 'In', 'Out', 'InOut' or 'OutIn'. Giving it
@@ -46,7 +50,7 @@ makes interp 'Easing' unless interp says otherwise.</UserDocu>
     </Methode>
     <Methode Name="setInterp" Keyword="true">
       <Documentation>
-        <UserDocu>setInterp(path, time, interp, easing=None): the interpolation of the span leaving the key at time</UserDocu>
+        <UserDocu>setInterp(path, time, interp, easing=None, python=None): the interpolation of the span leaving the key at time; python is 'Python''s expression in u</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="addTrack">

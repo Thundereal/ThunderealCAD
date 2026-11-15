@@ -54,16 +54,20 @@ const HELPERS = () => {
     window.__fcShots[name] = g.getImageData(0, 0, c.width, c.height);
     return {w: c.width, h: c.height};
   };
-  // Pixel counts of the two colours and each one's centroid
+  // Pixel counts of the three colours and each one's centroid
   window.__fcColours = (name) => {
     const s = window.__fcShots[name];
     if (!s)
       return null;
-    const out = {red: {n: 0, x: 0, y: 0}, green: {n: 0, x: 0, y: 0}};
+    // No blue: the background's gradient is blue
+    const out = {red: {n: 0, x: 0, y: 0}, green: {n: 0, x: 0, y: 0},
+                 yellow: {n: 0, x: 0, y: 0}};
     for (let i = 0, p = 0; i < s.data.length; i += 4, ++p) {
       const r = s.data[i], g = s.data[i + 1], b = s.data[i + 2];
       let k = null;
-      if (r > 110 && r > 1.8 * g && r > 1.8 * b)
+      if (r > 110 && g > 110 && b < 0.5 * Math.min(r, g) && Math.abs(r - g) < 0.3 * r)
+        k = 'yellow';
+      else if (r > 110 && r > 1.8 * g && r > 1.8 * b)
         k = 'red';
       else if (g > 110 && g > 1.8 * r && g > 1.8 * b)
         k = 'green';

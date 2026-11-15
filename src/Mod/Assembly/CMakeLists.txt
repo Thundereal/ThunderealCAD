@@ -91,6 +91,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestSolverGate.py
     AssemblyTests/TestCamJoint.py
     AssemblyTests/SolverGateReference.json
+    AssemblyTests/SolverGateDigests.darwin-arm64.json
     AssemblyTests/TestGuiCommands.py
     AssemblyTests/TestAsm3Bundle.py
     AssemblyTests/TestElementJoint.py

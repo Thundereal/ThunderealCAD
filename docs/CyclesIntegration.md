@@ -2754,6 +2754,15 @@ raw-WebSocket Python client, and headless Chrome 151 driven over CDP):
   menu showing "CUDA (100%)"; the screenshot is the path-traced image
   under the raster edge lines and the NaviCube, the raster view again
   after "Off".
+- Browser, METAL 256 spp at 960x600, on the mini (M2, macOS 13.4; 2026-11-14,
+  after the StackAllocator fix of sec 9): `fcviewerSetCycles('METAL', 0)` on
+  the manual's animation scene posed at 2.2 s, headless Chrome through
+  puppeteer. The first frame (137x85) 2 s after the start, "Rendering
+  Done, Sample 256/256" 19 s after it, 29 frames; about 12 s of that is
+  Metal compiling its optimized kernels the first time ("2 kernels to
+  optimize" until sample 55). The picture is the path-traced one under the
+  edge lines and the NaviCube, the environment as its backdrop; Off gives
+  the raster view back.
 - The desktop viewport through the moved blit: settles at 16 spp in
   6.4 s, live frame vs offline 5.7/255 with denoise off (the lines and
   the NaviCube are in the live frame), the raster frame 34/255 from
@@ -3177,3 +3186,15 @@ Each of these has already cost time somewhere in this tree:
 - **A vendored tree setting the HOST's compiler flags.** Blender build
   code assumes it is the top-level project and `FORCE`s the global cache
   variables. Section 2.1.
+- **An allocator that is not one, met by a library that copies it**
+  (2026-11-14). `util/stack_allocator.h` gave each copy a stack of its own,
+  and conda's libc++ grows a vector through a temporary copy of its
+  allocator: the block lived in the dead temporary and the vector's own
+  allocator handed its address to `free()`. Every BVH2 build aborted in
+  `BVHBuild::create_leaf_node`, so the Metal device on the mini (an M2,
+  no MetalRT) rendered nothing; CPU renders were untouched (Embree builds
+  their BVH). Found by `atos` on the abort's return address -- the
+  function's closing brace -- and a 40-line program with the same
+  allocator under the same toolchain. Fixed in the fork, a1dfb93f0: a
+  copy allocates from the heap. Metal at 640x360, 128 samples, renders the
+  animation probe's frames in 1.5 s against the CPU's 2.4 s.

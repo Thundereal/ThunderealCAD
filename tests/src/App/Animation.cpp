@@ -9,7 +9,11 @@
 
 #include <QEasingCurve>
 
+#include "App/Animation.h"
 #include "App/AnimationCurve.h"
+#include "App/Application.h"
+#include "App/Document.h"
+#include "App/DocumentObject.h"
 #include "App/PropertyGeo.h"
 #include "App/PropertyStandard.h"
 #include "App/PropertyUnits.h"
@@ -561,6 +565,98 @@ TEST_F(AnimationCodec, interpolateStepsWhatHasNoCodec)
 
     App::PropertyFloat other;
     EXPECT_THROW(p.interpolate(other, to, 0.5f), Base::TypeError);
+}
+
+// A track's path re-pointed as an expression's is (docs/Animation.md sec
+// 3.3): a label it names objects by, an object a link replaces, an external
+// object imported into the Animation's document.
+class AnimationTrackPaths: public ::testing::Test
+{
+protected:
+    static void SetUpTestSuite()
+    {
+        tests::initApplication();
+    }
+    void SetUp() override
+    {
+        doc = App::GetApplication().newDocument("AnimTrackPaths", "testUser");
+        a = doc->addObject("App::FeaturePython", "A");
+        b = doc->addObject("App::FeaturePython", "B");
+        for (auto obj : {a, b}) {
+            obj->addDynamicProperty("App::PropertyFloat", "Val");
+        }
+        anim = static_cast<App::Animation*>(doc->addObject("App::Animation", "Anim"));
+    }
+    void TearDown() override
+    {
+        App::GetApplication().closeDocument(doc->getName());
+        if (other) {
+            App::GetApplication().closeDocument(other->getName());
+        }
+    }
+    void track(const std::string& path)
+    {
+        const int t = anim->trackOf(anim->parsePath(path), true);
+        ASSERT_GE(t, 0) << path;
+        anim->setKey(t, 0.0);
+    }
+    std::string path() const
+    {
+        const auto& tracks = anim->Tracks.getValues();
+        return tracks.empty() ? std::string() : tracks.front().target.toString();
+    }
+    App::Document* doc = nullptr;
+    App::Document* other = nullptr;
+    App::DocumentObject* a = nullptr;
+    App::DocumentObject* b = nullptr;
+    App::Animation* anim = nullptr;
+};
+
+TEST_F(AnimationTrackPaths, aLabelThePathNamesFollowsARelabel)
+{
+    a->Label.setValue("Alpha");
+    track("<<Alpha>>.Val");
+    ASSERT_EQ(path(), "<<Alpha>>.Val");
+    a->Label.setValue("Beta");
+    EXPECT_EQ(path(), "<<Beta>>.Val");
+    EXPECT_EQ(anim->Tracks.getValues().front().target.getDocumentObject(), a);
+}
+
+TEST_F(AnimationTrackPaths, aPathByNameIsNotTouchedByARelabel)
+{
+    track("A.Val");
+    a->Label.setValue("Gamma");
+    EXPECT_EQ(path(), "A.Val");
+}
+
+TEST_F(AnimationTrackPaths, anObjectALinkReplacesIsNamed)
+{
+    track("A.Val");
+    std::unique_ptr<App::Property> copy(anim->Tracks.CopyOnLinkReplace(anim, a, b));
+    ASSERT_TRUE(copy);
+    anim->Tracks.Paste(*copy);
+    EXPECT_EQ(path(), "B.Val");
+    // Replaced under another parent, a path not through it stays
+    std::unique_ptr<App::Property> none(anim->Tracks.CopyOnLinkReplace(b, b, a));
+    EXPECT_FALSE(none);
+}
+
+TEST_F(AnimationTrackPaths, anExternalObjectImportedIsNamedInTheDocument)
+{
+    other = App::GetApplication().newDocument("AnimTrackPathsExt", "testUser");
+    auto ext = other->addObject("App::FeaturePython", "Ext");
+    ext->addDynamicProperty("App::PropertyFloat", "Val");
+    track("AnimTrackPathsExt#Ext.Val");
+    ASSERT_EQ(anim->Tracks.getValues().front().target.getDocumentObject(), ext);
+    std::map<std::string, std::string> nameMap {{ext->getExportName(true), b->getNameInDocument()}};
+    std::unique_ptr<App::Property> copy(anim->Tracks.CopyOnImportExternal(nameMap));
+    ASSERT_TRUE(copy);
+    anim->Tracks.Paste(*copy);
+    EXPECT_EQ(path(), "B.Val");
+    EXPECT_EQ(anim->Tracks.getValues().front().target.getDocumentObject(), b);
+    // Nothing the map names: nothing changes
+    std::unique_ptr<App::Property> none(anim->Tracks.CopyOnImportExternal({}));
+    EXPECT_FALSE(none);
 }
 
 // NOLINTEND(readability-magic-numbers)

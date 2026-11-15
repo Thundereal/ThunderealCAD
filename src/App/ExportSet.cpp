@@ -118,18 +118,13 @@ bool readWhole(const std::vector<Document*>& docs)
         if (!doc->testStatus(Document::PartialDoc))
             continue;
         any = true;
+        // A version's too, by its name: the application reads it whole and
+        // names it as asked, as the links that hold it spell it -- through
+        // FileHistory::openFile it came back named as the history spells
+        // the file, /private/var/... for /var/... on macOS, and no link of
+        // the set found it
         const std::string name = doc->FileName.getStrValue();
-        FileHistory::NameParts parts;
-        if (doc->testStatus(Document::VersionDoc) && FileHistory::parseName(name, parts)) {
-            std::string reason;
-            auto history = FileHistory::openFile(parts.file, &reason);
-            if (!history)
-                THROWM(Base::FileSystemError, "no history in '" + parts.file + "': " + reason);
-            Document::openFileBranch(history, parts.branch, parts.version, false);
-        }
-        else {
-            GetApplication().openDocument(name.c_str(), false);
-        }
+        GetApplication().openDocument(name.c_str(), false);
     }
     return any;
 }
@@ -188,7 +183,12 @@ std::string ExportSetPaths::pathTo(const Document* owner, const Document* target
     auto it = scope->_files.find(target);
     if (own == scope->_files.end() || it == scope->_files.end())
         return {};
-    return ss(QFileInfo(qs(own->second)).absoluteDir().relativeFilePath(qs(it->second)));
+    // Between the two as they physically are: one may be spelt through a
+    // folder link the other is not (/var/... and /private/var/... on macOS),
+    // and from one spelling to the other is no relative path at all
+    return ss(QFileInfo(qs(FileHistory::canonicalPath(own->second)))
+                  .absoluteDir()
+                  .relativeFilePath(qs(FileHistory::canonicalPath(it->second))));
 }
 
 const char* App::exportSetManifestName()
@@ -245,7 +245,21 @@ ExportSetResult App::planLinkedSet(Document& top, const ExportSetOptions& option
         const bool named = describe(doc, f, parts);
         const QString abs = QFileInfo(qs(f.file)).absoluteFilePath();
         QString rel = topDir.relativeFilePath(abs);
-        if (rel.startsWith(QStringLiteral("..")) || QFileInfo(rel).isAbsolute())
+        auto outside = [](const QString& r) {
+            return r.startsWith(QStringLiteral("..")) || QFileInfo(r).isAbsolute();
+        };
+        if (outside(rel)) {
+            // Spelt through a folder link one way and not the other -- a
+            // version's file is the history's key, /private/var/... for a
+            // top at /var/... -- it may be inside all the same: asked again
+            // of the two as they physically are
+            const QString physical =
+                QFileInfo(qs(FileHistory::canonicalPath(topPath))).absoluteDir().relativeFilePath(
+                    qs(FileHistory::canonicalPath(ss(abs))));
+            if (!outside(physical))
+                rel = physical;
+        }
+        if (outside(rel))
             rel = QStringLiteral("_external/") + QFileInfo(abs).fileName();
         std::string path = ss(rel);
         if (named) {

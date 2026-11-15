@@ -90,9 +90,35 @@ bool SceneServeClip::playing() const
     return animation() && AnimationPlayer::instance()->isPlaying();
 }
 
+bool SceneServeClip::movePick(uint32_t clipId, double time, uint64_t key, float origin[3],
+                              float dir[3]) const
+{
+    if (!valid || !clipId || clipId != theClip.id || theClip.empty())
+        return false;
+    App::Animation* anim = animation();
+    if (!anim || !anim->Active.getValue())
+        return false;
+    auto it = std::find(theClip.keys.begin(), theClip.keys.end(), key);
+    if (it == theClip.keys.end())
+        return false;
+    const size_t track = size_t(it - theClip.keys.begin());
+    // Where the host has it now, from where the viewer drew it
+    double x[16];
+    if (!theClip.moveBetween(track, time, anim->Time.getValue(), x))
+        return false;
+    const double o[3] = {origin[0], origin[1], origin[2]};
+    const double d[3] = {dir[0], dir[1], dir[2]};
+    for (int r = 0; r < 3; ++r) {
+        origin[r] = float(x[r] * o[0] + x[4 + r] * o[1] + x[8 + r] * o[2] + x[12 + r]);
+        dir[r] = float(x[r] * d[0] + x[4 + r] * d[1] + x[8 + r] * d[2]);
+    }
+    return true;
+}
+
 bool SceneServeClip::holding() const
 {
-    return valid && theClip.exact && !theClip.empty() && !told.empty() && playing();
+    return valid && theClip.exact && !theClip.empty() && !told.empty() && playing()
+        && !(host.unclipped && host.unclipped());
 }
 
 bool SceneServeClip::changed(const App::Property& prop)
@@ -196,25 +222,49 @@ void SceneServeClip::bake(App::Animation* anim)
                                      MaxSamples);
         const double step = (end - start) / (count - 1);
         // The draws of an object at a frame, kept for the viewers to
-        // fetch: one blob for the same bytes, however often they recur
+        // fetch: one blob for the same bytes, however often they recur,
+        // and its meshes chunks of their own, one for the same mesh
+        // however many blobs name it -- the shape moved through the
+        // frames before it showed, a height keyed back and forth
         std::map<std::string, int32_t> index;
         std::vector<std::string> keys;
         std::vector<uint32_t> sizes;
+        std::vector<std::string> chunks;
+        std::vector<uint32_t> chunkSizes;
+        Render::MotionBlobMeshes meshes;
         const size_t limit = blobLimit();
         auto store = [&](const Render::DrawCallList& draws) -> int32_t {
-            std::vector<uint8_t> blob = Render::motionBlobOf(draws);
+            std::vector<uint8_t> blob = Render::motionBlobOf(draws, &meshes);
             if (blob.empty()) {
                 return -1;
             }
             std::string key = Render::sha1Hex(blob.data(), blob.size());
             auto it = index.find(key);
             if (it != index.end()) {
+                meshes.drop();
                 return it->second;
             }
-            if (blobBytes + blob.size() > limit) {
+            // What this blob adds: itself, and the meshes no kept blob
+            // named (one met under another cacheId is held already)
+            size_t adds = blob.size();
+            for (const auto& chunk : meshes.fresh) {
+                if (!kept.count(chunk.first)) {
+                    adds += chunk.second.size();
+                }
+            }
+            if (blobBytes + adds > limit) {
+                meshes.drop();
                 return -1;
             }
-            blobBytes += blob.size();
+            blobBytes += adds;
+            for (auto& chunk : meshes.commit()) {
+                if (kept.count(chunk.first)) {
+                    continue;
+                }
+                chunks.push_back(chunk.first);
+                chunkSizes.push_back(static_cast<uint32_t>(chunk.second.size()));
+                kept.emplace(chunk.first, std::move(chunk.second));
+            }
             const auto number = static_cast<int32_t>(keys.size());
             index[key] = number;
             keys.push_back(key);
@@ -257,11 +307,14 @@ void SceneServeClip::bake(App::Animation* anim)
             theClip = baker.finish(++serial, start, step);
             theClip.blobs = std::move(keys);
             theClip.blobSizes = std::move(sizes);
+            theClip.chunks = std::move(chunks);
+            theClip.chunkSizes = std::move(chunkSizes);
             valid = true;
             FC_LOG("animation clip " << theClip.id << " of " << doc->getName() << ": "
                                      << theClip.keys.size() << " tracks, "
                                      << theClip.seqKeys.size() << " sequences, "
-                                     << theClip.blobs.size() << " blobs (" << blobBytes
+                                     << theClip.blobs.size() << " blobs and "
+                                     << theClip.chunks.size() << " meshes (" << blobBytes
                                      << " bytes), " << theClip.frames << " frames"
                                      << (theClip.exact ? ", exact" : ""));
         }

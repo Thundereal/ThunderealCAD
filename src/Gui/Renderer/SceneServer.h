@@ -88,6 +88,15 @@ struct ScenePickRequest {
     /// its mirror viewer (docs/ThinClient.md sec 8.3) -- rather than
     /// against a framing no viewer is actually looking through.
     uint64_t client = 0;
+    /// A click on an object the viewer had moved by itself, playing an
+    /// Animation's clip (docs/Animation.md sec 9.1): the clip's id, the
+    /// Time the viewer drew it at, and the object hit there. The host
+    /// moves the ray by that object's move from that Time to its own
+    /// before it resolves it. 0: none -- the pick frame without its
+    /// 20-byte tail.
+    uint32_t clip = 0;
+    double clipTime = 0.0;
+    uint64_t objectKey = 0;
 };
 
 /// A viewer's camera, as it last stated it (docs/ThinClient.md sec 8.5,

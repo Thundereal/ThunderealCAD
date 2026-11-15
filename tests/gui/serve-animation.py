@@ -29,6 +29,7 @@ The drawing half is tests/gui/serve-animation-browser.py.
 import base64
 import hashlib
 import json as jsonlib
+import math
 import os
 import urllib.request
 import struct
@@ -153,6 +154,8 @@ def run():
         still.Placement.Base = App.Vector(30, 0, 0)
         lamp = doc.addObject("Part::Box", "Lamp")
         lamp.Placement.Base = App.Vector(-30, 0, 0)
+        paint = doc.addObject("Part::Box", "Paint")
+        paint.Placement.Base = App.Vector(0, 30, 0)
         doc.recompute()
         anim = doc.addObject("App::Animation", "Anim")
         anim.FrameRate = 20
@@ -230,6 +233,58 @@ def run():
         beats = client.since(t1, "time", t2)
         check("the clock is said again as it plays", 1 <= len(beats) <= 4, len(beats))
 
+        # A Cycles stream traces each publish and has no clip to play: while
+        # one runs, nothing is held, or its picture would stay at the pose
+        # play started from (SceneServeClip::Host::unclipped)
+        tracer = WS(port)
+        tracer.hello("tracer")
+        tracer.next_binary(20.0)
+        asked = [70]
+
+        def ask(fields, timeout=30.0):
+            # The host answers a cycles op on the GUI thread, which is this
+            # one: pump it while the answer is waited for
+            asked[0] += 1
+            fields = dict(fields, op="cycles", id=asked[0])
+            tracer.send(1, jsonlib.dumps(fields).encode())
+            deadline = clock() + timeout
+            while clock() < deadline:
+                pump(0.02)
+                text = tracer.next_text(0.02)
+                if not text:
+                    continue
+                try:
+                    answer = jsonlib.loads(text.decode("utf-8"))
+                except Exception:
+                    continue
+                if answer.get("id") == asked[0]:
+                    return answer
+            return {}
+
+        f = 1.0 / math.tan(math.radians(22.5))
+        proj = [f / (4.0 / 3.0), 0, 0, 0, 0, f, 0, 0, 0, 0, -1.002, -1, 0, 0, -2.002, 0]
+        view = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -200, 1]
+        started = ask({"action": "start", "device": "CPU", "samples": 2, "denoise": False,
+                       "view": view, "proj": proj, "width": 64, "height": 48})
+        pump(1.0)
+        before = ask({"action": "status"}).get("updates", 0)
+        t1c = clock()
+        pump(1.5)
+        traced = client.since(t1c, "scene", clock())
+        after = ask({"action": "status"}).get("updates", 0)
+        check("a Cycles stream starts on the served document",
+              started.get("ok") and started.get("running"), started)
+        check("while it traces, the frames are published", len(traced) >= 5, len(traced))
+        check("and the stream takes them", after > before, (before, after))
+        ask({"action": "stop"})
+        tracer.close()
+        pump(0.5)
+        t1d = clock()
+        pump(1.0)
+        check("with it stopped they are held again",
+              len(client.since(t1d, "scene", clock())) == 0,
+              len(client.since(t1d, "scene", clock())))
+
         # --- pausing
         t3 = clock()
         Gui.runCommand("Std_AnimationPause")
@@ -242,6 +297,58 @@ def run():
               tick and tick["active"] and not tick["playing"]
               and abs(tick["t"] - paused) < 1e-6 and tick["baseActive"]
               and abs(tick["base"] - paused) < 1e-6, (paused, tick))
+
+        # A click a viewer made on the box where it drew it, a second away
+        # on the clock from the host: the pick names the clip, that Time and
+        # the box, and the host moves the ray to meet the box where it has it
+        import Part
+
+        picker = WS(port)
+        picker.hello("picker")
+        picker.next_binary(20.0)
+        down = App.Vector(0, 0, -1)
+        # A Time at which a ray straight down through the box's centre
+        # misses the box where the host has it now
+        misses_here = False
+        for step in range(5, 16):
+            drawn_at = (paused + 0.1 * step) % 2.0
+            centre = anim.value("Box.Placement", drawn_at).multVec(App.Vector(5, 5, 5))
+            origin = centre + App.Vector(0, 0, 50)
+            ray = Part.LineSegment(origin, origin + down * 100).toShape()
+            if box.Shape.distToShape(ray)[0] > 1e-3:
+                misses_here = True
+                break
+
+        def pick(timed):
+            msg = struct.pack("<cB6f", b"P", 0, origin.x, origin.y, origin.z,
+                              down.x, down.y, down.z)
+            if timed:
+                msg += struct.pack("<IdQ", clip["id"], drawn_at, int(clip["keys"][0], 16))
+            picker.send(2, msg)
+            # What it selected comes back to this client alone
+            end = clock() + 3.0
+            while clock() < end:
+                pump(0.05)
+                text = picker.next_text(0.05)
+                if not text:
+                    continue
+                try:
+                    said = jsonlib.loads(text.decode("utf-8"))
+                except Exception:
+                    continue
+                if said.get("cmd") == "selection":
+                    return [item.get("obj") for item in said.get("items", [])]
+            return None
+
+        # The timed one first: the untimed one then has a box to clear,
+        # and says so (a miss that changes nothing tells nothing back)
+        timed, untimed = pick(True), pick(False)
+        picker.close()
+        check("the ray where the viewer drew the box misses it where the host has it",
+              misses_here and untimed is not None and "Box" not in untimed,
+              (drawn_at, paused, untimed))
+        check("with the clip's Time and the box, the host moves it: the box is picked",
+              timed == ["Box"], timed)
 
         # --- an Animation that rebuilds a shape and hides an object as well
         t4 = clock()
@@ -295,6 +402,19 @@ def run():
                 body = repr(e).encode()
             got.append(hashlib.sha1(body).hexdigest() == key and len(body) == size)
         check("every blob is served under its key", all(got), got)
+        chunks = clip2.get("chunks") or []
+        check("the blobs' meshes are chunks of their own, named with the clip",
+              len(chunks) >= 1 and len(clip2.get("chunkSizes") or []) == len(chunks),
+              (len(chunks), clip2.get("chunkSizes")))
+        got = []
+        for key, size in list(zip(chunks, clip2.get("chunkSizes") or []))[:3]:
+            try:
+                body = urllib.request.urlopen(
+                    "http://127.0.0.1:%d/blob?key=%s" % (port, key), timeout=5).read()
+            except Exception as e:
+                body = repr(e).encode()
+            got.append(hashlib.sha1(body).hexdigest() == key and len(body) == size)
+        check("and served under their keys", got and all(got), got)
         t6 = clock()
         pump(1.0)
         flowing = client.since(t6, "scene")
@@ -335,6 +455,93 @@ def run():
         hGrp.RemInt("StreamBlobMB")
         Gui.runCommand("Std_AnimationStop")
         pump(0.5)
+
+        # --- a transparency that changes: a record a frame, not a blob
+        anim.addKey("Paint.ViewObject.Transparency", 0.0, 0)
+        anim.addKey("Paint.ViewObject.Transparency", 2.0, 80)
+        pump(0.3)
+        t10 = clock()
+        Gui.runCommand("Std_AnimationPlay")
+        pump(1.5)
+        clip6 = client.last("clip", t10)
+        looked = clip6["lookTracks"] if clip6 else []
+        check("a fading object rides a track with its looks",
+              clip6 is not None and len(looked) == 1 and len(clip6["seqKeys"]) == 1
+              and clip6["lookCount"][0] >= 1,
+              clip6 and (looked, clip6["lookCount"], clip6["seqKeys"]))
+        if looked:
+            frames6 = clip6["frames"]
+            at = struct.unpack("<%di" % (len(base64.b64decode(clip6["lookAt"])) // 4),
+                               base64.b64decode(clip6["lookAt"]))
+            record = 40
+            looks = base64.b64decode(clip6["looks"])
+            row = looked[0]
+            check("its look changes from frame to frame",
+                  len(at) == frames6 and len(set(at)) > frames6 // 2
+                  and len(looks) % record == 0, (len(at), len(set(at))))
+            # The first draw's diffuse colour, RGBA: its alpha goes down
+            alpha = [struct.unpack_from("<I", looks, at[f] * record + 4)[0] & 0xFF
+                     for f in (0, frames6 - 1)]
+            check("from opaque to 80 % transparent", alpha[0] == 255 and 40 <= alpha[1] <= 60,
+                  alpha)
+            check("and no blob of it is kept",
+                  not clip6["refs"] or clip6["refs"][2 * row + 1] == -1, clip6["refs"])
+        t11 = clock()
+        pump(1.0)
+        flowing = client.since(t11, "scene")
+        check("nothing is published for it while it plays", len(flowing) == 0, len(flowing))
+        Gui.runCommand("Std_AnimationStop")
+        pump(0.5)
+
+        # --- rebuilt and moved: a blob a frame, its meshes shared by them
+        step = doc.addObject("Part::Box", "Step")
+        # A footprint of its own: at the Still's 10 by 10 its two heights
+        # are meshes the Still's frames already hold, shared across objects
+        step.Length = step.Width = 7
+        step.Placement.Base = App.Vector(0, -30, 0)
+        doc.recompute()
+        for t, h in ((0.0, 10.0), (0.5, 20.0), (1.0, 10.0), (1.5, 20.0)):
+            anim.addKey("Step.Height", t, h, interp="Constant")
+        anim.addKey("Step.Placement.Base.x", 0.0, 0.0)
+        anim.addKey("Step.Placement.Base.x", 2.0, 20.0)
+        doc.recompute()
+        pump(0.3)
+        t12 = clock()
+        Gui.runCommand("Std_AnimationPlay")
+        pump(2.0)
+        clip7 = client.last("clip", t12)
+        if clip7 is not None and len(clip7["seqKeys"]) >= 1:
+            frames7 = clip7["frames"]
+            seq7 = struct.unpack("<%di" % (len(base64.b64decode(clip7["seq"])) // 4),
+                                 base64.b64decode(clip7["seq"]))
+            mine = None
+            for i in range(len(clip7["seqKeys"])):
+                row7 = seq7[i * frames7:(i + 1) * frames7]
+                if len(set(row7)) > frames7 // 2:
+                    mine = row7
+            check("a shape rebuilt as it moves is a blob a frame",
+                  mine is not None and all(b >= 0 for b in mine), mine and len(set(mine)))
+            shared = clip7.get("chunks") or []
+            # Against the clip before, of the same tracks but these
+            before = set((clip6 or {}).get("chunks") or [])
+            fresh = [c for c in shared if c not in before]
+            # Two heights, each a mesh of faces, one of edges and one of
+            # vertices -- however many frames name them
+            note("blobs %d (%d bytes), meshes %d (%d bytes)"
+                 % (len(clip7["blobs"]), sum(clip7["sizes"]), len(shared),
+                    sum(clip7.get("chunkSizes") or [])))
+            check("its frames' meshes are two heights' worth, not a frame's each",
+                  mine is not None and 1 <= len(fresh) <= 6 < len(set(mine)),
+                  (len(fresh), mine and len(set(mine))))
+        else:
+            check("a shape rebuilt as it moves is a blob a frame", False,
+                  clip7 and clip7["seqKeys"])
+        Gui.runCommand("Std_AnimationStop")
+        pump(0.5)
+        anim.removeTrack("Step.Height")
+        anim.removeTrack("Step.Placement.Base.x")
+        doc.removeObject("Step")
+        doc.recompute()
 
         # --- an edit while playing
         t7 = clock()

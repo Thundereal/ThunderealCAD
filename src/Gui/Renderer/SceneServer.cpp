@@ -4108,6 +4108,9 @@ public:
     /// of each and has to find the boundary between them.
     static constexpr size_t kCameraFrameSize = 6 + 13 * sizeof(float);
     static constexpr size_t kPickFrameSize = 2 + 6 * sizeof(float);
+    /// What a pick on an object a clip moves adds (ScenePickRequest::clip):
+    /// the clip id u32, the Time it was drawn at f64, the objectKey u64
+    static constexpr size_t kPickClipTail = 4 + 8 + 8;
     /// The input frame ('E', kind, modifiers, code u16, x/y/delta i16,
     /// time u32) -- fifteen bytes, distinct in size from both of those,
     /// which is what tells the three apart on the wire.
@@ -4216,7 +4219,8 @@ public:
         // pick to resolve through the mirror the client had, exactly as
         // a refused 'C' does.
         std::vector<uint8_t> embedded;
-        if (data.size() == 1 + kCameraFrameSize + kPickFrameSize
+        if ((data.size() == 1 + kCameraFrameSize + kPickFrameSize
+             || data.size() == 1 + kCameraFrameSize + kPickFrameSize + kPickClipTail)
                 && data[0] == 'Q') {
             const std::vector<uint8_t> cam(
                     data.begin() + 1, data.begin() + 1 + kCameraFrameSize);
@@ -4249,7 +4253,8 @@ public:
         }
         // Pick request: 'P', flags byte, six little-endian floats
         // (world ray origin + direction).
-        if (event.size() == kPickFrameSize && event[0] == 'P') {
+        if ((event.size() == kPickFrameSize || event.size() == kPickFrameSize + kPickClipTail)
+                && event[0] == 'P') {
             ScenePickRequest req;
             req.client = conn.id;
             req.modifiers = event[1];
@@ -4258,6 +4263,12 @@ public:
             for (int i = 0; i < 3; ++i) {
                 req.origin[i] = v[i];
                 req.dir[i] = v[3 + i];
+            }
+            if (event.size() > kPickFrameSize) {
+                const uint8_t *tail = event.data() + kPickFrameSize;
+                std::memcpy(&req.clip, tail, 4);
+                std::memcpy(&req.clipTime, tail + 4, 8);
+                std::memcpy(&req.objectKey, tail + 12, 8);
             }
             if (conn.group)
                 dispatchPick(*conn.group, {req});

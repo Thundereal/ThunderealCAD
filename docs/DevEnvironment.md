@@ -4286,12 +4286,31 @@ Darwin branch (`_LIBCPP_DISABLE_AVAILABILITY`, `BOOST_NO_CXX98_FUNCTION_BASE`,
         "FREECAD_USE_EXTERNAL_SMESH": "ON",
         "BUILD_FEM_NETGEN": "ON",
         "FREECAD_USE_PCL": "ON",
-        "ENABLE_DEVELOPER_TESTS": "ON"
+        "ENABLE_DEVELOPER_TESTS": "ON",
+        "BUILD_ASSEMBLY_CHRONO": "ON",
+        "CHRONO_BUILD_JOBS": "4"
       }
     }
   ]
 }
 ```
+
+`BUILD_ASSEMBLY_CHRONO` is on here since 2026-11-14 (the Assembly's Chrono
+backend, the submodule `src/3rdParty/chrono` built as a nested project; the
+nested build is about six minutes at 4 jobs here and leaves a 1.3 GB `libChrono_core.a`).
+It needed two fixes: the fork's `ChClassFactory.h` did not include
+`<type_traits>` (libc++ again, the class below), and `ChronoCore.cmake` did
+not pass `CMAKE_OSX_DEPLOYMENT_TARGET`/`SYSROOT`/`ARCHITECTURES` on, so Chrono
+was built for the running system (13.0) and every link warned. CalculiX
+(`calculix` from conda-forge, `ccx`) is in the env for the dynamics tests
+that run it. With both, the Assembly tests skip only what needs the GUI.
+The solver gate's 120 cases skipped here until 2026-11-14 for a record taken
+on win32; they run now, the record's numbers against this box's solves (all
+within 1e-9) and this box's own digests of the solver input
+(`SolverGateDigests.darwin-arm64.json`, docs/AssemblySolverInterface.md).
+`TestProfileContact.test_half_disc_rocks`
+measured 0.071 deg here before `main` was merged, as on Linux: step-size
+error, not the platform (ded38fc20f, the section above).
 
 FEM and PCL were `OFF` in this preset until 2026-09-08. `BUILD_WEB` was set
 `OFF` here until 2026-11-11; it is left to its default now, which is ON and
@@ -4539,8 +4558,9 @@ Still failing, and not for this box to settle:
 
 | Failing | What is known |
 |---|---|
-| `TransactionLogTest.aPinnedVersionIsFrozen`; 15 of `Document.TransactionBranchCases` and 2 of `TransactionAuditCases` | **`$TMPDIR` is `/var/folders/...`, and `/var` is a symlink to `/private/var`.** A document keeps the spelling it was given, the file history knows the file by its canonical path and names a version's document after that, and the two spellings meet in the link lookup, the export sets and the merges. Run with `TMPDIR=$(cd "$TMPDIR" && pwd -P)/` and all eighteen pass (`-t Document`: 358 tests, OK). Which spelling a version's document takes is a design decision; not changed |
-| `RenderGoldenRaster`, `RenderGoldenRasterFlat` | the references were blessed on the Intel box's GPU; here depth, normal and ao agree and `beauty` differs in 0.13% of the pixels (flat). **Both open a window on the desktop** -- `ctest -E '^RenderGolden'` for a run that must not |
+| `Document.TransactionBranchCases`: `testALinkedSetIsExportedToAFolder`, `testAnExpressionReadsWhatTheSetsFilesCameAs`, `testTheirFileAloneLinksWhatTheSetsFilesCameAs` | **pass since 2026-11-15.** `$TMPDIR` is `/var/folders/...`, and `/var` is a symlink to `/private/var`: a document keeps the spelling it was given, the file history knows the file by its canonical path. Fifteen of the eighteen this cost passed with fcad `6bb8fce7a2`; these three were the same file opened a second time under the other spelling, and a relative path measured across the two. Fixed where it happened, the absolute-path keys of PropertyLinks' `DocInfo` left as they are (symlinked trees keep the spelling they were given): a link whose file is already open under another spelling of the same physical file attaches to that document, and its save is not a move; a set merge finds and opens our files through the documents open for them and sets a plain link in the open document's spelling; a set export reads a version whole through `openDocument` (named as asked), places a file inside the top's folder by the two as they physically are when the spellings disagree, and writes relative paths between them so. Storing the canonical path in every document instead broke 18 tests that hold a document to the path it was given |
+| `FeaturePythonChain.RoutedChainCases.testFlangeRoutedMatchesNative` | **Fails since 2026-11-14, not looked into.** The routed flange's BRep text differs from the native one's in a last digit (`...999995` against `...999996`). It fails with and without the 2026-11-15 link changes (built without them and run: the same), alone and in the suite, every time. The full suite run of 2026-11-14 (5450 tests, the three /var failures only) did not fail it; what changed since is not known -- an OCCT installed for the fillet runs is one candidate |
+| `RenderGoldenRaster`, `RenderGoldenRasterFlat` | **pass since 2026-11-14**: the Metal references were the Intel box's GPU, and here `beauty` differed on 0.13% of the pixels, all along the edge lines. An arm64 Mac now looks for `<set>-metal-apple` (tests/render/CMakeLists.txt), blessed on this box (refs `0ef2221`). **Both open a window on the desktop** -- `ctest -E '^RenderGolden'` for a run that must not |
 
 `FormWidgets_Tests_run` failed once in three `-j 4` runs and passes alone.
 

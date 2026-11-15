@@ -25,6 +25,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include <FCGlobal.h>
@@ -189,11 +190,14 @@ struct Key
     Interp interp = Interp::Linear;  ///< for the span to the next key
     Easing easing;                   ///< Interp::Easing
     Handle left, right;              ///< Interp::Bezier
+    /// Interp::Python: an expression in `u`, the span's progress from 0 to
+    /// 1, giving the eased progress (docs/Animation.md sec 4)
+    std::string python;
 
     bool operator==(const Key& o) const
     {
         return t == o.t && v == o.v && interp == o.interp && easing == o.easing
-            && left == o.left && right == o.right;
+            && left == o.left && right == o.right && python == o.python;
     }
 };
 

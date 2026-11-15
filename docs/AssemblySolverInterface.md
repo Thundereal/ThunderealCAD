@@ -1202,7 +1202,14 @@ statuses exactly. The references were recorded three times, in three
 processes, twice through the new builder and once through the old one; the
 three files are identical. `ASM_SOLVER_GATE_RECORD=1` re-records after an
 intended change; another platform skips. A 1e-7 change to a value the
-adapter writes fails both forms of the gate.
+adapter writes fails both forms of the gate. (Since 2026-11-14 another
+platform does not skip: the record's statuses, placements and frames are its
+gate too, and only the digests are per platform, because the ASMT text
+writes its numbers to the last bit -- on macOS arm64 every case's export
+differs from the win32 record's while every number agrees within 1e-9 and
+every status exactly. Such a platform's digests are
+`SolverGateDigests.<platform>-<machine>.json`, taken with
+`ASM_SOLVER_GATE_RECORD_DIGESTS=1`; darwin-arm64 has its 220.)
 
 Corpus: every joint type (Fixed, Revolute, Cylindrical, Slider, Ball,
 Parallel, Perpendicular, Angle 30 and Angle 0; Gears and Belt with drags; a

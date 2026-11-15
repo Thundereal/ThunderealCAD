@@ -959,7 +959,10 @@ public:
      */
     bool renderWithCycles(const std::string &path, int width, int height, int samples,
                           const std::string &device, std::string *error,
-                          Render::Cycles::RenderReport *report = nullptr);
+                          Render::Cycles::RenderReport *report = nullptr,
+                          bool denoise = false, int seed = 0, bool keep = false);
+    /// Let go of the session renderWithCycles(keep) kept, if any
+    void releaseCyclesStill();
 
     /** Path trace this view live with Cycles (docs/CyclesIntegration.md
      * phase 4, the viewport).

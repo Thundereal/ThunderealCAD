@@ -345,6 +345,32 @@ class TestCore(AssemblyTestBase):
 
         self.assertTrue(box.Placement.isSame(box2.Placement, 1e-6), "'{}'".format(operation))
 
+    def test_animated_placement_of_a_solved_part_is_solved(self):
+        """An Animation's track on the placement of a part the assembly
+        places is Solved (docs/Animation.md sec 3.11), not one joined to
+        nothing; a grounded one cannot be keyed."""
+        box = self.assembly.newObject("Part::Box", "Box")
+        base = self.assembly.newObject("Part::Box", "Base")
+        free = self.assembly.newObject("Part::Box", "Free")
+        free.Placement.Base = App.Vector(50, 0, 0)
+        ground = self.jointgroup.newObject("App::FeaturePython", "GroundedJoint")
+        JointObject.GroundedJoint(ground, base)
+        joint = self.jointgroup.newObject("App::FeaturePython", "Joint")
+        JointObject.Joint(joint, 0)
+        joint.Proxy.setJointConnectors(joint, [[base, ["Face6", "Vertex7"]],
+                                               [box, ["Face6", "Vertex7"]]])
+        self.doc.recompute()
+        anim = self.doc.addObject("App::Animation", "Anim")
+        for name in ("Box", "Free"):
+            anim.addKey(name + ".Placement", 0.0)
+        anim.addKey("Box.Placement.Base.z", 1.0, 5.0)
+        self.assertEqual(anim.state("Box.Placement"), "Solved")
+        self.assertEqual(anim.state("Box.Placement.Base.z"), "Solved")
+        self.assertEqual(anim.state("Free.Placement"), "Ok")  # joined to nothing
+        # A grounded part's placement is read-only: not keyed at all
+        with self.assertRaises(ValueError):
+            anim.addKey("Base.Placement", 0.0)
+
     def test_rack_pinion_with_slider_offset(self):
         """Rack and pinion joint whose rack slider has a yaw offset, see
         github.com/freecad/freecad/issues/17563"""

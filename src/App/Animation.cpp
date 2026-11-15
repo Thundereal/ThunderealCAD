@@ -52,6 +52,7 @@
 #include "AutoTransaction.h"
 #include "WriteScope.h"
 #include "Document.h"
+#include "Expression.h"
 #include "PropertyContainerPy.h"
 #include "PropertyGeo.h"
 #include "TransactionValue.h"
@@ -316,6 +317,43 @@ int AnimationTrack::findId(int id) const
     return -1;
 }
 
+namespace
+{
+
+/// A Python span's eased progress: its expression evaluated by the
+/// expression engine, as `(lambda u: (expr))(u)`, under the rules every
+/// expression of the document runs by. An error is said once a text and
+/// leaves the span linear.
+double pythonSpan(const DocumentObject* owner, const Key& key, double u)
+{
+    if (key.python.empty()) {
+        return u;
+    }
+    char number[40];
+    std::snprintf(number, sizeof(number), "%.17g", u);
+    const std::string text = "(lambda u: (" + key.python + "))(" + number + ")";
+    try {
+        Base::PyGILStateLocker lock;
+        ExpressionPtr expr(Expression::parse(owner, text));
+        if (!expr) {
+            return u;
+        }
+        double v = anyToQuantity(expr->getValueAsAny(), "a number").getValue();
+        if (std::isfinite(v)) {
+            return v;
+        }
+    }
+    catch (Base::Exception& e) {
+        static std::set<std::string> said;
+        if (said.insert(key.python).second) {
+            FC_WARN("Python interpolation '" << key.python << "': " << e.what());
+        }
+    }
+    return u;
+}
+
+}  // namespace
+
 void AnimationTrack::makeCurve(Curve& curve) const
 {
     curve.layout = layout;
@@ -323,8 +361,17 @@ void AnimationTrack::makeCurve(Curve& curve) const
     curve.after = after;
     curve.keys.clear();
     curve.keys.reserve(keys.size());
+    bool python = false;
     for (auto& k : keys) {
         curve.keys.push_back(k.key);
+        python = python || k.key.interp == Interp::Python;
+    }
+    curve.python = nullptr;
+    if (python) {
+        auto owner = freecad_dynamic_cast<DocumentObject>(target.getOwner());
+        curve.python = [owner](const Key& key, double u) {
+            return pythonSpan(owner, key, u);
+        };
     }
     curve.prepare();
 }
@@ -538,7 +585,7 @@ void PropertyAnimationTracks::moveKeys(const std::vector<AnimationKeyRef>& refs,
 }
 
 void PropertyAnimationTracks::setInterp(const std::vector<AnimationKeyRef>& refs, Interp interp,
-                                        const Easing* easing)
+                                        const Easing* easing, const std::string* python)
 {
     if (refs.empty()) {
         return;
@@ -556,6 +603,9 @@ void PropertyAnimationTracks::setInterp(const std::vector<AnimationKeyRef>& refs
         t.keys[i].key.interp = interp;
         if (easing) {
             t.keys[i].key.easing = *easing;
+        }
+        if (python) {
+            t.keys[i].key.python = *python;
         }
     }
     hasSetValue();
@@ -612,6 +662,9 @@ bool PropertyAnimationTracks::layoutOf(const std::string& valueType, RotationMod
 void PropertyAnimationTracks::updateDeps()
 {
     std::map<DocumentObject*, bool> deps;
+    // The labels the paths name objects by: a relabel asks this property
+    // to follow it (CopyOnLabelChange)
+    std::vector<std::string> labels;
     auto owner = freecad_dynamic_cast<DocumentObject>(getContainer());
     for (auto& t : _tracks) {
         if (t.kind == "Strip" && owner && owner->getDocument()) {
@@ -624,7 +677,7 @@ void PropertyAnimationTracks::updateDeps()
             continue;
         }
         try {
-            for (auto& [obj, props] : t.target.getDep(false)) {
+            for (auto& [obj, props] : t.target.getDep(false, &labels)) {
                 if (obj) {
                     deps[obj] = true;  // Hidden: no edge in the graph
                 }
@@ -634,7 +687,104 @@ void PropertyAnimationTracks::updateDeps()
             FC_LOG("no dependency for " << t.target.toString() << ": " << e.what());
         }
     }
+    registerLabelReferences(std::move(labels));
     PropertyXLinkContainer::updateDeps(std::move(deps));
+}
+
+Property* PropertyAnimationTracks::CopyOnImportExternal(
+    const std::map<std::string, std::string>& nameMap) const
+{
+    auto owner = freecad_dynamic_cast<DocumentObject>(getContainer());
+    if (!owner || !owner->getDocument()) {
+        return nullptr;
+    }
+    std::unique_ptr<PropertyAnimationTracks> copy;
+    for (size_t i = 0; i < _tracks.size(); ++i) {
+        const auto& t = _tracks[i];
+        if (t.kind != "Property") {
+            continue;
+        }
+        auto obj = t.target.getDocumentObject();
+        if (!obj) {
+            continue;
+        }
+        ObjectIdentifier::SubNameMap subNames;
+        auto it = nameMap.find(obj->getExportName(true));
+        if (it != nameMap.end()) {
+            subNames.emplace(std::make_pair(obj, std::string()), it->second);
+        }
+        const std::string sub = t.target.getSubObjectName();
+        if (!sub.empty()) {
+            std::string imported = PropertyLinkBase::tryImportSubName(
+                obj, sub.c_str(), owner->getDocument(), nameMap);
+            if (!imported.empty()) {
+                subNames.emplace(std::make_pair(obj, sub), std::move(imported));
+            }
+        }
+        if (subNames.empty()) {
+            continue;
+        }
+        if (!copy) {
+            copy.reset(static_cast<PropertyAnimationTracks*>(Copy()));
+        }
+        copy->_tracks[i].target.importSubNames(subNames);
+    }
+    return copy.release();
+}
+
+Property* PropertyAnimationTracks::CopyOnLabelChange(DocumentObject* obj, const std::string& ref,
+                                                     const char* newLabel) const
+{
+    // ref is the old label as "$label."
+    if (ref.size() <= 2) {
+        return nullptr;
+    }
+    std::unique_ptr<PropertyAnimationTracks> copy;
+    for (size_t i = 0; i < _tracks.size(); ++i) {
+        const auto& t = _tracks[i];
+        if (t.kind != "Property") {
+            continue;
+        }
+        std::vector<std::string> labels;
+        t.target.getDepLabels(labels);
+        const bool named = std::any_of(labels.begin(), labels.end(), [&ref](const auto& label) {
+            return ref.compare(1, ref.size() - 2, label) == 0;
+        });
+        if (!named) {
+            continue;
+        }
+        ObjectIdentifier target = t.target;
+        if (!target.updateLabelReference(obj, ref, newLabel)) {
+            continue;
+        }
+        if (!copy) {
+            copy.reset(static_cast<PropertyAnimationTracks*>(Copy()));
+        }
+        copy->_tracks[i].target = target;
+    }
+    return copy.release();
+}
+
+Property* PropertyAnimationTracks::CopyOnLinkReplace(const DocumentObject* parent,
+                                                     DocumentObject* oldObj,
+                                                     DocumentObject* newObj) const
+{
+    std::unique_ptr<PropertyAnimationTracks> copy;
+    for (size_t i = 0; i < _tracks.size(); ++i) {
+        const auto& t = _tracks[i];
+        if (t.kind != "Property") {
+            continue;
+        }
+        ObjectIdentifier replaced;
+        if (!t.target.replaceObject(replaced, parent, oldObj, newObj)) {
+            continue;
+        }
+        if (!copy) {
+            copy.reset(static_cast<PropertyAnimationTracks*>(Copy()));
+        }
+        copy->_tracks[i].target = replaced;
+    }
+    return copy.release();
 }
 
 void PropertyAnimationTracks::hasSetValue()
@@ -729,6 +879,9 @@ void PropertyAnimationTracks::Save(Base::Writer& writer) const
                   << nameOf(EaseModeNames, key.easing.mode) << "\" amplitude=\""
                   << number(key.easing.amplitude) << "\" period=\"" << number(key.easing.period)
                   << "\" overshoot=\"" << number(key.easing.overshoot) << "\"";
+            }
+            if (key.interp == Interp::Python) {
+                s << " python=\"" << encodeAttribute(key.python) << "\"";
             }
             auto handle = [&](const char* side, const Handle& h) {
                 if (h.type == HandleType::AutoClamped) {
@@ -826,6 +979,9 @@ void PropertyAnimationTracks::Restore(Base::XMLReader& reader)
                 k.key.easing.amplitude = reader.getAttributeAsFloat("amplitude", "1");
                 k.key.easing.period = reader.getAttributeAsFloat("period", "0.3");
                 k.key.easing.overshoot = reader.getAttributeAsFloat("overshoot", "1.70158");
+            }
+            if (reader.hasAttribute("python")) {
+                k.key.python = reader.getAttribute("python");
             }
             auto handle = [&](const std::string& side, Handle& h) {
                 h.type = enumOf<HandleType>(
@@ -1225,8 +1381,44 @@ bool Animation::resolve(const AnimationTrack& track, Target& target) const
                 break;
             }
         }
+        // The placement of a part an Assembly places: the solver writes it
+        // too (3.11), a piece of it or the whole
+        if (target.state == AnimationTrackState::Ok && name
+            && std::strcmp(name, "Placement") == 0
+            && target.prop->isDerivedFrom<PropertyPlacement>() && placementSolved(*obj)) {
+            target.state = AnimationTrackState::Solved;
+        }
     }
     return true;
+}
+
+namespace
+{
+std::vector<std::function<bool(const DocumentObject&)>>& placementSolvers()
+{
+    static std::vector<std::function<bool(const DocumentObject&)>> solvers;
+    return solvers;
+}
+}  // namespace
+
+void Animation::addPlacementSolver(std::function<bool(const DocumentObject&)> solves)
+{
+    placementSolvers().push_back(std::move(solves));
+}
+
+bool Animation::placementSolved(const DocumentObject& obj)
+{
+    for (auto& solves : placementSolvers()) {
+        try {
+            if (solves(obj)) {
+                return true;
+            }
+        }
+        catch (Base::Exception& e) {
+            FC_LOG("placement solver: " << e.what());
+        }
+    }
+    return false;
 }
 
 AnimationTrackState Animation::state(int trackId) const
@@ -1588,6 +1780,24 @@ void Animation::addRestProvider(RestProvider provider)
     if (provider) {
         restProviders().push_back(std::move(provider));
     }
+}
+
+const Property* Animation::heldRestValue(const Property& prop)
+{
+    if (WriteScope::causes() & WriteCause::Animation) {
+        return nullptr;
+    }
+    auto& owners = restOwners();
+    auto it = owners.find(&prop);
+    if (it == owners.end()) {
+        return nullptr;
+    }
+    auto rit = it->second->_rest.find(&prop);
+    if (rit == it->second->_rest.end()) {
+        return nullptr;
+    }
+    auto& r = *rit->second;
+    return r.rest && r.written && r.written->isSame(prop) ? r.rest.get() : nullptr;
 }
 
 void Animation::dropRest(const DocumentObject* obj, const Property* prop)
@@ -2377,6 +2587,9 @@ bool Animation::spillFrame(long index, Frame& frame)
         double began = secondsNow();
         CaptureConfig config(*doc);
         config.blobs = nullptr;  // whole, in the frame's own file
+        // Binary: a third smaller than the text a save writes, and quicker
+        // read back (docs/Animation.md sec 4.1)
+        config.preferBinary = true;
         std::string name = dir + "/" + std::to_string(index) + ".frame";
         std::ofstream out(name, std::ios::binary | std::ios::trunc);
         if (!out) {
@@ -2600,6 +2813,27 @@ void Animation::trimCache()
             }
             break;
         }
+        dropFrame(index);
+    }
+}
+
+void Animation::dropFramesReaching(const DocumentObject& obj)
+{
+    // obj, and every object whose result depends on it, through any link,
+    // an expression's hidden ones included
+    std::set<DocumentObject*> reached = obj.getInListEx(true);
+    reached.insert(const_cast<DocumentObject*>(&obj));
+    reached.erase(this);
+    std::vector<long> gone;
+    for (auto& [index, frame] : _frames) {
+        for (auto o : frame->scope) {
+            if (reached.count(o)) {
+                gone.push_back(index);
+                break;
+            }
+        }
+    }
+    for (long index : gone) {
         dropFrame(index);
     }
 }
@@ -2898,12 +3132,18 @@ void Animation::connectDocument()
                                                    const_cast<Property*>(&prop));
                 }
             }
-            else if (!_frames.empty() && !(WriteScope::causes() & WriteCause::Animation)
-                     && (&obj != this || &prop == &Tracks || &prop == &Start
-                         || &prop == &FrameRate || &prop == &Recompute || &prop == &Cache)) {
-                // The design changed, or what a frame is: nothing kept
-                // is what a recompute would give now
-                clearCache();
+            else if (!_frames.empty() && !(WriteScope::causes() & WriteCause::Animation)) {
+                if (&obj != this) {
+                    // The design changed: what a frame kept of it, or of
+                    // anything that depends on it, is not what a
+                    // recompute would give now
+                    dropFramesReaching(obj);
+                }
+                else if (&prop == &Tracks || &prop == &Start || &prop == &FrameRate
+                         || &prop == &Recompute || &prop == &Cache) {
+                    // What a frame is changed: nothing kept stands
+                    clearCache();
+                }
             }
             onRecord(obj, prop);
         }));

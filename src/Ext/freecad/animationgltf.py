@@ -23,11 +23,17 @@ node does there is written:
   - a visibility that switches: the node's scale, 1 or 0, STEP, at the
     frames it switches at. glTF has no visibility to animate, and a node of
     no size is how its tools hide one. An object hidden at rest and shown
-    at some frame is in the file.
+    at some frame is in the file;
+  - a colour or a transparency that changes: the object's mesh has
+    materials of its own, the faces whose colour went the same way through
+    the frames sharing one, and each material's baseColorFactor is a
+    channel of a sample a frame by KHR_animation_pointer (in
+    extensionsUsed, not required: a reader without it shows the first
+    frame's colours). One that turns transparent is blended throughout.
 
 What does not fit is left out and named in the result's "Skipped": an
 object whose shape the animation rebuilds (it is in the file as it rests),
-a colour or transparency that changes, and camera tracks.
+and camera tracks.
 
 The Animation is left as it was. Times in the file start at 0; the asset's
 extras give the range's start.
@@ -247,7 +253,8 @@ def exportGltf(anim, path):
     Returns a dict: Frames, Nodes, Animated (the nodes that move or
     switch), Keyed (the nodes whose move is written on its keys, not on
     every frame), PartlyKeyed (those whose translation or rotation is, the
-    other sampled), Meshes, Bytes (the file's, with its .bin) and Skipped (a
+    other sampled), Recoloured (the nodes whose colours are animated),
+    Meshes, Bytes (the file's, with its .bin) and Skipped (a
     line for each thing the animation does that the file does not hold)."""
     import numpy
 
@@ -312,6 +319,7 @@ def exportGltf(anim, path):
     animated = 0
     keyed = 0
     partly = 0
+    looked = 0
 
     def channel(node, target, values, kind, interpolation, at=None):
         if at is None:
@@ -326,7 +334,14 @@ def exportGltf(anim, path):
             )
         output = writer.accessor(values.astype(numpy.float32), kind)
         samplers.append({"input": source, "output": output, "interpolation": interpolation})
-        channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": target}})
+        if node is None:
+            # Not a node's: a property anywhere in the file, by its JSON
+            # pointer (KHR_animation_pointer)
+            writer.extension("KHR_animation_pointer")
+            to = {"path": "pointer", "extensions": {"KHR_animation_pointer": {"pointer": target}}}
+        else:
+            to = {"node": node, "path": target}
+        channels.append({"sampler": len(samplers) - 1, "target": to})
 
     for item in items:
         obj = item.obj
@@ -334,8 +349,12 @@ def exportGltf(anim, path):
         if not ever and not item.group:
             continue
         mesh = None
+        recoloured = []
         if not item.group:
-            mesh = gltfscene.meshOf(writer, obj)
+            if item.looks and any(look != item.looks[0] for look in item.looks[1:]):
+                mesh, recoloured = gltfscene.animatedMeshOf(writer, obj, item.looks)
+            else:
+                mesh = gltfscene.meshOf(writer, obj)
             if mesh is None:
                 continue
         node = {"name": obj.Label, "extras": {"name": obj.Name}}
@@ -390,12 +409,26 @@ def exportGltf(anim, path):
             )
             channel(item.node, "scale", scales, "VEC3", "STEP", [times[k] for k in switches])
             moved = True
+        # A colour or a transparency that changes: its materials' base
+        # colour at every frame, by KHR_animation_pointer
+        for material, history in recoloured:
+            factors = numpy.array(
+                [gltfscene.baseColor(c, t) for c, t in history], dtype=numpy.float64
+            )
+            channel(
+                None,
+                "/materials/%d/pbrMetallicRoughness/baseColorFactor" % material,
+                factors,
+                "VEC4",
+                "LINEAR",
+            )
+            moved = True
+        if recoloured:
+            looked += 1
         if moved:
             animated += 1
         if item.signatures and any(s != item.signatures[0] for s in item.signatures[1:]):
             skipped.append("%s: its shape changes; exported as it rests" % obj.Label)
-        if item.looks and any(look != item.looks[0] for look in item.looks[1:]):
-            skipped.append("%s: its colour or transparency changes" % obj.Label)
 
     for track in anim.Tracks:
         if track.get("Kind") == "Camera":
@@ -414,6 +447,7 @@ def exportGltf(anim, path):
         "Animated": animated,
         "Keyed": keyed,
         "PartlyKeyed": partly,
+        "Recoloured": looked,
         "Meshes": meshes,
         "Bytes": size,
         "Skipped": skipped,

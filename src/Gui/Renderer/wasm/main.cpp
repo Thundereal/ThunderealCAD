@@ -3195,7 +3195,10 @@ static void applyPeerSelection(const char *json)
 /// and re-applies this one. The ruling is sec 8.2a's: a click round-trips
 /// because selection feeds the tree, the property panel and everything
 /// behind Gui::Selection(); a hover never does.
-static void sendPick(float px, float py, uint8_t flags);
+static void sendPick(float px, float py, uint8_t flags, uint64_t hitKey = 0);
+/// Whether \a key is an object this viewer drew moved by the clip, and if
+/// so the clip's id and the Time it was drawn at (defined with the clip)
+static bool clipPickTail(uint64_t key, uint32_t &clip, double &at);
 
 /// What a click MEANS, which is what goes up the wire (sec 8.5).
 ///
@@ -3314,7 +3317,7 @@ static void selectAt(float px, float py, bool ctrl, bool shift = false)
     flags |= shift ? PickExtend : (multi ? PickToggle : PickReplace);
     if (wholeScope)
         flags |= kPickWholeObject;
-    sendPick(px, py, flags);
+    sendPick(px, py, flags, dc.objectKey);
 }
 
 /// One on-view parameter, as far as this viewer is concerned
@@ -4660,18 +4663,32 @@ static void tickCameraUplink()
 /// the ~1500 call sites behind Gui::Selection() are all on that side, and
 /// the ruling of sec 8.2a is that a click round-trips while a hover does
 /// not. The echo is merged, never applied over the local state.
-static void sendPick(float px, float py, uint8_t flags)
+static void sendPick(float px, float py, uint8_t flags, uint64_t hitKey)
 {
     if (!s_wsOpen || s_ws <= 0)
         return;
 
     bx::Vec3 orig(bx::InitZero), rdir(bx::InitZero);
     screenRay(px, py, orig, rdir);
-    uint8_t pick[2 + 6 * sizeof(float)];
+    // A click on an object this viewer moved by the clip carries the clip,
+    // the Time it was drawn at and the object (docs/Animation.md sec 9.1):
+    // the host, a frame or so elsewhere on its own clock, moves the ray by
+    // that object's move between the two before it resolves it
+    uint32_t clipId = 0;
+    double drawnAt = 0.0;
+    const bool timed = hitKey && clipPickTail(hitKey, clipId, drawnAt);
+    uint8_t pick[2 + 6 * sizeof(float) + 4 + 8 + 8];
+    const size_t pickSize = 2 + 6 * sizeof(float) + (timed ? 20 : 0);
     pick[0] = 'P';
     pick[1] = flags;
     const float v[6] = {orig.x, orig.y, orig.z, rdir.x, rdir.y, rdir.z};
     std::memcpy(pick + 2, v, sizeof(v));
+    if (timed) {
+        uint8_t *tail = pick + 2 + sizeof(v);
+        std::memcpy(tail, &clipId, 4);
+        std::memcpy(tail + 4, &drawnAt, 8);
+        std::memcpy(tail + 12, &hitKey, 8);
+    }
 
     // The camera goes with the click, and the policy decides how. The
     // server resolves the ray against the camera it last heard about, so
@@ -4693,8 +4710,8 @@ static void sendPick(float px, float py, uint8_t flags)
             uint8_t both[1 + sizeof(cam) + sizeof(pick)];
             both[0] = 'Q';
             std::memcpy(both + 1, cam, sizeof(cam));
-            std::memcpy(both + 1 + sizeof(cam), pick, sizeof(pick));
-            emscripten_websocket_send_binary(s_ws, both, sizeof(both));
+            std::memcpy(both + 1 + sizeof(cam), pick, pickSize);
+            emscripten_websocket_send_binary(s_ws, both, uint32_t(1 + sizeof(cam) + pickSize));
             markCameraFrameSent(cam);
             return;
         }
@@ -4705,7 +4722,7 @@ static void sendPick(float px, float py, uint8_t flags)
     else {
         sendCameraFrame(/*force*/ true);
     }
-    emscripten_websocket_send_binary(s_ws, pick, sizeof(pick));
+    emscripten_websocket_send_binary(s_ws, pick, uint32_t(pickSize));
 }
 
 // ---- Uplink: this client's pointer and keys, while it is editing ------
@@ -6687,6 +6704,8 @@ static void feedOverlays()
 static Render::MotionClip s_clip;
 static std::unordered_map<uint64_t, size_t> s_clipTracks;
 static std::unordered_map<uint64_t, size_t> s_clipSeqs;
+/// Track number -> its row of looks, for the tracks whose looks change
+static std::unordered_map<size_t, size_t> s_clipLookRows;
 static Render::MotionClock s_clock;
 /// emscripten_get_now() when s_clock arrived
 static double s_clockAt = 0.0;
@@ -6698,7 +6717,12 @@ static std::map<uint64_t, std::pair<bool, double>> s_clipBases;
 static std::vector<std::shared_ptr<const Render::DrawCallList>> s_clipBlobDraws;
 /// The blobs asked for and not yet in, by content key
 static std::unordered_map<std::string, size_t> s_clipBlobWanted;
+/// The blobs in whose meshes are not all in yet, by blob number
+static std::unordered_map<size_t, std::shared_ptr<Render::MotionBlobRead>> s_clipBlobReads;
+/// The mesh chunks those wait on: content key -> the blob numbers
+static std::unordered_map<std::string, std::vector<size_t>> s_clipMeshWanted;
 static size_t s_clipBlobsIn = 0;
+static size_t s_clipMeshesIn = 0;
 /// A blob landed since the scene was last posed
 static bool s_clipBlobLanded = false;
 
@@ -6714,6 +6738,8 @@ static unsigned s_clipPoses = 0;
 static size_t s_clipMoved = 0;
 static size_t s_clipSwapped = 0;
 static size_t s_clipHidden = 0;
+/// Draws whose looks the last pose set
+static size_t s_clipLooked = 0;
 
 static void clipWantBlobs();
 
@@ -6791,7 +6817,33 @@ static void clipPose(double time)
                 swap[i] = 2;
         }
     }
-    size_t moved = 0, swapped = 0, hidden = 0;
+    size_t moved = 0, swapped = 0, hidden = 0, looked = 0;
+    // The looks of each track whose looks change, at this time, and which
+    // of its slots a draw has taken this pose (a draw finds its record by
+    // what it is, not by where it is in the publish)
+    std::vector<std::vector<Render::MotionLook>> rowLooks(s_clip.lookTracks.size());
+    std::vector<std::vector<uint8_t>> rowUsed(s_clip.lookTracks.size());
+    auto applyLook = [&](size_t k, Render::DrawCall &d) {
+        auto ri = s_clipLookRows.find(k);
+        if (ri == s_clipLookRows.end())
+            return;
+        const size_t r = ri->second;
+        const size_t n = s_clip.lookCount[r];
+        if (rowLooks[r].empty()) {
+            s_clip.looksAt(r, time, rowLooks[r]);
+            rowUsed[r].assign(n, 0);
+        }
+        const Render::MotionSlot *slots = &s_clip.lookSlots[s_clip.lookSlotStart(r)];
+        const Render::MotionSlot mine = Render::MotionSlot::of(d);
+        for (size_t j = 0; j < n; ++j) {
+            if (!rowUsed[r][j] && slots[j] == mine) {
+                rowUsed[r][j] = 1;
+                rowLooks[r][j].applyTo(d.material);
+                ++looked;
+                return;
+            }
+        }
+    };
     Render::DrawCallList out;
     out.reserve(s_clipRaw.size());
     for (const Render::DrawCall &d : s_clipRaw) {
@@ -6816,6 +6868,7 @@ static void clipPose(double time)
                     Render::Motion::moveDraw(out.back(), &moves[k * 16]);
                     ++moved;
                 }
+                applyLook(k, out.back());
                 continue;
             }
         }
@@ -6842,6 +6895,7 @@ static void clipPose(double time)
             for (const Render::DrawCall &d : *s_clipBlobDraws[size_t(blob)]) {
                 out.push_back(d);
                 Render::Motion::moveDraw(out.back(), x);
+                applyLook(k, out.back());
                 ++swapped;
             }
         }
@@ -6850,10 +6904,20 @@ static void clipPose(double time)
     s_clipMoved = moved;
     s_clipSwapped = swapped;
     s_clipHidden = hidden;
+    s_clipLooked = looked;
     s_clipPosed = true;
     s_clipShown = time;
     s_clipBlobLanded = false;
     ++s_clipPoses;
+}
+
+static bool clipPickTail(uint64_t key, uint32_t &clip, double &at)
+{
+    if (!s_clipPosed || !s_clip.id || s_clipTracks.count(key) == 0)
+        return false;
+    clip = s_clip.id;
+    at = s_clipShown;
+    return true;
 }
 
 /// The scene to the renderer again, its draws moved; what is drawn over
@@ -6893,24 +6957,73 @@ static void tickClip()
     clipResubmit();
 }
 
-/// A blob of the clip landed: the draws it holds
+/// Blob \a index has all its meshes: its draws are the clip's
+static void clipBlobLand(size_t index)
+{
+    auto it = s_clipBlobReads.find(index);
+    if (it == s_clipBlobReads.end())
+        return;
+    std::shared_ptr<Render::MotionBlobRead> read = std::move(it->second);
+    s_clipBlobReads.erase(it);
+    auto draws = std::make_shared<Render::DrawCallList>();
+    if (!read->finish(*draws) || index >= s_clipBlobDraws.size())
+        return;
+    s_clipBlobDraws[index] = std::move(draws);
+    ++s_clipBlobsIn;
+    s_clipBlobLanded = true;
+    markDirty();
+}
+
+static bool clipMeshResolved(const std::string &key, const uint8_t *data, size_t size);
+static void clipWantMesh(const std::string &key, uint32_t size);
+
+/// A blob of the clip landed: the draws it holds, once the mesh chunks
+/// it names are in too -- each fetched once, however many blobs name it,
+/// and what the cache holds (a publish's mesh, another clip's) not at all
 static bool clipBlobResolved(const std::string &key, const uint8_t *data, size_t size)
 {
     auto it = s_clipBlobWanted.find(key);
     if (it == s_clipBlobWanted.end())
-        return false;
+        return clipMeshResolved(key, data, size);
     const size_t index = it->second;
     s_clipBlobWanted.erase(it);
-    auto draws = std::make_shared<Render::DrawCallList>();
-    if (!Render::motionBlobDraws(data, size, *draws)) {
+    auto read = std::make_shared<Render::MotionBlobRead>();
+    if (!read->load(data, size)) {
         std::printf("fcviewer: clip blob %s would not read\n", key.c_str());
         return true;
     }
-    if (index < s_clipBlobDraws.size()) {
-        s_clipBlobDraws[index] = std::move(draws);
-        ++s_clipBlobsIn;
-        s_clipBlobLanded = true;
-        markDirty();
+    s_clipBlobReads[index] = read;
+    for (const auto &want : read->wanted()) {
+        std::vector<size_t> &waiting = s_clipMeshWanted[want.first];
+        waiting.push_back(index);
+        if (waiting.size() == 1)   // not asked for already
+            clipWantMesh(want.first, want.second);
+    }
+    if (read->complete())
+        clipBlobLand(index);
+    return true;
+}
+
+/// A mesh chunk a blob of the clip waits on
+static bool clipMeshResolved(const std::string &key, const uint8_t *data, size_t size)
+{
+    auto it = s_clipMeshWanted.find(key);
+    if (it == s_clipMeshWanted.end())
+        return false;
+    const std::vector<size_t> waiting = std::move(it->second);
+    s_clipMeshWanted.erase(it);
+    ++s_clipMeshesIn;
+    for (size_t index : waiting) {
+        auto r = s_clipBlobReads.find(index);
+        if (r == s_clipBlobReads.end())
+            continue;
+        if (!r->second->fill(key, data, size)) {
+            std::printf("fcviewer: clip mesh %s would not read\n", key.c_str());
+            s_clipBlobReads.erase(r);
+            continue;
+        }
+        if (r->second->complete())
+            clipBlobLand(index);
     }
     return true;
 }
@@ -6918,6 +7031,13 @@ static bool clipBlobResolved(const std::string &key, const uint8_t *data, size_t
 static void clipBlobFailed(const std::string &key)
 {
     s_clipBlobWanted.erase(key);
+    // A blob whose mesh cannot be had stays out: the publish's draws stand
+    auto it = s_clipMeshWanted.find(key);
+    if (it != s_clipMeshWanted.end()) {
+        for (size_t index : it->second)
+            s_clipBlobReads.erase(index);
+        s_clipMeshWanted.erase(it);
+    }
 }
 
 /// {"cmd":"clip",...} (Render::MotionClip::toJson): the tracks to play,
@@ -6935,9 +7055,15 @@ static void applyClip(const char *json)
     s_clipSeqs.clear();
     for (size_t i = 0; i < s_clip.seqKeys.size(); ++i)
         s_clipSeqs[s_clip.seqKeys[i]] = i;
+    s_clipLookRows.clear();
+    for (size_t r = 0; r < s_clip.lookTracks.size(); ++r)
+        s_clipLookRows[s_clip.lookTracks[r]] = r;
     s_clipBlobDraws.assign(s_clip.blobs.size(), nullptr);
     s_clipBlobWanted.clear();
+    s_clipBlobReads.clear();
+    s_clipMeshWanted.clear();
     s_clipBlobsIn = 0;
+    s_clipMeshesIn = 0;
     s_clipRawValid = false;
     std::printf("fcviewer: clip %u: %zu tracks, %zu sequences, %zu blobs, %u frames\n",
                 s_clip.id, s_clip.keys.size(), s_clip.seqKeys.size(), s_clip.blobs.size(),
@@ -6965,16 +7091,19 @@ static void applyClock(const char *json)
 extern "C" EMSCRIPTEN_KEEPALIVE const char *fcviewer_animation_state()
 {
     static std::string out;
-    char buf[480];
+    char buf[640];
     double base = 0.0;
     const bool based = clipBase(base);
     std::snprintf(buf, sizeof(buf),
-                  "{\"clip\":%u,\"tracks\":%zu,\"sequences\":%zu,\"blobs\":%zu,"
+                  "{\"clip\":%u,\"tracks\":%zu,\"sequences\":%zu,\"lookTracks\":%zu,"
+                  "\"blobs\":%zu,\"meshesIn\":%zu,\"meshesWanted\":%zu,"
                   "\"blobsIn\":%zu,\"frames\":%u,\"clock\":%u,"
                   "\"active\":%s,\"playing\":%s,\"plays\":%s,\"time\":%.9g,"
                   "\"base\":%.9g,\"based\":%s,\"poses\":%u,\"moved\":%zu,"
-                  "\"swapped\":%zu,\"hidden\":%zu,\"version\":%llu}",
-                  s_clip.id, s_clip.keys.size(), s_clip.seqKeys.size(), s_clip.blobs.size(),
+                  "\"swapped\":%zu,\"hidden\":%zu,\"looked\":%zu,\"version\":%llu}",
+                  s_clip.id, s_clip.keys.size(), s_clip.seqKeys.size(),
+                  s_clip.lookTracks.size(), s_clip.blobs.size(),
+                  s_clipMeshesIn, s_clipMeshWanted.size(),
                   s_clipBlobsIn, s_clip.frames, s_clock.clip,
                   s_clock.active ? "true" : "false",
                   s_clock.playing ? "true" : "false",
@@ -6983,6 +7112,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char *fcviewer_animation_state()
                   s_clipPosed ? s_clipMoved : size_t(0),
                   s_clipPosed ? s_clipSwapped : size_t(0),
                   s_clipPosed ? s_clipHidden : size_t(0),
+                  s_clipPosed ? s_clipLooked : size_t(0),
                   (unsigned long long)s_sceneVersion);
     out = buf;
     return out.c_str();
@@ -8456,6 +8586,23 @@ static void clipWantBlobs()
         else
             requestBlob(key, i < s_clip.blobSizes.size() ? s_clip.blobSizes[i] : 0);
     }
+    // Their meshes with them, not a round trip behind each: a chunk that
+    // lands before the blob naming it waits in the cache
+    for (size_t i = 0; i < s_clip.chunks.size(); ++i) {
+        if (!s_blobCache.count(s_clip.chunks[i]))
+            requestBlob(s_clip.chunks[i], s_clip.chunkSizes[i]);
+    }
+}
+
+/// A mesh chunk a clip blob names: the cache answers now, everything else
+/// answers through blobResolved
+static void clipWantMesh(const std::string &key, uint32_t size)
+{
+    auto it = s_blobCache.find(key);
+    if (it != s_blobCache.end() && it->second)
+        clipMeshResolved(key, it->second->data(), it->second->size());
+    else
+        requestBlob(key, size);
 }
 
 static bool applyPagePayload(uint64_t version, const char *data,

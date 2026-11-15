@@ -98,6 +98,40 @@ class TestAnimation(unittest.TestCase):
         self.anim.Time = 0.5
         self.assertEqual(self.obj.I, 2)
 
+    def testPythonInterpolation(self):
+        # The span's progress u eased by an expression of it
+        self.anim.addKey("Obj.F", 0.0, 0.0, python="u * u")
+        self.anim.addKey("Obj.F", 2.0, 10.0)
+        self.assertEqual(self.anim.keys("Obj.F")[0][2], "Python")
+        self.assertEqual(self.anim.track("Obj.F")["Keys"][0]["Python"], "u * u")
+        self.anim.Time = 1.0
+        self.assertAlmostEqual(self.obj.F, 2.5)
+        self.anim.Time = 1.5
+        self.assertAlmostEqual(self.obj.F, 5.625)
+        # setInterp, and an expression that calls a function
+        self.anim.setInterp("Obj.F", 0.0, "Python", python="1 - (1 - u) ** 3")
+        self.anim.Time = 1.0
+        self.assertAlmostEqual(self.obj.F, 8.75)
+        # Saved and read back
+        self.anim.stop()
+        self.reopen()
+        self.assertEqual(self.anim.track("Obj.F")["Keys"][0]["Python"], "1 - (1 - u) ** 3")
+        # The Time it was saved at: shown again by activating, not by setting it
+        self.assertAlmostEqual(self.anim.Time.Value, 1.0)
+        self.anim.activate()
+        self.assertAlmostEqual(self.obj.F, 8.75)
+
+    def testPythonInterpolationThatFailsIsLinear(self):
+        self.anim.addKey("Obj.F", 0.0, 0.0, python="no_such_name(u)")
+        self.anim.addKey("Obj.F", 2.0, 10.0)
+        self.anim.Time = 0.5
+        self.assertAlmostEqual(self.obj.F, 2.5)
+        # And one with nothing to evaluate is refused
+        with self.assertRaises(ValueError):
+            self.anim.addKey("Obj.F", 1.0, 3.0, interp="Python")
+        with self.assertRaises(ValueError):
+            self.anim.setInterp("Obj.F", 0.0, "Python")
+
     def testEasing(self):
         self.anim.addKey("Obj.F", 0.0, 0.0, easing=("Quad", "In"))
         self.anim.addKey("Obj.F", 1.0, 1.0)
@@ -515,6 +549,33 @@ class TestAnimation(unittest.TestCase):
         with self.assertRaises(Exception):
             a1.addStrip(a1)
 
+    # -- the transaction log -----------------------------------------------
+
+    def loggedAfter(self, prop):
+        """The value the transaction log holds for Obj.prop at the row the
+        document is on, as its XML"""
+        self.doc.resolveTransactionLog()
+        ref = self.doc.getTransactionValueAt(self.obj, prop)
+        if not ref:
+            self.skipTest("the transaction log is off")
+        return self.doc.getTransactionValue(ref)[0]
+
+    def testTheLogKeepsTheDesignsValueNotThePoseOfAnEditPlayedInItsTransaction(self):
+        # An edit, then the Animation played, in one transaction: the row
+        # says what was typed, not the pose the Animation shows at commit
+        self.anim.addKey("Obj.F", 0.0, 0.0)
+        self.anim.addKey("Obj.F", 1.0, 10.0)
+        self.doc.openTransaction("edit and play")
+        self.obj.F = 3.0
+        self.anim.Time = 0.5
+        self.assertAlmostEqual(self.obj.F, 5.0)
+        self.doc.commitTransaction()
+        self.assertIn('value="3', self.loggedAfter("F"))
+        self.assertAlmostEqual(self.obj.F, 5.0)
+        # And the pose stays a pose: stopped, the design's value is back
+        self.anim.stop()
+        self.assertAlmostEqual(self.obj.F, 3.0)
+
     # -- export ------------------------------------------------------------
 
     def gltfScene(self):
@@ -899,6 +960,32 @@ class TestAnimation(unittest.TestCase):
         # A new object, an undo
         self.anim.Time = 0.3
         self.doc.addObject("App::FeaturePython", "Other")
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+
+    def testCacheKeepsTheFramesAnEditDoesNotReach(self):
+        proxy = self.cacheScene()
+        other = self.doc.addObject("App::FeaturePython", "Other")
+        other.addProperty("App::PropertyFloat", "X")
+        source = self.doc.addObject("App::FeaturePython", "Source")
+        source.addProperty("App::PropertyLength", "Y")
+        source.Y = 2.0
+        self.obj.setExpression("L", "Source.Y")
+        self.doc.recompute()
+        self.anim.Cache = True
+        self.anim.activate()
+        for t in self.anim.frames():
+            self.anim.Time = t
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        # An object no frame's recompute meets, nor depends on
+        other.X = 4.0
+        self.doc.recompute()
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        executed = proxy.count
+        self.anim.Time = 0.3
+        self.assertEqual(proxy.count, executed)  # put back, not recomputed
+        self.assertAlmostEqual(self.obj.G, 6.0)
+        # One a frame's object depends on: those frames go
+        source.Y = 3.0
         self.assertEqual(self.anim.cacheInfo()["Times"], [])
 
     def testCacheFrameReachedFromElsewhere(self):

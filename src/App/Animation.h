@@ -213,8 +213,9 @@ public:
     void removeKey(int track, int key);
     /// Move keys in time; one landing on another key's time replaces it
     void moveKeys(const std::vector<AnimationKeyRef>& keys, double dt);
+    /// \a python: Interp::Python's expression in u
     void setInterp(const std::vector<AnimationKeyRef>& keys, Anim::Interp interp,
-                   const Anim::Easing* easing = nullptr);
+                   const Anim::Easing* easing = nullptr, const std::string* python = nullptr);
     void setHandles(AnimationKeyRef key, const Anim::Handle& left, const Anim::Handle& right);
     /// Label, mute, lock, extrapolation, rotation mode and a strip's options of `options`
     void setTrackOptions(int track, const AnimationTrack& options);
@@ -230,12 +231,15 @@ public:
     {
         return false;
     }
-    /// Tracks stay on the object a link replaces in a group (not yet re-pointed)
-    Property* CopyOnLinkReplace(const DocumentObject*, DocumentObject*,
-                                DocumentObject*) const override
-    {
-        return nullptr;
-    }
+    /// A track's path re-pointed as an expression's is (docs/Animation.md
+    /// sec 3.3): to the copy an import of external objects made, to the
+    /// label a path names by label, to the object a link replaced in a
+    /// group. Null when no path changes.
+    Property* CopyOnImportExternal(const std::map<std::string, std::string>& nameMap) const override;
+    Property* CopyOnLabelChange(DocumentObject* obj, const std::string& ref,
+                                const char* newLabel) const override;
+    Property* CopyOnLinkReplace(const DocumentObject* parent, DocumentObject* oldObj,
+                                DocumentObject* newObj) const override;
 
     void Save(Base::Writer& writer) const override;
     void Restore(Base::XMLReader& reader) override;
@@ -396,6 +400,8 @@ public:
     };
     CacheInfo cacheInfo() const;
     void clearCache();
+    /// Drop the frames whose recompute met obj or anything depending on it
+    void dropFramesReaching(const DocumentObject& obj);
     /// Whether frames are kept: Cache, and a Recompute that recomputes
     bool isCaching() const;
     /// Whether an active Animation of `doc`, or of any document when
@@ -437,6 +443,19 @@ public:
      */
     using RestProvider = std::function<const Property*(const Property&)>;
     static void addRestProvider(RestProvider provider);
+
+    /// The rest value of prop while an Animation shows a pose of it, and
+    /// nothing changes: the document's value as the transaction log keeps
+    /// it (restValueOf() also takes what comes next for an edit)
+    static const Property* heldRestValue(const Property& prop);
+
+    /** Whether a module that places parts -- an Assembly -- solves obj's
+     * Placement: a track on it is then Solved, written and warned
+     * (docs/Animation.md sec 3.11). A module adds its answer once, at its
+     * init; App knows no such module.
+     */
+    static void addPlacementSolver(std::function<bool(const DocumentObject&)> solves);
+    static bool placementSolved(const DocumentObject& obj);
 
     /// What the property editor marks on a row (docs/Animation.md sec 6)
     enum class KeyState : std::uint8_t

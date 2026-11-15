@@ -8,7 +8,10 @@ A document with a cylinder, its Height keyed 10 mm at 0 s and 40 mm at
     Height follows: 25 mm;
   - dragging the key at 2 s to 3 s moves it, one undo step; undo takes it
     back;
-  - the key menu's Interpolation > Constant sets the key's interpolation;
+  - the key menu's Interpolation > Constant sets the key's interpolation,
+    and Interpolation > Python... the expression it asks for;
+  - the expression editor opened on a keyed property says it is Driven,
+    and on one with no track says nothing;
   - a key clicked and Delete pressed is removed;
   - the property editor marks Height: green between keys, yellow on a key,
     orange typed and not keyed;
@@ -257,6 +260,76 @@ def run():
         pump(0.3)
         interp = anim.track("Post.Height")["Keys"][0]["Interp"]
         check("the key menu sets the interpolation", chosen and interp == "Constant", interp)
+
+        # Interpolation > Python...: the expression in u it asks for
+        def pickPython():
+            menu = QtWidgets.QApplication.activePopupWidget()
+            if menu is None:
+                QtCore.QTimer.singleShot(100, pickPython)
+                return
+            for a in menu.actions():
+                if a.text() == "Interpolation" and a.menu() is not None:
+                    for b in a.menu().actions():
+                        if b.text() == "Python...":
+                            chosen.append(b.text())
+                            QtCore.QTimer.singleShot(200, answer)
+                            b.trigger()
+            menu.close()
+
+        # The dialog it asks with: the expression typed, OK
+        def answer():
+            box = QtWidgets.QApplication.activeModalWidget()
+            if not isinstance(box, QtWidgets.QInputDialog):
+                QtCore.QTimer.singleShot(100, answer)
+                return
+            chosen.append(box.textValue())
+            box.setTextValue("u * u")
+            box.accept()
+
+        QtCore.QTimer.singleShot(300, pickPython)
+        QtWidgets.QApplication.sendEvent(view, QtGui.QContextMenuEvent(
+            QtGui.QContextMenuEvent.Mouse, pos, view.mapToGlobal(pos)))
+        pump(0.3)
+        key = anim.track("Post.Height")["Keys"][0]
+        check("Interpolation > Python... sets the expression it asks for",
+              "Python..." in chosen and key["Interp"] == "Python" and key.get("Python") == "u * u",
+              key)
+
+        # The expression editor on a keyed property: Driven (3.11)
+        def driven(prop):
+            spin = Gui.UiLoader().createWidget("Gui::QuantitySpinBox")
+            Gui.ExpressionBinding(spin).bind(post, prop)
+            spin.show()
+            pump(0.2)
+            seen = {}
+
+            def look():
+                for w in QtWidgets.QApplication.allWidgets():
+                    if w.metaObject().className() == "Gui::Dialog::DlgExpressionInput" \
+                            and w.isVisible():
+                        label = w.findChild(QtWidgets.QLabel, "animationDriven")
+                        seen["text"] = label.text() if label is not None else ""
+                        w.close()
+                        return
+                seen.setdefault("tries", 0)
+                seen["tries"] += 1
+                if seen["tries"] < 30:
+                    QtCore.QTimer.singleShot(100, look)
+
+            QtCore.QTimer.singleShot(300, look)
+            spin.setFocus()
+            QtWidgets.QApplication.sendEvent(spin, QtGui.QKeyEvent(
+                QtCore.QEvent.KeyPress, Qt.Key_Equal, Qt.NoModifier, "="))
+            pump(1.5)
+            spin.deleteLater()
+            pump(0.2)
+            return seen.get("text")
+
+        text = driven("Height")
+        check("the expression editor on a keyed property says it is Driven",
+              text is not None and text.startswith("Driven:") and anim.Name in text, text)
+        text = driven("Radius")
+        check("and on one with no track says nothing", text == "", text)
 
         # Delete a key
         anim.addKey("Post.Height", 1.0, 20.0)

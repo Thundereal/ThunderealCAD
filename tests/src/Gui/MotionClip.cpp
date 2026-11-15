@@ -51,10 +51,15 @@ DrawCall draw(uint64_t key, const double m[16], const std::shared_ptr<const Mesh
     return d;
 }
 
+/// A mesh of one vertex of its own, so that two ids are two geometries
 std::shared_ptr<const MeshData> mesh(uint64_t id)
 {
     auto m = std::make_shared<MeshData>();
     m->cacheId = id;
+    auto points = std::make_shared<std::vector<float>>(3, float(id));
+    m->positions = points->data();
+    m->numVertices = 1;
+    m->owner = points;
     return m;
 }
 
@@ -200,7 +205,7 @@ TEST(MotionClipBaker, aRebuiltShapeHasNoTrackAndTheClipIsNotExact)
     EXPECT_TRUE(clip.keys.empty());
 }
 
-TEST(MotionClipBaker, aChangedColourIsNoMove)
+TEST(MotionClipBaker, aChangedColourRidesItsTrackAndTheClipIsExact)
 {
     auto a = mesh(11), b = mesh(12);
     MotionClipBaker baker;
@@ -210,10 +215,154 @@ TEST(MotionClipBaker, aChangedColourIsNoMove)
     baker.frame(recoloured);
     baker.frame(feed(2, 3, a, b));
     MotionClip clip = baker.finish(1, 0.0, 1.0);
-    EXPECT_FALSE(clip.exact);
-    // What moved is played all the same
+    // No blob, nothing left out: the colour is a record a frame
+    EXPECT_TRUE(clip.exact);
+    EXPECT_TRUE(clip.seqKeys.empty());
+    ASSERT_EQ(clip.keys.size(), 2U);
+    EXPECT_EQ(clip.keys[0], 1U);
+    EXPECT_EQ(clip.keys[1], 2U);
+    ASSERT_EQ(clip.lookTracks.size(), 1U);
+    EXPECT_EQ(clip.lookTracks[0], 0U);
+    ASSERT_EQ(clip.lookCount[0], 1U);
+    ASSERT_EQ(clip.lookSlots.size(), 1U);
+    // The first and the last frame look alike and share their record
+    ASSERT_EQ(clip.lookAt.size(), 3U);
+    EXPECT_EQ(clip.lookAt[0], clip.lookAt[2]);
+    EXPECT_NE(clip.lookAt[0], clip.lookAt[1]);
+    EXPECT_EQ(clip.looks.size(), 2U);
+    std::vector<MotionLook> at;
+    clip.looksAt(0, 1.0, at);
+    ASSERT_EQ(at.size(), 1U);
+    EXPECT_EQ(at[0].diffuse, 0xFF0000FFU);
+    clip.looksAt(0, 2.0, at);
+    EXPECT_EQ(at[0].diffuse, feed(2, 3, a, b)[0].material.diffuse);
+}
+
+TEST(MotionClipBaker, theSameGeometryUnderANewCacheIdIsNoRebuild)
+{
+    // A colour changed builds the caches again: new ids, the same arrays
+    auto a = mesh(11), b = mesh(12);
+    auto copy = std::make_shared<MeshData>(*b);
+    copy->cacheId = 99;
+    auto points = std::make_shared<std::vector<float>>(3, 12.0F);
+    copy->positions = points->data();
+    copy->owner = points;
+    MotionClipBaker baker;
+    baker.frame(feed(0, 3, a, b));
+    DrawCallList again = feed(1, 3, a, copy);
+    again[1].material.diffuse = 0x00FF00FF;
+    baker.frame(again);
+    baker.frame(feed(2, 3, a, b));
+    MotionClip clip = baker.finish(1, 0.0, 1.0);
+    EXPECT_TRUE(clip.exact);
+    EXPECT_TRUE(clip.seqKeys.empty());
+    ASSERT_EQ(clip.lookTracks.size(), 1U);
+    // Another geometry under it is a rebuild all the same
+    MotionClipBaker other;
+    other.frame(feed(0, 3, a, b));
+    other.frame(feed(1, 3, a, mesh(13)));
+    EXPECT_FALSE(other.finish(2, 0.0, 1.0).exact);
+}
+
+TEST(MotionClip, aLookBetweenFramesIsMixedWhereItCanBe)
+{
+    MotionLook a, b;
+    a.diffuse = 0x204060FF;
+    b.diffuse = 0x6080A07F;
+    a.linewidth = 1.0F;
+    b.linewidth = 3.0F;
+    MotionLook half = MotionLook::mix(a, b, 0.5);
+    EXPECT_EQ(half.diffuse, 0x406080BFU);
+    EXPECT_FLOAT_EQ(half.linewidth, 2.0F);
+    EXPECT_EQ(MotionLook::mix(a, b, 0.0), a);
+    EXPECT_EQ(MotionLook::mix(a, b, 1.0), b);
+    // Turned transparent between them: no between, the nearer one
+    b.bits = 1;
+    EXPECT_EQ(MotionLook::mix(a, b, 0.4), a);
+    EXPECT_EQ(MotionLook::mix(a, b, 0.6), b);
+    // And what a look sets is what it was taken from
+    Material m;
+    m.diffuse = 0x11223344;
+    m.transparent = true;
+    m.drawstyle = Material::DrawLines;
+    m.linewidth = 2.5F;
+    Material out;
+    MotionLook::of(m).applyTo(out);
+    EXPECT_EQ(MotionLook::of(out), MotionLook::of(m));
+    EXPECT_TRUE(out.transparent);
+    EXPECT_EQ(out.drawstyle, Material::DrawLines);
+}
+
+TEST(MotionClipBaker, aMovingObjectThatChangesColourHasBothAndEachDrawItsOwn)
+{
+    auto a = mesh(11), b = mesh(12);
+    MotionClipBaker baker;
+    std::vector<DrawCallList> frames;
+    for (int i = 0; i < 3; ++i) {
+        frames.push_back(feed(i, 3, a, b));
+        // Object 2's second draw fades out
+        frames.back()[2].material.diffuse = 0xFFFFFF00U | uint32_t(255 - 100 * i);
+        frames.back()[2].partIndex = 4;
+        baker.frame(frames.back());
+    }
+    MotionClip clip = baker.finish(1, 0.0, 1.0);
+    EXPECT_TRUE(clip.exact);
     ASSERT_EQ(clip.keys.size(), 1U);
     EXPECT_EQ(clip.keys[0], 2U);
+    ASSERT_EQ(clip.lookTracks.size(), 1U);
+    ASSERT_EQ(clip.lookCount[0], 2U);
+    // The slots say which draw is which, whatever order a publish has
+    EXPECT_EQ(clip.lookSlots[0].partIndex, frames[0][1].partIndex);
+    EXPECT_EQ(clip.lookSlots[1].partIndex, 4);
+    std::vector<MotionLook> at;
+    for (int i = 0; i < 3; ++i) {
+        clip.looksAt(0, double(i), at);
+        EXPECT_EQ(at[0].diffuse, frames[i][1].material.diffuse) << i;
+        EXPECT_EQ(at[1].diffuse, frames[i][2].material.diffuse) << i;
+    }
+    // Halfway between frames 0 and 1: alpha halfway, 255 -> 155
+    clip.looksAt(0, 0.5, at);
+    EXPECT_EQ(at[1].diffuse & 0xFFU, 205U);
+    // And the move is played as before
+    double x[16], expect[16];
+    clip.matrixAt(0, 2.0, x);
+    placement(Pi, 10, 0, 0, expect);
+    expectNear(x, expect, 1e-5);
+}
+
+TEST(MotionClip, looksAreWrittenAndRead)
+{
+    auto a = mesh(11), b = mesh(12);
+    MotionClipBaker baker;
+    for (int i = 0; i < 4; ++i) {
+        DrawCallList f = feed(i, 4, a, b);
+        f[0].material.diffuse = 0x10203000U | uint32_t(255 - 60 * i);
+        f[0].material.transparent = i > 0;
+        baker.frame(f);
+    }
+    MotionClip clip = baker.finish(7, 0.5, 0.25);
+    ASSERT_EQ(clip.lookTracks.size(), 1U);
+    MotionClip read;
+    ASSERT_TRUE(read.fromJson(clip.toJson("\"Doc\"").c_str()));
+    EXPECT_EQ(read.lookTracks, clip.lookTracks);
+    EXPECT_EQ(read.lookCount, clip.lookCount);
+    ASSERT_EQ(read.lookSlots.size(), clip.lookSlots.size());
+    EXPECT_TRUE(read.lookSlots[0] == clip.lookSlots[0]);
+    EXPECT_EQ(read.lookAt, clip.lookAt);
+    EXPECT_EQ(read.looks, clip.looks);
+    // A record past the end is no clip
+    std::string json = clip.toJson("\"Doc\"");
+    const std::string at = "\"lookAt\":\"";
+    const size_t p = json.find(at);
+    ASSERT_NE(p, std::string::npos);
+    const size_t end = json.find('"', p + at.size());
+    std::vector<int32_t> bad(clip.lookAt.size(), 1000);
+    json.replace(p + at.size(), end - p - at.size(),
+                 Motion::base64(reinterpret_cast<const uint8_t *>(bad.data()),
+                                bad.size() * sizeof(int32_t)));
+    MotionClip broken;
+    EXPECT_FALSE(broken.fromJson(json.c_str()));
+    EXPECT_TRUE(broken.lookTracks.empty());
 }
 
 TEST(MotionClipBaker, anObjectThatGoesOrComesWithNowhereToKeepItsDrawsIsNotExact)
@@ -272,6 +421,30 @@ struct Kept
 };
 
 }  // namespace
+
+TEST(MotionClipBaker, aRecolouredObjectRebuiltLaterKeepsItsColoursInItsBlobs)
+{
+    auto a = mesh(11), b = mesh(12), c = mesh(13);
+    Kept kept;
+    MotionClipBaker baker(kept.store());
+    baker.frame(feed(0, 3, a, b));
+    DrawCallList recoloured = feed(1, 3, a, b);
+    recoloured[0].material.diffuse = 0xFF0000FF;
+    baker.frame(recoloured);
+    DrawCallList rebuilt = feed(2, 3, a, b);
+    rebuilt[0].mesh = c;
+    baker.frame(rebuilt);
+    MotionClip clip = baker.finish(1, 0.0, 1.0);
+    EXPECT_TRUE(clip.exact);
+    ASSERT_EQ(clip.seqKeys.size(), 1U);
+    EXPECT_EQ(clip.seqKeys[0], 1U);
+    EXPECT_TRUE(clip.lookTracks.empty());
+    // The frames before it was rebuilt are made from the draws they were
+    // moves of -- in the colour each frame had
+    ASSERT_EQ(clip.seq.size(), 3U);
+    EXPECT_NE(kept.blobs[size_t(clip.seq[0])][0].material.diffuse, 0xFF0000FFU);
+    EXPECT_EQ(kept.blobs[size_t(clip.seq[1])][0].material.diffuse, 0xFF0000FFU);
+}
 
 TEST(MotionClipBaker, aHiddenObjectHasItsDrawsKeptAndTheClipIsExact)
 {
@@ -434,6 +607,8 @@ TEST(MotionClip, hiddenFramesAndSequencesAreWrittenAndRead)
         clip.blobs.push_back(std::string(40, char('a' + i)));
         clip.blobSizes.push_back(uint32_t(100 + i));
     }
+    clip.chunks = {std::string(40, 'm'), std::string(40, 'n')};
+    clip.chunkSizes = {700, 900};
     ASSERT_FALSE(clip.shown.empty());
     ASSERT_FALSE(clip.seqKeys.empty());
     MotionClip read;
@@ -447,6 +622,8 @@ TEST(MotionClip, hiddenFramesAndSequencesAreWrittenAndRead)
     EXPECT_EQ(read.seq, clip.seq);
     EXPECT_EQ(read.blobs, clip.blobs);
     EXPECT_EQ(read.blobSizes, clip.blobSizes);
+    EXPECT_EQ(read.chunks, clip.chunks);
+    EXPECT_EQ(read.chunkSizes, clip.chunkSizes);
     // A blob number past the table is no clip
     std::string json = clip.toJson("\"Doc\"");
     json = json.substr(0, json.find("\"blobs\":[")) + "\"blobs\":[],\"sizes\":[]}";
@@ -486,6 +663,73 @@ TEST(MotionClipBlob, theDrawsOfABlobAreTheDrawsItWasMadeOf)
     // The same draws, the same bytes: what the content key relies on
     EXPECT_EQ(motionBlobOf(draws), bytes);
     EXPECT_FALSE(motionBlobDraws(bytes.data(), bytes.size() / 2, read));
+}
+
+TEST(MotionClipBlob, aMeshTheBlobsShareIsOneChunk)
+{
+    static const float positions[9] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
+    static const float normals[9] = {0, 0, 1, 0, 0, 1, 0, 0, 1};
+    static const int32_t indices[3] = {0, 1, 2};
+    auto shape = [](uint64_t id) {
+        auto m = std::make_shared<MeshData>();
+        m->cacheId = id;
+        m->numVertices = 3;
+        m->positions = positions;
+        m->normals = normals;
+        m->triangleIndices = indices;
+        m->numTriangleIndices = 3;
+        return m;
+    };
+    auto frame = [](double x, const std::shared_ptr<const MeshData>& mesh) {
+        double m[16];
+        placement(0, x, 0, 0, m);
+        DrawCallList draws {draw(5, m, mesh)};
+        draws[0].indexCount = 3;
+        return draws;
+    };
+    MotionBlobMeshes meshes;
+    // Two frames of one shape, moved: two blobs, one mesh
+    const std::vector<uint8_t> first = motionBlobOf(frame(1, shape(77)), &meshes);
+    ASSERT_FALSE(first.empty());
+    ASSERT_EQ(meshes.fresh.size(), 1U);
+    std::map<std::string, std::vector<uint8_t>> held = meshes.commit();
+    ASSERT_EQ(held.size(), 1U);
+    const std::string key = held.begin()->first;
+    EXPECT_EQ(sha1Hex(held[key].data(), held[key].size()), key);
+    const std::vector<uint8_t> second = motionBlobOf(frame(2, shape(77)), &meshes);
+    EXPECT_NE(second, first);
+    EXPECT_TRUE(meshes.fresh.empty());
+    // The same geometry rebuilt under another id: the same chunk, by content
+    motionBlobOf(frame(3, shape(78)), &meshes);
+    ASSERT_EQ(meshes.fresh.size(), 1U);
+    EXPECT_EQ(meshes.fresh.begin()->first, key);
+    // A dropped blob's meshes are not known to the next
+    meshes.drop();
+    EXPECT_EQ(meshes.committed.count(78), 0U);
+    // Smaller than the blob that held its mesh inline
+    EXPECT_LT(second.size(), motionBlobOf(frame(2, shape(77))).size());
+
+    // Read back: whole once the chunk is in, not before
+    MotionBlobRead read;
+    ASSERT_TRUE(read.load(second.data(), second.size()));
+    EXPECT_FALSE(read.complete());
+    const auto wanted = read.wanted();
+    ASSERT_EQ(wanted.size(), 1U);
+    EXPECT_EQ(wanted[0].first, key);
+    EXPECT_EQ(wanted[0].second, held[key].size());
+    EXPECT_TRUE(read.wants(key));
+    DrawCallList draws;
+    EXPECT_FALSE(read.finish(draws));
+    EXPECT_FALSE(motionBlobDraws(second.data(), second.size(), draws));
+    ASSERT_TRUE(read.fill(key, held[key].data(), held[key].size()));
+    EXPECT_TRUE(read.complete());
+    ASSERT_TRUE(read.finish(draws));
+    ASSERT_EQ(draws.size(), 1U);
+    EXPECT_NEAR(draws[0].model[12], 2.0, 1e-6);
+    ASSERT_TRUE(draws[0].mesh);
+    ASSERT_EQ(draws[0].mesh->numVertices, 3);
+    EXPECT_FLOAT_EQ(draws[0].mesh->positions[3], 1.0F);
+    EXPECT_EQ(draws[0].mesh->numTriangleIndices, 3);
 }
 
 TEST(MotionClip, noClipIsWrittenAndReadAsNone)

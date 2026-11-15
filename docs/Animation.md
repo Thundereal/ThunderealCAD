@@ -340,11 +340,14 @@ Built, phase 2 (`App/Animation.{h,cpp}`), with these differences:
 - Edits are the methods above with explicit values (`setKey(track, key)`);
   reading the target's current value is the Animation's (`Animation::
   setKey(track, t, value)`), which resolves the path.
-- Not yet re-pointed: a track's path when its object is copied into
-  another document (`CopyOnImportExternal`), when a link replaces it in a
-  group (`CopyOnLinkReplace`), or when a path names an object by label and
-  the label changes. Paths name objects by their name, which does not
-  change, so only the first matters soon.
+- A track's path is re-pointed as an expression's is (2026-11-14): to the
+  copy an import of external objects makes (`CopyOnImportExternal`), to
+  the object a link replaces in a group (`CopyOnLinkReplace`, the same
+  rule as `ObjectIdentifier::replaceObject`), and to a new label when a
+  path names an object by label (`<<Alpha>>.Val`: the labels a path names
+  are registered with the property as an expression's are, so
+  `CopyOnLabelChange` reaches it). A path by name is not touched by a
+  relabel. Tests: `Animation_tests_run`, `AnimationTrackPaths`.
 
 ### 3.4 Track
 
@@ -669,8 +672,11 @@ scalar track and needs none of this.
      component: Blender's 2D F-curve. Directions and quaternions are
      normalised after (3.13). Handles that reach past each other in time are
      shortened together, so the curve stays a function of time.
-   - Python calls the callable with `u`, inside the expression sandbox
-     rules.
+   - Python evaluates the key's expression in `u` with the expression
+     engine, as `(lambda u: (expr))(u)` (2026-11-14), so it is under the
+     rules every expression of the document runs by and calls a function
+     the way an expression does; its value is the eased progress, blended
+     as Easing's is. One that fails is warned once and the span is linear.
 3. Group the tracks by property. For each property, start from the whole
    track's value if there is one, else from the property's current value.
    Apply its part tracks in path order (3.4), then write the property ONCE
@@ -749,12 +755,16 @@ are not). With it on, and `Recompute` not Never:
   recompute never met -- the frame was kept coming from the frame before,
   where one object had not changed, and is reached now from a frame where
   it differs -- the frame is recomputed and kept again, wider.
-- **Dropped**: every frame, by any change of a property that is not the
-  Animation's own writing (`WriteCause::Animation`): an edit, an undo, a
-  recompute of the design; by a new or deleted object, a removed
-  property; by a change of `Tracks`, `Start`, `FrameRate`, `Recompute` or
-  `Cache`. Stopping keeps them: the design it recomputes back to is the
-  one they were made from.
+- **Dropped**: by a change of a property that is not the Animation's own
+  writing (`WriteCause::Animation`) -- an edit, an undo, a recompute of
+  the design -- the frames whose scope holds the object changed or any
+  object depending on it, through any link, an expression's hidden ones
+  included (`dropFramesReaching`, `getInListEx`); a frame whose recompute
+  met none of them is what a recompute would give now, and stays
+  (2026-11-14; before, an edit dropped every frame). Every frame, by a new
+  or deleted object, a removed property, a change of `Tracks`, `Start`,
+  `FrameRate`, `Recompute` or `Cache`. Stopping keeps them: the design it
+  recomputes back to is the one they were made from.
 - What is kept is a function of the frame and the design. A result that
   depends on how the frame was reached (a solver starting from the last
   pose) is put back as it was first found.
@@ -780,12 +790,20 @@ frames. Two budgets, in `Preferences/Animation`:
 
 Over the first, the frames shown longest ago go **to disk**: each value as
 a save would write it (`App::captureValue`, what the transaction log
-keeps a value as; no blob store, the frame's file holds it whole), one
-file a frame under `TransientDir/AnimationCache/<name>`, 0.55 MB for the
-plate. Read back (`App::restoreValue`) it is in memory again and its file
-stays good, so letting it go a second time writes nothing. A file does
-not hold the mesh, so a frame read back is meshed again: 107 ms against
-26 ms from memory and 290 ms recomputed. A frame that is quicker to
+keeps a value as, in the binary shape format; no blob store, the frame's
+file holds it whole), one file a frame under
+`TransientDir/AnimationCache/<name>` (0.55 MB for the 64-hole plate when
+it was written as text). Read back
+(`App::restoreValue`) it is in memory again and its file stays good, so
+letting it go a second time writes nothing. A file does not hold the
+mesh, and holding it does not pay (measured 2026-11-14, the user
+manual's plate, 36 holes filleted, 134 faces, mini): written with each
+face's triangulation (`BinTools_ShapeSet::SetWithTriangles`) a frame read
+back took 88 ms and 1.9 MB, without it 80 ms and 0.21 MB, and in the
+text form a save writes 85 ms and 0.33 MB. Headless a read-back is 38 ms
+of parsing; the rest is the view taking the shape, as it does for a frame
+from memory (39 ms the whole), so the mesh made again at the view's
+deflection is not where the time goes. The cache writes binary. A frame that is quicker to
 recompute than its trip to disk has been costing, a byte, is dropped
 instead; so is every frame over the second budget, oldest first, and
 every one on disk at a save, whose string table its element maps name by
@@ -820,9 +838,7 @@ frame in memory, blue for one on disk. Python: `anim.Cache`,
 Spilled, Loaded), `anim.clearCache()`. Tests: `TestAnimation`
 (`testCache*`, nine) and `tests/gui/animation-cache.py`.
 
-Not done: a frame's mesh is not written to disk; a bake command (playing
-or exporting once is the bake); an edit drops every frame, not only
-those downstream of it.
+Not done: a bake command (playing or exporting once is the bake).
 
 ## 5. Playing does not edit the design
 
@@ -921,12 +937,16 @@ transaction recording the property clears the written value, since what
 follows is the design's. This works the same for a view provider's
 property, which App sees no signal for.
 
-Known gap: a property already recorded in an open transaction and then
-animated in the same transaction (a script that edits a placement and sets
-`Time` before committing) commits the pose as the value after. The undo
-stack is right -- its inverse copies the rest value -- but the transaction
-log's row holds the pose. Committing before playing avoids it; a fix
-needs a hook at the commit.
+A property already recorded in an open transaction and then animated in
+the same transaction (a script that edits a placement and sets `Time`
+before committing) is logged with its rest value as the value after
+(2026-11-14). The commit copies each value after at once (the log's sec
+25.4) and now takes `Animation::heldRestValue()` where an Animation shows a
+pose -- a lookup that, unlike `restValueOf()`, does not take what comes
+next for an edit -- and so does the comparison that drops a write that
+changed nothing, and `resolvePending`. Before, the undo stack was right
+and the log's row held the pose. Test: `TestAnimation`,
+`testTheLogKeepsTheDesignsValueNotThePoseOfAnEditPlayedInItsTransaction`.
 
 A **user edit to an animated property** while the animation is active:
 - With Record on, it keys the value at the current time (section 6).
@@ -1028,6 +1048,33 @@ camera track plays only in the view it was keyed in, or in the export view.
 - **Renderer**: time-animated effects read one shared clock (RenderEngine.md,
   "Determinism"). During export that clock follows `Time`, so water and
   fire match the animation frame for frame.
+- **Path traced** (built 2026-11-14): `export(..., renderer="Cycles",
+  cycles={"Samples", "Device", "Denoise"})` traces each frame with
+  `View3DInventorPy.cyclesRender` instead of `saveImage`, under the same
+  exact-mesh hold. `exportAnimation` with no renderer follows the view: a
+  view shaded External exports path traced, with its `Cycles_Samples`,
+  `Cycles_Device` and `Cycles_Denoise` (`viewRenderer`, `cyclesOptions`).
+  `cyclesRender` grew `denoise` and `seed` (`Render::Cycles::StillOptions`:
+  OpenImageDenoise at high quality with the accurate prefilter, the final
+  render's settings, where the viewport uses fast ones). The exporter
+  passes the frame index as the seed: with one seed the noise pattern
+  stands still on the screen while the scene moves under it. Measured on
+  the mini's M2 (Metal, after the StackAllocator fix of
+  CyclesIntegration.md sec 9): the manual's 151 frames at 480 x 270, 32
+  samples, denoised, 147 s with a session a frame; at 640 x 360 the CPU
+  takes 2.4 s a frame at 128 samples and Metal 1.5 s. A still's fixed
+  cost was most of it: measured at 480 x 270 on Metal, 0.52 s at 1 sample,
+  0.62 at 32, 0.94 at 128 -- 3 ms a sample over half a second of session
+  set-up, device update and translation. So the export keeps one session
+  through its frames (`Render::Cycles::StillSession`, `cyclesRender(...,
+  keep=True)`, `cyclesRelease()`; Blender's persistent data): the device,
+  its kernels and the shaders once, the scene restated in place under its
+  mutex as the viewport restates it (CyclesIntegration.md sec 5.10), and
+  the session reset and started again. The 151 frames: 76 s, 0.50 s a
+  frame, a frame of the kept session identical to the one a fresh session
+  makes of the same Time and seed. The tracer has no surface for the
+  effect volumes (water, fire, cloud, fountain) or for lines, so those
+  are not in the frames.
 
 ### 9.1 Streaming, as built
 
@@ -1055,9 +1102,24 @@ it was at is put back when the sweep is done.
 are missing at some frames -- hidden -- keeps its track, with a byte a
 frame saying where it is shown; its poses are measured from the first
 frame it is shown in, and its draws there are kept, so a viewer holding a
-publish taken while it was hidden can still show it. A key whose draws do
-not move rigidly -- a shape rebuilt, a colour or a transparency changed,
-draws moving apart -- is a *sequence*: its draws at every frame are kept,
+publish taken while it was hidden can still show it. A key whose geometry
+moves rigidly (or not at all) but whose **looks** change -- a colour, a
+transparency, a line's width, a style -- keeps its track too, with its
+looks at every frame (built 2026-11-14): `Render::MotionLook`, the 40
+bytes of each draw's material that the baker compares, a record a draw a
+frame, frames that look alike sharing their records (`lookAt`), and a
+`MotionSlot` per draw (type, part, index range) by which a viewer finds
+the draw a record is for whatever order a publish has them in. A changed
+colour builds the object's caches again under new ids, so the baker
+compares a mesh's arrays when its id changed (`sameMesh`) and calls only a
+real change of geometry a rebuild. The viewer sets the looks at its Time
+on the draws it holds, blending colours, widths and shininess between the
+two frames about it (`MotionLook::mix`; flags and patterns that differ
+take the nearer frame), so a fade is as smooth as a move. The manual's
+scene went from 301 blobs to 151: its box's fade is a track now, its
+post's rebuilt height still a sequence. A key whose draws do not move
+rigidly -- a shape rebuilt, draws moving apart -- is a *sequence*: its
+draws at every frame are kept,
 the frames before the one that showed it being made from the moves they
 were. What is kept is a **blob**: the key's draws as a self-contained
 scene snapshot (`Render::motionBlobOf`, `Gui/Renderer/MotionClipBlob.h`,
@@ -1115,6 +1177,34 @@ Animation writes publishes as it always did, and the viewer still plays
 what the clip does say between the publishes that bring the rest. Pausing, scrubbing and stopping always publish, so a viewer that is
 not playing holds the very pose the host is in.
 
+**Nothing is held while a Cycles stream traces** (2026-11-14). A served
+path-traced viewport (`docs/CyclesIntegration.md` sec 7.1) is fed from each
+publish and has no clip to play: with the publishes held, its picture stayed
+at the pose play started from until a pause. The clip's host asks the serve
+source (`SceneServeClip::Host::unclipped`), which answers from its live
+streams; while one runs, the Animation's frames publish as they did before
+the clip, the raster viewers still playing the clip between them. The
+stream traces each pose it is given, so while it plays it shows a few
+samples a frame, and it converges once the animation pauses.
+
+**A click lands on what the viewer drew** (2026-11-14). The viewer
+resolves a click against the draws as it moved them, the host against
+its scene at its own Time, and while it plays the two are a frame or more
+apart -- more over a slow link, and a click on a moving part could miss
+on the host or take what moved in front of it there. A click whose local
+hit is an object the clip moves now carries the clip's id, the Time the
+viewer drew it at (`s_clipShown`) and that object's key: a 20-byte tail on
+the `'P'` frame (and inside a `'Q'`) -- a server older than it would drop
+such a pick, its size unknown; the viewer and the server ship together --
+which the server reads into `ScenePickRequest::clip`,
+`clipTime`, `objectKey`. The host moves the ray by that object's move from
+that Time to its own (`SceneServeClip::movePick`, the clip's
+`moveBetween`) before it picks, so the ray meets the object where the
+host has it as it met it where the viewer drew it. Measured in
+tests/gui/serve-animation.py on the paused host: a ray straight down
+through the box where it was drawn 1.1 s away misses the box on the host
+and selects nothing; the same ray with the tail picks the box.
+
 **A real edit makes the clip stale.** Any change not made by the
 Animation, a change of its tracks or range, an object added or removed:
 the viewers are told there is no clip, publishes flow, and if it is still
@@ -1134,21 +1224,42 @@ arrives, through the same store a scene's chunks go through (IndexedDB,
 the batched fetch); one not in yet leaves the publish's draws standing.
 The selection drawn over them is rebuilt from the posed draws.
 `window.fcviewerAnimationState()` says what it is playing: tracks,
-sequences, blobs and how many are in, and what the last pose moved,
-swapped and left out.
+sequences, look rows, blobs and how many are in, and what the last pose
+moved, swapped, left out and set the looks of.
 
 Not in this cut:
 - **A sequence is stepped**, shown at the frame nearest, at `FrameRate`
   (240 frames over the range at most), not blended between frames.
-- **A blob is self-contained**, so a mesh that only changes colour is in
-  every frame's blob again; out-of-band mesh chunks keyed by content
-  would share it. The manual's scene (a post rebuilt, a box made
-  transparent, 151 frames) takes 301 blobs.
-- **Picking while it plays** in the browser is against the draws as the
-  viewer has moved them, but the host resolves the pick in the pose its
-  own clock is at; the two agree to within a frame, not exactly.
-- The desktop's own mirror of a served scene and the Cycles stream do not
-  read the clip.
+- **A blob's meshes are chunks of their own** (built 2026-11-14, was "a
+  blob is self-contained"). A blob is the key's draws -- transforms,
+  materials -- naming each mesh by the content key a publish would give
+  it (`Render::MotionBlobMeshes`, the snapshot's `meshBlobs` sink, the
+  layout without the manifest tree), and the mesh is a chunk of its own,
+  kept with the blobs and listed in the clip (`"chunks"`,
+  `"chunkSizes"`). So a mesh that recurs is one chunk however many
+  frames name it: a shape rebuilt as it moves is a blob a frame but only
+  as many meshes as it has shapes, and a mesh the viewer already holds
+  from a publish is not fetched at all. It also takes the mesh's cacheId
+  out of the blob's bytes -- an inline mesh carries it, so a shape
+  rebuilt to the same geometry under a new id was a new blob. Measured
+  on the manual's scene (151 frames, its post's height eased up and back
+  down): 124 blobs where there were 151, 1.18 MB for blobs and meshes
+  together against about 1.27 MB self-contained; a box rebuilt to two
+  heights in turn while it slides is a blob a frame and six meshes
+  (tests/gui/serve-animation.py). The bake counts a chunk once
+  against `StreamBlobMB`. The viewer asks for the chunks with the blobs,
+  reads a blob as soon as it lands (`Render::MotionBlobRead`), and uses
+  its draws once every mesh it names is in; a mesh that cannot be had
+  leaves the publish's draws standing, as a missing blob does. A colour
+  or a transparency needs no blob at all (the looks above).
+- **Picking resolves through the clip; edit input does not.** A click
+  carries its Time (above) and lands through the client's mirror view
+  (`MirrorViewer`, docs/ThinClient.md sec 8) where the viewer drew. The
+  `'E'` frames of an edit mode are sent only while editing, and an edit
+  mode run while an Animation plays meets the host's own pose.
+- **Looks are the compared fields only**: a change the Animation makes to
+  a material field outside them (a texture, a PBR parameter) is not in the
+  clip, as before.
 - The clip rides the control channel as base64: a few hundred kilobytes
   for some tens of moving objects, sent once per bake.
 
@@ -1184,9 +1295,18 @@ anim.clearCache()
 
 The track's options are a method, not attributes of a track object, so a
 track has no Python object to keep alive across an undo. `Tracks` reads as
-a list of dicts and is not written from Python. Not yet: the `Python`
-interpolation (a callable per span), and `Solved` detection, which needs
-the Assembly's view of which parts it solves (both phase 3). Stepped keys
+a list of dicts and is not written from Python. The `Python`
+interpolation: `addKey(path, t, value, python="1 - (1 - u) ** 3")` or
+`setInterp(path, t, "Python", python=...)`; the text is saved on the key
+(`python="..."`), shown as `Python` in the key's dict, and asked for by
+the timeline's Interpolation > Python... (2026-11-14). `Solved` is told
+too (2026-11-14): App asks the modules that place parts, through
+`Animation::addPlacementSolver()`, which the Assembly registers at its
+init -- a part in an assembly not frozen (`Freeze`), not grounded, and
+joined by joints to what is grounded (`isPartConnected`). App names no
+such module. A grounded part's Placement is read-only and cannot be keyed
+at all. Test: `AssemblyTests.TestCore`,
+`test_animated_placement_of_a_solved_part_is_solved`. Stepped keys
 hold the property's own XML, which serves every type that saves itself
 inline; a type that saves to a file of its own in the archive (a shape)
 is not one to step.
@@ -1226,7 +1346,13 @@ Phase 3, built (2026-11-12), and what is left of it:
   made to, not what it set in turn, a Legacy name (Part's Transparency)
   included; `Gui::Document::slotTouchedObject` no longer marks the
   document modified for an animated write's touch.
-- Left: the Driven mark inside the expression editor.
+- The Driven mark inside the expression editor (2026-11-14): opened on a
+  property the timeline's Animation keys, `DlgExpressionInput` adds an
+  orange note below the rest (`animationDriven`) -- the keys and the
+  expression both write it, which shows, and to write the expression in
+  `<Anim>.Time` to animate it. `tests/gui/animation-timeline.py` opens it
+  from a bound spin box, as `=` does, on a keyed property and on one with
+  no track.
 
 Phase 4, built so far (2026-11-12):
 - The camera track (4173274215, `Gui/AnimationCamera.cpp`): the handler
@@ -1298,8 +1424,18 @@ Phase 5, built so far (2026-11-12):
   activates nothing, so frame 0 was the rest value wherever the first key
   is not it; each step now activates the Animation. What does not fit is named in the
   result's `Skipped`: an object whose shape the animation rebuilds
-  (exported as it rests), a colour or transparency that changes, camera
-  tracks.
+  (exported as it rests), camera tracks. A colour or transparency that
+  changes was in that list until 2026-11-14; now (`Recoloured`) the
+  object's mesh gets materials of its own (`gltfscene.animatedMeshOf`:
+  faces whose colour went the same way through the frames share one, and
+  nothing else shares them) and each material's `baseColorFactor` is a
+  channel of a sample a frame, LINEAR, targeted by JSON pointer through
+  `KHR_animation_pointer` (in `extensionsUsed`, not `extensionsRequired`:
+  a reader without it keeps the first frame's colours). A material that
+  is transparent at any frame is `BLEND` throughout. Khronos' validator
+  (2.0.0-dev.3.10) finds no error or warning in such a file, only the
+  note that its own support of the extension is incomplete; the manual's
+  export.glb animates its box's fade this way.
 - Tests: `TestAnimation` (glTF channels and samples read back from the
   file, what is skipped, the formats), `tests/gui/animation-export.py`
   (12 checks: sequence, GIF, video, cancel, the animation left as it

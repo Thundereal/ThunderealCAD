@@ -323,6 +323,17 @@ struct CyclesStreams {
         }
         return out;
     }
+
+    /// A stream is tracing (one lost and not yet swept is not)
+    bool live()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        for (const auto &entry : byClient) {
+            if (!entry.second->lost())
+                return true;
+        }
+        return false;
+    }
 };
 
 /// The sub-view a cycles op names (0 when it names none).
@@ -1863,6 +1874,10 @@ SceneServeSource::SceneServeSource(Document *doc)
             return pimpl->renderer->sceneFeed();
         };
         clipHost.publish = [this]() { schedulePublish(); };
+        // A Cycles stream is fed from each publish (feedCyclesStreams) and
+        // has no clip to play: while one traces, the Animation's frames
+        // publish, or its picture would stay at the pose play started from
+        clipHost.unclipped = [streams = pimpl->streams]() { return streams->live(); };
         pimpl->clip = std::make_unique<SceneServeClip>(doc->getDocument(),
                                                        std::move(clipHost));
         // The source must not outlive its document: the pick handler,
@@ -1948,8 +1963,14 @@ void SceneServeSource::installHandlers()
                 // What a client does is the client's (docs/TransactionLogJournal.md
                 // sec 30.3 S.b): a pick may run a command.
                 App::ActorScope actor(SceneActors::of(r.client));
-                self->pickAndSelect(SbVec3f(r.origin[0], r.origin[1], r.origin[2]),
-                                    SbVec3f(r.dir[0], r.dir[1], r.dir[2]),
+                // A click on an object the viewer moved by the clip, at its
+                // own Time: the ray moved to meet it where it is here
+                float origin[3] = {r.origin[0], r.origin[1], r.origin[2]};
+                float dir[3] = {r.dir[0], r.dir[1], r.dir[2]};
+                if (r.clip && self->pimpl->clip)
+                    self->pimpl->clip->movePick(r.clip, r.clipTime, r.objectKey, origin, dir);
+                self->pickAndSelect(SbVec3f(origin[0], origin[1], origin[2]),
+                                    SbVec3f(dir[0], dir[1], dir[2]),
                                     r.modifiers, r.client);
             }
         }, Qt::QueuedConnection);

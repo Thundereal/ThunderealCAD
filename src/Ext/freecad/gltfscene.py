@@ -34,6 +34,11 @@ def srgbToLinear(c):
     return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
 
 
+def baseColor(color, transparency):
+    """glTF's baseColorFactor of a view's colour (sRGB) and transparency"""
+    return [srgbToLinear(round(c, 6)) for c in color[:3]] + [1.0 - round(transparency, 6)]
+
+
 class Writer:
     """The file's JSON and its one buffer, filled as the scene is walked"""
 
@@ -78,24 +83,34 @@ class Writer:
         self.gltf["accessors"].append(accessor)
         return len(self.gltf["accessors"]) - 1
 
-    def material(self, color, transparency):
+    def material(self, color, transparency, own=False, blend=False):
+        """A material of the colour and transparency; shared with any other
+        of them unless `own` (one an animation will change). `blend` makes
+        it blended even where it starts opaque."""
         key = (tuple(round(c, 6) for c in color[:3]), round(transparency, 6))
-        if key in self.materials:
+        if key in self.materials and not own:
             return self.materials[key]
         alpha = 1.0 - transparency
         material = {
             "pbrMetallicRoughness": {
-                "baseColorFactor": [srgbToLinear(c) for c in key[0]] + [alpha],
+                "baseColorFactor": baseColor(color, transparency),
                 "metallicFactor": 0.0,
                 "roughnessFactor": 0.5,
             },
             "doubleSided": True,
         }
-        if alpha < 1.0:
+        if alpha < 1.0 or blend:
             material["alphaMode"] = "BLEND"
         self.gltf["materials"].append(material)
-        self.materials[key] = len(self.gltf["materials"]) - 1
-        return self.materials[key]
+        index = len(self.gltf["materials"]) - 1
+        if not own:
+            self.materials[key] = index
+        return index
+
+    def extension(self, name):
+        used = self.gltf.setdefault("extensionsUsed", [])
+        if name not in used:
+            used.append(name)
 
     def node(self, node, parent=None):
         self.gltf["nodes"].append(node)
@@ -128,8 +143,6 @@ def deflection(obj, shape):
 def meshOf(writer, obj):
     """A glTF mesh of obj's shape in its own coordinates, in metres; None when
     it has no faces. Two components showing one shape the same way share it."""
-    import numpy
-
     try:
         shape = Part.getShape(obj, "", needSubElement=False, transform=False)
     except Exception:
@@ -145,6 +158,55 @@ def meshOf(writer, obj):
     key = (shape.hashCode(), tuple(colors))
     if key in writer.meshes:
         return writer.meshes[key]
+
+    def materialOf(i):
+        color, transparency = colors[i if len(colors) > 1 else 0]
+        return writer.material(color, transparency)
+
+    mesh = _mesh(writer, obj, shape, faces, materialOf)
+    writer.meshes[key] = mesh
+    return mesh
+
+
+def animatedMeshOf(writer, obj, looks):
+    """A glTF mesh of obj's shape whose colours change: `looks` is what
+    appearance() gave at each frame. Faces whose colour went the same way
+    through every frame share a material of their own, which no other mesh
+    shares. -> (mesh, [(material, [(colour, transparency) a frame]), ...]);
+    mesh None when it has no faces."""
+    try:
+        shape = Part.getShape(obj, "", needSubElement=False, transform=False)
+    except Exception:
+        return None, []
+    if shape.isNull() or not shape.Faces:
+        return None, []
+    faces = shape.Faces
+
+    def lookAt(frame, i):
+        colors = frame if frame else [(GREY, 0.0)]
+        if len(colors) != len(faces):
+            colors = colors[:1]
+        return colors[i if len(colors) > 1 else 0]
+
+    histories = {}
+    owned = []
+    faceMaterial = []
+    for i in range(len(faces)):
+        history = tuple(lookAt(frame, i) for frame in looks)
+        if history not in histories:
+            color, transparency = history[0]
+            blend = any(t > 0.0 for _c, t in history)
+            histories[history] = writer.material(color, transparency, own=True, blend=blend)
+            owned.append((histories[history], list(history)))
+        faceMaterial.append(histories[history])
+    mesh = _mesh(writer, obj, shape, faces, lambda i: faceMaterial[i])
+    return mesh, owned if mesh is not None else []
+
+
+def _mesh(writer, obj, shape, faces, materialOf):
+    """The mesh of `faces`, each face's triangles in the primitive of its
+    material (materialOf(face index)); None when none has triangles"""
+    import numpy
 
     tolerance = deflection(obj, shape)
     groups = {}
@@ -162,10 +224,8 @@ def meshOf(writer, obj):
         length = numpy.linalg.norm(normals, axis=1)
         length[length == 0.0] = 1.0
         normals /= length[:, None]
-        color, transparency = colors[i if len(colors) > 1 else 0]
-        groups.setdefault(writer.material(color, transparency), []).append((p, normals, t))
+        groups.setdefault(materialOf(i), []).append((p, normals, t))
     if not groups:
-        writer.meshes[key] = None
         return None
 
     primitives = []
@@ -195,8 +255,7 @@ def meshOf(writer, obj):
             }
         )
     writer.gltf["meshes"].append({"name": obj.Label, "primitives": primitives})
-    writer.meshes[key] = len(writer.gltf["meshes"]) - 1
-    return writer.meshes[key]
+    return len(writer.gltf["meshes"]) - 1
 
 
 def isContainer(obj):

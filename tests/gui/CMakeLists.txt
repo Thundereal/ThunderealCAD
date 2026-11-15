@@ -2745,6 +2745,11 @@ fc_add_gui_test(GuiAssemblyWorkbench_tests_run
                 assembly-workbench-suite.py
                 --timeout 1200)
 
+# An exploded view played by an Animation in a served document: the clip
+# carries the parts' moves as tracks and the steps' trails as sequences
+# (docs/AssemblyExplode.md sec 4).
+fc_add_gui_test(GuiServeExplode_tests_run serve-explode.py --timeout 300)
+
 # The FEM workbench's GUI tests (TestFemGui.py): view providers and their
 # scene graphs, e.g. a mesh's colours by node and by element.
 fc_add_gui_test(GuiFemWorkbench_tests_run

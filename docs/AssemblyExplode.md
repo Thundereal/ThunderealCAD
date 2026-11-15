@@ -177,6 +177,21 @@ An Animation plays an exploded view through a track of kind `Explode`
   start, n at n seconds. The view's context menu has **Animate**, which
   makes one in a single undo step, makes it active and raises the
   timeline.
+- **Exported** (2026-11-15). Both ways an Animation leaves the program
+  carry an explode:
+  - **streamed** to the web viewer, the clip baked from what is drawn
+    (`Animation.md` sec 9.1) has a track for each part moved and the
+    steps' trails as sequences, their draws at every frame. It needed
+    nothing; `tests/gui/serve-explode.py` holds it;
+  - **glTF** (`freecad.animationgltf`) sampled each part's placement, but
+    dropped the trails, silently: a step has no placement and its lines
+    are not a shape. The exporter now asks any object whose proxy has
+    `gltfLines(obj)` for its lines at every frame, and the view's proxy
+    answers with its steps' trails. Each shape a step's trail takes is a
+    mesh of LINES, unlit in the steps' colour, on a node shown at the
+    frames it is that shape (`Lines` in the result). Not dashed: glTF has
+    no line pattern. `TestExplodeTrack.testGltfExport`; before, no line
+    node and no `Lines`.
 
 ## 5. Drawings (E4)
 

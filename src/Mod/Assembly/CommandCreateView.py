@@ -119,6 +119,22 @@ class ExplodedView:
     def setMovesChangedCallback(self, callback):
         self.stepsChangedCallback = callback
 
+    def gltfLines(self, expView):
+        """Not upstream: the steps' trails as they are on show, for the glTF
+        export of an Animation (freecad.animationgltf): a step's Trail is
+        its segments' ends in pairs, in the document's frame, in the steps'
+        line colour (docs/AssemblyExplode.md sec 4)"""
+        packed = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly").GetUnsigned(
+            "StepLineColor", 0xCC333300
+        )
+        color = tuple(((packed >> shift) & 0xFF) / 255.0 for shift in (24, 16, 8))
+        out = []
+        for step in expView.Group:
+            points = list(getattr(step, "Trail", []))
+            segments = [(points[i], points[i + 1]) for i in range(0, len(points) - 1, 2)]
+            out.append((step.Label, color, segments))
+        return out
+
     def execute(self, fp):
         """Do something when doing a recomputation, this method is mandatory"""
         # App.Console.PrintMessage("Recompute Python Box feature\n")

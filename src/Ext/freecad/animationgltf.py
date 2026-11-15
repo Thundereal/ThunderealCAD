@@ -42,7 +42,14 @@ node does there is written:
     camera stands -- turning about the point it looks at as the view
     does -- its angle or height a channel too when it changes
     (KHR_animation_pointer). An orthographic camera stands back as far as
-    the scene needs, which changes nothing it shows.
+    the scene needs, which changes nothing it shows;
+  - lines an object draws that the animation changes -- an exploded
+    view's trails, which grow as its parts move: an object whose Python
+    proxy has gltfLines(obj) is asked at every frame for its lines, each
+    [(name, (r, g, b), [(App.Vector, App.Vector), ...])], segments in the
+    document's frame as they are on show. Each shape a set of lines takes
+    is a mesh of LINES, unlit, on a node shown (scale 1, STEP) at the
+    frames it is that shape.
 
 What does not fit is left out and named in the result's "Skipped": a
 camera track that cannot be read (no 3D view to say what a camera is, as
@@ -408,6 +415,95 @@ def _cameras(anim, doc, writer, root, items, times, channel, skipped, numpy):
     return made
 
 
+def _liners(doc):
+    """The objects that draw lines an animation changes: their proxy's
+    gltfLines(obj) says what is on show"""
+    out = []
+    for obj in doc.Objects:
+        proxy = getattr(obj, "Proxy", None)
+        if callable(getattr(proxy, "gltfLines", None)):
+            out.append(obj)
+    return out
+
+
+def _lineMesh(writer, name, color, segments):
+    """A mesh of LINES, unlit in `color`, of segments (pairs of points, mm)"""
+    import numpy
+
+    positions = numpy.array(
+        [(p.x, p.y, p.z) for segment in segments for p in segment], dtype=numpy.float64
+    )
+    positions = (positions * 1e-3).astype(numpy.float32)
+    writer.extension("KHR_materials_unlit")
+    writer.gltf["materials"].append(
+        {
+            "pbrMetallicRoughness": {
+                "baseColorFactor": gltfscene.baseColor(color, 0.0),
+                "metallicFactor": 0.0,
+                "roughnessFactor": 1.0,
+            },
+            "extensions": {"KHR_materials_unlit": {}},
+        }
+    )
+    material = len(writer.gltf["materials"]) - 1
+    accessor = writer.accessor(positions, "VEC3", target=gltfscene.ARRAY_BUFFER, bounds=True)
+    writer.gltf["meshes"].append(
+        {
+            "name": name,
+            "primitives": [{"attributes": {"POSITION": accessor}, "mode": 1, "material": material}],
+        }
+    )
+    return len(writer.gltf["meshes"]) - 1
+
+
+def _lines(writer, root, liners, lines, times, channel, numpy):
+    """Each shape each liner's set of lines takes, a node under root shown
+    at the frames it is that shape. -> how many nodes"""
+    made = 0
+    for obj in liners:
+        names, variants = [], {}
+        for k, frame in enumerate(lines[obj.Name]):
+            for name, color, segments in frame or []:
+                if not segments:
+                    continue
+                if name not in names:
+                    names.append(name)
+                key = (
+                    name,
+                    tuple(
+                        (round(p.x, 6), round(p.y, 6), round(p.z, 6))
+                        for segment in segments
+                        for p in segment
+                    ),
+                )
+                if key not in variants:
+                    variants[key] = (color, segments, [])
+                variants[key][2].append(k)
+        for name in names:
+            for key, (color, segments, frames) in variants.items():
+                if key[0] != name:
+                    continue
+                label = "%s %s" % (obj.Label, name)
+                node = {"name": label, "mesh": _lineMesh(writer, label, color, segments)}
+                always = len(frames) == len(times)
+                if not always and frames[0] != 0:
+                    node["scale"] = [0.0, 0.0, 0.0]
+                index = writer.node(node, root)
+                made += 1
+                if always:
+                    continue
+                at = set(frames)
+                switches = [
+                    k for k in range(len(times)) if not k or ((k in at) != (k - 1 in at))
+                ]
+                scales = numpy.array(
+                    [[1.0, 1.0, 1.0] if k in at else [0.0, 0.0, 0.0] for k in switches],
+                    dtype=numpy.float64,
+                )
+                channel(index, "scale", scales, "VEC3", "STEP", [times[k] for k in switches])
+    return made
+
+
 def exportGltf(anim, path):
     """Writes anim as an animated glTF at path: .glb binary, else JSON with
     a .bin beside it.
@@ -417,7 +513,8 @@ def exportGltf(anim, path):
     every frame), PartlyKeyed (those whose translation or rotation is, the
     other sampled), Recoloured (the nodes whose colours are animated),
     Rebuilt (the nodes whose shape changes), Shapes (the meshes of their
-    shapes, together), Cameras, Meshes, Bytes (the file's, with its .bin)
+    shapes, together), Cameras, Lines (the nodes of lines, one for each
+    shape a set of lines takes), Meshes, Bytes (the file's, with its .bin)
     and Skipped (a line for each thing the animation does that the file
     does not hold)."""
     import numpy
@@ -434,6 +531,8 @@ def exportGltf(anim, path):
     for item in items:
         item.plan = _keyPlan(anim, item.obj, times[0], times[-1])
     reads = sorted({t for item in items if item.plan for t in item.plan["reads"]})
+    liners = _liners(doc)
+    lines = {obj.Name: [] for obj in liners}
 
     wasActive = bool(anim.Active)
     time = anim.Time
@@ -462,6 +561,8 @@ def exportGltf(anim, path):
                         item.signatures.append(signature)
                         if signature not in item.variants:
                             item.variants[signature] = (shape, look)
+            for obj in liners:
+                lines[obj.Name].append(obj.Proxy.gltfLines(obj))
         # Where the keys are, and either side of them for a tangent
         for t in reads:
             at(t)
@@ -634,6 +735,7 @@ def exportGltf(anim, path):
             animated += 1
 
     cameras = _cameras(anim, doc, writer, root, items, times, channel, skipped, numpy)
+    lineNodes = _lines(writer, root, liners, lines, times, channel, numpy)
 
     if channels:
         writer.gltf["animations"] = [
@@ -652,6 +754,7 @@ def exportGltf(anim, path):
         "Rebuilt": rebuiltNodes,
         "Shapes": shapes,
         "Cameras": cameras,
+        "Lines": lineNodes,
         "Meshes": meshes,
         "Bytes": size,
         "Skipped": skipped,

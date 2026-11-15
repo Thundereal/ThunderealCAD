@@ -745,6 +745,62 @@ class TestExplodeTrack(PlacementAsserts, JointTestBase):
         self.assertPlc(self.b.Placement, plc(30, 0, 0))
         self.assertNotAnEdit(undo)
 
+    def testGltfExport(self):
+        """An Explode animation as an animated glTF (docs/AssemblyExplode.md
+        sec 4): the part's move, and the steps' trails, each as it is on
+        show, a line mesh shown at the frames it is"""
+        import json
+
+        try:
+            import Part  # noqa: F401
+            import numpy  # noqa: F401
+            from freecad import animationgltf
+        except ImportError:
+            self.skipTest("the glTF export needs Part and numpy")
+        anim = self.doc.addObject("App::Animation", "Anim")
+        anim.FrameRate = 2
+        anim.addKey(self.path, 0, 0, interp="Linear")
+        anim.addKey(self.path, 2, 2, interp="Linear")
+        self.settle()
+        folder = tempfile.mkdtemp(prefix="ExplodeGltf")
+        path = os.path.join(folder, "explode.gltf")
+        done = animationgltf.exportGltf(anim, path)
+        self.assertEqual(done["Frames"], 5)
+        self.assertEqual(done["Animated"], 1)  # B
+        self.assertEqual(done["Skipped"], [])
+        # Put back
+        self.assertPlc(self.b.Placement, plc(30, 0, 0))
+        self.assertIsNone(self.view.posedAt())
+        with open(path) as f:
+            gltf = json.load(f)
+        lines = [
+            n
+            for n in gltf["nodes"]
+            if "mesh" in n
+            and all(p.get("mode") == 1 for p in gltf["meshes"][n["mesh"]]["primitives"])
+        ]
+        self.assertEqual(done["Lines"], len(lines))
+        # No trail at the first frame, where nothing has moved; the first
+        # step's half grown at frame 1, whole from frame 2 on; the second
+        # step's half at frame 3, whole at 4. Each shape a node of its own,
+        # shown at the frames it is
+        self.assertEqual(len(lines), 4)
+        channels = gltf["animations"][0]["channels"]
+        index = {id(n): i for i, n in enumerate(gltf["nodes"])}
+        for n in lines:
+            self.assertEqual(n.get("scale"), [0.0, 0.0, 0.0])
+            paths = [c["target"]["path"] for c in channels if c["target"].get("node") == index[id(n)]]
+            self.assertEqual(paths, ["scale"])
+        # In metres, Z up: the end's trails reach B's middle at (55, 5, 25)
+        tops = [
+            gltf["accessors"][p["attributes"]["POSITION"]]["max"]
+            for n in lines
+            for p in gltf["meshes"][n["mesh"]]["primitives"]
+        ]
+        far = max(tops, key=lambda m: m[0])
+        for got, want in zip(far, (0.055, 0.005, 0.025)):
+            self.assertAlmostEqual(got, want, 6)
+
     def testKeyByLabelAndNow(self):
         anim = self.doc.addObject("App::Animation", "Anim")
         self.view.Label = "Apart"

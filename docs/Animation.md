@@ -1048,6 +1048,9 @@ camera track plays only in the view it was keyed in, or in the export view.
   Tracks that rebuild geometry do not fit glTF. They export as a sampled
   mesh sequence or not at all, and the exporter says which. (Built
   2026-11-15 as the sequence: a mesh a shape, switched by scale.)
+  Lines an object draws that change -- an exploded view's trails -- come
+  the same way, a mesh of LINES a shape, from the object's proxy's
+  `gltfLines(obj)` (docs/AssemblyExplode.md sec 4).
 - **Streaming**: the SceneServer sends `Time`, and the web viewer plays
   placement and visibility tracks locally. The rest it receives as scene
   updates.

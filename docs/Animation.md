@@ -843,6 +843,30 @@ Measured, mini, in the GUI, a frame:
 | 36 holes (38 faces) | 38 ms | 1.3 ms | |
 | 64 holes, filleted (218 faces) | 290 ms | 26 ms | 107 ms |
 
+**Where a recomputed frame goes** (measured 2026-11-15, mini, Metal, OCCT
+357a41bfc6; each feature's `recompute()` timed alone, then whole frames
+with the view waited for):
+
+| Scene | Cut | Fillet | Frame evaluated | The view after | Replayed |
+|---|---|---|---|---|---|
+| 64 holes (70 faces) | 78 ms | | 78 ms | 21-25 ms | 3 ms + 25 ms |
+| 64 holes, filleted (218 faces) | 80 ms | 178 ms | 265-272 ms | 22-27 ms | 10 ms + 28 ms |
+
+So the model's own recompute -- OCCT's boolean and fillet -- is about
+nine tenths of a parametric frame; writing the tracks, the cache, the
+mesh and the draw are the rest, coarse-first or exact alike. The boolean
+already runs in parallel (`SetRunParallel`), the fillet does not, and
+nothing in the Animation can make one frame's recompute cheaper. What
+can be had is the frames at once: each is the same design at another
+Time, independent of every other, and a frame's values already travel
+as a file (`captureValue`/`restoreValue`, the disk tier above). Worker
+processes each holding the document, computing frames and writing them
+in that format for the cache to load, would make a first pass -- an
+export, the browser's bake, the cache filled -- about as many times
+faster as there are workers that fit in memory. That is the first, and
+easiest, use of the workers docs/ComputeBoundaries.md plans (Boundary
+B): no cut set to find, frames instead of sub-graphs. Not built.
+
 The timeline draws a line under its ruler, a piece a frame: green for a
 frame in memory, blue for one on disk. Python: `anim.Cache`,
 `anim.cacheInfo()` (Times, OnDisk, Bytes, DiskBytes, Stored, Replayed,

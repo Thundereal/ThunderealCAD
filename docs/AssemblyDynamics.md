@@ -5414,6 +5414,83 @@ Phase D1 is under way (2026-10-28):
     passing the vertical for m (g cos a + d w^2) to 3% (1.331 N for 1.350;
     7% over before). TestFlexibleBody 34 (612 s), TestDynamics 90,
     TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 27 (2026-11-15): a flexible part's round lying along a
+  flat face of a rigid part touches it at the two ends of their line. The
+  largest ripple left: a rod turned on a plate pressed it 42.5 to 46.8 N,
+  a tenth of its 45.
+  - **The face's farthest is off the line.** Each point found on a curved
+    face against a flat one went to that face's farthest towards the flat
+    one (`towardsFlat()`), and from there out onto the round
+    (`ontoRound()`). A quadratic face stands in from its round between its
+    nodes, 3.9 um on R 5 at a 4 mm mesh, so its farthest is towards its
+    nodes, off the round's own line -- and 2.6 deg off it the round is 5 um
+    less deep, of the 50 the rod is pressed. And along the line the face's
+    farthest is anywhere. Step 25's finding for a round along a
+    round, here against a plane.
+  - **Two points on the line.** `thinOut()` takes the points of one round
+    of the part found against one plane -- their normals one way, the
+    plate's points as found in one plane -- for a line, and leaves two: at
+    the ends of the stretch of the round's axis over which the part's
+    pressing points on the line are found, a hundredth of it in. Each is
+    put where the part's own round, as the mesh has it there (`roundAt()`),
+    is farthest towards the plane, at the face's point nearest that and out
+    onto the round (`FlexibleContact::toFlat()`), and held there within the
+    substep (`follow()`, `OnMesh::lined`), the plate's point under it
+    (`refresh()`).
+  - **The stretch.** The round's own reach, cut to the plate's face where
+    the plate is a box or a hull (`reachOver()`, by its polyhedral
+    features' planes less the envelope they are grown by); an end found
+    within a face's edge of that is that end. So the ends are the same
+    whichever faces had points found.
+  - Wrong turns, each seen in a trace of the lines made.
+    - The round's own points alone made the line, and the rest stayed: the
+      rod's end faces next to its rim are curved faces too, their edge the
+      rim's, and their points slide to the rim's lowest -- the line's end.
+      Two such at the end the rod is held by, with the line's two, 48.1 N
+      for 44.8; one at its free end, 41.1. The rod's force went 37.4 to
+      49.3 N, worse than before. All the part's points on the line go.
+    - The stretch by the slid points alone: at one detection they ended
+      2.13 mm from the rod's end, the face's edge 2.07, and the line was
+      short for it; as the rod began to turn, three slid points at one
+      place. By the part's pressing points on the line, slid or not.
+    - A rod at rest has a row of its nodes on the line, the points on its
+      triangles' edges and none slid (the face does not curve to the plane
+      at a node): no line, the last five frames of the turn at 45.6 to
+      46.1 N. A point found against a flat face and left on its triangle
+      (`OnMesh::towards`) is a line's too, and may be taken to its end.
+    - The line's point nearest an end alone tried for it: five frames of
+      the turn's 500 from 42.8 to 46.9 N. Preferring the slid points, the
+      nearest slid one was 35 mm off at the rod's rest, at a 2 mm mesh, and
+      27 detections of 1377 made no line. The four nearest are tried in
+      turn: every detection of the three runs' 4130 made its line.
+    - The plate's ends under the rod, the stretch by the points found:
+      44.9 to 46.4 N, from one frame to the next. `reachOver()`.
+  - Numbers. The rod R 5 x 40 on a rigid plate, turned once in 0.1 s, 0.05
+    mm in, 1000 N/mm, from 0.03 s on: 44.77 N, 44.64 to 44.90, for 44.97,
+    42.52 to 46.84 (ripple 0.6% of the mean for 9.6); mesh 2: 44.79, 44.72
+    to 44.87, for 44.88, 42.23 to 46.70 (0.3% for 10.0); the plate's ends
+    under the rod: 45.59, 45.46 to 45.71, for 45.19, 42.03 to 47.34 (0.6%
+    for 11.8). The rod presses the plate what it presses a rigid roller
+    along it, 44.77 N, and a rigid bore, 44.76. The runs 3.4, 4.8 and 3.0 s
+    for 5.9, 9.5 and 4.4. With a friction of 0.3: 44.76 N, the motion's
+    torque 66.72 N mm, 0.2981 N R (0.2994); with none, -0.18 N mm (0.07).
+    The roller, the bores, the flexible plate and roller, the strips and
+    the hanger are as they were to the digits printed.
+  - Limits.
+    - A flexible plate under the rod is as it was: 43.8 to 47.2 N, and
+      past its edge 39.5 to 47.3. Its point under the line's has to be put
+      on its own mesh, and its face has no features to cut the stretch by.
+    - A rigid plate that is a mesh, neither box nor hull, has no features
+      either: the stretch ends where points are found, within a face of
+      the round's own end at that end.
+    - A round leaning more than a degree to the plane touches at an end,
+      and its points stay as found.
+    - The line's force is by its two ends' depths, as step 25's.
+  - Tests: TestFlexibleBody.test_round_anywhere, test_round_past_edge and
+    test_friction_on_flexible_round hold the force within a hundredth of
+    its mean, where they held a tenth. TestFlexibleBody 34 (596 s),
+    TestDynamics 90, TestJointFriction 4, TestContact 63; ctest 25;
+    TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

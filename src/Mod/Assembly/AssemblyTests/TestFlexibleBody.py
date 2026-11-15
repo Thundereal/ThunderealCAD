@@ -906,9 +906,17 @@ class TestFlexibleBody(unittest.TestCase):
         round, the contact 1000 N/mm, no friction or gravity. Its faces at
         a 4 mm mesh stand 0.2 mm out of their flat triangles: on those the
         force ran from 0 to 104 N as they rolled by, the plate lost each
-        time. On the faces it holds within a tenth over the turn, under the
-        50 N of a rigid rod pressed 0.05 mm"""
-        self.roundTurned("a round anywhere", 55, -10)
+        time. On the faces it held within a tenth over the turn, under the
+        50 N of a rigid rod pressed 0.05 mm.
+
+        And the round lying along the plate touches it at two points, at the
+        ends of their line on the round itself (D4b step 27,
+        FlexibleContact::toFlat()), as it does a round it lies along (step
+        25): each face's own farthest towards the plate is off the line
+        where the face stands in from its round, and the force went 42.5 to
+        46.8 N as the faces came round, a tenth; now within a hundredth,
+        44.6 to 44.9"""
+        self.roundTurned("a round anywhere", 55, -10, within=0.01)
 
     def test_round_past_edge(self):
         """A flexible part running on past the edge of a box it presses into
@@ -917,8 +925,11 @@ class TestFlexibleBody(unittest.TestCase):
         points of the rod 0.036 mm under its top, 0.124 mm in along the rod,
         and the force ran from 35 to 126 N; each such point is under the face
         it is least deep under that faces the rod's surface (leastDeepFace()),
-        and it holds as on the whole plate"""
-        self.roundTurned("a round past an edge", 30, 5)
+        and it holds as on the whole plate: within a hundredth (D4b step 27),
+        the line's ends where the plate's face ends under the rod
+        (reachOver()), not where the rod's faces had points found -- 45.5 to
+        45.7 N for 42.0 to 47.3"""
+        self.roundTurned("a round past an edge", 30, 5, within=0.01)
 
     def test_round_on_roller(self):
         """A flexible part's round on a rigid round (D4b step 15): the rod of
@@ -977,8 +988,9 @@ class TestFlexibleBody(unittest.TestCase):
         alone it was carried round with the rod, w h R past where the rod is
         deepest, and the normal's force turned the rod on -- 0.284 N R at
         steps of 0.2 ms, and -0.0097 N R with no friction, where
-        test_round_anywhere now holds it to none"""
-        self.roundTurned("friction on a round", 55, -10, friction=0.3)
+        test_round_anywhere now holds it to none. On the line's two ends
+        (D4b step 27) the force within a hundredth, the torque 0.298 N R"""
+        self.roundTurned("friction on a round", 55, -10, friction=0.3, within=0.01)
 
     def test_friction_on_roller(self):
         """The same on a rigid roller (D4b step 17), the points found again

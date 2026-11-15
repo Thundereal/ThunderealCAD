@@ -29,6 +29,8 @@ A document with a cylinder, its Height keyed 10 mm at 0 s and 40 mm at
     handle dragged up: both its handles Aligned, on one line, the curve
     smooth through it; its menu's Bezier handles > Free: Free, the curve
     as it was; > Auto clamped: computed again;
+  - a Shortest placement track with a Bezier span turning 170 deg: its
+    row's tip suggests Turns; once Turns, and for 45 deg, it does not;
   - strips: two Animations selected, Add as strips: two strips, one after
     the other; the second's bar dragged 0.5 s right: its offset 0.5, one
     undo step; made On click, Play stops at its start;
@@ -500,6 +502,39 @@ def run():
               and abs(right[2][0] - right0[2][0]) < 1e-9, (chosen, left, right))
         curvesButton.setChecked(False)
         anim.removeTrack("Post.Radius")
+        pump(0.2)
+
+        # A large Bezier turn on a Shortest track: the row's tip says Turns
+        def rowTip(path):
+            paths = sorted(t["Path"] for t in anim.Tracks)
+            pos = QtCore.QPoint(30, 22 + paths.index(path) * 20 + 10)
+            QtWidgets.QApplication.sendEvent(view, QtGui.QMouseEvent(
+                QtCore.QEvent.MouseMove, QtCore.QPointF(pos), QtCore.QPointF(view.mapToGlobal(pos)),
+                Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+            pump(0.1)
+            return view.toolTip()
+
+        rest = post.Placement
+        turned = App.Placement(rest.Base, App.Rotation(App.Vector(0, 0, 1), 170))
+        anim.addKey("Post.Placement", 0.0, rest, interp="Bezier")
+        anim.addKey("Post.Placement", 2.0, turned, interp="Bezier")
+        pump(0.3)
+        tip = rowTip("Post.Placement")
+        check("a Bezier span turning 170 deg: the row's tip suggests Turns",
+              "turns 170 deg" in tip and "Turns" in tip, tip)
+        anim.setTrack("Post.Placement", rotation="Turns")
+        pump(0.3)
+        tip = rowTip("Post.Placement")
+        check("and says nothing of it once the track is Turns", "turns 170" not in tip, tip)
+        anim.removeTrack("Post.Placement")
+        anim.addKey("Post.Placement", 0.0, rest, interp="Bezier")
+        anim.addKey("Post.Placement", 2.0,
+                    App.Placement(rest.Base, App.Rotation(App.Vector(0, 0, 1), 45)), interp="Bezier")
+        pump(0.3)
+        tip = rowTip("Post.Placement")
+        check("nor of a turn of 45 deg", " deg here" not in tip, tip)
+        anim.removeTrack("Post.Placement")
+        post.Placement = rest
         pump(0.2)
 
         # Strips

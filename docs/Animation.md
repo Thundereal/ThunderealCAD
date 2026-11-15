@@ -1494,7 +1494,11 @@ Phase 4, built so far (2026-11-12):
   6.8 deg in one span of 170 deg -- the path the same, the speed along
   it not (the components' curve, normalised, runs ahead early in a
   span). Aligned handles kept in line by the curve editor: built
-  2026-11-15 (above).
+  2026-11-15 (above). Decided by the user 2026-11-15: Shortest stays as
+  it is (Blender's and glTF's way; saved files play as they did). Instead
+  the timeline's row tip says when a Bezier span of a Shortest track
+  turns more than 90 deg, and that Turns eases the angle for a turn about
+  one axis (`largestBezierTurn`, tests/gui/animation-timeline.py).
 | 4 | Bezier handles in a curve editor; camera track; strips (section 7) | |
 | 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache (4.1) | |
 

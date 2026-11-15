@@ -511,6 +511,17 @@ public:
             default:
                 break;
             }
+            // A large Bezier turn on a Shortest track: the numbers of the
+            // quaternion blended run a few degrees ahead early in the span
+            // (measured with the phase 4 notes, docs/Animation.md); Turns
+            // eases the angle
+            if (double turn = largestBezierTurn(*t); turn > 90.0) {
+                row.tip += tr2("\nA Bezier span turns %1 deg here. Shortest blends the "
+                               "rotation's numbers, which run a few degrees ahead early in a "
+                               "large span; for a turn about one axis, the track's Rotation > "
+                               "Turns eases the angle itself.")
+                               .arg(std::lround(turn));
+            }
             for (auto& k : t->keys) {
                 row.keys.push_back({k.id, k.key.t, k.key.interp});
                 if (selected.count({t->id, k.id})) {
@@ -571,6 +582,38 @@ public:
         double margin = (end - start) * 0.04;
         view0 = start - margin;
         view1 = end + margin;
+    }
+
+    /// The largest turn between two keys of a Bezier span of a Shortest
+    /// track's rotation, degrees; 0 for none
+    static double largestBezierTurn(const App::AnimationTrack& t)
+    {
+        using namespace App::Anim;
+        if (t.rotation != RotationMode::Shortest || t.stepped()) {
+            return 0.0;
+        }
+        double worst = 0.0;
+        std::size_t offset = 0;
+        for (auto& g : t.layout.groups) {
+            if (g.kind == Kind::Quaternion) {
+                for (std::size_t i = 0; i + 1 < t.keys.size(); ++i) {
+                    const auto& a = t.keys[i].key;
+                    const auto& b = t.keys[i + 1].key.v;
+                    if (a.interp != Interp::Bezier || a.v.size() < offset + 4
+                        || b.size() < offset + 4) {
+                        continue;
+                    }
+                    double dot = 0.0;
+                    for (std::size_t k = 0; k < 4; ++k) {
+                        dot += a.v[offset + k] * b[offset + k];
+                    }
+                    dot = std::min(1.0, std::fabs(dot));
+                    worst = std::max(worst, 2.0 * std::acos(dot) * 57.29577951308232);
+                }
+            }
+            offset += static_cast<std::size_t>(g.size);
+        }
+        return worst;
     }
 
     static QString tr2(const char* text)

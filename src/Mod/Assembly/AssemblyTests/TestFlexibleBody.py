@@ -948,11 +948,17 @@ class TestFlexibleBody(unittest.TestCase):
         face's deepest (flatFaces(), FlexibleContact::place()), and a
         triangle gone through the other's surface is not apart from it
         (satApart()): before, the rod's triangles along its line gave no
-        points, the force ran from 20 to 44 N and the run took 826 s"""
+        points, the force ran from 20 to 44 N and the run took 826 s.
+
+        And the rod touches the flexible plate at the two ends of their
+        line (D4b step 28), as it does a rigid one (step 27), the plate's
+        point under each on its own surface there
+        (FlexibleContact::under()): the force within a hundredth, 44.6 to
+        44.9 N as on the rigid plate, for 43.8 to 47.2"""
         import time
 
         start = time.perf_counter()
-        self.roundTurned("a round on a flexible plate", 55, -10, flexiblePlate=True)
+        self.roundTurned("a round on a flexible plate", 55, -10, flexiblePlate=True, within=0.01)
         self.assertLess(time.perf_counter() - start, 120.0)
 
     def test_round_past_flexible_edge(self):
@@ -961,9 +967,16 @@ class TestFlexibleBody(unittest.TestCase):
         too. A node of the rod just past the plate's end, under its top, is
         under the top, not through the end (flatFaces()): taken through the
         end it was a patch of its own, 40 N along the rod, and the force
-        over the turn ran from 35 to 130 N"""
+        over the turn ran from 35 to 130 N.
+
+        The line's ends are where the plate's flat triangles in the
+        contact's plane end under the rod (D4b step 28,
+        FlexibleContact::reachOnFlat()): the force within a hundredth, 45.5
+        to 45.7 N as on the rigid plate, for 39.5 to 47.3. By the plane of
+        the triangle a point was found on, which past the plate's end is
+        the end's, it went from 28.3 to 49.4 N"""
         self.roundTurned(
-            "a round past a flexible edge", 30, 5, flexiblePlate=True, within=0.15
+            "a round past a flexible edge", 30, 5, flexiblePlate=True, within=0.01
         )
 
     def test_round_on_flexible_roller(self):
@@ -1002,9 +1015,15 @@ class TestFlexibleBody(unittest.TestCase):
     def test_friction_between_flexible_parts(self):
         """The friction between two flexible parts, against its closed form
         (D4b step 17): the rod on the plate flexible too, a friction of 0.3
-        -- 0.282 N R before"""
+        -- 0.282 N R before. On the line's two ends (D4b step 28) the force
+        within a hundredth"""
         self.roundTurned(
-            "friction between flexible parts", 55, -10, flexiblePlate=True, friction=0.3
+            "friction between flexible parts",
+            55,
+            -10,
+            flexiblePlate=True,
+            friction=0.3,
+            within=0.01,
         )
 
     def test_round_in_bore(self):

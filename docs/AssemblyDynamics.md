@@ -5491,6 +5491,57 @@ Phase D1 is under way (2026-10-28):
     its mean, where they held a tenth. TestFlexibleBody 34 (596 s),
     TestDynamics 90, TestJointFriction 4, TestContact 63; ctest 25;
     TestGuiCommands 76.
+- Built, D4b step 28 (2026-11-15): the same on a flexible part's flat
+  face. Step 27's first limit: a rod turned on a flexible plate pressed it
+  43.8 to 47.2 N, and one whose ends are under the rod 39.5 to 47.3.
+  - A line is made where the other part is flexible too and its face
+    under the point flat (`thinOut()`). The rod's two points go to the
+    line's ends as on a rigid plate; the plate's point of each pair, placed
+    on the triangle the two were found on, is put on the plate's own
+    surface under the rod's (`FlexibleContact::under()`: the surface's
+    place nearest it as the plate is at rest, and where the modes have that
+    place).
+  - **The stretch on a flexible plate.** A flexible part's surface has no
+    polyhedral features to cut the line by. `reachOnFlat()` cuts it to the
+    plate's flat triangles in the contact's plane, as the collision mesh
+    has them, from the first the line comes over to the last.
+  - Wrong turn: that plane taken from the triangle the line's first point
+    was found on. Run on the tests it failed one: the plate's ends under
+    the rod, 28.3 to 49.4 N, worse than before. A point of the rod just
+    past the plate's end is found on the end's triangle and put under the
+    top (`flatFaces()`, step 16), so the plane may be the end's, which the
+    line goes through; that it was is not traced. By the contact's own
+    plane -- its normal, through the plate's point as found -- every one
+    of a run's 1382 detections had the stretch from one end of the plate
+    to the other.
+  - A probe's own fault found on the way: rodprobe.py's flexible plate
+    with its ends under the rod was joined to its base at the whole
+    plate's middle and so moved to lie from x = -10 to 20, under half the
+    rod. Its 49.0 N there is that geometry's (a hand estimate of the two
+    ends' depths on a cantilever, 49.1); the tests' plate was where it
+    should be. The probe is corrected.
+  - Numbers, the rod of step 27, from 0.03 s on. On a flexible plate:
+    44.77 N, 44.64 to 44.90, for 46.20, 43.76 to 47.21 (ripple 0.6% of the
+    mean for 7.5), and the same with the set's sides swapped; the run 14 s
+    for 35. The plate's ends under the rod: 45.58 N, 45.46 to 45.71, for
+    45.39, 39.51 to 47.25. With a friction of 0.3: 44.76 N, 44.63 to
+    44.89, the motion's torque 66.81 N mm, 0.2985 N R (0.2976). The rod
+    presses a flexible plate what it presses a rigid one, to the digits
+    printed. Everything else is as step 27 left it.
+  - Limits.
+    - Within a substep the plate's point stays where it was put, as it
+      did; the rod's is held on the line.
+    - The line's stretch on a flexible plate is from the first of its
+      triangles under the line to the last: a gap or a hole between them
+      is not seen.
+    - A rigid plate that is a mesh, neither box nor hull, still ends the
+      line where points are found.
+    - Two flexible rounds along each other keep their places as found.
+  - Tests: TestFlexibleBody.test_round_on_flexible_plate,
+    test_round_past_flexible_edge and test_friction_between_flexible_parts
+    hold the force within a hundredth of its mean (a tenth, 0.15 and a
+    tenth before). TestFlexibleBody 34 (531 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

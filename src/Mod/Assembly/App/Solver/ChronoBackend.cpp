@@ -2496,6 +2496,115 @@ public:
         return true;
     }
 
+    // The stretch of a line that lies over a flat face of this part's: the
+    // line through 'at' along 'axis', absolute, the face the one whose
+    // outward normal is 'outward', absolute, through 'on', a point of it in
+    // the carrier's frame, and the stretch from 'low' to 'high' along the
+    // axis from 'at', cut to where the line is over the surface's flat
+    // triangles in that plane, 'off' from it at most, from the first of them
+    // it comes over to the last, as the collision mesh has them. By the
+    // plane, not the triangle a point was found on: a point just past the
+    // face's end is found on the end's triangle and put under the face
+    // (flatFaces()). False, the stretch as it was, where the line is over
+    // none of them
+    bool reachOnFlat(const ch::ChVector3d& outward,
+                     const ch::ChVector3d& on,
+                     double off,
+                     const ch::ChVector3d& at,
+                     const ch::ChVector3d& axis,
+                     double& low,
+                     double& high) const
+    {
+        if (!mesh || !surface) {
+            return false;
+        }
+        const ch::ChVector3d* first = mesh->GetCoordsVertices().data();
+        const auto& triangles = surface->triangles();
+        auto cornersOfTriangle = [&](std::size_t t, std::array<ch::ChVector3d, 3>& x) {
+            for (std::size_t k = 0; k < 3; ++k) {
+                const Id n = triangles[t][k];
+                if (n >= vertexOf.size() || vertexOf[n] < 0) {
+                    return false;
+                }
+                x[k] = first[vertexOf[n]];
+            }
+            return true;
+        };
+        std::array<ch::ChVector3d, 3> x;
+        const ch::ChVector3d plane = carrier->TransformDirectionParentToLocal(outward);
+        const ch::ChVector3d from = carrier->TransformPointParentToLocal(at);
+        const ch::ChVector3d way = carrier->TransformDirectionParentToLocal(axis);
+        bool any = false;
+        double least = 0.0;
+        double most = 0.0;
+        for (std::size_t t = 0; t < triangles.size(); ++t) {
+            if (surface->curved(t) || !cornersOfTriangle(t, x)) {
+                continue;
+            }
+            ch::ChVector3d normal = ch::Vcross(x[1] - x[0], x[2] - x[0]);
+            const double area = normal.Length();
+            if (!(area > 0.0) || !(ch::Vdot(normal, plane) > 0.9998 * area)
+                || !(std::abs(ch::Vdot(plane, x[0] - on)) < off)) {
+                continue;
+            }
+            // Where the line is inside each of its edges
+            double enters = -std::numeric_limits<double>::max();
+            double leaves = std::numeric_limits<double>::max();
+            for (std::size_t k = 0; k < 3 && leaves > enters; ++k) {
+                const ch::ChVector3d inward = ch::Vcross(plane, x[(k + 1) % 3] - x[k]);
+                const double inside = ch::Vdot(inward, from - x[k]);
+                const double rate = ch::Vdot(inward, way);
+                if (std::abs(rate) < 1e-12 * area) {
+                    if (inside < 0.0) {
+                        leaves = enters;
+                    }
+                }
+                else if (rate > 0.0) {
+                    enters = std::max(enters, -inside / rate);
+                }
+                else {
+                    leaves = std::min(leaves, -inside / rate);
+                }
+            }
+            if (!(leaves > enters)) {
+                continue;
+            }
+            least = any ? std::min(least, enters) : enters;
+            most = any ? std::max(most, leaves) : leaves;
+            any = true;
+        }
+        if (!any || !(std::min(high, most) > std::max(low, least))) {
+            return false;
+        }
+        low = std::max(low, least);
+        high = std::min(high, most);
+        return true;
+    }
+
+    // A load's point of this part's put on its surface under 'at', absolute:
+    // the surface's place nearest it as the part is at rest, the point
+    // where the modes have that place. The other flexible part's point
+    // taken to its line on this part's flat face (thinOut()) has this
+    // part's under it there, not on the triangle the two were found on
+    void under(ContactLoad& load, std::size_t i, bool sideA, const ch::ChVector3d& at) const
+    {
+        auto& placedOn = sideA ? load.onMeshA : load.onMesh;
+        if (!surface || i >= placedOn.size()) {
+            return;
+        }
+        ChronoFlexible::Surface::Place found;
+        if (!surface->nearest(
+                carrierAt.TransformPointLocalToParent(carrier->TransformPointParentToLocal(at)),
+                found)) {
+            return;
+        }
+        auto& on = placedOn[i];
+        on = {};
+        on.placed = true;
+        on.nodes = found.nodes;
+        on.weights = found.weights;
+    }
+
     // How long the first edge is of the face a slid point is on, as the
     // collision mesh has it (thinOut())
     double faceSize(const ContactLoad::OnMesh& on) const
@@ -3665,16 +3774,24 @@ void thinOut(ContactLoad& load,
         std::vector<std::size_t> points;
     };
     std::vector<Flat> flats;
+    // The ends taken to a line on another flexible part's face, and the
+    // side of each that was
+    std::vector<std::pair<std::size_t, bool>> onFlexible;
     for (const std::size_t i : order) {
         if (gone[i]) {
             continue;
         }
         for (int side = 0; side < 2; ++side) {
             const bool sideA = side == 1;
-            // The other part rigid
-            if (!(sideA ? load.meshedA(i) : load.meshed(i))
-                || (sideA ? load.meshed(i) : load.meshedA(i))) {
+            if (!(sideA ? load.meshedA(i) : load.meshed(i))) {
                 continue;
+            }
+            // The other part rigid, or its face under the point flat
+            if (sideA ? load.meshed(i) : load.meshedA(i)) {
+                const auto& below = (sideA ? load.onMesh : load.onMeshA)[i];
+                if (below.nodes[3] != below.nodes[0]) {
+                    continue;
+                }
             }
             const FlexibleContact* part = sideA ? load.flexibleA : load.flexible;
             const auto& placedOn = sideA ? load.onMeshA : load.onMesh;
@@ -3759,13 +3876,25 @@ void thinOut(ContactLoad& load,
         }
         // The stretch the round and the plate both reach: the round's own,
         // cut to the plate's face where the plate is a box or a hull
-        // (reachOver()). An end found within a face of it is that end: the
-        // points found end where the mesh's faces do, a rod past a plate's
-        // ends pressed 44.9 to 46.4 N as they came round
+        // (reachOver()) or a flexible part (reachOnFlat()). An end found
+        // within a face of it is that end: the points found end where the
+        // mesh's faces do, a rod past a plate's ends pressed 44.9 to 46.4 N
+        // as they came round
         double from = -own.half;
         double to = own.half;
-        if (const ShapeOn* plate = shapeOf(sideA ? load.points[flat.first].shapeB
-                                                 : load.points[flat.first].shapeA)) {
+        const ch::ChCollisionShape* under =
+            sideA ? load.points[flat.first].shapeB : load.points[flat.first].shapeA;
+        FlexibleContact* other = sideA ? load.flexible : load.flexibleA;
+        if (other) {
+            other->reachOnFlat(sideA ? -normal : normal,
+                               placedOn[flat.first].base,
+                               0.01 * size,
+                               lineAt - axis * stationOf(flat.first),
+                               axis,
+                               from,
+                               to);
+        }
+        else if (const ShapeOn* plate = shapeOf(under)) {
             reachOver(*plate,
                       sideA ? -normal : normal,
                       lineAt - axis * stationOf(flat.first),
@@ -3830,6 +3959,10 @@ void thinOut(ContactLoad& load,
             continue;
         }
         (sideA ? movedA : movedB) = true;
+        if (other) {
+            onFlexible.push_back({nearLow, sideA});
+            onFlexible.push_back({nearHigh, sideA});
+        }
         for (const std::size_t i : onLine) {
             if (i != nearLow && i != nearHigh) {
                 gone[i] = 1;
@@ -3885,6 +4018,15 @@ void thinOut(ContactLoad& load,
         }
         all.resize(to);
     };
+    // Where each point kept is among them
+    std::vector<std::size_t> keptAt(count, 0);
+    {
+        std::size_t to = 0;
+        for (std::size_t i = 0; i < count; ++i) {
+            keptAt[i] = to;
+            to += gone[i] ? 0 : 1;
+        }
+    }
     thin(load.points);
     thin(load.onMesh);
     thin(load.onMeshA);
@@ -3895,6 +4037,24 @@ void thinOut(ContactLoad& load,
     }
     if (movedA && load.flexibleA) {
         load.flexibleA->refresh(load, true);
+    }
+    // And the other flexible part's point under each taken to a line on its
+    // flat face: on its surface there
+    for (const auto& [was, sideA] : onFlexible) {
+        const std::size_t i = keptAt[was];
+        const FlexibleContact* other = sideA ? load.flexible : load.flexibleA;
+        const auto& placedOn = sideA ? load.onMeshA : load.onMesh;
+        if (other && i < placedOn.size() && placedOn[i].placed) {
+            other->under(load, i, !sideA, placedOn[i].at);
+        }
+    }
+    if (!onFlexible.empty()) {
+        if (movedA && load.flexible) {
+            load.flexible->refresh(load, false);
+        }
+        if (movedB && load.flexibleA) {
+            load.flexibleA->refresh(load, true);
+        }
     }
 }
 #endif

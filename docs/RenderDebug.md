@@ -599,7 +599,17 @@ also the groundwork for loading user shader source at runtime.
 - `View3DInventor.saveImage(...)` → `View3DInventorViewer::savePicture()`.
   When an external renderer is active it already forces the
   framebuffer-capture path, so the composited (Coin + bgfx) frame is
-  capturable from Python today.
+  capturable from Python today. That frame is the view's size; a size
+  asked for is reached by scaling it (`imageFromRenderer`). Of another
+  shape than the view's it is first cropped to what the camera shows at
+  that shape -- `getMappedViewVolume`, as the Coin routes render it: an
+  ADJUST_CAMERA camera keeps its height -- and, where that needs more
+  scene than the frame holds (wider than the view), to the frame's
+  largest centred piece of that shape. Until 2026-11-15 it was scaled
+  ignoring the aspect ratio, so every export or screenshot of another
+  shape than the view's was stretched: a sphere 64 x 149 px in a
+  360 x 270 image of a 986 x 319 view (`tests/gui/animation-export.py`
+  checks it round now).
 - `FC_BGFX_DEBUG_READBACK` / `FC_BGFX_DEBUG_DUMP_FRAME=<path>`
   (BGFXRenderer.cpp ~5704): a true desktop-GL readback of the bgfx color FBO
   (pre-Coin-composite), written as a PPM, overwritten every frame, env-gated.

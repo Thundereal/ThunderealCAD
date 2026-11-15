@@ -4861,6 +4861,34 @@ bool View3DInventorViewer::waitFrameComplete(int timeoutMs)
     }
 }
 
+namespace
+{
+/// The piece of a frame rendered at fw x fh that shows what `camera`
+/// shows at w x h: the two view volumes mapped as the Coin routes map
+/// them, compared by their size; the largest centred piece of w x h's
+/// shape where the frame holds less than that
+QRect captureCrop(const SoCamera* camera, int fw, int fh, int w, int h)
+{
+    QRect whole(0, 0, fw, fh);
+    if (!camera || fw <= 0 || fh <= 0 || w <= 0 || h <= 0)
+        return whole;
+    SbViewVolume frame = getMappedViewVolume(camera, float(fw) / float(fh));
+    SbViewVolume asked = getMappedViewVolume(camera, float(w) / float(h));
+    if (frame.getWidth() <= 0.0F || frame.getHeight() <= 0.0F)
+        return whole;
+    double across = double(asked.getWidth()) / double(frame.getWidth());
+    double up = double(asked.getHeight()) / double(frame.getHeight());
+    double over = std::max(across, up);
+    if (over > 1.0) {
+        across /= over;
+        up /= over;
+    }
+    int cw = std::max(1, int(std::lround(across * fw)));
+    int ch = std::max(1, int(std::lround(up * fh)));
+    return {(fw - cw) / 2, (fh - ch) / 2, std::min(cw, fw), std::min(ch, fh)};
+}
+}  // namespace
+
 bool View3DInventorViewer::imageFromRenderer(int width, int height,
                                              const QColor& bgcolor, QImage& img,
                                              bool waitComplete)
@@ -4917,9 +4945,18 @@ bool View3DInventorViewer::imageFromRenderer(int width, int height,
 
     // The backend renders at the size of the view it belongs to. A capture
     // asked for at another size is scaled to it -- the frame itself cannot
-    // be re-staged at an arbitrary resolution from here.
+    // be re-staged at an arbitrary resolution from here. Of another shape,
+    // it is first cropped to what the camera shows at that shape (the
+    // same mapping the Coin routes render with: an ADJUST_CAMERA camera
+    // keeps its height and its width follows), so nothing is stretched.
+    // Where that needs more of the scene than the frame holds -- wider
+    // than the view, say -- the frame's largest centred piece of that
+    // shape stands in: framed tighter, never distorted.
     if (width > 0 && height > 0
             && (captured.width() != width || captured.height() != height)) {
+        captured = captured.copy(captureCrop(getSoRenderManager()->getCamera(),
+                                             captured.width(), captured.height(),
+                                             width, height));
         captured = captured.scaled(width, height, Qt::IgnoreAspectRatio,
                                    Qt::SmoothTransformation);
     }

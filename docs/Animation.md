@@ -430,6 +430,17 @@ on the components and is normalised, as Blender does (3.13). Free handles
 on rotations would need a handle on the sphere, which no CAD user asked
 for.
 
+**Aligned** (2026-11-15) is stored like Free but kept in line with the
+other side of its key: the slope of each number the same on both sides,
+each handle keeping its own reach in time (`Anim::alignHandle`). Who
+changes one side keeps the other on its line -- the curve editor's drag,
+the key menu's Bezier handles > Aligned, `setHandles` in Python -- and
+`Curve::prepare()` turns an Aligned side onto the line of a computed
+(Auto, AutoClamped, Vector) one opposite it, so a key with one Aligned
+handle is smooth whatever the other is. The reach in time is what is
+kept, not a length on screen: the graph's two axes have no common unit,
+and Blender's length in its view depends on the zoom.
+
 Moving a key onto the time of another key of the same track replaces it,
 as in Blender. The timeline snaps to frames, but the model does not:
 a key at 1.0333 s stays there when the frame rate changes.
@@ -1329,6 +1340,9 @@ anim.stop()                      # rest values back, Active off
 anim.Cache = True                # keep what each frame recomputes to (4.1)
 anim.cacheInfo()                 # dict: Times, OnDisk, Bytes, DiskBytes, Stored, Replayed ...
 anim.clearCache()
+anim.handles("Obj.F", 1.0)       # ((type, dt, (dv, ...)), (type, dt, (dv, ...))) as the curve has them
+anim.setHandles("Obj.F", 1.0, left=("Aligned", -0.25, -1.0))  # the right follows onto its line
+anim.setHandles("Obj.F", 1.0, left="Free", right="Free")      # by name: from where the curve is
 ```
 
 The track's options are a method, not attributes of a track object, so a
@@ -1405,7 +1419,13 @@ Phase 4, built so far (2026-11-12):
   kind, "Camera" or "Camera:View1/ortho".
 - The curve editor (3edee73b72): the timeline's Curves mode, keys
   dragged in time and value, Bezier handles dragged Free (Alt mirrors).
-  Each drag one undo step.
+  Each drag one undo step. Since 2026-11-15 a handle of a smooth key
+  (AutoClamped, Auto, Aligned) dragged makes both sides Aligned, the
+  other turned onto its line, as Blender does; Alt still makes both Free
+  and mirrored; a Vector or Free handle is dragged on its own. The key
+  menu has Bezier handles (the five types; Aligned and Free start from
+  the curve as it is), and a right-click in Curves mode finds the key by
+  its point on the curve.
 - Strips (41c6e29972): a track of kind "Strip" names the child Animation
   and carries its start (At, After, With, Click), offset, scale, repeat,
   reverse and blend. The Animation evaluates its own tracks, then each
@@ -1418,8 +1438,13 @@ Phase 4, built so far (2026-11-12):
   On click starts. A strip playing its parent is refused; nesting stops
   at eight.
 - Phase 4 is done. Left for later: Squad for rotations if Bezier on the
-  components ever shows, Aligned handles kept in line by the curve
-  editor (it makes a dragged handle Free).
+  components ever shows. Measured 2026-11-15 against the same keys
+  played as Turns (the angle a Bezier scalar), about one axis: 0.26 deg
+  at most for keys 45 deg apart, 2.0 deg for 90, 2.2 for 0-120-0, and
+  6.8 deg in one span of 170 deg -- the path the same, the speed along
+  it not (the components' curve, normalised, runs ahead early in a
+  span). Aligned handles kept in line by the curve editor: built
+  2026-11-15 (above).
 | 4 | Bezier handles in a curve editor; camera track; strips (section 7) | |
 | 5 | Shared video exporter; glTF export; streaming of `Time`; frame cache (4.1) | |
 

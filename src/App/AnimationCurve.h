@@ -164,7 +164,9 @@ enum class HandleType : std::uint8_t
     AutoClamped,  ///< smooth through the neighbours, flat at a peak or a trough
     Auto,         ///< smooth through the neighbours
     Vector,       ///< pointing at the neighbour: a straight span when both ends are
-    Aligned,      ///< stored; the editor keeps the two handles in line
+    /// stored, and kept in line with the other side: by the curve where
+    /// that one is computed, by whoever edits it otherwise (alignHandle)
+    Aligned,
     Free,         ///< stored
 };
 
@@ -182,6 +184,14 @@ struct Handle
         return type == o.type && dt == o.dt && dv == o.dv;
     }
 };
+
+/** Turn \a other onto the line of \a by, the handle on the key's other
+ * side, keeping its own reach in time: the slope of each number is by's
+ * (component \a comp only, or all of them when it is negative). Nothing
+ * where either reaches no time. An Aligned pair stays smooth through its
+ * key however one of them is dragged.
+ */
+AppExport void alignHandle(const Handle& by, Handle& other, int comp = -1);
 
 struct Key
 {

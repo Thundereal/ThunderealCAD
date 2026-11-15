@@ -53,6 +53,16 @@ makes interp 'Easing' unless interp says otherwise.</UserDocu>
         <UserDocu>setInterp(path, time, interp, easing=None, python=None): the interpolation of the span leaving the key at time; python is 'Python''s expression in u</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="handles">
+      <Documentation>
+        <UserDocu>handles(path, time) -> (left, right): the Bezier handles of the key at time as the curve has them, each (type, dt, (dv, ...)): its type, its reach in time (s, negative on the left) and in each number</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setHandles" Keyword="true">
+      <Documentation>
+        <UserDocu>setHandles(path, time, left=None, right=None): the handles of the key at time. Each side a type -- 'AutoClamped', 'Auto', 'Vector', 'Aligned' or 'Free' -- or (type, dt, dv), dv a number or one per number of the value; None keeps it. Aligned or Free by name alone starts where the curve has the handle now. A side given as (type, dt, dv) turns an Aligned other side onto its line, the other keeping its reach in time.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="addTrack">
       <Documentation>
         <UserDocu>addTrack(path) -> int: a track with no keys on path; its id</UserDocu>

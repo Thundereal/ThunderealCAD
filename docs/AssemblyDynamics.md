@@ -5375,6 +5375,45 @@ Phase D1 is under way (2026-10-28):
     0.8 and 1.6 N, the bore within 0.1 mrad of the pin -- 0.0156, 0.97 to
     1.46 and 6.5 urad). TestFlexibleBody 34 (609 s), TestDynamics 90,
     TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Fixed, D4b step 26 (2026-11-15): a flexible body whose interface is
+  carried round is held what its motion asks. Step 25's second limit.
+  - **7% over.** The flexible hanger swung as the rigid one does, to 0.03
+    deg, and pressed its pin more: 1.437 N for 1.344 passing the vertical,
+    the same at the swing's ends, the excess going as the swing's speed
+    squared. The rigid hanger's force is its motion's, m (g cos a + d w^2)
+    with d the 63.8 mm of its centre of mass under the pin, to 2%.
+  - **Not the contact.** A flexible rod on a hinge, let go level (probe
+    pendforce.py): the hinge holds it what its motion asks to 0.16%, the
+    rigid rod to 0.02%. There the part turns about its interface; the
+    hanger's interface is the block fixed under it, 68 mm from the pin,
+    and the excess was the hanger's 0.041 kg by those 68 mm by w^2.
+  - **Chrono's linear inertial term.** `ChModalAssembly` has its reduced
+    mass in the floating frame's axes and its interfaces' velocities in
+    the world's; the velocity terms of its inertia are, rigorously,
+    w x (M v) - M (w x v) and one more that is the moment of the two, and
+    by default ("the linear assumption") the first alone
+    (`SetUseLinearInertialTerm`). The second is the part's mass by w x v
+    of its interface: nothing where the interface does not move, a force
+    along the swing's radius where it is carried round -- which the
+    contact took up, and the swing never saw.
+  - `ChronoFlexible::build()` asks for the rigorous terms. Chrono's
+    comments call them "only for internal test" and say they "might cause
+    numerical instabilities": none in the tests and probes, which are as
+    they were to the digits they print but for the hanger's, and no
+    slower (the hanger's swing 14.5 s for 13.4).
+  - Numbers. The hanger's swing of 0.6 s, to -29.00 deg and back to 26.72
+    (the rigid one's -28.97 and 26.68; before -28.95 and 26.63). The pin's
+    force from 0.02 s on: mean 1.155 N, 0.94 to 1.36, 0.0136 N rms from
+    frame to frame; the rigid hanger's 1.154, 0.94 to 1.37 and 0.015; from
+    the rigid one's frame by frame 0.021 N rms, 0.066 at most, for 0.053
+    and 0.096. Passing the vertical 1.358 N for 1.344.
+  - Limit: any run of steps 19 to 25 with a flexible part carried round
+    by its interface read its forces high by this; none of those steps'
+    checks did but the hanger's, whose numbers here replace theirs.
+  - Tests: TestFlexibleBody.test_swings_on_a_pin also takes the force
+    passing the vertical for m (g cos a + d w^2) to 3% (1.331 N for 1.350;
+    7% over before). TestFlexibleBody 34 (612 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

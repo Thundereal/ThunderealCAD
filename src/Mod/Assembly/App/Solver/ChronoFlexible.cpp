@@ -901,6 +901,15 @@ ChronoFlexible::Built ChronoFlexible::build(ch::ChSystem& sys,
     // test's bar where Chrono's default SparseQR took 2.2
     built.assembly->SetModalSolver(std::make_shared<ch::ChSolverSparseLU>());
     built.assembly->SetModalAutomaticGravity(true);
+    // Its inertia's velocity terms in full, not Chrono's default, the linear
+    // ones: those keep w x (M v) and leave out -M (w x v), each interface's
+    // velocity turned with the floating frame. Nothing where the part turns
+    // about its interface, a pendulum on its hinge; the part's mass by w x v
+    // where the interface is carried round -- a hanger swinging on a pin by
+    // its bore, its interface the block fixed 68 mm under the pin, pressed
+    // the pin 1.44 N at the swing's fastest for a rigid hanger's 1.34, the
+    // two swinging alike: 0.041 kg by 68 mm by w^2, 5.7 rad/s
+    built.assembly->SetUseLinearInertialTerm(false);
     // Its floating frame in the part's axes, not Chrono's principal axes of
     // inertia, whose order and signs (and for a square section the axes) the
     // rounding of the pose sets: the part started elsewhere has the same local

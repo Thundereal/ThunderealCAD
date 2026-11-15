@@ -1489,7 +1489,13 @@ class TestFlexibleBody(unittest.TestCase):
         Two points now, at the ends of the line the two rounds touch along
         (FlexibleContact::toLine()): the bore within 0.1 mrad of the pin,
         the force's steps under 0.03 N rms -- a rigid hanger's are 0.015 --
-        and the force between 0.8 and 1.6 N"""
+        and the force between 0.8 and 1.6 N.
+
+        And the pin holds it what its swing asks (D4b step 26): passing the
+        vertical, its weight and m d w^2, d its centre of mass's 63.8 mm
+        under the pin. With Chrono's linear inertial term the flexible
+        hanger, whose interface the block carries round 68 mm under the
+        pin, pressed the pin its own mass by that and w^2 more, 7% over"""
         hanger, block, held, contact = self.hangerOnPin(30.0, 0.1)
         sim = self.study(0.2, 1e-3)
         sim.Elements = [contact]
@@ -1497,6 +1503,10 @@ class TestFlexibleBody(unittest.TestCase):
         body.MeshSize = 4.0
         FlexibleBodies.prepare(body)
         self.doc.recompute()
+        mass = 0.0
+        for entry in self.assembly.getMassProperties()["Components"]:
+            if entry["Object"].Name in (hanger.Name, block.Name):
+                mass += entry["Mass"]
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         results = self.assembly.getSimulationResults()
         times = results["Times"]
@@ -1523,6 +1533,24 @@ class TestFlexibleBody(unittest.TestCase):
               "%.4g N rms from frame to frame; the bore off the pin's axis by %.3g urad at most"
               % (len(times), swung[0], swung[-1], min(forces[k] for k in late),
                  max(forces[k] for k in late), rough, off * 1e6))
+        # Passing the vertical: the frames either side of it 4 ms apart
+        low = min(range(len(late)), key=lambda j: abs(swung[j]))
+        self.assertTrue(4 <= low < len(late) - 4)
+        before = low
+        while times[late[low]] - times[late[before]] < 0.002:
+            before -= 1
+        after = low
+        while times[late[after]] - times[late[low]] < 0.002:
+            after += 1
+        turning = math.radians(swung[after] - swung[before]) / (
+            times[late[after]] - times[late[before]]
+        )
+        asked = mass * (
+            9.80665 * math.cos(math.radians(swung[low])) + 63.79e-3 * turning * turning
+        )
+        print("swings on a pin: passing the vertical at %.4g s, %.4g rad/s: %.4g N for the %.4g "
+              "its motion asks" % (times[late[low]], turning, forces[late[low]], asked))
+        self.assertLess(abs(forces[late[low]] - asked), 0.03 * asked)
         self.assertLess(swung[-1], -15.0)
         self.assertLess(rough, 0.03)
         self.assertLess(off, 1e-4)

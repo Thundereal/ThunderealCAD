@@ -106,6 +106,11 @@ Chamfer::Chamfer()
       "A group not listed takes an automatic colour.");
     ADD_PROPERTY_TYPE(_FilletFixLevel, (0), "Chamfer", App::Prop_Hidden,
       "The OCCT fork's fillet fix level the object recomputes at");
+    // Output: it follows the shape, and changes none
+    ADD_PROPERTY_TYPE(_FirstFaces, (), "Chamfer",
+      static_cast<App::PropertyType>(App::Prop_Hidden | App::Prop_Output),
+      "The face each edge's first size is measured on, the edge's name to the face's");
+    ADD_PROPERTY_TYPE(_Version, (0), "Chamfer", App::Prop_Hidden, 0);
 
     updateProperties();
 }
@@ -113,6 +118,7 @@ Chamfer::Chamfer()
 void Chamfer::setupObject()
 {
     DressUp::setupObject();
+    _Version.setValue(1);
     _FilletFixLevel.setValue(Part::OCCTFilletFixLevelLatest);
 }
 
@@ -196,6 +202,8 @@ App::DocumentObjectExecReturn *Chamfer::execute()
         chamferInfo.push_back(defaultChamfer);
         ChamferInfo.getValue(name.c_str(),chamferInfo.back());
     }
+    if (chamferType != 0)
+        firstFaces(baseShape, edges, &chamferInfo, _Version.getValue() >= 1);
 
     this->positionByBaseFeature();
     try {
@@ -338,21 +346,99 @@ void Chamfer::Restore(Base::XMLReader &reader)
 void Chamfer::onDocumentRestored()
 {
     DressUp::onDocumentRestored();
-    if (!migrateFaceRule)
-        return;
     // Now, while the shapes are those of the file, so that saving the file
     // unrecomputed keeps it; the recompute tries again if this cannot
-    try {
-        auto baseShape = getBaseShape();
-        baseShape.setTransform(Base::Matrix4D());
-        if (ChamferType.getValue() != 0 && !UseAllEdges.getValue())
-            migrateSelectedFaceRule(baseShape, getContinuousEdges(baseShape));
-        migrateFaceRule = false;
+    if (migrateFaceRule) {
+        try {
+            auto baseShape = getBaseShape();
+            baseShape.setTransform(Base::Matrix4D());
+            if (ChamferType.getValue() != 0 && !UseAllEdges.getValue())
+                migrateSelectedFaceRule(baseShape, getContinuousEdges(baseShape));
+            migrateFaceRule = false;
+        }
+        catch (const Base::Exception &) {
+        }
+        catch (const Standard_Failure &) {
+        }
     }
-    catch (const Base::Exception &) {
+    // And, for a chamfer from before version 1, the faces the file's chamfer
+    // measured from, which are the first of each edge in the file's shape
+    // and may not be in the one made again
+    if (_Version.getValue() < 1 && ChamferType.getValue() != 0
+            && _FirstFaces.getValues().empty()) {
+        try {
+            auto baseShape = getBaseShape();
+            baseShape.setTransform(Base::Matrix4D());
+            firstFaces(baseShape,
+                       UseAllEdges.getValue() ? baseShape.getSubTopoShapes(TopAbs_EDGE)
+                                              : getContinuousEdges(baseShape),
+                       nullptr, true);
+        }
+        catch (const Base::Exception &) {
+        }
+        catch (const Standard_Failure &) {
+        }
     }
-    catch (const Standard_Failure &) {
+}
+
+namespace {
+// The name of a sub-shape of shape, empty if it has none
+std::string nameOf(const Part::TopoShape &shape, const TopoDS_Shape &sub, const char *type)
+{
+    int index = shape.findShape(sub);
+    if (!index)
+        return {};
+    Data::MappedName name = shape.getMappedName(Data::IndexedName::fromConst(type, index));
+    return name ? name.toString() : std::string();
+}
+}
+
+// A chamfer of two sizes, or of a size and an angle, measures the first on
+// "the edge's first face" (the last when flipped), and which of an edge's two
+// faces comes first is the order the kernel lists the shape's faces in: an
+// accident, not kept through a rebuild. OCCT 8.0.1 lists a pad's faces in
+// another order than 7.x did; realthunder/FreeCAD#580's chamfer, 5 and 2 on
+// three edges of a pad, was made again with the 5 on the pad's base, where it
+// does not fit, and failed -- and where both sizes fit a chamfer comes out
+// with them swapped and no error. So the face is kept by name: the first
+// time an edge is chamfered its first face is put on record, and from then
+// on the first size is on that face, wherever it comes in the list. A face
+// on record that is no longer the edge's gives way to the first.
+// That is a chamfer of version 1. One from before stays as it was: the
+// record is made of the file's own shapes as the file is opened
+// (onDocumentRestored), which keeps the chamfer the file has, and nothing
+// is added to it after -- an edge not on it, or whose face on it is gone,
+// measures from its first face each time, as it did.
+// \a info: the flip of each edge, turned where the face on record is the
+// edge's last now. \a record: put the first face of an edge on record.
+void Chamfer::firstFaces(const Part::TopoShape &baseShape,
+                         const std::vector<Part::TopoShape> &edges,
+                         std::vector<Part::TopoShape::ChamferInfo> *info,
+                         bool record)
+{
+    auto faces = _FirstFaces.getValues();
+    bool changed = false;
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+        auto ancestors = baseShape.findAncestorsShapes(edges[i].getShape(), TopAbs_FACE);
+        if (ancestors.size() < 2)
+            continue;
+        const std::string edge = nameOf(baseShape, edges[i].getShape(), "Edge");
+        const std::string first = nameOf(baseShape, ancestors.front(), "Face");
+        const std::string last = nameOf(baseShape, ancestors.back(), "Face");
+        if (edge.empty() || first.empty() || last.empty() || first == last)
+            continue;
+        auto it = faces.find(edge);
+        if (it != faces.end() && it->second == last) {
+            if (info && i < info->size())
+                (*info)[i].flip = !(*info)[i].flip;
+        }
+        else if (record && (it == faces.end() || it->second != first)) {
+            faces[edge] = first;
+            changed = true;
+        }
     }
+    if (changed)
+        _FirstFaces.setValues(std::move(faces));
 }
 
 void Chamfer::migrateSelectedFaceRule(const Part::TopoShape &baseShape,

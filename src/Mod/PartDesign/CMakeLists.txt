@@ -111,6 +111,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestNameStability.py
     PartDesignTests/TestReferenceGuard.py
     PartDesignTests/TestEarlierPlacement.py
+    PartDesignTests/TestIntersectionProfile.py
     PartDesignTests/TestReferenceSearch.py
     PartDesignTests/TestTwinReferences.py
 )

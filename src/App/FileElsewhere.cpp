@@ -32,6 +32,7 @@
 # include <mutex>
 # include <set>
 # include <sstream>
+# include <system_error>
 # include <thread>
 # include <vector>
 #endif
@@ -538,17 +539,24 @@ QString syncFiles(const QStringList& paths)
             }
         }
     };
-    if (threads < 2) {
-        work();
-    }
-    else {
-        std::vector<std::thread> pool;
+    std::vector<std::thread> pool;
+    if (threads >= 2) {
         pool.reserve(threads);
-        for (int t = 0; t < threads; ++t)
-            pool.emplace_back(work);
-        for (auto& t : pool)
-            t.join();
+        // A thread that cannot be made -- the process at its limit of them,
+        // or of address space for another stack -- is done without: the
+        // ones there are share the work with this one. Left to leave here
+        // it went past a vector of threads still running, which ends the
+        // process, in the middle of a save.
+        try {
+            for (int t = 0; t < threads; ++t)
+                pool.emplace_back(work);
+        }
+        catch (const std::system_error&) {
+        }
     }
+    work();
+    for (auto& t : pool)
+        t.join();
     return failed < 0 ? QString() : paths[failed];
 }
 

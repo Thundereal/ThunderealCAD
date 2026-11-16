@@ -8409,6 +8409,67 @@ std::string Document::_materialiseVersion(int64_t num, const std::string& where)
     return materialiseVersion(TransactionLogCore::of(getFileHistory()), num, dir);
 }
 
+namespace {
+
+/// A version's composite entry, composed for a folder restore (see
+/// materialiseVersion): the attachments of each part written beside it,
+/// under a name of their own where another file has the one the part gives
+bool composeForFolder(TransactionLogCore& log, const std::string& hash, const std::string& dir,
+                      std::set<std::string>& names, std::string& out)
+{
+    std::string raw;
+    TransactionLog::Composite c;
+    std::string skeleton;
+    if (!log.readBytes(hash, raw) || !c.decode(raw) || !log.readBytes(c.skeleton, skeleton))
+        return false;
+    out.clear();
+    size_t pos = 0;
+    for (const auto& part : c.parts) {
+        if (part.offset < pos || part.offset > skeleton.size())
+            return false;
+        out.append(skeleton, pos, part.offset - pos);
+        pos = part.offset;
+        std::string fragment;
+        LogEntity entity;
+        if (!log.readBytes(part.hash, fragment, &entity))
+            return false;
+        for (const auto& r : entity.refs) {
+            if (r.role != "attach" || r.name.empty())
+                continue;
+            std::string name = r.name;
+            if (names.count(name)) {
+                const auto dot = name.rfind('.');
+                const std::string stem = dot == std::string::npos ? name : name.substr(0, dot);
+                const std::string ext = dot == std::string::npos ? std::string() : name.substr(dot);
+                // By the content: a second part with the same bytes shares it
+                name = stem + "." + r.target.substr(0, 12) + ext;
+                const std::string from = "\"" + r.name + "\"";
+                const std::string to = "\"" + name + "\"";
+                for (size_t at = fragment.find(from); at != std::string::npos;
+                     at = fragment.find(from, at + to.size()))
+                    fragment.replace(at, from.size(), to);
+            }
+            if (names.insert(name).second) {
+                std::string bytes;
+                if (!log.readBytes(r.target, bytes))
+                    return false;
+                Base::FileInfo file(dir + "/" + name);
+                if (name.find('/') != std::string::npos)
+                    Base::FileInfo(file.dirPath()).createDirectories();
+                Base::ofstream att(file, std::ios::out | std::ios::binary);
+                att.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                if (!att)
+                    return false;
+            }
+        }
+        out += fragment;
+    }
+    out.append(skeleton, pos, std::string::npos);
+    return true;
+}
+
+} // namespace
+
 std::string Document::materialiseVersion(TransactionLogCore& log, int64_t num, const std::string& dir,
                                          bool blobsInStore)
 {
@@ -8430,6 +8491,10 @@ std::string Document::materialiseVersion(TransactionLogCore& log, int64_t num, c
     // made so by restoreBlob, which the log then holds.
     const bool inStore = blobsInStore && version.schema >= 5;
     size_t written = 0, fromStore = 0;
+    // The names the folder's files take: the entries', then the attachments'
+    std::set<std::string> names;
+    for (const auto& e : manifest)
+        names.insert(e.entry);
     if (inStore)
         log.flush();
     for (const auto& e : manifest) {
@@ -8454,7 +8519,18 @@ std::string Document::materialiseVersion(TransactionLogCore& log, int64_t num, c
         Base::FileInfo target(dir + "/" + (isBlob ? FileBlobManager::archivePrefix() : "")
                               + (neutral ? FileBlobManager::neutralName(e.entry) : e.entry));
         CapturedValue v;
-        if (!log.readValue(e.hash, v))
+        if (entity.kind == "composite") {
+            // Composed here, not by readValue: a part the log claimed
+            // (sec 23.3) is its value in the log, and the files its Save
+            // wrote are its attachments there, not entries of the version.
+            // A folder restore finds them by the names the fragments give,
+            // and two values captured apart may give the same one -- two
+            // fillets' edge lists, each "Property.txt": a name taken is
+            // made the value's own.
+            if (!composeForFolder(log, e.hash, dir, names, v.fragment))
+                THROWM(Base::RuntimeError, "version entry " + e.entry + " cannot be read");
+        }
+        else if (!log.readValue(e.hash, v))
             THROWM(Base::RuntimeError, "version entry " + e.entry + " cannot be read");
         if (e.entry.find('/') != std::string::npos)
             Base::FileInfo(target.dirPath()).createDirectories();

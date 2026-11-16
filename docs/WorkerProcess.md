@@ -430,10 +430,32 @@ only writer.
 - **Settings**: `ReadStore` of Preferences/Workers (true); false writes
   2a's folder.
 
+- **A version's claimed values, in a folder** (found by this work, fixed
+  in `Document::materialiseVersion`, which every checkout shares): a
+  snapshot lets the log claim a property whose value it holds (log sec
+  23.3), and the files that value's Save wrote -- a fillet's edge list,
+  `<FilletEdges file="Property.txt"/>` -- are attachments of the value in
+  the log, not entries of the version. A folder written from a version
+  had no such file: a worker's fillet restored with no edges ("Edge link
+  size mismatch"). Two values captured apart may also give the same name
+  -- two fillets, each "Property.txt". A composite entry is now composed
+  for the folder with each part's attachments beside it, a name already
+  taken made the value's own (its stem, the attachment's hash, its
+  extension) in that part's fragment. In-process versions read the
+  values another way and were right before.
+
 Measured on the 64-hole filleted plate, posed: `prepareFrames()` 26 to
 28 ms on the main thread -- the snapshot and the blobs put out -- against
 39 for 2a and 418 for the saved copy.
 
-Tests: TestWorkerPool 16 (the store read, only the edited shape's blob
-put out again, the version held past retention while the pool holds it
-and let go after), TestAnimation 71, `tests/gui/animation-workers.py` 19.
+What phase 3 has to gain, measured before it is built (console, the
+same plate, 20 frames on disk each way, read back in turn): a frame this
+process wrote 14.8 ms, a worker's -- the same format, its strings taken
+in by content -- 16.7 ms. Import by content is about 2 ms of a frame's
+read-back here; in the GUI the floor is the view rebuilt for the shape
+(~150 ms, sec 6), which only phase 5 removes.
+
+Tests: TestWorkerPool 17 (two fillets' edge lists, both ways; the store
+read, only the edited shape's blob put out again, the version held past
+retention while the pool holds it and let go after), TestAnimation 71,
+`tests/gui/animation-workers.py` 19.

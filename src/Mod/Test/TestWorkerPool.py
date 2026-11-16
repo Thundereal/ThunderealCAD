@@ -54,6 +54,10 @@ def _volume(doc, inputs, out):
     return {"Volume": doc.getObject(inputs["Object"]).Shape.Volume}
 
 
+def _edges(doc, inputs, out):
+    return {n: len(doc.getObject(n).Edges) for n in inputs["Objects"]}
+
+
 def _write(doc, inputs, out):
     with open(out, "w") as f:
         f.write(inputs["Text"])
@@ -69,6 +73,7 @@ for _kind, _handler in (
     ("test.read", _read),
     ("test.write", _write),
     ("test.volume", _volume),
+    ("test.edges", _edges),
 ):
     worker.register(_kind, _handler)
 
@@ -182,6 +187,38 @@ class TestWorkerPool(unittest.TestCase):
         self.assertTrue(self.pool.wait(120))
         self.assertAlmostEqual(self.pool.result(jobs[0])["Output"]["Volume"], 2000.0)
         self.assertAlmostEqual(self.pool.result(jobs[1])["Output"]["Volume"], cyl.Shape.Volume)
+
+    def testTheFilesOfAValueTheLogHolds(self):
+        """A value the log holds is not saved again in its version: its
+        files are its attachments in the log -- two fillets' edge lists,
+        each its own (log sec 23.3)"""
+        import Part  # noqa: F401
+
+        fillets = []
+        for i, count in enumerate((12, 4)):
+            box = self.doc.addObject("Part::Box", "Box")
+            box.Placement.Base = App.Vector(20 * i, 0, 0)
+            self.doc.recompute()
+            fillet = self.doc.addObject("Part::Fillet", "Fillet")
+            fillet.Base = box
+            fillet.Edges = [(e + 1, 1.0, 1.0) for e in range(count)]
+            fillets.append(fillet.Name)
+        self.doc.recompute()
+        self.doc.openTransaction("Edit")
+        self.doc.getObject(fillets[1]).Edges = [(e + 1, 0.5, 0.5) for e in range(3)]
+        self.doc.commitTransaction()
+        self.doc.recompute()
+        for store in (True, False):
+            group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+            group.SetBool("ReadStore", store)
+            self.addCleanup(group.RemBool, "ReadStore")
+            self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+            job = self.submit("test.edges", {"Objects": fillets})
+            self.assertTrue(self.pool.wait(120))
+            result = self.pool.result(job)
+            self.assertEqual(result["Status"], "Done", result)
+            self.assertEqual(result["Output"], {fillets[0]: 12, fillets[1]: 3}, store)
+            self.pool.stop()
 
     def testTheVersionIsHeldWhileTheWorkersHoldIt(self):
         """Retention lets an unnamed version go past the number kept, but

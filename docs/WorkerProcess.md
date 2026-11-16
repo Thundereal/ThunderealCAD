@@ -1,8 +1,9 @@
 # Worker processes -- a general facility, the Animation its first use
 
-Status: design, 2026-11-16, for review. Nothing here is built except
-phase 0 (branch `Worker`, `docs/Animation.md` sec 4.2), which this
-replaces piece by piece.
+Status: design accepted 2026-11-16, every decision as recommended (sec
+9). Phase 0 (`docs/Animation.md` sec 4.2) is built; phase 1 -- the pool,
+the socket, the jobs, the Animation on them -- is being built on branch
+`Worker` (sec 10).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -248,7 +249,7 @@ gated by `TestAnimation`, `tests/gui/animation-workers.py`, and a new
 `TestWorkerPool` (the pool alone: lifecycle, exactly-once, a worker
 killed, a version moved, a lease holding back a prune).
 
-Decisions wanted:
+Decisions (taken 2026-11-16: each as recommended):
 
 - **D1 Control channel**: local socket (recommended) or keep stdout lines.
 - **D2 Multiple readers**: build the read-only half of log sec 29.7(b) --
@@ -267,3 +268,91 @@ Decisions wanted:
   or a headless Gui worker.
 - **D6 The second client** after the Animation: `recompute`
   (recommended), or another.
+
+## 10. Phase 1, as built
+
+(2026-11-16, branch `Worker`: `App/WorkerPool.{h,cpp}`,
+`Ext/freecad/worker.py`, `App/AnimationWorkers.*` ported onto it;
+`Mod/Test/TestWorkerPool.py`.)
+
+- **The pool.** `WorkerPool::of(doc)`, one per document, gone with it
+  (`signalDeleteDocument`: its workers killed, its directory removed, no
+  client told). `start()` takes the copy if none stands -- still phase 0's
+  `saveCopy()`, into `<temp>/Workers-<pid>-<n>`, with the settings and the
+  list of objects with a Python class -- and starts one worker.
+  `submit(Job)` -> id; `claim(id)` -> `Yours` (it was queued: the client
+  does it), `Done` (it was running and its result has been handed over),
+  `Failed` (its worker died, or ran past 30 s or twenty times the kind's
+  mean: the client does it); `state(id)`; `cancel(tag predicate)`;
+  `stop(why)`; `poll(ms)`; `wait(seconds)`; `info()`;
+  `signalChanged`. A job's `done(Result&)` is called once, unless the
+  client claimed it while queued or cancelled it; the result's `file`,
+  written by the handler in the pool's `out/`, is the client's to move,
+  else deleted.
+- **The socket.** `QLocalServer` with `UserAccessOption`, its name and a
+  random token in the worker's environment; a worker's first message,
+  `hello`, carries the token and its pid, and a connection without both
+  is closed. Messages are a u32 header length, a u32 body length, a JSON
+  header and a body (none yet). The pool says `setup`, `job`, `quit`; a
+  worker `hello`, `ready` or `unfit`, `result`. A worker's standard output
+  and error go to `worker<n>.log` in the pool's directory and are never
+  read. `App` now links QtNetwork.
+- **The worker's loop** is C++ (`WorkerPool::serve()`, reached as
+  `freecad.worker.serve()` -> `FreeCAD._serveWorker()`): blocking reads on
+  its socket, the copy opened with undo off, a job run by a C++ handler
+  (`WorkerPool::registerKind`) or a Python one (`freecad.worker.register`,
+  the job naming the module that registers it), its answer with the
+  seconds and the bytes the process holds. A Python handler raises
+  `freecad.worker.Unfit` for a job it cannot do faithfully; a kind no one
+  registered is unfit too. The pool going ends the loop.
+- **Lifetime.** A worker that dies has its job queued once more, first in
+  line; twice, the job fails. Three deaths or failures in a row stop the
+  pool. An idle worker is told to quit after `IdleSeconds` (30; 0: at
+  once); the copy stands, and the next job starts a worker on it.
+- **Staleness, until phase 4.** The pool watches the document: a write
+  that changes its file (`WriteEffect::Dirty`), not inside a recompute,
+  not an Animation's (`WriteCause::Animation`), and not of an Animation
+  object (whose frames it says itself, `Animation::designChanged()`), stops
+  the pool: every job handed back `Cancelled`, the copy dropped.
+- **Growth** as sec 2: one at a time once every worker has done a job,
+  memory allowing; with a client claiming (a claim in the last two
+  seconds) only when it had to wait or take a queued job back; with none,
+  while more is queued than there are workers.
+- **Python**: `App.workerPool(doc)` -> `start()`, `submit(kind, inputs,
+  module, tag)`, `claim`, `state`, `result(id)` (once: `Status`, `Error`,
+  `Output`, `File`, `Seconds`, `Resident`), `cancel(tag)`, `stop`, `poll`,
+  `wait`, `info()` (`Started`, `Workers`, `Limit`, `Spawned`, `Busy`,
+  `Queued`, `Resident`, `Done`, `Failed`, `Reason`, `Directory`, `Pids`).
+- **Preferences/Workers**: `Workers` (-1 auto, 0 off), `Command`,
+  `KeepJob`, `IdleSeconds`. The Animation's `Workers` moved here;
+  `WorkerMinSeconds` stays the Animation's.
+- **The Animation** submits a job per frame, tagged as its own, the
+  pool's `tables/` for the string tables (phase 3 replaces them); its
+  `claim` before a frame is made here, its callback moving the frame into
+  the cache directory and adopting it when safe. Cache or Active off,
+  `clearCache()` and `stopWorkers()` cancel its jobs only.
+
+Traps met building it, each with the event loop in the GUI:
+
+- `waitForReadyRead()` on a socket emits `readyRead` inside the wait, so
+  the slot ran first and handed the new connection over; reading it again
+  after the wait read a moved-from socket (a crash in the first run).
+- Accepting a connection by hand (`waitForNewConnection`) while an event
+  loop runs leaves the server's own notifier to call a blocking
+  `accept()` for a connection already taken: the GUI hung in it. The pool
+  accepts by hand only where no loop runs (`loopLevel() == 0`, a console).
+- A client waiting inside a result's callback reads the same worker
+  again: a read is safe to nest, a message being taken off the buffer
+  whole, and a guard against nesting made that wait spin to its deadline.
+
+Measured 2026-11-16 on mini, the manual's plate (36 holes filleted, 134
+faces, 41 frames, `core/animation/workers.py`): made here 5.6 s; by the
+pool 2.3 s for the 40 not kept, five workers at the peak holding 72 MB
+each, none made here, none failed (phase 0: 2.5 s). Tests: TestWorkerPool
+12, TestAnimation 70, `tests/gui/animation-workers.py` 19, and
+animation-cache 27, animation-timeline 50, serve-animation 62,
+animation-export-clock 12 unchanged; ctest 1268/1268 (FormWidgets failed
+once under `-j 4`, passed alone).
+
+Not done in phase 1: the expression-security grants passed to a worker
+(sec 2); jobs dropped by `reads` (phase 4).

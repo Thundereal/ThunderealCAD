@@ -878,26 +878,24 @@ Not done: a bake command (playing or exporting once is the bake).
 
 ### 4.2 Frames made by workers, as built
 
-(2026-11-16; `App/AnimationWorkers.*`, `Ext/freecad/animationworker.py`.)
-With Cache on, `Animation::prepareFrames()` hands the frames the cache
-has not got to worker processes, and what they make comes into the cache
-as frames on disk.
+(2026-11-16; `App/AnimationWorkers.*`. Since phase 1 of
+`docs/WorkerProcess.md` the processes are the document's
+`App::WorkerPool`, and a frame is a job of the kind `animation.frame`
+in it.) With Cache on, `Animation::prepareFrames()` hands the frames the
+cache has not got to worker processes, and what they make comes into the
+cache as frames on disk.
 
-- **A worker** is a ThunderealCmd beside the running program
-  (`bin/ThunderealCmd`, or what `WorkerCommand` of Preferences/Animation
-  names) running `freecad.animationworker` with `-c`, on its own copy of
-  the settings (`-u`, `-s`: a console program writes them back as it
-  exits, which would race this one's). It opens a copy of the document,
-  `saveCopy()` without history into `TransientDir/AnimationWorkers/<name>`
-  -- a save, so the design: the rest values (3.8). It is told frames on
-  its standard input, one at a time; for each it sets Time and recomputes
-  as the cache does (`Animation::writeFrame`), and writes what the
-  recompute wrote the way the disk tier writes a frame (4.1), behind a
-  header naming each value's object and property, the frame's scope and
-  the clean part of it, and the seconds the recompute took. It answers on
-  its standard output in lines starting `FCAW `: `ready`, `done <frame>
-  <bytes it holds>`, `fail <frame> <why>`, `unfit <why>`. `quit`, or the
-  end of its input -- this process gone -- ends it.
+- **A worker** is one of the pool's (WorkerProcess.md sec 2): a
+  ThunderealCmd running `freecad.worker` on its own copy of the settings,
+  holding a copy of the document -- `saveCopy()` without history into the
+  pool's directory, a save, so the design: the rest values (3.8) -- and
+  talking to this process over a local socket of the pool's. Each frame is
+  a job; the worker sets Time and recomputes as the cache does
+  (`Animation::writeFrame`), and writes what the recompute wrote into the
+  file the pool gives it, the way the disk tier writes a frame (4.1),
+  behind a header naming each value's object and property, the frame's
+  scope and the clean part of it, and the seconds the recompute took. The
+  file is moved into the cache's directory when the result comes.
 - **The strings.** An element map names its strings by the ids of the
   file's string table, and a worker's table is its own: its ids are other
   strings here, or none. A frame names the worker's table by its hash;
@@ -927,7 +925,10 @@ as frames on disk.
   Windows, the resident set on Linux) -- while the memory available
   (`MemAvailable`; `ullAvailPhys`; free, inactive and purgeable pages on
   macOS) leaves a seventh of the machine, 1 GB at least, after another
-  and a quarter. At most `Workers` of Preferences/Animation: -1, the
+  and a quarter -- and, with a client taking the results as they come (a
+  claim in the last two seconds), only when it had to wait for a worker
+  or make a queued frame itself; with none, while more is queued than
+  there are workers. At most `Workers` of Preferences/Workers: -1, the
   default, the cores less one, up to 8; 0 none.
 - **When not.** When the frames are quicker made here than a worker
   starts: the mean recompute of the frames kept, times the frames wanted,
@@ -939,10 +940,13 @@ as frames on disk.
   Python class here, and a worker missing one answers `unfit`, which
   stops them all.
 - **Stopped** by whatever drops frames -- an edit of the design, a new or
-  deleted object, a key moved -- since their copy is not the design any
-  more; and by Cache or Active off, or three failures in a row. The
-  processes are killed, the frames begun deleted, the job's directory
-  removed; what the cache took stays.
+  deleted object, a key moved -- since the pool's copy is not the design
+  any more: the pool stops, its processes killed, its directory removed;
+  and by three failures in a row. Cache or Active off, `clearCache()`,
+  `stopWorkers()` and the end of an export take back only the Animation's
+  own jobs; the workers stay, idle, for `IdleSeconds` of
+  Preferences/Workers (30), on a copy that is still the design. What the
+  cache took stays.
 - **Who asks.** Play (the timeline's player), an export
   (`videoexport.exportAnimation`: the frames after the first, the workers
   stopped when it ends) and the browser's bake (9.1: the samples after
@@ -980,14 +984,9 @@ What it took to see the stall the first measurement showed (frames
 waited for 30 s, then made here): a worker's console prints a
 recompute's progress count to its standard output, ending in a carriage
 return and no newline, and an answer written after it came into this
-process glued to the end of that line. The worker now writes its answers
-to a copy of its standard output and gives the descriptor itself to its
-standard error (its log), and this process looks for `FCAW ` anywhere
-in a line. And two QProcess traps that hold only with an event loop: a
-write goes out when the loop next runs, so a command is flushed at once
-(`waitForBytesWritten`); and `readyRead` is told once for what arrived,
-so what QProcess takes in while a line is being handled is read until
-none is left.
+process glued to the end of that line. Phase 0 answered on a copy of
+the descriptor; the pool now talks over a socket and never reads what a
+worker prints (WorkerProcess.md sec 10).
 
 ```python
 anim.prepareFrames()         # every frame not kept; -> workers running
@@ -1004,7 +1003,7 @@ faces and element names as made here, none made here, kept through a
 save; each frame made once with the pass outrunning the workers; stopped
 by an edit, no file left; refused for a class the worker has not got;
 refused without the cache, with every frame kept, for frames too quick,
-with `Workers` 0) and `tests/gui/animation-workers.py` (frames through
+with `Workers` 0), `TestWorkerPool` (the pool alone) and `tests/gui/animation-workers.py` (frames through
 the event loop with nothing asking, the timeline's amber and blue, the
 pictures of the frames made here, an export handing its frames over, an
 edit stopping them).

@@ -488,6 +488,36 @@ inline bool farthestAcross(const Face& x,
         leaving = edge;
         return true;
     };
+    // From the middle of the plane's cut through the face, where it crosses
+    // two of its edges: projected from L, a cut microns long by a corner --
+    // a plane square to a cone's side by its rim -- was missed, the point
+    // left by an edge the cut does not reach
+    {
+        auto planeAt = [&](double s, double t) {
+            return dot(add(pointAt(x, offsets, coordinates(s, t)), c, -1.0), way);
+        };
+        std::array<double, 3> gs {planeAt(0.0, 0.0), planeAt(1.0, 0.0), planeAt(0.0, 1.0)};
+        double ms = 0.0;
+        double mt = 0.0;
+        int crossings = 0;
+        for (int e = 0; e < 3 && crossings < 2; ++e) {
+            const double ga = gs[static_cast<std::size_t>(e)];
+            const double gb = gs[static_cast<std::size_t>((e + 1) % 3)];
+            if ((ga <= 0.0) == (gb <= 0.0)) {
+                continue;
+            }
+            double es = 0.0;
+            double et = 0.0;
+            onEdge(e, es, et);
+            ms += es;
+            mt += et;
+            ++crossings;
+        }
+        if (crossings == 2) {
+            s = 0.5 * ms;
+            t = 0.5 * mt;
+        }
+    }
     if (!ontoPlane(s, t) || beyond(s, t)) {
         return false;
     }
@@ -541,6 +571,148 @@ inline bool farthestAcross(const Face& x,
         }
     }
     L = coordinates(s, t);
+    return true;
+}
+
+// The point of triangle abc nearest p, as its weights on the corners
+inline std::array<double, 3>
+nearestOnTriangle(const Vec& p, const Vec& a, const Vec& b, const Vec& c)
+{
+    // Ericson, Real-Time Collision Detection, 5.1.5
+    const Vec ab = add(b, a, -1.0);
+    const Vec ac = add(c, a, -1.0);
+    const Vec ap = add(p, a, -1.0);
+    const double d1 = dot(ab, ap);
+    const double d2 = dot(ac, ap);
+    if (d1 <= 0.0 && d2 <= 0.0) {
+        return {1.0, 0.0, 0.0};
+    }
+    const Vec bp = add(p, b, -1.0);
+    const double d3 = dot(ab, bp);
+    const double d4 = dot(ac, bp);
+    if (d3 >= 0.0 && d4 <= d3) {
+        return {0.0, 1.0, 0.0};
+    }
+    const double vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
+        const double v = d1 / (d1 - d3);
+        return {1.0 - v, v, 0.0};
+    }
+    const Vec cp = add(p, c, -1.0);
+    const double d5 = dot(ab, cp);
+    const double d6 = dot(ac, cp);
+    if (d6 >= 0.0 && d5 <= d6) {
+        return {0.0, 0.0, 1.0};
+    }
+    const double vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
+        const double w = d2 / (d2 - d6);
+        return {1.0 - w, 0.0, w};
+    }
+    const double va = d3 * d6 - d5 * d4;
+    if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) {
+        const double w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return {0.0, 1.0 - w, w};
+    }
+    const double denom = 1.0 / (va + vb + vc);
+    const double v = vb * denom;
+    const double w = vc * denom;
+    return {1.0 - v - w, v, w};
+}
+
+// The face's point, on its true surface where 'offsets' are given,
+// farthest along the unit 'out', from L, by Newton's steps on its height
+// (its second derivatives by differences): L the point. False where it is
+// beyond the face, 'leaving' the edge it goes out by as farthestAcross()
+// has it, L on that edge; -1 where the face curves away from 'out' there
+inline bool farthestOn(const Face& x,
+                       const Offsets* offsets,
+                       const Vec& out,
+                       std::array<double, 3>& L,
+                       int& leaving)
+{
+    leaving = -1;
+    double s = L[1];
+    double t = L[2];
+    auto slopes = [&](double s, double t, double& hs, double& ht) {
+        Vec ps;
+        Vec pt;
+        pointAt(x, offsets, {1.0 - s - t, s, t}, &ps, &pt);
+        hs = dot(ps, out);
+        ht = dot(pt, out);
+    };
+    const double eps = 1e-5;
+    for (int iteration = 0; iteration < 40; ++iteration) {
+        double hs;
+        double ht;
+        slopes(s, t, hs, ht);
+        double a;
+        double b;
+        double c;
+        double d;
+        slopes(s + eps, t, a, b);
+        slopes(s, t + eps, c, d);
+        // The height's Hessian, symmetric
+        const double hss = (a - hs) / eps;
+        const double htt = (d - ht) / eps;
+        const double hst = 0.5 * ((b - ht) / eps + (c - hs) / eps);
+        const double det = hss * htt - hst * hst;
+        double ds;
+        double dt;
+        if (hss < 0.0 && det > 0.0) {
+            ds = -(htt * hs - hst * ht) / det;
+            dt = -(hss * ht - hst * hs) / det;
+        }
+        else {
+            // Not curved to it both ways: up its slope
+            const double g = std::hypot(hs, ht);
+            if (!(g > 0.0)) {
+                return false;
+            }
+            ds = 0.25 * hs / g;
+            dt = 0.25 * ht / g;
+        }
+        const double step = std::hypot(ds, dt);
+        if (step > 0.25) {
+            ds *= 0.25 / step;
+            dt *= 0.25 / step;
+        }
+        const double ns = s + ds;
+        const double nt = t + dt;
+        const double by[3] = {-nt, ns + nt - 1.0, -ns};
+        int edge = -1;
+        double most = 1e-12;
+        for (int e = 0; e < 3; ++e) {
+            if (by[e] > most) {
+                most = by[e];
+                edge = e;
+            }
+        }
+        if (edge >= 0) {
+            // Along the step to that edge
+            double h = 1.0;
+            if (edge == 0 && dt < 0.0) {
+                h = -t / dt;
+            }
+            else if (edge == 2 && ds < 0.0) {
+                h = -s / ds;
+            }
+            else if (edge == 1 && ds + dt > 0.0) {
+                h = (1.0 - s - t) / (ds + dt);
+            }
+            s = std::clamp(s + h * ds, 0.0, 1.0);
+            t = std::clamp(t + h * dt, 0.0, 1.0 - s);
+            L = {1.0 - s - t, s, t};
+            leaving = edge;
+            return false;
+        }
+        s = ns;
+        t = nt;
+        if (step < 1e-10) {
+            break;
+        }
+    }
+    L = {1.0 - s - t, s, t};
     return true;
 }
 

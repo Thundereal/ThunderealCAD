@@ -355,3 +355,55 @@ TEST(LocalSurface, aTrueSurfaceCurvesAsItsRound)  // NOLINT
     ASSERT_TRUE(localSurface(x, {0.98, 0.01, 0.01}, edge));
     EXPECT_LT(edge.k1, 0.19);
 }
+
+// A plane that cuts a face by a corner alone: a cone's side by its narrow
+// end, a plane square to the side 2 um in from a rim vertex, the cone's
+// bottom beyond the edge (0 1). From the face's middle projected onto the
+// plane, the point fell past the edge (1 2) and left by it, away from the
+// bottom -- a rigid cone on a plate 0.5 um short of it there. From the
+// middle of the cut, by the edge it is (D4b way 1 step 5)
+TEST(LocalSurface, aCutByACornerLeavesTowardsTheFarthest)  // NOLINT
+{
+    const double r1 = 5.0;
+    const double r2 = 4.0;
+    const double h = 40.0;
+    const double half = std::atan2(r1 - r2, h);
+    auto cone = [&](double angle, double z) {
+        const double r = r1 + (r2 - r1) * z / h;
+        return Vec {r * std::cos(angle), r * std::sin(angle), z};
+    };
+    auto normalAt = [&](double angle) {
+        return Vec {std::cos(angle) * std::cos(half),
+                    std::sin(angle) * std::cos(half),
+                    std::sin(half)};
+    };
+    // Two corners 2.1 mm in from the rim, one on it; its edges' middles out
+    // by the sagitta its corners' normals give, as a rigid hull's
+    const std::array<std::array<double, 2>, 3> corners {
+        {{-0.1257, h - 2.1}, {-0.1995, h}, {-0.2516, h - 2.1}}};
+    Face x;
+    std::array<Vec, 3> n;
+    for (std::size_t k = 0; k < 3; ++k) {
+        x[k] = cone(corners[k][0], corners[k][1]);
+        n[k] = normalAt(corners[k][0]);
+    }
+    for (std::size_t k = 0; k < 3; ++k) {
+        const std::size_t j = (k + 1) % 3;
+        Vec way = add(n[k], n[j]);
+        normalize(way);
+        x[3 + k] = add(scaled(add(x[k], x[j]), 0.5),
+                       way,
+                       dot(add(x[j], x[k], -1.0), add(n[j], n[k], -1.0)) / 8.0);
+    }
+    const double bottom = -0.169;
+    const Vec out = normalAt(bottom);
+    Vec way = add(cone(bottom, h), cone(bottom, 0.0), -1.0);
+    way = add(way, out, -dot(way, out));
+    normalize(way);
+    const Vec c = add(x[1], way, -0.002);
+    std::array<double, 3> L {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0};
+    int leaving = -1;
+    EXPECT_FALSE(farthestAcross(x, nullptr, out, c, way, L, leaving));
+    EXPECT_EQ(leaving, 0);
+    EXPECT_NEAR(L[2], 0.0, 1e-9);
+}

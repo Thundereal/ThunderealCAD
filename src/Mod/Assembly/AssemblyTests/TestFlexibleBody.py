@@ -1071,6 +1071,28 @@ class TestFlexibleBody(unittest.TestCase):
             within=0.01,
         )
 
+    def test_rigid_cone_on_plate(self):
+        """A rigid part's round of no cylinder lying along a plate (D4b way 1
+        step 5): test_cone_on_plate's cone rigid, a friction of 0.3. Its
+        contact shape is a hull, its facets a deflection in from the cone,
+        and Bullet's points on them: the force ran from 44.3 to 50.0 N over
+        the turn, for the 50 of 0.05 mm on the springs. Each point now on
+        the cone's surface as its solid has it, the hull's triangle curved by
+        its corners' normals, at the surface's farthest towards the plate in
+        the plane across its side (hullFarthest()): 49.99 to 50.00 N, the
+        motion's torque the friction's on the cone's middle radius"""
+        self.roundTurned(
+            "a rigid cone on a plate",
+            55,
+            -10,
+            cone=4.0,
+            rigidRod=True,
+            friction=0.3,
+            arm=4.5,
+            within=0.001,
+            most=50.5,
+        )
+
     def test_round_in_bore(self):
         """A flexible part's round in a rigid bore (D4b step 18):
         test_round_anywhere's rod in a grounded block's bore R 5.5, the

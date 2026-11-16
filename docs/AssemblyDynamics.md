@@ -5766,6 +5766,62 @@ Phase D1 is under way (2026-10-28):
   - Not yet: a point contact on a face of no round (a torus, a barrel)
     still takes its face's farthest on the six-node face; the rounds'
     lines keep `roundAt()`'s fit, which the true surface could replace.
+- Measured, D4b way 1 step 4 (2026-11-16): two flat faces, an area's
+  corners -- nothing to fix. A flexible block 40 x 10 x 4 lying on a plate
+  0.05 mm into it, turned one revolution about a vertical hinge at its end:
+  37.83 N over the turn, to 0.00% (a rigid block 50, the flexible one
+  bending up under it), 37.84 with a friction of 0.3. The law, k sum s^2 /
+  sum s over a patch's points, is the depth where the depth is the same
+  everywhere, wherever the points are: an area's corners would move its
+  moment's arms alone, and no case measured here wants it. Probe
+  ~/.cache/flexcontact/flatprobe.py.
+- Built, D4b way 1 step 5 (2026-11-16): a rigid part's round of no
+  cylinder on its solid's own surface. test_cone_on_plate's cone rigid
+  pressed the plate 44.3 to 50.0 N over the turn, for the 50 of 0.05 mm on
+  the springs: its contact shape is a hull of OCCT's triangulation, the
+  facets 7 um in from the cone between its generators at R 5, and
+  Bullet's points are the hull's vertices, found up to that much short of
+  the cone's bottom.
+  - **Each point on the solid's surface** (`hullFarthest()`, from
+    `rollAlong()` at each update, `Point::bentA`/`bentB` where a hull has a
+    curved face of no round, `ShapeOn::hullBent`). The hull's mesh's
+    triangle nearest the point, curved into a six-node face by its corners'
+    exact normals (`ContactShape::surfaces`): each edge's middle out by
+    (x_j - x_i).(n_j - n_i) / 8, a circle's sagitta to second order -- on
+    the cone 0.3 um off it where the facet is 7. The point goes to that
+    face's farthest towards the other part in the plane across the face's
+    straight way (the least eigenvalue of the curvature tensor at the
+    corner nearest, under a tenth of the most), through the triangles
+    about by their edges (`ShapeOn::hullAcross`), or its farthest where it
+    has no straight way (`LocalSurface::farthestOn()`).
+  - Wrong turns, each measured. The plane through the point: Bullet's
+    points are at the rim, and a plane square to a cone's side there leans
+    off the side by the half angle -- the walk went round the vertex; now
+    a thousandth of the triangle's stretch in (49.28 N, 45.6 to 50.0). The
+    nearest triangle by distance alone: Bullet's point is a margin, 19.5
+    um, past the cone's end, a hundredth of a micron nearer the end's flat
+    triangle than the side's; now of those within a tenth of the
+    distance, the one facing the plate most (49.94, 48.85 to 50.07). The
+    walk from the triangle's middle projected onto the plane: a cut
+    microns long by a corner was missed, the point left by the edge away
+    from the bottom (`farthestAcross()` now starts in the middle of the
+    cut, from where the plane crosses two edges). Winding the triangles
+    out of the hull moved nothing, and is kept: the mesh's own winding is
+    its faces'.
+  - Numbers: 50.00 N, 49.99 to 50.00 over the turn; with a friction of
+    0.3, the motion's torque 67.51 N mm, 0.3001 N R on the middle radius
+    4.5. The run 4 s where it took 1. A rigid cylinder primitive: 50, 50 to
+    50 as before. Every other case prints as it did (TestContact 63,
+    TestDynamics 90, TestJointFriction 4, TestFlexibleBody 37).
+  - Tests: TestFlexibleBody.test_rigid_cone_on_plate holds the force within
+    a thousandth (44.3 at the least before); gtest LocalSurface.
+    aCutByACornerLeavesTowardsTheFarthest (the projected start leaves by
+    the edge (1 2)). Probes ~/.cache/flexcontact/rigidconeprobe.py,
+    rigidseries.py; a replay harness of one failing case,
+    ~/.cache/flexcontact/harness/.
+  - Not yet: the triangle nearest is found among all the hull's, each
+    point at each update -- 4 s for the cone, where it took 1; a grid or
+    the last one's neighbours would do.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

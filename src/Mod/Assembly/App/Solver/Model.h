@@ -629,6 +629,21 @@ struct Flexible
     // shape on the body rides; empty, a contact touches its mesh anywhere
     // (D4b step 8)
     std::vector<Id> contactNodes;
+    // Its surface as the solid has it (D4b way 1 step 3): each face of the
+    // mesh's surface on a curved face of the solid, by its corners, and the
+    // solid's surface at nine more points of it, offsets from the six-node
+    // face there at rest, mm, in the body frame -- the points L = (i, j, k)
+    // / 4 over the corners in LocalSurface::quarticPoints' order -- and the
+    // solid's face it is on, by its number in the solid's faces. A six-node
+    // face stands in from a round between its nodes, 3.9 um on R 5 at a 4
+    // mm mesh; through these, 0.11 um
+    struct TrueFace
+    {
+        std::array<Id, 3> corners {};
+        std::array<Base::Vector3d, 9> offsets;
+        int face = -1;
+    };
+    std::vector<TrueFace> trueFaces;
     // Its reduction kept in the document (FlexibleBody::Reduction), a
     // backend's as it handed it over (ModeShapes::reduction): taken where it
     // is of the part as it is now, else made again. Shared, not copied with

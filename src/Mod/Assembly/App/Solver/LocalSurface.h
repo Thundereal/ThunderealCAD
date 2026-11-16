@@ -87,11 +87,175 @@ struct Local
     double k2 = 0.0;
 };
 
+// What two surfaces touching are, by their relative curvature: the sum of
+// the two curvature tensors in A's tangent plane, its principal values k1
+// >= k2 and their ways. Pressed 'depth' together, the surfaces are within it
+// of each other along a principal way over a width 2 sqrt(2 depth / k) --
+// none past where k is none or below. A way is flat where that width is
+// more than 'reach', how far the two shapes reach to touch that way (the
+// smaller's size): the contact is a point where neither is, a line along
+// the flat way where one is, an area where both are. Not by a face's size:
+// a rod R 5 in a bore R 5.5 pressed 50 um touches 4.7 mm round, past a 4 mm
+// mesh's face, and is a line -- two points at its ends hold its force to
+// 0.05% (step 29).
+struct Contact
+{
+    enum class Kind
+    {
+        Point,
+        Line,
+        Area
+    };
+    Kind kind = Kind::Point;
+    Vec normal {};  // A's
+    Vec way1 {};
+    Vec way2 {};
+    double k1 = 0.0;
+    double k2 = 0.0;
+    double width1 = 0.0;  // along way1, infinity where flat
+    double width2 = 0.0;
+    // A line's: the way it runs, and its width across
+    Vec along {};
+    double across = 0.0;
+};
+
+// A surface's curvature along a unit way of its tangent plane (Euler's)
+inline double curvatureAlong(const Local& surface, const Vec& way)
+{
+    const double c = dot(way, surface.way1);
+    const double s = dot(way, surface.way2);
+    return surface.k1 * c * c + surface.k2 * s * s;
+}
+
+// The six-node face's shape functions at area coordinates L
+inline std::array<double, 6> quadratic(const std::array<double, 3>& L)
+{
+    const double l0 = L[0];
+    const double s = L[1];
+    const double t = L[2];
+    return {l0 * (2.0 * l0 - 1.0),
+            s * (2.0 * s - 1.0),
+            t * (2.0 * t - 1.0),
+            4.0 * l0 * s,
+            4.0 * s * t,
+            4.0 * t * l0};
+}
+
+// A face's true surface (D4b way 1 step 3): a six-node face goes through
+// its round's points at its nodes and stands in from it between them, 3.9
+// um on R 5 at a 4 mm mesh -- a tenth of what a rod is pressed. The solid's
+// own surface at nine more points of the face, as offsets from the face
+// there at rest (Flexible::trueFaces), and a quartic triangle through the
+// fifteen: the points L = (i, j, k) / 4 over its corners, but the six the
+// face goes through, in this order. Offsets, not points: carried by the
+// face as its nodes move, they are the solid's surface where the part bends
+// -- a strain's turn of them is a micron's of a micron
+inline constexpr std::array<std::array<int, 3>, 9> quarticPoints {{{3, 1, 0},
+                                                                   {1, 3, 0},
+                                                                   {0, 3, 1},
+                                                                   {0, 1, 3},
+                                                                   {1, 0, 3},
+                                                                   {3, 0, 1},
+                                                                   {2, 1, 1},
+                                                                   {1, 2, 1},
+                                                                   {1, 1, 2}}};
+using Offsets = std::array<Vec, 9>;
+
+// The quartic lattice's factor of a point m quarters along: prod over q < m
+// of (4 l - q) / (q + 1), and its derivative in l
+inline void latticeFactor(int m, double l, double& value, double& slope)
+{
+    value = 1.0;
+    slope = 0.0;
+    for (int q = 0; q < m; ++q) {
+        const double f = (4.0 * l - q) / (q + 1.0);
+        slope = slope * f + value * 4.0 / (q + 1.0);
+        value *= f;
+    }
+}
+
+// The true surface's offset from the six-node face at L, and its
+// derivatives along s = L[1] and t = L[2]
+inline Vec offsetAt(const Offsets& offsets,
+                    const std::array<double, 3>& L,
+                    Vec* ds = nullptr,
+                    Vec* dt = nullptr)
+{
+    Vec value {};
+    Vec alongS {};
+    Vec alongT {};
+    for (std::size_t p = 0; p < quarticPoints.size(); ++p) {
+        double f[3];
+        double d[3];
+        for (std::size_t k = 0; k < 3; ++k) {
+            latticeFactor(quarticPoints[p][k], L[k], f[k], d[k]);
+        }
+        const double phi = f[0] * f[1] * f[2];
+        // L[0] = 1 - s - t
+        const double phiS = -d[0] * f[1] * f[2] + f[0] * d[1] * f[2];
+        const double phiT = -d[0] * f[1] * f[2] + f[0] * f[1] * d[2];
+        value = add(value, offsets[p], phi);
+        alongS = add(alongS, offsets[p], phiS);
+        alongT = add(alongT, offsets[p], phiT);
+    }
+    if (ds) {
+        *ds = alongS;
+    }
+    if (dt) {
+        *dt = alongT;
+    }
+    return value;
+}
+
+// The face's point at L, on its true surface where 'offsets' are given, and
+// its derivatives along s and t
+inline Vec pointAt(const Face& x,
+                   const Offsets* offsets,
+                   const std::array<double, 3>& L,
+                   Vec* ds = nullptr,
+                   Vec* dt = nullptr)
+{
+    const double l0 = L[0];
+    const double s = L[1];
+    const double t = L[2];
+    const auto N = quadratic(L);
+    const std::array<double, 6> Ns {1.0 - 4.0 * l0, 4.0 * s - 1.0, 0.0, 4.0 * (l0 - s), 4.0 * t,
+                                    -4.0 * t};
+    const std::array<double, 6> Nt {1.0 - 4.0 * l0, 0.0, 4.0 * t - 1.0, -4.0 * s, 4.0 * s,
+                                    4.0 * (l0 - t)};
+    Vec p {};
+    Vec xs {};
+    Vec xt {};
+    for (std::size_t k = 0; k < 6; ++k) {
+        p = add(p, x[k], N[k]);
+        xs = add(xs, x[k], Ns[k]);
+        xt = add(xt, x[k], Nt[k]);
+    }
+    if (offsets) {
+        Vec os {};
+        Vec ot {};
+        p = add(p, offsetAt(*offsets, L, &os, &ot));
+        xs = add(xs, os);
+        xt = add(xt, ot);
+    }
+    if (ds) {
+        *ds = xs;
+    }
+    if (dt) {
+        *dt = xt;
+    }
+    return p;
+}
+
 // The surface of the quadratic face through x at area coordinates L. Its
 // derivatives along s = L[1] and t = L[2]: the second ones are the face's
-// own, the same all over it, the first ones where L is. False where the face
-// has no tangent plane there.
-inline bool localSurface(const Face& x, const std::array<double, 3>& L, Local& at)
+// own, the same all over it, the first ones where L is. Of its true surface
+// where 'offsets' are given (offsetAt()), the second ones by the first's
+// differences. False where the face has no tangent plane there.
+inline bool localSurface(const Face& x,
+                         const std::array<double, 3>& L,
+                         Local& at,
+                         const Offsets* offsets = nullptr)
 {
     const double l0 = L[0];
     const double s = L[1];
@@ -123,6 +287,29 @@ inline bool localSurface(const Face& x, const std::array<double, 3>& L, Local& a
         xss = add(xss, x[k], Nss[k]);
         xtt = add(xtt, x[k], Ntt[k]);
         xst = add(xst, x[k], Nst[k]);
+    }
+    if (offsets) {
+        // The offsets' second derivatives by their first ones' central
+        // differences
+        const double h = 1e-4;
+        Vec os;
+        Vec ot;
+        p = add(p, offsetAt(*offsets, L, &os, &ot));
+        xs = add(xs, os);
+        xt = add(xt, ot);
+        Vec sp;
+        Vec tp;
+        Vec sm;
+        Vec tm;
+        offsetAt(*offsets, {l0 - h, s + h, t}, &sp, &tp);
+        offsetAt(*offsets, {l0 + h, s - h, t}, &sm, &tm);
+        xss = add(xss, scaled(add(sp, sm, -1.0), 0.5 / h));
+        const Vec stS = scaled(add(tp, tm, -1.0), 0.5 / h);
+        offsetAt(*offsets, {l0 - h, s, t + h}, &sp, &tp);
+        offsetAt(*offsets, {l0 + h, s, t - h}, &sm, &tm);
+        xtt = add(xtt, scaled(add(tp, tm, -1.0), 0.5 / h));
+        const Vec stT = scaled(add(sp, sm, -1.0), 0.5 / h);
+        xst = add(xst, scaled(add(stS, stT), 0.5));
     }
     Vec n = cross(xs, xt);
     const double area = length(n);
@@ -171,44 +358,190 @@ inline bool localSurface(const Face& x, const std::array<double, 3>& L, Local& a
     return true;
 }
 
-// What two surfaces touching are, by their relative curvature: the sum of
-// the two curvature tensors in A's tangent plane, its principal values k1
-// >= k2 and their ways. Pressed 'depth' together, the surfaces are within it
-// of each other along a principal way over a width 2 sqrt(2 depth / k) --
-// none past where k is none or below. A way is flat where that width is
-// more than 'reach', how far the two shapes reach to touch that way (the
-// smaller's size): the contact is a point where neither is, a line along
-// the flat way where one is, an area where both are. Not by a face's size:
-// a rod R 5 in a bore R 5.5 pressed 50 um touches 4.7 mm round, past a 4 mm
-// mesh's face, and is a line -- two points at its ends hold its force to
-// 0.05% (step 29).
-struct Contact
+// The face's point, on its true surface where 'offsets' are given, in the
+// plane through 'c' square to the unit 'way', farthest along the unit 'out'
+// -- a line's point at a station along it, where the surface touches a flat
+// face of normal -out lying along 'way' (thinOut()). From L, and L the
+// point. False where it is beyond the face: 'leaving' the edge it goes out
+// by, (0 1) 0, (1 2) 1, (2 0) 2, L where the plane crosses that edge, for
+// the face beyond to go on from; -1 where none is found -- the plane misses
+// the face, or the cut curves away from 'out' all along it
+inline bool farthestAcross(const Face& x,
+                           const Offsets* offsets,
+                           const Vec& out,
+                           const Vec& c,
+                           const Vec& way,
+                           std::array<double, 3>& L,
+                           int& leaving)
 {
-    enum class Kind
-    {
-        Point,
-        Line,
-        Area
+    leaving = -1;
+    double s = L[1];
+    double t = L[2];
+    auto coordinates = [](double s, double t) {
+        return std::array<double, 3> {1.0 - s - t, s, t};
     };
-    Kind kind = Kind::Point;
-    Vec normal {};  // A's
-    Vec way1 {};
-    Vec way2 {};
-    double k1 = 0.0;
-    double k2 = 0.0;
-    double width1 = 0.0;  // along way1, infinity where flat
-    double width2 = 0.0;
-    // A line's: the way it runs, and its width across
-    Vec along {};
-    double across = 0.0;
-};
-
-// A surface's curvature along a unit way of its tangent plane (Euler's)
-inline double curvatureAlong(const Local& surface, const Vec& way)
-{
-    const double c = dot(way, surface.way1);
-    const double s = dot(way, surface.way2);
-    return surface.k1 * c * c + surface.k2 * s * s;
+    // Onto the plane, along the face's steepest way across it
+    auto ontoPlane = [&](double& s, double& t) {
+        for (int k = 0; k < 8; ++k) {
+            Vec ps;
+            Vec pt;
+            const Vec p = pointAt(x, offsets, coordinates(s, t), &ps, &pt);
+            const double g = dot(add(p, c, -1.0), way);
+            const double gs = dot(ps, way);
+            const double gt = dot(pt, way);
+            const double g2 = gs * gs + gt * gt;
+            if (!(g2 > 0.0)) {
+                return false;
+            }
+            s -= g * gs / g2;
+            t -= g * gt / g2;
+            if (std::abs(g) < 1e-12 * (1.0 + std::sqrt(g2))) {
+                return true;
+            }
+        }
+        return true;
+    };
+    auto height = [&](double s, double t) {
+        return dot(pointAt(x, offsets, coordinates(s, t)), out);
+    };
+    // Where the cut leaves the face, the edge and its point there: along
+    // the cut from (s, t) by (ds, dt), the first edge met
+    auto edgeMet = [&](double s0, double t0, double ds, double dt, double& step) {
+        int edge = -1;
+        step = std::numeric_limits<double>::infinity();
+        auto meet = [&](double from, double rate, int e) {
+            // from + rate * h = 0, h > 0
+            if (rate < 0.0 && from >= 0.0) {
+                const double h = -from / rate;
+                if (h < step) {
+                    step = h;
+                    edge = e;
+                }
+            }
+        };
+        meet(t0, dt, 0);
+        meet(1.0 - s0 - t0, -ds - dt, 1);
+        meet(s0, ds, 2);
+        return edge;
+    };
+    // On edge e, where the plane crosses it: by the secant along the edge
+    // between its corners, the nearer end where it does not
+    auto onEdge = [&](int e, double& s, double& t) {
+        // The edge's corners in (s, t): (0 1) from L0 to L1, (1 2) from L1
+        // to L2, (2 0) from L2 to L0
+        static const double ends[3][2][2] {{{0.0, 0.0}, {1.0, 0.0}},
+                                           {{1.0, 0.0}, {0.0, 1.0}},
+                                           {{0.0, 1.0}, {0.0, 0.0}}};
+        const auto& a = ends[e][0];
+        const auto& b = ends[e][1];
+        auto planeAt = [&](double u) {
+            const Vec p = pointAt(x,
+                                  offsets,
+                                  coordinates(a[0] + u * (b[0] - a[0]), a[1] + u * (b[1] - a[1])));
+            return dot(add(p, c, -1.0), way);
+        };
+        double u0 = 0.0;
+        double u1 = 1.0;
+        double g0 = planeAt(u0);
+        double g1 = planeAt(u1);
+        double u = std::abs(g0) < std::abs(g1) ? 0.0 : 1.0;
+        if ((g0 <= 0.0) != (g1 <= 0.0)) {
+            for (int k = 0; k < 60; ++k) {
+                u = u0 - g0 * (u1 - u0) / (g1 - g0);
+                const double g = planeAt(u);
+                if (std::abs(g) < 1e-13) {
+                    break;
+                }
+                // Illinois: the end kept twice halves its value
+                if ((g <= 0.0) == (g1 <= 0.0)) {
+                    u1 = u;
+                    g1 = g;
+                    g0 *= 0.5;
+                }
+                else {
+                    u0 = u;
+                    g0 = g;
+                    g1 *= 0.5;
+                }
+            }
+        }
+        s = a[0] + u * (b[0] - a[0]);
+        t = a[1] + u * (b[1] - a[1]);
+    };
+    // Out of the face already: by the edge it is farthest out of, on it
+    // where the plane crosses it
+    auto beyond = [&](double& s, double& t) {
+        const double by[3] = {-t, s + t - 1.0, -s};
+        int edge = -1;
+        double most = 1e-9;
+        for (int e = 0; e < 3; ++e) {
+            if (by[e] > most) {
+                most = by[e];
+                edge = e;
+            }
+        }
+        if (edge < 0) {
+            return false;
+        }
+        onEdge(edge, s, t);
+        L = coordinates(s, t);
+        leaving = edge;
+        return true;
+    };
+    if (!ontoPlane(s, t) || beyond(s, t)) {
+        return false;
+    }
+    const double eps = 1e-4;
+    for (int iteration = 0; iteration < 40; ++iteration) {
+        Vec ps;
+        Vec pt;
+        pointAt(x, offsets, coordinates(s, t), &ps, &pt);
+        // Along the cut: square to the plane's way in (s, t)
+        double ts = -dot(pt, way);
+        double tt = dot(ps, way);
+        const double norm = std::hypot(ts, tt);
+        if (!(norm > 0.0)) {
+            return false;
+        }
+        ts /= norm;
+        tt /= norm;
+        // How the height goes along it: by the cut's points either side
+        double sp = s + eps * ts;
+        double tp = t + eps * tt;
+        double sm = s - eps * ts;
+        double tm = t - eps * tt;
+        if (!ontoPlane(sp, tp) || !ontoPlane(sm, tm)) {
+            return false;
+        }
+        const double h0 = height(s, t);
+        const double hp = height(sp, tp);
+        const double hm = height(sm, tm);
+        const double d1 = (hp - hm) / (2.0 * eps);
+        const double d2 = (hp - 2.0 * h0 + hm) / (eps * eps);
+        double step = d2 < 0.0 ? -d1 / d2 : (d1 >= 0.0 ? 0.25 : -0.25);
+        step = std::clamp(step, -0.25, 0.25);
+        const double ds = step * ts;
+        const double dt = step * tt;
+        // Beyond the face: to the edge, and out by it
+        double toEdge = 0.0;
+        const int edge = edgeMet(s, t, ds, dt, toEdge);
+        if (edge >= 0 && toEdge < 1.0) {
+            onEdge(edge, s, t);
+            L = coordinates(s, t);
+            leaving = edge;
+            return false;
+        }
+        s += ds;
+        t += dt;
+        if (!ontoPlane(s, t) || beyond(s, t)) {
+            return false;
+        }
+        if (std::abs(step) < 1e-9) {
+            break;
+        }
+    }
+    L = coordinates(s, t);
+    return true;
 }
 
 inline Contact contactOf(const Local& a, const Local& b, double depth, double reach)

@@ -219,3 +219,139 @@ TEST(LocalSurface, twoFlatFacesTouchOverAnArea)  // NOLINT
     a.k1 = 2e-4;
     EXPECT_EQ(contactOf(a, b, 0.05, 4.0).kind, Contact::Kind::Area);
 }
+
+namespace
+{
+
+// A round R 5's face from the angle 'from' over 'span', heights 0 to 4,
+// its nodes on the round; and the offsets to the round of its nine quartic
+// points (quarticPoints), the round's point straight out from the axis
+Face roundFaceFrom(double from, double span)
+{
+    const double r = 5.0;
+    const double h = 4.0;
+    Face x;
+    x[0] = cylinder(r, from, 0.0);
+    x[1] = cylinder(r, from + span, 0.0);
+    x[2] = cylinder(r, from, h);
+    x[3] = cylinder(r, from + 0.5 * span, 0.0);
+    x[4] = cylinder(r, from + 0.5 * span, 0.5 * h);
+    x[5] = cylinder(r, from, 0.5 * h);
+    return x;
+}
+
+Offsets offsetsToRound(const Face& x, double radius)
+{
+    Offsets offsets {};
+    for (std::size_t p = 0; p < quarticPoints.size(); ++p) {
+        const std::array<double, 3> L {quarticPoints[p][0] / 4.0,
+                                       quarticPoints[p][1] / 4.0,
+                                       quarticPoints[p][2] / 4.0};
+        const Vec on = pointAt(x, nullptr, L);
+        const double away = std::hypot(on[0], on[1]);
+        const Vec round {on[0] * radius / away, on[1] * radius / away, on[2]};
+        offsets[p] = add(round, on, -1.0);
+    }
+    return offsets;
+}
+
+double offRound(const Vec& p, double radius)
+{
+    return std::hypot(p[0], p[1]) - radius;
+}
+
+}  // namespace
+
+// A six-node face stands in from its round between its nodes, 3.9 um on R 5
+// over 0.8 rad; through nine more of the round's points, 0.11 um at most,
+// near a corner (D4b way 1 step 3)
+TEST(LocalSurface, nineMorePointsPutAFaceOnItsRound)  // NOLINT
+{
+    const Face x = roundFaceFrom(0.0, 0.8);
+    const Offsets offsets = offsetsToRound(x, 5.0);
+    double quadratic = 0.0;
+    double quartic = 0.0;
+    for (int i = 0; i <= 20; ++i) {
+        for (int j = 0; i + j <= 20; ++j) {
+            const std::array<double, 3> L {(20 - i - j) / 20.0, i / 20.0, j / 20.0};
+            quadratic = std::max(quadratic, std::abs(offRound(pointAt(x, nullptr, L), 5.0)));
+            quartic = std::max(quartic, std::abs(offRound(pointAt(x, &offsets, L), 5.0)));
+        }
+    }
+    EXPECT_GT(quadratic, 3.5e-3);
+    EXPECT_LT(quartic, 1.5e-4);
+    // Its derivatives the round's tangents: square to the way out
+    const std::array<double, 3> L {0.3, 0.45, 0.25};
+    Vec ds;
+    Vec dt;
+    const Vec p = pointAt(x, &offsets, L, &ds, &dt);
+    const Vec radial {p[0], p[1], 0.0};
+    EXPECT_LT(std::abs(dot(ds, radial)) / (length(ds) * length(radial)), 1e-4);
+    EXPECT_LT(std::abs(dot(dt, radial)) / (length(dt) * length(radial)), 1e-4);
+}
+
+// A round's face lying along a plate below it, the round's axis z: in the
+// plane square to z at a height, its farthest down is the round's line on
+// the plate, (0, -5) -- on the true surface to a hundredth of a micron, the
+// six-node face's own microns above it
+TEST(LocalSurface, aRoundsFarthestAcrossIsOnItsLine)  // NOLINT
+{
+    const Face x = roundFaceFrom(-0.5 * pi - 0.3, 0.8);
+    const Offsets offsets = offsetsToRound(x, 5.0);
+    const Vec out {0.0, -1.0, 0.0};
+    const Vec way {0.0, 0.0, 1.0};
+    const Vec c {0.0, 0.0, 1.0};
+    std::array<double, 3> L {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0};
+    int leaving = 0;
+    ASSERT_TRUE(farthestAcross(x, &offsets, out, c, way, L, leaving));
+    EXPECT_EQ(leaving, -1);
+    const Vec p = pointAt(x, &offsets, L);
+    EXPECT_NEAR(p[0], 0.0, 1e-3);
+    EXPECT_NEAR(p[1], -5.0, 2e-5);
+    EXPECT_NEAR(p[2], 1.0, 1e-9);
+    // The six-node face's own: above the round
+    std::array<double, 3> own {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0};
+    ASSERT_TRUE(farthestAcross(x, nullptr, out, c, way, own, leaving));
+    EXPECT_GT(pointAt(x, nullptr, own)[1], -5.0 + 5e-4);
+}
+
+// Where the line's point is beyond the face, the edge the cut goes out by,
+// and the point where it crosses it, for the face beyond
+TEST(LocalSurface, aFarthestAcrossBeyondTheFaceLeavesByAnEdge)  // NOLINT
+{
+    const Face x = roundFaceFrom(-0.5 * pi - 0.3, 0.8);
+    const Offsets offsets = offsetsToRound(x, 5.0);
+    std::array<double, 3> L {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0};
+    int leaving = -1;
+    // At 3.5 of the face's 4, the round's bottom is past the edge (1 2)
+    const Vec out {0.0, -1.0, 0.0};
+    const Vec c {0.0, 0.0, 3.5};
+    const Vec way {0.0, 0.0, 1.0};
+    EXPECT_FALSE(farthestAcross(x, &offsets, out, c, way, L, leaving));
+    EXPECT_EQ(leaving, 1);
+    EXPECT_NEAR(L[0], 0.0, 1e-9);
+    EXPECT_NEAR(pointAt(x, &offsets, L)[2], 3.5, 1e-6);
+}
+
+// The true surface's curvature: where a six-node face's own is 17% under a
+// round's at its edge, through its nine more points within 2%
+TEST(LocalSurface, aTrueSurfaceCurvesAsItsRound)  // NOLINT
+{
+    const Face x = roundFaceFrom(0.0, 0.8);
+    const Offsets offsets = offsetsToRound(x, 5.0);
+    for (const auto& L : {std::array<double, 3> {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0},
+                          std::array<double, 3> {0.98, 0.01, 0.01},
+                          std::array<double, 3> {0.5, 0.5, 0.0}}) {
+        Local own;
+        Local through;
+        ASSERT_TRUE(localSurface(x, L, own));
+        ASSERT_TRUE(localSurface(x, L, through, &offsets));
+        EXPECT_NEAR(through.k1, 0.2, 0.004);
+        EXPECT_NEAR(through.k2, 0.0, 0.004);
+        // Round the round, not along it
+        EXPECT_LT(std::abs(through.way1[2]), 0.01);
+    }
+    Local edge;
+    ASSERT_TRUE(localSurface(x, {0.98, 0.01, 0.01}, edge));
+    EXPECT_LT(edge.k1, 0.19);
+}

@@ -2989,6 +2989,38 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
                 label.c_str());
             continue;
         }
+        // Its surface as its solid has it, for a contact on it to be on that
+        // and not on the six-node faces that stand in from it (D4b way 1
+        // step 3): of the solid in the mesh's coordinates, the component's
+        // own, turned into the body's
+        try {
+            const ::Part::TopoShape shape = ::Part::Feature::getTopoShape(component,
+                                                                          nullptr,
+                                                                          false,
+                                                                          nullptr,
+                                                                          nullptr,
+                                                                          true,
+                                                                          false);
+            std::vector<Base::Vector3d> own(points.begin(), points.end());
+            record.trueFaces = trueFacesOf(shape.getShape(), own, record.tetrahedra);
+            const Base::Rotation turn = data.offsetPlc.getRotation();
+            for (auto& face : record.trueFaces) {
+                for (auto& offset : face.offsets) {
+                    offset = turn.multVec(offset);
+                }
+            }
+        }
+        catch (const Base::Exception& e) {
+            e.reportException();
+        }
+        catch (const Standard_Failure& e) {
+            Base::Console().warning("Assembly: the flexible body %s: its surface as its solid "
+                                    "has it is not found (%s); a contact on it is on its mesh's "
+                                    "faces\n",
+                                    label.c_str(),
+                                    e.GetMessageString());
+            record.trueFaces.clear();
+        }
         const Elasticity elastic = elasticityOf(component);
         record.youngs = elastic.youngsModulus;
         record.poisson = elastic.poissonRatio;

@@ -220,6 +220,13 @@ private:
                     for (auto& node : flexible.nodes) {
                         toCentre.multVec(node, node);
                     }
+                    // Its true surface's offsets, ways: turned alone
+                    const Base::Rotation turn = toCentre.getRotation();
+                    for (auto& face : flexible.trueFaces) {
+                        for (auto& offset : face.offsets) {
+                            offset = turn.multVec(offset);
+                        }
+                    }
                 }
             }
         }

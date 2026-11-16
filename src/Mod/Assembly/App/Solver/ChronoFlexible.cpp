@@ -780,6 +780,33 @@ std::array<double, 3> ChronoFlexible::Surface::farthest(const std::array<ch::ChV
 
 bool ChronoFlexible::Surface::nearest(const ch::ChVector3d& p, Place& place) const
 {
+    std::size_t i = 0;
+    std::array<double, 3> w {};
+    if (!nearestTriangle(p, i, w)) {
+        return false;
+    }
+    onFace(i, w, place);
+    return true;
+}
+
+bool ChronoFlexible::Surface::nearestOnFace(const ch::ChVector3d& p,
+                                            std::size_t& face,
+                                            std::array<double, 3>& L) const
+{
+    std::size_t i = 0;
+    std::array<double, 3> w {};
+    if (!nearestTriangle(p, i, w)) {
+        return false;
+    }
+    face = pieces[i].first;
+    L = faceCoordinates(i, w);
+    return true;
+}
+
+bool ChronoFlexible::Surface::nearestTriangle(const ch::ChVector3d& p,
+                                              std::size_t& nearestOne,
+                                              std::array<double, 3>& nearestWeights) const
+{
     if (corners.empty()) {
         return false;
     }
@@ -792,8 +819,6 @@ bool ChronoFlexible::Surface::nearest(const ch::ChVector3d& p, Place& place) con
     }
     double best = std::numeric_limits<double>::max();
     bool found = false;
-    std::size_t nearestOne = 0;
-    std::array<double, 3> nearestWeights {};
     const int most = std::max({count[0], count[1], count[2]});
     for (int r = 0; r <= most; ++r) {
         for (int x = at[0] - r; x <= at[0] + r; ++x) {
@@ -825,9 +850,6 @@ bool ChronoFlexible::Surface::nearest(const ch::ChVector3d& p, Place& place) con
         if (found && best <= r * cell) {
             break;
         }
-    }
-    if (found) {
-        onFace(nearestOne, nearestWeights, place);
     }
     return found;
 }

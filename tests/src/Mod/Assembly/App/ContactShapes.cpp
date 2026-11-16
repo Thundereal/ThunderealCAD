@@ -19,6 +19,7 @@
 #include <gp_Ax2.hxx>
 
 #include <Mod/Assembly/App/ContactShapes.h>
+#include <Mod/Assembly/App/Solver/LocalSurface.h>
 
 using Assembly::contactShapeOf;
 using Kind = Assembly::Solver::ContactShape::Kind;
@@ -167,4 +168,71 @@ TEST(ContactShapes, flattedBallCurvature)
     }
     EXPECT_GT(round, 100);
     EXPECT_GT(flat, 0);
+}
+
+// A flexible part's surface as its solid has it (D4b way 1 step 3): one
+// tetrahedron of a rod R 5 along z, a face of it on the rod's round -- its
+// corners and its edges' nodes there, 0.8 rad round and 4 long -- its
+// fourth corner on the axis. That face alone is on the solid's surface; the
+// six-node face stands 3.9 um in from the round, and through its nine more
+// points, 0.11 um
+TEST(ContactShapes, aFlexiblePartsTrueSurface)
+{
+    namespace LS = Assembly::Solver::LocalSurface;
+    const TopoDS_Shape rod = BRepPrimAPI_MakeCylinder(5.0, 40.0).Shape();
+    auto round = [](double angle, double z) {
+        return Base::Vector3d(5.0 * std::cos(angle), 5.0 * std::sin(angle), z);
+    };
+    const Base::Vector3d inner(0.0, 0.0, 1.0);
+    std::vector<Base::Vector3d> nodes {round(0.1, 1.0), round(0.9, 1.0), round(0.1, 5.0), inner};
+    // The edges (0 1), (1 2), (0 2) on the round; (0 3), (1 3), (2 3) straight
+    nodes.push_back(round(0.5, 1.0));
+    nodes.push_back(round(0.5, 3.0));
+    nodes.push_back(round(0.1, 3.0));
+    for (int k = 0; k < 3; ++k) {
+        nodes.push_back((nodes[static_cast<std::size_t>(k)] + inner) / 2.0);
+    }
+    const std::vector<std::array<Assembly::Solver::Id, 10>> tets {{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}};
+    const auto faces = Assembly::trueFacesOf(rod, nodes, tets);
+    ASSERT_EQ(faces.size(), 1u);
+    const auto& face = faces.front();
+    EXPECT_EQ(face.corners, (std::array<Assembly::Solver::Id, 3> {0, 1, 2}));
+    EXPECT_GE(face.face, 0);
+    // The face in its corners' order, its edges' nodes (0 1), (1 2), (2 0)
+    LS::Face x;
+    const std::array<std::size_t, 6> order {0, 1, 2, 4, 5, 6};
+    for (std::size_t k = 0; k < 6; ++k) {
+        const auto& v = nodes[order[k]];
+        x[k] = {v.x, v.y, v.z};
+    }
+    LS::Offsets offsets;
+    for (std::size_t p = 0; p < offsets.size(); ++p) {
+        offsets[p] = {face.offsets[p].x, face.offsets[p].y, face.offsets[p].z};
+    }
+    double own = 0.0;
+    double through = 0.0;
+    for (int i = 0; i <= 20; ++i) {
+        for (int j = 0; i + j <= 20; ++j) {
+            const std::array<double, 3> L {(20 - i - j) / 20.0, i / 20.0, j / 20.0};
+            const LS::Vec a = LS::pointAt(x, nullptr, L);
+            const LS::Vec b = LS::pointAt(x, &offsets, L);
+            own = std::max(own, std::abs(std::hypot(a[0], a[1]) - 5.0));
+            through = std::max(through, std::abs(std::hypot(b[0], b[1]) - 5.0));
+        }
+    }
+    EXPECT_GT(own, 3.5e-3);
+    EXPECT_LT(through, 1.5e-4);
+    // A box's faces are planes: none
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape();
+    std::vector<Base::Vector3d> flat {Base::Vector3d(0, 0, 0),
+                                      Base::Vector3d(4, 0, 0),
+                                      Base::Vector3d(0, 4, 0),
+                                      Base::Vector3d(1, 1, 1)};
+    flat.push_back((flat[0] + flat[1]) / 2.0);
+    flat.push_back((flat[1] + flat[2]) / 2.0);
+    flat.push_back((flat[0] + flat[2]) / 2.0);
+    for (int k = 0; k < 3; ++k) {
+        flat.push_back((flat[static_cast<std::size_t>(k)] + flat[3]) / 2.0);
+    }
+    EXPECT_TRUE(Assembly::trueFacesOf(box, flat, tets).empty());
 }

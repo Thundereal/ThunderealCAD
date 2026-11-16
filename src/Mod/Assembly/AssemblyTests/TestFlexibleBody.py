@@ -1039,6 +1039,38 @@ class TestFlexibleBody(unittest.TestCase):
             within=0.01,
         )
 
+    def test_cone_on_plate(self):
+        """A flexible part's round of no cylinder lying along a plate (D4b way
+        1 step 3): test_round_anywhere's rod a cone, R 5 at its held end and
+        4 at the other, its hinge tilted so its side lies along the plate,
+        0.05 mm into it, a friction of 0.3. A face of no round had its
+        points where collision detection found them, each at its own face's
+        farthest towards the plate, which stands in from the cone between its
+        nodes: the force ran from 41.9 to 46.5 N over the turn. Now the line
+        the two touch along by their curvature (LocalSurface::contactOf()),
+        its two ends on the cone's true surface (FlexibleContact::toBent()),
+        the solid's own nine more points of each face
+        (Flexible::trueFaces): within a hundredth, 43.88 to 44.16, and the
+        motion's torque the friction's on the cone's middle radius, 4.5"""
+        self.roundTurned(
+            "a cone on a plate", 55, -10, cone=4.0, friction=0.3, arm=4.5, within=0.01
+        )
+
+    def test_cone_on_flexible_plate(self):
+        """The same on the plate made flexible too (D4b way 1 step 3), the
+        plate's point under each of the line's ends on its surface there
+        (FlexibleContact::under()): within a hundredth, 43.89 to 44.17 N,
+        for 42.59 to 46.80"""
+        self.roundTurned(
+            "a cone on a flexible plate",
+            55,
+            -10,
+            cone=4.0,
+            arm=4.5,
+            flexiblePlate=True,
+            within=0.01,
+        )
+
     def test_round_in_bore(self):
         """A flexible part's round in a rigid bore (D4b step 18):
         test_round_anywhere's rod in a grounded block's bore R 5.5, the
@@ -1081,6 +1113,8 @@ class TestFlexibleBody(unittest.TestCase):
         bore=None,
         rigidRod=False,
         most=50.0,
+        cone=None,
+        arm=5.0,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1092,17 +1126,32 @@ class TestFlexibleBody(unittest.TestCase):
         grounded blocks. bore: a block 'length' x 20 x 20 about the rod
         instead, a bore of that radius through it along the rod, its wall
         0.05 mm into the rod's underside. rigidRod: the rod rigid. most: what
-        the mean stays under. until: the run's end, of the turn's 0.1 s"""
+        the mean stays under. until: the run's end, of the turn's 0.1 s.
+        cone: the rod a cone instead, R 5 at its held end and 'cone' at the
+        other, its hinge's axis tilted so the cone lies along the plate, the
+        plate 0.05 mm into it there; a round of no cylinder. arm: the
+        friction's on the rod's axis, its radius where the force is"""
         import CommandCreateContact
 
         mount = self.box("Mount", (10, 20, 20), (-10, -10, -10))
         ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedMount")
         JointObject.GroundedJoint(ground, mount)
-        rod = self.assembly.newObject("Part::Cylinder", "Rod")
-        rod.Radius = 5
-        rod.Height = 40
-        rod.Placement = plc(0, 0, 0, App.Vector(0, 1, 0), 90)
-        low = -10 + 0.05
+        tilt = 0.0
+        top = -5.0
+        if cone:
+            rod = self.assembly.newObject("Part::Cone", "Rod")
+            rod.Radius1 = 5
+            rod.Radius2 = cone
+            rod.Height = 40
+            # The far end down by the cone's angle: the line under it flat
+            tilt = math.degrees(math.atan2(5.0 - cone, 40.0))
+            top = -5.0 * math.cos(math.radians(tilt))
+        else:
+            rod = self.assembly.newObject("Part::Cylinder", "Rod")
+            rod.Radius = 5
+            rod.Height = 40
+        rod.Placement = plc(0, 0, 0, App.Vector(0, 1, 0), 90 + tilt)
+        low = top - 5.0 + 0.05
         if bore:
             import Part
 
@@ -1118,7 +1167,7 @@ class TestFlexibleBody(unittest.TestCase):
             plate.Height = length
             plate.Placement = plc(start, 0, -10 + 0.05, App.Vector(0, 1, 0), 90)
         else:
-            plate = self.box("Plate", (length, 20, 5), (start, -10, -10 + 0.05))
+            plate = self.box("Plate", (length, 20, 5), (start, -10, low))
         if flexiblePlate and roller:
             self.doc.recompute()
             for k, x in enumerate((start, start + length)):
@@ -1182,7 +1231,7 @@ class TestFlexibleBody(unittest.TestCase):
         hinge.Detach2 = True
         hinge.Reference1 = (mount, ["Face2"])
         hinge.Reference2 = (rod, [end])
-        hinge.Placement1 = plc(10, 10, 10, App.Vector(0, 1, 0), 90)
+        hinge.Placement1 = plc(10, 10, 10, App.Vector(0, 1, 0), 90 + tilt)
         hinge.Placement2 = plc(0, 0, 0)
         self.doc.recompute()
         self.assertEqual(self.assembly.solve(), 0)
@@ -1234,8 +1283,8 @@ class TestFlexibleBody(unittest.TestCase):
         turned = [v * 1e-3 for t, v in zip(results["Times"], torques[0]) if 0.03 <= t <= until]
         torque = sum(turned) / len(turned)
         print("%s: the motion's torque %.4g N mm, %.4f N R for a friction of %g"
-              % (name, torque, torque / (mean * 5.0), friction))
-        self.assertLess(abs(torque - friction * mean * 5.0), 0.006 * mean * 5.0)
+              % (name, torque, torque / (mean * arm), friction))
+        self.assertLess(abs(torque - friction * mean * arm), 0.006 * mean * arm)
 
     def renew(self):
         """A new document for a second run, as setUp's"""

@@ -5710,6 +5710,62 @@ Phase D1 is under way (2026-10-28):
     within a two-hundredth of its mean (a tenth before; as found, 44.73 to
     45.58, it fails). TestFlexibleBody 34 (232 s), TestDynamics 90,
     TestJointFriction 4, TestContact 63.
+- Built, D4b way 1 step 3 (2026-11-16): a round of no cylinder lying
+  along a flat face touches it at the two ends of their line, on its true
+  surface. A flexible cone R 5 to 4 x 40 turned on a plate, its side along
+  the plate 0.05 mm in, pressed it 41.9 to 46.5 N over the turn (a tenth):
+  its points were where collision detection found them, each at its own
+  face's farthest towards the plate. Every case before was a cylinder's or
+  a ball's (`roundAt()` fits a cylinder only).
+  - **The solid's own surface** (`Flexible::trueFaces`). A six-node face
+    stands in from its round between its nodes, 3.9 um on R 5 at a 4 mm
+    mesh, and its own curvature is 17% off at its edges. App's
+    `trueFacesOf()` (ContactShapes.cpp) takes, for each face of the
+    tetrahedra's surface on a curved face of the solid -- its six nodes on
+    it within a thousandth of its size -- the solid's surface at the nine
+    more points of a quartic triangle, as offsets from the face at rest
+    (OCCT's `ShapeAnalysis_Surface`). Through the fifteen the face is the
+    round to 0.11 um, its curvature within 2% (`LocalSurface::pointAt()`,
+    `offsetAt()`, `localSurface()` with the offsets). Offsets, not points:
+    the face carries them as its nodes move. A face on a plane has none.
+  - Model: the offsets are lengths -- `scaled()` takes them to metres with
+    the nodes, and the backend's shift of a body to its centre turns them
+    (missed at first: a millimetre's offsets on a metre's mesh, the cone's
+    curvature 283 1/m where it is 200).
+  - **The line.** `thinOut()`'s lines along a flat face take a face of no
+    round of a curved face of the solid's (`FlexibleContact::faceSolid`):
+    its way, where the two touch along by their relative curvature on the
+    true surface (`lineWayOf()`, step 1's `contactOf()`); its stretch the
+    solid face's nodes within a face of it (`reachOfFace()`), cut to the
+    plate's as a round's is; its ends by where the points still press
+    (step 30). Each end's point on the true surface farthest towards the
+    plate in the plane square to the line there
+    (`LocalSurface::farthestAcross()`, `toBent()`), through the faces on the
+    way, and again at each update (`follow()`).
+  - Two wrong turns in the walk. From the found point's own face, eight
+    faces were too few at the turn's end, the points found mid-line; then,
+    the line lying along the mesh's seam there, the walk went back and
+    forth between the two faces of the edge -- taken as found, every such
+    pair was, and points went where the plane does not cross their face
+    (the force 0 to 101 N). Now the walk starts at the face nearest the
+    line's point as the part is at rest (`Surface::nearestOnFace()`), and
+    the edge two faces send each other to is the point only where it is on
+    the plane.
+  - Numbers, the cone's force over 0.03 to 0.1 s: 44.03 N, 43.89 to 44.17
+    (on a flexible plate the same; before 45.77, 42.59 to 46.80); with a
+    friction of 0.3, the motion's torque 60.12 N mm, 0.3035 N R on the
+    middle radius 4.5; on a plate from x = 5 to 35, its ends under the
+    cone, 44.99, 44.89 to 45.12. A rigid cone, a hull, presses 44.3 to 50.0
+    -- step 5's. Every round's case prints as it did.
+  - Tests: TestFlexibleBody.test_cone_on_plate and
+    test_cone_on_flexible_plate hold the force within a hundredth (41.91
+    and 42.59 at the least before); gtests ContactShapes.
+    aFlexiblePartsTrueSurface and LocalSurface 4 more (13). Probes
+    ~/.cache/flexcontact/coneprobe.py, coneseries.py; roundTurned() takes
+    `cone=` and `arm=`.
+  - Not yet: a point contact on a face of no round (a torus, a barrel)
+    still takes its face's farthest on the six-node face; the rounds'
+    lines keep `roundAt()`'s fit, which the true surface could replace.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <set>
 #include <map>
@@ -44,6 +45,10 @@
 #include <Geom2dConvert_ApproxArcsSegments.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Precision.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
+#include <ShapeAnalysis_Surface.hxx>
+#include <unordered_map>
+#include <memory>
 #include <TopLoc_Location.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Wire.hxx>
@@ -65,6 +70,7 @@
 
 #include "ContactGeometry.h"
 #include "ContactShapes.h"
+#include "Solver/LocalSurface.h"
 #include "ElementGeometry.h"
 
 using namespace Assembly;
@@ -781,6 +787,169 @@ Assembly::profileOf(const TopoDS_Shape& shape, const TopoDS_Shape& solid, double
         box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
         out.low = zmin;
         out.high = zmax;
+    }
+    return out;
+}
+
+std::vector<Assembly::Solver::Flexible::TrueFace>
+Assembly::trueFacesOf(const TopoDS_Shape& solid,
+                      const std::vector<Base::Vector3d>& nodes,
+                      const std::vector<std::array<Solver::Id, 10>>& tetrahedra)
+{
+    namespace LS = Solver::LocalSurface;
+    std::vector<Solver::Flexible::TrueFace> out;
+    if (solid.IsNull() || nodes.empty()) {
+        return out;
+    }
+    // The solid's faces, each its surface to project on, what is inside it,
+    // and its box; planes among them, for a face of the mesh on one to be
+    // none of the curved ones'
+    struct OnSolid
+    {
+        TopoDS_Face face;
+        int number = 0;
+        bool plane = false;
+        Handle(ShapeAnalysis_Surface) surface;
+        std::unique_ptr<BRepTopAdaptor_FClass2d> inside;
+        Bnd_Box box;
+    };
+    std::vector<OnSolid> faces;
+    bool curved = false;
+    {
+        int number = -1;
+        for (TopExp_Explorer it(solid, TopAbs_FACE); it.More(); it.Next()) {
+            ++number;
+            OnSolid f;
+            f.face = TopoDS::Face(it.Current());
+            f.number = number;
+            const Handle(Geom_Surface) surface = BRep_Tool::Surface(f.face);
+            if (surface.IsNull()) {
+                continue;
+            }
+            f.plane = BRepAdaptor_Surface(f.face).GetType() == GeomAbs_Plane;
+            curved = curved || !f.plane;
+            f.surface = new ShapeAnalysis_Surface(surface);
+            f.inside = std::make_unique<BRepTopAdaptor_FClass2d>(f.face, Precision::Confusion());
+            BRepBndLib::Add(f.face, f.box);
+            faces.push_back(std::move(f));
+        }
+    }
+    if (!curved) {
+        return out;
+    }
+    auto point = [](const Base::Vector3d& v) {
+        return LS::Vec {v.x, v.y, v.z};
+    };
+    // The tetrahedra's faces met once, each its corners and the nodes of
+    // its edges (0 1), (1 2), (2 0) -- the tetrahedron's (0 1) 4, (1 2) 5,
+    // (0 2) 6, (0 3) 7, (1 3) 8, (2 3) 9, as ChronoFlexible::Surface takes
+    // them
+    struct Met
+    {
+        int count = 0;
+        std::array<Solver::Id, 6> nodes {};
+    };
+    std::map<std::array<Solver::Id, 3>, Met> met;
+    static const std::array<std::array<int, 2>, 6> edgeOf {
+        {{0, 1}, {1, 2}, {0, 2}, {0, 3}, {1, 3}, {2, 3}}};
+    for (const auto& tet : tetrahedra) {
+        auto between = [&](int i, int j) {
+            for (std::size_t e = 0; e < edgeOf.size(); ++e) {
+                if ((edgeOf[e][0] == i && edgeOf[e][1] == j)
+                    || (edgeOf[e][0] == j && edgeOf[e][1] == i)) {
+                    return tet[4 + e];
+                }
+            }
+            return tet[static_cast<std::size_t>(i)];
+        };
+        static const std::array<std::array<int, 3>, 4> four {
+            {{0, 1, 2}, {0, 1, 3}, {0, 2, 3}, {1, 2, 3}}};
+        for (const auto& f : four) {
+            std::array<Solver::Id, 3> key {tet[f[0]], tet[f[1]], tet[f[2]]};
+            std::sort(key.begin(), key.end());
+            auto& entry = met[key];
+            ++entry.count;
+            entry.nodes = {tet[f[0]],
+                           tet[f[1]],
+                           tet[f[2]],
+                           between(f[0], f[1]),
+                           between(f[1], f[2]),
+                           between(f[2], f[0])};
+        }
+    }
+    for (const auto& [key, entry] : met) {
+        if (entry.count != 1) {
+            continue;
+        }
+        LS::Face x;
+        bool fits = true;
+        for (std::size_t k = 0; k < 6; ++k) {
+            fits = fits && entry.nodes[k] < nodes.size();
+            if (fits) {
+                x[k] = point(nodes[entry.nodes[k]]);
+            }
+        }
+        if (!fits) {
+            continue;
+        }
+        const double size = std::max({LS::length(LS::add(x[1], x[0], -1.0)),
+                                      LS::length(LS::add(x[2], x[1], -1.0)),
+                                      LS::length(LS::add(x[0], x[2], -1.0))});
+        if (!(size > 0.0)) {
+            continue;
+        }
+        // The solid's face it lies on: its six nodes on its surface within a
+        // thousandth of its size, and its middle inside it; the nearest such
+        const double tol = 1e-3 * size;
+        const LS::Vec middle = LS::pointAt(x, nullptr, {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0});
+        const gp_Pnt at(middle[0], middle[1], middle[2]);
+        const OnSolid* on = nullptr;
+        double nearest = std::numeric_limits<double>::infinity();
+        for (const auto& f : faces) {
+            if (f.box.IsOut(at)) {
+                Bnd_Box near = f.box;
+                near.Enlarge(size);
+                if (near.IsOut(at)) {
+                    continue;
+                }
+            }
+            const gp_Pnt2d uv = f.surface->ValueOfUV(at, 1e-9);
+            const double gap = f.surface->Gap();
+            if (!(gap < nearest) || !(gap < 0.1 * size)) {
+                continue;
+            }
+            const TopAbs_State state = f.inside->Perform(uv);
+            if (state != TopAbs_IN && state != TopAbs_ON) {
+                continue;
+            }
+            bool allOn = true;
+            for (std::size_t k = 0; k < 6 && allOn; ++k) {
+                f.surface->ValueOfUV(gp_Pnt(x[k][0], x[k][1], x[k][2]), 1e-9);
+                allOn = f.surface->Gap() < tol;
+            }
+            if (allOn) {
+                nearest = gap;
+                on = &f;
+            }
+        }
+        if (!on || on->plane) {
+            continue;
+        }
+        Solver::Flexible::TrueFace made;
+        made.corners = {entry.nodes[0], entry.nodes[1], entry.nodes[2]};
+        made.face = on->number;
+        gp_Pnt2d uv = on->surface->ValueOfUV(at, 1e-9);
+        for (std::size_t p = 0; p < LS::quarticPoints.size(); ++p) {
+            const std::array<double, 3> L {LS::quarticPoints[p][0] / 4.0,
+                                           LS::quarticPoints[p][1] / 4.0,
+                                           LS::quarticPoints[p][2] / 4.0};
+            const LS::Vec q = LS::pointAt(x, nullptr, L);
+            const gp_Pnt from(q[0], q[1], q[2]);
+            uv = on->surface->NextValueOfUV(uv, from, 1e-9);
+            const gp_Pnt to = on->surface->Value(uv);
+            made.offsets[p] = Base::Vector3d(to.X() - q[0], to.Y() - q[1], to.Z() - q[2]);
+        }
+        out.push_back(made);
     }
     return out;
 }

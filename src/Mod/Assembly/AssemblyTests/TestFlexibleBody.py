@@ -986,9 +986,22 @@ class TestFlexibleBody(unittest.TestCase):
         it (FlexibleContact::roundAt()), and the roller's point goes to its
         face's nearest that round's axis as against a rigid one; on their
         quarter triangles the run did not end in 18 minutes. Over 0.03 to
-        0.045 s of the turn, a quarter of it"""
+        0.045 s of the turn, a quarter of it.
+
+        The two rounds along each other touch at the two ends of their line
+        (D4b way 1 step 2, thinOut()): the roller's points slid into the
+        rod's round are one line by which of the rod's rounds it is, not by
+        each point's fit of it, and the rod's points slid the other way go.
+        The force within a two-hundredth, 44.52 to 44.65 N; as found, 44.73
+        to 45.58 over 45.18"""
         self.roundTurned(
-            "a round on a flexible roller", 55, -10, roller=True, flexiblePlate=True, until=0.045
+            "a round on a flexible roller",
+            55,
+            -10,
+            roller=True,
+            flexiblePlate=True,
+            until=0.045,
+            within=0.005,
         )
 
     def test_friction_on_flexible_round(self):

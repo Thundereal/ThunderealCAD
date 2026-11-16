@@ -5661,6 +5661,55 @@ Phase D1 is under way (2026-10-28):
     fit of step 30, for a partial round and a face of no cylinder; (4) an
     area's corners, a flat face on a flat face; (5) rigid meshes, by
     `ContactShape::surfaces`, for the mesh plate's line ends.
+- Built, D4b way 1 step 2 (2026-11-16): two flexible rounds along each
+  other touch at the two ends of their line. A limit of steps 25 to 28:
+  the rod turned on a flexible roller pressed it 44.73 to 45.58 N over
+  45.18, its points where collision detection found them.
+  - **Why no line.** Each of the roller's points slid into the rod's round
+    (`place()`) carries the rod's round as the rod's mesh has it there
+    (`roundAt()`), a fit of its own; `thinOut()` made a line of the places
+    against one round by that round's frame, exactly -- one rigid shape's
+    -- and every fit is somewhere else. A trace: 41069 lines over the turn,
+    each of one point.
+  - **One round by its number.** `OnMesh::roundOther`: which of the other
+    flexible part's rounds a point was slid into. The places along one are
+    a line. Their stations along it from one place: `roundAt(..., middle)`
+    puts a fit's frame at its axis's point nearest the round's middle as
+    the carrier has it at rest, its reach the round's own -- by the point's
+    own station at rest the middles of one round were 1.4 mm apart along a
+    40 mm rod, and the line's ends came 0.5 mm past the rod's.
+  - **The points slid the other way.** Two flexible rounds are slid both
+    ways, the rod's points into the roller's round as well: a line of one
+    left the other's points at its end, a third spring of the patch (the
+    force 42.2 N, 38.7 to 47.6), and two lines of one contact took each
+    other's ends (the force to none). A line now takes the other's points
+    along it, and its two ends are kept whatever line comes after
+    (`lineEnd`); the other part's point of each end is set on its round
+    where the end is (`setGiven()`).
+  - Wrong turn: the other round fitted again where each end lands (a rod
+    bent under a roller off the fit made 20 mm along it, it was thought).
+    It moved nothing, to the digits printed, and is not kept.
+  - `contactOf()` (step 1) is not used yet: the pairs here are the round
+    pairs the code already knew, now told apart by the round's number.
+  - Numbers, the rod on the flexible roller over 0.03 to 0.045 s: 44.58 N,
+    44.52 to 44.65 (as found 45.18, 44.73 to 45.58; on a rigid roller 44.77,
+    44.52 to 45.06), the line's ends 1% in from the rod's ends as on the
+    rigid roller; the motion's torque with no friction 0.0016 N mm for
+    0.0089. Whether 44.58 or the rigid roller's 44.77 is the closer, no
+    closed form says; the roller R 5 held at its ends bends 0.2 um under
+    45 N by hand. Every other case prints as it did.
+  - The flexible rod in a flexible block's bore, a friction of 0.3, over
+    0.03 to 0.08 s: 44.76 N, 44.71 to 44.82 (45.5, 45.0 to 46.0 before) --
+    what it presses a rigid bore, 44.75, 44.71 to 44.79 -- the motion's
+    torque 66.91 N mm, 0.2990 N R; the run 97 s on this box, where the
+    flexible rod in a rigid bore takes 37 (254 and 80 s before, on
+    Windows). On the flexible roller with that friction
+    44.58 N, 0.2989 N R (45.2 N, 0.298). Probe ~/.cache/flexcontact/
+    manualprobe.py, the tests' roundTurned() with what they do not ask.
+  - Tests: TestFlexibleBody.test_round_on_flexible_roller holds the force
+    within a two-hundredth of its mean (a tenth before; as found, 44.73 to
+    45.58, it fails). TestFlexibleBody 34 (232 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

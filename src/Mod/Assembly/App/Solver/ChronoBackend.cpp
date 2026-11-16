@@ -1423,6 +1423,12 @@ public:
         // it is where the round is deepest in the part
         int leaving = -1;
         ShapeOn round;
+        // That round where it is another flexible part's: which of that
+        // part's rounds (FlexibleContact::rounds), the round as its mesh
+        // had it when placed (roundAt(), from its middle), or -1. The points
+        // along one such round are one line (thinOut()), not one each: each
+        // one's fit of it is its own
+        std::int32_t roundOther = -1;
         // Taken to the line its face's round and that one touch along
         // (FlexibleContact::restation()), or one slid towards a flat face
         // (slides 1) to the line its face's round touches that face along
@@ -1779,6 +1785,15 @@ public:
     }
 
     // The round a triangle's face is of, or none
+    // Which of rounds a triangle's face is of, or -1
+    std::int32_t roundIndexOf(std::int64_t triangle) const
+    {
+        if (triangle < 0 || !surface) {
+            return -1;
+        }
+        const std::size_t f = surface->faceIndex(static_cast<std::size_t>(triangle));
+        return f < faceRound.size() ? faceRound[f] : -1;
+    }
     const ShapeOn* roundOf(std::int64_t triangle) const
     {
         if (triangle < 0 || !surface) {
@@ -1801,7 +1816,10 @@ public:
     // through 46 deg of an arc, a 4 mm mesh on R 5, by 16 mrad there, 0.08
     // mm at the axis. Its reach along the axis is not looked at. False
     // where the face is of no round
-    bool roundAt(std::int64_t triangle, const ch::ChVector3d& on, ShapeOn& local) const
+    bool roundAt(std::int64_t triangle,
+                 const ch::ChVector3d& on,
+                 ShapeOn& local,
+                 bool middle = false) const
     {
         const ShapeOn* round = roundOf(triangle);
         if (!round || !mesh) {
@@ -1938,12 +1956,20 @@ public:
         else {
             // At the point's station
             centre += axis * ch::Vdot(axis, at - centre);
+            // Or at the round's middle: the axis's point nearest the middle
+            // as the carrier has it at rest -- the stations of the points
+            // along it then from one place, and its reach its own. Not by the
+            // point's own station at rest, from the point: the middles of
+            // one round so found were 1.4 mm apart along a rod of 40
+            if (middle) {
+                centre += axis * ch::Vdot(axis, round->frame.GetPos() - centre);
+            }
         }
         local = *round;
         ch::ChMatrix33d turn;
         turn.SetFromDirectionAxes(out, ch::Vcross(axis, out), axis);
         local.frame = ch::ChFramed(centre, turn);
-        local.half = std::numeric_limits<double>::max();
+        local.half = middle && !ball ? round->half : std::numeric_limits<double>::max();
         return true;
     }
 
@@ -2944,7 +2970,8 @@ public:
                                              other->triangleOn(sideA ? load.points[i].shapeB
                                                                      : load.points[i].shapeA),
                                              sideA ? load.points[i].onB : load.points[i].onA,
-                                             roundNow)
+                                             roundNow,
+                                             true)
                                      ? &roundNow
                                      : nullptr) {
                         auto& point = load.points[i];
@@ -3018,6 +3045,10 @@ public:
                             on.round.half = against->half;
                             on.round.ball = against->ball;
                             on.round.concave = against->concave;
+                            on.roundOther = other
+                                ? other->roundIndexOf(other->triangleOn(
+                                      sideA ? point.shapeB : point.shapeA))
+                                : -1;
                             // Out of the round through the face's point:
                             // from A to B where the face is B's -- of a
                             // hollow round, which is about the face, in
@@ -3713,9 +3744,13 @@ void thinOut(ContactLoad& load,
         for (Line& line : lines) {
             const Kept& f = *line.first;
             const auto& first = f.way == 2 ? load.onMeshA[line.deepest] : load.onMesh[line.deepest];
-            if (f.way != k.way || !(ch::Vdot(f.axis, k.axis) > 0.9998)
-                || first.round.radius != on.round.radius
-                || (first.round.frame.GetPos() - on.round.frame.GetPos()).Length2() > 0.0
+            // One round: a rigid one's the same shape, another flexible
+            // part's the same of its rounds, each point's fit of it its own
+            const bool oneRound = first.roundOther >= 0
+                ? first.roundOther == on.roundOther
+                : on.roundOther < 0 && first.round.radius == on.round.radius
+                    && (first.round.frame.GetPos() - on.round.frame.GetPos()).Length2() == 0.0;
+            if (f.way != k.way || !(ch::Vdot(f.axis, k.axis) > 0.9998) || !oneRound
                 || !(ch::Vdot(load.points[line.deepest].normal, load.points[middle].normal)
                      > 0.0)) {
                 continue;
@@ -3730,6 +3765,11 @@ void thinOut(ContactLoad& load,
     }
     bool movedA = false;
     bool movedB = false;
+    // Each line's two ends: kept whatever line comes after. Two flexible
+    // rounds along each other are two lines, each side's points slid into
+    // the other's round, the one made first the contact's: the other then
+    // has its points gone, and its points' going took the first one's ends
+    std::vector<char> lineEnd(count, 0);
     for (const Line& line : lines) {
         const bool sideA = line.first->way == 2;
         FlexibleContact* part = sideA ? load.flexibleA : load.flexible;
@@ -3739,6 +3779,9 @@ void thinOut(ContactLoad& load,
         std::int32_t own = -1;
         std::vector<std::size_t> onRound;
         for (const std::size_t i : line.points) {
+            if (gone[i]) {
+                continue;
+            }
             const std::size_t f = placedOn[i].face;
             const std::int32_t r = f < part->faceRound.size() ? part->faceRound[f] : -1;
             if (r < 0) {
@@ -3780,6 +3823,7 @@ void thinOut(ContactLoad& load,
         }
         const ContactLoad::OnMesh wasLow = placedOn[nearLow];
         const ContactLoad::Point pointLow = load.points[nearLow];
+        FlexibleContact* other = sideA ? load.flexible : load.flexibleA;
         if (!part->restation(load, nearLow, sideA, low + in)) {
             continue;
         }
@@ -3789,8 +3833,24 @@ void thinOut(ContactLoad& load,
             continue;
         }
         (sideA ? movedA : movedB) = true;
+        // The other flexible part's point of each end, set on its round by
+        // this one's (ContactLoad::given): where the end is now
+        if (other) {
+            auto& otherOn = sideA ? load.onMesh : load.onMeshA;
+            for (const std::size_t i : {nearLow, nearHigh}) {
+                if (i < otherOn.size() && i < load.given.size()
+                    && load.given[i] == (sideA ? 2 : 1)) {
+                    other->setGiven(otherOn[i],
+                                    sideA ? load.points[i].onB : load.points[i].onA,
+                                    true);
+                    (sideA ? movedB : movedA) = true;
+                }
+            }
+        }
+        lineEnd[nearLow] = 1;
+        lineEnd[nearHigh] = 1;
         for (const std::size_t i : line.points) {
-            if (i != nearLow && i != nearHigh) {
+            if (i != nearLow && i != nearHigh && !lineEnd[i]) {
                 gone[i] = 1;
                 any = true;
             }
@@ -3802,9 +3862,14 @@ void thinOut(ContactLoad& load,
         const ch::ChFramed theirs = placedOn[nearLow].round.frame >> roundBody;
         const ch::ChVector3d axis = theirs.GetRotMat().GetAxisZ();
         const ch::ChVector3d normal = load.points[line.deepest].normal;
+        // -- and, the other part flexible too, its points along the line set
+        // on this part's round (ContactLoad::given): the line's points slid
+        // the other way, each a spring of the patch beside the line's two
         for (std::size_t i = 0; i < count; ++i) {
-            if (gone[i] || !(sideA ? load.meshedA(i) : load.meshed(i))
-                || placedOn[i].slides != 0) {
+            const bool givenHere = other && i < load.given.size()
+                && load.given[i] == (sideA ? 1 : 2) && i != nearLow && i != nearHigh;
+            if (gone[i] || lineEnd[i] || !(sideA ? load.meshedA(i) : load.meshed(i))
+                || (placedOn[i].slides != 0 && !givenHere)) {
                 continue;
             }
             const double along = ch::Vdot(axis, placedOn[i].at - theirs.GetPos());

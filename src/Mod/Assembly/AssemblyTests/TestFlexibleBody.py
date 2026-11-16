@@ -1097,8 +1097,9 @@ class TestFlexibleBody(unittest.TestCase):
         """A pressure over the area (D4b way 2): the contact's stiffness 25
         N/mm^3 a pressure per depth, summed over where the surfaces overlap.
         A rigid cylinder R 5 x 40 lying along a plate 0.05 mm into it: across
-        the line the overlap is a parabola's, 4/3 sqrt(2 R) d^1.5 a length,
-        and the force k L 4/3 sqrt(2 R) d^1.5, 47.14 N, over the turn; a
+        the line the overlap is nearly a parabola's, 4/3 sqrt(2 R) d^1.5 a
+        length, and the force k L 4/3 sqrt(2 R) d^1.5, 47.14 N, over the
+        turn -- 47.07 by the circles themselves (step 2, acrossLine()); a
         rigid ball R 5 pressed 0.05 mm with 1000 N/mm^3, a disc's, k pi R d^2,
         39.27 N"""
         rod = self.roundTurned(
@@ -1118,6 +1119,29 @@ class TestFlexibleBody(unittest.TestCase):
         )
         disc = 1000.0 * math.pi * 5.0 * 0.05**2
         self.assertLess(abs(ball - disc), 0.005 * disc)
+
+    def test_pressure_in_a_bore(self):
+        """A pressure over the area where the surfaces nearly match (D4b way
+        2 step 2): test_rigid_round_in_flexible_bore's rigid rod R 5 in the
+        flexible block's bore R 5.5, its wall 0.05 mm into the rod, 26.52
+        N/mm^3. The two circles overlap 4.5 mm round: the depth integrated
+        over the overlap, 158.3 N exactly, 158.8 by the
+        two sections' circles across the line (acrossLine()); the parabolas'
+        4/3 sqrt(2 / (1/5 - 1/5.5)) d^1.5 gives 165.9. Before, the block's
+        hollow wall was read as flat, its curvature clamped at none: 50.0 N,
+        the rod's on a plate"""
+        bore = self.roundTurned(
+            "a pressure in a bore",
+            55,
+            -10,
+            bore=5.5,
+            flexiblePlate=True,
+            rigidRod=True,
+            pressure=26.52,
+            within=0.01,
+            most=200.0,
+        )
+        self.assertLess(abs(bore - 158.27), 0.01 * 158.27)
 
     def test_pressure_on_a_cone_and_a_flexible_round(self):
         """A pressure over the area on a round whose radius changes along

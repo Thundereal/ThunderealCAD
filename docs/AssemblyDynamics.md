@@ -5874,6 +5874,33 @@ Phase D1 is under way (2026-10-28):
     its corners -- summed finer than the faces on the surfaces themselves;
     a line's depth along it taken as its ends' share, exact where they
     press alike.
+- Ruled (2026-11-16): Pressure stays opt-in. Against the Value law at
+  1000 N/mm, Pressure set at 26.52 N/mm^3 so the rigid rod presses the same
+  50 N, over the turn: the flexible rod 44.77 -> 43.60 N, past a plate's
+  end 45.59 -> 33.98 (a quarter of it off the plate), on a roller 44.77 ->
+  31.63 (two R 5's overlap a narrower strip), a ball 50 -> 1.04 (k pi R
+  d^2), the rigid cone 50 -> 47.60, the flexible one 44.03 -> 40.88, the
+  flexible rod in a rigid bore 44.76 -> 137.4 (the parabolas'; 131.5 by
+  step 2). The Value law presses every shape alike at a depth; the
+  pressure by how much overlaps. Hertz's (Materials, aluminium) 1.3 to 36
+  kN at 0.05 mm, not comparable at that depth. Probe
+  ~/.cache/flexcontact/lawcompare.py.
+- Built, D4b way 2 step 2 (2026-11-16): a line's pressure across it by the
+  two sections' circles, not their parabolas (`acrossLine()`): each side's
+  own curvature across, signed -- a hollow one's negative -- at the line's
+  two ends and their middle, Simpson's along it, the depth integrated over
+  where the circles overlap; the law the power tangent to it at the
+  patch's depth (as Johnson's line, `johnsonLine()`). A rigid rod R 5 in a
+  flexible block's bore R 5.5 pressed 0.05 mm, 26.52 N/mm^3: 158.8 N for
+  the exact overlap's 158.3 (the radial depth over the arc); the
+  parabolas' would give 165.9. Before it, 50.0: the flexible block's
+  hollow wall read as flat, `curvatureOf()` clamping its curvature at none.
+  - On a plate the circles give 0.16% under the parabola, 47.07 N for
+    47.14; a roller's 35.33 for 35.36; the flexible rod in a rigid bore
+    131.5 (137.4 by the parabolas).
+  - Test: TestFlexibleBody.test_pressure_in_a_bore (158.3 within a
+    percent; before, 50.0). Not yet: a ball in a socket, the same by
+    spheres; a line whose depth varies along it shares by its ends.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

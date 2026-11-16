@@ -1687,7 +1687,8 @@ public:
     }
 
     // The surface's curvature tensor at a load's point placed on it, absolute,
-    // convex positive (ShapesOn::curvatureAt()'s): its face's true surface's
+    // convex positive, a hollow one's negative (ShapesOn::curvatureAt()'s and
+    // roundCurvature()'s): its face's true surface's
     // where the face has one (faceTrue), its six nodes' else -- not the
     // collision mesh's at its corners, which read a rod R 5 at a 4 mm mesh
     // as round both ways, 1/14 mm, at times (pressureLaw()). False where the
@@ -1707,8 +1708,8 @@ public:
         }
         const ch::ChVector3d w1 = carrier->GetRot().Rotate(v(local.way1));
         const ch::ChVector3d w2 = carrier->GetRot().Rotate(v(local.way2));
-        tensor = ch::TensorProduct(w1, w1) * std::max(local.k1, 0.0)
-            + ch::TensorProduct(w2, w2) * std::max(local.k2, 0.0);
+        // Signed: a bore's wall curves round its hole, negative
+        tensor = ch::TensorProduct(w1, w1) * local.k1 + ch::TensorProduct(w2, w2) * local.k2;
         return true;
     }
 
@@ -8017,6 +8018,65 @@ bool hullLineReach(const ShapeOn& on,
     return true;
 }
 
+/** A line contact's pressure across it, a length of it (D4b way 2 step 2):
+ * the integral of depth^e over where the two sections overlap, each its
+ * circle -- curving away from the other by r - sqrt(r^2 - y^2) at y from
+ * the deepest point, its curvature k = 1/r, convex positive, a hollow one's
+ * towards it, negative, a flat one's none -- pressed 'depth' together. Not
+ * the parabolas: a pin R 5 in a bore R 5.5 pressed 50 um overlaps it 4.5 mm
+ * round, and the parabolas' 4/3 sqrt(2 / k) d^1.5 gives 4.8% more than the
+ * circles'; on a plate a hundredth of a percent less.
+ */
+double acrossLine(double depth, double kA, double kB, double e)
+{
+    if (!(depth > 0.0)) {
+        return 0.0;
+    }
+    auto away = [](double k, double y) {
+        if (!(std::abs(k) > 0.0)) {
+            return 0.0;
+        }
+        const double r = 1.0 / std::abs(k);
+        const double v = r - std::sqrt(std::max(r * r - y * y, 0.0));
+        return k > 0.0 ? v : -v;
+    };
+    auto at = [&](double y) {
+        return depth - away(kA, y) - away(kB, y);
+    };
+    // Its half width: where the depth comes to none, within the smaller
+    // circle's radius
+    double reach = std::numeric_limits<double>::max();
+    for (const double k : {kA, kB}) {
+        if (std::abs(k) > 0.0) {
+            reach = std::min(reach, 1.0 / std::abs(k));
+        }
+    }
+    double low = 0.0;
+    double high = reach;
+    if (at(high) > 0.0) {
+        low = high;
+    }
+    else {
+        for (int i = 0; i < 80; ++i) {
+            const double middle = 0.5 * (low + high);
+            (at(middle) > 0.0 ? low : high) = middle;
+        }
+    }
+    const double half = low;
+    if (!(half > 0.0)) {
+        return 0.0;
+    }
+    // Simpson's over [0, half], twice: the depth at the half width none
+    const int n = 64;
+    double sum = 0.0;
+    for (int i = 0; i <= n; ++i) {
+        const double y = half * i / n;
+        const double w = (i == 0 || i == n) ? 1.0 : (i % 2 ? 4.0 : 2.0);
+        sum += w * std::pow(std::max(at(y), 0.0), e);
+    }
+    return 2.0 * sum * half / (3.0 * n);
+}
+
 /** A patch's stiffness and exponent for a pressure over its area (D4b way
  * 2, ContactLaw::Stiffness::Pressure): p = k d^e where the surfaces overlap
  * by d, summed over the overlap of the gap's quadric by the patch's
@@ -8087,6 +8147,14 @@ void pressureLaw(const ContactLaw& law,
         ch::ChVector3d way = ch::Vcross(normal, across[deepestAt]);
         double kLow = k1;
         double kHigh = k1;
+        // The points at its two ends, and a rigid hull's own curvature
+        // across there where its line is the hull's
+        std::size_t lowAt = k1s.size();
+        std::size_t highAt = k1s.size();
+        bool hullEnds = false;
+        bool hullOnA = false;
+        double hullKLow = 0.0;
+        double hullKHigh = 0.0;
         if (way.Length() > 0.5) {
             way.Normalize();
             std::size_t lowOne = deepestAt;
@@ -8104,6 +8172,8 @@ void pressureLaw(const ContactLaw& law,
                 kLow = k1s[lowOne];
                 kHigh = k1s[highOne];
             }
+            lowAt = lowOne;
+            highAt = highOne;
             const double depth = std::max(-gaps[deepestAt], 0.0);
             if (depth > 0.0) {
                 const double width = 2.0 * std::sqrt(2.0 * depth / k1);
@@ -8139,6 +8209,10 @@ void pressureLaw(const ContactLaw& law,
                     length = reach;
                     kLow = hullLow + other;
                     kHigh = hullHigh + other;
+                    hullEnds = true;
+                    hullOnA = onAHull;
+                    hullKLow = hullLow;
+                    hullKHigh = hullHigh;
                 }
             }
         }
@@ -8154,6 +8228,38 @@ void pressureLaw(const ContactLaw& law,
                 : std::sqrt(0.5 * (ra + rb));
             stiffness = law.stiffness * std::sqrt(2.0) * mean * beta * length;
             exponent = e + 0.5;
+            // Pressed: the two sections' circles, each side's own curvature
+            // across at the line's ends and their middle (Simpson's), the
+            // law the power tangent to it at the depth -- a pin in a bore
+            double depth = 0.0;
+            for (const double gap : gaps) {
+                depth = std::max(depth, -gap);
+            }
+            if (depth > 0.0 && lowAt < k1A.size() && highAt < k1A.size()) {
+                double aLow = k1A[lowAt];
+                double bLow = k1B[lowAt];
+                double aHigh = k1A[highAt];
+                double bHigh = k1B[highAt];
+                // A rigid hull's ends its own (hullLineReach()), the other
+                // side's at the points
+                if (hullEnds) {
+                    (hullOnA ? aLow : bLow) = hullKLow;
+                    (hullOnA ? aHigh : bHigh) = hullKHigh;
+                }
+                auto across = [&](double d) {
+                    return (acrossLine(d, aLow, bLow, e)
+                            + 4.0 * acrossLine(d, 0.5 * (aLow + aHigh), 0.5 * (bLow + bHigh), e)
+                            + acrossLine(d, aHigh, bHigh, e))
+                        / 6.0;
+                };
+                const double at = across(depth);
+                const double up = across(1.01 * depth);
+                const double down = across(0.99 * depth);
+                if (at > 0.0 && up > 0.0 && down > 0.0) {
+                    exponent = std::log(up / down) / std::log(1.01 / 0.99);
+                    stiffness = law.stiffness * length * at / std::pow(depth, exponent);
+                }
+            }
             return;
         }
         k2 = 0.01 * k1;
@@ -8248,7 +8354,7 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         // each point's curvature across
         double beyond = 0.0;
         std::vector<double> k1s;
-        // And each side's alone across there, A's and B's
+        // And each side's alone across there, A's and B's, signed
         std::vector<double> k1A;
         std::vector<double> k1B;
     };
@@ -8299,8 +8405,8 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         patch.k1s.push_back(k1);
         {
             const ch::ChVector3d w = u * std::cos(angle) + v * std::sin(angle);
-            patch.k1A.push_back(std::max(ch::Vdot(w, onA * w), 0.0));
-            patch.k1B.push_back(std::max(ch::Vdot(w, onB * w), 0.0));
+            patch.k1A.push_back(ch::Vdot(w, onA * w));
+            patch.k1B.push_back(ch::Vdot(w, onB * w));
         }
         patch.centre += point.onA;
         patch.at.push_back(pA);

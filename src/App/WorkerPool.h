@@ -118,6 +118,8 @@ public:
         std::string reason;  ///< why the pool last stopped or did not start
         std::string directory;
         long long version = 0;  ///< the log's version the copy is, 0 for a saved one
+        bool readStore = false;  ///< the workers read it from this process's store
+        std::string blobs;  ///< where the blobs they read are put out
         std::vector<long> pids;
     };
 

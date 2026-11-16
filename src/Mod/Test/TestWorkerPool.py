@@ -50,6 +50,10 @@ def _read(doc, inputs, out):
     return {"Value": getattr(obj, inputs["Property"])}
 
 
+def _volume(doc, inputs, out):
+    return {"Volume": doc.getObject(inputs["Object"]).Shape.Volume}
+
+
 def _write(doc, inputs, out):
     with open(out, "w") as f:
         f.write(inputs["Text"])
@@ -64,6 +68,7 @@ for _kind, _handler in (
     ("test.dieonce", _dieOnce),
     ("test.read", _read),
     ("test.write", _write),
+    ("test.volume", _volume),
 ):
     worker.register(_kind, _handler)
 
@@ -130,15 +135,75 @@ class TestWorkerPool(unittest.TestCase):
         self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
 
     def testTheCopyIsAVersionOfTheLog(self):
+        """Without the store read by the workers, the version written out
+        here as an unpacked project: the fallback (sec 3)"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("ReadStore", False)
+        self.addCleanup(group.RemBool, "ReadStore")
         versions = len(self.doc.getTransactionVersions())
         self.assertTrue(self.pool.start())
         info = self.pool.info()
         self.assertGreater(info["Version"], 0)
+        self.assertFalse(info["ReadStore"])
         self.assertTrue(os.path.isdir(os.path.join(info["Directory"], "version")))
         self.assertEqual(len(self.doc.getTransactionVersions()), versions + 1)
         job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
         self.assertTrue(self.pool.wait(120))
         self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
+
+    def testTheWorkersReadTheStore(self):
+        """The version is read by the workers from this process's store:
+        nothing is written out here but the blobs it keeps in files, once
+        each, which a second copy after an edit shares"""
+        import Part  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        cyl = self.doc.addObject("Part::Cylinder", "Cylinder")
+        cyl.Placement.Base = App.Vector(30, 0, 0)
+        self.doc.recompute()
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        info = self.pool.info()
+        self.assertGreater(info["Version"], 0)
+        self.assertTrue(info["ReadStore"])
+        self.assertFalse(os.path.exists(os.path.join(info["Directory"], "version")))
+        first = set(os.listdir(info["Blobs"]))
+        self.assertGreaterEqual(len(first), 2)  # each shape's
+        job = self.submit("test.volume", {"Object": "Box"})
+        self.assertTrue(self.pool.wait(120))
+        self.assertAlmostEqual(self.pool.result(job)["Output"]["Volume"], 1000.0)
+        box.Height = 20  # a new copy: only the box's shape is new
+        self.doc.recompute()
+        self.assertFalse(self.pool.info()["Started"])
+        self.assertTrue(self.pool.start())
+        second = set(os.listdir(self.pool.info()["Blobs"]))
+        self.assertTrue(first <= second)
+        self.assertLessEqual(len(second - first), 2, second - first)
+        jobs = [self.submit("test.volume", {"Object": n}) for n in ("Box", "Cylinder")]
+        self.assertTrue(self.pool.wait(120))
+        self.assertAlmostEqual(self.pool.result(jobs[0])["Output"]["Volume"], 2000.0)
+        self.assertAlmostEqual(self.pool.result(jobs[1])["Output"]["Volume"], cyl.Shape.Volume)
+
+    def testTheVersionIsHeldWhileTheWorkersHoldIt(self):
+        """Retention lets an unnamed version go past the number kept, but
+        not one the pool's copy is: a worker started later reads it"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Document")
+        group.SetInt("TransactionLogKeepVersions", 2)
+        self.addCleanup(group.RemInt, "TransactionLogKeepVersions")
+        self.settings(1, idle=0)
+        self.assertTrue(self.pool.start())
+        held = self.pool.info()["Version"]
+        for _ in range(4):
+            self.doc.snapshotTransactionLog()
+        nums = [v["num"] for v in self.doc.getTransactionVersions()]
+        self.assertIn(held, nums)
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["Workers"] == 0, 30))
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
+        self.pool.stop()
+        self.doc.snapshotTransactionLog()
+        nums = [v["num"] for v in self.doc.getTransactionVersions()]
+        self.assertNotIn(held, nums)
 
     def testATransactionOpenTakesASavedCopy(self):
         self.doc.openTransaction("Open")

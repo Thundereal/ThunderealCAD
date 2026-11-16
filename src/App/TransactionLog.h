@@ -739,7 +739,21 @@ class AppExport TransactionLogCore
 {
 public:
     explicit TransactionLogCore(FileHistory& history);
+    /** A reader of another process's live store (docs/WorkerProcess.md sec
+     * 3): `store` its log.db, read through its WAL and never written -- no
+     * session, no environment row, no worker. A blob whose bytes that
+     * process keeps in its own files is read from `blobs/<hash>`, where it
+     * put them.
+     */
+    TransactionLogCore(FileHistory& history, const std::string& store, const std::string& blobs);
     ~TransactionLogCore();
+    /// Whether it is a reader of another process's store
+    bool isReader() const { return _readsOther; }
+    /** A lease on version `num` (docs/WorkerProcess.md sec 3): while one
+     * stands, retention does not let the version go, which another
+     * process reads. Leases count; `hold` false gives one back.
+     */
+    void holdVersion(int64_t num, bool hold);
 
     /// Open the store in the history's directory; the counters follow it.
     void openStore();
@@ -970,6 +984,10 @@ public:
 
     FileHistory& _history;
     std::string _path;
+    bool _readsOther {false};
+    std::mutex _leaseMutex;
+    std::multiset<int64_t> _leases;  ///< versions held for readers
+    std::string _blobDir;  ///< a reader's: the blobs its store's owner put out
     std::string _envJson;
     /// The desktop user's name as recorded: `host` unless the privacy
     /// preference names them (sec 30.4 P3), and the machine's with it.

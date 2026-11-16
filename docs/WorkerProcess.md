@@ -2,7 +2,7 @@
 
 Status: design accepted 2026-11-16, every decision as recommended (sec
 9). Built on branch `Worker`: phase 0 (`docs/Animation.md` sec 4.2),
-phase 1 (sec 10), phase 2a (sec 11); phase 2b next.
+phase 1 (sec 10), phase 2 (sec 11, 12); phase 3 next.
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -359,8 +359,8 @@ Not done in phase 1: the expression-security grants passed to a worker
 ## 11. Phase 2a, as built: the copy is a version of the log
 
 (2026-11-16.) Phase 2 is in two steps. 2a takes the document the workers
-hold from the log; 2b (next) has them read it from the GUI's store
-themselves.
+hold from the log; 2b (sec 12) has them read it from the GUI's store
+themselves, and 2a's folder is its fallback.
 
 - **The copy.** `WorkerPool` takes a version of the log
   (`Document::_snapshotToLog("workers")`: a row of kind `workers`, an
@@ -391,3 +391,49 @@ themselves.
 Tests: TestWorkerPool 14 (the copy a version, a saved copy with a
 transaction open), TestAnimation 71 (the version taken mid-pose),
 `tests/gui/animation-workers.py` 19.
+
+## 12. Phase 2b, as built: the workers read the GUI's store
+
+(2026-11-16.) The read-only half of log sec 29.7(b), with the GUI the
+only writer.
+
+- **The store, shared.** `TransactionStore::openSQLiteReader(path)`: the
+  GUI's `log.db` opened read-only through its WAL -- not `immutable=1`,
+  which assumes no writer -- of this build's layout only, never migrated.
+- **A reader core.** `TransactionLogCore(history, store, blobs)`: the
+  counters, names and strings read from the store; no session, no
+  environment row, no worker thread; a post is refused, since no worker
+  would take it and the next flush would wait for ever. A blob whose
+  bytes the GUI keeps in its own blob store (`enc` file: a file, or a
+  member of one of its segments, which its worker repacks) is read from
+  `blobs/<hash>` instead.
+- **A reader history.** `FileHistory::openReader(store, blobs)`: in a
+  directory of its own, registered under no file, its hasher filled from
+  the store's strings -- under the GUI's ids.
+- **The GUI's part.** The version is taken as in 2a; then the blobs it
+  reaches (through deltas' bases and attachments too) whose bytes are
+  files of this process's store are put out in the pool's `blobs/`,
+  named by hash -- a hard link where the blob is a file of its own, its
+  bytes where it is in a segment -- and once only: the directory lasts as
+  long as the pool, so after an edit only what the edit changed goes out.
+  If anything is missing, 2a's folder is written instead.
+- **The worker's part.** Its setup names the store, the version and the
+  blobs; it opens the reader history, writes the version out as an
+  unpacked project in its own folder (`materialiseVersion`, as 2a did in
+  the GUI) with the reader's string table, and opens that.
+- **A lease.** `TransactionLogCore::holdVersion(num, hold)`: while the
+  pool's copy stands, retention does not evict its version, so a worker
+  started later -- grown, or after the idle ones quit -- still reads it.
+  Released when the copy is dropped. Explicit evictions (a squash, a
+  compaction) are the user's and are not held back; a worker that then
+  finds the version gone answers `unfit`, and the frames are made here.
+- **Settings**: `ReadStore` of Preferences/Workers (true); false writes
+  2a's folder.
+
+Measured on the 64-hole filleted plate, posed: `prepareFrames()` 26 to
+28 ms on the main thread -- the snapshot and the blobs put out -- against
+39 for 2a and 418 for the saved copy.
+
+Tests: TestWorkerPool 16 (the store read, only the edited shape's blob
+put out again, the version held past retention while the pool holds it
+and let go after), TestAnimation 71, `tests/gui/animation-workers.py` 19.

@@ -26,6 +26,7 @@
 # include <algorithm>
 # include <chrono>
 # include <cstdlib>
+# include <iterator>
 # include <map>
 # include <set>
 # include <sstream>
@@ -39,6 +40,7 @@
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
 #include <Base/Interpreter.h>
+#include <Base/Stream.h>
 #include <Base/Uuid.h>
 
 #include "Animation.h"
@@ -561,6 +563,18 @@ TransactionLogCore::TransactionLogCore(FileHistory& history)
     FC_LOG("transaction log " << _path << " session " << _session);
 }
 
+TransactionLogCore::TransactionLogCore(FileHistory& history, const std::string& store,
+                                       const std::string& blobs)
+    : _history(history)
+    , _path(store)
+    , _readsOther(true)
+    , _blobDir(blobs)
+{
+    // What it reads only: the counters, the names, the strings
+    openStore();
+    FC_LOG("transaction log reader of " << _path);
+}
+
 TransactionLogCore::~TransactionLogCore()
 {
     liveLogs(this, false);
@@ -669,10 +683,15 @@ bool TransactionLogCore::closeLogin(const Actor& actor)
 
 void TransactionLogCore::openStore()
 {
-    std::string dir = _history.directory() + "/history";
-    Base::FileInfo(dir).createDirectories();
-    _path = dir + "/log.db";
-    _store = TransactionStore::openSQLite(_path);
+    if (_readsOther) {
+        _store = TransactionStore::openSQLiteReader(_path);
+    }
+    else {
+        std::string dir = _history.directory() + "/history";
+        Base::FileInfo(dir).createDirectories();
+        _path = dir + "/log.db";
+        _store = TransactionStore::openSQLite(_path);
+    }
     _anchors.clear();
     _anchorsLoaded = false;
     _nextSeq = _store->lastSeq();
@@ -941,6 +960,12 @@ void TransactionLogCore::releaseRetired()
 
 void TransactionLogCore::post(std::function<void()> job)
 {
+    if (_readsOther) {
+        // Never written, and no worker would take it: a wait for the queue
+        // would never end
+        FC_WARN("transaction log reader of " << _path << ": a write refused");
+        return;
+    }
     releaseRetired();   // every post is the main thread's
     _deltaHops = DocumentParams::getTransactionLogDeltaHops();
     _deltaRatio = DocumentParams::getTransactionLogDeltaRatio();
@@ -2824,6 +2849,17 @@ int64_t TransactionLog::snapshot(const char* kind, const std::string& path,
     return 0;
 }
 
+void TransactionLogCore::holdVersion(int64_t num, bool hold)
+{
+    std::lock_guard<std::mutex> lock(_leaseMutex);
+    if (hold) {
+        _leases.insert(num);
+    }
+    else if (auto it = _leases.find(num); it != _leases.end()) {
+        _leases.erase(it);
+    }
+}
+
 void TransactionLogCore::evictVersions(long keep)
 {
     // Sec 16.3: unnamed versions over the limit go, oldest first; named
@@ -2842,6 +2878,11 @@ void TransactionLogCore::evictVersions(long keep)
     std::set<int64_t> kept;
     for (const auto& kv : newest)
         kept.insert(kv.second);
+    // And one another process reads (docs/WorkerProcess.md sec 3)
+    {
+        std::lock_guard<std::mutex> lock(_leaseMutex);
+        kept.insert(_leases.begin(), _leases.end());
+    }
     std::vector<int64_t> unnamed;
     for (const auto& v : versions) {
         if (v.kind == "unnamed" && !kept.count(v.num))
@@ -3580,6 +3621,15 @@ bool TransactionLogCore::readBytes(const std::string& hash, std::string& out, Lo
         FileBlobHandle blob =
             it != _blobs.end() ? it->second : _history.blobs().find(hash);
         ok = blob && blob->read(out);
+        if (!ok && _readsOther && !_blobDir.empty()) {
+            // Another process's store: where it put the blob out
+            Base::ifstream in(Base::FileInfo(_blobDir + "/" + hash),
+                              std::ios::in | std::ios::binary);
+            if (in) {
+                out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+                ok = !in.bad();
+            }
+        }
     }
     else if (e.enc == "delta" && depth < 1024) {
         std::string base;

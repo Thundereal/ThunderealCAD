@@ -954,8 +954,9 @@ cache as frames on disk.
   stopped when it ends) and the browser's bake (9.1: the samples after
   the first). Each only where it pays, as above.
 - **What starting costs.** The copy is a version of the log: nothing is
-  put back or made again here. On the 64-hole filleted plate, posed,
-  `prepareFrames()` takes 39 ms on the main thread, where the saved copy
+  put back or made again here, and the workers read it from this
+  process's store. On the 64-hole filleted plate, posed,
+  `prepareFrames()` takes 27 ms on the main thread, where the saved copy
   of phase 0 took 420 -- the design put back, recomputed, and the frame on
   show made again after it, as at any save (3.8).
 

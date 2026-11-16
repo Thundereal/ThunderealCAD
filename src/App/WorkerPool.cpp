@@ -45,6 +45,7 @@
 #include <chrono>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <map>
 #include <random>
 #include <set>
@@ -86,6 +87,7 @@
 #include "Application.h"
 #include "Document.h"
 #include "DocumentObject.h"
+#include "FileBlobManager.h"
 #include "FileHistory.h"
 #include "PropertyPythonObject.h"
 #include "StringHasher.h"
@@ -408,7 +410,11 @@ struct WorkerPool::Private
     std::unique_ptr<QLocalServer> server;
     std::string token;
     std::string dir;   ///< the pool's: the copy, the settings, logs, results
+    std::string root;  ///< the pool's directory: the copies, and the blobs put out
+    std::string blobs;  ///< root/blobs: what the store keeps in files, by content
     std::string copy;  ///< the document's copy, empty when none stands
+    std::string store;  ///< the store the workers read the version from, if they do
+    std::weak_ptr<TransactionLogCore> leased;  ///< the log holding `version` for them
     int64_t version = 0;  ///< the log's version the copy is, 0 for a saved copy
     std::vector<std::string> proxies;
     std::string program;
@@ -443,6 +449,7 @@ struct WorkerPool::Private
 
     bool listen();
     bool takeCopy();
+    bool exportBlobs(TransactionLogCore& core, int64_t num);
     void dropCopy();
     bool spawn();
     void accept();
@@ -504,13 +511,23 @@ bool WorkerPool::Private::takeCopy()
         reason = "the document links to others, which a worker would not find";
         return false;
     }
-    static int serial = 0;
-    std::string base = Application::getTempPath();
-    if (!base.empty() && base.back() != '/' && base.back() != '\\') {
-        base += '/';
+    if (root.empty()) {
+        // The pool's, for as long as it lives: what every copy shares -- the
+        // blobs put out for the workers, by content
+        static int serial = 0;
+        std::string base = Application::getTempPath();
+        if (!base.empty() && base.back() != '/' && base.back() != '\\') {
+            base += '/';
+        }
+        root = base + "Workers-" + std::to_string(QCoreApplication::applicationPid()) + "-"
+            + std::to_string(++serial);
+        Base::FileInfo old(root);
+        if (old.exists()) {
+            old.deleteDirectoryRecursive();
+        }
     }
-    dir = base + "Workers-" + std::to_string(QCoreApplication::applicationPid()) + "-"
-        + std::to_string(++serial);
+    static int copies = 0;
+    dir = root + "/copy-" + std::to_string(++copies);
     Base::FileInfo info(dir);
     if (info.exists()) {
         info.deleteDirectoryRecursive();
@@ -522,6 +539,7 @@ bool WorkerPool::Private::takeCopy()
     std::string file;
     std::string failure;
     version = 0;
+    store.clear();
     {
         Base::FlagToggler<bool> flag(copying);
         // A version of the log (docs/WorkerProcess.md sec 3): the design as
@@ -534,6 +552,19 @@ bool WorkerPool::Private::takeCopy()
                 if (version > 0) {
                     auto& core = TransactionLogCore::of(doc.getFileHistory());
                     core.flush();
+                    if (params()->GetBool("ReadStore", true) && exportBlobs(core, version)) {
+                        // The workers read the version from this process's
+                        // store themselves (sec 3): only the blobs it keeps
+                        // in files of its own are put out, once each
+                        store = doc.getFileHistory().directory() + "/history/log.db";
+                        // Held while the copy stands: a worker started
+                        // later reads it too
+                        core.holdVersion(version, true);
+                        leased = doc.getFileHistory().logCore();
+                    }
+                }
+                if (version > 0 && store.empty()) {
+                    auto& core = TransactionLogCore::of(doc.getFileHistory());
                     const std::string where = dir + "/version";
                     Document::materialiseVersion(core, version, where, false);
                     StringHasherRef hasher = doc.getStringHasher();
@@ -550,9 +581,10 @@ bool WorkerPool::Private::takeCopy()
             catch (Base::Exception& e) {
                 FC_LOG(doc.getName() << ": no version of the log for the workers: " << e.what());
                 version = 0;
+                store.clear();
             }
         }
-        if (file.empty()) {
+        if (file.empty() && store.empty()) {
             // A transaction is open, or the log is off: a copy saved as a
             // save writes it, which puts an Animation's rest values back
             // and its pose again
@@ -568,7 +600,7 @@ bool WorkerPool::Private::takeCopy()
             }
         }
     }
-    if (file.empty()) {
+    if (file.empty() && store.empty()) {
         Base::FileInfo(dir).deleteDirectoryRecursive();
         reason = "the document could not be copied for the workers"
             + (failure.empty() ? std::string() : ": " + failure);
@@ -590,7 +622,7 @@ bool WorkerPool::Private::takeCopy()
             }
         }
     }
-    copy = file;
+    copy = store.empty() ? file : store;
     // A change of the design makes the copy stale. An Animation's own
     // properties are its business: it says when its frames change
     changed = doc.signalChangedObject.connect([this](const DocumentObject& obj,
@@ -606,8 +638,93 @@ bool WorkerPool::Private::takeCopy()
     return true;
 }
 
+bool WorkerPool::Private::exportBlobs(TransactionLogCore& core, int64_t num)
+{
+    // Every entity the version reaches whose bytes are a file of this
+    // process's blob store, which a worker cannot read: through a delta's
+    // base and an attachment too
+    blobs = root + "/blobs";
+    if (!Base::FileInfo(blobs).createDirectories()) {
+        return false;
+    }
+    auto& st = core.store();
+    std::set<std::string> seen;
+    std::vector<std::string> todo;
+    for (const auto& e : st.manifest(num)) {
+        todo.push_back(e.hash);
+    }
+    std::size_t linked = 0;
+    std::size_t written = 0;
+    while (!todo.empty()) {
+        std::string hash = std::move(todo.back());
+        todo.pop_back();
+        if (hash.empty() || !seen.insert(hash).second) {
+            continue;
+        }
+        LogEntity entity;
+        if (!st.getEntity(hash, entity)) {
+            return false;
+        }
+        if (entity.enc == "delta") {
+            todo.push_back(entity.base);
+        }
+        for (const auto& r : entity.refs) {
+            todo.push_back(r.target);
+        }
+        if (entity.enc != "file") {
+            continue;
+        }
+        const std::string target = blobs + "/" + hash;
+        if (Base::FileInfo(target).exists()) {
+            continue;  // put out for an earlier copy: the same content
+        }
+        FileBlobHandle blob = core.heldBlob(hash);
+        if (!blob) {
+            blob = doc.getFileBlobManager().find(hash);
+        }
+        if (!blob) {
+            FC_LOG(doc.getName() << ": blob " << hash << " of version " << num << " not found");
+            return false;
+        }
+        if (!blob->inPack() && !blob->inArchive()) {
+            // A file of its own: the same file under a second name, which
+            // stays whatever the store does with its own
+            std::error_code ec;
+            std::filesystem::create_hard_link(blob->path(), target, ec);
+            if (!ec) {
+                ++linked;
+                continue;
+            }
+        }
+        std::string bytes;
+        if (!blob->read(bytes)) {
+            return false;
+        }
+        const std::string part = target + ".part";
+        {
+            Base::ofstream out(Base::FileInfo(part), std::ios::out | std::ios::binary);
+            out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            if (!out) {
+                return false;
+            }
+        }
+        if (!Base::FileInfo(part).renameFile(target.c_str())) {
+            return false;
+        }
+        ++written;
+    }
+    FC_LOG(doc.getName() << ": version " << num << " for the workers: " << linked
+                         << " blobs linked, " << written << " written");
+    return true;
+}
+
 void WorkerPool::Private::dropCopy()
 {
+    if (auto core = leased.lock()) {
+        core->holdVersion(version, false);
+    }
+    leased.reset();
+    store.clear();
     changed.disconnect();
     copy.clear();
     proxies.clear();
@@ -733,7 +850,17 @@ void WorkerPool::Private::readStranger(Stranger& s)
             kill(*proc);
         }
     });
-    json setup {{"type", "setup"}, {"document", copy}, {"proxies", proxies}};
+    json setup {{"type", "setup"}, {"proxies", proxies}};
+    if (!store.empty()) {
+        // A version read from this process's store, into a folder of its own
+        setup["store"] = store;
+        setup["version"] = version;
+        setup["blobs"] = blobs;
+        setup["document"] = dir + "/worker" + std::to_string(proc->number);
+    }
+    else {
+        setup["document"] = copy;
+    }
     send(*socket, setup);
     read(*proc);
 }
@@ -1119,6 +1246,9 @@ WorkerPool::~WorkerPool()
     d->strangers.clear();
     d->jobs.clear();
     d->dropCopy();
+    if (!d->root.empty() && !params()->GetBool("KeepJob", false)) {
+        Base::FileInfo(d->root).deleteDirectoryRecursive();
+    }
     keptResults().erase(this);
 }
 
@@ -1525,6 +1655,8 @@ WorkerPool::Info WorkerPool::info() const
     info.reason = d->reason;
     info.directory = d->dir;
     info.version = d->version;
+    info.readStore = !d->store.empty();
+    info.blobs = d->blobs;
     return info;
 }
 
@@ -1633,6 +1765,9 @@ int WorkerPool::serve()
                        {"pid", static_cast<long>(QCoreApplication::applicationPid())}});
     std::string buffer;
     Document* doc = nullptr;
+    // The pool's process's store, read for the version (and later to move
+    // along its log, sec 4)
+    std::shared_ptr<FileHistory> reader;
     for (;;) {
         json header;
         std::string body;
@@ -1661,6 +1796,30 @@ int WorkerPool::serve()
             std::string why;
             try {
                 const std::string file = header.value("document", std::string());
+                const std::string store = header.value("store", std::string());
+                if (!store.empty()) {
+                    // The version read from the pool's process's store
+                    // (docs/WorkerProcess.md sec 3), written out here as the
+                    // unpacked project a folder restore reads, with the
+                    // store's strings
+                    const int64_t num = header.value("version", int64_t(0));
+                    std::string failed;
+                    reader = FileHistory::openReader(store, header.value("blobs", std::string()),
+                                                     &failed);
+                    if (!reader) {
+                        THROWM(Base::RuntimeError, failed);
+                    }
+                    TransactionLogCore& core = *reader->logCore();
+                    Document::materialiseVersion(core, num, file, false);
+                    const std::string table =
+                        reader->hasher() ? reader->hasher()->saveTable() : std::string();
+                    Base::ofstream out(Base::FileInfo(file + "/" + Document::stringTableName()),
+                                       std::ios::out | std::ios::binary);
+                    out.write(table.data(), static_cast<std::streamsize>(table.size()));
+                    if (!out) {
+                        THROWM(Base::FileException, "cannot write the string table");
+                    }
+                }
                 doc = GetApplication().openDocument(file.c_str(), false);
                 if (!doc) {
                     why = "cannot open " + file;
@@ -1968,6 +2127,8 @@ public:
         dict.setItem("Reason", Py::String(i.reason));
         dict.setItem("Directory", Py::String(i.directory));
         dict.setItem("Version", Py::Long(static_cast<long>(i.version)));
+        dict.setItem("ReadStore", Py::Boolean(i.readStore));
+        dict.setItem("Blobs", Py::String(i.blobs));
         Py::List pids;
         for (long pid : i.pids) {
             pids.append(Py::Long(pid));

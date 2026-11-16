@@ -184,10 +184,13 @@ def run():
         cache = anim.cacheInfo()
         check("they finish", not info["Running"] and info["Failed"] == 0, info)
         check("as many as were let", peak == 2, peak)
+        # Every frame, the one on show too: the copy is a version of the log,
+        # which puts nothing back and makes nothing again here
+        # (docs/WorkerProcess.md sec 11)
         check("their frames come in with nothing asking, one by one",
-              cache["Prepared"] == len(times) - 1 and len(set(arrivals)) > 3,
+              cache["Prepared"] == len(times) and len(set(arrivals)) > 3,
               (cache["Prepared"], sorted(set(arrivals))))
-        check("none of them made here", cache["Stored"] - stored <= 1,
+        check("none of them made here", cache["Stored"] == stored,
               (stored, cache["Stored"]))
         check("the timeline marks a frame being made", amber > 0, amber)
         if keys is not None:
@@ -233,21 +236,42 @@ def run():
                 check("its frame %d is the picture of the frame made here" % k,
                       0 <= d <= W * H // 500, d)
 
-        # --- an edit stops them
+        # --- an edit drops the frames it reaches; the workers stay, and move
+        # to the edited design along the log (docs/WorkerProcess.md sec 4)
+        group.SetFloat("IdleSeconds", 60)
         anim.clearCache()
         anim.activate()
         anim.Time = times[0]
+        pool = App.workerPool(doc)
+        done = pool.info()["Done"]
         check("started again", anim.prepareFrames(force=True) > 0, anim.workerInfo())
-        pump(0.5)
+        end = time.time() + 60
+        while pool.info()["Done"] == done and time.time() < end:
+            pump(0.1)  # a frame made: a worker holds the copy
+        doc.openTransaction("Edit")
         box.Length = 20.0 * N + 5
+        doc.commitTransaction()
         doc.recompute()
         info = anim.workerInfo()
-        check("an edit of the design stops them",
-              not info["Running"] and info["Workers"] == 0
-              and info["Reason"] == "the design changed", info)
+        check("an edit of the design drops their frames",
+              not info["Running"] and info["Reason"] == "the design changed", info)
         frames = os.path.join(doc.TransientDir, "AnimationCache", anim.Name)
         left = [n for n in os.listdir(frames)] if os.path.isdir(frames) else []
         check("and leaves none of their files", not [n for n in left if "wframe" in n], left)
+        check("the workers stay", pool.info()["Workers"] > 0, pool.info())
+        prepared = anim.cacheInfo()["Prepared"]
+        check("a pass after it", anim.prepareFrames(force=True) > 0, anim.workerInfo())
+        anim.waitWorkers(300)
+        info = pool.info()
+        check("made by the workers moved to the edited design",
+              info["Moves"] >= 1 and info["Reopens"] == 0
+              and anim.cacheInfo()["Prepared"] > prepared, info)
+        anim.Time = times[len(times) // 2]
+        pump(0.3)
+        bound = top.Shape.BoundBox
+        check("whose frames are the edited design",
+              abs(bound.XLength - (20.0 * N + 5)) < 1e-6 and top.Shape.isValid(),
+              bound)
         group.RemInt("Workers")
         group.RemFloat("IdleSeconds")
     except Exception:

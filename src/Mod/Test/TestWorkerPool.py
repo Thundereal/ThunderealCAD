@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 """App::WorkerPool on its own (docs/WorkerProcess.md): its lifecycle, a job
 handed back exactly once, a worker that dies, a handler that fails or is
-unfit, an edit of the design making the copy stale.
+unfit, an edit of the design dropping the jobs it reaches and moving the
+workers along the log to the next copy.
 
 The kinds below are registered when this module is imported, which a
 worker does before its first job of one (module="TestWorkerPool").
@@ -54,6 +55,10 @@ def _volume(doc, inputs, out):
     return {"Volume": doc.getObject(inputs["Object"]).Shape.Volume}
 
 
+def _names(doc, inputs, out):
+    return {"Names": sorted(o.Name for o in doc.Objects), "Pid": os.getpid()}
+
+
 def _edges(doc, inputs, out):
     return {n: len(doc.getObject(n).Edges) for n in inputs["Objects"]}
 
@@ -74,6 +79,7 @@ for _kind, _handler in (
     ("test.write", _write),
     ("test.volume", _volume),
     ("test.edges", _edges),
+    ("test.names", _names),
 ):
     worker.register(_kind, _handler)
 
@@ -150,7 +156,7 @@ class TestWorkerPool(unittest.TestCase):
         info = self.pool.info()
         self.assertGreater(info["Version"], 0)
         self.assertFalse(info["ReadStore"])
-        self.assertTrue(os.path.isdir(os.path.join(info["Directory"], "version")))
+        self.assertTrue(os.path.isdir(os.path.join(info["Copy"], "version")))
         self.assertEqual(len(self.doc.getTransactionVersions()), versions + 1)
         job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
         self.assertTrue(self.pool.wait(120))
@@ -170,7 +176,7 @@ class TestWorkerPool(unittest.TestCase):
         info = self.pool.info()
         self.assertGreater(info["Version"], 0)
         self.assertTrue(info["ReadStore"])
-        self.assertFalse(os.path.exists(os.path.join(info["Directory"], "version")))
+        self.assertFalse(os.path.exists(os.path.join(info["Copy"], "version")))
         first = set(os.listdir(info["Blobs"]))
         self.assertGreaterEqual(len(first), 2)  # each shape's
         job = self.submit("test.volume", {"Object": "Box"})
@@ -178,7 +184,8 @@ class TestWorkerPool(unittest.TestCase):
         self.assertAlmostEqual(self.pool.result(job)["Output"]["Volume"], 1000.0)
         box.Height = 20  # a new copy: only the box's shape is new
         self.doc.recompute()
-        self.assertFalse(self.pool.info()["Started"])
+        self.assertTrue(self.pool.info()["Started"])
+        self.assertTrue(self.pool.info()["Stale"])
         self.assertTrue(self.pool.start())
         second = set(os.listdir(self.pool.info()["Blobs"]))
         self.assertTrue(first <= second)
@@ -366,26 +373,179 @@ class TestWorkerPool(unittest.TestCase):
             self.assertIsNone(self.pool.result(job))
         self.assertEqual(self.pool.info()["Done"], 1)
 
-    def testAnEditMakesTheCopyStale(self):
+    def testAnEditDropsTheJobsAndMovesTheWorkers(self):
+        """An edit drops the jobs that say nothing of what they read; the
+        workers stay, and move to the next copy along the log's rows
+        (docs/WorkerProcess.md sec 4)"""
         self.settings(1)
         self.assertTrue(self.pool.start())
-        directory = self.pool.info()["Directory"]
-        self.assertTrue(os.path.isdir(directory))
+        pids = self.pool.info()["Pids"]
+        copy = self.pool.info()["Copy"]
+        self.assertTrue(os.path.isdir(copy))
         jobs = [self.submit("test.sleep", {"Seconds": 0.3}) for _ in range(3)]
+        self.assertTrue(self.waitFor(lambda: self.pool.state(jobs[0]) == "Running"))
+        self.doc.openTransaction("Edit")
         self.obj.Integer = 7  # the design changed
+        self.doc.commitTransaction()
         info = self.pool.info()
-        self.assertFalse(info["Started"])
-        self.assertEqual(info["Workers"], 0)
-        self.assertEqual(info["Reason"], "the design changed")
-        self.assertFalse(os.path.exists(directory))
+        self.assertTrue(info["Started"])
+        self.assertTrue(info["Stale"])
+        self.assertEqual(info["Workers"], 1)
         for job in jobs:
-            self.assertEqual(self.pool.result(job)["Status"], "Cancelled")
-        self.assertEqual(self.pool.submit("test.echo", {}), 0)  # not started
-        # A new copy: the design as it is now
+            result = self.pool.result(job)
+            self.assertEqual(result["Status"], "Cancelled")
+            self.assertEqual(result["Error"], "the design changed")
+        # The next job is made on the design as it is now, by the same
+        # worker, moved there
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertFalse(self.pool.info()["Stale"])
+        self.assertTrue(self.pool.wait(120))
+        result = self.pool.result(job)
+        self.assertEqual(result["Output"]["Value"], 7, result)
+        info = self.pool.info()
+        self.assertEqual(info["Pids"], pids)
+        self.assertEqual(info["Spawned"], 1)
+        self.assertEqual((info["Moves"], info["Reopens"]), (1, 0), info)
+        self.assertNotEqual(info["Copy"], copy)
+        self.assertFalse(os.path.exists(copy))  # no worker is on it
+
+    def testAJobAnEditDoesNotReachRuns(self):
+        """A job that says what it reads is dropped only by an edit of one
+        of them, or of what they depend on"""
+        self.settings(1)
+        other = self.doc.addObject("App::FeatureTest", "Other")
+        user = self.doc.addObject("App::FeatureTest", "User")
+        user.setExpression("Integer", "Other.Integer + 1")
+        self.doc.recompute()
+        self.assertTrue(self.pool.start())
+        first = self.pool.submit("test.sleep", {"Seconds": 0.3}, module=MODULE, reads=["Feature"])
+        kept = self.pool.submit("test.read", {"Object": "Feature", "Property": "Integer"},
+                                module=MODULE, reads=[self.obj])
+        dropped = self.pool.submit("test.read", {"Object": "User", "Property": "Integer"},
+                                   module=MODULE, reads=[user])
+        self.assertTrue(first and kept and dropped)
+        self.doc.openTransaction("Edit")
+        other.Integer = 5  # what User depends on: not what Feature does
+        self.doc.commitTransaction()
+        self.assertEqual(self.pool.result(dropped)["Status"], "Cancelled")
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(first)["Status"], "Done")
+        self.assertEqual(self.pool.result(kept)["Output"]["Value"], 42)
+        self.assertTrue(self.pool.info()["Stale"])
+
+    def testMovesAlongTheLog(self):
+        """Shapes changed, an object added and one removed: the worker's
+        copy follows the rows, and is the design"""
+        import Part  # noqa: F401
+
+        self.settings(1)
+        box = self.doc.addObject("Part::Box", "Box")
+        cyl = self.doc.addObject("Part::Cylinder", "Cylinder")
+        cyl.Placement.Base = App.Vector(5, 5, -1)
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = box
+        cut.Tool = cyl
+        gone = self.doc.addObject("App::FeatureTest", "Gone")
+        self.doc.recompute()
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        job = self.submit("test.volume", {"Object": "Cut"})
+        self.assertTrue(self.pool.wait(120))
+        self.assertAlmostEqual(self.pool.result(job)["Output"]["Volume"], cut.Shape.Volume)
+        pids = self.pool.info()["Pids"]
+        for step in range(3):
+            self.doc.openTransaction("Edit %d" % step)
+            box.Height = 12 + step
+            cyl.Radius = 2 + step * 0.5
+            if step == 1:
+                self.doc.addObject("App::FeatureTest", "Added")
+                self.doc.removeObject(gone.Name)
+            self.doc.commitTransaction()
+            self.doc.recompute()
+            jobs = [self.submit("test.volume", {"Object": "Cut"}), self.submit("test.names")]
+            self.assertTrue(self.pool.wait(120))
+            volume, names = (self.pool.result(j) for j in jobs)
+            self.assertEqual(volume["Status"], "Done", volume)
+            self.assertAlmostEqual(volume["Output"]["Volume"], cut.Shape.Volume, 6)
+            self.assertEqual(names["Output"]["Names"], sorted(o.Name for o in self.doc.Objects))
+        info = self.pool.info()
+        self.assertEqual(info["Pids"], pids)
+        self.assertEqual((info["Moves"], info["Reopens"]), (3, 0), info)
+
+    def testAnObjectAddedOrRemovedAlone(self):
+        """No value of the design changes, and the copy is stale all the
+        same"""
+        self.settings(1)
+        self.assertTrue(self.pool.start())
+        job = self.submit("test.names")
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(job)["Output"]["Names"], ["Feature"])
+        for step in range(2):
+            self.doc.openTransaction("Step")
+            if step == 0:
+                self.doc.addObject("App::FeatureTest", "Alone")
+            else:
+                self.doc.removeObject("Alone")
+            self.doc.commitTransaction()
+            self.assertTrue(self.pool.info()["Stale"])
+            job = self.submit("test.names")
+            self.assertTrue(self.pool.wait(120))
+            want = sorted(o.Name for o in self.doc.Objects)
+            self.assertEqual(self.pool.result(job)["Output"]["Names"], want)
+        self.assertEqual(self.pool.info()["Moves"], 2, self.pool.info())
+
+    def testAnEditWithUndoOffMoves(self):
+        """With undo off the log still records each write, in a transaction
+        of its own that the next copy commits, as a save does: the workers
+        move along its row"""
+        self.settings(1)
         self.assertTrue(self.pool.start())
         job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
         self.assertTrue(self.pool.wait(120))
-        self.assertEqual(self.pool.result(job)["Output"]["Value"], 7)
+        self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
+        undo = self.doc.UndoMode
+        self.doc.UndoMode = 0
+        self.obj.Integer = 8
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120))
+        self.doc.UndoMode = undo
+        self.assertEqual(self.pool.result(job)["Output"]["Value"], 8)
+        info = self.pool.info()
+        self.assertEqual((info["Moves"], info["Reopens"]), (1, 0), info)
+
+    def testFromASavedCopyTheWorkersReopen(self):
+        """A worker on a copy saved with a transaction open has no version
+        to move from: it opens the next copy whole -- a fillet whose edge
+        list the save wrote among them"""
+        import Part  # noqa: F401
+
+        self.settings(1)
+        box = self.doc.addObject("Part::Box", "Box")
+        self.doc.recompute()
+        fillet = self.doc.addObject("Part::Fillet", "Fillet")
+        fillet.Base = box
+        fillet.Edges = [(e + 1, 1.0, 1.0) for e in range(12)]
+        self.doc.recompute()
+        self.doc.openTransaction("Open")
+        self.obj.Integer = 43
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        self.assertEqual(self.pool.info()["Version"], 0)
+        job = self.submit("test.edges", {"Objects": ["Fillet"]})
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(job)["Output"], {"Fillet": 12})
+        self.doc.commitTransaction()
+        self.doc.openTransaction("Edit")
+        box.Height = 20
+        self.doc.commitTransaction()
+        self.doc.recompute()
+        jobs = [self.submit("test.edges", {"Objects": ["Fillet"]}),
+                self.submit("test.volume", {"Object": "Fillet"})]
+        self.assertTrue(self.pool.wait(120))
+        self.assertGreater(self.pool.info()["Version"], 0)
+        self.assertEqual(self.pool.result(jobs[0])["Output"], {"Fillet": 12})
+        self.assertAlmostEqual(self.pool.result(jobs[1])["Output"]["Volume"],
+                               fillet.Shape.Volume, 6)
+        info = self.pool.info()
+        self.assertEqual((info["Moves"], info["Reopens"]), (0, 1), info)
 
     def testIdleWorkersGo(self):
         self.settings(1, idle=0.5)

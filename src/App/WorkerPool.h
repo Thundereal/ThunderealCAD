@@ -46,6 +46,7 @@ namespace App
 {
 
 class Document;
+class DocumentObject;
 
 class AppExport WorkerPool
 {
@@ -60,7 +61,9 @@ public:
             Done,       ///< made: `output`, and `file` if it wrote one
             Failed,     ///< the handler threw, or its worker died twice over it
             Unfit,      ///< the worker cannot do it faithfully: do it in process
-            Cancelled,  ///< the pool stopped (`error` says why) before it was made
+            /// The pool stopped, or the design changed under it, before it
+            /// was made (`error` says why)
+            Cancelled,
         };
         JobId id = 0;
         std::string kind;
@@ -85,6 +88,12 @@ public:
         std::string module;
         /// The client's: what cancel() and info() go by
         std::string tag;
+        /// The objects, by name, its result is made from: a change of one
+        /// of them, or of anything they depend on, drops it -- handed back
+        /// Cancelled -- and a change of anything else leaves it to run on
+        /// the copy it was queued for (docs/WorkerProcess.md sec 4). Empty:
+        /// any change of the design drops it
+        std::vector<std::string> reads;
         /// Called once, from the thread the pool runs in, unless the
         /// client cancels the job or claims it while it is queued
         std::function<void(Result&)> done;
@@ -116,8 +125,16 @@ public:
         long done = 0;
         long failed = 0;
         std::string reason;  ///< why the pool last stopped or did not start
+        /// The pool's, for as long as it lives: the workers' logs, the
+        /// files of their results, the blobs put out, and the copies
         std::string directory;
+        std::string copy;  ///< the directory of the copy standing, empty for none
         long long version = 0;  ///< the log's version the copy is, 0 for a saved one
+        /// The design changed since the copy was taken: the next start()
+        /// or submit() takes another and moves the workers to it
+        bool stale = false;
+        long moves = 0;    ///< workers moved along the log to a newer copy
+        long reopens = 0;  ///< workers that opened a newer copy whole
         bool readStore = false;  ///< the workers read it from this process's store
         std::string blobs;  ///< where the blobs they read are put out
         std::vector<long> pids;
@@ -135,8 +152,9 @@ public:
     WorkerPool(const WorkerPool&) = delete;
     WorkerPool& operator=(const WorkerPool&) = delete;
 
-    /// Take the document's copy if there is none standing and start the
-    /// first worker; false with reason() set when it cannot
+    /// Take the document's copy if there is none standing, or another if
+    /// the design changed since (the workers moved to it, sec 4), and
+    /// start the first worker; false with reason() set when it cannot
     bool start();
     /// Whether it has a copy standing and workers may run on it
     bool started() const;
@@ -150,6 +168,14 @@ public:
     /// End every worker and drop the copy: every job is handed back
     /// Cancelled with `why`. The next start() takes a new copy
     void stop(const std::string& why);
+    /** The design changed (docs/WorkerProcess.md sec 4): the copy is stale,
+     * and the jobs `obj` reaches -- those that read it or anything that
+     * depends on it, and those that say nothing of what they read -- are
+     * handed back Cancelled. Without an object, every job is. The pool
+     * sees the document's own edits itself; this is for a change it does
+     * not, an Animation's tracks.
+     */
+    void designChanged(const DocumentObject* obj);
     /// Take in what came, and with `ms` > 0 what comes for as long
     void poll(int ms = 0);
     /// Poll until no job is queued or running, or `seconds` pass (< 0:

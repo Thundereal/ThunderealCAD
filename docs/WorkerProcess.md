@@ -2,7 +2,9 @@
 
 Status: design accepted 2026-11-16, every decision as recommended (sec
 9). Built on branch `Worker`: phase 0 (`docs/Animation.md` sec 4.2),
-phase 1 (sec 10), phase 2 (sec 11, 12); phase 3 next.
+phase 1 (sec 10), phase 2 (sec 11, 12), phase 4 (sec 13); the order of
+what is left, as ruled 2026-11-16: phase 4, phase 5, then a reduced
+phase 3.
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -459,3 +461,110 @@ Tests: TestWorkerPool 17 (two fillets' edge lists, both ways; the store
 read, only the edited shape's blob put out again, the version held past
 retention while the pool holds it and let go after), TestAnimation 71,
 `tests/gui/animation-workers.py` 19.
+## 13. Phase 4, as built: the workers move along the log
+
+(2026-11-16.) An edit no longer kills the workers. It drops the jobs it
+reaches; the workers stay, and the next copy reaches them as the rows
+between the two versions.
+
+- **The edit.** The pool watches the document as before (a write with
+  `WriteEffect::Dirty`, not inside a recompute, not an Animation's), and
+  now an object made or deleted and a dynamic property added or removed,
+  which change no value. Any of them makes the copy **stale**, and hands
+  back `Cancelled` ("the design changed") the jobs the edit reaches:
+  - `Job::reads` (Python `submit(..., reads=[...])`, objects or names):
+    the objects the job's result is made from. A job is reached when the
+    edited object, or an object that depends on it
+    (`getInListEx(true)`, an expression's hidden links included), is
+    among them -- the rule an Animation drops its frames by. A job that
+    names nothing is reached by every edit.
+  - A running job that is reached runs on; its result is thrown away.
+  - What is not reached runs on, on the copy it was queued for: nothing it
+    reads changed, so the copy it runs on does not matter.
+  - `WorkerPool::designChanged(obj)` for a change the pool does not see:
+    an Animation's tracks, start, rate (the Animation passes itself, so
+    what reads its Time is reached).
+- **The next copy** is taken at the pool's next use, `start()` or
+  `submit()`, not at every commit. An implicit transaction (what a script,
+  or a GUI event that is no command, wrote) is committed first, as a save
+  commits it, so that its row is there to move along; an explicit
+  transaction still open means a saved copy, as before. The version is
+  taken and held, the one before let go (a worker moving from it reads
+  the rows after it and the values of the new one), and only the blobs
+  that are new go out (sec 12).
+- **Each worker** is sent `setup` again, with `from`, `fromSeq` and
+  `toSeq` when it is on a version of the same store. It reads it after
+  the job it is on; a job sent after it is made on the new copy, since a
+  socket keeps order. It answers `ready` with `moved` and the seconds it
+  took. The old copy's directory goes once no worker is on it.
+- **In the worker**, the move is the log's own checkout fold (log sec
+  27.34): the reader brought up to date (`TransactionLogCore::
+  refreshReader()`: the counters, the names, the strings the GUI minted
+  since), a `TransactionLog` cursor at `from` over the reader, and
+  `Document::_moveAlongLog(fromSeq, toSeq)`: objects made and removed,
+  dynamic properties, every value that differs restored, nothing
+  recomputed, the touched state as the rows end. Where the rows cannot be
+  folded (a value the store no longer has), where the worker is on a
+  saved copy or a folder, or where a write no transaction recorded came
+  in between (undo and log both off), it opens the version whole.
+  - The worker's document is now a version document of the reader's
+    history (`_restoreAsVersion`, as `openFileVersion` reads one): its
+    strings and blobs are the reader's, found in the store by hash, so a
+    move goes on reading the same. The folder it was read from goes with
+    the document.
+  - A reader never writes the store: `putBlob` only holds the blob, and a
+    cursor's constructor sets no meta.
+- **String ids.** A worker gives new strings ids from a block the pool
+  names, `2^30 + n * 2^24` for worker `n` (a string of its own marks the
+  block's start; the pool names none if its own ids reach there). The
+  GUI's strings read in at a move, under the GUI's ids, then never meet
+  one the worker gave. This is the first half of phase 3's blocks; the
+  results still come back by content.
+- **Directories.** `Info::directory` is now the pool's: the settings, the
+  logs, the results' files (`out/`), the Animation's string tables, the
+  blobs put out, the copies -- gone with the pool. `Info::copy` is the
+  copy standing (`copy-<k>`), gone at `stop()`. `Stale`, `Moves`,
+  `Reopens` say what happened.
+- **The Animation** gives each job its reads: what its tracks write
+  (through strips, in the Animations they play), what reads its Time,
+  what is touched already, and every object depending on those; none
+  with `Recompute` full, which recomputes everything. An edit drops the
+  frames it reaches as before; its jobs, and the frames made and not
+  taken in yet, go only if the edit reaches them.
+
+Found by this work, fixed in `TransactionLogCore::putComposite`: a save
+stores each property's value as a part of its version, and the log holds
+it from then on, so the next snapshot claims it and skips its save. A
+list property's file -- a fillet's `Fillet.Edges.bin`, written by the
+save as an entry of its own -- was not attached to the part. Every
+version taken after a save, until the fillet was edited again, named a
+file it did not carry: a worker's fillet, or one read from such a
+version in process, restored with no edges ("Edge link size mismatch").
+A part stored unclaimed now takes the files its fragment names among
+the save's other entries as its attachments, as a commit's capture has
+them.
+
+Measured 2026-11-16 on mini, the 64-hole filleted plate, one worker
+warm, from `submit()` to the result after an edit and a recompute (the
+snapshot, the blobs, the worker's part and the job): moved along the log
+91-93 ms; opened whole from a folder (`ReadStore` off) 105-119 ms; a
+worker started cold for it, as phase 1 had to, 312 ms. Each answer was
+the volume of the fillet here. Most of what an edit saves is the process
+kept warm; the fold saves the rest of the open, and more on a larger
+document, where an edit changes less of it.
+
+Tests: TestWorkerPool 23 (an edit dropping the jobs that name nothing and
+moving the worker, same process; a job an edit does not reach running
+on; three edits with shapes changed, an object added and one removed,
+each a move; an object added or removed alone; undo off, still a move;
+from a saved copy, a reopen, the fillet's edges there; the file a save
+wrote with its value), TestAnimation 72 (an edit dropping the frames,
+the workers staying, moving, and their frames those made here; an edit
+beside the frames leaving them), `tests/gui/animation-workers.py` 23 (an
+edit dropping the frames, the workers staying, the next pass made by
+them moved, its frames the edited design; the frame on show now made by
+the workers too, the first copy a version).
+
+Not done: a job does not name the version it was queued for; with
+`reads` it does not need to. The results still come back as files with
+string tables, imported by content (phase 3).

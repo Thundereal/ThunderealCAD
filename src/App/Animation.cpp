@@ -2829,13 +2829,19 @@ void Animation::trimCache()
 
 void Animation::dropFramesReaching(const DocumentObject& obj)
 {
-    // The workers' copy of the document is not the design any more
-    designChanged();
     // obj, and every object whose result depends on it, through any link,
     // an expression's hidden ones included
     std::set<DocumentObject*> reached = obj.getInListEx(true);
     reached.insert(const_cast<DocumentObject*>(&obj));
     reached.erase(this);
+    // The workers' copy is not the design any more; the pool sees that
+    // itself, moves them to the next one (docs/WorkerProcess.md sec 4) and
+    // drops the jobs the edit reaches. A frame made and not taken in yet
+    // goes with them; the others stand
+    if (_workers && (_workers->running() || !_workers->arrived.empty())
+        && _workers->reaches(reached)) {
+        stopWorkers("the design changed");
+    }
     std::vector<long> gone;
     for (auto& [index, frame] : _frames) {
         for (auto o : frame->scope) {

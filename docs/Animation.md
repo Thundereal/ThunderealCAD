@@ -941,10 +941,14 @@ cache as frames on disk.
   would recompute to nothing there: the job names every object with a
   Python class here, and a worker missing one answers `unfit`, which
   stops them all.
-- **Stopped** by whatever drops frames -- an edit of the design, a new or
-  deleted object, a key moved -- since the pool's copy is not the design
-  any more: the pool stops, its processes killed, its directory removed;
-  and by three failures in a row. Cache or Active off, `clearCache()`,
+- **An edit** (since 2026-11-16, `docs/WorkerProcess.md` sec 13) drops
+  the frames it reaches, as before, and the jobs for them: each job says
+  what its frame is made from (what the tracks write, what reads Time,
+  what is touched, and everything depending on those), and an edit of
+  anything else leaves them to run. The workers stay: the pool's copy is
+  stale, and the next pass moves them to the design along the log. A new
+  or deleted object, a key moved, drop every frame and job as before;
+  three failures in a row stop the pool. Cache or Active off, `clearCache()`,
   `stopWorkers()` and the end of an export take back only the Animation's
   own jobs; the workers stay, idle, for `IdleSeconds` of
   Preferences/Workers (30), on a copy that is still the design. What the
@@ -1006,12 +1010,14 @@ anim.cacheInfo()["Prepared"] # frames a worker made, taken in
 Tests: `TestAnimation` (`testWorkers*`, five: the frames the same shape,
 faces and element names as made here, none made here, kept through a
 save; each frame made once with the pass outrunning the workers; stopped
-by an edit, no file left; refused for a class the worker has not got;
+by an edit, no file left, the workers moved to the edited design and
+their frames those made here; an edit beside the frames leaving them;
+refused for a class the worker has not got;
 refused without the cache, with every frame kept, for frames too quick,
 with `Workers` 0), `TestWorkerPool` (the pool alone) and `tests/gui/animation-workers.py` (frames through
 the event loop with nothing asking, the timeline's amber and blue, the
 pictures of the frames made here, an export handing its frames over, an
-edit stopping them).
+edit dropping them and the next pass made by the workers moved to it).
 
 ## 5. Playing does not edit the design
 

@@ -692,6 +692,17 @@ void TransactionLogCore::openStore()
         _path = dir + "/log.db";
         _store = TransactionStore::openSQLite(_path);
     }
+    readState();
+}
+
+void TransactionLogCore::refreshReader()
+{
+    if (_readsOther && _store)
+        readState();
+}
+
+void TransactionLogCore::readState()
+{
     _anchors.clear();
     _anchorsLoaded = false;
     _nextSeq = _store->lastSeq();
@@ -1315,7 +1326,8 @@ TransactionLog::TransactionLog(Document& doc, const LogVersion* at)
     , _doc(doc)
 {
     _c._cursors.insert(this);
-    if (_c._store->getMeta("document").empty())
+    // A reader's store is another process's, and never written
+    if (!_c._readsOther && _c._store->getMeta("document").empty())
         _c._store->setMeta("document", _doc.Uid.getValueStr());
     if (at) {
         _branch = 0;
@@ -3070,6 +3082,12 @@ std::string TransactionLogCore::putValue(const CapturedValue& value, const std::
 std::string TransactionLogCore::putBlob(const FileBlobHandle& blob)
 {
     const std::string& hash = blob->hash();
+    if (_readsOther) {
+        // Another process's store says what the blob is, and is not
+        // written: the blob is only held here, for what reads it
+        _blobs[hash] = blob;
+        return hash;
+    }
     // The row below names the blob, so its bytes go to the disk first
     // (docs/FileBlobsManager.md sec 15.8). A commit made its blobs durable
     // in one go already; this catches whatever path did not.

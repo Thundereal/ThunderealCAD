@@ -28,6 +28,7 @@
 // Animation.cpp and AnimationWorkers.cpp
 
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -76,12 +77,23 @@ struct Animation::Workers
     }
     /// The string table a worker wrote under `hash`, read once
     StringHasherRef table(const std::string& hash);
+    /** What a frame's result is made from, by name (docs/WorkerProcess.md
+     * sec 4, 8): what the tracks write -- through strips, in the
+     * Animations they play -- what reads Time, what is touched already, and
+     * every object that depends on one of them: what a frame's recompute
+     * takes in. Empty when every object is recomputed for a frame, and any
+     * change reaches it.
+     */
+    std::vector<std::string> readsNow() const;
+    /// Whether an edit reaching `reached` reaches the frames handed over
+    bool reaches(const std::set<DocumentObject*>& reached) const;
 
     Animation& owner;
     Document* doc = nullptr;  ///< whose pool the jobs are in
     std::string tag;          ///< its jobs', unique to it
     std::string tables;       ///< where the workers write the string tables
     std::map<long, WorkerPool::JobId> jobs;
+    std::vector<std::string> reads;  ///< the jobs', as readsNow() said at the last enqueue
     std::map<std::string, StringHasherRef> loaded;
     std::vector<std::pair<long, std::string>> arrived;
     std::size_t resident = 0;  ///< the most a worker said it held

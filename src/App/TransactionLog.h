@@ -757,6 +757,12 @@ public:
 
     /// Open the store in the history's directory; the counters follow it.
     void openStore();
+    /** A reader's view of the other process's store brought up to date
+     * (docs/WorkerProcess.md sec 4): its counters, names and the strings it
+     * holds that the file's hasher lacks, read again. Nothing for a log
+     * that is not a reader.
+     */
+    void refreshReader();
     /// The core of `history`'s log, made on first use (sec 27.7).
     static TransactionLogCore& of(FileHistory& history);
     /** Continue from an embedded copy (sec 16.4): the store replaced by
@@ -943,6 +949,8 @@ public:
      * Main thread.
      */
     void loadStrings();
+    /// What openStore() reads of a store once it is open.
+    void readState();
     /** Every string id a retained version or value uses (sec 27.50 item 4,
      * 27.51 Q4), merged into ranges: what a compaction keeps besides what
      * memory holds. Main thread; waits for the worker.

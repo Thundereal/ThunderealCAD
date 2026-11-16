@@ -1336,12 +1336,13 @@ class TestAnimation(unittest.TestCase):
         self.assertGreater(info["Bytes"], 10 * 5 * own)
         self.assertLess(info["Bytes"], 10 * 2000 * own)
 
-    def workerSettings(self, workers):
+    def workerSettings(self, workers, idle=0):
         """At most `workers` worker processes, each let go as soon as it has
-        nothing to do: a test's share of the machine"""
+        nothing to do (or after `idle` seconds): a test's share of the
+        machine"""
         group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
         group.SetInt("Workers", workers)
-        group.SetFloat("IdleSeconds", 0)
+        group.SetFloat("IdleSeconds", idle)
         self.addCleanup(group.RemInt, "Workers")
         self.addCleanup(group.RemFloat, "IdleSeconds")
 
@@ -1428,10 +1429,10 @@ class TestAnimation(unittest.TestCase):
                 break
             pool.poll(50)
         self.assertEqual(pool.info()["Workers"], 0)
-        directory = pool.info()["Directory"]
-        self.assertTrue(os.path.isdir(directory))
+        copy = pool.info()["Copy"]
+        self.assertTrue(os.path.isdir(copy))
         pool.stop()
-        self.assertFalse(os.path.exists(directory))
+        self.assertFalse(os.path.exists(copy))
         for (_shape, facts), t in zip(kept, times):
             self.anim.Time = t
             self.assertEqual(self.frameFacts(cut), facts)
@@ -1501,23 +1502,74 @@ class TestAnimation(unittest.TestCase):
         self.assertEqual(cache["Stored"] - stored + cache["Prepared"], len(times))
         self.assertEqual(len(self.workerFiles()), cache["Prepared"])
 
-    def testWorkersStopAtAnEditOfTheDesign(self):
+    def testAnEditDropsTheFramesItReachesAndTheWorkersMove(self):
+        """An edit of what the frames are made from drops them and the jobs
+        for them; the workers stay, and the next pass is made by them on
+        the design as it is now, moved there along the log
+        (docs/WorkerProcess.md sec 4)"""
         box, cut = self.workerScene()
+        self.workerSettings(2, idle=60)
         self.anim.Cache = True
         self.anim.activate()
         self.assertGreater(self.anim.prepareFrames(force=True), 0)
-        self.assertTrue(self.anim.workerInfo()["Running"])
-        box.Length = 40  # their copy is not the design any more
+        self.assertTrue(self.anim.waitWorkers(300))
+        self.assertEqual(self.anim.cacheInfo()["Times"], self.anim.frames())
+        pool = App.workerPool(self.doc)
+        workers = pool.info()["Pids"]
+        self.assertTrue(workers)
+        self.doc.openTransaction("Edit")
+        box.Length = 40  # what every frame is made from
+        self.doc.commitTransaction()
         info = self.anim.workerInfo()
         self.assertFalse(info["Running"])
-        self.assertEqual(info["Workers"], 0)
-        self.assertEqual(info["Reason"], "the design changed")
-        self.assertTrue(self.anim.waitWorkers(0))
+        self.assertTrue(pool.info()["Started"])
+        self.assertTrue(pool.info()["Stale"])
+        self.assertEqual(pool.info()["Pids"], workers)  # they stay
         self.assertEqual(self.anim.cacheInfo()["Times"], [])
         self.assertEqual(self.workerFiles(), [])
-        self.anim.Time = 0.5
+        self.doc.recompute()
+        self.assertGreater(self.anim.prepareFrames(force=True), 0, self.anim.workerInfo())
+        self.assertTrue(self.anim.workerInfo()["Running"])
+        self.assertTrue(self.anim.waitWorkers(300))
+        self.assertEqual(self.anim.workerInfo()["Failed"], 0, self.anim.workerInfo())
+        info = pool.info()
+        self.assertGreaterEqual(info["Moves"], 1, info)
+        self.assertEqual(info["Reopens"], 0, info)
+        self.assertGreater(self.anim.cacheInfo()["Prepared"], 0)
+        times = self.anim.frames()
+        theirs = []
+        for t in times:
+            self.anim.Time = t
+            theirs.append(self.frameFacts(cut))
+            self.assertAlmostEqual(cut.Shape.BoundBox.XLength, 40)
+        # Each the frame made here
+        self.anim.Cache = False
+        for facts, t in zip(theirs, times):
+            self.anim.Time = t
+            self.assertEqual(self.frameFacts(cut), facts, t)
+        self.anim.stop()
         self.assertAlmostEqual(box.Length.Value, 40)
-        self.assertGreater(cut.Shape.BoundBox.XLength, 39)
+
+    def testAnEditBesideTheFramesLeavesThem(self):
+        """An edit of what no frame is made from drops nothing: the jobs
+        run on, on the copy they were queued for"""
+        _box, cut = self.workerScene()
+        beside = self.doc.addObject("App::FeatureTest", "Beside")
+        self.doc.recompute()
+        self.anim.Cache = True
+        self.anim.activate()
+        self.assertGreater(self.anim.prepareFrames(force=True), 0)
+        self.doc.openTransaction("Edit")
+        beside.Integer = 3
+        self.doc.commitTransaction()
+        self.assertTrue(self.anim.workerInfo()["Running"])
+        self.assertTrue(App.workerPool(self.doc).info()["Stale"])
+        self.assertTrue(self.anim.waitWorkers(300))
+        info = self.anim.workerInfo()
+        self.assertEqual(info["Failed"], 0, info)
+        self.assertEqual(self.anim.cacheInfo()["Times"], self.anim.frames())
+        self.assertGreater(self.anim.cacheInfo()["Prepared"], 0)
+        self.assertTrue(cut.Shape.isValid())
 
     def testWorkersRefuseWhatTheyCannotRecompute(self):
         # A Python feature of a class only this process has

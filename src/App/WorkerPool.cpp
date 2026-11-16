@@ -28,11 +28,13 @@
 //   u32 header length, u32 body length (little endian), the header -- a
 //   JSON object, its "type" saying what it is -- and the body
 //
-// The pool says:   setup {document, proxies}   open the copy
+// The pool says:   setup {document, proxies, ids,      open the copy, or
+//                         store, version, blobs,       move to a newer one
+//                         from, fromSeq, toSeq}        (sec 4)
 //                  job {job, kind, inputs, module, out}
 //                  quit
 // A worker says:   hello {token, pid}
-//                  ready {resident} | unfit {error}   to the setup
+//                  ready {resident, moved, seconds} | unfit {error}
 //                  result {job, ok, unfit, error, output, seconds, resident}
 //
 // What a worker prints goes to its log in the pool's directory and is
@@ -87,6 +89,7 @@
 #include "Application.h"
 #include "Document.h"
 #include "DocumentObject.h"
+#include "DocumentObjectPy.h"
 #include "FileBlobManager.h"
 #include "FileHistory.h"
 #include "PropertyPythonObject.h"
@@ -362,6 +365,13 @@ struct WorkerPool::Private
         bool over = false;      ///< finished() ran
         long made = 0;
         std::size_t resident = 0;
+        /// What it was last told to open: the log's version and its row, in
+        /// which store, from which copy's directory
+        int64_t version = 0;
+        int64_t versionSeq = 0;
+        std::string store;
+        std::string copyDir;     ///< the copy it holds, once it said ready
+        std::string nextCopyDir; ///< the copy it was told to open
     };
     /// A connection that has not said who it is yet
     struct Stranger
@@ -376,6 +386,11 @@ struct WorkerPool::Private
         bool running = false;
         bool dropped = false;  ///< cancelled while running: its result is thrown away
     };
+    /// The file a job's handler may write
+    std::string outFile(JobId id) const
+    {
+        return root + "/out/" + std::to_string(id);
+    }
     /// Counts the calls in: what went is deleted only on the way into a
     /// call from outside (`entry`), never inside a signal of its own
     struct Depth
@@ -409,13 +424,26 @@ struct WorkerPool::Private
     QTimer idleTimer;
     std::unique_ptr<QLocalServer> server;
     std::string token;
-    std::string dir;   ///< the pool's: the copy, the settings, logs, results
-    std::string root;  ///< the pool's directory: the copies, and the blobs put out
+    std::string dir;   ///< the copy's: root/copy-<k>
+    /// The pool's directory, for as long as it lives: the settings, the
+    /// logs, the results, the blobs put out, and the copies
+    std::string root;
     std::string blobs;  ///< root/blobs: what the store keeps in files, by content
     std::string copy;  ///< the document's copy, empty when none stands
     std::string store;  ///< the store the workers read the version from, if they do
     std::weak_ptr<TransactionLogCore> leased;  ///< the log holding `version` for them
     int64_t version = 0;  ///< the log's version the copy is, 0 for a saved copy
+    int64_t versionSeq = 0;  ///< the row the version's state is at
+    /// The design changed since the copy was taken (sec 4)
+    bool stale = false;
+    /// And by a write no transaction recorded -- undo off, a script with
+    /// no transaction: the log's rows do not add up to the next copy, and
+    /// the workers open it whole
+    bool unrecorded = false;
+    long moves = 0;
+    long reopens = 0;
+    /// Copies before this one, gone once no worker is on one
+    std::vector<std::string> oldCopies;
     std::vector<std::string> proxies;
     std::string program;
     std::deque<JobId> queue;
@@ -438,6 +466,9 @@ struct WorkerPool::Private
     double lastClaim = -1e9;
     bool starved = false;
     fastsignals::scoped_connection changed;
+    /// An object made or deleted, a property added or removed: no value
+    /// changes, and the copy is stale all the same
+    std::vector<fastsignals::scoped_connection> made;
 
     double meanCost(const std::string& kind) const
     {
@@ -449,6 +480,9 @@ struct WorkerPool::Private
 
     bool listen();
     bool takeCopy();
+    json setupFor(Proc& proc);
+    void pruneCopies();
+    void dropReached(const DocumentObject* obj, const std::string& why);
     bool exportBlobs(TransactionLogCore& core, int64_t num);
     void dropCopy();
     bool spawn();
@@ -499,9 +533,12 @@ bool WorkerPool::Private::listen()
 
 bool WorkerPool::Private::takeCopy()
 {
-    if (!copy.empty()) {
+    if (!copy.empty() && !stale) {
         return true;
     }
+    // A copy standing that the design moved past: the workers on it are
+    // moved to the new one (docs/WorkerProcess.md sec 4)
+    const bool again = !copy.empty();
     program = workerProgram();
     if (program.empty()) {
         reason = "no console program found to run the workers";
@@ -513,7 +550,8 @@ bool WorkerPool::Private::takeCopy()
     }
     if (root.empty()) {
         // The pool's, for as long as it lives: what every copy shares -- the
-        // blobs put out for the workers, by content
+        // blobs put out for the workers, by content, their logs, their
+        // results
         static int serial = 0;
         std::string base = Application::getTempPath();
         if (!base.empty() && base.back() != '/' && base.back() != '\\') {
@@ -526,20 +564,28 @@ bool WorkerPool::Private::takeCopy()
             old.deleteDirectoryRecursive();
         }
     }
-    static int copies = 0;
-    dir = root + "/copy-" + std::to_string(++copies);
-    Base::FileInfo info(dir);
-    if (info.exists()) {
-        info.deleteDirectoryRecursive();
-    }
-    if (!Base::FileInfo(dir + "/out").createDirectories()) {
-        reason = "cannot make " + dir;
+    if (!Base::FileInfo(root + "/out").createDirectories()) {
+        reason = "cannot make " + root;
         return false;
+    }
+    static int copies = 0;
+    const std::string where = root + "/copy-" + std::to_string(++copies);
+    {
+        Base::FileInfo info(where);
+        if (info.exists()) {
+            info.deleteDirectoryRecursive();
+        }
+        if (!info.createDirectories()) {
+            reason = "cannot make " + where;
+            return false;
+        }
     }
     std::string file;
     std::string failure;
-    version = 0;
-    store.clear();
+    std::string readFrom;
+    int64_t num = 0;
+    int64_t seq = 0;
+    bool held = false;
     {
         Base::FlagToggler<bool> flag(copying);
         // A version of the log (docs/WorkerProcess.md sec 3): the design as
@@ -548,47 +594,65 @@ bool WorkerPool::Private::takeCopy()
         // the file's strings, which a version does not carry
         if (params()->GetBool("FromLog", true)) {
             try {
-                version = doc._snapshotToLog("workers");
-                if (version > 0) {
+                // What a script or an event that is no command wrote is
+                // committed first, as a save commits it: its row is what a
+                // worker moves along. An explicit transaction stays open,
+                // and the copy is then saved
+                doc.commitImplicitTransaction();
+                num = doc._snapshotToLog("workers");
+                if (num > 0) {
                     auto& core = TransactionLogCore::of(doc.getFileHistory());
                     core.flush();
-                    if (params()->GetBool("ReadStore", true) && exportBlobs(core, version)) {
+                    for (const auto& v : core.store().versions()) {
+                        if (v.num == num) {
+                            seq = v.seq;
+                        }
+                    }
+                    if (params()->GetBool("ReadStore", true) && exportBlobs(core, num)) {
                         // The workers read the version from this process's
                         // store themselves (sec 3): only the blobs it keeps
-                        // in files of its own are put out, once each
-                        store = doc.getFileHistory().directory() + "/history/log.db";
+                        // in files of its own are put out, once each.
                         // Held while the copy stands: a worker started
                         // later reads it too
-                        core.holdVersion(version, true);
-                        leased = doc.getFileHistory().logCore();
+                        readFrom = doc.getFileHistory().directory() + "/history/log.db";
+                        core.holdVersion(num, true);
+                        held = true;
                     }
                 }
-                if (version > 0 && store.empty()) {
+                if (num > 0 && readFrom.empty()) {
                     auto& core = TransactionLogCore::of(doc.getFileHistory());
-                    const std::string where = dir + "/version";
-                    Document::materialiseVersion(core, version, where, false);
+                    const std::string folder = where + "/version";
+                    Document::materialiseVersion(core, num, folder, false);
                     StringHasherRef hasher = doc.getStringHasher();
-                    Base::ofstream out(Base::FileInfo(where + "/" + Document::stringTableName()),
+                    Base::ofstream out(Base::FileInfo(folder + "/" + Document::stringTableName()),
                                        std::ios::out | std::ios::binary);
                     const std::string table = hasher ? hasher->saveTable() : std::string();
                     out.write(table.data(), static_cast<std::streamsize>(table.size()));
                     if (!out) {
                         THROWM(Base::FileException, "cannot write the string table");
                     }
-                    file = where;
+                    file = folder;
                 }
             }
             catch (Base::Exception& e) {
                 FC_LOG(doc.getName() << ": no version of the log for the workers: " << e.what());
-                version = 0;
-                store.clear();
+                if (held) {
+                    TransactionLogCore::of(doc.getFileHistory()).holdVersion(num, false);
+                }
+                held = false;
+                num = 0;
+                seq = 0;
+                readFrom.clear();
+                file.clear();
             }
         }
-        if (file.empty() && store.empty()) {
+        if (file.empty() && readFrom.empty()) {
             // A transaction is open, or the log is off: a copy saved as a
             // save writes it, which puts an Animation's rest values back
             // and its pose again
-            file = dir + "/Document.FCStd";
+            num = 0;
+            seq = 0;
+            file = where + "/Document.FCStd";
             try {
                 if (!doc.saveCopy(file.c_str(), false)) {
                     file.clear();
@@ -600,16 +664,33 @@ bool WorkerPool::Private::takeCopy()
             }
         }
     }
-    if (file.empty() && store.empty()) {
-        Base::FileInfo(dir).deleteDirectoryRecursive();
+    if (file.empty() && readFrom.empty()) {
+        Base::FileInfo(where).deleteDirectoryRecursive();
         reason = "the document could not be copied for the workers"
             + (failure.empty() ? std::string() : ": " + failure);
         return false;
     }
+    // The copy before is let go of: its version is not held any more -- a
+    // worker moving from it reads the rows after it, and the values of the
+    // new one -- and its directory goes once no worker is on it
+    if (auto core = leased.lock()) {
+        core->holdVersion(version, false);
+    }
+    leased.reset();
+    if (!dir.empty()) {
+        oldCopies.push_back(dir);
+    }
+    dir = where;
+    version = num;
+    versionSeq = seq;
+    store = readFrom;
+    if (held) {
+        leased = doc.getFileHistory().logCore();
+    }
     // Its own copy of the settings: a console program writes them back as
     // it exits, which would race this one's
-    GetApplication().GetUserParameter().SaveDocument((dir + "/user.cfg").c_str());
-    GetApplication().GetSystemParameter().SaveDocument((dir + "/system.cfg").c_str());
+    GetApplication().GetUserParameter().SaveDocument((root + "/user.cfg").c_str());
+    GetApplication().GetSystemParameter().SaveDocument((root + "/system.cfg").c_str());
     // The objects with a Python class here: one a worker has not got would
     // recompute to nothing there
     proxies.clear();
@@ -623,19 +704,190 @@ bool WorkerPool::Private::takeCopy()
         }
     }
     copy = store.empty() ? file : store;
-    // A change of the design makes the copy stale. An Animation's own
-    // properties are its business: it says when its frames change
-    changed = doc.signalChangedObject.connect([this](const DocumentObject& obj,
-                                                     const Property& prop) {
-        if (copying || copy.empty() || doc.testStatus(Document::Recomputing)
-            || (WriteScope::causes() & WriteCause::Animation)
-            || obj.isDerivedFrom<Animation>()
-            || !(doc.writeEffects(prop) & WriteEffect::Dirty)) {
-            return;
+    stale = false;
+    if (!changed.connected()) {
+        // A change of the design makes the copy stale, and drops the jobs
+        // it reaches. An Animation's own properties are its business: it
+        // says when its frames change
+        changed = doc.signalChangedObject.connect([this](const DocumentObject& obj,
+                                                         const Property& prop) {
+            if (copying || copy.empty() || doc.testStatus(Document::Recomputing)
+                || (WriteScope::causes() & WriteCause::Animation)
+                || obj.isDerivedFrom<Animation>()
+                || !(doc.writeEffects(prop) & WriteEffect::Dirty)) {
+                return;
+            }
+            dropReached(&obj, "the design changed");
+        });
+        auto object = [this](const DocumentObject& obj) {
+            if (copying || copy.empty() || obj.isDerivedFrom<Animation>()) {
+                return;
+            }
+            dropReached(&obj, "the design changed");
+        };
+        made.emplace_back(doc.signalNewObject.connect(object));
+        made.emplace_back(doc.signalDeletedObject.connect(object));
+        auto property = [this](const Property& prop) {
+            auto obj = freecad_cast<DocumentObject*>(prop.getContainer());
+            if (copying || copy.empty() || !obj || obj->getDocument() != &doc
+                || obj->isDerivedFrom<Animation>()) {
+                return;
+            }
+            dropReached(obj, "the design changed");
+        };
+        made.emplace_back(GetApplication().signalAppendDynamicProperty.connect(property));
+        made.emplace_back(GetApplication().signalRemoveDynamicProperty.connect(property));
+    }
+    if (again) {
+        // Told in turn, after whatever job each is on: a socket keeps order,
+        // so a job sent after this is made on the new copy
+        std::vector<Proc*> list;
+        for (auto& proc : procs) {
+            list.push_back(proc.get());
         }
-        pool.stop("the design changed");
-    });
+        for (auto proc : list) {
+            if (proc->over || proc->quitting || !proc->socket) {
+                continue;
+            }
+            json setup = setupFor(*proc);
+            proc->ready = false;
+            if (!send(*proc->socket, setup)) {
+                kill(*proc);
+            }
+        }
+    }
+    unrecorded = false;
+    pruneCopies();
     return true;
+}
+
+json WorkerPool::Private::setupFor(Proc& proc)
+{
+    json setup {{"type", "setup"}, {"proxies", proxies}};
+    if (!store.empty()) {
+        // A version read from this process's store, into a folder of its own
+        setup["store"] = store;
+        setup["version"] = version;
+        setup["blobs"] = blobs;
+        setup["document"] = dir + "/worker" + std::to_string(proc.number);
+        if (proc.version > 0 && proc.versionSeq > 0 && versionSeq > 0 && proc.store == store
+            && !unrecorded) {
+            // Where it is: it moves from there along the log's rows
+            setup["from"] = proc.version;
+            setup["fromSeq"] = proc.versionSeq;
+            setup["toSeq"] = versionSeq;
+        }
+    }
+    else {
+        setup["document"] = copy;
+    }
+    // The ids it gives new strings (sec 4, 5): a block far above this
+    // process's, so that strings read in later from the store under this
+    // process's ids never meet one it gave
+    constexpr long long Block = 1LL << 24;
+    constexpr long long Base = 1LL << 30;
+    StringHasherRef hasher = doc.getStringHasher();
+    if (!hasher || hasher->lastID() < Base) {
+        setup["ids"] = Base + static_cast<long long>(proc.number % 63) * Block;
+    }
+    proc.version = store.empty() ? 0 : version;
+    proc.versionSeq = store.empty() ? 0 : versionSeq;
+    proc.store = store;
+    proc.nextCopyDir = dir;
+    return setup;
+}
+
+void WorkerPool::Private::pruneCopies()
+{
+    for (auto it = oldCopies.begin(); it != oldCopies.end();) {
+        bool used = false;
+        for (auto& proc : procs) {
+            if (!proc->over && (proc->copyDir == *it || proc->nextCopyDir == *it)) {
+                used = true;
+            }
+        }
+        if (used) {
+            ++it;
+            continue;
+        }
+        if (!params()->GetBool("KeepJob", false)) {
+            Base::FileInfo(*it).deleteDirectoryRecursive();
+        }
+        it = oldCopies.erase(it);
+    }
+}
+
+void WorkerPool::Private::dropReached(const DocumentObject* obj, const std::string& why)
+{
+    stale = !copy.empty();
+    if (!doc.hasPendingTransaction() && !doc.isPerformingTransaction()) {
+        unrecorded = true;
+    }
+    // What `obj` reaches: itself and every object whose result depends on
+    // it, through any link, an expression's hidden ones included -- what an
+    // Animation drops its frames by. Looked for only if a job says what it
+    // reads
+    std::set<std::string> reached;
+    if (obj) {
+        const bool wanted = std::any_of(jobs.begin(), jobs.end(), [](const auto& kv) {
+            return !kv.second.dropped && !kv.second.job.reads.empty();
+        });
+        if (wanted) {
+            if (obj->getNameInDocument()) {
+                reached.insert(obj->getNameInDocument());
+            }
+            for (auto o : obj->getInListEx(true)) {
+                if (o && o->getNameInDocument()) {
+                    reached.insert(o->getNameInDocument());
+                }
+            }
+        }
+    }
+    std::vector<std::pair<std::function<void(Result&)>, Result>> told;
+    for (auto it = jobs.begin(); it != jobs.end();) {
+        Entry& entry = it->second;
+        bool hit = !entry.dropped
+            && (!obj || entry.job.reads.empty()
+                || std::any_of(entry.job.reads.begin(), entry.job.reads.end(),
+                               [&](const std::string& name) { return reached.count(name) > 0; }));
+        if (!hit) {
+            ++it;
+            continue;
+        }
+        Result result;
+        result.id = it->first;
+        result.kind = entry.job.kind;
+        result.tag = entry.job.tag;
+        result.status = Result::Status::Cancelled;
+        result.error = why;
+        auto done = std::move(entry.job.done);
+        entry.job.done = nullptr;
+        if (entry.running) {
+            entry.dropped = true;  // its result, when it comes, is thrown away
+            ++it;
+        }
+        else {
+            const JobId id = it->first;
+            it = jobs.erase(it);
+            queue.erase(std::remove(queue.begin(), queue.end(), id), queue.end());
+        }
+        if (done) {
+            told.emplace_back(std::move(done), std::move(result));
+        }
+    }
+    // Told once the pool is as it will be: a client may cancel or submit
+    for (auto& [done, result] : told) {
+        try {
+            done(result);
+        }
+        catch (Base::Exception& e) {
+            e.ReportException();
+        }
+        catch (std::exception& e) {
+            FC_ERR("a worker job's client: " << e.what());
+        }
+    }
+    changedNotice();
 }
 
 bool WorkerPool::Private::exportBlobs(TransactionLogCore& core, int64_t num)
@@ -726,15 +978,26 @@ void WorkerPool::Private::dropCopy()
     leased.reset();
     store.clear();
     changed.disconnect();
+    made.clear();
     copy.clear();
     proxies.clear();
-    if (!dir.empty() && !params()->GetBool("KeepJob", false)) {
-        Base::FileInfo info(dir);
-        if (info.exists()) {
-            info.deleteDirectoryRecursive();
-        }
+    stale = false;
+    unrecorded = false;
+    version = 0;
+    versionSeq = 0;
+    if (!dir.empty()) {
+        oldCopies.push_back(dir);
     }
     dir.clear();
+    if (!params()->GetBool("KeepJob", false)) {
+        for (auto& old : oldCopies) {
+            Base::FileInfo info(old);
+            if (info.exists()) {
+                info.deleteDirectoryRecursive();
+            }
+        }
+    }
+    oldCopies.clear();
 }
 
 bool WorkerPool::Private::spawn()
@@ -752,11 +1015,11 @@ bool WorkerPool::Private::spawn()
     // What it says goes to its log, kept with the pool for when one fails
     process->setProcessChannelMode(QProcess::MergedChannels);
     process->setStandardOutputFile(
-        QString::fromStdString(dir + "/worker" + std::to_string(spawned) + ".log"));
+        QString::fromStdString(root + "/worker" + std::to_string(spawned) + ".log"));
     process->setStandardInputFile(QProcess::nullDevice());
     QStringList args;
-    args << QStringLiteral("-u") << QString::fromStdString(dir + "/user.cfg")
-         << QStringLiteral("-s") << QString::fromStdString(dir + "/system.cfg")
+    args << QStringLiteral("-u") << QString::fromStdString(root + "/user.cfg")
+         << QStringLiteral("-s") << QString::fromStdString(root + "/system.cfg")
          << QStringLiteral("-c") << QStringLiteral("from freecad import worker; worker.serve()");
     Proc* raw = proc.get();
     QObject::connect(process.get(), qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
@@ -850,18 +1113,7 @@ void WorkerPool::Private::readStranger(Stranger& s)
             kill(*proc);
         }
     });
-    json setup {{"type", "setup"}, {"proxies", proxies}};
-    if (!store.empty()) {
-        // A version read from this process's store, into a folder of its own
-        setup["store"] = store;
-        setup["version"] = version;
-        setup["blobs"] = blobs;
-        setup["document"] = dir + "/worker" + std::to_string(proc->number);
-    }
-    else {
-        setup["document"] = copy;
-    }
-    send(*socket, setup);
+    send(*socket, setupFor(*proc));
     read(*proc);
 }
 
@@ -903,6 +1155,17 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         proc.resident = header.value("resident", std::size_t(0));
         resident = std::max(resident, proc.resident);
         proc.ready = true;
+        auto moved = header.find("moved");
+        if (moved != header.end() && moved->is_boolean()) {
+            // A newer copy, along the log or opened whole (sec 4)
+            ++(moved->get<bool>() ? moves : reopens);
+            FC_LOG(doc.getName() << ": worker " << proc.number
+                                 << (moved->get<bool>() ? " moved along the log" : " reopened")
+                                 << " to version " << proc.version << " in "
+                                 << header.value("seconds", 0.0) << " s");
+        }
+        proc.copyDir = proc.nextCopyDir;
+        pruneCopies();
         dispatch(proc);
         changedNotice();
     }
@@ -919,7 +1182,7 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         proc.resident = header.value("resident", std::size_t(0));
         resident = std::max(resident, proc.resident);
         ++proc.made;
-        const std::string out = dir + "/out/" + std::to_string(id);
+        const std::string out = outFile(id);
         auto it = jobs.find(id);
         if (it == jobs.end() || it->second.dropped) {
             if (it != jobs.end()) {
@@ -1046,7 +1309,7 @@ void WorkerPool::Private::finished(Proc& proc)
     }
     const bool quiet = proc.quitting;
     if (lost) {
-        Base::FileInfo(dir + "/out/" + std::to_string(lost)).deleteFile();
+        Base::FileInfo(outFile(lost)).deleteFile();
         auto it = jobs.find(lost);
         if (it != jobs.end()) {
             it->second.running = false;
@@ -1077,6 +1340,7 @@ void WorkerPool::Private::finished(Proc& proc)
             return;
         }
     }
+    pruneCopies();
     // Work left and nobody to do it
     if (!copy.empty() && procs.empty() && !queue.empty()) {
         if (!spawn()) {
@@ -1115,7 +1379,7 @@ void WorkerPool::Private::dispatch(Proc& proc)
                      {"kind", it->second.job.kind},
                      {"inputs", inputs},
                      {"module", it->second.job.module},
-                     {"out", dir + "/out/" + std::to_string(id)}};
+                     {"out", outFile(id)}};
         it->second.running = true;
         proc.job = id;
         proc.began = now();
@@ -1331,6 +1595,12 @@ bool WorkerPool::start()
     }
     d->limit = workerLimit();
     if (!d->takeCopy()) {
+        if (started()) {
+            // A newer copy could not be had: the one standing is not the
+            // design, and nothing more is made on it
+            const std::string why = d->reason;
+            stop(why);
+        }
         return false;
     }
     if (d->procs.empty() && !d->spawn()) {
@@ -1349,6 +1619,12 @@ WorkerPool::JobId WorkerPool::submit(Job job)
 {
     Private::Depth guard(*d, true);
     if (d->copy.empty()) {
+        return 0;
+    }
+    // The design changed since the copy: a new one, the workers moved to it
+    if (d->stale && !d->takeCopy()) {
+        const std::string why = d->reason;
+        stop(why);
         return 0;
     }
     const JobId id = d->next++;
@@ -1542,6 +1818,15 @@ void WorkerPool::stop(const std::string& why)
     d->changedNotice();
 }
 
+void WorkerPool::designChanged(const DocumentObject* obj)
+{
+    Private::Depth guard(*d, true);
+    if (d->copy.empty()) {
+        return;
+    }
+    d->dropReached(obj, "the design changed");
+}
+
 void WorkerPool::poll(int ms)
 {
     Private::Depth guard(*d, true);
@@ -1653,8 +1938,12 @@ WorkerPool::Info WorkerPool::info() const
     info.done = d->done;
     info.failed = d->failed;
     info.reason = d->reason;
-    info.directory = d->dir;
+    info.directory = d->root;
+    info.copy = d->dir;
     info.version = d->version;
+    info.stale = d->stale;
+    info.moves = d->moves;
+    info.reopens = d->reopens;
     info.readStore = !d->store.empty();
     info.blobs = d->blobs;
     return info;
@@ -1765,9 +2054,50 @@ int WorkerPool::serve()
                        {"pid", static_cast<long>(QCoreApplication::applicationPid())}});
     std::string buffer;
     Document* doc = nullptr;
-    // The pool's process's store, read for the version (and later to move
-    // along its log, sec 4)
+    // The pool's process's store, read for the version and to move along
+    // its log (docs/WorkerProcess.md sec 3, 4)
     std::shared_ptr<FileHistory> reader;
+    std::string readerStore;
+    int64_t held = 0;  ///< the version `doc` is, read from `reader`; 0 for none
+    std::string folder;  ///< the folder `doc` was read from, its files with it
+    auto closeDoc = [&]() {
+        if (doc) {
+            GetApplication().closeDocument(doc->getName());
+        }
+        doc = nullptr;
+        held = 0;
+        // Gone with the document, unless kept, as the pool keeps its own,
+        // for a look
+        if (!folder.empty() && !params()->GetBool("KeepJob", false)) {
+            Base::FileInfo(folder).deleteDirectoryRecursive();
+        }
+        folder.clear();
+    };
+    // New strings are given ids from the block the pool named: what is read
+    // in later from the store, under the pool's process's ids, never meets
+    // one given here. A string of the worker's own marks the block's start
+    auto takeBlock = [](const StringHasherRef& hasher, long long ids) {
+        if (!hasher || ids <= 0 || hasher->lastID() >= ids) {
+            return;
+        }
+        StringHasher::Row row;
+        row.id = static_cast<long>(ids);
+        row.data = QByteArray("\x01worker ids ") + QByteArray::number(ids);
+        hasher->insertRows({row});
+    };
+    // Move `doc`, version `from` at row `fromSeq`, to the state at row
+    // `toSeq` through the rows between: only what they changed is restored,
+    // nothing recomputed (sec 4). False, nothing done, when they cannot be
+    // folded: a value the store no longer has, a row trimmed
+    auto moveAlong = [&](int64_t from, int64_t fromSeq, int64_t toSeq) {
+        TransactionLogCore& core = *reader->logCore();
+        core.refreshReader();
+        LogVersion at;
+        at.num = from;
+        at.seq = fromSeq;
+        TransactionLog through(*doc, &at);
+        return doc->_moveAlongLog(fromSeq, toSeq, false, &through);
+    };
     for (;;) {
         json header;
         std::string body;
@@ -1794,47 +2124,96 @@ int WorkerPool::serve()
         }
         if (type == "setup") {
             std::string why;
+            const bool later = doc != nullptr;
+            bool moved = false;
+            const double began = now();
             try {
                 const std::string file = header.value("document", std::string());
                 const std::string store = header.value("store", std::string());
-                if (!store.empty()) {
-                    // The version read from the pool's process's store
-                    // (docs/WorkerProcess.md sec 3), written out here as the
-                    // unpacked project a folder restore reads, with the
-                    // store's strings
-                    const int64_t num = header.value("version", int64_t(0));
-                    std::string failed;
-                    reader = FileHistory::openReader(store, header.value("blobs", std::string()),
-                                                     &failed);
-                    if (!reader) {
-                        THROWM(Base::RuntimeError, failed);
+                const int64_t num = header.value("version", int64_t(0));
+                const long long ids = header.value("ids", 0LL);
+                const int64_t from = header.value("from", int64_t(0));
+                const int64_t fromSeq = header.value("fromSeq", int64_t(0));
+                const int64_t toSeq = header.value("toSeq", int64_t(0));
+                if (doc && reader && held > 0 && held == from && fromSeq > 0 && toSeq > 0
+                    && store == readerStore) {
+                    try {
+                        moved = moveAlong(from, fromSeq, toSeq);
                     }
-                    TransactionLogCore& core = *reader->logCore();
-                    Document::materialiseVersion(core, num, file, false);
-                    const std::string table =
-                        reader->hasher() ? reader->hasher()->saveTable() : std::string();
-                    Base::ofstream out(Base::FileInfo(file + "/" + Document::stringTableName()),
-                                       std::ios::out | std::ios::binary);
-                    out.write(table.data(), static_cast<std::streamsize>(table.size()));
-                    if (!out) {
-                        THROWM(Base::FileException, "cannot write the string table");
+                    catch (Base::Exception& e) {
+                        FC_WARN("moving along the log: " << e.what());
+                        moved = false;
+                    }
+                    if (moved) {
+                        held = num;
+                    }
+                    else {
+                        FC_LOG("the rows from version " << from << " to " << num
+                                                        << " not folded: opened whole");
                     }
                 }
-                doc = GetApplication().openDocument(file.c_str(), false);
+                if (!moved) {
+                    closeDoc();
+                    if (!store.empty()) {
+                        // The version read from the pool's process's store
+                        // (sec 3), written out here as the unpacked project a
+                        // restore reads, and opened as a version of that file:
+                        // its strings, its blobs, the reader's, which a move
+                        // goes on reading. The blobs are found there by hash,
+                        // not written
+                        if (!reader || readerStore != store) {
+                            std::string failed;
+                            reader = FileHistory::openReader(
+                                store, header.value("blobs", std::string()), &failed);
+                            if (!reader) {
+                                THROWM(Base::RuntimeError, failed);
+                            }
+                            readerStore = store;
+                        }
+                        else {
+                            reader->logCore()->refreshReader();
+                        }
+                        takeBlock(reader->hasher(), ids);
+                        TransactionLogCore& core = *reader->logCore();
+                        folder = file;
+                        Document::materialiseVersion(core, num, file, true);
+                        auto& app = GetApplication();
+                        const std::string name = app.getUniqueDocumentName("Copy", true);
+                        doc = app.newDocument(name.c_str(), name.c_str(), false, false, false);
+                        if (!doc) {
+                            THROWM(Base::RuntimeError, "cannot make the copy's document");
+                        }
+                        // Nothing is undone here
+                        doc->setUndoMode(0);
+                        doc->_restoreAsVersion(reader, file, std::string());
+                        held = num;
+                    }
+                    else {
+                        doc = GetApplication().openDocument(file.c_str(), false);
+                        if (doc) {
+                            takeBlock(doc->getStringHasher(), ids);
+                            doc->setUndoMode(0);
+                        }
+                    }
+                }
                 if (!doc) {
                     why = "cannot open " + file;
                 }
                 else {
                     why = unfitFor(*doc, header.value("proxies", json::array()));
-                    // Nothing is undone here
-                    doc->setUndoMode(0);
                 }
             }
             catch (Base::Exception& e) {
                 why = std::string("cannot open the document: ") + e.what();
             }
             if (why.empty()) {
-                send(socket, json {{"type", "ready"}, {"resident", residentBytes()}});
+                json ready {{"type", "ready"},
+                            {"resident", residentBytes()},
+                            {"seconds", now() - began}};
+                if (later) {
+                    ready["moved"] = moved;
+                }
+                send(socket, ready);
             }
             else {
                 send(socket, json {{"type", "unfit"}, {"error", why}});
@@ -1886,9 +2265,7 @@ int WorkerPool::serve()
             break;
         }
     }
-    if (doc) {
-        GetApplication().closeDocument(doc->getName());
-    }
+    closeDoc();
     socket.disconnectFromServer();
     return 0;
 }
@@ -1944,7 +2321,8 @@ public:
         add_varargs_method("start", &WorkerPoolPy::start,
                            "start() -> bool: take the document's copy and start a worker");
         add_keyword_method("submit", &WorkerPoolPy::submit,
-                           "submit(kind, inputs={}, module='', tag='') -> job id, 0 if not started");
+                           "submit(kind, inputs={}, module='', tag='', reads=None) -> job id, 0 if not\n"
+                           "started; reads: the objects (or names) its result is made from");
         add_varargs_method("claim", &WorkerPoolPy::claim,
                            "claim(id) -> 'Yours', 'Done', 'Failed' or 'Unknown'");
         add_varargs_method("state", &WorkerPoolPy::state,
@@ -1984,14 +2362,15 @@ public:
 
     Py::Object submit(const Py::Tuple& args, const Py::Dict& kwds)
     {
-        static const std::array<const char*, 5> keywords {"kind", "inputs", "module", "tag",
-                                                          nullptr};
+        static const std::array<const char*, 6> keywords {"kind", "inputs", "module", "tag",
+                                                          "reads", nullptr};
         const char* kind = nullptr;
         PyObject* inputs = nullptr;
         const char* module = "";
         const char* tag = "";
-        if (!Base::Wrapped_ParseTupleAndKeywords(args.ptr(), kwds.ptr(), "s|Oss", keywords, &kind,
-                                                 &inputs, &module, &tag)) {
+        PyObject* reads = nullptr;
+        if (!Base::Wrapped_ParseTupleAndKeywords(args.ptr(), kwds.ptr(), "s|OssO", keywords, &kind,
+                                                 &inputs, &module, &tag, &reads)) {
             throw Py::Exception();
         }
         WorkerPool& p = pool();
@@ -2000,6 +2379,22 @@ public:
         job.inputs = inputs ? toJson(Py::Object(inputs)) : std::string("{}");
         job.module = module;
         job.tag = tag;
+        if (reads && reads != Py_None) {
+            // Names, or the objects themselves
+            Py::Sequence seq(reads);
+            for (Py::Sequence::size_type i = 0; i < seq.size(); ++i) {
+                Py::Object item(seq[i]);
+                if (PyObject_TypeCheck(item.ptr(), &DocumentObjectPy::Type)) {
+                    auto obj = static_cast<DocumentObjectPy*>(item.ptr())->getDocumentObjectPtr();
+                    if (obj && obj->getNameInDocument()) {
+                        job.reads.emplace_back(obj->getNameInDocument());
+                    }
+                }
+                else {
+                    job.reads.push_back(Py::String(item).as_std_string("utf-8"));
+                }
+            }
+        }
         WorkerPool* raw = &p;
         job.done = [raw](WorkerPool::Result& r) {
             WorkerPool::Result kept = r;
@@ -2126,7 +2521,11 @@ public:
         dict.setItem("Failed", Py::Long(i.failed));
         dict.setItem("Reason", Py::String(i.reason));
         dict.setItem("Directory", Py::String(i.directory));
+        dict.setItem("Copy", Py::String(i.copy));
         dict.setItem("Version", Py::Long(static_cast<long>(i.version)));
+        dict.setItem("Stale", Py::Boolean(i.stale));
+        dict.setItem("Moves", Py::Long(i.moves));
+        dict.setItem("Reopens", Py::Long(i.reopens));
         dict.setItem("ReadStore", Py::Boolean(i.readStore));
         dict.setItem("Blobs", Py::String(i.blobs));
         Py::List pids;

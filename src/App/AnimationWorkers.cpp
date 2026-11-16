@@ -144,6 +144,9 @@ void Animation::Workers::enqueue(const std::vector<long>& indices, long from)
     // From the frame on show on, then the ones before it
     auto mid = std::lower_bound(sorted.begin(), sorted.end(), from);
     std::rotate(sorted.begin(), mid, sorted.end());
+    // An edit drops the jobs it reaches and leaves the others to run on
+    // the copy they were queued for (docs/WorkerProcess.md sec 4)
+    reads = readsNow();
     for (long index : sorted) {
         if (owner._frames.count(index) || jobs.count(index)) {
             continue;
@@ -151,6 +154,7 @@ void Animation::Workers::enqueue(const std::vector<long>& indices, long from)
         WorkerPool::Job job;
         job.kind = FrameKind;
         job.tag = tag;
+        job.reads = reads;
         job.inputs = json {{"animation", owner.getNameInDocument()},
                            {"index", index},
                            {"tables", tables}}
@@ -220,6 +224,80 @@ void Animation::Workers::cancel(const std::string& why)
         Base::FileInfo(file).deleteFile();
     }
     arrived.clear();
+}
+
+std::vector<std::string> Animation::Workers::readsNow() const
+{
+    auto d = owner.getDocument();
+    if (!d || owner.Recompute.getValue() == RecomputeFull) {
+        return {};
+    }
+    std::set<DocumentObject*> seeds;
+    // What the tracks write, here and in the Animations its strips play
+    std::vector<const Animation*> todo {&owner};
+    std::set<const Animation*> seen;
+    while (!todo.empty()) {
+        const Animation* anim = todo.back();
+        todo.pop_back();
+        if (!seen.insert(anim).second) {
+            continue;
+        }
+        std::vector<DocumentObject*> targets;
+        anim->Tracks.getLinks(targets, true);
+        for (auto obj : targets) {
+            if (auto child = freecad_cast<Animation*>(obj)) {
+                todo.push_back(child);
+            }
+            else if (obj) {
+                seeds.insert(obj);
+            }
+        }
+    }
+    // What reads Time, and what is touched already: a frame's recompute
+    // takes them in as well
+    for (auto obj : owner.getInList()) {
+        seeds.insert(obj);
+    }
+    for (auto obj : d->getObjects()) {
+        if (obj->isTouched()) {
+            seeds.insert(obj);
+        }
+    }
+    std::set<DocumentObject*> all;
+    for (auto obj : seeds) {
+        if (!obj || !obj->isAttachedToDocument() || obj->getDocument() != d) {
+            continue;
+        }
+        all.insert(obj);
+        for (auto o : obj->getInListEx(true)) {
+            all.insert(o);
+        }
+    }
+    std::vector<std::string> names;
+    for (auto obj : all) {
+        if (obj && obj != &owner && obj->getNameInDocument()) {
+            names.emplace_back(obj->getNameInDocument());
+        }
+    }
+    if (names.empty()) {
+        // Nothing it could name: any change reaches it
+        return {};
+    }
+    return names;
+}
+
+bool Animation::Workers::reaches(const std::set<DocumentObject*>& reached) const
+{
+    if (reads.empty()) {
+        return true;
+    }
+    std::set<std::string> names(reads.begin(), reads.end());
+    for (auto obj : reached) {
+        if (obj && obj->getNameInDocument() && names.count(obj->getNameInDocument())) {
+            return true;
+        }
+    }
+    return false;
 }
 
 StringHasherRef Animation::Workers::table(const std::string& hash)
@@ -369,12 +447,13 @@ void Animation::stopWorkers(const char* reason)
 
 void Animation::designChanged()
 {
-    // The workers' copy is not the design any more, whoever's jobs they run
+    // What a frame is changed (its tracks, its rate): the workers' copy is
+    // not the design any more -- they move to the next one (sec 4) -- and
+    // none of the frames handed over stands. Another client's jobs go only
+    // if this reaches them, through what reads Time
     if (auto doc = getDocument()) {
         if (auto pool = WorkerPool::of(*doc, false)) {
-            if (pool->started()) {
-                pool->stop("the design changed");
-            }
+            pool->designChanged(this);
         }
     }
     stopWorkers("the design changed");

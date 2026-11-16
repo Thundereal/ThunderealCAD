@@ -262,7 +262,14 @@ private:
 ///       two walls missed by 0.052 and the solid's volume was 46 short of
 ///       10240 (sec 74). An OCCT without it makes level 4 as the highest
 ///       level it has.
-constexpr int OCCTOffsetFixLevelLatest = 4;
+///  5 -- a thickness whose removed face is narrower, between two of its
+///       edges where it is tangent to its neighbours, than twice the
+///       thickness is refused: the two rounded ends that close those edges
+///       pass through each other, and the solid made of them was valid and
+///       not the skin -- a tube's rim fillet of 1 removed 1 outward, 6476.71
+///       where the whole tube is 2391.17 (sec 78). An OCCT without it makes
+///       level 5 as the highest level it has.
+constexpr int OCCTOffsetFixLevelLatest = 5;
 
 /// Sets, for the calling thread, the OCCT fork's offset fix level
 /// (BRepOffset_SetFixLevel): which of the fork's corrections to the offset

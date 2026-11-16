@@ -356,6 +356,45 @@ class _Degenerate(_PlaneTestBase):
         self.assertEqual(len(faces), 2)
         self.assertAlmostEqual(total_area(faces), 100.0, places=1)
 
+    def test_closed_bspline_is_left_whole(self):
+        """A closed BSpline that crosses nowhere bounds its face with its
+        one edge. It meets itself at its seam only, and was cut in two at the
+        foot of the normal from the seam to its far side."""
+        n = 24
+        points = [
+            Vec(20 * math.cos(2 * math.pi * k / n), 12 * math.sin(2 * math.pi * k / n))
+            for k in range(n)
+        ]
+        for periodic in (False, True):
+            curve = Part.BSplineCurve()
+            if periodic:
+                curve.interpolate(points, PeriodicFlag=True)
+            else:
+                curve.interpolate(points + [points[0]])
+            faces = self.unified(Part.Wire([curve.toShape()]))
+            self.assertEqual(len(faces), 1)
+            self.assertEqual(len(faces[0].Edges), 1)
+            self.assertAlmostEqual(faces[0].Area, math.pi * 20 * 12, delta=0.5)
+
+    def test_figure_of_eight_bspline_is_cut_at_its_crossing(self):
+        """A closed BSpline that crosses itself once is cut there, at the two
+        parameters of the crossing: two faces of three edges, not eight."""
+        n = 40
+        # started away from the crossing, which is not at the seam then
+        points = [
+            Vec(
+                20 * math.sin(2 * math.pi * k / n + 0.7),
+                12 * math.sin(4 * math.pi * k / n + 1.4),
+            )
+            for k in range(n)
+        ]
+        curve = Part.BSplineCurve()
+        curve.interpolate(points + [points[0]])
+        faces = self.unified(Part.Wire([curve.toShape()]))
+        self.assertEqual(len(faces), 2)
+        self.assertEqual(len(Part.Compound(faces).Edges), 3)
+        self.assertAlmostEqual(total_area(faces), 640.0, delta=1.0)
+
     def test_bspline_with_separate_line(self):
         """Self-intersecting BSpline + separate non-touching line:
         BSpline should produce 2 lobes, line should be pruned."""

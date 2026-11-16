@@ -117,7 +117,12 @@ public:
      * edge taken by intersection is its cut with the sketch plane alone, not
      * its projection and the cut -- which is no longer asked of the version:
      * such an edge of an older sketch is a reference of both kinds, see
-     * migrateExternalTypes().
+     * migrateExternalTypes(). 3: a full circle seen edge on is a line along
+     * the cross product of the two normals, whichever way the line it
+     * replaces ran; before, the line keeps the way the stored one runs, so
+     * that a sketch from when the line was made of the circle's box (until
+     * 2023-08) is made again as its file has it, see
+     * rebuildExternalGeometry().
      */
     App     ::PropertyInteger        _Version;
     /** @name methods override Feature */
@@ -1048,6 +1053,10 @@ public:  // geometry extension functionalities for single element sketch object 
     ) const;
 
     void changeConstraintAfterDeletingGeo(Constraint* constr, const int deletedGeoId) const;
+
+    /// The name of the Part::GeometryDoubleExtension a simplified external
+    /// curve carries: how far it may be from the curve it stands for
+    static constexpr const char *SimplifiedWithin = "SimplifiedWithin";
 
 protected:
 

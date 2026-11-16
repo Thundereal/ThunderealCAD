@@ -1,9 +1,8 @@
 # Worker processes -- a general facility, the Animation its first use
 
 Status: design accepted 2026-11-16, every decision as recommended (sec
-9). Phase 0 (`docs/Animation.md` sec 4.2) is built; phase 1 -- the pool,
-the socket, the jobs, the Animation on them -- is being built on branch
-`Worker` (sec 10).
+9). Built on branch `Worker`: phase 0 (`docs/Animation.md` sec 4.2),
+phase 1 (sec 10), phase 2a (sec 11); phase 2b next.
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -356,3 +355,39 @@ once under `-j 4`, passed alone).
 
 Not done in phase 1: the expression-security grants passed to a worker
 (sec 2); jobs dropped by `reads` (phase 4).
+
+## 11. Phase 2a, as built: the copy is a version of the log
+
+(2026-11-16.) Phase 2 is in two steps. 2a takes the document the workers
+hold from the log; 2b (next) has them read it from the GUI's store
+themselves.
+
+- **The copy.** `WorkerPool` takes a version of the log
+  (`Document::_snapshotToLog("workers")`: a row of kind `workers`, an
+  unnamed version that retention lets go like any other), waits for the
+  log's worker to have written it, and writes it out as an unpacked
+  project in the pool's `version/` (`Document::materialiseVersion`, the
+  blobs as files) with the file's string table, which a version does not
+  carry (log sec 27.50). A worker opens that folder. `WorkerPool` is a
+  friend of `Document` for the two. `Preferences/Workers/FromLog` false
+  goes back to the saved copy, for A/B.
+- **When not.** The log refuses a snapshot while a transaction is open
+  (or with the log off): the copy is then saved, as in phase 1.
+- **The pose.** Proved, not assumed: `testWorkersFromAVersionTakenMidPose`
+  takes the version with the Animation showing its middle frame, and
+  every frame the workers make from it has the shape, faces and element
+  names of the frame made here. The log records a posed property as its
+  rest value (`Animation::heldRestValue`), and what derives from the
+  pose is recomputed by the first frame a worker makes.
+- **What it saves.** On the main thread, the 64-hole filleted plate:
+  `prepareFrames()` with the Animation posed 39 ms, against 420 for the
+  saved copy, which puts the design back, recomputes it and makes the
+  frame on show again. With no Animation, the version and its folder cost
+  47-52 ms against the save's 34: the snapshot is 26 ms of it, the
+  folder the rest, which is what 2b moves off this process.
+- **And the frame on show** is no longer made again: a pass started at
+  the rest frame now has every frame made by the workers.
+
+Tests: TestWorkerPool 14 (the copy a version, a saved copy with a
+transaction open), TestAnimation 71 (the version taken mid-pose),
+`tests/gui/animation-workers.py` 19.

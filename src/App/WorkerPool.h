@@ -117,6 +117,7 @@ public:
         long failed = 0;
         std::string reason;  ///< why the pool last stopped or did not start
         std::string directory;
+        long long version = 0;  ///< the log's version the copy is, 0 for a saved one
         std::vector<long> pids;
     };
 

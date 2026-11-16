@@ -1406,19 +1406,20 @@ class TestAnimation(unittest.TestCase):
         stored = self.anim.cacheInfo()["Stored"]
         started = self.anim.prepareFrames(force=True)
         self.assertGreater(started, 0, self.anim.workerInfo()["Reason"])
-        # The copy the workers open is saved as a save writes the design:
-        # the rest values put back, and the frame on show made again here
-        self.assertEqual(self.anim.cacheInfo()["Stored"], stored + 1)
-        stored += 1
+        # The copy the workers open is a version of the log: the design,
+        # with nothing put back and nothing made again here
+        self.assertGreater(App.workerPool(self.doc).info()["Version"], 0)
+        self.assertEqual(self.anim.cacheInfo()["Stored"], stored)
         self.assertTrue(self.anim.waitWorkers(300))
         info = self.anim.workerInfo()
         self.assertEqual(info["Failed"], 0, info["Reason"])
         self.assertGreater(info["Limit"], 0)
         cache = self.anim.cacheInfo()
-        self.assertEqual(cache["Prepared"], len(times) - 1, info)
+        # Every frame, the one on show too: nothing made it again here
+        self.assertEqual(cache["Prepared"], len(times), info)
         self.assertEqual(cache["Times"], times)
-        self.assertEqual(cache["OnDisk"], times[1:])  # in files, read when shown
-        self.assertEqual(len(self.workerFiles()), len(times) - 1)
+        self.assertEqual(cache["OnDisk"], times)  # in files, read when shown
+        self.assertEqual(len(self.workerFiles()), len(times))
         # Let go of once they had nothing to do; the pool's copy of the
         # document stands for the next, and goes when the pool stops
         pool = App.workerPool(self.doc)
@@ -1452,6 +1453,31 @@ class TestAnimation(unittest.TestCase):
         self.assertEqual(self.anim.cacheInfo()["Stored"], stored)
         self.anim.clearCache()
         self.assertEqual(self.workerFiles(), [])
+
+    def testWorkersFromAVersionTakenMidPose(self):
+        """The log records a posed property as its rest value: a version
+        taken while the Animation shows a frame is the design, and every
+        frame made from it is the frame made here (docs/WorkerProcess.md
+        sec 3)"""
+        box, cut = self.workerScene()
+        self.anim.Cache = True
+        self.anim.activate()
+        times = self.anim.frames()
+        kept = self.framesHere(cut)
+        self.anim.clearCache()
+        middle = times[len(times) // 2]
+        self.anim.Time = middle
+        self.assertAlmostEqual(box.Height.Value, 10 + 10 * middle)  # posed
+        self.assertGreater(self.anim.prepareFrames(force=True), 0, self.anim.workerInfo())
+        self.assertGreater(App.workerPool(self.doc).info()["Version"], 0)
+        self.assertTrue(self.anim.waitWorkers(300))
+        self.assertEqual(self.anim.workerInfo()["Failed"], 0, self.anim.workerInfo())
+        self.assertEqual(self.anim.cacheInfo()["Prepared"], len(times) - 1)
+        for (_shape, facts), t in zip(kept, times):
+            self.anim.Time = t
+            self.assertEqual(self.frameFacts(cut), facts, t)
+        self.anim.stop()
+        self.assertAlmostEqual(box.Height.Value, 10)  # the design, untouched
 
     def testWorkersAndThisProcessMakeEachFrameOnce(self):
         _box, cut = self.workerScene()

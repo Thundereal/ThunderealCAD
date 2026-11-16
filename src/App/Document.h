@@ -2126,6 +2126,8 @@ public:
     friend class DocumentObject;
     friend class Transaction;
     friend class TransactionDocumentObject;
+    /// takes versions of the log for its workers (docs/WorkerProcess.md)
+    friend class WorkerPool;
 
     /// Destruction
     ~Document() override;

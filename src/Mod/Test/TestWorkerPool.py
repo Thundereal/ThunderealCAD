@@ -129,6 +129,27 @@ class TestWorkerPool(unittest.TestCase):
         self.assertTrue(self.pool.wait(120))
         self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
 
+    def testTheCopyIsAVersionOfTheLog(self):
+        versions = len(self.doc.getTransactionVersions())
+        self.assertTrue(self.pool.start())
+        info = self.pool.info()
+        self.assertGreater(info["Version"], 0)
+        self.assertTrue(os.path.isdir(os.path.join(info["Directory"], "version")))
+        self.assertEqual(len(self.doc.getTransactionVersions()), versions + 1)
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
+
+    def testATransactionOpenTakesASavedCopy(self):
+        self.doc.openTransaction("Open")
+        self.obj.Integer = 43  # the transaction is open from its first write
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        self.assertEqual(self.pool.info()["Version"], 0)
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(job)["Output"]["Value"], 43)
+        self.doc.abortTransaction()
+
     def testClaimTakesBackWhatIsQueuedAndWaitsForWhatRuns(self):
         self.settings(1)
         self.assertTrue(self.pool.start())

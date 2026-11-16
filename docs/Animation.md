@@ -887,8 +887,10 @@ cache as frames on disk.
 
 - **A worker** is one of the pool's (WorkerProcess.md sec 2): a
   ThunderealCmd running `freecad.worker` on its own copy of the settings,
-  holding a copy of the document -- `saveCopy()` without history into the
-  pool's directory, a save, so the design: the rest values (3.8) -- and
+  holding a copy of the document -- a version of its transaction log,
+  which records a posed property as its rest value, so the design
+  (WorkerProcess.md sec 11; `saveCopy()`, a save, only while a
+  transaction is open) -- and
   talking to this process over a local socket of the pool's. Each frame is
   a job; the worker sets Time and recomputes as the cache does
   (`Animation::writeFrame`), and writes what the recompute wrote into the
@@ -951,9 +953,11 @@ cache as frames on disk.
   (`videoexport.exportAnimation`: the frames after the first, the workers
   stopped when it ends) and the browser's bake (9.1: the samples after
   the first). Each only where it pays, as above.
-- **What starting costs.** The copy is a save: the design is put back and
-  recomputed, and the frame on show made again after it, as at any save
-  (3.8).
+- **What starting costs.** The copy is a version of the log: nothing is
+  put back or made again here. On the 64-hole filleted plate, posed,
+  `prepareFrames()` takes 39 ms on the main thread, where the saved copy
+  of phase 0 took 420 -- the design put back, recomputed, and the frame on
+  show made again after it, as at any save (3.8).
 
 Measured 2026-11-16 (mini: 8 cores, 8 GB, Metal; OCCT 357a41bfc6), in
 the GUI, a frame stepped as an export steps it -- Time set, the view

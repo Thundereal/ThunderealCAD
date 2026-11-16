@@ -76,6 +76,7 @@
 
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
+#include <Base/Stream.h>
 #include <Base/Interpreter.h>
 #include <Base/Parameter.h>
 #include <Base/PyWrapParseTupleAndKeywords.h>
@@ -85,7 +86,10 @@
 #include "Application.h"
 #include "Document.h"
 #include "DocumentObject.h"
+#include "FileHistory.h"
 #include "PropertyPythonObject.h"
+#include "StringHasher.h"
+#include "TransactionLog.h"
 #include "WorkerPool.h"
 #include "WriteScope.h"
 
@@ -405,6 +409,7 @@ struct WorkerPool::Private
     std::string token;
     std::string dir;   ///< the pool's: the copy, the settings, logs, results
     std::string copy;  ///< the document's copy, empty when none stands
+    int64_t version = 0;  ///< the log's version the copy is, 0 for a saved copy
     std::vector<std::string> proxies;
     std::string program;
     std::deque<JobId> queue;
@@ -514,21 +519,56 @@ bool WorkerPool::Private::takeCopy()
         reason = "cannot make " + dir;
         return false;
     }
-    const std::string file = dir + "/Document.FCStd";
+    std::string file;
     std::string failure;
-    bool saved = false;
+    version = 0;
     {
-        // The save puts an Animation's rest values back and its pose again:
-        // not changes of the design
         Base::FlagToggler<bool> flag(copying);
-        try {
-            saved = doc.saveCopy(file.c_str(), false);
+        // A version of the log (docs/WorkerProcess.md sec 3): the design as
+        // a save serialises it, with no save -- nothing put back, nothing
+        // recomputed, no archive -- written out as an unpacked project with
+        // the file's strings, which a version does not carry
+        if (params()->GetBool("FromLog", true)) {
+            try {
+                version = doc._snapshotToLog("workers");
+                if (version > 0) {
+                    auto& core = TransactionLogCore::of(doc.getFileHistory());
+                    core.flush();
+                    const std::string where = dir + "/version";
+                    Document::materialiseVersion(core, version, where, false);
+                    StringHasherRef hasher = doc.getStringHasher();
+                    Base::ofstream out(Base::FileInfo(where + "/" + Document::stringTableName()),
+                                       std::ios::out | std::ios::binary);
+                    const std::string table = hasher ? hasher->saveTable() : std::string();
+                    out.write(table.data(), static_cast<std::streamsize>(table.size()));
+                    if (!out) {
+                        THROWM(Base::FileException, "cannot write the string table");
+                    }
+                    file = where;
+                }
+            }
+            catch (Base::Exception& e) {
+                FC_LOG(doc.getName() << ": no version of the log for the workers: " << e.what());
+                version = 0;
+            }
         }
-        catch (Base::Exception& e) {
-            failure = e.what();
+        if (file.empty()) {
+            // A transaction is open, or the log is off: a copy saved as a
+            // save writes it, which puts an Animation's rest values back
+            // and its pose again
+            file = dir + "/Document.FCStd";
+            try {
+                if (!doc.saveCopy(file.c_str(), false)) {
+                    file.clear();
+                }
+            }
+            catch (Base::Exception& e) {
+                failure = e.what();
+                file.clear();
+            }
         }
     }
-    if (!saved) {
+    if (file.empty()) {
         Base::FileInfo(dir).deleteDirectoryRecursive();
         reason = "the document could not be copied for the workers"
             + (failure.empty() ? std::string() : ": " + failure);
@@ -1484,6 +1524,7 @@ WorkerPool::Info WorkerPool::info() const
     info.failed = d->failed;
     info.reason = d->reason;
     info.directory = d->dir;
+    info.version = d->version;
     return info;
 }
 
@@ -1926,6 +1967,7 @@ public:
         dict.setItem("Failed", Py::Long(i.failed));
         dict.setItem("Reason", Py::String(i.reason));
         dict.setItem("Directory", Py::String(i.directory));
+        dict.setItem("Version", Py::Long(static_cast<long>(i.version)));
         Py::List pids;
         for (long pid : i.pids) {
             pids.append(Py::Long(pid));

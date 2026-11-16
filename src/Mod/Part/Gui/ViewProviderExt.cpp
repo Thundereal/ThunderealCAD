@@ -179,7 +179,8 @@ PROPERTY_SOURCE(PartGui::ViewProviderPartExt, Gui::ViewProviderGeometryObject)
 namespace {
 /// How this view meshes `obj` (docs/WorkerProcess.md sec 14): the
 /// deviation and the angle updateVisual() uses, for a worker making a frame
-/// of the Animation to mesh its shape so. Nothing for an object not shown
+/// of the Animation to mesh its shape so. A hidden object too: its visual
+/// is built all the same when the scene's bounds are asked for
 std::string animationDisplayHint(const App::DocumentObject& obj)
 {
     if (!Gui::Application::Instance) {
@@ -187,7 +188,7 @@ std::string animationDisplayHint(const App::DocumentObject& obj)
     }
     auto vp = freecad_cast<PartGui::ViewProviderPartExt*>(
         Gui::Application::Instance->getViewProvider(&obj));
-    if (!vp || !vp->isShow()) {
+    if (!vp) {
         return {};
     }
     const bool over = PartGui::PartParams::getOverrideTessellation();

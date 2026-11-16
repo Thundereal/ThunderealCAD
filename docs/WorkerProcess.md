@@ -587,9 +587,12 @@ materialising it.
   mesh only within a tenth of the ask -- so a frame written with its mesh
   was meshed again all the same.
 - **The view says how it meshes.** `Animation::displayHint`, set by
-  PartGui: for an object shown by a `ViewProviderPartExt`, "mesh
-  <deviation> <angle>", as `updateVisual` takes them (the
-  `OverrideTessellation` preference and the minimums applied). The
+  PartGui: for an object with a `ViewProviderPartExt`, "mesh <deviation>
+  <angle>", as `updateVisual` takes them (the `OverrideTessellation`
+  preference and the minimums applied). A hidden object too: its visual
+  is built all the same when the view asks the scene for its bounds,
+  which it does for every frame (a plate's hidden `Cut`, meshed so each
+  frame, was a third of what was left after the first cut of this). The
   Animation's jobs carry the hints of every object (`display` in the
   job's inputs); `FrameMeshes` of Preferences/Workers (true) off leaves
   them out, for A/B.
@@ -609,14 +612,19 @@ materialising it.
   an evaluation) still does not.
 
 Measured 2026-11-16 on mini, the same plate, a frame read from disk and
-the view waited for, two runs each way: the replay (Time set) 76.5 ms
-without the mesh, 33.4 ms with it; the whole frame 135 ms, 93 ms. A frame
-from memory is unchanged (56 ms, of it 18 ms replay). The frame's file is
-larger, 2.6 MB against 0.36 MB.
+the view waited for, three runs each way: the replay (Time set) 76 ms
+without the mesh, 34 ms with it; the whole frame 135 ms, 74-77 ms (one
+run, the first after a build, 94). A frame from memory is unchanged (56
+ms, of it 18 ms replay). The frame's file is larger, 2.6 MB against 0.36
+MB. Of the main thread's time on such a frame, the mesh is now 0.2%.
 
-What is left of a frame read from disk, for 5b: the replay's 33 ms (the
-element references, the restore, the view's fill of its nodes) and the
-drawing after it.
+What is left of a frame read from disk: the replay's 34 ms (the view's
+fill of its nodes, the restore, the element references, each about a
+third) and the drawing after it -- of the main thread's busy time the
+bgfx renderer 10%, the render cache 8%, Coin 3%, the GL surface's flush
+(the frame presented) 11%, the other widgets 6%. The ruling of
+2026-11-16 takes the drawing next: the meshes of the frames to come
+prepared before they are shown.
 
 Tests: TestAnimation 73 (a frame written meshed, near three times the
 size, a hint it does not know written plain), `tests/gui/animation-

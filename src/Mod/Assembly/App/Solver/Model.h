@@ -371,8 +371,9 @@ struct ContactLaw
     enum class Stiffness : std::uint8_t
     {
         Value,       // stiffness and exponent
-        Materials,   // Hertz's
-        Penetration  // the allowance's, at exponent
+        Materials,    // Hertz's
+        Penetration,  // the allowance's, at exponent
+        Pressure      // stiffness a pressure per depth^e over the area (D4b way 2)
     };
     enum class Radius : std::uint8_t
     {

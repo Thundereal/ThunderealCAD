@@ -1452,6 +1452,10 @@ public:
         // point at station 0 and its way, in the carrier's frame
         ch::ChVector3d lineFrom;
         ch::ChVector3d lineWay;
+        // A line's end (thinOut()): how far the line runs on past it, the
+        // hundredth of its stretch it is put in by, for a pressure's length
+        // (pressureLaw())
+        double beyond = 0.0;
         // Found on a curved face against a flat face of the other part's,
         // slid towards it or not (towardsFlat()): its face and its area
         // coordinates there, for toFlat()
@@ -1680,6 +1684,32 @@ public:
             }
             faceSolid[f] = given.face;
         }
+    }
+
+    // The surface's curvature tensor at a load's point placed on it, absolute,
+    // convex positive (ShapesOn::curvatureAt()'s): its face's true surface's
+    // where the face has one (faceTrue), its six nodes' else -- not the
+    // collision mesh's at its corners, which read a rod R 5 at a 4 mm mesh
+    // as round both ways, 1/14 mm, at times (pressureLaw()). False where the
+    // point is on no face of the surface
+    bool curvatureOf(const ContactLoad::OnMesh& on, ch::ChMatrix33d& tensor) const
+    {
+        if (!mesh || !on.placed || on.face >= surface->size()) {
+            return false;
+        }
+        LS::Face x;
+        trueCorners(on.face, x);
+        const LS::Offsets* offsets =
+            on.face < faceSolid.size() && faceSolid[on.face] >= 0 ? &faceTrue[on.face] : nullptr;
+        LS::Local local;
+        if (!LS::localSurface(x, on.L, local, offsets)) {
+            return false;
+        }
+        const ch::ChVector3d w1 = carrier->GetRot().Rotate(v(local.way1));
+        const ch::ChVector3d w2 = carrier->GetRot().Rotate(v(local.way2));
+        tensor = ch::TensorProduct(w1, w1) * std::max(local.k1, 0.0)
+            + ch::TensorProduct(w2, w2) * std::max(local.k2, 0.0);
+        return true;
     }
 
     // The solid's face face f is on (faceSolid), or -1
@@ -4167,6 +4197,8 @@ void thinOut(ContactLoad& load,
             continue;
         }
         (sideA ? movedA : movedB) = true;
+        placedOn[nearLow].beyond = in;
+        placedOn[nearHigh].beyond = in;
         // The other flexible part's point of each end, set on its round by
         // this one's (ContactLoad::given): where the end is now
         if (other) {
@@ -4502,6 +4534,8 @@ void thinOut(ContactLoad& load,
             continue;
         }
         (sideA ? movedA : movedB) = true;
+        placedOn[nearLow].beyond = toLow - low;
+        placedOn[nearHigh].beyond = high - toHigh;
         if (other) {
             onFlexible.push_back({nearLow, sideA});
             onFlexible.push_back({nearHigh, sideA});
@@ -7858,6 +7892,276 @@ void johnsonLine(double modulus,
     stiffness = length * load / std::pow(depth, exponent);
 }
 
+// The area of the points' convex hull in the plane square to 'normal'
+double hullArea(const std::vector<ch::ChVector3d>& at, const ch::ChVector3d& normal)
+{
+    if (at.size() < 3) {
+        return 0.0;
+    }
+    ch::ChVector3d u = ch::Vcross(normal, std::abs(normal.x()) < 0.9 ? ch::VECT_X : ch::VECT_Y);
+    u.Normalize();
+    const ch::ChVector3d v = ch::Vcross(normal, u);
+    std::vector<std::pair<double, double>> flat;
+    for (const auto& p : at) {
+        flat.emplace_back(ch::Vdot(p, u), ch::Vdot(p, v));
+    }
+    std::sort(flat.begin(), flat.end());
+    auto turn = [](const std::pair<double, double>& o,
+                   const std::pair<double, double>& a,
+                   const std::pair<double, double>& b) {
+        return (a.first - o.first) * (b.second - o.second)
+            - (a.second - o.second) * (b.first - o.first);
+    };
+    // Andrew's monotone chain
+    std::vector<std::pair<double, double>> hull(2 * flat.size());
+    std::size_t k = 0;
+    for (std::size_t i = 0; i < flat.size(); ++i) {
+        while (k >= 2 && turn(hull[k - 2], hull[k - 1], flat[i]) <= 0.0) {
+            --k;
+        }
+        hull[k++] = flat[i];
+    }
+    for (std::size_t i = flat.size() - 1, low = k + 1; i > 0; --i) {
+        while (k >= low && turn(hull[k - 2], hull[k - 1], flat[i - 1]) <= 0.0) {
+            --k;
+        }
+        hull[k++] = flat[i - 1];
+    }
+    double area = 0.0;
+    for (std::size_t i = 0; i + 1 < k; ++i) {
+        area += hull[i].first * hull[i + 1].second - hull[i + 1].first * hull[i].second;
+    }
+    return 0.5 * std::abs(area);
+}
+
+double lineLength(const std::vector<ch::ChVector3d>& at,
+                  const std::vector<double>& gaps,
+                  const std::vector<ch::ChVector3d>& across);
+
+// How far a line on a hull with a curved face of no round runs (D4b way 2):
+// its points found where Bullet's GJK found them, a cone's one or two
+// anywhere along its side, the line's length is the hull's -- the stations
+// along 'way' (absolute) of its points within 'width' / 2 of the line
+// through 'deepest' and within 'depth' of the deepest of them towards
+// 'outward' (absolute). False where it has none
+bool hullLineReach(const ShapeOn& on,
+                   const ch::ChVector3d& deepest,
+                   const ch::ChVector3d& way,
+                   const ch::ChVector3d& outward,
+                   double width,
+                   double depth,
+                   double& length,
+                   double& lowAt,
+                   double& highAt,
+                   double& kLow,
+                   double& kHigh)
+{
+    if (!on.hullBent || on.hull.empty() || !on.body) {
+        return false;
+    }
+    const ch::ChFramed frame = on.frame >> *on.body;
+    double most = -std::numeric_limits<double>::max();
+    std::vector<ch::ChVector3d> at;
+    at.reserve(on.hull.size());
+    for (const auto& p : on.hull) {
+        at.push_back(frame.TransformPointLocalToParent(p));
+        most = std::max(most, ch::Vdot(at.back(), outward));
+    }
+    double low = std::numeric_limits<double>::max();
+    double high = -low;
+    std::size_t lowOne = 0;
+    std::size_t highOne = 0;
+    for (std::size_t i = 0; i < at.size(); ++i) {
+        const ch::ChVector3d from = at[i] - deepest;
+        const double station = ch::Vdot(from, way);
+        const ch::ChVector3d side = from - way * station - outward * ch::Vdot(from, outward);
+        if (side.Length() <= 0.5 * width && ch::Vdot(at[i], outward) >= most - depth) {
+            if (station < low) {
+                low = station;
+                lowOne = i;
+            }
+            if (station > high) {
+                high = station;
+                highOne = i;
+            }
+        }
+    }
+    if (!(high > low)) {
+        return false;
+    }
+    length = high - low;
+    lowAt = low;
+    highAt = high;
+    // Its curvature across the line at each end: the face's there facing
+    // that way (ContactShape::surfaces)
+    const ch::ChVector3d across = ch::Vcross(way, outward);
+    auto curvatureAcross = [&](std::size_t i) {
+        if (i >= on.surfaces.size()) {
+            return 0.0;
+        }
+        const ShapeOn::Surface* best = nullptr;
+        const ch::ChVector3d out = frame.TransformDirectionParentToLocal(outward);
+        for (const auto& face : on.surfaces[i]) {
+            if (!best || ch::Vdot(face.normal, out) > ch::Vdot(best->normal, out)) {
+                best = &face;
+            }
+        }
+        if (!best) {
+            return 0.0;
+        }
+        const ch::ChVector3d a = frame.TransformDirectionParentToLocal(across);
+        return std::max(ch::Vdot(a, best->tensor * a), 0.0);
+    };
+    kLow = curvatureAcross(lowOne);
+    kHigh = curvatureAcross(highOne);
+    return true;
+}
+
+/** A patch's stiffness and exponent for a pressure over its area (D4b way
+ * 2, ContactLaw::Stiffness::Pressure): p = k d^e where the surfaces overlap
+ * by d, summed over the overlap of the gap's quadric by the patch's
+ * relative curvature, k1 >= k2 its means over its points
+ * (patchStiffness()) -- in closed form, the force c k d^n at the patch's
+ * depth:
+ * - round, k2 at least a hundredth of k1: an ellipse, c = 2 pi / (e + 1) /
+ *   sqrt(k1 k2), n = e + 1 -- pi d^2 / sqrt(k1 k2) at e = 1;
+ * - a line: across it sqrt(2 / k1) B(1/2, e + 1) d^(e + 1/2) a length, its
+ *   length the points' (lineLength()) and 'beyond', how far a flexible
+ *   part's line runs on past its two ends (OnMesh::beyond) -- 4/3 sqrt(2 R)
+ *   L d^1.5 at e = 1; a point's line, a ball's of k2 a hundredth of k1;
+ * - flat, k1 under a kilometre's: the area of the points' hull square to
+ *   the normal, n = e; of two points or one, a disc of the parts' sizes.
+ * The patch's springs share it as any law's (ContactLoad::ComputeQ()):
+ * exact where its depth is the same at its points, a line's ends pressed
+ * alike.
+ */
+void pressureLaw(const ContactLaw& law,
+                 std::size_t count,
+                 double k1Sum,
+                 double k2Sum,
+                 const std::vector<double>& k1s,
+                 const std::vector<double>& k1A,
+                 const std::vector<double>& k1B,
+                 const std::vector<ch::ChVector3d>& at,
+                 const std::vector<double>& gaps,
+                 const std::vector<ch::ChVector3d>& across,
+                 ch::ChVector3d normal,
+                 double beyond,
+                 const ShapeOn* onA,
+                 const ShapeOn* onB,
+                 double& stiffness,
+                 double& exponent)
+{
+    const double e = law.exponent;
+    if (!count || !(e > 0.0)) {
+        return;
+    }
+    const double k1 = k1Sum / static_cast<double>(count);
+    double k2 = k2Sum / static_cast<double>(count);
+    if (!(k1 > 1e-3)) {
+        normal.Normalize();
+        double area = hullArea(at, normal);
+        if (!(area > 0.0)) {
+            double sizes = 0.0;
+            for (const ShapeOn* on : {onA, onB}) {
+                sizes += on && on->size > 0.0 ? 1.0 / on->size : 0.0;
+            }
+            const double part = sizes > 0.0 ? 1.0 / sizes : 0.0;
+            area = pi * part * part;
+        }
+        stiffness = law.stiffness * area;
+        exponent = e;
+        return;
+    }
+    if (k2 < 0.01 * k1) {
+        double length = lineLength(at, gaps, across);
+        // Its radius across at each end, the line's way, and how far it
+        // runs: the points' farthest apart along it, or a rigid hull's own
+        std::size_t deepestAt = 0;
+        for (std::size_t i = 1; i < gaps.size(); ++i) {
+            if (gaps[i] < gaps[deepestAt]) {
+                deepestAt = i;
+            }
+        }
+        normal.Normalize();
+        ch::ChVector3d way = ch::Vcross(normal, across[deepestAt]);
+        double kLow = k1;
+        double kHigh = k1;
+        if (way.Length() > 0.5) {
+            way.Normalize();
+            std::size_t lowOne = deepestAt;
+            std::size_t highOne = deepestAt;
+            for (std::size_t i = 0; i < at.size(); ++i) {
+                const double station = ch::Vdot(at[i] - at[deepestAt], way);
+                if (station < ch::Vdot(at[lowOne] - at[deepestAt], way)) {
+                    lowOne = i;
+                }
+                if (station > ch::Vdot(at[highOne] - at[deepestAt], way)) {
+                    highOne = i;
+                }
+            }
+            if (lowOne < k1s.size() && highOne < k1s.size()) {
+                kLow = k1s[lowOne];
+                kHigh = k1s[highOne];
+            }
+            const double depth = std::max(-gaps[deepestAt], 0.0);
+            if (depth > 0.0) {
+                const double width = 2.0 * std::sqrt(2.0 * depth / k1);
+                double reach = 0.0;
+                double low = 0.0;
+                double high = 0.0;
+                double hullLow = 0.0;
+                double hullHigh = 0.0;
+                // A's surface faces along the normal, B's against it; the
+                // other's curvature across the deepest point's less the hull's
+                const bool onAHull = onA && onA->hullBent;
+                const ShapeOn* hull = onAHull ? onA : onB;
+                if (hull
+                    && hullLineReach(*hull,
+                                     at[deepestAt],
+                                     way,
+                                     onAHull ? normal : -normal,
+                                     width,
+                                     depth,
+                                     reach,
+                                     low,
+                                     high,
+                                     hullLow,
+                                     hullHigh)
+                    && reach > length) {
+                    // The other side's curvature across, its own at the points
+                    const auto& others = onAHull ? k1B : k1A;
+                    double other = 0.0;
+                    for (const double k : others) {
+                        other += k;
+                    }
+                    other /= static_cast<double>(std::max<std::size_t>(others.size(), 1));
+                    length = reach;
+                    kLow = hullLow + other;
+                    kHigh = hullHigh + other;
+                }
+            }
+        }
+        if (length > 0.0 && kLow > 0.0 && kHigh > 0.0) {
+            length += beyond;
+            const double beta = std::sqrt(pi) * std::tgamma(e + 1.0) / std::tgamma(e + 1.5);
+            // Its radius across linear along it, a cone's: the mean of
+            // sqrt(2 r) over the line, (2/3) (rb^1.5 - ra^1.5) / (rb - ra)
+            const double ra = 1.0 / kLow;
+            const double rb = 1.0 / kHigh;
+            const double mean = std::abs(rb - ra) > 1e-9 * (ra + rb)
+                ? (2.0 / 3.0) * (std::pow(rb, 1.5) - std::pow(ra, 1.5)) / (rb - ra)
+                : std::sqrt(0.5 * (ra + rb));
+            stiffness = law.stiffness * std::sqrt(2.0) * mean * beta * length;
+            exponent = e + 0.5;
+            return;
+        }
+        k2 = 0.01 * k1;
+    }
+    stiffness = law.stiffness * 2.0 * pi / (e + 1.0) / std::sqrt(k1 * k2);
+    exponent = e + 1.0;
+}
+
 // Each patch's stiffness and exponent (ContactLaw): the law's, or Hertz's
 // from the shapes' materials, 1/E* the sum of the two shapes'
 // 1 / (E / (1 - nu^2)). By the parts' sizes, a ball's: k = 4/3 E* R^0.5,
@@ -7918,7 +8222,8 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         }
         return;
     }
-    if (law.from != ContactLaw::Stiffness::Materials || load.points.empty()) {
+    const bool pressure = law.from == ContactLaw::Stiffness::Pressure;
+    if ((law.from != ContactLaw::Stiffness::Materials && !pressure) || load.points.empty()) {
         return;
     }
     const auto& points = load.points;
@@ -7938,19 +8243,44 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         std::vector<ch::ChVector3d> at;
         std::vector<double> gaps;
         std::vector<ch::ChVector3d> across;
+        ch::ChVector3d normal;
+        // How far its lines run on past their ends (OnMesh::beyond), and
+        // each point's curvature across
+        double beyond = 0.0;
+        std::vector<double> k1s;
+        // And each side's alone across there, A's and B's
+        std::vector<double> k1A;
+        std::vector<double> k1B;
     };
     std::vector<Patch> patches(load.patches);
-    for (const auto& point : points) {
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        const auto& point = points[i];
         Patch& patch = patches[point.patch];
         const ch::ChVector3d& n = point.normal;
         const ch::ChVector3d pA = bodyA->TransformPointLocalToParent(point.onA);
         const ch::ChVector3d pB = bodyB->TransformPointLocalToParent(point.onB);
         // A round's its own (a hollow one's has no shape of Bullet's)
-        const ch::ChMatrix33d both =
-            (point.roundA ? roundCurvature(*point.roundA, *bodyA, n)
-                          : shapes.curvatureAt(point.shapeA, *bodyA, point.onA, n))
-            + (point.roundB ? roundCurvature(*point.roundB, *bodyB, -n)
-                            : shapes.curvatureAt(point.shapeB, *bodyB, point.onB, -n));
+        ch::ChMatrix33d onA = point.roundA ? roundCurvature(*point.roundA, *bodyA, n)
+                                           : shapes.curvatureAt(point.shapeA, *bodyA, point.onA, n);
+        ch::ChMatrix33d onB = point.roundB
+            ? roundCurvature(*point.roundB, *bodyB, -n)
+            : shapes.curvatureAt(point.shapeB, *bodyB, point.onB, -n);
+#ifdef ASSEMBLY_WITH_CHRONO_MODAL
+        // A pressure's, a flexible part's by its face's true surface
+        // (FlexibleContact::curvatureOf()); and its lines' run on past their
+        // ends. Not Hertz's: its figures stand as they were
+        if (pressure) {
+            if (load.meshedA(i)) {
+                load.flexibleA->curvatureOf(load.onMeshA[i], onA);
+                patch.beyond += load.onMeshA[i].beyond;
+            }
+            if (load.meshed(i)) {
+                load.flexible->curvatureOf(load.onMesh[i], onB);
+                patch.beyond += load.onMesh[i].beyond;
+            }
+        }
+#endif
+        const ch::ChMatrix33d both = onA + onB;
         // In the contact plane, its principal curvatures and the first's way
         ch::ChVector3d u = ch::Vcross(n, std::abs(n.x()) < 0.9 ? ch::VECT_X : ch::VECT_Y);
         u.Normalize();
@@ -7966,8 +8296,15 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         ++patch.count;
         patch.k1 += k1;
         patch.k2 += k2;
+        patch.k1s.push_back(k1);
+        {
+            const ch::ChVector3d w = u * std::cos(angle) + v * std::sin(angle);
+            patch.k1A.push_back(std::max(ch::Vdot(w, onA * w), 0.0));
+            patch.k1B.push_back(std::max(ch::Vdot(w, onB * w), 0.0));
+        }
         patch.centre += point.onA;
         patch.at.push_back(pA);
+        patch.normal += n;
         patch.gaps.push_back(ch::Vdot(n, pB - pA));
         patch.across.push_back(u * std::cos(angle) + v * std::sin(angle));
         if (!patch.onA) {
@@ -7984,6 +8321,25 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
     }
     for (std::size_t p = 0; p < patches.size(); ++p) {
         const Patch& patch = patches[p];
+        if (pressure) {
+            pressureLaw(law,
+                        patch.count,
+                        patch.k1,
+                        patch.k2,
+                        patch.k1s,
+                        patch.k1A,
+                        patch.k1B,
+                        patch.at,
+                        patch.gaps,
+                        patch.across,
+                        patch.normal,
+                        patch.beyond,
+                        patch.onA,
+                        patch.onB,
+                        load.stiffness[p],
+                        load.exponents[p]);
+            continue;
+        }
         if (!patch.onA || !patch.onB || !(patch.onA->modulus > 0.0)
             || !(patch.onB->modulus > 0.0)) {
             continue;

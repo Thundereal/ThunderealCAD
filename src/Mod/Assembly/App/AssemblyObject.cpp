@@ -2426,6 +2426,9 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             case 2:
                 law.from = Solver::ContactLaw::Stiffness::Penetration;
                 break;
+            case 3:
+                law.from = Solver::ContactLaw::Stiffness::Pressure;
+                break;
             default:
                 law.from = Solver::ContactLaw::Stiffness::Value;
                 break;

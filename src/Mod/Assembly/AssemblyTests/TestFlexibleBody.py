@@ -1093,6 +1093,63 @@ class TestFlexibleBody(unittest.TestCase):
             most=50.5,
         )
 
+    def test_pressure_on_a_rigid_round(self):
+        """A pressure over the area (D4b way 2): the contact's stiffness 25
+        N/mm^3 a pressure per depth, summed over where the surfaces overlap.
+        A rigid cylinder R 5 x 40 lying along a plate 0.05 mm into it: across
+        the line the overlap is a parabola's, 4/3 sqrt(2 R) d^1.5 a length,
+        and the force k L 4/3 sqrt(2 R) d^1.5, 47.14 N, over the turn; a
+        rigid ball R 5 pressed 0.05 mm with 1000 N/mm^3, a disc's, k pi R d^2,
+        39.27 N"""
+        rod = self.roundTurned(
+            "a pressure on a rigid round", 55, -10, rigidRod=True, pressure=25.0, within=0.001
+        )
+        line = 25.0 * 40.0 * 4.0 / 3.0 * math.sqrt(2 * 5.0) * 0.05**1.5
+        self.assertLess(abs(rod - line), 0.005 * line)
+        self.renew()
+        ball = self.roundTurned(
+            "a pressure on a rigid ball",
+            55,
+            -10,
+            rigidRod=True,
+            ball=True,
+            pressure=1000.0,
+            within=0.001,
+        )
+        disc = 1000.0 * math.pi * 5.0 * 0.05**2
+        self.assertLess(abs(ball - disc), 0.005 * disc)
+
+    def test_pressure_on_a_cone_and_a_flexible_round(self):
+        """A pressure over the area on a round whose radius changes along
+        its line, and on a flexible part (D4b way 2). The rigid cone of
+        test_rigid_cone_on_plate, 25 N/mm^3: across its side sqrt(2 r) runs
+        from R 5 to 4 along it, k 4/3 d^1.5 sqrt(2) int sqrt(r) ds, 44.71 N --
+        each patch's line its hull's (hullLineReach()), its radius at each end
+        and linear between, not the mean of where its points were found,
+        which ran it from 42.5 to 45.0. The flexible rod: its curvature its
+        faces' true surface's (FlexibleContact::curvatureOf()), the mesh's own
+        reading it as a ball at times -- from 1.2 to 60 N; now within a
+        hundredth, under the rigid rod's 47.14 by its give"""
+        half = math.atan2(1.0, 40.0)
+        root = (2.0 / 3.0) * (5.0**1.5 - 4.0**1.5) / (5.0 - 4.0)
+        cone = 25.0 * 4.0 / 3.0 * 0.05**1.5 * math.sqrt(2.0) * root * 40.0 / math.cos(half) ** 1.5
+        rigid = self.roundTurned(
+            "a pressure on a rigid cone",
+            55,
+            -10,
+            cone=4.0,
+            rigidRod=True,
+            arm=4.5,
+            pressure=25.0,
+            within=0.01,
+        )
+        self.assertLess(abs(rigid - cone), 0.01 * cone)
+        self.renew()
+        flexible = self.roundTurned(
+            "a pressure on a flexible round", 55, -10, pressure=25.0, within=0.01
+        )
+        self.assertLess(flexible, 47.14)
+
     def test_round_in_bore(self):
         """A flexible part's round in a rigid bore (D4b step 18):
         test_round_anywhere's rod in a grounded block's bore R 5.5, the
@@ -1137,6 +1194,8 @@ class TestFlexibleBody(unittest.TestCase):
         most=50.0,
         cone=None,
         arm=5.0,
+        ball=False,
+        pressure=None,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1152,7 +1211,10 @@ class TestFlexibleBody(unittest.TestCase):
         cone: the rod a cone instead, R 5 at its held end and 'cone' at the
         other, its hinge's axis tilted so the cone lies along the plate, the
         plate 0.05 mm into it there; a round of no cylinder. arm: the
-        friction's on the rod's axis, its radius where the force is"""
+        friction's on the rod's axis, its radius where the force is. ball:
+        the rod a ball R 5 instead, turned about its centre. pressure: the
+        contact's law a pressure over the area (D4b way 2), N/mm^3. Returns
+        the mean force over the turn"""
         import CommandCreateContact
 
         mount = self.box("Mount", (10, 20, 20), (-10, -10, -10))
@@ -1160,7 +1222,10 @@ class TestFlexibleBody(unittest.TestCase):
         JointObject.GroundedJoint(ground, mount)
         tilt = 0.0
         top = -5.0
-        if cone:
+        if ball:
+            rod = self.assembly.newObject("Part::Sphere", "Rod")
+            rod.Radius = 5
+        elif cone:
             rod = self.assembly.newObject("Part::Cone", "Rod")
             rod.Radius1 = 5
             rod.Radius2 = cone
@@ -1241,8 +1306,8 @@ class TestFlexibleBody(unittest.TestCase):
             held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
             JointObject.GroundedJoint(held, plate)
         self.doc.recompute()
-        # Its end face at x = 0
-        end = next(
+        # Its end face at x = 0; a ball's own, held at its centre
+        end = "Face1" if ball else next(
             "Face%d" % (i + 1)
             for i, face in enumerate(rod.Shape.Faces)
             if face.Surface.__class__.__name__ == "Plane" and abs(face.CenterOfMass.x) < 1e-6
@@ -1258,8 +1323,8 @@ class TestFlexibleBody(unittest.TestCase):
         self.doc.recompute()
         self.assertEqual(self.assembly.solve(), 0)
         contact = CommandCreateContact.newContactSet(self.assembly, [rod], [plate])
-        contact.StiffnessFrom = "Value"
-        contact.Stiffness = 1000.0
+        contact.StiffnessFrom = "Pressure" if pressure else "Value"
+        contact.Stiffness = pressure if pressure else 1000.0
         contact.Exponent = 1.0
         contact.FrictionFrom = "Value"
         contact.StaticFriction = friction
@@ -1307,6 +1372,7 @@ class TestFlexibleBody(unittest.TestCase):
         print("%s: the motion's torque %.4g N mm, %.4f N R for a friction of %g"
               % (name, torque, torque / (mean * arm), friction))
         self.assertLess(abs(torque - friction * mean * arm), 0.006 * mean * arm)
+        return mean
 
     def renew(self):
         """A new document for a second run, as setUp's"""

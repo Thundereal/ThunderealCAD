@@ -5822,6 +5822,58 @@ Phase D1 is under way (2026-10-28):
   - Not yet: the triangle nearest is found among all the hull's, each
     point at each update -- 4 s for the cone, where it took 1; a grid or
     the last one's neighbours would do.
+- Built, D4b way 2 step 1 (2026-11-16): a pressure over the area, opt-in.
+  A contact set's Stiffness from gains Pressure: its Stiffness a pressure
+  per depth^e, N/mm^(e + 2) (a Winkler layer, the elastic foundation's;
+  hydroelastic contact's modulus over its depth), the force the pressure
+  summed over where the surfaces overlap. The default stays the points'
+  law, and every figure of the tests and the manual with it; making
+  Pressure the default is the user's to rule.
+  - Summed in closed form over the overlap of the gap's quadric, by the
+    patch's relative curvature (`pressureLaw()`, from `patchStiffness()`'s
+    classes): round, an ellipse, c = 2 pi / (e + 1) / sqrt(k1 k2), the force
+    c k d^(e + 1) -- pi R d^2 a ball at e = 1; a line, across it sqrt(2 / k1)
+    B(1/2, e + 1) d^(e + 1/2) a length -- 4/3 sqrt(2 R) at e = 1 -- its
+    radius across at its two ends and linear between, a cone's, the mean of
+    sqrt(2 r) over it (2/3) (rb^1.5 - ra^1.5) / (rb - ra); flat, the area of
+    the points' hull, k A d^e. The patch's springs share it as any law's.
+  - Model: `ContactLaw::Stiffness::Pressure`, scaled as a force over a
+    length to the e + 2; Physics' StiffnessFrom "Pressure" (appended: files
+    keep theirs); the contact panel's "A pressure over the area", its
+    Stiffness in N/mm^(e+2), no rest estimate (the area is the run's).
+  - A flexible part's: its curvature its face's true surface's
+    (`FlexibleContact::curvatureOf()`, step 3's offsets) -- the collision
+    mesh's at its corners read the rod R 5 as a ball of 14 mm at times, a
+    line a point, its force 1.2 to 60 N; a line's length its two ends' and
+    how far it runs on past them (`OnMesh::beyond`, the hundredth of the
+    stretch thinOut() puts them in by) -- 39.2 mm of the rod's 40 before.
+    Hertz's figures stand: neither is taken for Materials.
+  - A rigid hull's line: its points where GJK found them, one or two
+    anywhere along a cone's side; its length the hull's points along it
+    within the contact's width and depth (`hullLineReach()`), their
+    curvature across at its two ends, the other side's by its own at the
+    points -- the patch's mean less the hull's read the flat plate as
+    curved where the points gathered at the cone's narrow end, 42.5 to 45.0
+    N.
+  - Numbers, over the turn, 25 N/mm^3 (1000 the ball's), pressed 0.05 mm:
+    a rigid cylinder R 5 x 40 47.14 N for the closed form's 47.1405; a
+    rigid ball 39.27 for 39.2699; a rigid cone R 5 to 4, 44.77 to 45.02
+    (44.88) for 44.71; the flexible rod 41.15 to 41.44, on a flexible plate
+    the same; the flexible cone 38.55 to 38.85; a rigid block 40 x 10 flat
+    on a plate, 2.5 N/mm^3, 50.25 for 50 (Bullet's corners a margin out),
+    the flexible block 37.84.
+  - Tests: TestFlexibleBody.test_pressure_on_a_rigid_round (the cylinder
+    and the ball, within half a percent of the closed forms) and
+    test_pressure_on_a_cone_and_a_flexible_round (the cone within a
+    percent, the flexible rod within a hundredth of its mean); before, no
+    Pressure. TestContact 63, TestDynamics 90, TestJointFriction 4,
+    TestFlexibleBody 39, every other figure as it was. Probes
+    ~/.cache/flexcontact/pressureprobe.py, rigidpseries.py, flatprobe.py.
+  - Not yet: an overlap the quadric is not -- a pin in a bore 4.7 mm wide on
+    R 5, a line past a face's end, a flat face's area by points that are not
+    its corners -- summed finer than the faces on the surfaces themselves;
+    a line's depth along it taken as its ends' share, exact where they
+    press alike.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

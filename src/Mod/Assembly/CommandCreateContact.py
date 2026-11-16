@@ -65,6 +65,7 @@ Choices = {
         ("Materials", QT_TRANSLATE_NOOP("Assembly", "The parts' materials (Hertz)")),
         ("Value", QT_TRANSLATE_NOOP("Assembly", "A value")),
         ("Penetration", QT_TRANSLATE_NOOP("Assembly", "An allowed penetration")),
+        ("Pressure", QT_TRANSLATE_NOOP("Assembly", "A pressure over the area")),
     ],
     "RadiusFrom": [
         ("Patch", QT_TRANSLATE_NOOP("Assembly", "Where they touch")),
@@ -141,6 +142,9 @@ def restEstimate(contact, components):
         if entry and entry["Mass"] > 0 and (lightest is None or entry["Mass"] < lightest["Mass"]):
             lightest = entry
     if lightest is None:
+        return None
+    # A pressure's force is by the area where they touch, known in the run
+    if contact.StiffnessFrom == "Pressure":
         return None
     if contact.StiffnessFrom == "Materials":
         others = [components.get(o.Name) for o in (contact.GroupB or contact.GroupA)]
@@ -452,8 +456,11 @@ class TaskContact(QtCore.QObject):
         self.slider.setValue(self.sliderOf(self.contact.Stiffness))
         self.slider.blockSignals(False)
         source = self.contact.StiffnessFrom
-        self.boxes["Stiffness"].setEnabled(source == "Value")
-        self.slider.setEnabled(source == "Value")
+        byValue = source in ("Value", "Pressure")
+        self.boxes["Stiffness"].setEnabled(byValue)
+        self.slider.setEnabled(byValue)
+        # A pressure's a force over the area: N/mm^(e + 2)
+        self.boxes["Stiffness"].setSuffix(" N/mm^(e+2)" if source == "Pressure" else " N/mm^e")
         self.boxes["Exponent"].setEnabled(source != "Materials")
         self.boxes["RadiusFrom"].setEnabled(source == "Materials")
         self.boxes["AllowedPenetration"].setEnabled(source == "Penetration")

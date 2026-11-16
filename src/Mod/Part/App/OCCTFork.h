@@ -254,7 +254,15 @@ private:
 ///       pcurves; and a peak's offset is carried to the axis on its own
 ///       circle with the Intersection join (sec 59). An OCCT without it makes
 ///       level 3 as the highest level it has.
-constexpr int OCCTOffsetFixLevelLatest = 3;
+///  4 -- two faces that meet at a slight angle are no longer taken for
+///       tangent where their offsets would miss each other by more than
+///       0.001 (they were, up to 0.1 rad): the offsets are cut by each other
+///       or joined by a tube, not left apart under a loose edge. #613's
+///       part, a cone 1.5 deg off the cylinder it stands on, 2 inward: the
+///       two walls missed by 0.052 and the solid's volume was 46 short of
+///       10240 (sec 74). An OCCT without it makes level 4 as the highest
+///       level it has.
+constexpr int OCCTOffsetFixLevelLatest = 4;
 
 /// Sets, for the calling thread, the OCCT fork's offset fix level
 /// (BRepOffset_SetFixLevel): which of the fork's corrections to the offset

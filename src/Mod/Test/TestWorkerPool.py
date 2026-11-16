@@ -220,6 +220,34 @@ class TestWorkerPool(unittest.TestCase):
             self.assertEqual(result["Output"], {fillets[0]: 12, fillets[1]: 3}, store)
             self.pool.stop()
 
+    def testAFileASaveWroteGoesWithItsValue(self):
+        """A save stores each value as a part of its version, and the log
+        holds it from there: the file a list wrote beside it -- a fillet's
+        `Fillet.Edges.bin` -- is its attachment, or a version after the
+        save, which claims the value, names a file it does not carry"""
+        import Part  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        self.doc.recompute()
+        fillet = self.doc.addObject("Part::Fillet", "Fillet")
+        fillet.Base = box
+        fillet.Edges = [(e + 1, 1.0, 1.0) for e in range(12)]
+        self.doc.recompute()
+        path = os.path.join(tempfile.gettempdir(), "TestWorkerPool-%d.FCStd" % os.getpid())
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        self.doc.saveCopy(path)
+        for store in (True, False):
+            group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+            group.SetBool("ReadStore", store)
+            self.addCleanup(group.RemBool, "ReadStore")
+            self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+            self.assertGreater(self.pool.info()["Version"], 0)
+            job = self.submit("test.edges", {"Objects": ["Fillet"]})
+            self.assertTrue(self.pool.wait(120))
+            result = self.pool.result(job)
+            self.assertEqual(result["Output"], {"Fillet": 12}, (store, result))
+            self.pool.stop()
+
     def testTheVersionIsHeldWhileTheWorkersHoldIt(self):
         """Retention lets an unnamed version go past the number kept, but
         not one the pool's copy is: a worker started later reads it"""

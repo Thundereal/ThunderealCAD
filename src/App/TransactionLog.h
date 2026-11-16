@@ -864,9 +864,12 @@ public:
     /// version's composite of the same entry, for supersession. Returns
     /// the composite's hash; `full` gets the SHA-1 of the entry's bytes
     /// when they are all in hand (record mode), else the composite hash.
+    /// `files`, the other entries of the same save: what a part it stores
+    /// names as a file of its own (`file="..."`) is attached to that part.
     /// Worker thread.
     std::string putComposite(const std::string& entry, const Base::EntryCapture& capture,
-                             const std::string& previous, std::string& full);
+                             const std::string& previous, std::string& full,
+                             const TransactionLog::Captures* files = nullptr);
     /// Compose an entry's bytes from its composite's `data`. Worker or
     /// flushed caller.
     bool composeEntry(const std::string& data, std::string& out);

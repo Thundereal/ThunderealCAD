@@ -1198,7 +1198,8 @@ void TransactionLogCore::writeVersion(LogVersion& v, LogTransaction& t,
                 auto it = previous.find(e.first);
                 std::string full;
                 const std::string hash = putComposite(
-                    e.first, e.second, it != previous.end() ? it->second : std::string(), full);
+                    e.first, e.second, it != previous.end() ? it->second : std::string(), full,
+                    &entries);
                 // Document.xml, first by contract: matched to a file on
                 // disk by the SHA-1 of the bytes (sec 11) when they were
                 // all in hand, else named by its composite.
@@ -3239,7 +3240,8 @@ bool TransactionLog::Composite::decode(const std::string& data)
 
 std::string TransactionLogCore::putComposite(const std::string& entry,
                                          const Base::EntryCapture& capture,
-                                         const std::string& previous, std::string& full)
+                                         const std::string& previous, std::string& full,
+                                         const TransactionLog::Captures* files)
 {
     using Segment = Base::EntryCapture::Segment;
     const auto& segs = capture.segments;
@@ -3295,7 +3297,37 @@ std::string TransactionLogCore::putComposite(const std::string& entry,
             }
         }
         else {
-            hash = putBytes(s.text, "prop", "durable");
+            // Held from here on, and claimed by the next snapshot, whose
+            // save of it is then skipped: a file the part names -- a list's
+            // `Fillet.Edges.bin`, which the save wrote as an entry of its
+            // own -- goes with it as its attachment, as a commit's capture
+            // has it, or a version after this one names a file it lacks
+            CapturedValue value;
+            if (files) {
+                static const std::string open = "file=\"";
+                for (size_t at = s.text.find(open); at != std::string::npos;
+                     at = s.text.find(open, at + open.size())) {
+                    const size_t from = at + open.size();
+                    const size_t to = s.text.find('"', from);
+                    if (to == std::string::npos || to == from)
+                        break;
+                    const std::string name = s.text.substr(from, to - from);
+                    for (const auto& f : *files) {
+                        if (f.first == name && f.second.keepFrom <= 0) {
+                            value.attachments.push_back({name, f.second.bytes()});
+                            break;
+                        }
+                    }
+                }
+            }
+            if (value.attachments.empty()) {
+                hash = putBytes(s.text, "prop", "durable");
+            }
+            else {
+                value.fragment = s.text;
+                value.ok = true;
+                hash = putValue(value, "durable");
+            }
             _hashById[s.key] = hash;
         }
         hashes[i] = hash;

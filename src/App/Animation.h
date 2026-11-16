@@ -400,6 +400,10 @@ public:
         long spilled = 0;            ///< frames moved out of memory onto disk, ever
         long loaded = 0;             ///< frames read back from disk, ever
         long prepared = 0;           ///< frames a worker made, taken in, ever
+        /// reads of a worker's frame whose strings came in under their ids,
+        /// and by content (docs/WorkerProcess.md sec 15), ever
+        long byId = 0;
+        long byContent = 0;
     };
     CacheInfo cacheInfo() const;
     void clearCache();
@@ -600,6 +604,8 @@ private:
     std::size_t _cacheMeasuredFrames = 0;
     long _cacheSpilled = 0;
     long _cacheLoaded = 0;
+    long _cacheById = 0;
+    long _cacheByContent = 0;
     std::uint64_t _cacheTick = 0;
     long _cacheStored = 0;
     long _cacheReplayed = 0;

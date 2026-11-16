@@ -135,6 +135,8 @@ public:
         bool stale = false;
         long moves = 0;    ///< workers moved along the log to a newer copy
         long reopens = 0;  ///< workers that opened a newer copy whole
+        long leases = 0;   ///< ranges of string ids leased to workers (sec 15)
+        long leasesAsked = 0;  ///< of them, asked for by a worker run out in a job
         bool readStore = false;  ///< the workers read it from this process's store
         std::string blobs;  ///< where the blobs they read are put out
         std::vector<long> pids;

@@ -32,9 +32,12 @@
 //                         store, version, blobs,       move to a newer one
 //                         from, fromSeq, toSeq}        (sec 4)
 //                  job {job, kind, inputs, module, out}
+//                  ids {first, count}                  the answer to ids
 //                  quit
 // A worker says:   hello {token, pid}
 //                  ready {resident, moved, seconds} | unfit {error}
+//                  ids                                 more string ids, in
+//                                                      a job (sec 15)
 //                  result {job, ok, unfit, error, output, seconds, resident}
 //
 // What a worker prints goes to its log in the pool's directory and is
@@ -372,6 +375,7 @@ struct WorkerPool::Private
         std::string store;
         std::string copyDir;     ///< the copy it holds, once it said ready
         std::string nextCopyDir; ///< the copy it was told to open
+        long leaseCount = 0;     ///< the last range of string ids it was leased
     };
     /// A connection that has not said who it is yet
     struct Stranger
@@ -442,6 +446,8 @@ struct WorkerPool::Private
     bool unrecorded = false;
     long moves = 0;
     long reopens = 0;
+    long leases = 0;
+    long leasesAsked = 0;
     /// Copies before this one, gone once no worker is on one
     std::vector<std::string> oldCopies;
     std::vector<std::string> proxies;
@@ -481,6 +487,7 @@ struct WorkerPool::Private
     bool listen();
     bool takeCopy();
     json setupFor(Proc& proc);
+    bool lease(Proc& proc, json& range);
     void pruneCopies();
     void dropReached(const DocumentObject* obj, const std::string& why);
     bool exportBlobs(TransactionLogCore& core, int64_t num);
@@ -781,20 +788,42 @@ json WorkerPool::Private::setupFor(Proc& proc)
     else {
         setup["document"] = copy;
     }
-    // The ids it gives new strings (sec 4, 5): a block far above this
-    // process's, so that strings read in later from the store under this
-    // process's ids never meet one it gave
-    constexpr long long Block = 1LL << 24;
-    constexpr long long Base = 1LL << 30;
-    StringHasherRef hasher = doc.getStringHasher();
-    if (!hasher || hasher->lastID() < Base) {
-        setup["ids"] = Base + static_cast<long long>(proc.number % 63) * Block;
+    // The ids it gives new strings (sec 15): a range this process's table
+    // will never give, leased once; the worker asks for more as it runs out
+    json range;
+    if (!proc.leaseCount && lease(proc, range)) {
+        setup["ids"] = range;
     }
     proc.version = store.empty() ? 0 : version;
     proc.versionSeq = store.empty() ? 0 : versionSeq;
     proc.store = store;
     proc.nextCopyDir = dir;
     return setup;
+}
+
+bool WorkerPool::Private::lease(Proc& proc, json& range)
+{
+    // Out of this process's own counter (docs/WorkerProcess.md sec 15): a
+    // string the worker gives one of these comes back under it, and none
+    // this table gives itself, now or after a save, is one of them. Small
+    // to start, doubling as a worker asks again: what goes unused is never
+    // given, and an id is 32 bits on Windows
+    StringHasherRef hasher = doc.getStringHasher();
+    if (!hasher) {
+        return false;
+    }
+    const long first = std::max<long>(16, params()->GetInt("IdBlock", 1L << 14));
+    const long count = proc.leaseCount
+        ? std::max(proc.leaseCount, std::min(proc.leaseCount * 2, 1L << 20))
+        : first;
+    const long at = hasher->reserveBlock(count);
+    if (!at) {
+        return false;
+    }
+    proc.leaseCount = count;
+    ++leases;
+    range = json {{"first", at}, {"count", count}};
+    return true;
 }
 
 void WorkerPool::Private::pruneCopies()
@@ -1168,6 +1197,20 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         pruneCopies();
         dispatch(proc);
         changedNotice();
+    }
+    else if (type == "ids") {
+        // A job ran out of the ids it was leased: more, or none (count 0),
+        // and the job fails there
+        json answer {{"type", "ids"}, {"first", 0}, {"count", 0}};
+        ++leasesAsked;
+        json range;
+        if (lease(proc, range)) {
+            answer["first"] = range["first"];
+            answer["count"] = range["count"];
+        }
+        if (proc.socket && !send(*proc.socket, answer)) {
+            kill(proc);
+        }
     }
     else if (type == "unfit") {
         // The copy cannot be worked on there: no worker would do better
@@ -1952,6 +1995,8 @@ WorkerPool::Info WorkerPool::info() const
     info.stale = d->stale;
     info.moves = d->moves;
     info.reopens = d->reopens;
+    info.leases = d->leases;
+    info.leasesAsked = d->leasesAsked;
     info.readStore = !d->store.empty();
     info.blobs = d->blobs;
     return info;
@@ -2081,17 +2126,72 @@ int WorkerPool::serve()
         }
         folder.clear();
     };
-    // New strings are given ids from the block the pool named: what is read
-    // in later from the store, under the pool's process's ids, never meets
-    // one given here. A string of the worker's own marks the block's start
-    auto takeBlock = [](const StringHasherRef& hasher, long long ids) {
-        if (!hasher || ids <= 0 || hasher->lastID() >= ids) {
+    // A message from the pool: one set aside first, then the socket's. 0
+    // for one, -1 when it is not a message, -2 when the pool has gone
+    std::deque<std::pair<json, std::string>> pending;
+    auto receive = [&](json& header, std::string& body, bool keep) {
+        if (keep && !pending.empty()) {
+            header = std::move(pending.front().first);
+            body = std::move(pending.front().second);
+            pending.pop_front();
+            return 0;
+        }
+        int got = 0;
+        while ((got = take(buffer, header, body)) == 0) {
+            if (socket.bytesAvailable() == 0) {
+                if (socket.state() != QLocalSocket::ConnectedState) {
+                    return -2;
+                }
+                if (!socket.waitForReadyRead(1000)) {
+                    continue;
+                }
+            }
+            QByteArray bytes = socket.readAll();
+            buffer.append(bytes.constData(), static_cast<std::size_t>(bytes.size()));
+        }
+        return got < 0 ? -1 : 0;
+    };
+    // New strings are given ids the pool's table leased this worker (sec
+    // 15): a result's strings go back under them, and what is read in later
+    // from the store, under that table's ids, never meets one given here.
+    // Shared by every table the copy uses, and kept when it is reopened
+    std::shared_ptr<StringIDLease> lease;
+    auto useLease = [&lease](const StringHasherRef& hasher) {
+        if (hasher && lease) {
+            hasher->setLease(lease);
+        }
+    };
+    auto startLease = [&](const json& range) {
+        if (lease || !range.is_object()) {
             return;
         }
-        StringHasher::Row row;
-        row.id = static_cast<long>(ids);
-        row.data = QByteArray("\x01worker ids ") + QByteArray::number(ids);
-        hasher->insertRows({row});
+        const long first = range.value("first", 0L);
+        const long count = range.value("count", 0L);
+        if (first <= 0 || count <= 0) {
+            return;
+        }
+        lease = std::make_shared<StringIDLease>();
+        lease->add(first, count);
+        // Run out in a job: asked for, and waited for, what else the pool
+        // says meanwhile kept for after it
+        lease->more = [&](long& next, long& n) {
+            if (!send(socket, json {{"type", "ids"}})) {
+                return false;
+            }
+            for (;;) {
+                json header;
+                std::string body;
+                if (receive(header, body, false) < 0) {
+                    return false;
+                }
+                if (header.value("type", "") == "ids") {
+                    next = header.value("first", 0L);
+                    n = header.value("count", 0L);
+                    return next > 0 && n > 0;
+                }
+                pending.emplace_back(std::move(header), std::move(body));
+            }
+        };
     };
     // Move `doc`, version `from` at row `fromSeq`, to the state at row
     // `toSeq` through the rows between: only what they changed is restored,
@@ -2109,20 +2209,7 @@ int WorkerPool::serve()
     for (;;) {
         json header;
         std::string body;
-        int got = 0;
-        while ((got = take(buffer, header, body)) == 0) {
-            if (socket.bytesAvailable() == 0) {
-                if (socket.state() != QLocalSocket::ConnectedState) {
-                    got = -2;
-                    break;
-                }
-                if (!socket.waitForReadyRead(1000)) {
-                    continue;
-                }
-            }
-            QByteArray bytes = socket.readAll();
-            buffer.append(bytes.constData(), static_cast<std::size_t>(bytes.size()));
-        }
+        const int got = receive(header, body, true);
         if (got < 0) {
             break;  // the pool has gone, or said what is not a message
         }
@@ -2139,7 +2226,9 @@ int WorkerPool::serve()
                 const std::string file = header.value("document", std::string());
                 const std::string store = header.value("store", std::string());
                 const int64_t num = header.value("version", int64_t(0));
-                const long long ids = header.value("ids", 0LL);
+                if (auto ids = header.find("ids"); ids != header.end()) {
+                    startLease(*ids);
+                }
                 const int64_t from = header.value("from", int64_t(0));
                 const int64_t fromSeq = header.value("fromSeq", int64_t(0));
                 const int64_t toSeq = header.value("toSeq", int64_t(0));
@@ -2181,7 +2270,7 @@ int WorkerPool::serve()
                         else {
                             reader->logCore()->refreshReader();
                         }
-                        takeBlock(reader->hasher(), ids);
+                        useLease(reader->hasher());
                         TransactionLogCore& core = *reader->logCore();
                         folder = file;
                         Document::materialiseVersion(core, num, file, true);
@@ -2194,12 +2283,13 @@ int WorkerPool::serve()
                         // Nothing is undone here
                         doc->setUndoMode(0);
                         doc->_restoreAsVersion(reader, file, std::string());
+                        useLease(doc->getStringHasher());
                         held = num;
                     }
                     else {
                         doc = GetApplication().openDocument(file.c_str(), false);
                         if (doc) {
-                            takeBlock(doc->getStringHasher(), ids);
+                            useLease(doc->getStringHasher());
                             doc->setUndoMode(0);
                         }
                     }
@@ -2274,6 +2364,9 @@ int WorkerPool::serve()
         }
     }
     closeDoc();
+    if (lease) {
+        lease->more = nullptr;  // what it reaches goes now
+    }
     socket.disconnectFromServer();
     return 0;
 }
@@ -2534,6 +2627,8 @@ public:
         dict.setItem("Stale", Py::Boolean(i.stale));
         dict.setItem("Moves", Py::Long(i.moves));
         dict.setItem("Reopens", Py::Long(i.reopens));
+        dict.setItem("Leases", Py::Long(i.leases));
+        dict.setItem("LeasesAsked", Py::Long(i.leasesAsked));
         dict.setItem("ReadStore", Py::Boolean(i.readStore));
         dict.setItem("Blobs", Py::String(i.blobs));
         Py::List pids;

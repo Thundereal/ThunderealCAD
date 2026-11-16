@@ -758,7 +758,12 @@ void TransactionLogCore::syncStrings(bool all)
         loadStrings();
         all = true;
     }
-    const auto rows = hasher->rows(all ? 0 : _storedMax,
+    // Past the highest stored, and back to what a worker's result brought in
+    // below it under ids leased to that worker (docs/WorkerProcess.md sec 15)
+    long after = all ? 0 : _storedMax;
+    if (const long low = hasher->takeLowTaken())
+        after = std::min(after, low - 1);
+    const auto rows = hasher->rows(after,
                                    [this](long id) { return _storedStrings.count(id) == 0; });
     if (rows.empty())
         return;

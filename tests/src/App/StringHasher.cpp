@@ -3,6 +3,9 @@
 #include "App/MappedName.h"
 #include "gtest/gtest.h"
 
+#include <limits>
+#include <sstream>
+
 #include <App/DocumentParams.h>
 #include <App/StringHasher.h>
 #include <App/StringHasherPy.h>
@@ -2126,6 +2129,162 @@ TEST_F(StringHasherTest, lookupTextFindsByContentAndTakesNothingIn)  // NOLINT
     App::StringHasher::ImportMemo none;
     EXPECT_FALSE(fresh->lookupText(stored, *Hasher(), working, none));
     EXPECT_EQ(fresh->size(), 0U);
+}
+
+// docs/WorkerProcess.md sec 15: ids leased to a worker, its strings taken
+// back under them.
+
+namespace
+{
+/// A worker's table: the pool's as it stands, and the lease it was given
+Base::Reference<App::StringHasher> workerOf(App::StringHasher& pool, long count)
+{
+    Base::Reference<App::StringHasher> worker(new App::StringHasher);
+    worker->insertRows(pool.rows());
+    auto lease = std::make_shared<App::StringIDLease>();
+    lease->add(pool.reserveBlock(count), count);
+    worker->setLease(lease);
+    return worker;
+}
+}  // namespace
+
+TEST_F(StringHasherTest, aReservedBlockIsNeverGivenHere)  // NOLINT
+{
+    const long before = Hasher()->getID("A").value();
+    const long first = Hasher()->reserveBlock(10);
+    EXPECT_EQ(first, before + 1);
+    EXPECT_EQ(Hasher()->lastID(), before + 10);
+    EXPECT_GT(Hasher()->getID("B").value(), before + 10);
+    EXPECT_EQ(Hasher()->reserveBlock(0), 0);
+    EXPECT_EQ(Hasher()->reserveBlock(std::numeric_limits<long>::max()), 0);
+
+    // Nor after a save and a restore
+    Hasher()->getID("A").mark();
+    Base::StringWriter writer;
+    writer.Stream() << "<Root>\n";
+    Hasher()->Save(writer);
+    writer.Stream() << "</Root>\n";
+    std::istringstream stream(writer.getString());
+    Base::XMLReader reader("hasher", stream);
+    reader.readElement("Root");
+    Base::Reference<App::StringHasher> restored(new App::StringHasher);
+    restored->Restore(reader);
+    EXPECT_GT(restored->getID("C").value(), before + 10);
+}
+
+TEST_F(StringHasherTest, aLeaseGivesItsIdsThenAsksForMore)  // NOLINT
+{
+    auto lease = std::make_shared<App::StringIDLease>();
+    lease->add(100, 2);
+    int asked = 0;
+    lease->more = [&asked](long& first, long& count) {
+        if (asked++) {
+            return false;
+        }
+        first = 200;
+        count = 2;
+        return true;
+    };
+    Hasher()->setLease(lease);
+    EXPECT_EQ(Hasher()->getID("A").value(), 100);
+    EXPECT_EQ(Hasher()->getID("B").value(), 101);
+    EXPECT_EQ(Hasher()->getID("A").value(), 100);  // found, not given again
+    EXPECT_EQ(Hasher()->getID("C").value(), 200);
+    EXPECT_EQ(Hasher()->getID("D").value(), 201);
+    EXPECT_EQ(lease->ranges, 2);
+    EXPECT_THROW(Hasher()->getID("E"), Base::RuntimeError);
+    EXPECT_EQ(Hasher()->size(), 4u);
+    Hasher()->setLease(nullptr);
+    EXPECT_EQ(Hasher()->getID("E").value(), 202);
+}
+
+TEST_F(StringHasherTest, aWorkersStringsComeBackUnderTheirIds)  // NOLINT
+{
+    auto a = Hasher()->getID("A");
+    auto worker = workerOf(*Hasher(), 16);
+    auto b = worker->getID("B");
+    QVector<App::StringIDRef> sids {worker->getID("A"), b};
+    auto c = worker->getID(Data::MappedName("Face1;:M#1;CUT"), sids);
+    // The pool goes on giving ids of its own meanwhile
+    auto d = Hasher()->getID("D");
+    EXPECT_GT(d.value(), c.value());
+
+    // What a value naming c needs: c, and what it refers to
+    auto rows = worker->rowsOf({c.value()});
+    ASSERT_GE(rows.size(), 3u);
+    EXPECT_EQ(rows.front().id, a.value());
+    EXPECT_EQ(rows.back().id, c.value());
+
+    std::string why;
+    std::size_t taken = 0;
+    ASSERT_TRUE(Hasher()->takeRows(rows, &why, &taken)) << why;
+    EXPECT_EQ(taken, rows.size() - 1);  // a was held as it is
+    auto here = Hasher()->getID(c.value());
+    ASSERT_TRUE(here);
+    EXPECT_EQ(here.dataToText(), c.dataToText());
+    EXPECT_EQ(Hasher()->getID("B").value(), b.value());  // found, not made again
+    // Taken twice, nothing changes
+    EXPECT_TRUE(Hasher()->takeRows(rows, &why, &taken));
+    EXPECT_EQ(taken, 0u);
+    // Below what the pool gave since: the log has to look back to it
+    EXPECT_EQ(Hasher()->takeLowTaken(), b.value());
+    EXPECT_EQ(Hasher()->takeLowTaken(), 0);
+}
+
+TEST_F(StringHasherTest, takingRowsInIsAllOrNone)  // NOLINT
+{
+    Hasher()->getID("A");
+    auto worker = workerOf(*Hasher(), 16);
+    auto b = worker->getID("B");
+    auto c = worker->getID("C");
+    const auto rows = worker->rowsOf({b.value(), c.value()});
+    const auto size = Hasher()->size();
+    std::string why;
+
+    // An id held here with another string
+    auto clash = rows;
+    clash.front().id = 1;  // "A" here
+    EXPECT_FALSE(Hasher()->takeRows(clash, &why));
+    EXPECT_EQ(Hasher()->size(), size);
+
+    // A reference to what is neither here nor sent
+    auto orphan = rows;
+    orphan.back().sids.emplace_back(9999, 0);
+    EXPECT_FALSE(Hasher()->takeRows(orphan, &why));
+    EXPECT_EQ(Hasher()->size(), size);
+
+    // Out of order
+    std::vector<App::StringHasher::Row> backwards(rows.rbegin(), rows.rend());
+    EXPECT_FALSE(Hasher()->takeRows(backwards, &why));
+
+    // A string made here meanwhile, which the row would spell another way
+    Hasher()->getID("C");
+    EXPECT_FALSE(Hasher()->takeRows(rows, &why));
+    EXPECT_NE(why.find("held here"), std::string::npos) << why;
+    EXPECT_EQ(Hasher()->size(), size + 1);
+    EXPECT_FALSE(Hasher()->getID(b.value()));
+}
+
+TEST_F(StringHasherTest, rowsRoundTripAsBytes)  // NOLINT
+{
+    auto a = Hasher()->getID("A");
+    QVector<App::StringIDRef> sids {a};
+    Hasher()->getID(Data::MappedName("Edge2;:H1,E"), sids);
+    const auto rows = Hasher()->rows();
+    std::stringstream bytes;
+    App::StringHasher::writeRows(bytes, rows);
+    std::vector<App::StringHasher::Row> back;
+    ASSERT_TRUE(App::StringHasher::readRows(bytes, back, 1 << 20));
+    ASSERT_EQ(back.size(), rows.size());
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        EXPECT_EQ(back[i].id, rows[i].id);
+        EXPECT_EQ(back[i].flags, rows[i].flags);
+        EXPECT_EQ(back[i].sids, rows[i].sids);
+        EXPECT_EQ(back[i].data, rows[i].data);
+        EXPECT_EQ(back[i].postfix, rows[i].postfix);
+    }
+    std::istringstream cut(bytes.str().substr(0, 12));
+    EXPECT_FALSE(App::StringHasher::readRows(cut, back, 1 << 20));
 }
 
 // Not a check: the cost of one call into the table, for a decision

@@ -646,6 +646,8 @@ private:
 /// If the string is longer than a given threshold, instead of storing the string, its SHA1 hash is
 /// stored (and the original string discarded). This allows an upper threshold on the length of a
 /// stored string, while still effectively guaranteeing uniqueness in the table.
+class StringIDLease;
+
 class AppExport StringHasher: public Base::Persistence, public Base::Handled {
 
     TYPESYSTEM_HEADER_WITH_OVERRIDE();// NOLINT
@@ -849,6 +851,41 @@ public:
      * before it in `rows` is skipped as well. Returns how many came in.
      */
     std::size_t insertRows(const std::vector<Row>& rows, std::size_t* conflicts = nullptr);
+    /** Take in the strings another process gave from ids this table leased
+     * it (docs/WorkerProcess.md sec 15), under those ids: all of `rows`, in
+     * id order, or none. Refused, nothing changed, when a row's id is held
+     * with another string; when its string is held here under another id
+     * -- one element name would then be spelled two ways, and names are
+     * compared as text; or when it refers to an id neither held nor in
+     * `rows`. A row held as it is is left alone. `why`, when refused, says
+     * which; `taken`, how many came in.
+     */
+    bool takeRows(const std::vector<Row>& rows, std::string* why = nullptr,
+                  std::size_t* taken = nullptr);
+    /// The lowest id takeRows() put in below an id held already, since the
+    /// last call; 0 for none. What the log, which writes the rows past the
+    /// highest it wrote, has to look back to (sec 15).
+    long takeLowTaken();
+    /// The rows of `ids` and of every id they refer to, in id order: what a
+    /// value naming `ids` needs of this table. An id not held is left out.
+    std::vector<Row> rowsOf(const std::vector<long>& ids) const;
+    /// `rows` as bytes, for another process of this machine to read back
+    /// with readRows(): their count, then each
+    static void writeRows(std::ostream& out, const std::vector<Row>& rows);
+    /// What writeRows() wrote; false when it does not read, no part longer
+    /// than `most` bytes
+    static bool readRows(std::istream& in, std::vector<Row>& rows, std::uint64_t most);
+    /** Ids this table will not give, for another process to give its own
+     * strings (docs/WorkerProcess.md sec 15): the `count` after lastID(),
+     * which moves past them, so they are never handed out here, nor after
+     * a save and a restore. Returns the first; 0 when they would run past
+     * what an id holds.
+     */
+    long reserveBlock(long count);
+    /// New strings take their ids from `lease`, not after the highest held:
+    /// a worker's, ids its pool's table reserved (sec 15). Null to stop.
+    void setLease(std::shared_ptr<StringIDLease> lease);
+    std::shared_ptr<StringIDLease> lease() const;
     /// Whether `id` is held.
     bool hasID(long id) const;
     /// The ids a save marked, with the persistent ones, in order: what a
@@ -961,6 +998,8 @@ public:
 
 protected:
     StringID* insert(const StringIDRef& sid);
+    /// The id a new string gets: the lease's, or the one after the highest
+    long nextID();
     StringIDRef importOne(const StringIDRef& foreign, ImportMemo& memo, bool take);
     /// `said`, when given, is what the string says here in place of its
     /// own text: an element's name as this file numbers it (RestoreMinted).
@@ -1008,6 +1047,30 @@ public:
 
 private:
     StringIDCollector* _outer;
+};
+
+/** The ids a worker gives its new strings (docs/WorkerProcess.md sec 15):
+ * ranges its pool's table reserved (StringHasher::reserveBlock()), so a
+ * string comes back to that table under the id it was given here, and no
+ * id read in later from that table meets one given here. Shared by every
+ * table of the worker's copy, and outlives a copy reopened.
+ */
+class AppExport StringIDLease
+{
+public:
+    /// The next id, and one past the last of the range in use
+    long next {0};
+    long end {0};
+    /// How many ranges were taken
+    int ranges {0};
+    /// Asked for another range when this one runs out: sets `first` and
+    /// `count`, false when there is none
+    std::function<bool(long& first, long& count)> more;
+
+    /// Use [first, first + count) from now on
+    void add(long first, long count);
+    /// The next id; throws Base::RuntimeError when none is left to give
+    long take();
 };
 
 }// namespace App

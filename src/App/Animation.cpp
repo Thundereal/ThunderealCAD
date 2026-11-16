@@ -1139,6 +1139,11 @@ struct Animation::Frame
     /// its values start `offset` bytes into the file
     StringHasherRef table;
     std::uint64_t offset = 0;
+    /// The strings its values name, under the ids the worker gave them
+    /// from its lease (docs/WorkerProcess.md sec 15), taken in as they are
+    /// at each read; `byId` false for a worker that sent none
+    std::vector<StringHasher::Row> rows;
+    bool byId = false;
 };
 
 namespace
@@ -2656,12 +2661,25 @@ bool Animation::loadFrame(Frame& frame)
     }
     in.close();
     try {
-        // A worker's frame names its strings in the worker's table: each
-        // is taken into this file's by content as it is read
+        // A worker's frame names its strings in the worker's table. Given
+        // from ids this file's table leased the worker, they come in under
+        // those ids, the values read as they are; refused -- a string this
+        // table came to hold under another id meanwhile -- each is taken in
+        // by content as it is read (docs/WorkerProcess.md sec 15)
         std::unique_ptr<RestoreStrings> strings;
         if (frame.table) {
-            strings = std::make_unique<RestoreStrings>(frame.table,
-                                                       getDocument()->getStringHasher());
+            auto hasher = getDocument()->getStringHasher();
+            std::string why;
+            if (frame.byId && hasher && hasher->takeRows(frame.rows, &why)) {
+                ++_cacheById;
+            }
+            else {
+                if (frame.byId) {
+                    FC_LOG(getFullName() << ": a worker's frame read by content: " << why);
+                }
+                ++_cacheByContent;
+                strings = std::make_unique<RestoreStrings>(frame.table, hasher);
+            }
         }
         RestoreBatch batch;
         for (std::size_t i = 0; i < values.size(); ++i) {
@@ -2891,6 +2909,8 @@ Animation::CacheInfo Animation::cacheInfo() const
     info.spilled = _cacheSpilled;
     info.loaded = _cacheLoaded;
     info.prepared = _cachePrepared;
+    info.byId = _cacheById;
+    info.byContent = _cacheByContent;
     return info;
 }
 
@@ -2899,8 +2919,10 @@ namespace
 /// The start of a frame a worker wrote (docs/Animation.md sec 4.2): then its
 /// table's hash, the seconds its recompute took, the property of each
 /// value by its object's and its own name, the frame's scope and the clean
-/// part of it by name -- and from there on what spillFrame() writes
-const char WorkerFrameMagic[8] = {'F', 'C', 'A', 'W', 'F', 'R', '0', '1'};
+/// part of it by name, the strings its values name (a count plus one, then
+/// the rows; 0 for none sent, docs/WorkerProcess.md sec 15) -- and from
+/// there on what spillFrame() writes
+const char WorkerFrameMagic[8] = {'F', 'C', 'A', 'W', 'F', 'R', '0', '2'};
 
 void putName(std::ostream& out, const char* name)
 {
@@ -3044,6 +3066,34 @@ void Animation::writeFrameFile(FrameOut& out, Capture& capture, double cost)
     CaptureConfig config(*doc);
     config.blobs = nullptr;  // whole, in the frame's own file
     config.preferBinary = true;
+    std::vector<CapturedValue> values;
+    values.reserve(capture.written.size());
+    std::vector<long> ids;
+    for (auto& [obj, prop] : capture.written) {
+        // Meshed as the view that shows the frame meshes it, the mesh kept
+        // with the value (docs/WorkerProcess.md sec 14)
+        CapturedValue value;
+        auto hint = out.display.find(obj->getNameInDocument());
+        if (hint == out.display.end() || !captureForDisplay
+            || !captureForDisplay(*prop, hint->second, config, value)) {
+            value = captureValue(config, *prop);
+        }
+        if (!value.ok || !value.blobs.empty()) {
+            out.error = std::string(prop->getFullName()) + " cannot be written";
+            return;
+        }
+        ids.insert(ids.end(), value.stringIds.begin(), value.stringIds.end());
+        values.push_back(std::move(value));
+    }
+    // The strings the values name, under their ids: given from ids the
+    // pool's table leased this worker, so the cache takes them in as they
+    // are (docs/WorkerProcess.md sec 15). None without a lease
+    auto hasher = doc->getStringHasher();
+    const bool byId = hasher && hasher->lease();
+    std::vector<StringHasher::Row> rows;
+    if (byId) {
+        rows = hasher->rowsOf(ids);
+    }
     std::size_t bytes = 0;
     bool ok = writeAtomic(out.file, [&](std::ostream& s) {
         s.write(WorkerFrameMagic, sizeof(WorkerFrameMagic));
@@ -3065,20 +3115,12 @@ void Animation::writeFrameFile(FrameOut& out, Capture& capture, double cost)
         for (auto obj : clean) {
             putName(s, obj->getNameInDocument());
         }
-        putSize(s, capture.written.size());
-        for (auto& [obj, prop] : capture.written) {
-            // Meshed as the view that shows the frame meshes it, the mesh
-            // kept with the value (docs/WorkerProcess.md sec 14)
-            CapturedValue value;
-            auto hint = out.display.find(obj->getNameInDocument());
-            if (hint == out.display.end() || !captureForDisplay
-                || !captureForDisplay(*prop, hint->second, config, value)) {
-                value = captureValue(config, *prop);
-            }
-            if (!value.ok || !value.blobs.empty()) {
-                out.error = std::string(prop->getFullName()) + " cannot be written";
-                return false;
-            }
+        putSize(s, byId ? rows.size() + 1 : 0);
+        if (byId) {
+            StringHasher::writeRows(s, rows);
+        }
+        putSize(s, values.size());
+        for (auto& value : values) {
             putBytes(s, value.fragment);
             putSize(s, value.attachments.size());
             for (auto& a : value.attachments) {
@@ -3168,6 +3210,16 @@ bool Animation::adoptFrame(long index, const std::string& file)
     if (!readObjects([&](DocumentObject* obj) { frame->scope.insert(obj); })
         || !readObjects([&](DocumentObject* obj) { frame->clean.push_back(obj); })) {
         return discard();
+    }
+    std::uint64_t rows = 0;
+    if (!getSize(in, rows) || rows > most) {
+        return discard();
+    }
+    if (rows) {
+        frame->byId = true;
+        if (!StringHasher::readRows(in, frame->rows, most) || frame->rows.size() != rows - 1) {
+            return discard();
+        }
     }
     frame->offset = static_cast<std::uint64_t>(in.tellg());
     in.close();

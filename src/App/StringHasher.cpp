@@ -31,6 +31,8 @@
 #include <cctype>
 #include <cassert>
 #include <deque>
+#include <limits>
+#include <set>
 #include <shared_mutex>
 #include <sstream>
 #include <vector>
@@ -109,6 +111,10 @@ public:
     /// writes and a restore reads back: ids the saved state no longer
     /// uses are not handed out again.
     long LastID = 0;
+    /// Where new ids come from in a worker (docs/WorkerProcess.md sec 15)
+    std::shared_ptr<StringIDLease> Lease;
+    /// The lowest id takeRows() put in below one held, not yet told
+    long LowTaken = 0;
     /// Counts the changes to the entries, which is what the cached hash of
     /// the whole table (contentHash()) is valid for.
     uint64_t Revision = 0;
@@ -645,6 +651,251 @@ bool StringHasher::merge(const StringHasher& other, std::size_t* aliased)
     return true;
 }
 
+std::vector<StringHasher::Row> StringHasher::rowsOf(const std::vector<long>& ids) const
+{
+    TableLock lock(*_hashes, TableLock::Read);
+    std::set<long> wanted;
+    std::vector<long> left(ids);
+    while (!left.empty()) {
+        const long id = left.back();
+        left.pop_back();
+        if (wanted.count(id))
+            continue;
+        auto it = _hashes->right.find(id);
+        if (it == _hashes->right.end())
+            continue;
+        wanted.insert(id);
+        for (const auto& sid : it->second->_sids) {
+            if (sid._sid && sid._sid->_hasher == this)
+                left.push_back(sid.value());
+        }
+    }
+    std::vector<Row> out;
+    out.reserve(wanted.size());
+    for (long id : wanted) {
+        const StringID& d = *_hashes->right.find(id)->second;
+        Row row;
+        row.id = d._id;
+        auto flags = d._flags;
+        flags.setFlag(StringID::Flag::Marked, false);
+        row.flags = static_cast<int>(flags.toUnderlyingType());
+        row.sids.reserve(d._sids.size());
+        for (const auto& sid : d._sids)
+            row.sids.emplace_back(sid.value(), sid.getIndex());
+        row.data = d._data;
+        row.postfix = d._postfix;
+        out.push_back(std::move(row));
+    }
+    return out;
+}
+
+namespace {
+template<typename T>
+void putValue(std::ostream& out, T value)
+{
+    out.write(reinterpret_cast<const char*>(&value), sizeof(value));
+}
+
+template<typename T>
+bool getValue(std::istream& in, T& value)
+{
+    in.read(reinterpret_cast<char*>(&value), sizeof(value));
+    return in.good();
+}
+
+void putArray(std::ostream& out, const QByteArray& bytes)
+{
+    putValue(out, static_cast<std::uint32_t>(bytes.size()));
+    out.write(bytes.constData(), bytes.size());
+}
+
+bool getArray(std::istream& in, QByteArray& bytes, std::uint64_t most)
+{
+    std::uint32_t n = 0;
+    if (!getValue(in, n) || n > most)
+        return false;
+    bytes.resize(static_cast<int>(n));
+    in.read(bytes.data(), n);
+    return in.good() || (in.eof() && static_cast<std::uint64_t>(in.gcount()) == n);
+}
+}  // namespace
+
+void StringHasher::writeRows(std::ostream& out, const std::vector<Row>& rows)
+{
+    putValue(out, static_cast<std::uint64_t>(rows.size()));
+    for (const auto& row : rows) {
+        putValue(out, static_cast<std::int64_t>(row.id));
+        putValue(out, static_cast<std::int32_t>(row.flags));
+        putValue(out, static_cast<std::uint32_t>(row.sids.size()));
+        for (const auto& sid : row.sids) {
+            putValue(out, static_cast<std::int64_t>(sid.first));
+            putValue(out, static_cast<std::int32_t>(sid.second));
+        }
+        putArray(out, row.data);
+        putArray(out, row.postfix);
+    }
+}
+
+bool StringHasher::readRows(std::istream& in, std::vector<Row>& rows, std::uint64_t most)
+{
+    rows.clear();
+    std::uint64_t count = 0;
+    if (!getValue(in, count) || count > most)
+        return false;
+    rows.reserve(static_cast<std::size_t>(count));
+    for (std::uint64_t i = 0; i < count; ++i) {
+        Row row;
+        std::int64_t id = 0;
+        std::int32_t flags = 0;
+        std::uint32_t sids = 0;
+        if (!getValue(in, id) || !getValue(in, flags) || !getValue(in, sids) || sids > most)
+            return false;
+        row.id = static_cast<long>(id);
+        row.flags = flags;
+        row.sids.reserve(sids);
+        for (std::uint32_t k = 0; k < sids; ++k) {
+            std::int64_t sid = 0;
+            std::int32_t index = 0;
+            if (!getValue(in, sid) || !getValue(in, index))
+                return false;
+            row.sids.emplace_back(static_cast<long>(sid), index);
+        }
+        if (!getArray(in, row.data, most) || !getArray(in, row.postfix, most))
+            return false;
+        rows.push_back(std::move(row));
+    }
+    return true;
+}
+
+bool StringHasher::takeRows(const std::vector<Row>& rows, std::string* why, std::size_t* taken)
+{
+    TableLock lock(*_hashes, TableLock::Write);
+    if (taken)
+        *taken = 0;
+    auto refuse = [why](const std::string& text) {
+        if (why)
+            *why = text;
+        return false;
+    };
+    constexpr auto kept = ~static_cast<int>(StringID::Flag::Marked);
+    // First see that every row can come in as it is (docs/WorkerProcess.md
+    // sec 15); only then change anything
+    std::set<long> coming;
+    std::set<std::pair<QByteArray, QByteArray>> strings;
+    std::vector<Row> fresh;
+    long previous = 0;
+    for (const auto& row : rows) {
+        const std::string which = "string " + std::to_string(row.id);
+        if (row.id <= previous)
+            return refuse("the rows are not in id order");
+        previous = row.id;
+        auto it = _hashes->right.find(row.id);
+        if (it != _hashes->right.end()) {
+            const StringID& d = *it->second;
+            bool same = d._data == row.data && d._postfix == row.postfix
+                && (static_cast<int>(d._flags.toUnderlyingType()) & kept) == (row.flags & kept)
+                && d._sids.size() == static_cast<int>(row.sids.size());
+            for (int i = 0; same && i < d._sids.size(); ++i) {
+                same = d._sids[i].value() == row.sids[i].first
+                    && d._sids[i].getIndex() == row.sids[i].second;
+            }
+            if (!same)
+                return refuse(which + " is another string here");
+            continue;
+        }
+        for (const auto& ref : row.sids) {
+            if (!coming.count(ref.first) && _hashes->right.find(ref.first) == _hashes->right.end())
+                return refuse(which + " refers to " + std::to_string(ref.first)
+                              + ", which is neither here nor sent");
+        }
+        StringID probe;
+        probe._data = row.data;
+        probe._postfix = row.postfix;
+        auto held = _hashes->left.find(&probe);
+        if (held != _hashes->left.end())
+            return refuse(which + " is held here as " + std::to_string(held->first->value()));
+        if (!strings.emplace(row.data, row.postfix).second)
+            return refuse(which + " is sent twice");
+        coming.insert(row.id);
+        fresh.push_back(row);
+    }
+    if (fresh.empty())
+        return true;
+    const long top = _hashes->right.empty() ? 0 : _hashes->right.rbegin()->first;
+    std::size_t clashes = 0;
+    const std::size_t in = insertRows(fresh, &clashes);
+    if (taken)
+        *taken = in;
+    if (fresh.front().id < top
+        && (!_hashes->LowTaken || fresh.front().id < _hashes->LowTaken))
+        _hashes->LowTaken = fresh.front().id;
+    return true;
+}
+
+long StringHasher::takeLowTaken()
+{
+    TableLock lock(*_hashes, TableLock::Write);
+    const long low = _hashes->LowTaken;
+    _hashes->LowTaken = 0;
+    return low;
+}
+
+long StringHasher::reserveBlock(long count)
+{
+    TableLock lock(*_hashes, TableLock::Write);
+    const long last = lastID();
+    if (count <= 0 || last > std::numeric_limits<long>::max() - count)
+        return 0;
+    // What is held stays as it is: only the next id moves, which a save
+    // writes as the last one
+    _hashes->LastID = last + count;
+    return last + 1;
+}
+
+void StringHasher::setLease(std::shared_ptr<StringIDLease> lease)
+{
+    TableLock lock(*_hashes, TableLock::Write);
+    _hashes->Lease = std::move(lease);
+}
+
+std::shared_ptr<StringIDLease> StringHasher::lease() const
+{
+    TableLock lock(*_hashes, TableLock::Read);
+    return _hashes->Lease;
+}
+
+long StringHasher::nextID()
+{
+    TableLock lock(*_hashes, TableLock::Write);
+    if (!_hashes->Lease)
+        return lastID() + 1;
+    for (;;) {
+        // Never one held: a lease is ids nothing here was given
+        const long id = _hashes->Lease->take();
+        if (_hashes->right.find(id) == _hashes->right.end())
+            return id;
+    }
+}
+
+void StringIDLease::add(long first, long count)
+{
+    next = first;
+    end = first + count;
+    ++ranges;
+}
+
+long StringIDLease::take()
+{
+    if (next <= 0 || next >= end) {
+        long first = 0;
+        long count = 0;
+        if (!more || !more(first, count) || first <= 0 || count <= 0)
+            THROWM(Base::RuntimeError, "no string ids are left to give");
+        add(first, count);
+    }
+    return next++;
+}
+
 StringIDRef StringHasher::getID(const char* text, int len, bool hashable)
 {
     if (len < 0) {
@@ -703,7 +954,7 @@ StringIDRef StringHasher::getID(const QByteArray& data, Options options)
     if (hashed) {
         flags.setFlag(StringID::Flag::Hashed);
     }
-    StringIDRef sid(new StringID(lastID() + 1, dataID._data, flags));
+    StringIDRef sid(new StringID(nextID(), dataID._data, flags));
     return {insert(sid)};
 }
 
@@ -759,7 +1010,7 @@ StringIDRef StringHasher::getID(const Data::MappedName& name, const QVector<Stri
     }
 
     // The real StringID object that we are going to insert
-    StringIDRef newStringIDRef(new StringID(lastID() + 1, tempID._data));
+    StringIDRef newStringIDRef(new StringID(nextID(), tempID._data));
     StringID& newStringID = *newStringIDRef._sid;
     if (tempID._postfix.size() != 0) {
         newStringID._flags.setFlag(StringID::Flag::Postfixed);
@@ -1289,7 +1540,7 @@ StringIDRef StringHasher::importNew(const StringID& theirs, const StringHasher& 
     auto flags = theirs._flags;
     flags.setFlag(StringID::Flag::Marked, false);
     flags.setFlag(StringID::Flag::Persistent, false);
-    StringIDRef sid(new StringID(lastID() + 1, data, flags));
+    StringIDRef sid(new StringID(nextID(), data, flags));
     sid._sid->_postfix = postfix;
     // The strings the text names are held after the related ones, whose
     // places the flags index: a combo string has no related ids, and its

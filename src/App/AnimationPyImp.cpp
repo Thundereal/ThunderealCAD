@@ -805,6 +805,8 @@ PyObject* AnimationPy::cacheInfo(PyObject* args)
         dict.setItem("Spilled", Py::Long(info.spilled));
         dict.setItem("Loaded", Py::Long(info.loaded));
         dict.setItem("Prepared", Py::Long(info.prepared));
+        dict.setItem("StringsById", Py::Long(info.byId));
+        dict.setItem("StringsByContent", Py::Long(info.byContent));
         return Py::new_reference_to(dict);
     }
     PY_CATCH

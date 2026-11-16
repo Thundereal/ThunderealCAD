@@ -1481,6 +1481,62 @@ class TestAnimation(unittest.TestCase):
         self.anim.stop()
         self.assertAlmostEqual(box.Height.Value, 10)  # the design, untouched
 
+    def testWorkersStringsComeBackUnderTheirIds(self):
+        """A worker gives its new strings ids this file's table leased it,
+        and the cache takes them in under those ids: no frame is read by
+        content. Leases kept small, so a worker runs out in a frame and asks
+        for more (docs/WorkerProcess.md sec 15)"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetInt("IdBlock", 16)
+        self.addCleanup(group.RemInt, "IdBlock")
+        # One worker: two would each give their own ids to a string both
+        # make, and the second frame read would go by content
+        box, cut = self.workerScene(workers=1)
+        # Past the tools' tops the holes are blind, their bottoms faces the
+        # version never had: strings the worker makes
+        self.anim.addKey("Box.Height", 2.0, 50.0)
+        self.anim.Cache = True
+        self.anim.activate()
+        times = self.anim.frames()
+        self.anim.Time = times[0]
+        self.anim.clearCache()
+        self.assertGreater(self.anim.prepareFrames(force=True), 0, self.anim.workerInfo())
+        self.assertTrue(self.anim.waitWorkers(300))
+        info = self.anim.workerInfo()
+        self.assertEqual(info["Failed"], 0, info["Reason"])
+        pool = App.workerPool(self.doc).info()
+        self.assertGreater(pool["LeasesAsked"], 0, pool)
+        made = []
+        for t in times[1:]:
+            self.anim.Time = t
+            self.assertTrue(cut.Shape.isValid())
+            made.append(self.frameFacts(cut))
+        cache = self.anim.cacheInfo()
+        self.assertGreaterEqual(cache["Loaded"], len(times) - 2)
+        self.assertEqual(cache["StringsByContent"], 0, cache)
+        self.assertEqual(cache["StringsById"], cache["Loaded"], cache)
+        # The same frames made here find those strings, not make others: the
+        # names are the names the workers gave
+        App.workerPool(self.doc).stop()
+        self.anim.clearCache()
+        self.anim.Cache = False
+        for facts, t in zip(made, times[1:]):
+            self.anim.Time = t
+            self.assertEqual(self.frameFacts(cut), facts, t)
+        # And they are the file's: saved, and back as they were
+        self.anim.stop()
+        path = os.path.join(tempfile.gettempdir(), "TestAnimationWorkerIds.FCStd")
+        self.files.append(path)
+        self.doc.saveAs(path)
+        cutName = cut.Name
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.anim = self.doc.getObject("Anim")
+        cut = self.doc.getObject(cutName)
+        self.anim.Time = times[-1]
+        self.anim.activate()
+        self.assertEqual(self.frameFacts(cut), made[-1])
+
     def testWorkersAndThisProcessMakeEachFrameOnce(self):
         _box, cut = self.workerScene()
         self.anim.FrameRate = 30

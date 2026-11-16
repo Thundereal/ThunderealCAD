@@ -150,6 +150,10 @@ lands one of them under the Animation, which keeps working throughout.
   "each id it has that this one has not, under the same id"). This
   replaces phase 0's import by content (`RestoreStrings`), which rewrites
   every element name of every value read back.
+  - Built 2026-11-16 as sec 15: the ranges leased by the GUI's table
+    (not fixed blocks), the strings taken in with `takeRows` (all or
+    none; a string held under another id refuses), the import by content
+    kept as the fallback.
   - Object ids are the version's; a job may not create objects. Minted
     numbers (`RestoreMinted`, log sec 31.14) are the same rule: a job that
     would mint is refused, or falls back to the import scopes.
@@ -240,7 +244,7 @@ struct WorkerResult {
 |---|---|---|
 | 1 | `WorkerPool`, socket protocol, job registry, `freecad.worker`; the Animation ported, same behaviour | stdout parsing; Animation-only code |
 | 2 | snapshot + read-only reader of the GUI's store, leases; `openFileVersion` in the worker | `saveCopy`: the save path, the remade frame, the dropped disk frames |
-| 3 | arena, blobs adopted by hash, string blocks + merge | per-frame files, import by content |
+| 3 | arena, blobs adopted by hash, string blocks + merge (strings built: sec 15) | per-frame files, import by content |
 | 4 | move along the log on edits; jobs dropped by `reads` | restart at every edit |
 | 5 | App-side mesh chunks; frames drawn from them; lazy materialise; the bake takes them | the read-back floor |
 | 6 | `recompute` as the second client | -- |
@@ -630,3 +634,110 @@ Tests: TestAnimation 73 (a frame written meshed, near three times the
 size, a hint it does not know written plain), `tests/gui/animation-
 workers.py` 24 (a worker's frame holds the view's mesh; the pictures of
 its frames those of the frames made here, as before).
+
+## 15. String ids leased: a result's strings taken in under their ids
+
+(2026-11-16.) The base of phase 6 (a `recompute` job), built with the
+Animation's frames as its first user. It replaces the fixed blocks of
+phase 4 (sec 13: `2^30 + (n % 63) * 2^24`), which only kept a worker's
+own table apart from what it read in, and leaves the import by content
+(`RestoreStrings`) as the fallback.
+
+- **Why, measured first.** The import by content rewrites every element
+  name of every value read back. On the 64-hole plate (sec 14) that was
+  ~2 ms a frame. On a recompute-sized result it is not small and grows
+  faster than the names do (`~/works/sw/fcad-probes/worker/p6probe.py`:
+  a chain of successive cuts under a fillet, the plate keyed, so a frame
+  is a recompute of the whole chain; 8 frames by 1 worker, read back from
+  disk, against the same frames made here):
+
+  | chain | objects | element names | worker frame | own frame | by content |
+  |---|---|---|---|---|---|
+  | 20 cuts | 42 | 2352 | 20.4 ms | 12.0 ms | ~8 ms (3.6 us a name) |
+  | 60 cuts | 122 | 13992 | 272.8 ms | 116.7 ms | ~156 ms (11 us a name) |
+
+  A recompute result is in the document at once and stays, so merging
+  by id is also what keeps the GUI's table and the worker's the same
+  table -- with the fixed blocks it could not be done safely: `insertRows`
+  and `merge` set the next id past the highest held, so the GUI's next id
+  would land in a worker's block, a save would write that, and a worker
+  restarted on the same block would give the same ids again.
+- **The GUI's table hands the ids out.** `StringHasher::reserveBlock(n)`:
+  the n ids after `lastID()`, which moves past them -- never given there,
+  nor after a save (the `lastid` a save writes includes them). The pool
+  leases each worker a range in its first setup (`ids {first, count}`),
+  16384 to start (`IdBlock` of Preferences/Workers, at least 16), doubling
+  at each further ask up to 2^20: what goes unused is never given, and an
+  id is 32 bits on Windows, so the ranges stay small.
+- **The worker gives ids from its lease.** `StringIDLease`, shared by
+  every table of the worker's copy and kept when the copy is reopened;
+  `StringHasher::setLease()` makes the three places a new id is minted
+  take the lease's next one (`nextID()`), whatever the highest held -- a
+  move reads the GUI's newer ids in above the lease. Run out in a job,
+  the worker asks (`ids`), and waits for the answer, setting aside any
+  other message meanwhile (a setup can come while a job runs, sec 13);
+  the GUI answers from `handle()`, which a claim's wait also reaches. No
+  range to give (the counter at its end): the mint throws, the job fails
+  and the client does it.
+- **A result carries the strings its values name.** `captureValue`
+  already lists the ids a value refers to (`CapturedValue::stringIds`);
+  `StringHasher::rowsOf(ids)` gives them and everything they refer to,
+  transitively -- the version's strings as well as the worker's own, so
+  a string the GUI dropped since (compaction at a save) comes back under
+  its id. `writeRows` / `readRows` carry them in a file (a frame's: after
+  its scope, magic `FCAWFR02`; a count plus one, 0 for none sent).
+- **The GUI takes them in whole or not at all.**
+  `StringHasher::takeRows(rows)`: refused, nothing changed, when an id is
+  held with another string; when a string is held under another id (one
+  element name would be spelled two ways, and names compare as text --
+  this is a string the GUI made itself after the worker's version, or
+  another worker did); when a row refers to what is neither held nor
+  sent. A row held as it is is skipped. Refused, the frame is read by
+  content from the worker's whole table, as before. A disk frame takes
+  its rows in at every read, so the save's compaction cannot strand it.
+- **The log looks back.** `TransactionLogCore::syncStrings` writes the
+  rows past the highest id it stored; rows taken in under a lease are
+  below what the GUI gave since. `takeRows` notes the lowest such id
+  (`takeLowTaken()`), and the next sync goes back to it -- a version, and
+  a worker reading it, would otherwise miss them.
+- **Where it falls back, by design.** Two workers that make the same new
+  string give it two ids; the first frame read in brings its id, and every
+  frame of the other worker naming that string is then read by content.
+  For the Animation that is the frames whose topology the version never
+  had (a hole gone blind, a face split), made by more than one worker: the
+  frames of one pass are the same object at other poses, so their new
+  strings are the same strings. A recompute job is less exposed -- an
+  object is recomputed by one job, and its names carry its own tag -- but
+  two jobs over objects that share an input (a link, a common tool) can
+  still meet. Not built: taking in what does not alias and rewriting only
+  the names that name an aliased id, which `RestoreStrings` could do with
+  a map of those ids alone.
+- **Counted**: `cacheInfo()` `StringsById` / `StringsByContent` (reads of
+  a worker's frame each way); the pool's `info()` `Leases` and
+  `LeasesAsked`.
+
+Measured 2026-11-16 on mini, the probe as above, after: a worker's frame
+reads back in the time a frame made here does -- every frame by id.
+
+| chain | worker frame, by content | worker frame, by id | own frame |
+|---|---|---|---|
+| 20 cuts | 20.4 ms | 11.3 ms | 12.3 ms |
+| 60 cuts | 272.8 ms | 106.6 ms | 115.7 ms |
+
+These frames change no topology, so a worker makes no new strings: the
+rows it sends are all held already, and taking them in is the check
+alone. Frames that do make new strings are the test below.
+
+Tests: Toponaming_tests_run `StringHasherTest` 57 (+5: a reserved block
+never given here nor after a save; a lease handing out its ids and asking
+for more, a throw when there is none; a worker's strings back under their
+ids; all or none on a clash, an orphan, the wrong order, an alias;
+rows round trip as bytes), `TransactionLogTest` 107 (+1: rows taken in
+below what the store holds reach it at the next commit -- fails with the
+look-back taken out), TestAnimation 74 (+1: one worker, the plate grown
+past the tools so the holes go blind, leases of 16 so it asks mid-frame;
+every frame read by id, the same names when made here, and after a save
+and a reopen), TestWorkerPool 23, Document 361, FileBlobs 97, TestPartApp
+444, ctest 1268; GUI animation-workers 24, animation-cache 27,
+animation-timeline 50, serve-animation 62, animation-export-clock 12,
+serve-log 27.

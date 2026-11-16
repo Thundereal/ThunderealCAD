@@ -46,6 +46,7 @@
 #include "DocumentObjectPy.h"
 #include "ParamRegistry.h"
 #include "TransactionMeasure.h"
+#include "WorkerPool.h"
 #include "ExpressionSecurityRuntime.h"
 #include "FileHistory.h"
 #include "LibraryPaths.h"
@@ -81,6 +82,11 @@ static PyObject *sStartTransactionMeasure(PyObject *self, PyObject *args);
 static PyObject *sStopTransactionMeasure(PyObject *self, PyObject *args);
 
 // Application methods structure
+namespace {
+PyObject* workerPoolPy(PyObject* self, PyObject* args);
+PyObject* serveWorkerPy(PyObject* self, PyObject* args);
+}
+
 PyMethodDef Application::Methods[] = {
     {"ParamGet",       (PyCFunction) Application::sGetParam, METH_VARARGS,
      "Get parameters by path"},
@@ -195,6 +201,12 @@ PyMethodDef Application::Methods[] = {
     {"setActiveDocument", (PyCFunction) Application::sSetActiveDocument, METH_VARARGS,
      "setActiveDocement(string) -> None\n\n"
      "Set the active document by its name."},
+    {"workerPool",     (PyCFunction) workerPoolPy, METH_VARARGS,
+     "workerPool(doc) -> the worker processes of the document (docs/WorkerProcess.md)\n"
+     "start(), submit(kind, inputs, module, tag), claim(id), state(id), result(id),\n"
+     "cancel(tag), stop(reason), poll(ms), wait(seconds), info(). See freecad.worker."},
+    {"_serveWorker",   (PyCFunction) serveWorkerPy, METH_VARARGS,
+     "_serveWorker() -> exit code: a worker's loop, run by freecad.worker.serve()"},
     {"getDocument",    (PyCFunction) Application::sGetDocument, METH_VARARGS,
      "getDocument(string) -> object\n\n"
      "Get a document by its name or raise an exception\n"
@@ -629,6 +641,27 @@ PyObject* Application::sGetDocument(PyObject * /*self*/, PyObject *args)
 
     return doc->getPyObject();
 }
+
+namespace {
+PyObject* workerPoolPy(PyObject * /*self*/, PyObject *args)
+{
+    PyObject* pyDoc = nullptr;
+    if (!PyArg_ParseTuple(args, "O!", &DocumentPy::Type, &pyDoc))
+        return nullptr;
+    PY_TRY {
+        return WorkerPool::pyObject(*static_cast<DocumentPy*>(pyDoc)->getDocumentPtr());
+    }PY_CATCH;
+}
+
+PyObject* serveWorkerPy(PyObject * /*self*/, PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        return Py::new_reference_to(Py::Long(WorkerPool::serve()));
+    }PY_CATCH;
+}
+}  // namespace
 
 PyObject* Application::sGetParam(PyObject * /*self*/, PyObject *args)
 {

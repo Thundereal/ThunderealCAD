@@ -122,8 +122,9 @@ def run():
         App.ParamGet("User parameter:BaseApp/Preferences/View").SetInt("RenderCache", 3)
         App.ParamGet("User parameter:BaseApp/Preferences/View/Render").SetString(
             "Type", "Default")
-        group = App.ParamGet("User parameter:BaseApp/Preferences/Animation")
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
         group.SetInt("Workers", 2)  # a test's share of the machine
+        group.SetFloat("IdleSeconds", 0)
         mw = Gui.getMainWindow()
         mw.resize(1300, 900)
         doc = App.newDocument("AnimationWorkers")
@@ -248,6 +249,7 @@ def run():
         left = [n for n in os.listdir(frames)] if os.path.isdir(frames) else []
         check("and leaves none of their files", not [n for n in left if "wframe" in n], left)
         group.RemInt("Workers")
+        group.RemFloat("IdleSeconds")
     except Exception:
         note("FAIL the script:\n" + traceback.format_exc())
     finish()

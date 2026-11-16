@@ -1336,15 +1336,22 @@ class TestAnimation(unittest.TestCase):
         self.assertGreater(info["Bytes"], 10 * 5 * own)
         self.assertLess(info["Bytes"], 10 * 2000 * own)
 
+    def workerSettings(self, workers):
+        """At most `workers` worker processes, each let go as soon as it has
+        nothing to do: a test's share of the machine"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetInt("Workers", workers)
+        group.SetFloat("IdleSeconds", 0)
+        self.addCleanup(group.RemInt, "Workers")
+        self.addCleanup(group.RemFloat, "IdleSeconds")
+
     def workerScene(self, workers=2):
         """A plate with holes whose thickness and one hole's radius are
         keyed: frames worth handing to worker processes (docs/Animation.md
         sec 4.2), two of them at most"""
         import Part  # noqa: F401
 
-        group = App.ParamGet("User parameter:BaseApp/Preferences/Animation")
-        group.SetInt("Workers", workers)
-        self.addCleanup(group.RemInt, "Workers")
+        self.workerSettings(workers)
         box = self.doc.addObject("Part::Box", "Box")
         box.Length = 30
         box.Width = 30
@@ -1412,10 +1419,18 @@ class TestAnimation(unittest.TestCase):
         self.assertEqual(cache["Times"], times)
         self.assertEqual(cache["OnDisk"], times[1:])  # in files, read when shown
         self.assertEqual(len(self.workerFiles()), len(times) - 1)
-        # The job -- the document's copy, the settings -- is gone with them
-        self.assertFalse(
-            os.path.exists(os.path.join(self.doc.TransientDir, "AnimationWorkers", "Anim"))
-        )
+        # Let go of once they had nothing to do; the pool's copy of the
+        # document stands for the next, and goes when the pool stops
+        pool = App.workerPool(self.doc)
+        for _ in range(200):  # told to go, and gone once they have exited
+            if pool.info()["Workers"] == 0:
+                break
+            pool.poll(50)
+        self.assertEqual(pool.info()["Workers"], 0)
+        directory = pool.info()["Directory"]
+        self.assertTrue(os.path.isdir(directory))
+        pool.stop()
+        self.assertFalse(os.path.exists(directory))
         for (_shape, facts), t in zip(kept, times):
             self.anim.Time = t
             self.assertEqual(self.frameFacts(cut), facts)
@@ -1481,9 +1496,7 @@ class TestAnimation(unittest.TestCase):
     def testWorkersRefuseWhatTheyCannotRecompute(self):
         # A Python feature of a class only this process has
         self.cacheScene()
-        group = App.ParamGet("User parameter:BaseApp/Preferences/Animation")
-        group.SetInt("Workers", 1)
-        self.addCleanup(group.RemInt, "Workers")
+        self.workerSettings(1)
         self.anim.Cache = True
         self.anim.activate()
         self.assertEqual(self.anim.prepareFrames(force=True), 1)
@@ -1513,7 +1526,7 @@ class TestAnimation(unittest.TestCase):
         self.anim.Time = keep + 0.1
         self.assertEqual(self.anim.prepareFrames(), 0)
         self.assertIn("quicker", self.anim.workerInfo()["Reason"])
-        group = App.ParamGet("User parameter:BaseApp/Preferences/Animation")
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
         group.SetInt("Workers", 0)
         self.assertEqual(self.anim.prepareFrames(force=True), 0)
         self.assertIn("workers are off", self.anim.workerInfo()["Reason"])

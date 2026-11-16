@@ -560,6 +560,8 @@ private:
     double meanFrameCost() const;
     struct Workers;
     std::unique_ptr<Workers> _workers;
+    /// The design changed: the worker pool's copy of it is stale
+    void designChanged();
     FrameOut* _frameOut = nullptr;
     long _cachePrepared = 0;
 

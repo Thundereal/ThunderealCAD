@@ -5,6 +5,7 @@ SET(Test_SRCS
     BaseTests.py
     Document.py
     TestAnimation.py
+    TestWorkerPool.py
     ArchiveMembers.py
     FileBlobs.py
     InputProperty.py

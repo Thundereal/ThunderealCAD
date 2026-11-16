@@ -1210,39 +1210,6 @@ std::size_t heapInUse()
 #endif
 }
 
-/// What the process holds in memory, as the system counts it against
-/// the machine (the footprint Activity Monitor shows on macOS)
-std::size_t residentBytes()
-{
-#if defined(__APPLE__)
-    task_vm_info_data_t info {};
-    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
-    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count)
-        == KERN_SUCCESS) {
-        return static_cast<std::size_t>(info.phys_footprint);
-    }
-    return 0;
-#elif defined(_WIN32)
-    PROCESS_MEMORY_COUNTERS_EX counters {};
-    if (GetProcessMemoryInfo(GetCurrentProcess(),
-                             reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
-                             sizeof(counters))) {
-        return static_cast<std::size_t>(counters.WorkingSetSize);
-    }
-    return 0;
-#else
-    std::size_t pages = 0;
-    std::size_t resident = 0;
-    if (std::FILE* f = std::fopen("/proc/self/statm", "r")) {
-        if (std::fscanf(f, "%zu %zu", &pages, &resident) != 2) {
-            resident = 0;
-        }
-        std::fclose(f);
-    }
-    return resident * static_cast<std::size_t>(sysconf(_SC_PAGE_SIZE));
-#endif
-}
-
 long cacheLimit(const char* name, long preset)
 {
     return GetApplication()
@@ -2863,7 +2830,7 @@ void Animation::trimCache()
 void Animation::dropFramesReaching(const DocumentObject& obj)
 {
     // The workers' copy of the document is not the design any more
-    stopWorkers("the design changed");
+    designChanged();
     // obj, and every object whose result depends on it, through any link,
     // an expression's hidden ones included
     std::set<DocumentObject*> reached = obj.getInListEx(true);
@@ -2885,7 +2852,7 @@ void Animation::dropFramesReaching(const DocumentObject& obj)
 
 void Animation::clearCache()
 {
-    stopWorkers("the design changed");
+    stopWorkers("the cache was cleared");
     if (_workers) {
         _workers->loaded.clear();
     }
@@ -2988,7 +2955,7 @@ Animation::FrameWritten Animation::writeFrame(long index, const std::string& fil
         throw;
     }
     _frameOut = nullptr;
-    out.written.resident = residentBytes();
+    out.written.resident = WorkerPool::residentBytes();
     if (!out.done) {
         FC_THROWM(Base::RuntimeError,
                   "Frame " << index << " not made: "
@@ -3464,7 +3431,11 @@ void Animation::connectDocument()
                 }
                 else if (&prop == &Tracks || &prop == &Start || &prop == &FrameRate
                          || &prop == &Recompute || &prop == &Cache) {
-                    // What a frame is changed: nothing kept stands
+                    // What a frame is changed: nothing kept stands, nor
+                    // the workers' copy, unless only Cache changed
+                    if (&prop != &Cache) {
+                        designChanged();
+                    }
                     clearCache();
                 }
             }

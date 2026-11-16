@@ -8018,7 +8018,11 @@ bool hullLineReach(const ShapeOn& on,
     return true;
 }
 
-/** A line contact's pressure across it, a length of it (D4b way 2 step 2):
+/** A line contact's pressure across it, a length of it (D4b way 2 step 2),
+ * or, 'round', a point contact's over its disc, both sides round alike
+ * every way, balls and sockets (step 3) -- a ball R 5 in a socket R 5.5
+ * pressed 50 um overlaps it 2.2 mm round, and the ellipse's pi d^2 /
+ * sqrt(k1 k2) gives 10% more than the spheres':
  * the integral of depth^e over where the two sections overlap, each its
  * circle -- curving away from the other by r - sqrt(r^2 - y^2) at y from
  * the deepest point, its curvature k = 1/r, convex positive, a hollow one's
@@ -8027,7 +8031,7 @@ bool hullLineReach(const ShapeOn& on,
  * round, and the parabolas' 4/3 sqrt(2 / k) d^1.5 gives 4.8% more than the
  * circles'; on a plate a hundredth of a percent less.
  */
-double acrossLine(double depth, double kA, double kB, double e)
+double acrossLine(double depth, double kA, double kB, double e, bool round = false)
 {
     if (!(depth > 0.0)) {
         return 0.0;
@@ -8066,13 +8070,14 @@ double acrossLine(double depth, double kA, double kB, double e)
     if (!(half > 0.0)) {
         return 0.0;
     }
-    // Simpson's over [0, half], twice: the depth at the half width none
+    // Simpson's over [0, half], twice: the depth at the half width none;
+    // a round one's over its disc, each ring 2 pi y wide
     const int n = 64;
     double sum = 0.0;
     for (int i = 0; i <= n; ++i) {
         const double y = half * i / n;
         const double w = (i == 0 || i == n) ? 1.0 : (i % 2 ? 4.0 : 2.0);
-        sum += w * std::pow(std::max(at(y), 0.0), e);
+        sum += w * std::pow(std::max(at(y), 0.0), e) * (round ? pi * y : 1.0);
     }
     return 2.0 * sum * half / (3.0 * n);
 }
@@ -8266,6 +8271,29 @@ void pressureLaw(const ContactLaw& law,
     }
     stiffness = law.stiffness * 2.0 * pi / (e + 1.0) / std::sqrt(k1 * k2);
     exponent = e + 1.0;
+    // Round alike every way, pressed: the two spheres' overlap
+    // (acrossLine()), the law the power tangent to it at the depth
+    double depth = 0.0;
+    for (const double gap : gaps) {
+        depth = std::max(depth, -gap);
+    }
+    if (depth > 0.0 && k2 > 0.9 * k1 && !k1A.empty() && k1A.size() == k1B.size()) {
+        double kA = 0.0;
+        double kB = 0.0;
+        for (std::size_t i = 0; i < k1A.size(); ++i) {
+            kA += k1A[i];
+            kB += k1B[i];
+        }
+        kA /= static_cast<double>(k1A.size());
+        kB /= static_cast<double>(k1B.size());
+        const double at = acrossLine(depth, kA, kB, e, true);
+        const double up = acrossLine(1.01 * depth, kA, kB, e, true);
+        const double down = acrossLine(0.99 * depth, kA, kB, e, true);
+        if (at > 0.0 && up > 0.0 && down > 0.0) {
+            exponent = std::log(up / down) / std::log(1.01 / 0.99);
+            stiffness = law.stiffness * at / std::pow(depth, exponent);
+        }
+    }
 }
 
 // Each patch's stiffness and exponent (ContactLaw): the law's, or Hertz's

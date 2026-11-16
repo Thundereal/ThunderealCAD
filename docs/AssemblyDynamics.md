@@ -5901,6 +5901,16 @@ Phase D1 is under way (2026-10-28):
   - Test: TestFlexibleBody.test_pressure_in_a_bore (158.3 within a
     percent; before, 50.0). Not yet: a ball in a socket, the same by
     spheres; a line whose depth varies along it shares by its ends.
+- Built, D4b way 2 step 3 (2026-11-17): a point's pressure over its disc
+  by the two spheres, both sides round alike every way (the patch's k2 at
+  least nine tenths of k1): `acrossLine()` over the disc, each ring 2 pi y
+  wide, the law the power tangent to it at the depth. A rigid ball R 5 in
+  a block's spherical hollow R 5.5 (an open cup: a block round a closed
+  hollow is a mesh in two pieces, no contact shape), its wall 0.05 mm in,
+  1000 N/mm^3: 392.6 N, the spheres' overlap 2.2 mm round; the ellipse's pi
+  d^2 / sqrt(k1 k2) gave 432.0. On a plate the sphere gives 39.14 for the
+  paraboloid's 39.27. Test: TestFlexibleBody.test_pressure_in_a_socket
+  (392.58 within a percent; 432.0 before); roundTurned() takes `socket=`.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

@@ -1101,7 +1101,7 @@ class TestFlexibleBody(unittest.TestCase):
         length, and the force k L 4/3 sqrt(2 R) d^1.5, 47.14 N, over the
         turn -- 47.07 by the circles themselves (step 2, acrossLine()); a
         rigid ball R 5 pressed 0.05 mm with 1000 N/mm^3, a disc's, k pi R d^2,
-        39.27 N"""
+        39.27 N -- 39.14 by the sphere itself (step 3)"""
         rod = self.roundTurned(
             "a pressure on a rigid round", 55, -10, rigidRod=True, pressure=25.0, within=0.001
         )
@@ -1142,6 +1142,26 @@ class TestFlexibleBody(unittest.TestCase):
             most=200.0,
         )
         self.assertLess(abs(bore - 158.27), 0.01 * 158.27)
+
+    def test_pressure_in_a_socket(self):
+        """A pressure over the area of a ball in a socket nearly its size (D4b
+        way 2 step 3): a rigid ball R 5 turned about its centre in a block's
+        spherical hollow R 5.5, its wall 0.05 mm into the ball's underside,
+        1000 N/mm^3. The two spheres overlap 2.2 mm round: the depth over
+        that disc, 392.6 N; the ellipse's pi d^2 / sqrt(k1 k2) of the
+        relative curvature 1/5 - 1/5.5 gives 432.0, 10% more"""
+        ball = self.roundTurned(
+            "a pressure in a socket",
+            55,
+            -10,
+            rigidRod=True,
+            ball=True,
+            socket=5.5,
+            pressure=1000.0,
+            within=0.001,
+            most=1e9,
+        )
+        self.assertLess(abs(ball - 392.58), 0.01 * 392.58)
 
     def test_pressure_on_a_cone_and_a_flexible_round(self):
         """A pressure over the area on a round whose radius changes along
@@ -1220,6 +1240,7 @@ class TestFlexibleBody(unittest.TestCase):
         arm=5.0,
         ball=False,
         pressure=None,
+        socket=None,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1236,7 +1257,9 @@ class TestFlexibleBody(unittest.TestCase):
         other, its hinge's axis tilted so the cone lies along the plate, the
         plate 0.05 mm into it there; a round of no cylinder. arm: the
         friction's on the rod's axis, its radius where the force is. ball:
-        the rod a ball R 5 instead, turned about its centre. pressure: the
+        the rod a ball R 5 instead, turned about its centre; socket: under
+        it a block's spherical hollow of that radius, its wall 0.05 mm into
+        the ball's underside, for the plate. pressure: the
         contact's law a pressure over the area (D4b way 2), N/mm^3. Returns
         the mean force over the turn"""
         import CommandCreateContact
@@ -1263,7 +1286,18 @@ class TestFlexibleBody(unittest.TestCase):
             rod.Height = 40
         rod.Placement = plc(0, 0, 0, App.Vector(0, 1, 0), 90 + tilt)
         low = top - 5.0 + 0.05
-        if bore:
+        if socket:
+            import Part
+
+            # The hollow's lowest 0.05 mm over the ball's
+            centre = -5.0 + 0.05 + socket
+            plate = self.assembly.newObject("Part::Feature", "Block")
+            # A cup: open at the top, at the ball's middle, its surface one
+            # piece for its contact mesh
+            plate.Shape = Part.makeBox(20, 20, 8, App.Vector(-10, -10, -8)).cut(
+                Part.makeSphere(socket, App.Vector(0, 0, centre))
+            )
+        elif bore:
             import Part
 
             low = bore - 5.0 + 0.05 - 10.0

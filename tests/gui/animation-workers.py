@@ -272,6 +272,19 @@ def run():
         check("whose frames are the edited design",
               abs(bound.XLength - (20.0 * N + 5)) < 1e-6 and top.Shape.isValid(),
               bound)
+
+        # --- a worker meshes a frame as this view meshes it, and the view
+        # finds the mesh made (docs/WorkerProcess.md sec 14): its file holds
+        # the mesh, so is far larger than the same frame written here, which
+        # is told nothing of the view
+        k = 7
+        theirs = os.path.join(frames, "%d.wframe" % k)
+        tables = os.path.join(OUT, "tables")
+        os.makedirs(tables, exist_ok=True)
+        here = os.path.join(OUT, "here.wframe")
+        mine = anim.writeFrame(k, here, tables)["Bytes"]
+        size = os.path.getsize(theirs) if os.path.exists(theirs) else 0
+        check("a worker's frame holds the view's mesh", size > 2 * mine, (size, mine))
         group.RemInt("Workers")
         group.RemFloat("IdleSeconds")
     except Exception:

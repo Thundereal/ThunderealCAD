@@ -109,6 +109,7 @@
 #include <boost/iostreams/device/array.hpp>
 #include <boost/iostreams/stream.hpp>
 
+#include <App/Animation.h>
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
@@ -174,6 +175,35 @@ using namespace PartGui;
 namespace bio = boost::iostreams;
 
 PROPERTY_SOURCE(PartGui::ViewProviderPartExt, Gui::ViewProviderGeometryObject)
+
+namespace {
+/// How this view meshes `obj` (docs/WorkerProcess.md sec 14): the
+/// deviation and the angle updateVisual() uses, for a worker making a frame
+/// of the Animation to mesh its shape so. Nothing for an object not shown
+std::string animationDisplayHint(const App::DocumentObject& obj)
+{
+    if (!Gui::Application::Instance) {
+        return {};
+    }
+    auto vp = freecad_cast<PartGui::ViewProviderPartExt*>(
+        Gui::Application::Instance->getViewProvider(&obj));
+    if (!vp || !vp->isShow()) {
+        return {};
+    }
+    const bool over = PartGui::PartParams::getOverrideTessellation();
+    const double deviation =
+        std::max(over ? PartGui::PartParams::getMeshDeviation() : vp->Deviation.getValue(),
+                 PartGui::PartParams::getMinimumDeviation());
+    const double angular = std::max(over ? PartGui::PartParams::getMeshAngularDeflection()
+                                         : vp->AngularDeflection.getValue(),
+                                    PartGui::PartParams::getMinimumAngularDeflection());
+    char text[80];
+    std::snprintf(text, sizeof(text), "mesh %.17g %.17g", deviation, angular);
+    return text;
+}
+[[maybe_unused]] const bool hintsAnimation =
+    (App::Animation::displayHint = animationDisplayHint, true);
+}  // namespace
 
 namespace PartGui {
 

@@ -15,6 +15,7 @@
 
 import math
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -1549,6 +1550,29 @@ class TestAnimation(unittest.TestCase):
             self.assertEqual(self.frameFacts(cut), facts, t)
         self.anim.stop()
         self.assertAlmostEqual(box.Length.Value, 40)
+
+    def testAFrameMeshedAsTheViewMeshesIt(self):
+        """A worker told how the view meshes an object writes its shape with
+        that mesh (docs/WorkerProcess.md sec 14): the view taking the frame
+        finds it made. Here the file is the proof, near three times the size;
+        the pictures are tests/gui/animation-workers.py's"""
+        _box, cut = self.workerScene()
+        self.anim.activate()
+        tables = tempfile.mkdtemp(prefix="TestAnimationTables")
+        self.addCleanup(shutil.rmtree, tables, True)
+        sizes = {}
+        for kind, display in (("plain", {}), ("meshed", {"Cut": "mesh 0.5 28.5"}),
+                              ("unknown", {"Cut": "something else"})):
+            path = os.path.join(tables, kind + ".wframe")
+            # From another frame: one written again where it stands
+            # recomputes nothing, and writes nothing
+            self.anim.writeFrame(0, os.path.join(tables, "between.wframe"), tables)
+            written = self.anim.writeFrame(3, path, tables, display)
+            self.assertEqual(written["Bytes"], os.path.getsize(path))
+            sizes[kind] = written["Bytes"]
+        self.assertGreater(sizes["meshed"], 2 * sizes["plain"], sizes)
+        self.assertEqual(sizes["unknown"], sizes["plain"], sizes)
+        self.assertTrue(cut.Shape.isValid())
 
     def testAnEditBesideTheFramesLeavesThem(self):
         """An edit of what no frame is made from drops nothing: the jobs

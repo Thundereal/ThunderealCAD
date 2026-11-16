@@ -911,12 +911,21 @@ PyObject* AnimationPy::writeFrame(PyObject* args)
     long index = 0;
     const char* file = nullptr;
     const char* tables = nullptr;
-    if (!PyArg_ParseTuple(args, "lss", &index, &file, &tables)) {
+    PyObject* hints = nullptr;
+    if (!PyArg_ParseTuple(args, "lss|O!", &index, &file, &tables, &PyDict_Type, &hints)) {
         return nullptr;
     }
     PY_TRY
     {
-        auto written = getAnimationPtr()->writeFrame(index, file, tables);
+        std::map<std::string, std::string> display;
+        if (hints) {
+            Py::Dict dict(hints);
+            for (auto item : dict) {
+                display[Py::String(item.first).as_std_string("utf-8")] =
+                    Py::String(item.second).as_std_string("utf-8");
+            }
+        }
+        auto written = getAnimationPtr()->writeFrame(index, file, tables, display);
         Py::Dict dict;
         dict.setItem("Bytes", Py::Long(static_cast<long>(written.bytes)));
         dict.setItem("Cost", Py::Float(written.cost));

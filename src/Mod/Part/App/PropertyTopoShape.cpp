@@ -33,6 +33,13 @@
 # include <Bnd_Box.hxx>
 # include <BRepBndLib.hxx>
 # include <BRepBuilderAPI_Copy.hxx>
+# include <BRepMesh_IncrementalMesh.hxx>
+# include <IMeshTools_Parameters.hxx>
+# include <Poly_Triangulation.hxx>
+# include <Poly_TriangulationParameters.hxx>
+# include <TopExp_Explorer.hxx>
+# include <BRep_Tool.hxx>
+# include <Precision.hxx>
 # include <BRepBuilderAPI_Transform.hxx>
 # include <BRepTools.hxx>
 # include <BRep_Builder.hxx>
@@ -53,6 +60,7 @@
 # include <TopoDS_Iterator.hxx>
 #endif // _PreComp_
 
+#include <App/Animation.h>
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentParams.h>
@@ -2494,3 +2502,98 @@ void PropertyShapeCache::slotChanged(const App::DocumentObject &, const App::Pro
     }
 }
 
+
+// --------------------------------------------------------------------------
+// A worker's frame meshed as the view that shows it meshes
+// (docs/WorkerProcess.md sec 14)
+
+namespace Part
+{
+void setBinaryWithTriangles(bool on);  // TopoShape.cpp
+}
+
+namespace
+{
+
+/// `hint` is what PartGui's view says of the object: "mesh <deviation>
+/// <angular degrees>", each as the view uses it. The deflection is the
+/// view's (ViewProviderPartExt::updateVisual): of the shape's box, as
+/// it stands, so the view finds a mesh at least as fine as it asks for
+bool captureMeshed(const App::Property& prop, const std::string& hint,
+                   const App::CaptureConfig& config, App::CapturedValue& out)
+{
+    auto shapeProp = dynamic_cast<const PropertyPartShape*>(&prop);
+    if (!shapeProp) {
+        return false;
+    }
+    std::istringstream in(hint);
+    std::string kind;
+    double deviation = 0;
+    double angular = 0;
+    in >> kind >> deviation >> angular;
+    if (kind != "mesh" || !(deviation > 0) || !(angular > 0)) {
+        return false;
+    }
+    const TopoDS_Shape shape = shapeProp->getShape().getShape();
+    if (shape.IsNull()) {
+        return false;
+    }
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box, Standard_False);
+    box.SetGap(0.0);
+    if (box.IsVoid()) {
+        return false;
+    }
+    double x0, y0, z0, x1, y1, z1;
+    box.Get(x0, y0, z0, x1, y1, z1);
+    double deflection =
+        std::max(Precision::Confusion(), ((x1 - x0) + (y1 - y0) + (z1 - z0)) / 300.0 * deviation);
+    if (deflection < gp::Resolution()) {
+        deflection = Precision::Confusion();
+    }
+    deflection = std::min(deflection, 20.0);
+    try {
+        IMeshTools_Parameters params;
+        params.Deflection = deflection;
+        params.Relative = Standard_False;
+        params.Angle = std::max(Precision::Angular(), angular / 180.0 * M_PI);
+        params.InParallel = Standard_True;
+        params.AllowQualityDecrease = Standard_True;
+        BRepMesh_IncrementalMesh mesh(shape, params);
+        (void)mesh;
+        // A file keeps a triangulation's deflection, not the one it was
+        // built at, which is what the view's mesher -- and OCCT's own,
+        // with quality decrease allowed -- compares the ask with, within a
+        // tenth: the measured one, far finer, would have it meshed again
+        for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+            TopLoc_Location loc;
+            const Handle(Poly_Triangulation) tri =
+                BRep_Tool::Triangulation(TopoDS::Face(ex.Current()), loc);
+            if (tri.IsNull()) {
+                continue;
+            }
+            const Handle(Poly_TriangulationParameters)& built = tri->Parameters();
+            if (!built.IsNull() && built->HasDeflection()) {
+                tri->Deflection(built->Deflection());
+            }
+        }
+    }
+    catch (Standard_Failure& e) {
+        FC_LOG("a frame's mesh for " << prop.getFullName() << ": " << e.GetMessageString());
+        return false;
+    }
+    Part::setBinaryWithTriangles(true);
+    try {
+        out = App::captureValue(config, prop);
+    }
+    catch (...) {
+        Part::setBinaryWithTriangles(false);
+        throw;
+    }
+    Part::setBinaryWithTriangles(false);
+    return out.ok;
+}
+
+[[maybe_unused]] const bool capturesMeshed = (App::Animation::captureForDisplay = captureMeshed, true);
+
+}  // namespace

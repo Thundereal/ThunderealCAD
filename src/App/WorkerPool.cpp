@@ -1837,6 +1837,14 @@ void WorkerPool::poll(int ms)
             d->server->waitForNewConnection(0);
             d->accept();
         }
+        else if (ms > 0 && d->server) {
+            // With an event loop a connection is taken by the server's own
+            // notifier, which runs only in the loop: a wait -- waitWorkers()
+            // from a script in the GUI -- lets it. Not a poll of none
+            // (claim()'s, inside an evaluation), and no input: a click
+            // handled in here would act inside the caller
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        }
         std::vector<Private::Stranger*> strangers;
         for (auto& s : d->strangers) {
             strangers.push_back(s.get());

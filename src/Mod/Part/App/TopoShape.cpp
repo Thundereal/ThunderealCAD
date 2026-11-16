@@ -969,6 +969,18 @@ void TopoShape::exportBrep(std::ostream& out, bool forStorage) const
     SS.Write(this->_Shape, out);
 }
 
+namespace Part
+{
+/// While set on this thread, a binary shape is written with its faces'
+/// triangulations and normals: a worker's frame, meshed as the view that
+/// shows it meshes (docs/WorkerProcess.md sec 14, PropertyTopoShape.cpp)
+thread_local bool binaryWithTriangles = false;
+void setBinaryWithTriangles(bool on)
+{
+    binaryWithTriangles = on;
+}
+}  // namespace Part
+
 void TopoShape::exportBinary(std::ostream& out, bool forStorage) const
 {
     // See BinTools_FormatVersion of OCCT 7.6
@@ -983,6 +995,10 @@ void TopoShape::exportBinary(std::ostream& out, bool forStorage) const
     BinTools_ShapeSet theShapeSet;
     theShapeSet.SetFormatNb(VERSION_3);
     applyStorageOptions(theShapeSet, forStorage);
+    if (binaryWithTriangles) {
+        theShapeSet.SetWithTriangles(true);
+        theShapeSet.SetWithNormals(true);
+    }
     if (this->_Shape.IsNull()) {
         theShapeSet.Add(this->_Shape);
         theShapeSet.Write(out);

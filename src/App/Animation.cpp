@@ -2923,8 +2923,13 @@ double Animation::meanFrameCost() const
     return count ? total / static_cast<double>(count) : 0.0;
 }
 
+std::function<std::string(const DocumentObject&)> Animation::displayHint;
+std::function<bool(const Property&, const std::string&, const CaptureConfig&, CapturedValue&)>
+    Animation::captureForDisplay;
+
 Animation::FrameWritten Animation::writeFrame(long index, const std::string& file,
-                                              const std::string& tables)
+                                              const std::string& tables,
+                                              const std::map<std::string, std::string>& display)
 {
     auto doc = getDocument();
     if (!doc || !getNameInDocument()) {
@@ -2944,6 +2949,7 @@ Animation::FrameWritten Animation::writeFrame(long index, const std::string& fil
     out.index = index;
     out.file = file;
     out.tables = tables;
+    out.display = display;
     _frameOut = &out;
     try {
         // A Time already there is no change, and evaluates nothing: written
@@ -3061,7 +3067,14 @@ void Animation::writeFrameFile(FrameOut& out, Capture& capture, double cost)
         }
         putSize(s, capture.written.size());
         for (auto& [obj, prop] : capture.written) {
-            CapturedValue value = captureValue(config, *prop);
+            // Meshed as the view that shows the frame meshes it, the mesh
+            // kept with the value (docs/WorkerProcess.md sec 14)
+            CapturedValue value;
+            auto hint = out.display.find(obj->getNameInDocument());
+            if (hint == out.display.end() || !captureForDisplay
+                || !captureForDisplay(*prop, hint->second, config, value)) {
+                value = captureValue(config, *prop);
+            }
             if (!value.ok || !value.blobs.empty()) {
                 out.error = std::string(prop->getFullName()) + " cannot be written";
                 return false;

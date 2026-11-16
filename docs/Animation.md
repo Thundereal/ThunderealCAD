@@ -814,7 +814,12 @@ back took 88 ms and 1.9 MB, without it 80 ms and 0.21 MB, and in the
 text form a save writes 85 ms and 0.33 MB. Headless a read-back is 38 ms
 of parsing; the rest is the view taking the shape, as it does for a frame
 from memory (39 ms the whole), so the mesh made again at the view's
-deflection is not where the time goes. The cache writes binary. A frame that is quicker to
+deflection is not where the time goes. (Corrected 2026-11-16,
+`docs/WorkerProcess.md` sec 14: it is. A triangulation read back keeps
+its measured deflection, not the one it was built at, so the view meshed
+it again either way; profiled, the mesh is most of a frame's replay, and
+a worker now writes its frames meshed as the view meshes, kept so.) The
+cache writes binary. A frame that is quicker to
 recompute than its trip to disk has been costing, a byte, is dropped
 instead; so is every frame over the second budget, oldest first, and
 every one on disk at a save, whose string table its element maps name by

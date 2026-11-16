@@ -46,6 +46,7 @@ struct Animation::FrameOut
     long index = 0;
     std::string file;
     std::string tables;
+    std::map<std::string, std::string> display;  ///< by object, the view's meshing
     FrameWritten written;
     std::string error;
     bool done = false;

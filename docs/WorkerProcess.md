@@ -2,9 +2,9 @@
 
 Status: design accepted 2026-11-16, every decision as recommended (sec
 9). Built on branch `Worker`: phase 0 (`docs/Animation.md` sec 4.2),
-phase 1 (sec 10), phase 2 (sec 11, 12), phase 4 (sec 13); the order of
-what is left, as ruled 2026-11-16: phase 4, phase 5, then a reduced
-phase 3.
+phase 1 (sec 10), phase 2 (sec 11, 12), phase 4 (sec 13), phase 5a (sec
+14); the order of what is left, as ruled 2026-11-16: phase 4, phase 5,
+then a reduced phase 3.
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -568,3 +568,57 @@ the workers too, the first copy a version).
 Not done: a job does not name the version it was queued for; with
 `reads` it does not need to. The results still come back as files with
 string tables, imported by content (phase 3).
+
+## 14. Phase 5a, as built: a frame meshed where it is made
+
+(2026-11-16.) Phase 5 is in two steps. 5a takes the mesh off the frame's
+read-back with no change of behaviour; 5b (next) draws a frame without
+materialising it.
+
+- **Measured first.** `sample` of the GUI's main thread stepping through
+  a worker's frames read from disk (the 64-hole filleted plate, 40
+  frames, 1 ms samples): of a frame's replay, the view meshing the
+  frame's shape (`BRepMesh_IncrementalMesh` in `updateVisual`) about 60%,
+  the link element references updated for the new shape 13%, parsing
+  the shape 1%. What `docs/Animation.md` sec 4 had said, that the mesh
+  made again is not where the time goes, was wrong: a triangulation read
+  back keeps its measured deflection, not the one it was built at, and
+  with quality decrease allowed the view (and OCCT) accept a resident
+  mesh only within a tenth of the ask -- so a frame written with its mesh
+  was meshed again all the same.
+- **The view says how it meshes.** `Animation::displayHint`, set by
+  PartGui: for an object shown by a `ViewProviderPartExt`, "mesh
+  <deviation> <angle>", as `updateVisual` takes them (the
+  `OverrideTessellation` preference and the minimums applied). The
+  Animation's jobs carry the hints of every object (`display` in the
+  job's inputs); `FrameMeshes` of Preferences/Workers (true) off leaves
+  them out, for A/B.
+- **The worker meshes so.** `Animation::captureForDisplay`, set by Part's
+  App side: a frame's shape is meshed at the view's deflection -- of the
+  posed shape's box, the view's formula -- each face's triangulation
+  given the deflection it was built at, and captured with its triangles
+  and normals (a thread-local switch of `TopoShape::exportBinary`, set
+  for that capture only). `Animation.writeFrame(index, file, tables,
+  display)` takes the hints from Python too.
+- **The view finds it made**: `tessellationIsRedundant` accepts it, and
+  `BRepMesh` is not entered.
+- **Also fixed**: `waitWorkers()` called from a script in the GUI never
+  took a worker's connection -- the server's notifier runs only in the
+  event loop, which a poll did not let run. A poll that waits now
+  processes the events that are no input; a poll of none (a claim inside
+  an evaluation) still does not.
+
+Measured 2026-11-16 on mini, the same plate, a frame read from disk and
+the view waited for, two runs each way: the replay (Time set) 76.5 ms
+without the mesh, 33.4 ms with it; the whole frame 135 ms, 93 ms. A frame
+from memory is unchanged (56 ms, of it 18 ms replay). The frame's file is
+larger, 2.6 MB against 0.36 MB.
+
+What is left of a frame read from disk, for 5b: the replay's 33 ms (the
+element references, the restore, the view's fill of its nodes) and the
+drawing after it.
+
+Tests: TestAnimation 73 (a frame written meshed, near three times the
+size, a hint it does not know written plain), `tests/gui/animation-
+workers.py` 24 (a worker's frame holds the view's mesh; the pictures of
+its frames those of the frames made here, as before).

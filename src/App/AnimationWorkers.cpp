@@ -81,8 +81,17 @@ WorkerPool::Reply makeFrame(const WorkerPool::Request& request)
     if (anim->Cache.getValue()) {
         anim->Cache.setValue(false);
     }
+    std::map<std::string, std::string> display;
+    auto hints = inputs.find("display");
+    if (hints != inputs.end() && hints->is_object()) {
+        for (auto& [name, hint] : hints->items()) {
+            if (hint.is_string()) {
+                display[name] = hint.get<std::string>();
+            }
+        }
+    }
     auto written = anim->writeFrame(inputs.value("index", 0L), request.out,
-                                    inputs.value("tables", std::string()));
+                                    inputs.value("tables", std::string()), display);
     reply.output = json {{"bytes", written.bytes}, {"cost", written.cost}, {"table", written.table}}
                        .dump();
     return reply;
@@ -147,6 +156,22 @@ void Animation::Workers::enqueue(const std::vector<long>& indices, long from)
     // An edit drops the jobs it reaches and leaves the others to run on
     // the copy they were queued for (docs/WorkerProcess.md sec 4)
     reads = readsNow();
+    // How the view here meshes what a frame is made of, for the worker to
+    // mesh it so (sec 14)
+    json display = json::object();
+    const bool meshes = GetApplication()
+                            .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+                            ->GetBool("FrameMeshes", true);
+    if (Animation::displayHint && meshes) {
+        if (auto d = owner.getDocument()) {
+            for (auto obj : d->getObjects()) {
+                std::string hint = Animation::displayHint(*obj);
+                if (!hint.empty()) {
+                    display[obj->getNameInDocument()] = hint;
+                }
+            }
+        }
+    }
     for (long index : sorted) {
         if (owner._frames.count(index) || jobs.count(index)) {
             continue;
@@ -157,7 +182,8 @@ void Animation::Workers::enqueue(const std::vector<long>& indices, long from)
         job.reads = reads;
         job.inputs = json {{"animation", owner.getNameInDocument()},
                            {"index", index},
-                           {"tables", tables}}
+                           {"tables", tables},
+                           {"display", display}}
                          .dump();
         // Known only once it is submitted: the callback finds it by frame
         auto slot = std::make_shared<WorkerPool::JobId>(0);

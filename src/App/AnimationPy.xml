@@ -211,9 +211,11 @@ up to `seconds` for them to finish (for ever when negative). True when none run<
     </Methode>
     <Methode Name="writeFrame">
       <Documentation>
-        <UserDocu>writeFrame(index, file, tables) -> dict: in a worker process, make frame
-`index` and write it to `file`, the string table to the directory `tables`. Returns Bytes,
-Cost (the recompute's seconds), Table (its hash) and Resident (this process's bytes)</UserDocu>
+        <UserDocu>writeFrame(index, file, tables, display={}) -> dict: in a worker process, make
+frame `index` and write it to `file`, the string table to the directory `tables`; `display`,
+by object name, how the view showing the frame meshes it (a Part shape: 'mesh deviation
+angle'), the mesh then kept with the value. Returns Bytes, Cost (the recompute's seconds),
+Table (its hash) and Resident (this process's bytes)</UserDocu>
       </Documentation>
     </Methode>
     <CustomAttributes />

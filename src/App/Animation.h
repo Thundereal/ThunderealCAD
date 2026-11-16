@@ -41,6 +41,8 @@ namespace App
 {
 
 class Animation;
+struct CaptureConfig;
+struct CapturedValue;
 
 namespace Anim
 {
@@ -450,7 +452,23 @@ public:
         std::string table;
         std::size_t resident = 0;  ///< what this process holds after it
     };
-    FrameWritten writeFrame(long index, const std::string& file, const std::string& tables);
+    /// `display`: by object name, how the view showing the frame meshes it
+    /// (displayHint), for captureForDisplay
+    FrameWritten writeFrame(long index, const std::string& file, const std::string& tables,
+                            const std::map<std::string, std::string>& display = {});
+    /** A frame drawn from a mesh made where the frame was
+     * (docs/WorkerProcess.md sec 14). A module whose views draw an object
+     * from a mesh says how this process's view meshes it, as text of its
+     * own -- empty for an object it does not draw so (`displayHint`, set by
+     * the module's Gui) -- and in a worker writing a frame, captures a
+     * value it writes meshed so, the mesh kept with it (`captureForDisplay`,
+     * set by the module's App side; false: captured as any value is). The
+     * view taking the frame then finds its mesh made.
+     */
+    static std::function<std::string(const DocumentObject&)> displayHint;
+    static std::function<bool(const Property&, const std::string& hint, const CaptureConfig&,
+                              CapturedValue&)>
+        captureForDisplay;
     /// Frames of an Animation came into its cache, or its workers took one
     /// up or stopped, from outside a change of its Time
     static fastsignals::signal<void(const Animation&)> signalCacheChanged;

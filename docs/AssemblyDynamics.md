@@ -5624,6 +5624,43 @@ Phase D1 is under way (2026-10-28):
   - Tests: TestFlexibleBody.test_round_past_flexible_edge as it was, now
     passing on Linux. TestFlexibleBody 34 (234 s), TestDynamics 90,
     TestJointFriction 4, TestContact 63.
+- Built, D4b way 1 step 1 (2026-11-16): a surface where two parts touch,
+  and what the contact is by the two surfaces' relative curvature. Nothing
+  uses it yet; the cases move onto it one at a time, each against its
+  test (below).
+  - `Solver/LocalSurface.h`, no Chrono, so a gtest takes it alone.
+    `localSurface()`: a quadratic six-node face's point, outward normal,
+    principal curvatures (convex positive) and their ways at any area
+    coordinates, from its nodes as they are -- a flexible part's face as
+    its modes have it, of any shape, where `roundAt()` fits a cylinder
+    only. `contactOf()`: the two curvature tensors summed in A's tangent
+    plane; pressed d together, the surfaces are within d of each other
+    over a width 2 sqrt(2 d / k) along each principal way, and a way is
+    flat where that width passes how far the two shapes reach to touch
+    that way. A point where neither way is flat, a line along the flat way
+    where one is, an area where both are.
+  - Not by a face's size: a rod R 5 in a bore R 5.5 pressed 50 um is 4.7
+    mm wide round, past a 4 mm mesh's face, and is a line -- its two end
+    points hold its force to 0.05% (step 29).
+  - What a quadratic face's own curvature is worth. Through three points
+    of a round R 5 0.8 rad apart (a 4 mm mesh's face), the face curves
+    1.3% over 1/R at its middle, 10% under a tenth of the way from its
+    edge, 17% under at the edge; a ball R 8's face 0.5 rad each way at its
+    equator, within 5%. Enough to tell a point from a line -- 17% in k is
+    9% in the width -- not to place a point by: the force is the face's
+    own depth, which `deepestOnFace()` and `toFlat()` take already.
+  - Tests: tests/src/Mod/Assembly/App/LocalSurface.cpp, 9 (a flat face, a
+    round's face and a bore's, a ball's, a degenerate face; a round on a
+    plane and in a bore, crossed rounds and a ball, two flat faces and a
+    round of 5 m).
+  - The steps that follow, each moving cases onto it with their tests'
+    figures kept: (2) `thinOut()`'s lines found by `contactOf()` at the
+    deepest point of each place, the round pairs it finds now first, then
+    two flexible rounds along each other (a limit of steps 25 to 28); (3)
+    a line's ends by where both surfaces still press along it, the depth
+    fit of step 30, for a partial round and a face of no cylinder; (4) an
+    area's corners, a flat face on a flat face; (5) rigid meshes, by
+    `ContactShape::surfaces`, for the mesh plate's line ends.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

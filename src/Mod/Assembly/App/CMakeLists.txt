@@ -94,6 +94,7 @@ SET(Solver_SRCS
     Solver/Formula.h
     Solver/JointEquations.cpp
     Solver/JointEquations.h
+    Solver/LocalSurface.h
     Solver/Model.h
     Solver/Model.cpp
     Solver/OndselBackend.cpp

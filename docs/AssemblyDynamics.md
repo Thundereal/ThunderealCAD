@@ -5591,6 +5591,51 @@ Phase D1 is under way (2026-10-28):
     TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76 (run
     again by themselves: the chain's own run ended at a PermissionError
     writing its result file, 56 tests in and all passing).
+- Next, D4b from here (2026-11-16): one rule for a contact, not a step a
+  pair of geometries. Steps 13 to 29 each placed the points of one pair --
+  a round on a round, in a bore, along a flat face, a ball -- and each
+  limit left is one more pair (two flexible rounds along each other, a
+  cone, a torus, a partial round, a free-form face). Asked for by the
+  user; nothing of it is built. Two ways, both to be tried.
+  - What others do, read from abstracts and manuals, not the papers.
+    - Abaqus corrects each point's gap by what the facet stands off an
+      ideal cylinder, sphere or torus ("smoothing of common curved surface
+      geometries"): steps 25 to 28's fitted round, but once, in the gap,
+      whatever the other part is.
+    - Nagata patches make a curved patch of each facet from its corners and
+      the surface's normals there, for any mesh; reported to take the
+      faceted surface's force oscillation out of a sliding contact.
+    - Hippmann's polygonal contact model (Simpack) and Drake's hydroelastic
+      contact (Elandt, Masterjohn) give the force as a pressure summed over
+      the area in contact, not by points found.
+    - Mortar (segment to segment) contact, a signed distance field of the
+      other part, incremental potential contact: each wants a solver or a
+      field this backend has not.
+    - Reduced bodies: RecurDyn's Geo Contact on modal bodies (Cha et al.
+      2017); Virlez et al., contact between superelements.
+  - **Way 1: the places by the two surfaces' curvature, the law kept.**
+    The model has each point's normal and principal curvatures as the solid
+    has them (`ContactShape::surfaces`), any face, used for Hertz's
+    stiffness alone (`patchStiffness()`). At a point found, the two
+    surfaces' relative curvature says what the contact is: curved both
+    ways, one point, at the surfaces' deepest; flat one way, a line along
+    that way, its two ends; flat both ways, an area, its corners. What
+    stays a pair's own is how far a line or an area reaches, by the faces'
+    edges (`reachOver()`, `reachOnFlat()`). A flexible part's faces have
+    their own curvature as the mesh has it there (`roundAt()` fits a
+    cylinder; the same of any face is wanted). The force law is as it is,
+    so the tests' and the manual's numbers should stand: build it beside
+    what is there and move a case at a time, each against its test.
+  - **Way 2: a pressure over the area.** The force a pressure by the depth,
+    summed over the area the surfaces share. It is another law: a
+    stiffness in N/mm a patch becomes one in N/mm^3, a flat face presses in
+    proportion, a round on a flat face by depth^1.5, a ball by depth^2, and
+    every force in the tests and the manual moves. It does not take the
+    facets out alone: a quadratic face stands 3.9 um in from a round R 5 at
+    a 4 mm mesh, of 50 um pressed, and the line a round R 5 pressed 50 um
+    touches a plane along is 1.4 mm wide, under a face's size -- the area
+    has to be summed finer than the faces, on the surface as way 1 has it.
+  - Not measured: any of the above on this solver.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

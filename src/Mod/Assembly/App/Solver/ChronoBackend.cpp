@@ -3962,8 +3962,46 @@ void thinOut(ContactLoad& load,
                       from,
                       to);
         }
-        const bool endLow = low < from + size;
-        const bool endHigh = high > to - size;
+        // And an end the line still presses at, by its pressing points'
+        // depths along it, a straight line fitted to them: the round lies
+        // along the face within a degree (toFlat()), its depth all but
+        // linear in the station. By a pressing point found within a face of
+        // the end alone, the line ended where collision detection happened
+        // to find one: a substep of a rod turned past a flexible plate's
+        // ends found none within 2.3 mm of one, the line ended there, and
+        // the force went from 45.6 N to 46.1 and back to 45.1
+        bool pressesLow = false;
+        bool pressesHigh = false;
+        {
+            double n = 0.0;
+            double sx = 0.0;
+            double sy = 0.0;
+            double sxx = 0.0;
+            double sxy = 0.0;
+            // The pressing ones: the line's others are off it round the
+            // round, their depths by how far round, not by the station
+            for (const std::size_t i : onLine) {
+                if (!(depth[i] > 0.0)) {
+                    continue;
+                }
+                const double x = stationOf(i);
+                n += 1.0;
+                sx += x;
+                sy += depth[i];
+                sxx += x * x;
+                sxy += x * depth[i];
+            }
+            const double spread = n * sxx - sx * sx;
+            if (n > 1.0 && spread > 1e-6 * n * n * size * size) {
+                const double slope = (n * sxy - sx * sy) / spread;
+                const double mean = sy / n;
+                const double middle = sx / n;
+                pressesLow = mean + slope * (from - middle) > 0.0;
+                pressesHigh = mean + slope * (to - middle) > 0.0;
+            }
+        }
+        const bool endLow = low < from + size || (pressesLow && low < to);
+        const bool endHigh = high > to - size || (pressesHigh && high > from);
         if (endLow) {
             low = from;
         }

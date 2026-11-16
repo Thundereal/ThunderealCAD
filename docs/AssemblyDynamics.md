@@ -5591,6 +5591,39 @@ Phase D1 is under way (2026-10-28):
     TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76 (run
     again by themselves: the chain's own run ended at a PermissionError
     writing its result file, 56 tests in and all passing).
+- Fixed, D4b step 30 (2026-11-16): a line on a flexible plate ends at the
+  plate's end whether or not a pressing point was found near it.
+  test_round_past_flexible_edge failed on Linux, its force 45.14 to 46.10
+  N over a mean of 45.58, past the hundredth it holds (46.04); on Windows
+  it passed, 45.46 to 45.71. The OCCT before and after the 2026-11-16 sync
+  gave it to the digit, and nothing else merged touches contact.
+  - **Three frames.** Every frame of the turn was within 0.5% of the mean
+    but those at 0.0932, 0.0934 and 0.0936 s: +0.71%, +1.13%, -0.97%. A
+    trace of `thinOut()` (not kept): the line's end at the plate's end x =
+    35 was 0.3 mm in at every detection but one, which had it at x =
+    32.68. There, collision detection found no pressing point within a
+    face's size of that end, the lowest 2.3 mm from it, and a line's end
+    is taken to the plate's end only from a pressing point that near --
+    else it stays at the last one found. The line two millimetres short,
+    its force moved along the rod for a substep. Which substep finds what
+    differs with the platform's last digits.
+  - **By the depths.** The round lies along the face within a degree
+    (`toFlat()`), so its depth along the line is all but linear in the
+    station. A straight line fitted to the pressing points' depths says
+    whether the line still presses at each end of the stretch both reach;
+    where it does, that end is the line's, as one found within a face of
+    it was. A rod cocked on the plate, pressing at one end, would have its
+    fitted depth below none at the other and keep that end where its
+    points end; no test has one. The rest of the line's points are left out of the fit: they are
+    round the round from the line, their depths by how far round.
+  - Numbers. The rod past a flexible plate's ends: 45.58 N, 45.46 to
+    45.71 (45.14 to 46.10 before), Windows' figures. Every other case of
+    the rod prints as it did. Of the 2268 lines found over the turn, 462 had
+    their last pressing point over a millimetre from an end the fit said
+    the line presses at.
+  - Tests: TestFlexibleBody.test_round_past_flexible_edge as it was, now
+    passing on Linux. TestFlexibleBody 34 (234 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

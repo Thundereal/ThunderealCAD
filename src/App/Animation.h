@@ -404,6 +404,11 @@ public:
         /// and by content (docs/WorkerProcess.md sec 15), ever
         long byId = 0;
         long byContent = 0;
+        /// geometry a shown frame held back, ever; of it put in since,
+        /// ever; and what is held back now (docs/WorkerProcess.md sec 16)
+        long deferred = 0;
+        long settled = 0;
+        std::size_t owed = 0;
     };
     CacheInfo cacheInfo() const;
     void clearCache();
@@ -476,6 +481,20 @@ public:
     /// Frames of an Animation came into its cache, or its workers took one
     /// up or stopped, from outside a change of its Time
     static fastsignals::signal<void(const Animation&)> signalCacheChanged;
+
+    /** Time set to `t` for a picture (docs/WorkerProcess.md sec 16), as the
+     * player and an export of pictures set it: a kept frame puts back the
+     * geometry of what a view draws, and holds back the rest -- a chain's
+     * hidden features, a Body's -- until something may read it: settle(),
+     * a recompute, an edit, a save, Stop. Setting Time puts back all.
+     */
+    void showAt(double t);
+    /// Put in what showAt() held back
+    void settle();
+    /** Whether a view draws obj (set by a module's Gui; unset, all are):
+     * the geometry of one that none draws is what showAt() holds back
+     */
+    static std::function<bool(const DocumentObject&)> drawnHere;
 
     /// Parse `path` relative to this Animation
     ObjectIdentifier parsePath(const std::string& path) const;
@@ -573,6 +592,14 @@ private:
     void dropFrame(long frame);
     bool spillFrame(long index, Frame& frame);
     bool loadFrame(Frame& frame);
+    struct Owed;
+    /// What showAt() holds back of a frame, by property
+    std::map<Property*, std::unique_ptr<Owed>> _owed;
+    bool defers(const Property& prop) const;
+    bool _showing = false;
+    bool _settling = false;
+    long _cacheDeferred = 0;
+    long _cacheSettled = 0;
     std::string cacheDir() const;
     std::string framePath(const Frame& frame) const;
     void trimCache();

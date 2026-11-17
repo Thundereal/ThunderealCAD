@@ -194,6 +194,11 @@ not move it. Only not doing it does.
   animation stops running the GUI's capture per frame.
 - This is the one change of behaviour: during playback the document
   lags the picture. It needs your ruling (sec 9, D5).
+- As built (sec 16): not chunks drawn by the renderer. Measured, the time
+  of a frame shown was in the document taking in the geometry no view
+  draws -- a chain's hidden features -- not in drawing the one shown; the
+  view draws from the shape as before, and only what it does not draw is
+  held back.
 
 ## 7. Jobs
 
@@ -246,7 +251,7 @@ struct WorkerResult {
 | 2 | snapshot + read-only reader of the GUI's store, leases; `openFileVersion` in the worker | `saveCopy`: the save path, the remade frame, the dropped disk frames |
 | 3 | arena, blobs adopted by hash, string blocks + merge (strings built: sec 15) | per-frame files, import by content |
 | 4 | move along the log on edits; jobs dropped by `reads` | restart at every edit |
-| 5 | App-side mesh chunks; frames drawn from them; lazy materialise; the bake takes them | the read-back floor |
+| 5 | App-side mesh chunks; frames drawn from them; lazy materialise; the bake takes them (as built: sec 14, 16) | the read-back floor |
 | 6 | `recompute` as the second client | -- |
 
 Each phase is measured on the plates of `docs/Animation.md` 4.1/4.2 and
@@ -576,8 +581,8 @@ string tables, imported by content (phase 3).
 ## 14. Phase 5a, as built: a frame meshed where it is made
 
 (2026-11-16.) Phase 5 is in two steps. 5a takes the mesh off the frame's
-read-back with no change of behaviour; 5b (next) draws a frame without
-materialising it.
+read-back with no change of behaviour; 5b (sec 16) draws a frame without
+materialising what no view draws.
 
 - **Measured first.** `sample` of the GUI's main thread stepping through
   a worker's frames read from disk (the 64-hole filleted plate, 40
@@ -741,3 +746,82 @@ and a reopen), TestWorkerPool 23, Document 361, FileBlobs 97, TestPartApp
 444, ctest 1268; GUI animation-workers 24, animation-cache 27,
 animation-timeline 50, serve-animation 62, animation-export-clock 12,
 serve-log 27.
+
+## 16. Phase 5b, as built: what no view draws is held back
+
+(2026-11-17.) Measured first, on the chain of sec 15 (60 cuts of a plate,
+each hidden but the last, a fillet left out; 40 frames by 2 workers, read
+back in the GUI, the main thread sampled): a frame read from disk took
+2024 ms to show, 1875 of them in `evaluateAt`, and most of that a
+recompute here -- the cache had dropped the frames.
+
+- **The view built what it did not show.** Part's `SoFCCoordinate3`
+  stands before the display mode switch and builds the visual when a
+  bounding box traversal passes it, whatever the switch shows; the view
+  asks the scene's box at every redraw. So every hidden object whose
+  shape changed was meshed and filled at the next redraw: each hidden
+  feature of a chain at every recompute, here or not (sec 14 had seen it
+  as "a hidden object's visual is built all the same", and given the
+  workers the meshes to match). Now `hiddenHere()`: not built when the
+  traversal came through the object's own root and its switch shows
+  nothing -- not for a link (a root of its own, and `forceUpdate()`), a
+  switch override above, a view showing the object on its own. Built when
+  shown, as `onChanged(Visibility)` already did.
+- **So the workers mesh what is shown only.** The display hint is empty
+  for an object no view builds. A frame of the chain was 150 MB with the
+  meshes of 60 hidden cuts and 4.1 MB without any; it is 6.2 MB. At 150 MB
+  forty frames passed the cache's disk bound (`CacheDiskLimitMB`, 4096):
+  the first frame shown dropped twelve, and they were recomputed here.
+- **What no view draws is held back.** `Animation::showAt(t)` is Time set
+  for a picture: the player's tick, the timeline's scrub, an export of
+  pictures (`videoexport`). A kept frame then puts back, of the geometry
+  it holds (`PropertyComplexGeoData`), only that of objects a view draws
+  (`Animation::drawnHere`, set by PartGui by the rule above; unset, as
+  with no GUI, all are drawn). The rest is held back (`Owed`): a copy of
+  the frame's value, or the bytes read from its file, unparsed -- a frame
+  with any held back stays on disk only. Numbers, placements, anything
+  else are put back as before.
+- **Put in when something may read it** (`settle()`): Pause, the end of
+  a scrub, a selection while playing (the player watches it), Time set
+  (the frame put back whole), a recompute (`signalBeforeRecompute`, and
+  before a frame made here), an edit or an undo (`signalBeforeChangeObject`,
+  any write not the Animation's own), a save. Stop and a deactivation
+  touch what is held back instead, so the recompute from the rest values
+  makes it, rather than putting it in to be replaced. An object shown
+  since is put back at the next frame. A read from Python while playing
+  sees the shape of the last frame put in -- the lag D5 ruled.
+- **Counted**: `cacheInfo()` `Deferred` (values held back, ever),
+  `Settled` (put in since, ever), `Owed` (held back now).
+- **Found on the way, not changed**: a change of an object's Visibility
+  drops the frames reaching it, as any change of it does, though no
+  recompute reads it.
+
+Measured 2026-11-17 on mini, per frame shown, the view waited for
+(`~/works/sw/fcad-probes/worker/profile-chain.py`, `profile-frames.py`;
+`PROF_SHOW=1` steps with `showAt`):
+
+| scene | frame | before | hidden not built | and held back |
+|---|---|---|---|---|
+| chain, 60 cuts | from disk | 2024 ms | 241-366 ms | 75.7 ms |
+| chain, 60 cuts | from memory | 1170 ms | 167 ms | 68.1 ms |
+| plate, 64 holes, filleted | from disk | 74-77 ms (sec 14) | 64.7 ms | 55.4 ms |
+| plate, 64 holes, filleted | from memory | 56 ms | 52.4 ms | 52.9 ms |
+
+The plate has one hidden object, so there is little to hold back; what is
+left of its frame is the drawing (sec 14). Of the chain's 75.7 ms, the
+replay is 38 ms: the shown cut's shape read and put in.
+
+Tests: TestAnimation 75 (+1: with no GUI, showAt() holds nothing back),
+`tests/gui/animation-shown-holds-back.py` 24 (new: a hidden cut not built
+when the chain changes, built when shown; a frame shown holds back the
+plate and the hidden cuts, its picture the frame's; settle(), Time set, a
+recompute, a selection, Pause, an edit, Stop each put them in, each the
+frame's; a frame from disk read no further and staying there; a cut shown
+since put back), TestWorkerPool 23; GUI animation-workers 24,
+animation-cache 27, animation-timeline 50, animation-export 43,
+animation-export-clock 12, serve-animation 62, serve-log 27, and 43 tests
+of hidden objects, links, views of their own, loading and bounds: all
+pass but five that fail the same with the guard taken out
+(edit-on-top-by-preview-and-path, pd-edit-shown-per-view,
+pd-preview-per-view, per-view-undo, selection-on-top-hidden-edges) and
+drain-clock-step, which needs its clock shim.

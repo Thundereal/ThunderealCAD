@@ -139,6 +139,9 @@
 #include <Gui/TaskElementColors.h>
 #include <Gui/Inventor/SoFCRenderMaterial.h>
 #include <Gui/Inventor/SoFCShapeInfo.h>
+#include <Gui/Inventor/SoFCSwitch.h>
+#include <Inventor/SoPath.h>
+#include <Inventor/actions/SoGetBoundingBoxAction.h>
 #include <Gui/Inventor/SoFCVertexCache.h>
 #include <Gui/InventorBase.h>
 #include <Gui/BitmapFactory.h>
@@ -177,10 +180,37 @@ namespace bio = boost::iostreams;
 PROPERTY_SOURCE(PartGui::ViewProviderPartExt, Gui::ViewProviderGeometryObject)
 
 namespace {
+/// Whether a view builds vp's visual: shown, shown by a link
+/// (forceUpdate), or shown by a view on its own -- the rule of
+/// SoFCCoordinate3::hiddenHere (docs/WorkerProcess.md sec 16)
+bool drawn(PartGui::ViewProviderPartExt& vp)
+{
+    if (vp.Visibility.getValue() || vp.isUpdateForced()) {
+        return true;
+    }
+    SoSwitch* node = vp.getModeSwitch();
+    return node && node->isOfType(SoFCSwitch::getClassTypeId())
+        && SoFCSwitch::isPerViewShown(static_cast<SoFCSwitch*>(node));
+}
+
+/// Whether a view draws `obj`: what the Animation's showAt() puts back of a
+/// frame, the rest held back until it is read. Only a Part view is asked:
+/// any other object is drawn, as far as this goes
+bool animationDrawnHere(const App::DocumentObject& obj)
+{
+    if (!Gui::Application::Instance) {
+        return true;
+    }
+    auto vp = freecad_cast<PartGui::ViewProviderPartExt*>(
+        Gui::Application::Instance->getViewProvider(&obj));
+    return !vp || drawn(*vp);
+}
+
 /// How this view meshes `obj` (docs/WorkerProcess.md sec 14): the
 /// deviation and the angle updateVisual() uses, for a worker making a frame
-/// of the Animation to mesh its shape so. A hidden object too: its visual
-/// is built all the same when the scene's bounds are asked for
+/// of the Animation to mesh its shape so. Not a hidden object no view
+/// builds (SoFCCoordinate3::hiddenHere, docs/WorkerProcess.md sec 16): its
+/// frame carries the shape alone, and one shown later is meshed here
 std::string animationDisplayHint(const App::DocumentObject& obj)
 {
     if (!Gui::Application::Instance) {
@@ -189,6 +219,9 @@ std::string animationDisplayHint(const App::DocumentObject& obj)
     auto vp = freecad_cast<PartGui::ViewProviderPartExt*>(
         Gui::Application::Instance->getViewProvider(&obj));
     if (!vp) {
+        return {};
+    }
+    if (!drawn(*vp)) {
         return {};
     }
     const bool over = PartGui::PartParams::getOverrideTessellation();
@@ -203,7 +236,8 @@ std::string animationDisplayHint(const App::DocumentObject& obj)
     return text;
 }
 [[maybe_unused]] const bool hintsAnimation =
-    (App::Animation::displayHint = animationDisplayHint, true);
+    (App::Animation::displayHint = animationDisplayHint,
+     App::Animation::drawnHere = animationDrawnHere, true);
 }  // namespace
 
 namespace PartGui {
@@ -228,7 +262,7 @@ public:
         // node, which is what makes calling it from inside a bounding-
         // box traversal free. It cost 25 minutes of pegged CPU on the
         // 17058-solid MiSTer assembly, against 8, when it did not.
-        if (vp && vp->VisualTouched && !vp->VisualDeferred) {
+        if (vp && vp->VisualTouched && !vp->VisualDeferred && !hiddenHere(action)) {
             // Named under the level debug flag: this on-demand build
             // runs inside whatever traversal asked for the bbox, and
             // the 1.8s giant rebuilds attributed to "the drain" turned
@@ -241,6 +275,27 @@ public:
             vp->updateVisual();
         }
         SoCoordinate3::getBoundingBox(action);
+    }
+
+    /** This traversal came through the object's own root, whose display
+     * mode switch shows nothing to it: the box it asks for has no use for
+     * the visual. This node stands before the switch, so without this a
+     * hidden object was built at every bounds traversal after its shape
+     * changed -- each hidden feature of a chain meshed at every recompute,
+     * and a worker told to mesh them all for a frame of the Animation
+     * (docs/WorkerProcess.md sec 16). What may still show a hidden object
+     * builds it: a link (through a root of its own, and forceUpdate()),
+     * a switch override above, a view showing it on its own.
+     */
+    bool hiddenHere(SoAction* action) const
+    {
+        SoSwitch* sw = vp->getModeSwitch();
+        if (drawn(*vp) || !sw || sw->whichChild.getValue() != SO_SWITCH_NONE
+            || SoFCSwitch::testTraverseState(SoFCSwitch::TraverseOverride)) {
+            return false;
+        }
+        const SoPath* path = action->getCurPath();
+        return path && path->getLength() >= 2 && path->getNodeFromTail(1) == vp->getRoot();
     }
 
     ViewProviderPartExt *vp = nullptr;

@@ -1146,6 +1146,17 @@ struct Animation::Frame
     bool byId = false;
 };
 
+/// A value of a frame showAt() held back (docs/WorkerProcess.md sec 16):
+/// a copy of the frame's in memory, or what was read of it from disk
+struct Animation::Owed
+{
+    DocumentObject* obj = nullptr;
+    std::unique_ptr<Property> value;
+    CapturedValue captured;
+    /// The worker's table, when its strings come in by content
+    StringHasherRef table;
+};
+
 namespace
 {
 
@@ -2418,6 +2429,7 @@ void Animation::evaluateAt(double t)
     }
     long frame = 0;
     if (!isCaching() || !frameAt(t, frame)) {
+        settle();  // a recompute reads what was held back
         doc->recompute();
         return;
     }
@@ -2427,8 +2439,12 @@ void Animation::evaluateAt(double t)
         _workers->claim(frame);
     }
     if (replayFrame(frame)) {
+        if (!_showing) {
+            settle();  // what this frame did not put back of the last one shown
+        }
         return;
     }
+    settle();
     Capture capture;
     for (auto obj : doc->getObjects()) {
         if (obj->isTouched()) {
@@ -2503,6 +2519,15 @@ bool Animation::replayFrame(long index)
     else {
         for (auto& v : frame.values) {
             try {
+                if (defers(*v.prop)) {
+                    auto owed = std::make_unique<Owed>();
+                    owed->obj = v.obj;
+                    owed->value.reset(v.value->Copy());
+                    _owed[v.prop] = std::move(owed);
+                    ++_cacheDeferred;
+                    continue;
+                }
+                _owed.erase(v.prop);
                 v.prop->Paste(*v.value);
             }
             catch (Base::Exception& e) {
@@ -2660,6 +2685,7 @@ bool Animation::loadFrame(Frame& frame)
         value.ok = true;
     }
     in.close();
+    std::size_t deferred = 0;
     try {
         // A worker's frame names its strings in the worker's table. Given
         // from ids this file's table leased the worker, they come in under
@@ -2683,13 +2709,34 @@ bool Animation::loadFrame(Frame& frame)
         }
         RestoreBatch batch;
         for (std::size_t i = 0; i < values.size(); ++i) {
-            restoreValue(*frame.values[i].prop, values[i]);
+            auto& v = frame.values[i];
+            if (defers(*v.prop)) {
+                // Not read: kept as it came, for settle()
+                auto owed = std::make_unique<Owed>();
+                owed->obj = v.obj;
+                owed->captured = std::move(values[i]);
+                if (strings) {
+                    owed->table = frame.table;
+                }
+                _owed[v.prop] = std::move(owed);
+                ++_cacheDeferred;
+                ++deferred;
+                continue;
+            }
+            _owed.erase(v.prop);
+            restoreValue(*v.prop, values[i]);
         }
         batch.finish();
     }
     catch (Base::Exception& e) {
         FC_WARN(getFullName() << ": " << e.what());
         return false;
+    }
+    if (deferred) {
+        // The document has not all of it: the frame stays on disk only
+        _cacheDiskSeconds += secondsNow() - began;
+        ++_cacheLoaded;
+        return true;
     }
     // In memory again, as the document has it now; the file stays good
     std::size_t counted = 0;
@@ -2911,6 +2958,9 @@ Animation::CacheInfo Animation::cacheInfo() const
     info.prepared = _cachePrepared;
     info.byId = _cacheById;
     info.byContent = _cacheByContent;
+    info.deferred = _cacheDeferred;
+    info.settled = _cacheSettled;
+    info.owed = _owed.size();
     return info;
 }
 
@@ -2946,6 +2996,78 @@ double Animation::meanFrameCost() const
 }
 
 std::function<std::string(const DocumentObject&)> Animation::displayHint;
+std::function<bool(const DocumentObject&)> Animation::drawnHere;
+
+bool Animation::defers(const Property& prop) const
+{
+    // Geometry only: a number, a placement, is put back as it is, and
+    // costs nothing to; a shape costs its parse, its element map, the
+    // references to it, its appearance (docs/WorkerProcess.md sec 16)
+    if (!_showing || !drawnHere || !prop.isDerivedFrom<PropertyComplexGeoData>()) {
+        return false;
+    }
+    auto obj = freecad_cast<DocumentObject*>(prop.getContainer());
+    return obj && obj != this && !drawnHere(*obj);
+}
+
+void Animation::showAt(double t)
+{
+    Base::FlagToggler<bool> showing(_showing, false);
+    if (std::fabs(Time.getValue() - t) > TimeEpsilon) {
+        Time.setValue(t);
+    }
+    else {
+        activate();
+    }
+}
+
+void Animation::settle()
+{
+    auto doc = getDocument();
+    if (_owed.empty() || _settling || !doc) {
+        return;
+    }
+    Base::FlagToggler<bool> flag(_settling, false);
+    WriteScope animated(WriteCause::Animation);
+    auto owed = std::move(_owed);
+    _owed.clear();
+    std::vector<DocumentObject*> clean;
+    for (auto& [prop, o] : owed) {
+        if (!o->obj || !o->obj->isAttachedToDocument()) {
+            continue;
+        }
+        // As the frame left it: touched by the put back only
+        if (!o->obj->isTouched()) {
+            clean.push_back(o->obj);
+        }
+        try {
+            if (o->value) {
+                prop->Paste(*o->value);
+            }
+            else {
+                std::unique_ptr<RestoreStrings> strings;
+                if (o->table) {
+                    strings = std::make_unique<RestoreStrings>(o->table, doc->getStringHasher());
+                }
+                RestoreBatch batch;
+                restoreValue(*prop, o->captured);
+                batch.finish();
+            }
+            ++_cacheSettled;
+        }
+        catch (Base::Exception& e) {
+            // Left as it was: a recompute puts it right
+            FC_WARN(getFullName() << ": " << prop->getFullName() << " not put in: " << e.what());
+            o->obj->touch();
+            clean.erase(std::remove(clean.begin(), clean.end(), o->obj), clean.end());
+        }
+    }
+    for (auto obj : clean) {
+        if (obj->isAttachedToDocument()) {
+            obj->purgeTouched();
+        }
+    }
+}
 std::function<bool(const Property&, const std::string&, const CaptureConfig&, CapturedValue&)>
     Animation::captureForDisplay;
 
@@ -3255,6 +3377,23 @@ void Animation::deactivate(bool recompute)
 {
     auto doc = getDocument();
     _pending = false;
+    if (!_owed.empty()) {
+        if (recompute && doc && Recompute.getValue() != RecomputeNever
+            && !doc->testStatus(Document::Recomputing)) {
+            // What was held back is recomputed from the rest values below,
+            // not put in to be replaced at once
+            auto owed = std::move(_owed);
+            _owed.clear();
+            for (auto& [prop, o] : owed) {
+                if (o->obj && o->obj->isAttachedToDocument()) {
+                    o->obj->touch();
+                }
+            }
+        }
+        else {
+            settle();
+        }
+    }
     // A handler's tracks keep their own rest: a camera put back
     for (auto& track : Tracks.getValues()) {
         if (track.kind != "Property") {
@@ -3421,6 +3560,7 @@ void Animation::connectDocument()
             _saving = true;
             deactivate(true);
         }
+        settle();
         // A frame on disk names its element maps' strings by the ids the
         // file's table has now, and a save may give that table up
         std::vector<long> gone;
@@ -3463,8 +3603,15 @@ void Animation::connectDocument()
             _capture->scope.insert(const_cast<DocumentObject*>(&obj));
         }
     }));
+    _conns.emplace_back(doc->signalBeforeRecompute.connect([this](const Document&) {
+        // A recompute reads what showAt() held back
+        settle();
+    }));
     _conns.emplace_back(doc->signalDeletedObject.connect([this](const DocumentObject& obj) {
         clearCache();
+        for (auto it = _owed.begin(); it != _owed.end();) {
+            it = it->second->obj == &obj ? _owed.erase(it) : std::next(it);
+        }
         if (&obj == this) {
             return;
         }
@@ -3483,7 +3630,14 @@ void Animation::connectDocument()
         dropRest(&obj, nullptr);
     }));
     _conns.emplace_back(doc->signalBeforeChangeObject.connect(
-        [this](const DocumentObject& obj, const Property& prop) { onBeforeRecord(obj, prop); }));
+        [this](const DocumentObject& obj, const Property& prop) {
+            if (!_owed.empty() && &obj != this
+                && !(WriteScope::causes() & WriteCause::Animation)) {
+                // An edit, an undo: of a document as it is at Time
+                settle();
+            }
+            onBeforeRecord(obj, prop);
+        }));
     _conns.emplace_back(doc->signalChangedObject.connect(
         [this](const DocumentObject& obj, const Property& prop) {
             if (_capture) {
@@ -3522,6 +3676,7 @@ void Animation::connectDocument()
         [this](const Property& prop) {
             clearCache();
             dropRest(nullptr, &prop);
+            _owed.erase(const_cast<Property*>(&prop));
         }));
 }
 

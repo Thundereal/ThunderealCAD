@@ -1141,6 +1141,42 @@ class TestAnimation(unittest.TestCase):
         self.assertGreater(self.anim.cacheInfo()["Replayed"], 0)
         self.assertGreater(proxy.count, 0)
 
+    def testShowAtWithNoViewIsTimeSet(self):
+        # docs/WorkerProcess.md sec 16: showAt() holds back the geometry no
+        # view draws. With no GUI no module says what a view draws, so
+        # nothing is held back: a frame shown is a frame put back whole
+        try:
+            import Part  # noqa: F401
+        except ImportError:
+            self.skipTest("shapes are Part's")
+        box = self.doc.addObject("Part::Box", "Box")
+        cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = box
+        cut.Tool = cyl
+        self.doc.recompute()
+        self.anim.FrameRate = 5
+        self.anim.addKey("Box.Height", 0.0, 10.0)
+        self.anim.addKey("Box.Height", 1.0, 20.0)
+        self.anim.Cache = True
+        self.anim.activate()
+        volumes = {}
+        for t in self.anim.frames():
+            self.anim.Time = t
+            volumes[t] = (box.Shape.Volume, cut.Shape.Volume)
+        for t in reversed(self.anim.frames()[:-1]):
+            self.anim.showAt(t)
+            self.assertAlmostEqual(box.Shape.Volume, volumes[t][0], 6)
+            self.assertAlmostEqual(cut.Shape.Volume, volumes[t][1], 6)
+        info = self.anim.cacheInfo()
+        self.assertEqual(info["Owed"], 0)
+        self.assertEqual(info["Deferred"], 0)
+        # The last on show already; the first the design as it rests, with
+        # nothing recomputed to keep
+        self.assertEqual(info["Replayed"], len(self.anim.frames()) - 2)
+        self.anim.settle()  # nothing to put in
+        self.assertEqual(self.anim.cacheInfo()["Settled"], 0)
+
     def testCacheKeepsAShapeWithItsMesh(self):
         try:
             import Part  # noqa: F401

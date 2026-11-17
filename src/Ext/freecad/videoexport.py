@@ -469,7 +469,12 @@ def exportAnimation(
     workers = []
 
     def show(index, t):
-        anim.Time = t
+        # A picture: of a kept frame only what a view draws is put back, the
+        # rest when something reads it (docs/WorkerProcess.md sec 16)
+        if hasattr(anim, "showAt"):
+            anim.showAt(t)
+        else:
+            anim.Time = t
         # A Time already at t is no change, and activates nothing: the
         # first frame would be the design as it rests
         if not anim.Active:

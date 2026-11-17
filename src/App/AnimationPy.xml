@@ -160,6 +160,16 @@ below, a whole property's track). Returns the strip's path, 'Strip:Name'.</UserD
         <UserDocu>evaluate(): write every track's value at Time</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="showAt">
+      <Documentation>
+        <UserDocu>showAt(t): set Time to t for a picture, as playing does: a kept frame holds back the geometry of what no view draws until settle(), a recompute, an edit, a save or Stop</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="settle">
+      <Documentation>
+        <UserDocu>settle(): put in the geometry showAt() held back</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="frames">
       <Documentation>
         <UserDocu>frames() -> list of the frame times from Start to End at FrameRate</UserDocu>

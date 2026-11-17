@@ -47,6 +47,7 @@
 #include "Command.h"
 #include "DockWindowManager.h"
 #include "MainWindow.h"
+#include "Selection.h"
 #include "ViewProviderDocumentObject.h"
 #include "propertyeditor/PropertyEditor.h"
 
@@ -240,6 +241,16 @@ AnimationPlayer::AnimationPlayer()
 {
     timer.setTimerType(Qt::PreciseTimer);
     connect(&timer, &QTimer::timeout, this, &AnimationPlayer::tick);
+    // What is selected is read: of the pose shown, not of a frame before
+    // it (docs/WorkerProcess.md sec 16)
+    selected = Selection().signalSelectionChanged.connect([this](const SelectionChanges& msg) {
+        if (msg.Type == SelectionChanges::AddSelection
+            || msg.Type == SelectionChanges::SetSelection) {
+            if (auto a = animation()) {
+                a->settle();
+            }
+        }
+    });
 }
 
 App::Animation* AnimationPlayer::animation() const
@@ -297,6 +308,10 @@ void AnimationPlayer::pause()
 {
     timer.stop();
     held = false;
+    // Paused, the document is the pose shown (docs/WorkerProcess.md sec 16)
+    if (auto a = animation()) {
+        a->settle();
+    }
     Q_EMIT stateChanged();
 }
 
@@ -305,6 +320,9 @@ void AnimationPlayer::hold()
     if (timer.isActive()) {
         timer.stop();
         held = true;
+        if (auto a = animation()) {
+            a->settle();
+        }
     }
 }
 
@@ -393,7 +411,9 @@ void AnimationPlayer::tick()
         }
     }
     try {
-        a->Time.setValue(t);
+        // A picture: what no view draws is put in when paused
+        // (docs/WorkerProcess.md sec 16)
+        a->showAt(t);
     }
     catch (Base::Exception& e) {
         e.ReportException();
@@ -904,13 +924,9 @@ public:
         if (!anim) {
             return;
         }
-        double t = snap(tOf(x), mods);
-        if (std::fabs(anim->Time.getValue() - t) > App::Anim::TimeEpsilon) {
-            anim->Time.setValue(t);
-        }
-        else {
-            anim->activate();
-        }
+        // For the picture while dragging; settled on release
+        // (docs/WorkerProcess.md sec 16)
+        anim->showAt(snap(tOf(x), mods));
     }
 
     void mousePressEvent(QMouseEvent* ev) override
@@ -1026,6 +1042,11 @@ public:
             dragDt = 0;
             update();
             return;
+        }
+        if (mode == Scrub) {
+            if (auto anim = owner->animation()) {
+                anim->settle();
+            }
         }
         if (mode == Drag && dragging && std::fabs(dragDt) > App::Anim::TimeEpsilon) {
             if (auto anim = owner->animation()) {

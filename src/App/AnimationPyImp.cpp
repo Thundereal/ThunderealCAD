@@ -766,6 +766,33 @@ PyObject* AnimationPy::stop(PyObject* args)
     PY_CATCH
 }
 
+PyObject* AnimationPy::showAt(PyObject* args)
+{
+    double t = 0;
+    if (!PyArg_ParseTuple(args, "d", &t)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        getAnimationPtr()->showAt(t);
+        Py_Return;
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::settle(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        getAnimationPtr()->settle();
+        Py_Return;
+    }
+    PY_CATCH
+}
+
 PyObject* AnimationPy::evaluate(PyObject* args)
 {
     if (!PyArg_ParseTuple(args, "")) {
@@ -807,6 +834,9 @@ PyObject* AnimationPy::cacheInfo(PyObject* args)
         dict.setItem("Prepared", Py::Long(info.prepared));
         dict.setItem("StringsById", Py::Long(info.byId));
         dict.setItem("StringsByContent", Py::Long(info.byContent));
+        dict.setItem("Deferred", Py::Long(info.deferred));
+        dict.setItem("Settled", Py::Long(info.settled));
+        dict.setItem("Owed", Py::Long(static_cast<long>(info.owed)));
         return Py::new_reference_to(dict);
     }
     PY_CATCH

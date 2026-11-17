@@ -6852,8 +6852,10 @@ void ViewProviderPartExt::runDeferredVisualSlice()
                 // and then runs finishRestoring on each, which builds
                 // it. The chess set's 15 shapes were all submitted that
                 // way and none of them built by the drain
-                // (docs/DocumentLoad.md sec 18.7).
-                if (vp && vp->VisualDeferred && vp->VisualTouched)
+                // (docs/DocumentLoad.md sec 18.7). Nor one no view draws:
+                // the drain leaves it unbuilt (docs/WorkerProcess.md sec
+                // 18).
+                if (vp && vp->VisualDeferred && vp->VisualTouched && drawn(*vp))
                     vps.push_back(vp);
             }
             std::vector<PreMeshItem> items;
@@ -7038,7 +7040,15 @@ void ViewProviderPartExt::runDeferredVisualSlice()
                 // Something may have built it in the meantime -- counted
                 // only when this slice is what built it, or the line would
                 // report work it never did.
-                if (vp->VisualTouched) {
+                //
+                // Nor one no view draws now: it was parked when its view
+                // still counted as shown -- the restore parks a visual
+                // before the view's own Visibility is read back -- and it
+                // stays touched, built when it is shown, as an eager load
+                // leaves it. Building it here meshed 133 hidden features
+                // of scanner.FCStd at every open (docs/WorkerProcess.md
+                // sec 18).
+                if (vp->VisualTouched && drawn(*vp)) {
                     // Read ahead of the ask: a claim that ends after this
                     // is one the ask may have missed.
                     const std::uint64_t ended = preMeshEnded();

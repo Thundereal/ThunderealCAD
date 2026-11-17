@@ -813,9 +813,10 @@ replay is 38 ms: the shown cut's shape read and put in.
 
 Opening a document paid the same (measured 2026-11-17 on mini, a plate
 cut by a chain of 40 holes, the last cut shown, saved and opened again in
-the GUI, the guard taken out by a temporary switch for the before). Every
-load path already leaves a hidden object alone (`preMeshUndeferredLoad`,
-the progressive drain, `finishRestoring`), and the first redraw's bounds
+the GUI, the guard taken out by a temporary switch for the before). The
+load paths leave a hidden object alone (`preMeshUndeferredLoad`,
+`finishRestoring`; the progressive drain only where the object was hidden
+when it was parked -- not always so, sec 18), and the first redraw's bounds
 built all 80 hidden visuals anyway: 80 on-demand builds, 35 shapes meshed
 from nothing. With the guard none is built, and the CPU from the open to
 the view settled is 305 ms against 1071 (progressive load on; 338 against
@@ -901,3 +902,66 @@ keep every frame; a colour drops the frame holding what follows), GUI
 animation-cache 27, animation-workers 24, animation-timeline 50,
 animation-export 43, animation-export-clock 12, serve-animation 62,
 serve-log 27.
+
+## 18. A hidden object a link does not show is not meshed at an open
+
+(2026-11-17.) The guard of sec 16 changed nothing on the reporter's
+`scanner.FCStd` (686 objects, 53 Links, 143 hidden Part features, saved by
+a 2025 build at schema 4): opened in the GUI, 138 of the hidden features
+had a visual built, with the guard and without it, and the open took the
+same time both ways. No bounds walk built any of them. Two other paths did.
+
+- **A Link forced every child.** A Link to an `App::Part` makes a
+  `LinkInfo` for each object it shows, down the tree: the Part, its Body,
+  every feature the Body claims (`LinkInfo::updateChildren`). Each one
+  called `forceUpdate(true)` on its view provider as it was made, and a
+  forced view provider is built whatever its Visibility says (`drawn()`,
+  sec 16). A child is shown in the link through its child snapshot, whose
+  switch follows the child's own Visibility (`LinkInfo::updateSwitch`): a
+  hidden one was meshed for a snapshot that draws nothing. 125 of the 138.
+  Now a `LinkInfo` forces its object only while it has a snapshot that
+  shows the object hidden or not -- the transform and visible snapshots,
+  i.e. as the object a link points at (`LinkInfo::updateForced`, from
+  `getSnapshot`). A visible child is built anyway; a hidden one shown later
+  is built then, as any hidden object is. The force is let go where it
+  was, and before a delete too (`extensionBeforeDelete`), undo's reattach
+  forcing again what still needs it.
+- **The progressive drain built what was hidden by its turn.** A view
+  provider whose record names a file of the archive -- a colour list, in
+  a file written at schema 4 -- is restored at once rather than in the
+  deferred view-provider drain (`restoreCapturedViewProvider`). Making it
+  (`slotNewObject` -> `updateView`) asks for its visual before its own
+  properties are read: its Visibility is still the default, shown, the
+  shape's fault-in lands, and the visual is parked for the drain. The
+  record then hides it; the drain built it anyway. With the Link fixed
+  alone, that path still built 133 of scanner's hidden features. The drain
+  and its pre-mesh submission now leave one no view draws touched and
+  unbuilt (`runDeferredVisualSlice`), which is what an eager load leaves.
+
+Measured on mini, `scanner.FCStd` opened in the GUI, CPU from the open
+call to the view settled (two 1 s windows under 30 ms), 2 runs each:
+
+| | progressive load (default) | eager load | migration recompute after the open |
+|---|---|---|---|
+| before | 13.0-13.3 s, 7.3 s wall, 138 hidden built | 9.8 s, 6.2 s wall, 125 built | 36.5-37.1 s, 15.8-16.0 s wall |
+| Link fix alone | 13.2-13.7 s, 138 built | -- | 36.1-36.2 s |
+| both | 11.5-11.8 s, 7.3-7.4 s wall, 5 built | 8.6 s, 5.9 s wall, 5 built | 34.5-34.9 s, 15.5 s wall |
+
+The five still built are the ones Links point at directly, hidden in
+their own place and shown through the link. The open call itself is 5.0 s
+CPU (3.1 s wall) in every case with the progressive load. Pictures of the
+settled view, before against after: the same objects, the differences a
+sub-pixel shift of the fit that two runs of the same build show as much
+of. The migration recompute (468 objects) is 2 s CPU cheaper; its wall
+time is the recompute's.
+
+Tests: `tests/gui/link-hidden-child-unbuilt.py` 33 (new: a Link to a
+Part holding a Body with a hidden feature, a hidden plain child, and a
+Link to a hidden object; saved at the current schema and at schema 4,
+each reopened progressive and eager: the hidden children neither forced
+nor meshed, the link's direct target forced and meshed, the link drawing
+the Part, a hidden feature shown later built then. The tree before fails
+16, with the Link fix alone 2). GUI tests of links, loading, drains,
+hidden objects and views of their own, 36: all pass but
+pd-edit-shown-per-view and pd-preview-per-view, which abort as they did
+before (sec 16).

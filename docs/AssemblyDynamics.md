@@ -5956,6 +5956,58 @@ Phase D1 is under way (2026-10-28):
   - Test: TestFlexibleBody.test_torus_on_plate, both within half a percent
     (32.3 and 5.5 at the least before); roundTurned() takes `torus=`. Probe
     ~/.cache/flexcontact/torusprobe.py, torusseries.py.
+- Measured, D4b way 1 (2026-11-17): a flexible part's rounds on its true
+  surface in place of the fitted cylinder (`roundAt()`), the round code off
+  (faceRound cleared, an experiment not kept): worse. The flexible rod on a
+  flexible roller 36.27 N, 34.9 to 38.2 (44.58, 44.52 to 44.65); the rigid
+  rod in a flexible bore under Pressure 194.7 (158.8, exact 158.3);
+  test_swings_on_a_pin failed; a round in a bore 44.37 to 46.05 (44.74 to
+  44.78). The round pairs' code (two rounds along each other, a hollow
+  one) has no general twin: a point's farthest along one normal is right
+  against a flat face only. Ruled by the user: the round code stays, the
+  fast path; the general code is to catch every pair it does not take.
+- Built, D4b way 1 step 7 (2026-11-17): two curved faces, the catch-all's
+  first part. A rigid torus as a wheel on a rigid roller R 5 along its
+  axis, 0.05 mm into it: 91.7 N, 49 to 172, for the springs' 50; round the
+  roller by 20 deg, 83.6, 49 to 145. Two rigid rods along each other, the
+  round pair's own: 52.8 N, 50 to 56.7, and 60.3 at 20 deg.
+  - **The normal both surfaces' own** (`curvedNormal()`, from
+    `rollAlong()`). A point's two farthest -- A's along the normal, B's
+    against it -- are the contact's where the line between them runs along
+    the normal. Turned by dn, a surface's point moves by its radii of
+    curvature, so the gap square to the normal moves by (K_A^-1 + K_B^-1)
+    dn: Newton's step -K_A (K_A + K_B)^-1 K_B g, none where either is flat
+    (a face's own normal stays) and none along a line's way. The
+    curvatures a round's own (`roundCurvature()`) or a hull's face's where
+    the point is (`bentCurvature()`, its memo's triangle); six steps at
+    most. For a hull's curved face against anything curved, and two convex
+    rounds but two balls. Before, the normal was a face's turning with its
+    body (Point::face) -- the torus's facet's as the torus spun -- or
+    Bullet's, and a normal off the contact's overlaps the two more.
+  - **From the round's axis.** A round against a hull's face starts from
+    the normal through the round's axis at the other's point: from the
+    facet's, the same steps left the torus at 46.2 N, 33.9 to 50.0.
+  - Numbers: the torus 49.98 N, 49.97 to 50.01, under the roller and round
+    it; the two rods 50.00, 50 to 50, both ways. Every other figure as it
+    was (below).
+  - **A flexible face of no round slid into a rigid round**
+    (`FlexibleContact::ontoTrue()`): on its solid's surface, as a round's
+    face is on its round (`ontoRound()`) -- its offset at its place. The
+    flexible torus on the rigid roller 48.87 -> 49.86 N over the turn, both
+    flexible 48.26 -> 49.28.
+  - Not yet. The flexible torus on a rigid roller dips at single frames, 4
+    of about 350: 42.1 N at the least under the roller, 19.3 round it by
+    20 deg -- as before this step, at the same frames. Its point is a slid
+    one (slides 2), one a load; walked on through the faces about at each
+    update (deepest() in follow()) it read the same to the last digit, so
+    not a face's edge. A rigid torus on a flexible roller, 180 N, 0 to
+    599: the roller's points go to their farthest along the torus's facet's
+    normal, turning with the torus (place(), Point::face) -- the same
+    normal solve, on the flexible side, is next.
+  - Tests: TestFlexibleBody.test_torus_on_roller and
+    test_rigid_round_on_rigid_roller, within two and one thousandth;
+    roundTurned() takes `rollerAt=`, and its roller under a torus. Probe
+    ~/.cache/flexcontact/torusroller.py (nine cases), torusrollerseries.py.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

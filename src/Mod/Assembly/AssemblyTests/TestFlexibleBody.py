@@ -1176,6 +1176,49 @@ class TestFlexibleBody(unittest.TestCase):
             most=50.5,
         )
 
+    def test_torus_on_roller(self):
+        """Two curved faces, one of no round (D4b way 1 step 7, the
+        catch-all): test_torus_on_plate's rigid torus on a rigid roller R 5
+        along its axis, 0.05 mm into it, under it and round it by 20 deg. The
+        normal the two surfaces' own (curvedNormal()), from the roller's axis
+        through the torus's point: by the torus's facet's normal, turning
+        with it, 91.7 N, 49 to 172, for the springs' 50 -- 83.6, 49 to 145,
+        at 20 deg"""
+        for at in (0.0, 20.0):
+            mean = self.roundTurned(
+                "a rigid torus on a rigid roller at %g deg" % at,
+                40,
+                -20,
+                roller=True,
+                torus=True,
+                rigidRod=True,
+                rollerAt=at,
+                arm=13.0,
+                within=0.002,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.5)
+            self.renew()
+
+    def test_rigid_round_on_rigid_roller(self):
+        """Two rigid rounds lying along each other: test_round_on_roller's
+        rod rigid, under the roller and round it by 20 deg. Their normal the
+        two rounds' own (curvedNormal()): by Bullet's alone, 52.8 N, 50 to
+        56.7, and 60.3 at 20 deg, for the springs' 50"""
+        for at in (0.0, 20.0):
+            mean = self.roundTurned(
+                "a rigid round on a rigid roller at %g deg" % at,
+                55,
+                -10,
+                roller=True,
+                rigidRod=True,
+                rollerAt=at,
+                within=0.001,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+
     def test_pressure_in_a_socket(self):
         """A pressure over the area of a ball in a socket nearly its size (D4b
         way 2 step 3): a rigid ball R 5 turned about its centre in a block's
@@ -1275,6 +1318,7 @@ class TestFlexibleBody(unittest.TestCase):
         pressure=None,
         socket=None,
         torus=False,
+        rollerAt=0.0,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1295,7 +1339,9 @@ class TestFlexibleBody(unittest.TestCase):
         it a block's spherical hollow of that radius, its wall 0.05 mm into
         the ball's underside, for the plate; torus: the rod a torus, its ring
         R 10 and its tube R 3, standing on the plate as a wheel, turned about
-        its axis -- a point on a face of no round. pressure: the
+        its axis -- a point on a face of no round. rollerAt: the roller round
+        the rod's axis by that many degrees from under it, sideways, still
+        0.05 mm into it, the contact's normal leaning by as much. pressure: the
         contact's law a pressure over the area (D4b way 2), N/mm^3. Returns
         the mean force over the turn"""
         import CommandCreateContact
@@ -1348,17 +1394,23 @@ class TestFlexibleBody(unittest.TestCase):
             )
             plate.Placement.Base = App.Vector(start, -10, low)
         elif roller:
+            # The roller's axis 0.05 mm short of the two radii from the rod's
+            reach = -top + 5.0 - 0.05
+            rollerY = reach * math.sin(math.radians(rollerAt))
+            rollerZ = -reach * math.cos(math.radians(rollerAt))
             plate = self.assembly.newObject("Part::Cylinder", "Roller")
             plate.Radius = 5
             plate.Height = length
-            plate.Placement = plc(start, 0, -10 + 0.05, App.Vector(0, 1, 0), 90)
+            plate.Placement = plc(start, rollerY, rollerZ, App.Vector(0, 1, 0), 90)
         else:
             plate = self.box("Plate", (length, 20, 5), (start, -10, low))
         if flexiblePlate and roller:
             self.doc.recompute()
             for k, x in enumerate((start, start + length)):
                 block = self.box(
-                    "Block%d" % k, (10, 20, 20), (x - 10 if k == 0 else x, -10, -20 + 0.05)
+                    "Block%d" % k,
+                    (10, 20, 20),
+                    (x - 10 if k == 0 else x, rollerY - 10, rollerZ - 10),
                 )
                 held = self.joints.newObject(
                     "Assembly::GroundedJointPython", "GroundedBlock%d" % k
@@ -1370,7 +1422,7 @@ class TestFlexibleBody(unittest.TestCase):
                     for i, f in enumerate(plate.Shape.Faces)
                     if f.Surface.__class__.__name__ == "Plane" and abs(f.CenterOfMass.x - x) < 1e-6
                 )
-                at = plc(x, 0, -10 + 0.05)
+                at = plc(x, rollerY, rollerZ)
                 clamp = self.joints.newObject("App::FeaturePython", "Fixed%d" % k)
                 JointObject.Joint(clamp, JointObject.JointTypes.index("Fixed"))
                 clamp.Detach1 = True

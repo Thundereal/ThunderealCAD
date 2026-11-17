@@ -1143,6 +1143,39 @@ class TestFlexibleBody(unittest.TestCase):
         )
         self.assertLess(abs(bore - 158.27), 0.01 * 158.27)
 
+    def test_torus_on_plate(self):
+        """A point on a curved face of no round (D4b way 1 step 6): a torus,
+        its ring R 10 and its tube R 3, standing on a plate as a wheel, 0.05
+        mm into it, turned about its axis. Rigid, it is not convex: its
+        contact shape is a mesh, and Bullet's points on its facets pressed
+        32.3 to 36.3 N for the 50 of the springs; each now on the solid's
+        surface by its facets' corners' normals (hullFarthest(), a mesh's as
+        a hull's). Flexible, each point was at its own six-node face's
+        farthest towards the plate, and held there by how far a face stands
+        out of its triangles: 5.5 to 50.1 N; now the true surface's farthest
+        through the faces about it (FlexibleContact::towardsTrue()), 49.92 to
+        50.03"""
+        self.roundTurned(
+            "a rigid torus on a plate",
+            55,
+            -10,
+            torus=True,
+            rigidRod=True,
+            arm=13.0,
+            within=0.005,
+            most=50.5,
+        )
+        self.renew()
+        self.roundTurned(
+            "a flexible torus on a plate",
+            55,
+            -10,
+            torus=True,
+            arm=13.0,
+            within=0.005,
+            most=50.5,
+        )
+
     def test_pressure_in_a_socket(self):
         """A pressure over the area of a ball in a socket nearly its size (D4b
         way 2 step 3): a rigid ball R 5 turned about its centre in a block's
@@ -1241,6 +1274,7 @@ class TestFlexibleBody(unittest.TestCase):
         ball=False,
         pressure=None,
         socket=None,
+        torus=False,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1259,7 +1293,9 @@ class TestFlexibleBody(unittest.TestCase):
         friction's on the rod's axis, its radius where the force is. ball:
         the rod a ball R 5 instead, turned about its centre; socket: under
         it a block's spherical hollow of that radius, its wall 0.05 mm into
-        the ball's underside, for the plate. pressure: the
+        the ball's underside, for the plate; torus: the rod a torus, its ring
+        R 10 and its tube R 3, standing on the plate as a wheel, turned about
+        its axis -- a point on a face of no round. pressure: the
         contact's law a pressure over the area (D4b way 2), N/mm^3. Returns
         the mean force over the turn"""
         import CommandCreateContact
@@ -1269,7 +1305,12 @@ class TestFlexibleBody(unittest.TestCase):
         JointObject.GroundedJoint(ground, mount)
         tilt = 0.0
         top = -5.0
-        if ball:
+        if torus:
+            rod = self.assembly.newObject("Part::Torus", "Rod")
+            rod.Radius1 = 10
+            rod.Radius2 = 3
+            top = -13.0
+        elif ball:
             rod = self.assembly.newObject("Part::Sphere", "Rod")
             rod.Radius = 5
         elif cone:
@@ -1365,7 +1406,7 @@ class TestFlexibleBody(unittest.TestCase):
             JointObject.GroundedJoint(held, plate)
         self.doc.recompute()
         # Its end face at x = 0; a ball's own, held at its centre
-        end = "Face1" if ball else next(
+        end = "Face1" if ball or torus else next(
             "Face%d" % (i + 1)
             for i, face in enumerate(rod.Shape.Faces)
             if face.Surface.__class__.__name__ == "Plane" and abs(face.CenterOfMass.x) < 1e-6

@@ -5911,6 +5911,51 @@ Phase D1 is under way (2026-10-28):
   d^2 / sqrt(k1 k2) gave 432.0. On a plate the sphere gives 39.14 for the
   paraboloid's 39.27. Test: TestFlexibleBody.test_pressure_in_a_socket
   (392.58 within a percent; 432.0 before); roundTurned() takes `socket=`.
+- Built, D4b way 1 step 6 (2026-11-17): a point on a curved face of no
+  round, rigid or flexible. A torus, ring R 10, tube R 3, standing on a
+  plate as a wheel 0.05 mm into it, turned about its axis: rigid 32.3 to
+  36.3 N for the springs' 50, flexible 5.5 to 50.1.
+  - Rigid: a torus is not convex, its contact shape a mesh, which step 5's
+    hullFarthest() did not take. Now a mesh's too: `ShapeOn::bentPoints`
+    and `bentAt`, a hull's points in its frame or a mesh's vertices in the
+    body's, as `surfaces` has them; a mesh's triangles kept as wound (out
+    of it already -- a torus's middle is out of it, and winding by it
+    would turn the inner half in). 49.97 to 50.01 N.
+  - Flexible: `FlexibleContact::towardsTrue()`, from towardsFlat(), on a
+    face of no round with its solid's surface: the true surface's farthest
+    towards the flat face (`LocalSurface::farthestOn()`), through the faces
+    of that solid face about it, its offset kept. Held at first by how far
+    a face stands out of its triangles, as on its own face: points found up
+    the tube's side stayed 15 um short and took the force to 45.5 N; through
+    other faces now as far as a tenth of a face. 49.92 to 50.03 N.
+  - Where each holds back. A mesh's line -- a torus lying flat touches
+    all round its ring -- keeps its points as found: its line is no
+    straight one, and hundreds of points on it, each put on the surface at
+    each state, took TestContact.test_hertz_curvature from 7 s to 1470,
+    the law's line by them 0.25 um off its closed form. A flexible face
+    with a straight way, a cone's side, keeps step 3's lines: towardsTrue()
+    on it slid points along the side past a plate's end, 38 to 205 N for
+    45. Both by the face's curvature where the point is: a straight way
+    when its least is under a tenth of its most.
+  - Cost, measured by perf on that test and cut each in turn: each
+    triangle's surface made once, its six-node face and its corners'
+    straight ways (`ShapeOn::bentFaces`, `hullCache()`); each point's last
+    triangle, place, and the point and the way it was put from and for,
+    shared by the load's copies (`Point::BentMemo`) -- looked about first,
+    two edges out, and the same again under a ten-millionth of a turn, a
+    jacobian's difference, put where it went; and where it stayed, as it
+    was; a mesh's point started on the triangle Bullet found it on
+    (`meshTriangleOf()`); `farthestAcross()` by Newton's on the Lagrangian,
+    the face's second derivatives exact (`secondAt()`), its finite
+    differences only where that leaves the face -- they never met their
+    bar of a billionth, forty iterations a call, now a ten-millionth. The
+    test 1470 s -> 9.9 (7 before); TestContact 29 s; the rigid torus 30 s
+    -> 1 (14 before step 6), the rigid cone 4 -> under 1.
+  - Every other figure as it was, but the rigid cone's pressure, its least
+    44.52 -> 44.51 N (Newton's).
+  - Test: TestFlexibleBody.test_torus_on_plate, both within half a percent
+    (32.3 and 5.5 at the least before); roundTurned() takes `torus=`. Probe
+    ~/.cache/flexcontact/torusprobe.py, torusseries.py.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

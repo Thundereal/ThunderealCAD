@@ -990,6 +990,28 @@ struct ShapeOn
     std::vector<std::array<int, 3>> hullTriangles;
     std::vector<std::array<int, 3>> hullAcross;
     bool hullBent = false;
+    // A hull's, convex: its lines too (hullFarthest()); a mesh's points alone
+    bool bentConvex = true;
+    // Their points and the frame they are in on the body: a hull's its
+    // points in its frame, a mesh's its vertices in the body's (D4b way 1
+    // step 6), as 'surfaces' has them
+    std::vector<ch::ChVector3d> bentPoints;
+    ch::ChFramed bentAt;
+    // A mesh's triangles at each of its vertices, for the one a point was
+    // found on (meshTriangleOf())
+    std::vector<std::vector<int>> vertexTriangles;
+    // Each triangle's surface, made once (hullCache()): its six-node face
+    // through its corners' normals (hullFaceOf()), its facet's normal,
+    // whether it curves and is of no round, and at each corner the face's
+    // straight way there, or none
+    struct BentFace
+    {
+        LS::Face x {};
+        ch::ChVector3d facet;
+        bool curved = false;
+        std::array<ch::ChVector3d, 3> way;
+    };
+    std::vector<BentFace> bentFaces;
     // Its faces that are a convex cylinder's or sphere's (ContactShape::
     // rounds), each a sphere or a cylinder on the body as a primitive is,
     // a cylinder's frame at the middle of its reach; and a round's angles,
@@ -1037,6 +1059,24 @@ public:
         // the point on that face's own surface (hullFarthest())
         const ShapeOn* bentA = nullptr;
         const ShapeOn* bentB = nullptr;
+        // Where it was last put on each (hullFarthest()): the triangle, to
+        // look about first, its place there, to start from, and the point
+        // and the way it was put from and for and where it went, in the
+        // hull's frame -- the same again, a jacobian's difference of a
+        // hundred-millionth, it goes there still. Shared by the load's
+        // copies of its points, which ComputeQ() moves (ContactLoad::follow)
+        struct BentMemo
+        {
+            int triangle = -1;
+            std::array<double, 3> L {-1.0, 0.0, 0.0};
+            ch::ChVector3d from;
+            ch::ChVector3d out;
+            ch::ChVector3d to;
+            // Left where it was found there: a mesh's line, a flat facet
+            bool stays = false;
+        };
+        std::shared_ptr<BentMemo> bentMemoA;
+        std::shared_ptr<BentMemo> bentMemoB;
         // A ball's on the rim of a bore too narrow for it (seatAt()): the
         // bore's round, and the point's angle round the rim from the rim's
         // point nearest the ball's centre
@@ -2211,6 +2251,9 @@ public:
                      bool sideA,
                      ch::ChVector3d& moved) const
     {
+        if (towardsTrue(on, normal, sideA, moved)) {
+            return true;
+        }
         const ch::ChVector3d* first = mesh->GetCoordsVertices().data();
         std::array<ch::ChVector3d, 6> x;
         for (std::size_t k = 0; k < 6; ++k) {
@@ -2230,6 +2273,116 @@ public:
         }
         on.weights = weights;
         on.L = coordinates;
+        moved = carrier->GetRot().Rotate(at - on.flat);
+        moved -= normal * ch::Vdot(normal, moved);
+        return true;
+    }
+
+    // The same on a face of no round with its solid's own surface (D4b way
+    // 1, faceTrue): the true surface's farthest towards the flat face
+    // (LocalSurface::farthestOn()), through the faces of that solid face
+    // about it, the point's offset from its six-node face kept -- a torus
+    // standing on a plate as a wheel, each point at its own face's farthest,
+    // pressed it from 5 to 50 N as the faces came round. False where the
+    // face has a round (roundAt() takes it there), or no true surface
+    bool towardsTrue(ContactLoad::OnMesh& on,
+                     const ch::ChVector3d& normal,
+                     bool sideA,
+                     ch::ChVector3d& moved) const
+    {
+        if (!mesh || on.face >= faceSolid.size() || faceSolid[on.face] < 0
+            || (on.face < faceRound.size() && faceRound[on.face] >= 0)) {
+            return false;
+        }
+        const ch::ChVector3d into = carrier->GetRot().RotateBack(sideA ? normal : -normal);
+        std::size_t faceNow = on.face;
+        std::array<double, 3> L = on.L;
+        LS::Face x;
+        // Curved both ways only: along a straight way, a cone's side, the
+        // farthest runs on along it -- past a plate's end, its force 38 to
+        // 205 N for 45 -- and the line's ends are thinOut()'s (toBent())
+        {
+            trueCorners(faceNow, x);
+            LS::Local local;
+            if (!LS::localSurface(x, L, local, &faceTrue[faceNow])
+                || !(local.k1 > 0.0) || local.k2 < 0.1 * local.k1) {
+                return false;
+            }
+        }
+        std::int64_t cameFrom = -1;
+        bool found = false;
+        for (int more = 0; more < 8; ++more) {
+            trueCorners(faceNow, x);
+            int leaving = -1;
+            if (LS::farthestOn(x, &faceTrue[faceNow], v(into), L, leaving)) {
+                found = true;
+                break;
+            }
+            if (leaving < 0) {
+                break;
+            }
+            const std::int64_t next = surface->across(faceNow, leaving);
+            if (next < 0 || next == cameFrom
+                || solidOf(static_cast<std::size_t>(next)) != faceSolid[on.face]) {
+                // At the edge: the face's own, or its farthest along it
+                found = true;
+                break;
+            }
+            const auto& mine = surface->face(faceNow);
+            const auto& theirs = surface->face(static_cast<std::size_t>(next));
+            const std::size_t a = static_cast<std::size_t>(leaving);
+            const std::size_t b = (a + 1) % 3;
+            std::array<double, 3> there {0.0, 0.0, 0.0};
+            for (std::size_t k = 0; k < 3; ++k) {
+                if (theirs[k] == mine[a]) {
+                    there[k] = L[a];
+                }
+                else if (theirs[k] == mine[b]) {
+                    there[k] = L[b];
+                }
+            }
+            const double sum = there[0] + there[1] + there[2];
+            if (!(sum > 0.0)) {
+                found = true;
+                break;
+            }
+            for (double& l : there) {
+                l /= sum;
+            }
+            cameFrom = static_cast<std::int64_t>(faceNow);
+            faceNow = static_cast<std::size_t>(next);
+            L = there;
+        }
+        if (!found) {
+            return false;
+        }
+        const ch::ChVector3d at = v(LS::pointAt(x, &faceTrue[faceNow], L));
+        // As far in as the face stands out of its triangles, on its own
+        // face; through the faces about it, to the surface's farthest, as
+        // far as a tenth of a face -- a torus's points found up its tube's
+        // side, held at the bulge, stayed 15 um short of its bottom and
+        // took the force from 50 to 45.5 N
+        const double size = LS::length(LS::add(x[1], x[0], -1.0));
+        const double most = faceNow == on.face ? 1.5 * surface->bulge() : 0.1 * size;
+        if (!(ch::Vdot(into, at - on.flat) <= most)) {
+            return false;
+        }
+        if (faceNow != on.face) {
+            const auto& nodes = surface->face(faceNow);
+            for (std::size_t k = 0; k < 6; ++k) {
+                if (!(nodes[k] < vertexOf.size() && vertexOf[nodes[k]] >= 0)) {
+                    return false;
+                }
+            }
+            on.nodes = nodes;
+            for (std::size_t k = 0; k < 6; ++k) {
+                on.vertices[k] = vertexOf[nodes[k]];
+            }
+            on.face = faceNow;
+        }
+        on.L = L;
+        on.weights = ChronoFlexible::Surface::shape(L);
+        on.offset = v(LS::offsetAt(faceTrue[faceNow], L));
         moved = carrier->GetRot().Rotate(at - on.flat);
         moved -= normal * ch::Vdot(normal, moved);
         return true;
@@ -6706,35 +6859,51 @@ bool seatAt(const ShapeOn& ball,
 // A hull's mesh's triangles and their neighbours (ShapeOn::hullTriangles),
 // and whether a face of it is curved and of no round: a point of the
 // mesh's on such a face's
-void hullFaces(ShapeOn& on, const ContactShape& shape)
+void hullFaces(ShapeOn& on, const ContactShape& shape, bool convex)
 {
+    on.bentConvex = convex;
     on.hullTriangles.assign(shape.triangles.begin(), shape.triangles.end());
     // Each wound out of the hull: away from its points' middle, a hull being
     // convex -- the mesh's own winding is its faces', not always outward
     ch::ChVector3d middle = ch::VNULL;
-    for (const auto& p : on.hull) {
+    for (const auto& p : on.bentPoints) {
         middle += p;
     }
-    if (!on.hull.empty()) {
-        middle /= static_cast<double>(on.hull.size());
+    if (!on.bentPoints.empty()) {
+        middle /= static_cast<double>(on.bentPoints.size());
     }
     for (auto& tri : on.hullTriangles) {
+        if (!convex) {
+            // A mesh's are wound out of it already: its middle may be out of
+            // it, a torus's
+            break;
+        }
         bool fits = true;
         for (const int v : tri) {
-            fits = fits && v >= 0 && static_cast<std::size_t>(v) < on.hull.size();
+            fits = fits && v >= 0 && static_cast<std::size_t>(v) < on.bentPoints.size();
         }
         if (!fits) {
             tri = {0, 0, 0};
             continue;
         }
-        const ch::ChVector3d& a = on.hull[static_cast<std::size_t>(tri[0])];
-        const ch::ChVector3d& b = on.hull[static_cast<std::size_t>(tri[1])];
-        const ch::ChVector3d& c = on.hull[static_cast<std::size_t>(tri[2])];
+        const ch::ChVector3d& a = on.bentPoints[static_cast<std::size_t>(tri[0])];
+        const ch::ChVector3d& b = on.bentPoints[static_cast<std::size_t>(tri[1])];
+        const ch::ChVector3d& c = on.bentPoints[static_cast<std::size_t>(tri[2])];
         if (ch::Vdot(ch::Vcross(b - a, c - a), (a + b + c) / 3.0 - middle) < 0.0) {
             std::swap(tri[1], tri[2]);
         }
     }
     on.hullAcross.assign(on.hullTriangles.size(), {-1, -1, -1});
+    if (!convex) {
+        on.vertexTriangles.assign(on.bentPoints.size(), {});
+        for (std::size_t t = 0; t < on.hullTriangles.size(); ++t) {
+            for (const int v : on.hullTriangles[t]) {
+                if (v >= 0 && static_cast<std::size_t>(v) < on.vertexTriangles.size()) {
+                    on.vertexTriangles[static_cast<std::size_t>(v)].push_back(static_cast<int>(t));
+                }
+            }
+        }
+    }
     std::map<std::pair<int, int>, std::pair<int, int>> edges;
     for (std::size_t t = 0; t < on.hullTriangles.size(); ++t) {
         for (int e = 0; e < 3; ++e) {
@@ -6758,6 +6927,33 @@ void hullFaces(ShapeOn& on, const ContactShape& shape)
     }
 }
 
+// The mesh's triangle a point was found on, its collision shape's: by its
+// corners, pointers into the mesh's vertices (ShapeOn::vertexTriangles); -1
+// for a hull's, or none
+int meshTriangleOf(const ShapeOn& on, const ch::ChCollisionShape* shape)
+{
+    if (!shape || shape->GetType() != ch::ChCollisionShape::Type::MESHTRIANGLE
+        || on.vertexTriangles.empty() || !on.vertices) {
+        return -1;
+    }
+    const auto* triangle = static_cast<const ch::ChCollisionShapeMeshTriangle*>(shape);
+    const std::ptrdiff_t a = triangle->V1 - on.vertices;
+    const std::ptrdiff_t b = triangle->V2 - on.vertices;
+    const std::ptrdiff_t c = triangle->V3 - on.vertices;
+    if (a < 0 || static_cast<std::size_t>(a) >= on.vertexTriangles.size()) {
+        return -1;
+    }
+    for (const int t : on.vertexTriangles[static_cast<std::size_t>(a)]) {
+        const auto& tri = on.hullTriangles[static_cast<std::size_t>(t)];
+        const bool hasB = tri[0] == b || tri[1] == b || tri[2] == b;
+        const bool hasC = tri[0] == c || tri[1] == c || tri[2] == c;
+        if (hasB && hasC) {
+            return t;
+        }
+    }
+    return -1;
+}
+
 // The surface of a hull's triangle t as its solid has it, a six-node face
 // in the hull's frame: its corners, and its edges' middles out by the
 // sagitta its corners' normals give -- (x_j - x_i).(n_j - n_i) / 8, a
@@ -6772,10 +6968,10 @@ bool hullFaceOf(const ShapeOn& on, std::size_t t, LS::Face& x, ch::ChVector3d& f
     std::array<ch::ChVector3d, 3> normal;
     for (std::size_t k = 0; k < 3; ++k) {
         const auto v = static_cast<std::size_t>(tri[k]);
-        if (v >= on.hull.size() || v >= on.surfaces.size()) {
+        if (v >= on.bentPoints.size() || v >= on.surfaces.size()) {
             return false;
         }
-        corner[k] = on.hull[v];
+        corner[k] = on.bentPoints[v];
     }
     facet = ch::Vcross(corner[1] - corner[0], corner[2] - corner[0]);
     if (!(facet.Length() > 0.0)) {
@@ -6807,6 +7003,74 @@ bool hullFaceOf(const ShapeOn& on, std::size_t t, LS::Face& x, ch::ChVector3d& f
     return true;
 }
 
+// Each triangle's surface of a hull or a mesh with a curved face of no
+// round, once (ShapeOn::bentFaces): a torus lying flat touches all round its
+// ring, hundreds of points, each put on its surface at each state the load
+// is given, a jacobian's two dozen a step -- making each triangle's face and
+// its corners' ways there each time took one test from a minute to 25
+void hullCache(ShapeOn& on)
+{
+    on.bentFaces.assign(on.hullTriangles.size(), {});
+    for (std::size_t t = 0; t < on.hullTriangles.size(); ++t) {
+        ShapeOn::BentFace& face = on.bentFaces[t];
+        if (!hullFaceOf(on, t, face.x, face.facet)) {
+            continue;
+        }
+        double sagitta = 0.0;
+        for (std::size_t k = 0; k < 3; ++k) {
+            const LS::Vec chord = LS::scaled(LS::add(face.x[k], face.x[(k + 1) % 3]), 0.5);
+            sagitta = std::max(sagitta, LS::length(LS::add(face.x[3 + k], chord, -1.0)));
+        }
+        const double size = LS::length(LS::add(face.x[1], face.x[0], -1.0));
+        face.curved = sagitta > 1e-9 * size;
+        if (!face.curved) {
+            continue;
+        }
+        // Each corner's straight way: the least eigenvalue of its face's
+        // curvature tensor in its plane, under a tenth of the most
+        for (std::size_t k = 0; k < 3; ++k) {
+            face.way[k] = ch::VNULL;
+            const auto& faces = on.surfaces[static_cast<std::size_t>(on.hullTriangles[t][k])];
+            const ShapeOn::Surface* best = nullptr;
+            for (const auto& f : faces) {
+                if (!best || ch::Vdot(f.normal, face.facet) > ch::Vdot(best->normal, face.facet)) {
+                    best = &f;
+                }
+            }
+            if (!best) {
+                continue;
+            }
+            Eigen::Matrix3d m;
+            for (int r = 0; r < 3; ++r) {
+                for (int c = 0; c < 3; ++c) {
+                    m(r, c) = best->tensor(r, c);
+                }
+            }
+            const Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solved(m);
+            const Eigen::Vector3d n(best->normal.x(), best->normal.y(), best->normal.z());
+            double least = std::numeric_limits<double>::max();
+            double most = 0.0;
+            int leastAt = -1;
+            for (int j = 0; j < 3; ++j) {
+                const Eigen::Vector3d e = solved.eigenvectors().col(j);
+                if (std::abs(e.dot(n)) > 0.5) {
+                    continue;
+                }
+                const double value = std::abs(solved.eigenvalues()(j));
+                most = std::max(most, value);
+                if (value < least) {
+                    least = value;
+                    leastAt = j;
+                }
+            }
+            if (leastAt >= 0 && most > 0.0 && least < 0.1 * most) {
+                const Eigen::Vector3d e = solved.eigenvectors().col(leastAt);
+                face.way[k] = ch::ChVector3d(e(0), e(1), e(2));
+            }
+        }
+    }
+}
+
 /** A point of a rigid hull put on the surface of the solid's face it is
  * on, where that face is curved and of no round -- a cone's side (D4b way
  * 1 step 5): its facets stand in from it by OCCT's deflection, and Bullet's
@@ -6824,29 +7088,71 @@ bool hullFarthest(const ShapeOn& on,
                   const ch::ChFrame<>& body,
                   const ch::ChVector3d& outward,
                   const ch::ChVector3d& near,
-                  ch::ChVector3d& p)
+                  ch::ChVector3d& p,
+                  ContactLoad::Point::BentMemo& memo)
 {
+    int& last = memo.triangle;
+    std::array<double, 3>& lastL = memo.L;
     if (on.hullTriangles.empty() || !on.hullBent) {
         return false;
     }
-    const ch::ChFramed frame = on.frame >> body;
+    const ch::ChFramed frame = on.bentAt >> body;
     const ch::ChVector3d at = frame.TransformPointParentToLocal(near);
     const ch::ChVector3d out = frame.TransformDirectionParentToLocal(outward);
+    // Where it was put last, for the way it was put for: the point on its
+    // body there still, the way turned under a ten-millionth -- a jacobian's
+    // differences, two dozen a step, of hundreds of points round a torus's
+    // ring
+    if ((last >= 0 || memo.stays) && (at - memo.from).Length2() < 1e-24
+        && (out - memo.out).Length2() < 1e-14) {
+        if (memo.stays) {
+            return false;
+        }
+        p = frame.TransformPointLocalToParent(memo.to);
+        return true;
+    }
+    // Not put anywhere, as far as the next state: as it was found
+    auto stays = [&]() {
+        memo.stays = true;
+        memo.from = at;
+        memo.out = out;
+        return false;
+    };
+    memo.stays = false;
     // The triangle nearest, facing that way; of those as near, at an edge
     // or a vertex, the one facing it most -- a cone's side at its rim, not
     // its end's, which the cone's tilt turns a little that way too
     std::size_t t = on.hullTriangles.size();
     double best = std::numeric_limits<double>::max();
     double facing = -1.0;
-    for (std::size_t i = 0; i < on.hullTriangles.size(); ++i) {
+    // About the triangle it was last put on, two edges out, first: a
+    // torus's mesh's 7000 triangles searched each update doubled its run;
+    // all of them where none of those is near
+    std::vector<std::size_t> about;
+    if (last >= 0 && static_cast<std::size_t>(last) < on.hullTriangles.size()) {
+        about.push_back(static_cast<std::size_t>(last));
+        for (int ring = 0; ring < 2; ++ring) {
+            const std::size_t end = about.size();
+            for (std::size_t k = 0; k < end; ++k) {
+                for (const int next : on.hullAcross[about[k]]) {
+                    if (next >= 0
+                        && std::find(about.begin(), about.end(), static_cast<std::size_t>(next))
+                            == about.end()) {
+                        about.push_back(static_cast<std::size_t>(next));
+                    }
+                }
+            }
+        }
+    }
+    auto consider = [&](std::size_t i) {
         const auto& tri = on.hullTriangles[i];
-        const ch::ChVector3d& a = on.hull[static_cast<std::size_t>(tri[0])];
-        const ch::ChVector3d& b = on.hull[static_cast<std::size_t>(tri[1])];
-        const ch::ChVector3d& c = on.hull[static_cast<std::size_t>(tri[2])];
+        const ch::ChVector3d& a = on.bentPoints[static_cast<std::size_t>(tri[0])];
+        const ch::ChVector3d& b = on.bentPoints[static_cast<std::size_t>(tri[1])];
+        const ch::ChVector3d& c = on.bentPoints[static_cast<std::size_t>(tri[2])];
         ch::ChVector3d n = ch::Vcross(b - a, c - a);
         const double area = n.Length();
         if (!(area > 0.0) || !(ch::Vdot(n, out) > 0.0)) {
-            continue;
+            return;
         }
         n /= area;
         const auto w = LS::nearestOnTriangle({at.x(), at.y(), at.z()},
@@ -6864,84 +7170,64 @@ bool hullFarthest(const ShapeOn& on,
             facing = faces;
             t = i;
         }
+    };
+    for (const std::size_t i : about) {
+        consider(i);
+    }
+    // Near: within a tenth of the last triangle's size, else all
+    if (t == on.hullTriangles.size() || !about.empty()) {
+        double size = 0.0;
+        if (t < on.hullTriangles.size()) {
+            const auto& tri = on.hullTriangles[t];
+            size = (on.bentPoints[static_cast<std::size_t>(tri[1])]
+                    - on.bentPoints[static_cast<std::size_t>(tri[0])])
+                       .Length();
+        }
+        // Bullet's point a margin off the mesh: as near within the margin
+        if (t == on.hullTriangles.size() || !(best <= std::max(0.1 * size, 2.0 * on.envelope))) {
+            t = on.hullTriangles.size();
+            best = std::numeric_limits<double>::max();
+            facing = -1.0;
+            for (std::size_t i = 0; i < on.hullTriangles.size(); ++i) {
+                consider(i);
+            }
+        }
     }
     if (t == on.hullTriangles.size()) {
-        return false;
+        return stays();
     }
-    LS::Face x;
-    ch::ChVector3d facet;
-    if (!hullFaceOf(on, t, x, facet)) {
-        return false;
+    if (t >= on.bentFaces.size() || !on.bentFaces[t].curved) {
+        return stays();
     }
-    // Curved at all: a flat face's middles are its chords'
-    double sagitta = 0.0;
-    for (std::size_t k = 0; k < 3; ++k) {
-        const LS::Vec chord = LS::scaled(LS::add(x[k], x[(k + 1) % 3]), 0.5);
-        sagitta = std::max(sagitta, LS::length(LS::add(x[3 + k], chord, -1.0)));
-    }
-    const double size = LS::length(LS::add(x[1], x[0], -1.0));
-    if (!(sagitta > 1e-9 * size)) {
-        return false;
-    }
-    // Its straight way, by the tensor at the corner nearest
+    LS::Face x = on.bentFaces[t].x;
+    // Its straight way, at the corner nearest
     ch::ChVector3d way = ch::VNULL;
     {
         const auto& tri = on.hullTriangles[t];
         std::size_t nearest = 0;
         double closest = std::numeric_limits<double>::max();
         for (std::size_t k = 0; k < 3; ++k) {
-            const double d = (on.hull[static_cast<std::size_t>(tri[k])] - at).Length2();
+            const double d = (on.bentPoints[static_cast<std::size_t>(tri[k])] - at).Length2();
             if (d < closest) {
                 closest = d;
                 nearest = k;
             }
         }
-        const auto& faces = on.surfaces[static_cast<std::size_t>(tri[nearest])];
-        const ShapeOn::Surface* face = nullptr;
-        for (const auto& f : faces) {
-            if (!face || ch::Vdot(f.normal, facet) > ch::Vdot(face->normal, facet)) {
-                face = &f;
-            }
+        way = on.bentFaces[t].way[nearest];
+        way -= out * ch::Vdot(way, out);
+        if (way.Length() > 0.5) {
+            way.Normalize();
         }
-        if (face) {
-            Eigen::Matrix3d m;
-            for (int r = 0; r < 3; ++r) {
-                for (int c = 0; c < 3; ++c) {
-                    m(r, c) = face->tensor(r, c);
-                }
-            }
-            const Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solved(m);
-            // The tensor is the surface's: its normal's eigenvalue none, its
-            // two ways' the curvatures; the least and most in the plane
-            const Eigen::Vector3d n(face->normal.x(), face->normal.y(), face->normal.z());
-            double least = std::numeric_limits<double>::max();
-            double most = 0.0;
-            int leastAt = -1;
-            for (int k = 0; k < 3; ++k) {
-                const Eigen::Vector3d e = solved.eigenvectors().col(k);
-                if (std::abs(e.dot(n)) > 0.5) {
-                    continue;
-                }
-                const double value = std::abs(solved.eigenvalues()(k));
-                most = std::max(most, value);
-                if (value < least) {
-                    least = value;
-                    leastAt = k;
-                }
-            }
-            if (leastAt >= 0 && most > 0.0 && least < 0.1 * most) {
-                const Eigen::Vector3d e = solved.eigenvectors().col(leastAt);
-                // The shape's frame is the tensor's: the mesh's, the hull's
-                way = ch::ChVector3d(e(0), e(1), e(2));
-                way -= out * ch::Vdot(way, out);
-                if (way.Length() > 0.5) {
-                    way.Normalize();
-                }
-                else {
-                    way = ch::VNULL;
-                }
-            }
+        else {
+            way = ch::VNULL;
         }
+    }
+    // A mesh's line, a torus lying flat on its ring: its points as found.
+    // Its line is no straight one, and hundreds of points along it, each put
+    // on the surface at each state, took a test from 7 s to 200, the
+    // law's line by them off its closed form by 0.25 um
+    if (!on.bentConvex && way.Length2() > 0.0) {
+        return stays();
     }
     // The plane within the triangle's stretch along the way, a thousandth
     // of it in: Bullet's points are a hull's vertices, at a cone's rim, and
@@ -6952,7 +7238,7 @@ bool hullFarthest(const ShapeOn& on,
         double low = std::numeric_limits<double>::max();
         double high = -low;
         for (const int v : on.hullTriangles[t]) {
-            const double station = ch::Vdot(way, on.hull[static_cast<std::size_t>(v)] - at);
+            const double station = ch::Vdot(way, on.bentPoints[static_cast<std::size_t>(v)] - at);
             low = std::min(low, station);
             high = std::max(high, station);
         }
@@ -6963,12 +7249,17 @@ bool hullFarthest(const ShapeOn& on,
     const LS::Vec c {across.x(), across.y(), across.z()};
     const LS::Vec w {way.x(), way.y(), way.z()};
     std::array<double, 3> L {1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0};
+    // From its last place where it is on the same triangle still
+    bool fromL = static_cast<int>(t) == last && lastL[0] >= 0.0;
+    if (fromL) {
+        L = lastL;
+    }
     int cameFrom = -1;
     for (int more = 0; more < 8; ++more) {
         bool found = false;
         int leaving = -1;
         if (way.Length2() > 0.0) {
-            found = LS::farthestAcross(x, nullptr, o, c, w, L, leaving);
+            found = LS::farthestAcross(x, nullptr, o, c, w, L, leaving, fromL);
         }
         else {
             found = LS::farthestOn(x, nullptr, o, L, leaving);
@@ -6977,18 +7268,18 @@ bool hullFarthest(const ShapeOn& on,
             break;
         }
         if (leaving < 0) {
-            return false;
+            return stays();
         }
         const int next = on.hullAcross[t][static_cast<std::size_t>(leaving)];
         if (next < 0 || next == cameFrom) {
             // At the edge: an edge of the face, or the line along the edge
             break;
         }
-        LS::Face nextFace;
-        ch::ChVector3d nextFacet;
-        if (!hullFaceOf(on, static_cast<std::size_t>(next), nextFace, nextFacet)) {
+        if (static_cast<std::size_t>(next) >= on.bentFaces.size()
+            || !on.bentFaces[static_cast<std::size_t>(next)].curved) {
             break;
         }
+        const LS::Face& nextFace = on.bentFaces[static_cast<std::size_t>(next)].x;
         // Its point on the edge, by the edge's corners
         const auto& mine = on.hullTriangles[t];
         const auto& theirs = on.hullTriangles[static_cast<std::size_t>(next)];
@@ -7014,9 +7305,15 @@ bool hullFarthest(const ShapeOn& on,
         t = static_cast<std::size_t>(next);
         x = nextFace;
         L = there;
+        fromL = true;
     }
     const LS::Vec q = LS::pointAt(x, nullptr, L);
     p = frame.TransformPointLocalToParent(ch::ChVector3d(q[0], q[1], q[2]));
+    last = static_cast<int>(t);
+    lastL = L;
+    memo.from = at;
+    memo.out = out;
+    memo.to = ch::ChVector3d(q[0], q[1], q[2]);
     return true;
 }
 
@@ -7124,9 +7421,13 @@ void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Poin
     ch::ChVector3d pA;
     ch::ChVector3d pB;
     const bool movesA = (point.roundA && roundSupport(*point.roundA, a, normal, atA, pA))
-        || (point.bentA && hullFarthest(*point.bentA, a, normal, atA, pA));
+        || (point.bentA
+            && point.bentMemoA
+            && hullFarthest(*point.bentA, a, normal, atA, pA, *point.bentMemoA));
     const bool movesB = (point.roundB && roundSupport(*point.roundB, b, -normal, atB, pB))
-        || (point.bentB && hullFarthest(*point.bentB, b, -normal, atB, pB));
+        || (point.bentB
+            && point.bentMemoB
+            && hullFarthest(*point.bentB, b, -normal, atB, pB, *point.bentMemoB));
     if (!movesA && !movesB) {
         point.normal = normal;
         return;
@@ -7957,14 +8258,14 @@ bool hullLineReach(const ShapeOn& on,
                    double& kLow,
                    double& kHigh)
 {
-    if (!on.hullBent || on.hull.empty() || !on.body) {
+    if (!on.hullBent || on.bentPoints.empty() || !on.body) {
         return false;
     }
-    const ch::ChFramed frame = on.frame >> *on.body;
+    const ch::ChFramed frame = on.bentAt >> *on.body;
     double most = -std::numeric_limits<double>::max();
     std::vector<ch::ChVector3d> at;
-    at.reserve(on.hull.size());
-    for (const auto& p : on.hull) {
+    at.reserve(on.bentPoints.size());
+    for (const auto& p : on.bentPoints) {
         at.push_back(frame.TransformPointLocalToParent(p));
         most = std::max(most, ch::Vdot(at.back(), outward));
     }
@@ -12415,13 +12716,22 @@ Status ChronoSession::simulateDynamics(
                     point.normalOn = body->TransformDirectionParentToLocal(point.normal);
                 }
                 // A hull's curved face of no round (hullFarthest())
+                // -- a mesh's from the triangle it was found on
                 if (!point.roundA) {
                     const ShapeOn* on = shapesOn.of(point.shapeA);
                     point.bentA = on && on->hullBent ? on : nullptr;
+                    if (point.bentA) {
+                        point.bentMemoA = std::make_shared<ContactLoad::Point::BentMemo>();
+                        point.bentMemoA->triangle = meshTriangleOf(*on, point.shapeA);
+                    }
                 }
                 if (!point.roundB) {
                     const ShapeOn* on = shapesOn.of(point.shapeB);
                     point.bentB = on && on->hullBent ? on : nullptr;
+                    if (point.bentB) {
+                        point.bentMemoB = std::make_shared<ContactLoad::Point::BentMemo>();
+                        point.bentMemoB->triangle = meshTriangleOf(*on, point.shapeB);
+                    }
                 }
                 if (point.roundA || point.roundB || point.face || point.bentA || point.bentB) {
                     load.follow = rollAll;
@@ -12963,7 +13273,9 @@ Status ChronoSession::simulateDynamics(
                     triangles.emplace_back(t[0], t[1], t[2]);
                 }
                 where.curvatures = meshCurvatures(where.hull, triangles);
-                hullFaces(where, shape);
+                where.bentPoints = where.hull;
+                where.bentAt = where.frame;
+                hullFaces(where, shape, true);
             }
             where.modulus = shape.modulus;
             where.size = std::cbrt(3.0 * std::max(shape.volume, 0.0) / (4.0 * pi));
@@ -12972,6 +13284,11 @@ Status ChronoSession::simulateDynamics(
                 where.vertices = vertices.data();
                 where.count = vertices.size();
                 where.curvatures = meshCurvatures(vertices, meshMade->GetIndicesVertexes());
+                // Its curved faces of no round on their own surface too, its
+                // vertices in the body's frame (D4b way 1 step 6)
+                where.bentPoints.assign(vertices.begin(), vertices.end());
+                where.bentAt = ch::ChFramed();
+                hullFaces(where, shape, false);
             }
             // A mesh's into its body's frame, as its vertices
             const ch::ChFramed into = meshMade ? run.d->localOf(shape.frame) : ch::ChFramed();
@@ -12987,6 +13304,10 @@ Status ChronoSession::simulateDynamics(
                                       + ch::TensorProduct(way2, way2) * face.k2,
                                   face.round});
                 }
+            }
+            // Its curved faces of no round's surfaces, once (hullCache())
+            if (where.hullBent) {
+                hullCache(where);
             }
             // Its rounds, on the body: in the shape's frame (where.frame),
             // a hull's points' and a mesh's before they were put on it

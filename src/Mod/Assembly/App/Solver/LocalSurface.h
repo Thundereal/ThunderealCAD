@@ -358,6 +358,71 @@ inline bool localSurface(const Face& x,
     return true;
 }
 
+// A 3 x 3 system by rows, solved by Cramer's rule; false where singular
+using Eigen3 = std::array<double, 9>;
+inline bool solve3(const Eigen3& m, const std::array<double, 3>& b, std::array<double, 3>& x)
+{
+    auto det = [](const Eigen3& a) {
+        return a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6])
+            + a[2] * (a[3] * a[7] - a[4] * a[6]);
+    };
+    const double d = det(m);
+    if (!(std::abs(d) > 0.0) || !std::isfinite(d)) {
+        return false;
+    }
+    for (int k = 0; k < 3; ++k) {
+        Eigen3 a = m;
+        for (int r = 0; r < 3; ++r) {
+            a[static_cast<std::size_t>(3 * r + k)] = b[static_cast<std::size_t>(r)];
+        }
+        x[static_cast<std::size_t>(k)] = det(a) / d;
+    }
+    return true;
+}
+
+// The face's second derivatives at L along s and t, on its true surface
+// where 'offsets' are given: the six-node face's own, the same all over it,
+// and the offsets' by their first derivatives' differences
+inline void secondAt(const Face& x,
+                     const Offsets* offsets,
+                     const std::array<double, 3>& L,
+                     Vec& xss,
+                     Vec& xtt,
+                     Vec& xst)
+{
+    const std::array<double, 6> Nss {4.0, 4.0, 0.0, -8.0, 0.0, 0.0};
+    const std::array<double, 6> Ntt {4.0, 0.0, 4.0, 0.0, 0.0, -8.0};
+    const std::array<double, 6> Nst {4.0, 0.0, 0.0, -4.0, 4.0, -4.0};
+    xss = {};
+    xtt = {};
+    xst = {};
+    for (std::size_t k = 0; k < 6; ++k) {
+        xss = add(xss, x[k], Nss[k]);
+        xtt = add(xtt, x[k], Ntt[k]);
+        xst = add(xst, x[k], Nst[k]);
+    }
+    if (!offsets) {
+        return;
+    }
+    const double h = 1e-4;
+    const double l0 = L[0];
+    const double s = L[1];
+    const double t = L[2];
+    Vec sp;
+    Vec tp;
+    Vec sm;
+    Vec tm;
+    offsetAt(*offsets, {l0 - h, s + h, t}, &sp, &tp);
+    offsetAt(*offsets, {l0 + h, s - h, t}, &sm, &tm);
+    xss = add(xss, scaled(add(sp, sm, -1.0), 0.5 / h));
+    const Vec stS = scaled(add(tp, tm, -1.0), 0.5 / h);
+    offsetAt(*offsets, {l0 - h, s, t + h}, &sp, &tp);
+    offsetAt(*offsets, {l0 + h, s, t - h}, &sm, &tm);
+    xtt = add(xtt, scaled(add(tp, tm, -1.0), 0.5 / h));
+    const Vec stT = scaled(add(sp, sm, -1.0), 0.5 / h);
+    xst = add(xst, scaled(add(stS, stT), 0.5));
+}
+
 // The face's point, on its true surface where 'offsets' are given, in the
 // plane through 'c' square to the unit 'way', farthest along the unit 'out'
 // -- a line's point at a station along it, where the surface touches a flat
@@ -365,14 +430,16 @@ inline bool localSurface(const Face& x,
 // point. False where it is beyond the face: 'leaving' the edge it goes out
 // by, (0 1) 0, (1 2) 1, (2 0) 2, L where the plane crosses that edge, for
 // the face beyond to go on from; -1 where none is found -- the plane misses
-// the face, or the cut curves away from 'out' all along it
+// the face, or the cut curves away from 'out' all along it. 'fromL': from L
+// as it is, the point's own last place on this face, not the cut's middle
 inline bool farthestAcross(const Face& x,
                            const Offsets* offsets,
                            const Vec& out,
                            const Vec& c,
                            const Vec& way,
                            std::array<double, 3>& L,
-                           int& leaving)
+                           int& leaving,
+                           bool fromL = false)
 {
     leaving = -1;
     double s = L[1];
@@ -491,8 +558,9 @@ inline bool farthestAcross(const Face& x,
     // From the middle of the plane's cut through the face, where it crosses
     // two of its edges: projected from L, a cut microns long by a corner --
     // a plane square to a cone's side by its rim -- was missed, the point
-    // left by an edge the cut does not reach
-    {
+    // left by an edge the cut does not reach. From L itself where 'fromL':
+    // the point's own last place on this face, a step of the motion away
+    if (!fromL) {
         auto planeAt = [&](double s, double t) {
             return dot(add(pointAt(x, offsets, coordinates(s, t)), c, -1.0), way);
         };
@@ -516,6 +584,67 @@ inline bool farthestAcross(const Face& x,
         if (crossings == 2) {
             s = 0.5 * ms;
             t = 0.5 * mt;
+        }
+    }
+    // Newton's on the Lagrangian, the face's second derivatives its own:
+    // max out . x on way . (x - c) = 0, a few steps from a place on the
+    // cut, where the finite differences below take a score of the face's
+    // points a step -- a torus lying flat, hundreds of points on its ring.
+    // Theirs where it leaves the face or does not come to a maximum
+    {
+        double ns = s;
+        double nt = t;
+        if (ontoPlane(ns, nt) && ns >= 0.0 && nt >= 0.0 && ns + nt <= 1.0) {
+            bool done = false;
+            for (int k = 0; k < 12; ++k) {
+                const std::array<double, 3> here = coordinates(ns, nt);
+                Vec ps;
+                Vec pt;
+                const Vec p = pointAt(x, offsets, here, &ps, &pt);
+                Vec pss;
+                Vec ptt;
+                Vec pst;
+                secondAt(x, offsets, here, pss, ptt, pst);
+                const double hs = dot(ps, out);
+                const double ht = dot(pt, out);
+                const double gs = dot(ps, way);
+                const double gt = dot(pt, way);
+                const double g = dot(add(p, c, -1.0), way);
+                const double g2 = gs * gs + gt * gt;
+                if (!(g2 > 0.0)) {
+                    break;
+                }
+                const double lambda = (hs * gs + ht * gt) / g2;
+                const double a11 = dot(pss, out) - lambda * dot(pss, way);
+                const double a12 = dot(pst, out) - lambda * dot(pst, way);
+                const double a22 = dot(ptt, out) - lambda * dot(ptt, way);
+                // A maximum along the cut: its way (-gt, gs) curving down
+                const double along = (a11 * gt * gt - 2.0 * a12 * gs * gt + a22 * gs * gs) / g2;
+                if (!(along < 0.0)) {
+                    break;
+                }
+                // [a11 a12 -gs; a12 a22 -gt; gs gt 0] [ds dt dl] = -[r1 r2 g]
+                const double r1 = hs - lambda * gs;
+                const double r2 = ht - lambda * gt;
+                Eigen3 m {a11, a12, -gs, a12, a22, -gt, gs, gt, 0.0};
+                std::array<double, 3> step {};
+                if (!solve3(m, {-r1, -r2, -g}, step)) {
+                    break;
+                }
+                ns += step[0];
+                nt += step[1];
+                if (ns < 0.0 || nt < 0.0 || ns + nt > 1.0) {
+                    break;
+                }
+                if (std::hypot(step[0], step[1]) < 1e-12) {
+                    done = true;
+                    break;
+                }
+            }
+            if (done) {
+                L = coordinates(ns, nt);
+                return true;
+            }
         }
     }
     if (!ontoPlane(s, t) || beyond(s, t)) {
@@ -566,7 +695,11 @@ inline bool farthestAcross(const Face& x,
         if (!ontoPlane(s, t) || beyond(s, t)) {
             return false;
         }
-        if (std::abs(step) < 1e-9) {
+        // A ten-millionth of the face: its slopes by differences of a
+        // ten-thousandth have that much noise, and a bar of a billionth was
+        // never met -- forty iterations each time, two-thirds of a run where
+        // a torus lying flat has hundreds of points
+        if (std::abs(step) < 1e-7) {
             break;
         }
     }

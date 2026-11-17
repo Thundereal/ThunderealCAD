@@ -4390,11 +4390,13 @@ bool reachOver(const ShapeOn& on,
 // edge across it: the points stopped at the mesh's own folds beside the
 // line, 1 to 1.5 mm off it and shallower, are the line's there. The
 // places are gathered about their deepest points; of a place's points the
-// middle one by depth is kept. With the first found kept, whichever it
-// was, the rod pressed the bore 41.7 N for 44.5; with the deepest, a rigid
-// rod pressed a flexible bore 50.3 to 53.9 N where the two rigid press 50
-// -- a quadratic face is microns off its round, and the deepest of a
-// place's points is where it stands furthest in
+// deepest is kept, each on its solid's true surface (ontoRound(),
+// ontoTrue()): a point stopped at an edge between two faces, a crease of
+// the mesh's, is only shallower there. With the first found kept,
+// whichever it was, the rod pressed the bore 41.7 N for 44.5; with the
+// middle one by depth, a flexible torus on a rigid roller, half its
+// place's points at such a crease, 19.3 N for a substep for the mean's
+// 49.9
 void thinOut(ContactLoad& load,
              const std::function<const ShapeOn*(const ch::ChCollisionShape*)>& shapeOf)
 {
@@ -4484,11 +4486,11 @@ void thinOut(ContactLoad& load,
             kept.push_back({load.points[i].patch, way, on->at, within, axis, {i}});
         }
     }
-    // Of each place's points, deepest first, the middle one
+    // Of each place's points, deepest first, the deepest
     for (const Kept& k : kept) {
-        const std::size_t middle = k.points[k.points.size() / 2];
+        const std::size_t deepest = k.points.front();
         for (const std::size_t i : k.points) {
-            if (i != middle) {
+            if (i != deepest) {
                 gone[i] = 1;
                 any = true;
             }
@@ -4536,13 +4538,12 @@ void thinOut(ContactLoad& load,
     std::stable_sort(deepestFirst.begin(),
                      deepestFirst.end(),
                      [&](const Kept* a, const Kept* b) {
-                         return depth[a->points[a->points.size() / 2]]
-                             > depth[b->points[b->points.size() / 2]];
+                         return depth[a->points.front()] > depth[b->points.front()];
                      });
     for (const Kept* each : deepestFirst) {
         const Kept& k = *each;
-        const std::size_t middle = k.points[k.points.size() / 2];
-        const auto& on = k.way == 2 ? load.onMeshA[middle] : load.onMesh[middle];
+        const std::size_t deepest = k.points.front();
+        const auto& on = k.way == 2 ? load.onMeshA[deepest] : load.onMesh[deepest];
         bool found = false;
         for (Line& line : lines) {
             const Kept& f = *line.first;
@@ -4554,16 +4555,16 @@ void thinOut(ContactLoad& load,
                 : on.roundOther < 0 && first.round.radius == on.round.radius
                     && (first.round.frame.GetPos() - on.round.frame.GetPos()).Length2() == 0.0;
             if (f.way != k.way || !(ch::Vdot(f.axis, k.axis) > 0.9998) || !oneRound
-                || !(ch::Vdot(load.points[line.deepest].normal, load.points[middle].normal)
+                || !(ch::Vdot(load.points[line.deepest].normal, load.points[deepest].normal)
                      > 0.0)) {
                 continue;
             }
-            line.points.push_back(middle);
+            line.points.push_back(deepest);
             found = true;
             break;
         }
         if (!found) {
-            lines.push_back({&k, middle, {middle}});
+            lines.push_back({&k, deepest, {deepest}});
         }
     }
     bool movedA = false;

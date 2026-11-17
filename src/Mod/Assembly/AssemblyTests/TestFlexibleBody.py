@@ -1218,6 +1218,31 @@ class TestFlexibleBody(unittest.TestCase):
         )
         self.assertGreater(mean, 49.0)
 
+    def test_flexible_torus_on_roller(self):
+        """test_torus_on_roller's torus flexible on the rigid roller, under it
+        and round it by 20 deg: each point slid into the roller over the
+        torus's faces (FlexibleContact::deepest()). A point started at an
+        edge between two faces can stop there, a crease of the mesh's
+        faces, off the tube's middle and shallower on its true surface: of a
+        place's points the middle by depth was kept, and with half of them
+        at the crease the force fell for a substep, 42.1 N at 0 deg and 19.3
+        at 20 for the mean's 49.9. Now the deepest, each point on its true
+        surface (ontoRound(), ontoTrue())"""
+        for at in (0.0, 20.0):
+            mean = self.roundTurned(
+                "a flexible torus on a rigid roller at %g deg" % at,
+                40,
+                -20,
+                roller=True,
+                torus=True,
+                rollerAt=at,
+                arm=13.0,
+                within=0.02,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.5)
+            self.renew()
+
     def test_rigid_round_on_rigid_roller(self):
         """Two rigid rounds lying along each other: test_round_on_roller's
         rod rigid, under the roller and round it by 20 deg. Their normal the

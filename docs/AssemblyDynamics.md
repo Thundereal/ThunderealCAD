@@ -6036,6 +6036,30 @@ Phase D1 is under way (2026-10-28):
     figure as it was.
   - Test: TestFlexibleBody.test_torus_on_roller, the roller flexible at 20
     deg, within two thousandths.
+- Built, D4b way 1 step 7c (2026-11-17): the dips of a flexible torus on a
+  rigid roller. Its force over the turn 49.86 N, 42.05 to 50.58, under the
+  roller; 49.77 N, 19.32 to 50.54, round it by 20 deg -- one substep each
+  at a few frames, the impact frames' samples (sendImpacts()), not an
+  output frame's.
+  - **Not the catch-all's**: the torus's points are slid into the roller
+    (slides 2, deepest()). Started at an edge between two faces, a point
+    walked across it and straight back nine times, each face's deepest
+    beyond the edge: a crease of the six-node faces, 0.40 to 0.47 mm along
+    the roller's axis off the tube's middle, 0.027 mm shallower on the true
+    surface (0.4^2 / 2 x 3). Started inside the face, the same walk ends at
+    the middle.
+  - **The deepest of a place's points kept** (thinOut()), not the middle by
+    depth: at the dip ten points, five inside the face at 49.9 um and five
+    at the crease at 10 to 22 um, and the middle was a crease's. The middle
+    stood for the quadratic face being microns off its round; each point is
+    on its solid's true surface now (ontoRound(), ontoTrue()), and a point
+    stopped at a crease is only shallower.
+  - Numbers: 49.99 N, 49.33 to 50.48, under the roller; 49.98 N, 49.29 to
+    50.43, at 20 deg. Two flexible parts at 20 deg (not a test) 49.28, 47.85
+    to 49.92 -> 49.33, 48.72 to 49.88. Every other figure as it was to its
+    last digit or one of it.
+  - Test: TestFlexibleBody.test_flexible_torus_on_roller, both angles,
+    within two hundredths.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

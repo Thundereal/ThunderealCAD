@@ -1183,7 +1183,11 @@ class TestFlexibleBody(unittest.TestCase):
         normal the two surfaces' own (curvedNormal()), from the roller's axis
         through the torus's point: by the torus's facet's normal, turning
         with it, 91.7 N, 49 to 172, for the springs' 50 -- 83.6, 49 to 145,
-        at 20 deg"""
+        at 20 deg. The roller flexible, at 20 deg, each of its points the
+        same way against the torus's face (FlexibleContact::towardsBent()):
+        by the facet's normal, 0 to 599 N; the points of the torus's
+        triangles about it one place whatever their patch (thinOut()), each a
+        spring of its own else, 278 N"""
         for at in (0.0, 20.0):
             mean = self.roundTurned(
                 "a rigid torus on a rigid roller at %g deg" % at,
@@ -1199,6 +1203,20 @@ class TestFlexibleBody(unittest.TestCase):
             )
             self.assertGreater(mean, 49.5)
             self.renew()
+        mean = self.roundTurned(
+            "a rigid torus on a flexible roller at 20 deg",
+            40,
+            -20,
+            roller=True,
+            torus=True,
+            rigidRod=True,
+            flexiblePlate=True,
+            rollerAt=20.0,
+            arm=13.0,
+            within=0.002,
+            most=50.5,
+        )
+        self.assertGreater(mean, 49.0)
 
     def test_rigid_round_on_rigid_roller(self):
         """Two rigid rounds lying along each other: test_round_on_roller's

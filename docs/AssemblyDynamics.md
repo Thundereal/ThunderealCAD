@@ -6002,12 +6002,40 @@ Phase D1 is under way (2026-10-28):
     update (deepest() in follow()) it read the same to the last digit, so
     not a face's edge. A rigid torus on a flexible roller, 180 N, 0 to
     599: the roller's points go to their farthest along the torus's facet's
-    normal, turning with the torus (place(), Point::face) -- the same
-    normal solve, on the flexible side, is next.
+    normal, turning with the torus (place(), Point::face) -- step 7b.
   - Tests: TestFlexibleBody.test_torus_on_roller and
     test_rigid_round_on_rigid_roller, within two and one thousandth;
     roundTurned() takes `rollerAt=`, and its roller under a torus. Probe
     ~/.cache/flexcontact/torusroller.py (nine cases), torusrollerseries.py.
+- Built, D4b way 1 step 7b (2026-11-17): a flexible face against a rigid
+  hull's curved face of no round. The rigid torus of step 7 on a flexible
+  roller round it by 20 deg: 180 N, 0 to 599, for about 49.
+  - **The same normal solve** (`FlexibleContact::towardsBent()`, from
+    place() and follow() where the other side's point is a hull's bent
+    one): the face's farthest along the normal, the hull's against it
+    (hullFarthest()), each one's curvature where its point is
+    (`curvatureOf()`, `bentCurvature()`), curvedNormal()'s steps; the
+    hull's point set, the normal turned with the hull as found.
+  - **The face's farthest on its true surface**
+    (`FlexibleContact::farthestNear()`), round or not, through the faces of
+    its solid face about it: a cylinder's farthest along a normal is a
+    line, and on a straight way the point is the farthest in the plane
+    across it through the hull's point (`farthestAcross()`), as the hull's
+    own is. towardsFlat() on the face alone failed three calls in four,
+    its farthest past where a face stands out of its triangles; from the
+    roller's axis, nine of 24 sampled landed 120 to 365 um deep, the cylinder's
+    farthest anywhere along its line.
+  - **From the round's axis**, the face of one (roundAt()): the normal
+    through it at the hull's point. From the facet's: 41.6 N, 27.2 to 53.7.
+  - **One place whatever the patch** (thinOut()). The hull's triangles about
+    a point, each against the roller's, are patches with no corner in
+    common on both sides (patchesOf()), a spring each: every point solved
+    to the one place, 35 to 57 um deep, and 278 N for six. A point so put
+    (OnMesh::bent) is gathered as a slid one is, the middle by depth kept.
+  - Numbers: 49.32 N, 49.31 to 49.34 (the two rigid 50); every other
+    figure as it was.
+  - Test: TestFlexibleBody.test_torus_on_roller, the roller flexible at 20
+    deg, within two thousandths.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

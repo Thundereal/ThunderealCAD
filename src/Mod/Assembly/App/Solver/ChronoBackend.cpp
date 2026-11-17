@@ -1500,6 +1500,10 @@ public:
         // slid towards it or not (towardsFlat()): its face and its area
         // coordinates there, for toFlat()
         bool towards = false;
+        // Put against a rigid hull's curved face, the normal both surfaces'
+        // (FlexibleContact::towardsBent()): one place for thinOut() whatever
+        // the patch
+        bool bent = false;
     };
     std::vector<OnMesh> onMesh;
     bool meshed(std::size_t i) const
@@ -1578,6 +1582,25 @@ bool deepestOnFace(const ShapeOn& round,
 // body. Without them a force on the mesh is in the residual only (a node's
 // load is), and Newton's iterations on a metal's contact, far stiffer than
 // the part's modes, run away
+bool hullFarthest(const ShapeOn& on,
+                  const ch::ChFrame<>& body,
+                  const ch::ChVector3d& outward,
+                  const ch::ChVector3d& near,
+                  ch::ChVector3d& p,
+                  ContactLoad::Point::BentMemo& memo);
+bool bentCurvature(const ShapeOn& on,
+                   const ch::ChFrame<>& body,
+                   const ContactLoad::Point::BentMemo& memo,
+                   ch::ChMatrix33d& K);
+template<typename OnA, typename OnB, typename CurvA, typename CurvB>
+void curvedNormal(ch::ChVector3d& normal,
+                  ch::ChVector3d& pA,
+                  ch::ChVector3d& pB,
+                  OnA&& onA,
+                  OnB&& onB,
+                  CurvA&& curvA,
+                  CurvB&& curvB);
+
 class FlexibleContact: public ch::ChPhysicsItem
 {
 public:
@@ -2385,6 +2408,236 @@ public:
         on.offset = v(LS::offsetAt(faceTrue[faceNow], L));
         moved = carrier->GetRot().Rotate(at - on.flat);
         moved -= normal * ch::Vdot(normal, moved);
+        return true;
+    }
+
+    // A curved face's point on its solid's own surface (faceTrue), round or
+    // not, farthest along 'normal' (from A to B; towards A where this part
+    // is B): where the face has a straight way there -- its least
+    // curvature under a tenth of its most, a cylinder's axis -- the
+    // farthest in the plane across that way through 'near' (absolute), its
+    // own farthest else (LocalSurface::farthestAcross(), farthestOn());
+    // through the faces of that solid face about it, eight at most. A
+    // cylinder's farthest along a normal is a line, and the point on it is
+    // the other part's. 'at' the place found, 'p' its point, absolute.
+    // False on a face of no true surface, or a hollow one
+    bool farthestNear(const ContactLoad::OnMesh& on,
+                      const ch::ChVector3d& normal,
+                      bool sideA,
+                      const ch::ChVector3d& near,
+                      ContactLoad::OnMesh& at,
+                      ch::ChVector3d& p) const
+    {
+        if (!mesh || on.face >= faceSolid.size() || faceSolid[on.face] < 0
+            || on.face >= faceTrue.size()) {
+            return false;
+        }
+        const LS::Vec into = v(carrier->GetRot().RotateBack(sideA ? normal : -normal));
+        const LS::Vec c = v(carrier->TransformPointParentToLocal(near));
+        std::size_t faceNow = on.face;
+        std::array<double, 3> L = on.L;
+        LS::Face x;
+        trueCorners(faceNow, x);
+        LS::Local local;
+        if (!LS::localSurface(x, L, local, &faceTrue[faceNow]) || !(local.k1 > 0.0)) {
+            return false;
+        }
+        LS::Vec way {0.0, 0.0, 0.0};
+        if (local.k2 < 0.1 * local.k1) {
+            way = LS::add(local.way2, into, -LS::dot(local.way2, into));
+            if (!LS::normalize(way)) {
+                way = {0.0, 0.0, 0.0};
+            }
+        }
+        const bool across = LS::dot(way, way) > 0.0;
+        std::int64_t cameFrom = -1;
+        bool found = false;
+        for (int more = 0; more < 8; ++more) {
+            trueCorners(faceNow, x);
+            int leaving = -1;
+            if (across ? LS::farthestAcross(x, &faceTrue[faceNow], into, c, way, L, leaving)
+                       : LS::farthestOn(x, &faceTrue[faceNow], into, L, leaving)) {
+                found = true;
+                break;
+            }
+            if (leaving < 0) {
+                break;
+            }
+            const std::int64_t next = surface->across(faceNow, leaving);
+            if (next < 0 || next == cameFrom
+                || solidOf(static_cast<std::size_t>(next)) != faceSolid[on.face]) {
+                found = true;
+                break;
+            }
+            const auto& mine = surface->face(faceNow);
+            const auto& theirs = surface->face(static_cast<std::size_t>(next));
+            const std::size_t a = static_cast<std::size_t>(leaving);
+            const std::size_t b = (a + 1) % 3;
+            std::array<double, 3> there {0.0, 0.0, 0.0};
+            for (std::size_t k = 0; k < 3; ++k) {
+                if (theirs[k] == mine[a]) {
+                    there[k] = L[a];
+                }
+                else if (theirs[k] == mine[b]) {
+                    there[k] = L[b];
+                }
+            }
+            const double sum = there[0] + there[1] + there[2];
+            if (!(sum > 0.0)) {
+                found = true;
+                break;
+            }
+            for (double& l : there) {
+                l /= sum;
+            }
+            cameFrom = static_cast<std::int64_t>(faceNow);
+            faceNow = static_cast<std::size_t>(next);
+            L = there;
+        }
+        if (!found) {
+            return false;
+        }
+        const auto& nodes = surface->face(faceNow);
+        for (std::size_t k = 0; k < 6; ++k) {
+            if (!(nodes[k] < vertexOf.size() && vertexOf[nodes[k]] >= 0)) {
+                return false;
+            }
+        }
+        at = on;
+        at.nodes = nodes;
+        for (std::size_t k = 0; k < 6; ++k) {
+            at.vertices[k] = vertexOf[nodes[k]];
+        }
+        at.face = faceNow;
+        at.L = L;
+        at.weights = ChronoFlexible::Surface::shape(L);
+        at.offset = v(LS::offsetAt(faceTrue[faceNow], L));
+        p = carrier->TransformPointLocalToParent(v(LS::pointAt(x, &faceTrue[faceNow], L)));
+        return true;
+    }
+
+    // A curved face's point against a rigid hull's curved face of no round
+    // (Point::bentA or bentB, the other side's), the normal both surfaces'
+    // own (curvedNormal(), D4b way 1 step 7): this face's farthest towards
+    // the hull (towardsFlat()), on its round where it is of one
+    // (ontoRound()), the hull's towards it (hullFarthest()), each one's
+    // curvature where its point is (curvatureOf(), bentCurvature()). The
+    // hull's point set, the normal turned with the hull's body
+    // (Point::face) as found. By the hull's facet's normal alone, turning
+    // with it, a rigid torus spinning on a flexible roller pressed it from
+    // 0 to 599 N. False, nothing changed, where either side has no such
+    // point
+    bool towardsBent(ContactLoad& load, std::size_t i, bool sideA)
+    {
+        auto& placedOn = sideA ? load.onMeshA : load.onMesh;
+        if (!mesh || i >= placedOn.size() || i >= load.points.size()) {
+            return false;
+        }
+        auto& point = load.points[i];
+        const ShapeOn* bent = sideA ? point.bentB : point.bentA;
+        auto& memo = sideA ? point.bentMemoB : point.bentMemoA;
+        if (!bent || !memo) {
+            return false;
+        }
+        const ch::ChBody& hullBody = sideA ? *load.GetBodyB() : *load.GetBodyA();
+        const ch::ChVector3d* first = mesh->GetCoordsVertices().data();
+        ContactLoad::OnMesh found = placedOn[i];
+        // This face's point along n, absolute, and its place
+        // The hull's point now: the plane a straight way's farthest is in
+        ch::ChVector3d hullNow;
+        auto onFace = [&](const ch::ChVector3d& n,
+                          const ch::ChVector3d&,
+                          ch::ChVector3d& p,
+                          ContactLoad::OnMesh& at) {
+            if (farthestNear(placedOn[i], n, sideA, hullNow, at, p)) {
+                return true;
+            }
+            at = placedOn[i];
+            ch::ChVector3d moved;
+            if (!towardsFlat(at, n, sideA, moved)) {
+                return false;
+            }
+            ch::ChVector3d q = ch::VNULL;
+            for (std::size_t k = 0; k < 6; ++k) {
+                q += first[at.vertices[k]] * at.weights[k];
+            }
+            // A face of no round has its offset from towardsTrue()
+            ontoRound(at.face, q, at.offset);
+            p = carrier->TransformPointLocalToParent(q + at.offset);
+            return true;
+        };
+        auto onHull = [&](const ch::ChVector3d& n, const ch::ChVector3d& near, ch::ChVector3d& p) {
+            // A's farthest along the normal, B's against it
+            if (!hullFarthest(*bent, hullBody, sideA ? -n : n, near, p, *memo)) {
+                return false;
+            }
+            hullNow = p;
+            return true;
+        };
+        auto faceCurvature = [&](const ch::ChVector3d&, ch::ChMatrix33d& K) {
+            return curvatureOf(found, K);
+        };
+        auto hullCurvature = [&](const ch::ChVector3d&, ch::ChMatrix33d& K) {
+            return bentCurvature(*bent, hullBody, *memo, K);
+        };
+        ch::ChVector3d normal = normalNow(load, point);
+        ch::ChVector3d pFace;
+        ch::ChVector3d pHull;
+        const ch::ChVector3d hullAt = hullBody.TransformPointLocalToParent(sideA ? point.onB : point.onA);
+        hullNow = hullAt;
+        // This face of a round: from the normal through the round's axis or
+        // centre as the mesh has it (roundAt()), at the hull's point. From
+        // the hull's facet's, turning with the hull, the rigid torus pressed
+        // the flexible roller 41.6 N, 27.2 to 53.7
+        {
+            const ContactLoad::OnMesh& on = placedOn[i];
+            ShapeOn fitted;
+            ch::ChVector3d q = ch::VNULL;
+            for (std::size_t k = 0; k < 6; ++k) {
+                q += first[on.vertices[k]] * on.weights[k];
+            }
+            if (on.face < faceTriangle.size() && faceTriangle[on.face] >= 0
+                && roundAt(faceTriangle[on.face], q, fitted)) {
+                ch::ChVector3d out = carrier->TransformPointParentToLocal(hullAt) - fitted.frame.GetPos();
+                if (!(fitted.ball > 0.0)) {
+                    const ch::ChVector3d axis = fitted.frame.GetRotMat().GetAxisZ();
+                    out -= axis * ch::Vdot(axis, out);
+                }
+                const double length = out.Length();
+                if (length > 0.0) {
+                    // Out of this face's round, a hollow one's into it; from A to B
+                    out = carrier->GetRot().Rotate(out) * ((fitted.concave ? -1.0 : 1.0) / length);
+                    normal = sideA ? out : -out;
+                }
+            }
+        }
+        if (!onHull(normal, hullAt, pHull) || !onFace(normal, hullAt, pFace, found)) {
+            return false;
+        }
+        auto faceAlong = [&](const ch::ChVector3d& n, const ch::ChVector3d& near, ch::ChVector3d& p) {
+            return onFace(n, near, p, found);
+        };
+        if (sideA) {
+            curvedNormal(normal, pFace, pHull, faceAlong, onHull, faceCurvature, hullCurvature);
+        }
+        else {
+            curvedNormal(normal, pHull, pFace, onHull, faceAlong, hullCurvature, faceCurvature);
+        }
+        // Each one's place at the normal it ended on
+        const ch::ChVector3d near = pHull;
+        if (!onHull(normal, near, pHull) || !onFace(normal, hullAt, pFace, found)) {
+            return false;
+        }
+        found.bent = true;
+        placedOn[i] = found;
+        point.normal = normal;
+        if (point.face == 1) {
+            point.normalOn = load.GetBodyA()->TransformDirectionParentToLocal(normal);
+        }
+        else if (point.face == 2) {
+            point.normalOn = load.GetBodyB()->TransformDirectionParentToLocal(normal);
+        }
+        (sideA ? point.onB : point.onA) = hullBody.TransformPointParentToLocal(pHull);
         return true;
     }
 
@@ -3279,6 +3532,9 @@ public:
             if (on.slides == 1) {
                 // One taken to its round's line on the flat face, on the
                 // line still (toFlat())
+                if (!on.lined && towardsBent(load, i, sideA)) {
+                    continue;
+                }
                 const ch::ChVector3d normal = normalNow(load, point);
                 if (!(on.lined
                       && (toFlat(on, normal, sideA, on.station, false)
@@ -3471,11 +3727,16 @@ public:
                         auto& slid = sideA ? load.points[i].onB : load.points[i].onA;
                         on.base = slid;
                         ch::ChVector3d moved;
-                        if (towardsFlat(on, load.points[i].normal, sideA, moved)) {
+                        // Against a rigid hull's curved face, the normal
+                        // both surfaces' own, the hull's point set with it
+                        const bool bent = towardsBent(load, i, sideA);
+                        if (bent || towardsFlat(on, load.points[i].normal, sideA, moved)) {
                             on.slides = 1;
-                            slid += (sideA ? load.GetBodyB() : load.GetBodyA())
-                                        ->GetRot()
-                                        .RotateBack(moved);
+                            if (!bent) {
+                                slid += (sideA ? load.GetBodyB() : load.GetBodyA())
+                                            ->GetRot()
+                                            .RotateBack(moved);
+                            }
                             // On its part's round there, not the face's
                             // parabola of it
                             ch::ChVector3d at = ch::VNULL;
@@ -4174,12 +4435,19 @@ void thinOut(ContactLoad& load,
         const ContactLoad::OnMesh* on = nullptr;
         int way = 0;
         const FlexibleContact* part = nullptr;
-        if (load.meshed(i) && load.onMesh[i].slides == 2) {
+        // And those put against a rigid hull's curved face (towardsBent()):
+        // one place of any patch -- the hull's triangles about a point, each
+        // against the face's, are patches with no corner in common on both
+        // sides, and a rigid torus on a flexible roller pressed it as six
+        auto slid = [](const ContactLoad::OnMesh& m) {
+            return m.slides == 2 || (m.slides == 1 && m.bent);
+        };
+        if (load.meshed(i) && slid(load.onMesh[i])) {
             on = &load.onMesh[i];
             way = 1;
             part = load.flexible;
         }
-        else if (load.meshedA(i) && load.onMeshA[i].slides == 2) {
+        else if (load.meshedA(i) && slid(load.onMeshA[i])) {
             on = &load.onMeshA[i];
             way = 2;
             part = load.flexibleA;
@@ -4193,13 +4461,13 @@ void thinOut(ContactLoad& load,
         }
         // Against a cylinder, its axis: one place is a face across it
         ch::ChVector3d axis = ch::VNULL;
-        if (!(on->round.ball > 0.0)) {
+        if (on->slides == 2 && !(on->round.ball > 0.0)) {
             const ch::ChBody& body = part == load.flexible ? *load.GetBodyA() : *load.GetBodyB();
             axis = (on->round.frame >> body).GetRotMat().GetAxisZ();
         }
         bool found = false;
         for (Kept& k : kept) {
-            if (k.patch != load.points[i].patch || k.way != way) {
+            if ((k.patch != load.points[i].patch && !on->bent) || k.way != way) {
                 continue;
             }
             const ch::ChVector3d apart = k.at - on->at;
@@ -7375,33 +7643,22 @@ roundCurvature(const ShapeOn& on, const ch::ChFrame<>& body, const ch::ChVector3
  * K_B)^-1 K_B g -- none where either is flat, whose own normal it is, and
  * none along a line's way, where the two curve together not at all. Each
  * curvature its round's own or its face's where the point is now
- * (bentCurvature()). Its use: a normal off the contact's by e leaves a
+ * (bentCurvature()), given by curvA and curvB (the normal, the tensor:
+ * false where there is none). Its use: a normal off the contact's by e leaves a
  * gap e (R_A + R_B), its depth off
  * by e^2 (R_A + R_B) / 2 -- 12 um of 50 at 0.05 rad on R 5 and R 5. A
  * step at most 0.1 rad; six at most, the last state's kept where they
  * leave a gap. pA, pB are each one's point at the normal returned
  */
-template<typename OnA, typename OnB>
-void curvedNormal(const ContactLoad::Point& point,
-                  const ch::ChFrame<>& a,
-                  const ch::ChFrame<>& b,
-                  ch::ChVector3d& normal,
+template<typename OnA, typename OnB, typename CurvA, typename CurvB>
+void curvedNormal(ch::ChVector3d& normal,
                   ch::ChVector3d& pA,
                   ch::ChVector3d& pB,
                   OnA&& onA,
-                  OnB&& onB)
+                  OnB&& onB,
+                  CurvA&& curvA,
+                  CurvB&& curvB)
 {
-    auto curvature = [&](bool sideA, const ch::ChVector3d& n, ch::ChMatrix33d& K) {
-        const ShapeOn* round = sideA ? point.roundA : point.roundB;
-        const ch::ChFrame<>& body = sideA ? a : b;
-        if (round) {
-            K = roundCurvature(*round, body, sideA ? n : -n);
-            return true;
-        }
-        const ShapeOn* bent = sideA ? point.bentA : point.bentB;
-        const auto& memo = sideA ? point.bentMemoA : point.bentMemoB;
-        return bent && memo && bentCurvature(*bent, body, *memo, K);
-    };
     ch::ChVector3d n = normal;
     ch::ChVector3d qA = pA;
     ch::ChVector3d qB = pB;
@@ -7413,7 +7670,7 @@ void curvedNormal(const ContactLoad::Point& point,
         const double g[2] = {ch::Vdot(u, gap), ch::Vdot(v, gap)};
         ch::ChMatrix33d KA;
         ch::ChMatrix33d KB;
-        if (!curvature(true, n, KA) || !curvature(false, n, KB)) {
+        if (!curvA(n, KA) || !curvB(n, KB)) {
             break;
         }
         // In the tangent plane: A, B and their sum S, symmetric 2 x 2
@@ -7622,7 +7879,25 @@ void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Poin
     const bool twoRounds = point.roundA && point.roundB && !point.roundA->concave
         && !point.roundB->concave && !(point.roundA->ball > 0.0 && point.roundB->ball > 0.0);
     if (movesA && movesB && (point.bentA || point.bentB || twoRounds)) {
-        curvedNormal(point, a, b, normal, pA, pB, onA, onB);
+        auto curvature = [&](bool sideA, const ch::ChVector3d& n, ch::ChMatrix33d& K) {
+            const ShapeOn* round = sideA ? point.roundA : point.roundB;
+            const ch::ChFrame<>& body = sideA ? a : b;
+            if (round) {
+                K = roundCurvature(*round, body, sideA ? n : -n);
+                return true;
+            }
+            const ShapeOn* bent = sideA ? point.bentA : point.bentB;
+            const auto& memo = sideA ? point.bentMemoA : point.bentMemoB;
+            return bent && memo && bentCurvature(*bent, body, *memo, K);
+        };
+        curvedNormal(
+            normal,
+            pA,
+            pB,
+            onA,
+            onB,
+            [&](const ch::ChVector3d& n, ch::ChMatrix33d& K) { return curvature(true, n, K); },
+            [&](const ch::ChVector3d& n, ch::ChMatrix33d& K) { return curvature(false, n, K); });
         if (point.face == 1) {
             point.normalOn = a.TransformDirectionParentToLocal(normal);
         }

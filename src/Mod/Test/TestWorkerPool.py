@@ -69,6 +69,50 @@ def _write(doc, inputs, out):
     return {}
 
 
+# What each process executed of the Python features below, by name: a
+# recompute a worker made leaves this process's count as it was
+_executions = {}
+
+
+class _Counted:
+    """A Python feature: its execute() counts where it runs, says which
+    process ran it, sleeps when asked, and makes an object when asked"""
+
+    def __init__(self, obj):
+        obj.addProperty("App::PropertyInteger", "Input")
+        obj.addProperty("App::PropertyInteger", "Result")
+        obj.addProperty("App::PropertyInteger", "MadeBy")
+        obj.addProperty("App::PropertyFloat", "Sleep")
+        obj.addProperty("App::PropertyBool", "MakeOne")
+        obj.addProperty("App::PropertyBool", "AddOne")
+        obj.Proxy = self
+
+    def execute(self, obj):
+        _executions[obj.Name] = _executions.get(obj.Name, 0) + 1
+        if obj.Sleep:
+            time.sleep(obj.Sleep)
+        if obj.MakeOne:
+            obj.Document.addObject("App::FeatureTest", "Made")
+        if obj.AddOne and "Added" not in obj.PropertiesList:
+            obj.addProperty("App::PropertyInteger", "Added", "Extra", "added by execute()")
+        if obj.AddOne:
+            obj.Added = obj.Input + 7
+        obj.Result = obj.Input * 2
+        obj.MadeBy = os.getpid()
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+    def __getstate__(self):
+        return None
+
+    def __setstate__(self, state):
+        return None
+
+
 for _kind, _handler in (
     ("test.echo", _echo),
     ("test.sleep", _sleep),
@@ -586,3 +630,190 @@ class TestWorkerPool(unittest.TestCase):
                 time.sleep(0.02)
             self.assertTrue(gone, pid)
         self.doc = App.newDocument("WorkerPool")  # for tearDown
+
+
+class TestWorkerRecompute(unittest.TestCase):
+    """A recompute made by a worker, the pool's second client
+    (docs/WorkerProcess.md sec 19)"""
+
+    def setUp(self):
+        self.doc = App.newDocument("WorkerRecompute")
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetInt("Workers", 1)
+        self.addCleanup(group.RemInt, "Workers")
+        self.pool = App.workerPool(self.doc)
+
+    def tearDown(self):
+        App.closeDocument(self.doc.Name)
+
+    def counted(self, name, **values):
+        obj = self.doc.addObject("App::FeaturePython", name)
+        _Counted(obj)
+        for key, value in values.items():
+            setattr(obj, key, value)
+        return obj
+
+    def touched(self):
+        return sorted(o.Name for o in self.doc.Objects if "Touched" in o.State)
+
+    def byWorker(self):
+        info = self.pool.recomputeInfo()
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        self.assertTrue(self.pool.recomputing())
+        self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
+        self.assertFalse(self.pool.recomputing())
+        return self.pool.recomputeInfo()
+
+    def testAPartChainMadeByAWorker(self):
+        import Part  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        tool = self.doc.addObject("Part::Cylinder", "Tool")
+        tool.Radius = 2
+        tool.Height = 30
+        tool.Placement.Base = App.Vector(5, 5, -5)
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = box
+        cut.Tool = tool
+        tool2 = self.doc.addObject("Part::Cylinder", "Tool2")
+        tool2.Radius = 1
+        tool2.Height = 30
+        tool2.Placement.Base = App.Vector(2, 2, -5)
+        cut2 = self.doc.addObject("Part::Cut", "Cut2")
+        cut2.Base = cut
+        cut2.Tool = tool2
+        counted = self.counted("Counted")
+        counted.setExpression("Input", "Box.Length")
+        self.doc.recompute()
+        ran = _executions.get("Counted", 0)
+        box.Length = 14
+        self.assertEqual(self.touched(), ["Box"])
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertEqual(info["Unused"], 0, info)
+        # Box, Cut, Cut2 and Counted, the tools untouched
+        self.assertEqual(info["Supplied"], 4, info)
+        self.assertTrue(info["ById"], info)
+        self.assertGreater(info["WorkerSeconds"], 0)
+        self.assertEqual(self.touched(), [])
+        self.assertTrue(all(o.isValid() for o in self.doc.Objects))
+        # Made there, not here, and its value here
+        self.assertEqual(_executions.get("Counted", 0), ran)
+        self.assertNotEqual(counted.MadeBy, os.getpid())
+        self.assertEqual(counted.Result, 28)
+        self.assertEqual(self.doc.recompute(), 0)  # nothing left to do
+        made = (cut2.Shape.Volume, len(cut2.Shape.Faces), sorted(cut2.Shape.ElementMap.items()))
+        self.assertAlmostEqual(made[0], 14 * 10 * 10 - 3.141592653589793 * (4 + 1) * 10, 6)
+        # The same made here
+        box.Length = 15
+        self.doc.recompute()
+        box.Length = 14
+        self.doc.recompute()
+        self.assertEqual(counted.MadeBy, os.getpid())
+        here = (cut2.Shape.Volume, len(cut2.Shape.Faces), sorted(cut2.Shape.ElementMap.items()))
+        self.assertAlmostEqual(made[0], here[0], 9)
+        self.assertEqual(made[1], here[1])
+        self.assertEqual(made[2], here[2])
+
+    def testAnErrorComesWithItsMessage(self):
+        feature = self.doc.addObject("App::FeatureTest", "Failing")
+        after = self.doc.addObject("App::FeatureTest", "After")
+        after.Link = feature
+        self.doc.recompute()
+        count = feature.ExecCount
+        afterCount = after.ExecCount
+        feature.ExceptionType = 2
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertFalse(feature.isValid())
+        self.assertIn("Invalid", feature.State)
+        message = feature.getStatusString()
+        self.assertIn("Testexception", message)
+        self.assertEqual(feature.ExecCount, count)
+        # Not reached past the error, there nor here
+        self.assertEqual(after.ExecCount, afterCount)
+        states = (feature.State, after.State)
+        # As a recompute here leaves it
+        feature.touch()
+        self.doc.recompute()
+        self.assertFalse(feature.isValid())
+        self.assertEqual(feature.getStatusString(), message)
+        self.assertEqual(after.ExecCount, afterCount)
+        self.assertEqual((feature.State, after.State), states)
+
+    def testAnEditDropsIt(self):
+        counted = self.counted("Slow", Sleep=1.5)
+        self.doc.recompute()
+        ran = _executions["Slow"]
+        counted.Input = 3
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        counted.Input = 4  # what the job reads
+        info = self.pool.recomputeInfo()
+        self.assertFalse(info["Running"], info)
+        self.assertEqual(info["Cancelled"], 1, info)
+        self.assertIn("the design changed", info["Reason"])
+        self.assertTrue(self.pool.waitRecompute(0))
+        self.assertEqual(self.touched(), ["Slow"])
+        self.doc.recompute()
+        self.assertEqual(_executions["Slow"], ran + 1)
+        self.assertEqual(counted.Result, 8)
+        self.assertEqual(self.pool.recomputeInfo()["Applied"], 0)
+
+    def testARecomputeHereTakesTheWorkers(self):
+        counted = self.counted("Taken", Sleep=1.0)
+        self.doc.recompute()
+        ran = _executions["Taken"]
+        counted.Input = 5
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        # Being made: the worker has it
+        end = time.time() + 60
+        while time.time() < end and self.pool.info()["Busy"] == 0:
+            self.pool.poll(20)
+        self.assertEqual(self.pool.info()["Busy"], 1, self.pool.info())
+        self.doc.recompute()  # waits for the worker and takes its result
+        self.assertEqual(_executions["Taken"], ran)
+        self.assertEqual(counted.Result, 10)
+        self.assertNotEqual(counted.MadeBy, os.getpid())
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Borrowed"], 1, info)
+        self.assertEqual(info["Supplied"], 1, info)
+        self.assertFalse(info["Running"], info)
+        self.assertEqual(self.touched(), [])
+        self.pool.waitRecompute(5)
+        self.assertEqual(self.pool.recomputeInfo()["Applied"], 0)
+
+    def testOneThatMakesAnObjectIsUnfit(self):
+        counted = self.counted("Maker")
+        self.doc.recompute()
+        counted.MakeOne = True
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        self.assertTrue(self.pool.waitRecompute(120))
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Unfit"], 1, info)
+        self.assertIn("made or removed", info["Reason"])
+        self.assertEqual(self.touched(), ["Maker"])
+        self.assertIsNone(self.doc.getObject("Made"))
+        self.doc.recompute()  # made here
+        self.assertIsNotNone(self.doc.getObject("Made"))
+
+    def testAPropertyTheRecomputeAddsIsAddedHere(self):
+        counted = self.counted("Adder")
+        self.doc.recompute()
+        counted.AddOne = True
+        counted.Input = 2
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertNotEqual(counted.MadeBy, os.getpid())
+        self.assertIn("Added", counted.PropertiesList)
+        self.assertEqual(counted.Added, 9)
+        self.assertEqual(counted.getGroupOfProperty("Added"), "Extra")
+        self.assertEqual(counted.getDocumentationOfProperty("Added"), "added by execute()")
+        self.assertEqual(self.touched(), [])
+
+    def testNothingToRecompute(self):
+        self.counted("Idle")
+        self.doc.recompute()
+        self.assertFalse(self.pool.recompute())
+        self.assertIn("nothing to recompute", self.pool.recomputeInfo()["Reason"])

@@ -96,6 +96,7 @@
 #include "FileBlobManager.h"
 #include "FileHistory.h"
 #include "PropertyPythonObject.h"
+#include "WorkerRecompute.h"
 #include "StringHasher.h"
 #include "TransactionLog.h"
 #include "WorkerPool.h"
@@ -2452,6 +2453,20 @@ public:
         add_varargs_method("wait", &WorkerPoolPy::wait,
                            "wait(seconds=-1) -> bool: no job queued or running");
         add_varargs_method("info", &WorkerPoolPy::info, "info() -> dict");
+        add_varargs_method("recompute", &WorkerPoolPy::recompute,
+                           "recompute(objs=None) -> bool: hand the recompute of objs, or of what\n"
+                           "is touched, and of what depends on them, to a worker; its result\n"
+                           "is put in when it comes (docs/WorkerProcess.md sec 19)");
+        add_varargs_method("recomputing", &WorkerPoolPy::recomputing,
+                           "recomputing() -> bool: a recompute is with the workers, or has\n"
+                           "come and is not put in yet");
+        add_varargs_method("waitRecompute", &WorkerPoolPy::waitRecompute,
+                           "waitRecompute(seconds=-1) -> bool: put in what comes until none\n"
+                           "is running");
+        add_varargs_method("cancelRecompute", &WorkerPoolPy::cancelRecompute,
+                           "cancelRecompute(reason='cancelled')");
+        add_varargs_method("recomputeInfo", &WorkerPoolPy::recomputeInfo,
+                           "recomputeInfo() -> dict");
     }
 
     explicit WorkerPoolPy(const std::string& name)
@@ -2652,6 +2667,90 @@ public:
             pids.append(Py::Long(pid));
         }
         dict.setItem("Pids", pids);
+        return dict;
+    }
+
+    Document& document()
+    {
+        auto doc = GetApplication().getDocument(name.c_str());
+        if (!doc) {
+            throw Py::RuntimeError("the document is gone");
+        }
+        return *doc;
+    }
+
+    Py::Object recompute(const Py::Tuple& args)
+    {
+        PyObject* objs = Py_None;
+        if (!PyArg_ParseTuple(args.ptr(), "|O", &objs)) {
+            throw Py::Exception();
+        }
+        Document& doc = document();
+        std::vector<DocumentObject*> list;
+        if (objs != Py_None) {
+            Py::Sequence seq(objs);
+            for (Py::Sequence::size_type i = 0; i < seq.size(); ++i) {
+                Py::Object item(seq[i]);
+                if (!PyObject_TypeCheck(item.ptr(), &DocumentObjectPy::Type)) {
+                    throw Py::TypeError("expected document objects");
+                }
+                list.push_back(static_cast<DocumentObjectPy*>(item.ptr())->getDocumentObjectPtr());
+            }
+        }
+        return Py::Boolean(WorkerRecompute::start(doc, list));
+    }
+
+    Py::Object recomputing(const Py::Tuple&)
+    {
+        return Py::Boolean(WorkerRecompute::running(document()));
+    }
+
+    Py::Object waitRecompute(const Py::Tuple& args)
+    {
+        double seconds = -1;
+        if (!PyArg_ParseTuple(args.ptr(), "|d", &seconds)) {
+            throw Py::Exception();
+        }
+        return Py::Boolean(WorkerRecompute::wait(document(), seconds));
+    }
+
+    Py::Object cancelRecompute(const Py::Tuple& args)
+    {
+        const char* why = "cancelled";
+        if (!PyArg_ParseTuple(args.ptr(), "|s", &why)) {
+            throw Py::Exception();
+        }
+        WorkerRecompute::cancel(document(), why);
+        return Py::None();
+    }
+
+    Py::Object recomputeInfo(const Py::Tuple&)
+    {
+        WorkerRecompute::Info i = WorkerRecompute::info(document());
+        Py::Dict dict;
+        dict.setItem("Running", Py::Boolean(i.running));
+        dict.setItem("Started", Py::Long(i.started));
+        dict.setItem("Applied", Py::Long(i.applied));
+        dict.setItem("Borrowed", Py::Long(i.borrowed));
+        dict.setItem("Cancelled", Py::Long(i.cancelled));
+        dict.setItem("Failed", Py::Long(i.failed));
+        dict.setItem("Unfit", Py::Long(i.unfit));
+        dict.setItem("Objects", Py::Long(i.objects));
+        dict.setItem("Supplied", Py::Long(i.supplied));
+        dict.setItem("ExecutedHere", Py::Long(i.executedHere));
+        dict.setItem("MadeHere", Py::Long(i.madeHere));
+        dict.setItem("Unused", Py::Long(i.unused));
+        Py::List here;
+        for (auto& n : i.executedHereNames) {
+            here.append(Py::String(n));
+        }
+        dict.setItem("ExecutedHereNames", here);
+        dict.setItem("ById", Py::Boolean(i.byId));
+        dict.setItem("ByContentWhy", Py::String(i.byContentWhy));
+        dict.setItem("WorkerSeconds", Py::Float(i.workerSeconds));
+        dict.setItem("ApplySeconds", Py::Float(i.applySeconds));
+        dict.setItem("Bytes", Py::Long(static_cast<unsigned long>(i.bytes)));
+        dict.setItem("Reason", Py::String(i.reason));
         return dict;
     }
 

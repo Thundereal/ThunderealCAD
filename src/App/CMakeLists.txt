@@ -552,6 +552,7 @@ SET(Document_CPP_SRCS
     AnimationPyImp.cpp
     AnimationWorkers.cpp
     WorkerPool.cpp
+    WorkerRecompute.cpp
     License.h
 )
 
@@ -643,6 +644,8 @@ SET(Document_HPP_SRCS
     Animation.h
     AnimationWorkers.h
     WorkerPool.h
+    WorkerRecompute.h
+    RecomputeHook.h
 )
 SET(Document_SRCS
     ${Document_CPP_SRCS}

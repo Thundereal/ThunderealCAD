@@ -61,6 +61,7 @@
 #endif // _PreComp_
 
 #include <App/Animation.h>
+#include <App/RecomputeHook.h>
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentParams.h>
@@ -1105,6 +1106,10 @@ void PropertyPartShape::validateShape(App::DocumentObject *obj)
     // pattern (docs/TransactionLogJournal.md sec 27.64) -- and a fix() would make
     // the value put back other than the one recorded.
     if (obj->getDocument()->isPerformingTransaction())
+        return;
+    // The same of a worker's result put in: checked, and fixed, where it was
+    // made, its InvalidShape put in with it (docs/WorkerProcess.md sec 19)
+    if (App::RecomputeHook::puttingIn())
         return;
     if (auto feat = Base::freecad_dynamic_cast<Part::Feature>(obj)) {
         if (_Shape.isNull()) {

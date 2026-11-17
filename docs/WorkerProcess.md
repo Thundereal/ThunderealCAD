@@ -4,7 +4,8 @@ Status: design accepted 2026-11-16, every decision as recommended (sec
 9). Built on branch `Worker`: phase 0 (`docs/Animation.md` sec 4.2),
 phase 1 (sec 10), phase 2 (sec 11, 12), phase 4 (sec 13), phase 5a (sec
 14); the order of what is left, as ruled 2026-11-16: phase 4, phase 5,
-then a reduced phase 3.
+then a reduced phase 3. Since: string ids leased (sec 15), phase 5b (sec
+16), phase 6, a recompute made by a worker (sec 19).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -965,3 +966,139 @@ the Part, a hidden feature shown later built then. The tree before fails
 hidden objects and views of their own, 36: all pass but
 pd-edit-shown-per-view and pd-preview-per-view, which abort as they did
 before (sec 16).
+
+## 19. Phase 6, as built: a recompute made by a worker
+
+(2026-11-17.) The second client of the pool (D6): `App::WorkerRecompute`
+hands a document's recompute to a worker and puts the result in when it
+comes, while this process carries on.
+
+- **Measured first** (console, the reporter's `scanner.FCStd`, 686
+  objects): its migration recompute executes 468 objects in 10.3 s, and
+  the objects it reaches (527) are one group by their dependencies -- the
+  largest group is the whole recompute. Splitting a recompute over
+  workers would gain nothing on it; a job is one recompute. What it gains
+  is the window: the GUI recompute takes 15.5 s, frozen.
+- **One hook, both sides** (`App/RecomputeHook.h`). While a hook is
+  installed for a document on this thread, `Document::recompute()` asks it
+  before each object it would execute, and tells it after each one it did
+  -- in the recompute loop and in `recomputeFeature()`, where an execute()
+  recomputes another object itself (a split its pieces). Everything else is
+  the recompute's own: the order, the signals, the touched state, the
+  error log, the log's record.
+  - In the worker (kind `recompute`), a recorder notes, for each object
+    executed, what its execute() wrote (`signalChangedObject`, each value
+    once, with the first writer; nested executes are entries of their
+    own), whether it came out and its error, and how it left the other
+    objects it wrote: touched or clean. The values are captured as the
+    recompute leaves them, meshed as the view of the asking process meshes
+    them (sec 14), with the strings they name under the leased ids (sec
+    15) and the worker's table beside them for a read by content.
+  - Here, a supplier makes each object from those values instead of
+    executing it: it puts them in (`restoreValue`, a batch per object),
+    sets its error or clears it, and leaves the other objects it wrote as
+    the worker's execute left them -- a value put in touches its owner
+    where the write there may not have (a split writing its pieces'
+    `Parent`), and an object touched so would be executed again in the
+    loop's second pass: 58 of scanner's were, before this.
+- **What a worker cannot hand over** -- answered unfit, the document left
+  touched for a recompute here: an execute that makes or removes an
+  object or removes a property; one that gives things new numbers (a
+  sketch's geometry ids, `Document::nextGeoId`, counted by the hook). A
+  property an execute adds is handed over: its type, group, doc and
+  attributes go with the result, and it is added here as the execute did
+  (`Helix._BaseShape1`). What no save writes is each process's own and
+  is left out: a shape's cache (`Prop_NoPersist`), the document's
+  bookkeeping under an upstream name (`_ObjectUUID`, `Property::Legacy`).
+- **What is made here by its type** (`RecomputeHereTypes` of
+  Preferences/Workers, prefixes, `TechDraw::` by default): an object
+  whose result is not all in its properties. A TechDraw view keeps its
+  geometry in members and finds its hidden lines in threads that end
+  after its execute(); a worker's values would put in a view with nothing
+  to draw. The worker skips them; the recompute here executes them.
+- **A value put in is not checked again**: `PropertyPartShape::
+  validateShape` skips under `RecomputeHook::PuttingIn`, as it does for an
+  undo. The worker checked it, fixed it where FixShape says, and its
+  `InvalidShape` comes with it. On scanner that check was 91% of putting
+  the result in (4.1 s of 4.4).
+- **The job and its edits.** `reads` is what the recompute reaches, so an
+  edit of any of it, or of anything it depends on, drops the job (sec 13);
+  an edit between the result's coming and its being put in drops the
+  result the same way. A recompute run here meanwhile takes the result if
+  it came (`Borrowed`), waits for the worker if it is making it, and takes
+  a queued job back and does it itself. Nothing depends on it: a recompute
+  the workers did not make leaves the document touched, as it was.
+- **Python**: `App.workerPool(doc).recompute(objs=None)`, `recomputing()`,
+  `waitRecompute(seconds=-1)`, `cancelRecompute(reason)`,
+  `recomputeInfo()` (`Applied`, `Borrowed`, `Cancelled`, `Failed`,
+  `Unfit`, `Supplied`, `ExecutedHere` with `ExecutedHereNames`,
+  `MadeHere`, `Unused`, `ById` and `ByContentWhy`, `WorkerSeconds`,
+  `ApplySeconds`, `Bytes`, `Reason`).
+- **The GUI** (`Gui/WorkerRecomputeGui.*`): Std_Refresh and the migration
+  prompt's Yes (one document) hand the recompute over when
+  `RecomputeCommand` of Preferences/Workers is on -- **off by default**:
+  the result comes later than the command returns, which no caller of a
+  recompute expects yet. The status bar says when it is made and how
+  long each side took; one the worker failed or could not make is run
+  here.
+
+Measured 2026-11-17 on mini, `scanner.FCStd`, its migration recompute
+after the open, 2 runs each (GUI: the view settled first; a 20 ms timer
+says how free the window is):
+
+| | made here | made by a worker |
+|---|---|---|
+| console: put in / its time on this thread | 10.3 s / 10.3 s | 13.2 s / 0.6 s start + 0.28 s put in |
+| GUI: longest stall of the window | 7.5 s | 1.5 s (start) |
+| GUI: lost in stalls over 100 ms | 12.6-12.7 s | 4.6 s |
+| GUI: CPU of this process to the result | 28.3-28.5 s | 6.8 s |
+| GUI: result in / view settled | 12.8 s / 13.8-14.8 s | 16.5 s / 17.5 s |
+| GUI: peak memory of this process | 2.2-2.3 GB | 1.8-1.9 GB, the worker 0.2 GB more |
+
+The worker's recompute is 10.2-10.9 s; its result 14 MB with the view's
+meshes. In the GUI, putting it in is 3.0 s, of which the 218 TechDraw
+objects executed here are part. The 1.5 s of start() is the log's
+snapshot (`Document::_snapshotToLog`): a schema 4 file's shapes are not in
+the store yet, and each is written out as a blob there
+(`PropertyPartShape::makeBlob`, BRep text). That is the log's (oplab's)
+part, not changed here.
+
+What came out, compared object by object (volume, area, faces, element
+map size, state):
+
+- Console, worker against here: the same, all 405 shapes and every
+  state, but Binder032 (below) and two infinite planes whose volume is
+  noise either way.
+- GUI, worker against here: 15 differ. They are one cause, and it is not
+  the worker's: **refine depends on the meshes the faces carry**. The
+  same unrefined Mirrored gives 17 faces bare, 19 with the meshes it
+  carries in the GUI, 23 meshed at 0.1 mm (`removeSplitter`, either
+  process). `ModelRefine::FaceUniter::process` checks a merged face's box
+  against its faces' with `BRepBndLib::AddOptimal`, whose
+  `useTriangulation` is on: a face with a mesh is boxed by the mesh, the
+  merged face exactly, the two differ by more than the tolerance, and the
+  merge is skipped. A console process -- every worker -- recomputes
+  scanner's Mirrored to 17, the GUI to 19, and everything after it
+  follows. Not changed: it moves results of saved documents (the file
+  holds 19), so it is the user's ruling. Until it is fixed, a worker's
+  refine can differ from the GUI's wherever meshes block a merge.
+- The App::Part and link groups, gathered from shown children, come out
+  as the GUI's -- the version carries what is shown.
+- Binder032 (a sub-shape binder of a plain feature) keeps one mapped name
+  more from a worker (`Wire1`, 50 against 49), in some runs; its geometry
+  is the same, and its inputs in the worker were checked equal to this
+  process's before the recompute. Open.
+- In the GUI, the strings of the result went by content: `takeRows`
+  refused, "string 131105 is held here as 772" -- the worker gave a new id
+  to a string this process holds under an old one. In the console they
+  go by id. Correct either way; the cause is the strings' (oplab's) part,
+  open.
+
+Tests: TestWorkerPool 30 (+7 `TestWorkerRecompute`: a Part chain and a
+Python feature made by a worker, nothing executed here, its element
+names those made here; an error put in with its message, what follows it
+left as a recompute here leaves it; an edit dropping the job; a
+recompute here taking the worker's result; an execute that makes an
+object unfit; a property an execute adds added here; nothing to
+recompute), TestAnimation 78, Document 361, TestPartApp 444,
+TestPartDesignApp 1073.

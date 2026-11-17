@@ -1527,6 +1527,7 @@ SOURCE_GROUP("Selection" FILES ${Selection_SRCS})
 SET(FreeCADGui_CPP_SRCS
     Application.cpp
     ApplicationPy.cpp
+    WorkerRecomputeGui.cpp
     AutoSaver.cpp
     BitmapFactory.cpp
     Document.cpp
@@ -1572,6 +1573,7 @@ SET(FreeCADGui_CPP_SRCS
 )
 SET(FreeCADGui_SRCS
     Application.h
+    WorkerRecomputeGui.h
     AutoSaver.h
     BitmapFactory.h
     Document.h

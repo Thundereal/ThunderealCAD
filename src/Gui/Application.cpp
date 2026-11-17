@@ -97,6 +97,7 @@
 #include <Quarter/Quarter.h>
 
 #include "Application.h"
+#include "WorkerRecomputeGui.h"
 #include "GeneralParams.h"
 #include "AutoSaver.h"
 #include "AxisOriginPy.h"
@@ -628,8 +629,13 @@ Application::Application(bool GUIenabled)
                 QMessageBox::Yes|QMessageBox::No, QMessageBox::Yes);
             if(res != QMessageBox::Yes)
                 return;
+            auto dependent = App::Document::getDependentDocuments(docs,true);
+            // One document: made by a worker while the window stays free,
+            // where the user asked for it (docs/WorkerProcess.md sec 19)
+            if (dependent.size() == 1 && recomputeByWorkers(*dependent.front()))
+                return;
             bool hasError = false;
-            for(auto doc : App::Document::getDependentDocuments(docs,true)) {
+            for(auto doc : dependent) {
                 try {
                     doc->recompute({},false,&hasError);
                 } catch (Base::Exception &e) {

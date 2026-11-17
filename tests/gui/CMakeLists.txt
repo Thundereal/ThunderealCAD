@@ -2740,10 +2740,12 @@ fc_add_gui_test(GuiSaveMergesAnotherProcess_tests_run
                 --timeout 180)
 
 # The Assembly workbench's tests in the GUI (TestAssemblyWorkbench.py): the
-# panels, the tree and the 3D view the headless run skips.
+# panels, the tree and the 3D view the headless run skips. 751 of them, 1132
+# s alone on 2026-11-17 at a load of 8 -- 1200 s in ctest beside the others
+# cut it off after 581, all passing.
 fc_add_gui_test(GuiAssemblyWorkbench_tests_run
                 assembly-workbench-suite.py
-                --timeout 1200)
+                --timeout 1800)
 
 # An exploded view played by an Animation in a served document: the clip
 # carries the parts' moves as tracks and the steps' trails as sequences

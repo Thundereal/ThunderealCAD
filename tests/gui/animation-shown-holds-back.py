@@ -17,7 +17,8 @@ asserted:
     selection, Pause, Stop;
   - a frame read back from disk holds back the same, read no further, and
     stays on disk;
-  - an object shown since is put back, not held back;
+  - an object shown since is put back, not held back; showing it drops no
+    frame, colouring it the frames holding what is made from it (sec 17);
   - the view does not build what it does not show: a hidden cut gets no
     visual while hidden, and one when shown.
 
@@ -212,11 +213,22 @@ def run():
               anim.cacheInfo()["Owed"] == 0 and same(t7, [plate] + cuts))
         Gui.Selection.clearSelection()
 
-        # Shown since: put back, not held back
+        # Shown since: put back, not held back. No result reads a step's
+        # Visibility, nor a view property only the view has: every frame
+        # stays (sec 17)
+        kept = len(anim.cacheInfo()["Times"])
         mid.ViewObject.Visibility = True
+        mid.ViewObject.LineWidth = 3
         pump(0.1)
-        # A change of Visibility drops the frames reaching the cut, as any
-        # change of it does: made again
+        check("shown: every frame stays", len(anim.cacheInfo()["Times"]) == kept,
+              "%d of %d" % (len(anim.cacheInfo()["Times"]), kept))
+        # A colour is the object's look, which what is made from it takes
+        # (ShapeAppearanceDesign.md sec 14.6.2): the frames holding the later
+        # cuts' looks go
+        mid.ViewObject.ShapeColor = (0.8, 0.2, 0.2)
+        pump(0.1)
+        check("coloured: the frames holding what follows go",
+              len(anim.cacheInfo()["Times"]) < kept, anim.cacheInfo()["Times"])
         anim.Time = t3
         anim.Time = t5
         touched = [o.Name for o in doc.Objects if "Touched" in o.State]

@@ -412,8 +412,9 @@ public:
     };
     CacheInfo cacheInfo() const;
     void clearCache();
-    /// Drop the frames whose recompute met obj or anything depending on it
-    void dropFramesReaching(const DocumentObject& obj);
+    /// Drop the frames whose recompute met what a change of obj's prop
+    /// reaches (App::writeReaches, WriteScope.h)
+    void dropFramesReaching(const DocumentObject& obj, const Property& prop);
     /// Whether frames are kept: Cache, and a Recompute that recomputes
     bool isCaching() const;
     /// Whether an active Animation of `doc`, or of any document when

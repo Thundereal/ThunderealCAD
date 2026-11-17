@@ -792,9 +792,9 @@ recompute here -- the cache had dropped the frames.
   sees the shape of the last frame put in -- the lag D5 ruled.
 - **Counted**: `cacheInfo()` `Deferred` (values held back, ever),
   `Settled` (put in since, ever), `Owed` (held back now).
-- **Found on the way, not changed**: a change of an object's Visibility
-  drops the frames reaching it, as any change of it does, though no
-  recompute reads it.
+- **Found on the way**: a change of an object's Visibility dropped the
+  frames reaching it, as any change of it does, though no recompute of a
+  chain reads it. Put right in sec 17.
 
 Measured 2026-11-17 on mini, per frame shown, the view waited for
 (`~/works/sw/fcad-probes/worker/profile-chain.py`, `profile-frames.py`;
@@ -825,3 +825,67 @@ pass but five that fail the same with the guard taken out
 (edit-on-top-by-preview-and-path, pd-edit-shown-per-view,
 pd-preview-per-view, per-view-undo, selection-on-top-hidden-edges) and
 drain-clock-step, which needs its clock shim.
+
+## 17. A show or a hide is not an edit of the design
+
+(2026-11-17.) Found in sec 16: an Animation dropped every kept frame
+reaching an object whose Visibility changed, and the worker pool every job
+reaching it, as for any change of the object. Showing the hidden cut of a
+chain dropped the frames of every cut after it. The same went for any
+property of a view provider -- a line width, a display mode: each touches
+the object's `ViewObject` mirror (`ViewProviderDocumentObject::onChanged`),
+which is a change of the object as far as `signalChangedObject` goes.
+
+A colour is not one of them, and still drops: it is the object's own look
+(`ShapeColor` over `ElementAppearance`, ShapeAppearanceDesign.md sec
+14.6), which what is made from it takes when its shape is set (sec 14.6.2,
+`MapFaceColor`). A kept frame holds the later cuts' looks as made from the
+old colour; putting it back would put those back. Measured in the GUI test
+below: a colour of the third cut dropped the kept frame holding the cuts
+after it, through the write to `ElementAppearance`.
+
+What a recompute reads of what the view shows is little, and known:
+
+- **A group gathering its shown children.** Part's shape of an object that
+  keeps none of its own -- an `App::Part`, a plain group, a link to one --
+  is the compound of its children, the hidden ones left out
+  (`Part::Feature::getTopoShape`). A child's Visibility reaches its group
+  as a touch of the group's `_GroupTouched` (and `HiddenChildren`), a
+  nested group's relayed upward (`GroupExtension::slotChildChanged`). A
+  group with a shape of its own, a Body (its tip's), does not read it.
+- **An expression naming it**: `Second.Visibility ? 1 : 2`, or a view
+  property bound through `Obj.ViewObject.X`.
+- **A Python feature**, whose code may read anything: for Visibility, the
+  object itself or one linking to it is taken to read it.
+
+`App::writeReaches(obj, prop)` (`WriteScope.h`) is the answer both now
+ask. For a property of the design it is what it was: `obj` and every
+object depending on it, `getInListEx(true)`. For Visibility, TreeRank, the
+`ViewObject` mirror and the two relays it is the readers above and what
+depends on them -- empty for a step of a chain or a feature of a Body.
+The Animation drops the frames whose recompute met that
+(`dropFramesReaching(obj, prop)`) and stops nothing when it is empty; the
+pool still marks its copy stale -- the file it is a version of did
+change -- but drops no job when nothing reads the change.
+
+Not covered: a C++ feature that reads another object's Visibility in its
+`execute()` and is none of the above; its frames would be kept past a show
+or a hide. None found (2026-11-17, every `Visibility.getValue()` and
+`isElementVisible` under `src/App` and `src/Mod/*/App`): the rest keep the
+view in step (PartDesign's one-shown-feature rule, a solid's shown
+target), run on demand (Assembly's interference check and frozen shape, a
+random colour), or gather through a group, which the relay covers (an
+Assembly's parts group; Body's visibility-gated shape is compiled out).
+
+Tests: TestAnimation 78 (+3: a step of a chain shown and hidden keeps
+every frame, put back and not made again; an expression reading a
+Visibility drops the frames it reaches, made again with the value it reads
+now; a child of an `App::Part` hidden drops the cut taking the group, made
+again with a hole fewer; a Body's feature shown or hidden keeps every
+frame; a step hidden while workers make frames drops no job and no
+frame), TestWorkerPool 23, C++ WriteScope/Animation/Worker 5;
+`tests/gui/animation-shown-holds-back.py` 26 (+2: a show and a line width
+keep every frame; a colour drops the frame holding what follows), GUI
+animation-cache 27, animation-workers 24, animation-timeline 50,
+animation-export 43, animation-export-clock 12, serve-animation 62,
+serve-log 27.

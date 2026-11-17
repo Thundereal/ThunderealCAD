@@ -1141,6 +1141,109 @@ class TestAnimation(unittest.TestCase):
         self.assertGreater(self.anim.cacheInfo()["Replayed"], 0)
         self.assertGreater(proxy.count, 0)
 
+    def showHideScene(self):
+        """A plate cut by a chain: a hole, a hole, then a group of two holes
+        (an App::Part, whose shape is gathered from its shown children); a
+        feature whose expression reads the second hole's Visibility; the
+        plate's thickness keyed. Every frame recomputes all of them"""
+        import Part  # noqa: F401
+
+        def hole(name, x, y):
+            cyl = self.doc.addObject("Part::Cylinder", name)
+            cyl.Radius = 2
+            cyl.Height = 40
+            cyl.Placement.Base = App.Vector(x, y, -5)
+            return cyl
+
+        box = self.doc.addObject("Part::Box", "Plate")
+        box.Length = box.Width = 40
+        first, second = hole("First", 5, 5), hole("Second", 15, 5)
+        cut1 = self.doc.addObject("Part::Cut", "Cut1")
+        cut1.Base, cut1.Tool = box, first
+        cut2 = self.doc.addObject("Part::Cut", "Cut2")
+        cut2.Base, cut2.Tool = cut1, second
+        group = self.doc.addObject("App::Part", "Holes")
+        grouped = [hole("Third", 25, 5), hole("Fourth", 35, 5)]
+        group.addObjects(grouped)
+        cut3 = self.doc.addObject("Part::Cut", "Cut3")
+        cut3.Base, cut3.Tool = cut2, group
+        reader = self.doc.addObject("App::FeatureTest", "Reader")
+        reader.setExpression("Float", "Plate.Height * (Second.Visibility ? 1 : 2)")
+        self.doc.recompute()
+        self.anim.FrameRate = 10
+        self.anim.addKey("Plate.Height", 0.0, 5.0)
+        self.anim.addKey("Plate.Height", 1.0, 15.0)
+        self.anim.Cache = True
+        self.anim.activate()
+        for t in self.anim.frames():
+            self.anim.Time = t
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        return first, second, grouped, cut3, reader
+
+    def testCacheKeepsItsFramesWhenAStepIsShownOrHidden(self):
+        """docs/WorkerProcess.md sec 17: showing or hiding a step of a chain
+        changes no frame; what reads a Visibility -- an expression naming
+        it, a group gathering its shown children -- drops what it reaches"""
+        first, second, grouped, cut3, reader = self.showHideScene()
+        times = self.anim.frames()
+        self.anim.Time = times[3]
+        volume = cut3.Shape.Volume
+        stored = self.anim.cacheInfo()["Stored"]
+        # A step of the chain: no result reads it
+        first.Visibility = False
+        first.Visibility = True
+        first.Visibility = False
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        self.anim.Time = times[3]
+        self.assertEqual(self.anim.cacheInfo()["Stored"], stored)  # put back, not made again
+        self.assertAlmostEqual(cut3.Shape.Volume, volume)
+        # An expression reading it: the frames with the reader go, and are
+        # made again with what it reads now
+        second.Visibility = False
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+        self.anim.Time = times[5]  # Time at times[3] already sets nothing
+        self.anim.Time = times[3]
+        self.assertAlmostEqual(reader.Float, 2 * (5.0 + 10.0 * times[3]))
+        self.assertAlmostEqual(cut3.Shape.Volume, volume)  # the shape no different
+        for t in times:
+            self.anim.Time = t
+        # A child of a group whose shape is gathered from what it shows: the
+        # cut taking the group goes, and has one hole fewer made again
+        grouped[0].Visibility = False
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+        self.anim.Time = times[3]
+        self.assertGreater(cut3.Shape.Volume, volume + 1.0)
+
+    def testCacheKeepsABodysFramesWhenAFeatureIsShownOrHidden(self):
+        """A Body keeps its own shape, its tip's: a feature shown or hidden in
+        it changes nothing a frame holds (docs/WorkerProcess.md sec 17)"""
+        import PartDesign  # noqa: F401
+
+        body = self.doc.addObject("PartDesign::Body", "Body")
+        box = body.newObject("PartDesign::AdditiveBox", "Pad")
+        box.Length = box.Width = 20
+        hole = body.newObject("PartDesign::SubtractiveCylinder", "Hole")
+        hole.Radius = 3
+        hole.Height = 40
+        hole.Placement.Base = App.Vector(10, 10, -5)
+        self.doc.recompute()
+        self.anim.FrameRate = 10
+        self.anim.addKey("Pad.Height", 0.0, 5.0)
+        self.anim.addKey("Pad.Height", 1.0, 15.0)
+        self.anim.Cache = True
+        self.anim.activate()
+        for t in self.anim.frames():
+            self.anim.Time = t
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        box.Visibility = False
+        box.Visibility = True
+        hole.Visibility = False
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        stored = self.anim.cacheInfo()["Stored"]
+        self.anim.Time = self.anim.frames()[4]
+        self.assertEqual(self.anim.cacheInfo()["Stored"], stored)
+        self.assertTrue(body.Shape.isValid())
+
     def testShowAtWithNoViewIsTimeSet(self):
         # docs/WorkerProcess.md sec 16: showAt() holds back the geometry no
         # view draws. With no GUI no module says what a view draws, so
@@ -1685,6 +1788,23 @@ class TestAnimation(unittest.TestCase):
         self.assertEqual(info["Failed"], 0, info)
         self.assertEqual(self.anim.cacheInfo()["Times"], self.anim.frames())
         self.assertGreater(self.anim.cacheInfo()["Prepared"], 0)
+        self.assertTrue(cut.Shape.isValid())
+
+    def testAStepShownOrHiddenLeavesTheJobs(self):
+        """What no result reads, the Visibility of a step of the chain,
+        drops no job and no frame (docs/WorkerProcess.md sec 17)"""
+        box, cut = self.workerScene()
+        self.anim.Cache = True
+        self.anim.activate()
+        self.assertGreater(self.anim.prepareFrames(force=True), 0)
+        box.Visibility = False
+        self.assertTrue(self.anim.workerInfo()["Running"])
+        self.assertTrue(self.anim.waitWorkers(300))
+        info = self.anim.workerInfo()
+        self.assertEqual(info["Failed"], 0, info)
+        self.assertEqual(self.anim.cacheInfo()["Times"], self.anim.frames())
+        box.Visibility = True
+        self.assertEqual(self.anim.cacheInfo()["Times"], self.anim.frames())
         self.assertTrue(cut.Shape.isValid())
 
     def testWorkersRefuseWhatTheyCannotRecompute(self):

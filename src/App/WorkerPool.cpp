@@ -489,7 +489,8 @@ struct WorkerPool::Private
     json setupFor(Proc& proc);
     bool lease(Proc& proc, json& range);
     void pruneCopies();
-    void dropReached(const DocumentObject* obj, const std::string& why);
+    void dropReached(const DocumentObject* obj, const std::string& why,
+                     const Property* prop = nullptr);
     bool exportBlobs(TransactionLogCore& core, int64_t num);
     void dropCopy();
     bool spawn();
@@ -724,7 +725,7 @@ bool WorkerPool::Private::takeCopy()
                 || !(doc.writeEffects(prop) & WriteEffect::Dirty)) {
                 return;
             }
-            dropReached(&obj, "the design changed");
+            dropReached(&obj, "the design changed", &prop);
         });
         auto object = [this](const DocumentObject& obj) {
             if (copying || copy.empty() || obj.isDerivedFrom<Animation>()) {
@@ -846,7 +847,8 @@ void WorkerPool::Private::pruneCopies()
     }
 }
 
-void WorkerPool::Private::dropReached(const DocumentObject* obj, const std::string& why)
+void WorkerPool::Private::dropReached(const DocumentObject* obj, const std::string& why,
+                                      const Property* prop)
 {
     stale = !copy.empty();
     if (!doc.hasPendingTransaction() && !doc.isPerformingTransaction()) {
@@ -854,10 +856,24 @@ void WorkerPool::Private::dropReached(const DocumentObject* obj, const std::stri
     }
     // What `obj` reaches: itself and every object whose result depends on
     // it, through any link, an expression's hidden ones included -- what an
-    // Animation drops its frames by. Looked for only if a job says what it
-    // reads
+    // Animation drops its frames by. Of a change of what the view shows,
+    // only what reads it (docs/WorkerProcess.md sec 17), and when nothing
+    // does no job's result changes: the copy is behind, the jobs stand.
+    // Otherwise looked for only if a job says what it reads
     std::set<std::string> reached;
-    if (obj) {
+    if (obj && prop && obj->getNameInDocument()) {
+        auto objs = writeReaches(*obj, *prop);
+        if (objs.empty()) {
+            changedNotice();
+            return;
+        }
+        for (auto o : objs) {
+            if (o && o->getNameInDocument()) {
+                reached.insert(o->getNameInDocument());
+            }
+        }
+    }
+    else if (obj) {
         const bool wanted = std::any_of(jobs.begin(), jobs.end(), [](const auto& kv) {
             return !kv.second.dropped && !kv.second.job.reads.empty();
         });

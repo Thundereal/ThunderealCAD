@@ -2892,13 +2892,16 @@ void Animation::trimCache()
     }
 }
 
-void Animation::dropFramesReaching(const DocumentObject& obj)
+void Animation::dropFramesReaching(const DocumentObject& obj, const Property& prop)
 {
     // obj, and every object whose result depends on it, through any link,
-    // an expression's hidden ones included
-    std::set<DocumentObject*> reached = obj.getInListEx(true);
-    reached.insert(const_cast<DocumentObject*>(&obj));
+    // an expression's hidden ones included; of a change of what the view
+    // shows, only what reads it (docs/WorkerProcess.md sec 17)
+    std::set<DocumentObject*> reached = writeReaches(obj, prop);
     reached.erase(this);
+    if (reached.empty()) {
+        return;
+    }
     // The workers' copy is not the design any more; the pool sees that
     // itself, moves them to the next one (docs/WorkerProcess.md sec 4) and
     // drops the jobs the edit reaches. A frame made and not taken in yet
@@ -3652,7 +3655,7 @@ void Animation::connectDocument()
                     // The design changed: what a frame kept of it, or of
                     // anything that depends on it, is not what a
                     // recompute would give now
-                    dropFramesReaching(obj);
+                    dropFramesReaching(obj, prop);
                 }
                 else if (&prop == &Tracks || &prop == &Start || &prop == &FrameRate
                          || &prop == &Recompute || &prop == &Cache) {

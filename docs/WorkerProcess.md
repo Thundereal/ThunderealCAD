@@ -811,6 +811,18 @@ The plate has one hidden object, so there is little to hold back; what is
 left of its frame is the drawing (sec 14). Of the chain's 75.7 ms, the
 replay is 38 ms: the shown cut's shape read and put in.
 
+Opening a document paid the same (measured 2026-11-17 on mini, a plate
+cut by a chain of 40 holes, the last cut shown, saved and opened again in
+the GUI, the guard taken out by a temporary switch for the before). Every
+load path already leaves a hidden object alone (`preMeshUndeferredLoad`,
+the progressive drain, `finishRestoring`), and the first redraw's bounds
+built all 80 hidden visuals anyway: 80 on-demand builds, 35 shapes meshed
+from nothing. With the guard none is built, and the CPU from the open to
+the view settled is 305 ms against 1071 (progressive load on; 338 against
+1092 off). The open itself is the same, 170-240 ms. A hidden cut shown
+later is built then, 80-110 ms here. (A hidden object's coordinate node
+holds Coin's one default point, not a visual: what to look for to tell.)
+
 Tests: TestAnimation 75 (+1: with no GUI, showAt() holds nothing back),
 `tests/gui/animation-shown-holds-back.py` 24 (new: a hidden cut not built
 when the chain changes, built when shown; a frame shown holds back the

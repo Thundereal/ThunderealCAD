@@ -5,7 +5,9 @@ Status: design accepted 2026-11-16, every decision as recommended (sec
 phase 1 (sec 10), phase 2 (sec 11, 12), phase 4 (sec 13), phase 5a (sec
 14); the order of what is left, as ruled 2026-11-16: phase 4, phase 5,
 then a reduced phase 3. Since: string ids leased (sec 15), phase 5b (sec
-16), phase 6, a recompute made by a worker (sec 19).
+16), phase 6, a recompute made by a worker (sec 19); results no longer
+depending on what was shown, and a worker's names spelled as its
+client's (sec 20).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -1102,3 +1104,115 @@ recompute here taking the worker's result; an execute that makes an
 object unfit; a property an execute adds added here; nothing to
 recompute), TestAnimation 78, Document 361, TestPartApp 444,
 TestPartDesignApp 1073.
+
+## 20. What a recompute made depended on what had been shown
+
+Sec 19 found the GUI and a worker making scanner's Mirrored differently,
+17 faces against 19, and nine features after it with it. The cause was
+not the worker's: it was that a result depended on which shapes carried a
+display mesh -- what had been shown -- and a worker, as any console
+process, has none.
+
+**Refine.** `ModelRefine::FaceUniter::process` (modelRefine.cpp) checks a
+merged face's box against the boxes of the faces it replaces, to the face
+tolerance (1e-7; a fix is tried up to 10 times that). Both came from
+`BRepBndLib::AddOptimal` with `useTriangulation` on: a face carrying a
+mesh was boxed by the mesh's nodes grown by its deflection plus its
+tolerance (BRepBndLib.cxx, the face branch), the merged face, new and
+unmeshed, by its geometry. The refused groups of Mirrored were off by
+1e-4 to 4e-3 against a 1e-6 window. So a group with one meshed face was
+not merged, whatever the mesh's fineness:
+
+| Mirrored, unrefined 24 faces, `removeSplitter` | before | after |
+|---|---|---|
+| bare | 17 | 17 |
+| meshed at 1, 0.1, 0.01 | 23 | 17 |
+| every other face meshed | 22 | 17 |
+
+Both boxes, and the wire sort's, now come from the geometry (`false`). A
+console recompute gave this already: the fix makes the GUI give what the
+console does, and changes nothing in the console.
+
+Measured over 23 files (the tree's PartDesign, Sketcher, CAM and example
+files, and scanner.FCStd), every Part and PartDesign object recomputed
+with no shape meshed, every other one, and all, each meshed as a view
+meshes it, right after its recompute: before, 11 of scanner's objects
+came out otherwise with meshes (Mirrored, PolarPattern, two helices,
+Pocket021/026/029/034, Boolean001, Chamfer, Fillet007, each 1 to 3
+faces more); after, none of the 501 objects differs between the three.
+The saved file holds yet another of the old outcomes (Mirrored 19 saved,
+18 with everything meshed, 17 now): there was no one old result to keep,
+so there is no switch back to it.
+
+What it costs: a recompute of a document saved where a mesh refused a
+merge now merges, and a reference to one of the faces merged is lost. A
+Thickness on either side face of two stacked pads, made where the sides
+stayed apart, says "Invalid face reference" once they merge -- the merged
+face is named anew, as when Refine is switched on.
+
+**The same elsewhere.** Every App-side box that reads a mesh by default
+was classified by what it decides. Those whose answer can move with a
+mesh now read the geometry:
+
+- `TopoShape::getBoundBox` -- Python's `Shape.BoundBox`, which
+  expressions and Python features read in a recompute (CAM's stock from
+  the model, BIM, Draft).
+- `Shape.optimalBoundingBox()`: `useTriangulation` defaults to False now;
+  asked for, the mesh still counts.
+- Surface Extend up to a face (the natural extension's length, so its
+  surface), `makELoft`'s check that two profiles differ (equal boxes to
+  `Precision::Confusion()`), a helix's profile centre where the profile
+  is a solid's face, TechDraw's view centre (`ShapeUtils::findCentroid*`,
+  which asked for the mesh), a boolean's automatic fuzzy value,
+  FaceMakerCheese's outer-wire sort, a sketch-based feature's through-all
+  length and a hole's thread clip length (a hole writes a depth from it).
+
+Left as they are: boxes used only as a pre-filter before an exact answer,
+tools sized "big enough" (sheet metal, splitting tools), boxes of shapes
+made in the execute itself or of copies (which carry no mesh), the task
+panel's proposals, and FEM's glyph scale.
+
+Tests: `test_refine_does_not_depend_on_display_meshes` (failed before: 4
+faces against 3) and `test_bound_boxes_do_not_depend_on_display_meshes`
+in parttests/regression_tests.py.
+
+**The GUI against a worker again** (sec 19's probe, one run each): 3 of
+686 objects differ, from 15 -- the two infinite planes, by volume noise,
+and Binder032 (below). Mirrored is 17 faces in both.
+
+**A worker's names spelled as this table spells them.** A string table
+spells a mapped name's index either apart from its text (`#19:3`,
+upstream's) or whole; a table restored from a file infers the mode its
+entries were written in (`inferIndexedNames`). A worker's copy, opened
+from the log, took the new-document mode instead -- on -- where
+scanner's table is off. Every name the worker made was then spelled
+otherwise than a recompute here spells it, and each reference here to
+what the worker made missed its mapped name and was searched for by
+geometry when the result was put in: 74 references more than a
+recompute here renames. The setup a worker is sent now carries the
+mode (`indexed`), and the copy's tables take it. After: the references
+renamed are a recompute here's, the result 9.09 MB from 9.24. Test:
+`testTheCopySpellsNamesAsThisTable`.
+
+Open:
+
+- Binder032 still comes out with `Wire1` named (50 entries, 49 here):
+  `Pad050.Profile`, which names that wire, is searched for by geometry
+  when the result is put in, and the search names the wire. A recompute
+  in a worker job, of everything or of the list start() sends, gives 49;
+  only the recompute job's result does not. The geometry is the same and
+  the reference resolves either way.
+- In the GUI the result's strings still go by content: "string 131105 is
+  held here as 772", 772 being `;SKT;:H4f6,E`, the postfix of one
+  sketch's edge names. Both processes hold it after the open; but the
+  GUI's table counts no string marked or persistent (`Count` 0) where
+  the console's counts 40748, and the log records a version's strings
+  from those marks -- a copy that lacks 772 makes it anew. Not proven;
+  the log's and the table's (oplab's) part.
+- Each snapshot of an unchanged document costs 0.35-0.5 s in the console
+  (0.84 s in the GUI at start()), right after the open took one: every
+  shape's sharing analysis (`ShapeRefSet::build`, 175 ms in the GUI
+  sample) and congruence search (291 ms) run again whether the shape
+  changed or not. Skipping them needs the plan known still valid when
+  other objects changed -- shared storage's, next to the log; not
+  changed here.

@@ -63,6 +63,17 @@ def _indexed(doc, inputs, out):
     return {"Indexed": doc.Hasher.IndexedNames}
 
 
+def _table(doc, inputs, out):
+    """The strings of the worker's table spelled inputs["Spelled"], by that
+    spelling: None for one it lacks"""
+    h = doc.Hasher
+    got = {}
+    for spelled in inputs["Spelled"]:
+        sid = h.getIDBySpelling(spelled)
+        got[str(spelled)] = sid.Data if sid else None
+    return {"Size": h.Size, "Strings": got}
+
+
 def _edges(doc, inputs, out):
     return {n: len(doc.getObject(n).Edges) for n in inputs["Objects"]}
 
@@ -129,6 +140,7 @@ for _kind, _handler in (
     ("test.edges", _edges),
     ("test.names", _names),
     ("test.indexed", _indexed),
+    ("test.table", _table),
 ):
     worker.register(_kind, _handler)
 

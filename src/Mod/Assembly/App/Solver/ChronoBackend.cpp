@@ -1463,7 +1463,8 @@ public:
         // was placed on, its area coordinates there, how far along the
         // round's axis it is held, and the round, on its body; 3 set on this
         // part's round by the other part (ContactLoad::given), the face it is
-        // on
+        // on; 4 with the other flexible part's point against its curved face
+        // of no round, both at once (towardsFlexible())
         int slides = 0;
         std::array<int, 6> vertices {};
         ch::ChVector3d flat;
@@ -1476,6 +1477,11 @@ public:
         // place it ends on its own
         std::size_t fromFace = 0;
         std::array<double, 3> fromL {};
+        // Those set where it was found, on a curved face against another
+        // flexible part's (place()), and collision detection's normal there
+        // in the carrier's frame: towardsFlexible()'s start
+        bool hasFrom = false;
+        ch::ChVector3d fromNormal;
         // The edge of that face its deepest in the round is still beyond,
         // the faces about it gone through (FlexibleContact::deepest()); -1,
         // it is where the round is deepest in the part
@@ -2761,6 +2767,96 @@ public:
         return true;
     }
 
+    // Whether face f is curved, of no round, with its solid's own surface
+    // (faceTrue)
+    bool trueOnly(std::size_t f) const
+    {
+        return f < faceSolid.size() && faceSolid[f] >= 0 && f < faceTrue.size()
+            && !(f < faceRound.size() && faceRound[f] >= 0);
+    }
+
+    // A point between two flexible parts' curved faces, both of no round
+    // with their solids' own surfaces, this part B: the normal both
+    // surfaces' own (curvedNormal()), each side's point its true surface's
+    // farthest (farthestNear()), each one's curvature there (curvatureOf())
+    // -- from where each was found (OnMesh::fromFace, fromL) and collision
+    // detection's normal then (fromNormal), a way of the state alone. Both
+    // sides slides 4 (follow()). On the facets' normals and points, two
+    // flexible tori standing on each other as wheels pressed 0 to 42 N for
+    // the 49.6 of one flexible on the other rigid. False, nothing changed,
+    // where either side is of no such face
+    bool towardsFlexible(ContactLoad& load, std::size_t i)
+    {
+        FlexibleContact* partA = load.flexibleA;
+        if (!mesh || !partA || !partA->mesh || load.flexible != this || i >= load.onMesh.size()
+            || i >= load.onMeshA.size() || i >= load.points.size()) {
+            return false;
+        }
+        auto& onB = load.onMesh[i];
+        auto& onA = load.onMeshA[i];
+        if (!onB.placed || !onA.placed || !onB.hasFrom || !onA.hasFrom
+            || (onB.slides != 0 && onB.slides != 4) || (onA.slides != 0 && onA.slides != 4)
+            || !trueOnly(onB.fromFace) || !partA->trueOnly(onA.fromFace)) {
+            return false;
+        }
+        auto startOf = [](const ContactLoad::OnMesh& on) {
+            ContactLoad::OnMesh start = on;
+            start.face = on.fromFace;
+            start.L = on.fromL;
+            start.weights = ChronoFlexible::Surface::shape(on.fromL);
+            return start;
+        };
+        const ContactLoad::OnMesh startA = startOf(onA);
+        const ContactLoad::OnMesh startB = startOf(onB);
+        ContactLoad::OnMesh foundA = startA;
+        ContactLoad::OnMesh foundB = startB;
+        auto onSideA = [&](const ch::ChVector3d& n, const ch::ChVector3d& near, ch::ChVector3d& p) {
+            return partA->farthestNear(startA, n, true, near, foundA, p);
+        };
+        auto onSideB = [&](const ch::ChVector3d& n, const ch::ChVector3d& near, ch::ChVector3d& p) {
+            return farthestNear(startB, n, false, near, foundB, p);
+        };
+        auto curvA = [&](const ch::ChVector3d&, ch::ChMatrix33d& K) {
+            return partA->curvatureOf(foundA, K);
+        };
+        auto curvB = [&](const ch::ChVector3d&, ch::ChMatrix33d& K) {
+            return curvatureOf(foundB, K);
+        };
+        ch::ChVector3d normal = carrier->TransformDirectionLocalToParent(onB.fromNormal);
+        if (!(normal.Length2() > 0.0)) {
+            return false;
+        }
+        normal.Normalize();
+        ch::ChVector3d pA;
+        ch::ChVector3d pB;
+        if (!onSideA(normal, onA.at, pA) || !onSideB(normal, pA, pB)) {
+            return false;
+        }
+        curvedNormal(normal, pA, pB, onSideA, onSideB, curvA, curvB);
+        if (!onSideA(normal, pB, pA) || !onSideB(normal, pA, pB)) {
+            return false;
+        }
+        auto put = [](ContactLoad::OnMesh& on, const ContactLoad::OnMesh& found) {
+            on.nodes = found.nodes;
+            on.vertices = found.vertices;
+            on.face = found.face;
+            on.L = found.L;
+            on.weights = found.weights;
+            on.offset = found.offset;
+            on.slides = 4;
+        };
+        put(onA, foundA);
+        put(onB, foundB);
+        // Neither face's own: fixed between updates (rollAlong()), not
+        // turned with a body -- collision detection's A face had it turned
+        // with A from B's frame, a quarter turn off
+        auto& point = load.points[i];
+        point.normal = normal;
+        point.face = 0;
+        point.normalOn = carrier->TransformDirectionParentToLocal(normal);
+        return true;
+    }
+
     // A curved face's point to where the face is deepest in a round of the
     // other part's, on roundBody (deepestOnFace()), from the face faceNow
     // and its area coordinates L, x the face's nodes: those where it ends,
@@ -3649,6 +3745,13 @@ public:
                 continue;
             }
             auto& point = load.points[i];
+            // Both sides' at once, from B's (towardsFlexible())
+            if (on.slides == 4) {
+                if (!sideA) {
+                    towardsFlexible(load, i);
+                }
+                continue;
+            }
             if (on.slides == 1) {
                 // One taken to its round's line on the flat face, on the
                 // line still (toFlat())
@@ -3758,7 +3861,8 @@ public:
             // A, and a flexible A's against a flat face of B, the other's
             // point slid along with it and placed after. Not against a
             // curved face of another flexible part, its facet's normal: the
-            // two stay on their triangles there
+            // two stay on their triangles there, or both of no round go
+            // together (towardsFlexible())
             bool towards = load.points[i].face == (sideA ? 2 : 1) && (other || !sideA);
             if (towards && other) {
                 const std::int64_t there =
@@ -3986,6 +4090,15 @@ public:
                                 slidBefore.emplace(slot, i);
                             }
                         }
+                    }
+                    // Against another flexible part's curved face, where it
+                    // was found (towardsFlexible())
+                    if (on.slides == 0 && other && surface->curved(it->second)) {
+                        on.fromFace = surface->faceIndex(it->second);
+                        on.fromL = surface->faceCoordinates(it->second, inOrder);
+                        on.fromNormal =
+                            carrier->TransformDirectionParentToLocal(load.points[i].normal);
+                        on.hasFrom = true;
                     }
                     continue;
                 }
@@ -4437,6 +4550,16 @@ void placeOnFlexibles(ContactLoad& load)
     load.flexibleA->place(load, true, &first);
     load.flexible->place(load);
     load.flexibleA->place(load, true, &rest);
+    // Two curved faces of no round: both sides' points at once
+    // (towardsFlexible()), each side where its own place() found it
+    bool both = false;
+    for (std::size_t i = 0; i < count; ++i) {
+        both = load.flexible->towardsFlexible(load, i) || both;
+    }
+    if (both) {
+        load.flexible->refresh(load);
+        load.flexibleA->refresh(load, true);
+    }
 }
 
 // The stretch of a line that lies over a face of a box or a hull on its
@@ -4565,7 +4688,7 @@ void thinOut(ContactLoad& load,
         // against the face's, are patches with no corner in common on both
         // sides, and a rigid torus on a flexible roller pressed it as six
         auto slid = [](const ContactLoad::OnMesh& m) {
-            return m.slides == 2 || (m.slides == 1 && m.bent);
+            return m.slides == 2 || m.slides == 4 || (m.slides == 1 && m.bent);
         };
         if (load.meshed(i) && slid(load.onMesh[i])) {
             on = &load.onMesh[i];
@@ -4592,7 +4715,8 @@ void thinOut(ContactLoad& load,
         }
         bool found = false;
         for (Kept& k : kept) {
-            if ((k.patch != load.points[i].patch && !on->bent) || k.way != way) {
+            if ((k.patch != load.points[i].patch && !on->bent && on->slides != 4)
+                || k.way != way) {
                 continue;
             }
             const ch::ChVector3d apart = k.at - on->at;

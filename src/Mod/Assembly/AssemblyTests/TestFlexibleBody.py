@@ -1262,6 +1262,31 @@ class TestFlexibleBody(unittest.TestCase):
         )
         self.assertGreater(mean, 49.0)
 
+    def test_flexible_torus_on_ring(self):
+        """Two curved faces of no round, both flexible: test_torus_on_roller's
+        torus on half a torus as the roller, its ring R 10 and its tube R 3,
+        their axes along each other, 0.05 mm into it, under it and round it
+        by 20 deg, the ring held at its ends. Each point's two sides at once,
+        the normal both surfaces' own (FlexibleContact::towardsFlexible(),
+        curvedNormal()): on the facets' normals and points, 22.4 N, 0 to
+        42.3, where the torus rigid on the flexible ring presses it 49.57"""
+        for at in (0.0, 20.0):
+            mean = self.roundTurned(
+                "a flexible torus on a flexible ring at %g deg" % at,
+                40,
+                -20,
+                roller=True,
+                ring=True,
+                torus=True,
+                flexiblePlate=True,
+                rollerAt=at,
+                arm=13.0,
+                within=0.005,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.0)
+            self.renew()
+
     def test_rigid_round_on_rigid_roller(self):
         """Two rigid rounds lying along each other: test_round_on_roller's
         rod rigid, under the roller and round it by 20 deg. Their normal the
@@ -1381,6 +1406,7 @@ class TestFlexibleBody(unittest.TestCase):
         socket=None,
         torus=False,
         rollerAt=0.0,
+        ring=False,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1403,7 +1429,10 @@ class TestFlexibleBody(unittest.TestCase):
         R 10 and its tube R 3, standing on the plate as a wheel, turned about
         its axis -- a point on a face of no round. rollerAt: the roller round
         the rod's axis by that many degrees from under it, sideways, still
-        0.05 mm into it, the contact's normal leaning by as much. pressure: the
+        0.05 mm into it, the contact's normal leaning by as much. ring: the
+        roller a half torus instead, its ring R 10 and its tube R 3, its axis
+        along the rod's, its middle towards it -- two faces of no round
+        touching; flexible, held at its two ends. pressure: the
         contact's law a pressure over the area (D4b way 2), N/mm^3. Returns
         the mean force over the turn"""
         import CommandCreateContact
@@ -1455,6 +1484,19 @@ class TestFlexibleBody(unittest.TestCase):
                 Part.makeCylinder(bore, length, App.Vector(0, 10, 10), App.Vector(1, 0, 0))
             )
             plate.Placement.Base = App.Vector(start, -10, low)
+        elif roller and ring:
+            # The ring's axis 0.05 mm short of the two outer radii from the
+            # rod's; its local Z along x, its middle (local +Y) towards the rod
+            reach = -top + 13.0 - 0.05
+            s, c = math.sin(math.radians(rollerAt)), math.cos(math.radians(rollerAt))
+            rollerY = reach * s
+            rollerZ = -reach * c
+            plate = self.assembly.newObject("Part::Torus", "Roller")
+            plate.Radius1 = 10
+            plate.Radius2 = 3
+            plate.Angle3 = 180
+            turn = App.Matrix(0, 0, 1, 0, c, -s, 0, 0, s, c, 0, 0, 0, 0, 0, 1)
+            plate.Placement = App.Placement(App.Vector(0, rollerY, rollerZ), App.Rotation(turn))
         elif roller:
             # The roller's axis 0.05 mm short of the two radii from the rod's
             reach = -top + 5.0 - 0.05
@@ -1468,23 +1510,27 @@ class TestFlexibleBody(unittest.TestCase):
             plate = self.box("Plate", (length, 20, 5), (start, -10, low))
         if flexiblePlate and roller:
             self.doc.recompute()
-            for k, x in enumerate((start, start + length)):
+            # Each end: its plane face, where the clamp is
+            ends = [
+                ("Face%d" % (i + 1), f.CenterOfMass)
+                for i, f in enumerate(plate.Shape.Faces)
+                if f.Surface.__class__.__name__ == "Plane"
+            ]
+            if not ring:
+                ends = sorted(ends, key=lambda e: e[1].x)
+            for k, (face, centre) in enumerate(ends):
+                x = centre.x
                 block = self.box(
                     "Block%d" % k,
                     (10, 20, 20),
-                    (x - 10 if k == 0 else x, rollerY - 10, rollerZ - 10),
+                    (x - 10 if k == 0 else x, centre.y - 10, centre.z - 10),
                 )
                 held = self.joints.newObject(
                     "Assembly::GroundedJointPython", "GroundedBlock%d" % k
                 )
                 JointObject.GroundedJoint(held, block)
                 self.doc.recompute()
-                face = next(
-                    "Face%d" % (i + 1)
-                    for i, f in enumerate(plate.Shape.Faces)
-                    if f.Surface.__class__.__name__ == "Plane" and abs(f.CenterOfMass.x - x) < 1e-6
-                )
-                at = plc(x, rollerY, rollerZ)
+                at = plc(centre.x, centre.y, centre.z)
                 clamp = self.joints.newObject("App::FeaturePython", "Fixed%d" % k)
                 JointObject.Joint(clamp, JointObject.JointTypes.index("Fixed"))
                 clamp.Detach1 = True

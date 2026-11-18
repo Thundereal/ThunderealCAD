@@ -6088,6 +6088,32 @@ Phase D1 is under way (2026-10-28):
     49.34, 49.26 to 49.37.
   - Test: TestFlexibleBody.test_flexible_torus_on_roller, within five
     thousandths, the flexible roller's case added.
+- Built, D4b way 1 step 9 (2026-11-18): two flexible parts' curved faces,
+  both of no round. The torus of step 7 on half a torus (ring R 10, tube
+  R 3, its axes along the torus's, held at its two ends), 0.05 mm in:
+  rigid on rigid 49.98 N, the torus flexible on the rigid ring 50.00, the
+  torus rigid on the flexible ring 49.57 -- both flexible 22.4 N, 0 to
+  42.3, and 94 s for the run's 0.1 s (21.9 N at 20 deg, 115 s).
+  - **Nothing slid them**: neither side is round (slides 2), flat (slides
+    1) or a rigid hull's (towardsBent()), and collision detection's 65
+    points stayed on their facets, their normals up to 17 deg off and
+    their depths -130 to 47 um.
+  - **Both sides at once** (`FlexibleContact::towardsFlexible()`, from
+    placeOnFlexibles() and B's follow()): each side's point its true
+    surface's farthest (farthestNear() on each part), each one's curvature
+    (curvatureOf()), curvedNormal()'s steps from collision detection's
+    normal; from where each side's place() found it (OnMesh::fromFace,
+    fromL, fromNormal), a way of the state alone. Both sides slides 4, one
+    place whatever the patch (thinOut()).
+  - **The normal neither face's**: Point::face 0. The load follows by
+    rollAll() (flatFaces()), and a point collision detection gave A's face
+    had its normal turned with A from B's frame, a quarter turn off: the
+    force 0 at every other reading and the substeps 0.2 us.
+  - Numbers: 49.59 N, 49.48 to 49.62, in 7 s; 49.59, 49.51 to 49.62 at 20
+    deg, 9 s. Every other figure as it was, but a round's on a flexible
+    roller's motion's torque, 0.0019 -> 0.0014 N mm for none (0.0000 N R).
+  - Test: TestFlexibleBody.test_flexible_torus_on_ring, both angles, within
+    five thousandths; roundTurned()'s ring.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

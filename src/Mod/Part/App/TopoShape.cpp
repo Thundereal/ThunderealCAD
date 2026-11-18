@@ -1144,8 +1144,11 @@ Base::BoundBox3d TopoShape::getBoundBox() const
 {
     Base::BoundBox3d box;
     try {
+        // From the geometry, never a display mesh: a shown shape's mesh
+        // grows its box by the deflection, and a BoundBox read in a
+        // recompute would give the GUI's own answer, not the console's
         Bnd_Box bounds;
-        BRepBndLib::Add(_Shape, bounds);
+        BRepBndLib::Add(_Shape, bounds, false);
         bounds.SetGap(0.0);
         if (bounds.IsVoid()) {
             // A shape with nothing in it has no bounding box, and saying so

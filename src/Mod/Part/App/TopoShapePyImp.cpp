@@ -2894,7 +2894,9 @@ PyObject* TopoShapePy::distToShape(PyObject *args) const
 
 PyObject* TopoShapePy::optimalBoundingBox(PyObject *args) const
 {
-    PyObject* useT = Py_True;
+    // Not by a display mesh unless asked: a shown shape carries one, and
+    // the box would be the GUI's own
+    PyObject* useT = Py_False;
     PyObject* useS = Py_False;
     if (!PyArg_ParseTuple(args, "|O!O!", &PyBool_Type, &useT, &PyBool_Type, &useS)) {
         return nullptr;

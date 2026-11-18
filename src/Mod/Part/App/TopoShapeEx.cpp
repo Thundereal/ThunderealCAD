@@ -2300,8 +2300,10 @@ TopoShape &TopoShape::makELoft(const std::vector<TopoShape> &shapes,
         try {
             Bnd_Box bounds1;
             Bnd_Box bounds2;
-            BRepBndLib::Add(sh1.getShape(), bounds1);
-            BRepBndLib::Add(sh2.getShape(), bounds2);
+            // From the geometry: a shown profile's mesh grows its box, and
+            // two equal profiles would pass for different
+            BRepBndLib::Add(sh1.getShape(), bounds1, false);
+            BRepBndLib::Add(sh2.getShape(), bounds2, false);
             if (!bounds1.CornerMin().IsEqual(bounds2.CornerMin(), Precision::Confusion()))
                 return true;
             if (!bounds1.CornerMax().IsEqual(bounds2.CornerMax(), Precision::Confusion()))
@@ -4107,7 +4109,7 @@ TopoShape &TopoShape::makEBoolean(const char *maker,
         Bnd_Box bounds;
         for (const auto &shape : shapes) {
             if (!shape.isNull())
-                BRepBndLib::Add(shape.getShape(), bounds);
+                BRepBndLib::Add(shape.getShape(), bounds, false);  // not by a mesh
         }
         double factor = PartParams::getBooleanFuzzy();
         tol = bounds.IsVoid() ? 0.0

@@ -911,8 +911,9 @@ double Hole::throughAllLength(const TopoShape& base, const TopoShape& profilesha
     toHoleFrame.SetTransformation(gp_Ax3(gp::Origin(), holeDirection));
     const TopLoc_Location loc(toHoleFrame);
     Bnd_Box baseBox, profileBox;
-    BRepBndLib::Add(base.getShape().Moved(loc), baseBox);
-    BRepBndLib::Add(profileshape.getShape().Moved(loc), profileBox);
+    // From the geometry, not a shown base's mesh
+    BRepBndLib::Add(base.getShape().Moved(loc), baseBox, false);
+    BRepBndLib::Add(profileshape.getShape().Moved(loc), profileBox, false);
     if (baseBox.IsVoid() || profileBox.IsVoid())
         return getThroughAllLength();
     baseBox.SetGap(0.0);

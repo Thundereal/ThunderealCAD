@@ -629,6 +629,16 @@ Application::Application(bool GUIenabled)
                 QMessageBox::Yes|QMessageBox::No, QMessageBox::Yes);
             if(res != QMessageBox::Yes)
                 return;
+            // The names made again anyway: a document counting its string
+            // ids spells digests from here on, unless Preferences/Document
+            // ContentStringIdsForOldFiles says not to
+            // (docs/StringTableContentIds.md sec 12)
+            if (App::GetApplication()
+                    .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Document")
+                    ->GetBool("ContentStringIdsForOldFiles", true)) {
+                for (auto doc : docs)
+                    doc->spellNamesByContent();
+            }
             auto dependent = App::Document::getDependentDocuments(docs,true);
             // One document: made by a worker while the window stays free,
             // where the user asked for it (docs/WorkerProcess.md sec 19)

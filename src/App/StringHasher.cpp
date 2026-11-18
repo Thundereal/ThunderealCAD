@@ -706,10 +706,21 @@ void StringHasher::restoreTable(std::istream& stream)
                 setContentIds(true);
             }
         }
+        else if (_hashes->ContentIds) {
+            // None: it counts its ids, whatever the hasher read into was made
+            // to spell new strings by -- the transaction log's table of an
+            // old file (FileHistory::readTable) is read into one made for it
+            // (docs/StringTableContentIds.md sec 12)
+            setContentIds(false);
+        }
         return;
     }
-    // A count alone: the older private tables (<shape>.Table).
+    // A count alone: the older private tables (<shape>.Table), which count
+    // their ids
     restoreStream(stream, std::strtoul(marker.c_str(), nullptr, 10));
+    if (_hashes->ContentIds) {
+        setContentIds(false);
+    }
 }
 
 std::vector<StringHasher::Row> StringHasher::rows(long after,
@@ -2453,21 +2464,11 @@ void StringHasher::Restore(Base::XMLReader& reader)
     }
     _hashes->LastID = std::max<long>(_hashes->LastID, reader.getAttributeAsInteger("lastid", "0"));
     // Spelled by digests where saved so. A table saved before counts ids,
-    // unless Preferences/Document ContentStringIdsForOldFiles says to spell
-    // it by digests from here on: its strings spelled so as they are read,
-    // and every name of the file made again by the migration recompute the
-    // element maps' version asks for ("4" saved, "4.C" now) -- as an older
-    // build does with a file that spells digests
-    // (docs/StringTableContentIds.md sec 11)
-    if (reader.hasAttribute("contentids")) {
-        _hashes->ContentIds = reader.getAttributeAsInteger("contentids") != 0;
-    }
-    else {
-        _hashes->ContentIds =
-            GetApplication()
-                .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Document")
-                ->GetBool("ContentStringIdsForOldFiles", false);
-    }
+    // and keeps counting them until the user accepts a migration recompute
+    // of its document, which switches it (Document::spellNamesByContent(),
+    // docs/StringTableContentIds.md sec 12)
+    _hashes->ContentIds = reader.hasAttribute("contentids")
+        && reader.getAttributeAsInteger("contentids") != 0;
     _hashes->Registry.clear();
     if (reader.hasAttribute("registry")) {
         readRegistry(reader.getAttribute("registry"), _hashes->Registry);

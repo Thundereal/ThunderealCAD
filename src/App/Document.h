@@ -1807,6 +1807,15 @@ public:
      * MigrationPending); nothing otherwise. Returns the number recomputed.
      */
     static int recomputeMigration(App::DocumentObject *obj);
+    /** Spell the names of a document that counts its string ids by the
+     * strings' digests from here on (docs/StringTableContentIds.md sec 12):
+     * its table switched, and every object whose shape names elements with
+     * it marked for the migration recompute that makes the names again.
+     * What the migration prompt does when the user accepts it. Returns the
+     * number of objects marked; 0, and nothing done, for a table already
+     * spelling digests.
+     */
+    int spellNamesByContent();
     /// Recompute only one feature
     bool recomputeFeature(DocumentObject* Feat,bool recursive=false);
     /// get the text of the error of a specified object

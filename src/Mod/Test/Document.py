@@ -5102,6 +5102,49 @@ class TransactionBranchCases(unittest.TestCase):
         doc = self.track(FreeCAD.openDocument(path))
         self.assertGreater(doc.Hasher.getID("a new string").Value, dropped)
 
+    def testAnAcceptedMigrationSpellsAnOldFileByDigests(self):
+        # docs/StringTableContentIds.md sec 12: a file counting its ids opens
+        # counting them; the migration recompute its user accepts switches
+        # the table, and every name of the file is made again spelling
+        # digests. Nothing else does.
+        group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        group.SetBool("ContentStringIds", False)
+        try:
+            doc = self.cutDocument("Counted")
+        finally:
+            group.RemBool("ContentStringIds")
+        self.assertFalse(doc.Hasher.ContentIds)
+        old = doc.getObject("Cut").Shape.ElementMap
+        self.assertTrue(any("#" in k for k in old))
+        path = os.path.join(self.dir, "counted.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertFalse(doc.Hasher.ContentIds)
+        cut = doc.getObject("Cut")
+        self.assertEqual(cut.Shape.ElementMap, old)
+        self.assertNotIn("Touched", cut.State)
+
+        # The cut: the boxes name their elements without the table
+        self.assertEqual(doc.spellNamesByContent(), 1)
+        self.assertTrue(doc.Hasher.ContentIds)
+        self.assertEqual([o.Name for o in doc.Objects if "Touched" in o.State], ["Cut"])
+        self.assertEqual(doc.spellNamesByContent(), 0)
+        doc.recompute()
+        new = cut.Shape.ElementMap
+        self.assertNotEqual(new, old)
+        self.assertEqual(sorted(new.values()), sorted(old.values()))
+        for k in new:
+            self.assertTrue(all(i > 0 for i in spelledIds(doc.Hasher, k)), k)
+
+        doc.save()
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertTrue(doc.Hasher.ContentIds)
+        self.assertEqual(doc.getObject("Cut").Shape.ElementMap, new)
+        self.assertNotIn("Touched", doc.getObject("Cut").State)
+
     def cutDocument(self, name):
         doc = self.track(FreeCAD.newDocument(name))
         doc.UndoMode = 1

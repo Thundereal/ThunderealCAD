@@ -139,6 +139,8 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include "Link.h"
 #include "MergeDocuments.h"
 #include "StringHasher.h"
+#include "PropertyGeo.h"
+#include "ComplexGeoData.h"
 #include "Transactions.h"
 #include "TransactionMeasure.h"
 #include "PropertyElementAppearance.h"
@@ -3966,6 +3968,12 @@ void Document::Restore(Base::XMLReader &reader)
         // Named, not held: the file's member, or the log's table (sec 27.50).
         if (!read->tableFile().empty())
             _restoreStringTable(reader, *read);
+        // The file's table says how its names spell its strings, as it does
+        // for a hasher of the document's own (read is that hasher): the
+        // file's hasher, filled from the log, was made spelling what a new
+        // document would (docs/StringTableContentIds.md sec 12)
+        if (shared && d->Hasher->getContentIds() != read->getContentIds())
+            d->Hasher->setContentIds(read->getContentIds());
         if (shared && read->size() > 0) {
             std::size_t aliased = 0;
             if (d->Hasher->merge(*read, &aliased)) {
@@ -5792,6 +5800,37 @@ int Document::recomputeMigration(DocumentObject *obj)
         return 0;
     FC_LOG("migration recompute for " << obj->getFullName());
     return obj->getDocument()->recompute({obj});
+}
+
+int Document::spellNamesByContent()
+{
+    // An old file keeps the ids it counted when opened; it spells digests
+    // once its user accepts the migration recompute, which makes its names
+    // again anyway (docs/StringTableContentIds.md sec 12). Every name made
+    // with the table spells a handle until then, which the table switched
+    // reads as a digest's spelling: so every object holding such names is
+    // recomputed, not only those the restore marked.
+    if (!d->Hasher || d->Hasher->getContentIds())
+        return 0;
+    d->Hasher->setContentIds(true);
+    int marked = 0;
+    for (auto obj : d->objectArray) {
+        std::vector<Property*> props;
+        obj->getPropertyList(props);
+        for (auto prop : props) {
+            if (!prop->isDerivedFrom(PropertyComplexGeoData::getClassTypeId()))
+                continue;
+            auto data = static_cast<PropertyComplexGeoData*>(prop)->getComplexData();
+            if (data && data->Hasher.get() == d->Hasher.get() && data->getElementMapSize(false)) {
+                obj->enforceRecompute();
+                obj->setStatus(ObjectStatus::MigrationPending, true);
+                ++marked;
+                break;
+            }
+        }
+    }
+    FC_LOG(getName() << " spells digests, " << marked << " objects to make again");
+    return marked;
 }
 
 std::vector<App::DocumentObject*>

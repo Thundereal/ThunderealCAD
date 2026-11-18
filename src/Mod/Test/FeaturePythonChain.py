@@ -11,6 +11,7 @@ spreadsheet whose alias cells are lambdas, all through the one mechanism.
 Headless: nothing here touches a view provider.  The view half is P2.
 """
 
+import math
 import os
 import tempfile
 import unittest
@@ -732,6 +733,65 @@ SANDBOX = "User parameter:BaseApp/Preferences/Expression/Sandbox"
 SECURITY = "User parameter:BaseApp/Preferences/Expression/Security"
 
 
+def brepNumber(token):
+    """The token as a float, or None if it is not a floating point number.
+
+    A BRep writes counts, indices and flags as plain integers, and a
+    tolerant comparison of a vertex INDEX would hide a real topology
+    change, so a token without a fraction or an exponent is not a
+    number here -- it has to match exactly, like any other word.
+    """
+    if not any(c in token for c in ".eE"):
+        return None
+    try:
+        return float(token)
+    except ValueError:
+        return None
+
+
+def assertSameBreps(case, routed, native, ulps=4):
+    """Byte for byte, or else every NUMBER the BRep carries within `ulps`.
+
+    `routed` and `native` map a name to a BRep string.  Byte-exactness
+    across libms was always luck, not a guarantee: the guest's sin and cos
+    round differently from the host's for some arguments, and a third libm
+    breaks the tie -- MSVC's sin(pi/4) is one ULP from glibc's, which moves
+    a 45 degree bolt hole's placement by one ULP and nothing else.  So the
+    byte comparison stays the fast path and the fallback bounds EVERY
+    number in the serialization, not just the vertices: the BRep is
+    whitespace separated ASCII, so the token lists must agree in length,
+    every non-numeric token must be identical, and the numbers must agree
+    to `ulps`.
+
+    One mixed pair is a number too: OCCT writes a whole real as `11`,
+    without a fraction, so a real one ULP off a whole number on one side
+    meets its integer spelling on the other (macOS's libm against the
+    guest's musl, 11.000000000000002 against 11).  An index or a count is
+    an integer on BOTH sides, so a pair of integers still has to match
+    exactly.
+    """
+    case.assertEqual(sorted(routed), sorted(native))
+    for name in routed:
+        case.assertTrue(routed[name], name)
+        if routed[name] == native[name]:
+            continue
+        r, n = routed[name].split(), native[name].split()
+        case.assertEqual(len(r), len(n), "%s: the BRep differs in size" % name)
+        for a, b in zip(r, n):
+            if a == b:
+                continue
+            what = "%s: the BRep differs at %r against %r" % (name, a, b)
+            x, y = brepNumber(a), brepNumber(b)
+            if (x is None) != (y is None):
+                try:
+                    x, y = float(a), float(b)
+                except ValueError:
+                    pass
+            case.assertTrue(x is not None and y is not None, what)
+            bound = ulps * math.ulp(max(abs(x), abs(y), 1.0))
+            case.assertLessEqual(abs(x - y), bound, what)
+
+
 def requireGuest(case):
     """Skip before a case sets anything: a skip raised in setUp runs no tearDown."""
     if not FreeCAD.ExpressionSandbox.available():
@@ -877,7 +937,12 @@ class RoutedChainCases(unittest.TestCase):
             sheet.expExecute(obj)
 
     def testFlangeRoutedMatchesNative(self):
-        """The sheet flange of docs/Sandbox.md 7.17: routed = native, BRep and all."""
+        """The sheet flange of docs/Sandbox.md 7.17: routed = native, BRep and all.
+
+        "BRep and all" is every token of the serialization, the numbers to
+        4 ULPs (assertSameBreps): on macOS the host libm and the guest's
+        musl put one coordinate a ULP apart, 11.000000000000002 against 11.
+        """
         try:
             import Part  # noqa: F401
         except ImportError:
@@ -928,4 +993,8 @@ class RoutedChainCases(unittest.TestCase):
 
         self.assertEqual(len(routed.Faces), 10)
         self.assertAlmostEqual(routed.Volume, native.Volume, places=6)
-        self.assertEqual(routed.exportBrepToString(), native.exportBrepToString())
+        assertSameBreps(
+            self,
+            {"Flange": routed.exportBrepToString()},
+            {"Flange": native.exportBrepToString()},
+        )

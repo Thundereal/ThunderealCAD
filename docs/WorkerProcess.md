@@ -1196,14 +1196,43 @@ mode (`indexed`), and the copy's tables take it. After: the references
 renamed are a recompute here's, the result 9.09 MB from 9.24. Test:
 `testTheCopySpellsNamesAsThisTable`.
 
+**The setting** (2026-11-18, the user: "make it default gated by a
+setting"): `RecomputeCommand` is on by default, "Recompute in a worker
+process" in the Document preferences. GUI test refresh-by-worker.
+
+**The values stand in for the execute alone.** The hook made an object in
+place of its whole recompute, from `Document::recompute()`, so what a class
+does around its execute() was skipped at a put-in: a Part feature holds
+its references while it executes and then updates them and reconciles the
+shape generations kept for its referrers -- what a later recovery of a
+reference searches. `DocumentObject::recompute()` now asks the hook in
+place of `execute()` alone; the rest is the recompute's own. A class that
+retries its execute within one recompute (a Part feature on copies of its
+inputs) gets the same answer; a worker's entry for an object made here by
+its type is not sent; an entry that carries nothing is not counted unused
+(a link's element: its recompute in the worker came to no execute, here
+it does, and there is nothing to put in either way).
+
+**A feature's references in an order of their own.**
+`PropertyLinkBase::updateElementReferences()` took them from an unordered
+set of pointers. Binder032 is referred to by `Pad050.Profile` (its wire)
+and `Pocket039.Profile` (its edges); which went first decided whether the
+wire's name, derived from its edges', still matched -- one worker run in
+three named the wire. Ordered by owner object id, then property name:
+every run is now the same.
+
 Open:
 
-- Binder032 still comes out with `Wire1` named (50 entries, 49 here):
-  `Pad050.Profile`, which names that wire, is searched for by geometry
-  when the result is put in, and the search names the wire. A recompute
-  in a worker job, of everything or of the list start() sends, gives 49;
-  only the recompute job's result does not. The geometry is the same and
-  the reference resolves either way.
+- Binder032: every run the same now, but a worker's 50 against this
+  process's 49. Traced (`_updateElementReference` for `Pad050.Profile`):
+  here the old name `#1efaa;Wire#1efa8;...` still resolves to Wire1; after
+  the put-in it reads as missing, and the geometry search names the wire.
+  The decoded names of the binder are the same in both: the worker spells
+  the wire's derived name with a new id for the edge name
+  `Edge989;:Hb42,E`, which this process holds as `#1efaa` -- its copy of
+  that string does not match it by content. The table's and the log's
+  copy of it (oplab's). Geometry the same; the reference resolves either
+  way.
 - In the GUI the result's strings still go by content: "string 131105 is
   held here as 772", 772 being `;SKT;:H4f6,E`, the postfix of one
   sketch's edge names. Both processes hold it after the open; but the
@@ -1215,6 +1244,8 @@ Open:
   (0.84 s in the GUI at start()), right after the open took one: every
   shape's sharing analysis (`ShapeRefSet::build`, 175 ms in the GUI
   sample) and congruence search (291 ms) run again whether the shape
-  changed or not. Skipping them needs the plan known still valid when
-  other objects changed -- shared storage's, next to the log; not
-  changed here.
+  changed or not. The pool cannot use the open's version instead: after
+  the open of scanner.FCStd the log holds version 1 at row 0 and its head
+  is row 1 -- one row written after the open's version. A worker that
+  opened version 1 and moved along that row would do; what the row is,
+  and whether the open could take its version after it, is the log's.

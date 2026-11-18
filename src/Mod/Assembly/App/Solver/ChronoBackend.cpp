@@ -990,7 +990,8 @@ struct ShapeOn
     std::vector<std::array<int, 3>> hullTriangles;
     std::vector<std::array<int, 3>> hullAcross;
     bool hullBent = false;
-    // A hull's, convex: its lines too (hullFarthest()); a mesh's points alone
+    // A hull's, convex; a mesh's points land on one place, copies
+    // (patchesOf())
     bool bentConvex = true;
     // Their points and the frame they are in on the body: a hull's its
     // points in its frame, a mesh's its vertices in the body's (D4b way 1
@@ -1072,7 +1073,7 @@ public:
             ch::ChVector3d from;
             ch::ChVector3d out;
             ch::ChVector3d to;
-            // Left where it was found there: a mesh's line, a flat facet
+            // Left where it was found there: a flat facet
             bool stays = false;
         };
         std::shared_ptr<BentMemo> bentMemoA;
@@ -5403,9 +5404,17 @@ void patchesOf(ContactLoad& load)
         for (std::size_t i = 0; i < points.size(); ++i) {
             const auto& point = points[i];
             // Both sides curved: against a flat face each point keeps its
-            // own place along the line, a cone's side on a plate
-            if (!(point.bentA || point.bentB) || !(point.bentA || point.roundA)
-                || !(point.bentB || point.roundB)) {
+            // own place along the line, a cone's side on a plate. A mesh's
+            // (not convex) on a flat face too: a torus lying flat on a plate,
+            // its tube's rows of vertices either side of its bottom put on
+            // one place along its ring, 1500 points for some 90 -- kept,
+            // TestContact took 341 s for 31, the torus at rest rocking 28 nm
+            // on them, never settled; its Hertz line 0.25 um off
+            const bool mesh = (point.bentA && !point.bentA->bentConvex)
+                || (point.bentB && !point.bentB->bentConvex);
+            if (!(point.bentA || point.bentB)
+                || (!mesh
+                    && (!(point.bentA || point.roundA) || !(point.bentB || point.roundB)))) {
                 continue;
             }
             ContactLoad::Point moved = point;
@@ -7831,16 +7840,11 @@ bool hullFarthest(const ShapeOn& on,
             way = ch::VNULL;
         }
     }
-    // A mesh's line, a torus lying flat on its ring: its points as found.
-    // Its line is no straight one, and hundreds of points along it, each put
-    // on the surface at each state, took a test from 7 s to 200, the
-    // law's line by them off its closed form by 0.25 um -- measured again
-    // 2026-11-18: TestContact 31 -> 341 s, test_hertz_curvature 0.25 um off.
-    // So a torus spun flat on a plate 0.05 mm into it presses it 39.9 N
-    // for 50, its facets in from its surface
-    if (!on.bentConvex && way.Length2() > 0.0) {
-        return stays();
-    }
+    // A mesh's line too, a torus lying flat on its ring: left as found, on
+    // its facets in from its surface, a torus spun flat on a plate 0.05 mm
+    // into it pressed it 39.9 N for 50. Its points landing on one place,
+    // Bullet's from the tube's rows of vertices either side of its bottom,
+    // are copies, dropped (patchesOf())
     // The plane within the triangle's stretch along the way, a thousandth
     // of it in: Bullet's points are a hull's vertices, at a cone's rim, and
     // a plane square to its side there leans off the side by its half

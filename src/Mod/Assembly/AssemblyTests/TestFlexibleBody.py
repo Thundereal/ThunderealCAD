@@ -1334,26 +1334,31 @@ class TestFlexibleBody(unittest.TestCase):
             self.renew()
 
     def test_torus_lying_flat(self):
-        """A line along a curve: test_torus_on_plate's flexible torus lying
-        flat on a plate, 0.05 mm into it, turned about its axis upright --
-        it touches all round its ring, the tube's bottom straight along it
-        and round across it. Each point on the true surface at its own place
-        along the ring, farthest in the plane across it
-        (FlexibleContact::towardsTrue()): on its six-node faces, 49.68 N for
-        the springs' 50. Rigid, a mesh's line keeps its points on its facets
-        (hullFarthest()), 39.9 N: each put on its surface, TestContact took
-        341 s for 31 and its Hertz line was 0.25 um off"""
-        mean = self.roundTurned(
-            "a flexible torus lying flat on a plate",
-            30,
-            -15,
-            torus=True,
-            flat=True,
-            arm=10.0,
-            within=0.002,
-            most=50.5,
-        )
-        self.assertGreater(mean, 49.9)
+        """A line along a curve: test_torus_on_plate's torus lying flat on a
+        plate, 0.05 mm into it, turned about its axis upright -- it touches
+        all round its ring, the tube's bottom straight along it and round
+        across it. Each point on the true surface at its own place along the
+        ring, farthest in the plane across it: flexible, on its six-node
+        faces (FlexibleContact::towardsTrue()), 49.68 N for the springs' 50;
+        rigid, on its mesh's (hullFarthest()), its points left on its facets
+        39.9 N. Bullet's points from the tube's rows of vertices either side
+        of its bottom land on one place, copies (patchesOf()): each kept,
+        TestContact took 341 s for 31, the torus at rest rocking 28 nm on
+        them, never settled"""
+        for rigid in (True, False):
+            mean = self.roundTurned(
+                "a %s torus lying flat on a plate" % ("rigid" if rigid else "flexible"),
+                30,
+                -15,
+                torus=True,
+                flat=True,
+                rigidRod=rigid,
+                arm=10.0,
+                within=0.002,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
 
     def test_rigid_round_on_rigid_roller(self):
         """Two rigid rounds lying along each other: test_round_on_roller's

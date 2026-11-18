@@ -6185,9 +6185,31 @@ Phase D1 is under way (2026-10-28):
     44.16 -> 43.87 to 44.17 N; a flexible torus on a rigid pin's torques
     -0.5238 -> -0.5185 and -0.5192 -> -0.5403 N mm (0.0015 N R both); the
     rest as it was.
-  - Open: the rigid mesh's line along a curve, 39.9 N for 50.
+  - Open: the rigid mesh's line along a curve, 39.9 N for 50 (step 12).
   - Test: TestFlexibleBody.test_torus_lying_flat, within two thousandths;
     roundTurned()'s flat.
+- Built, D4b way 1 step 12 (2026-11-18): a line along a curve, rigid.
+  Step 11's torus rigid: 39.9 N -> 50.00 for the springs' 50.
+  - **Why putting each point on the surface cost so much.** Measured with
+    counters in hullFarthest() and the substep loop (not kept): the search
+    itself was a third of it; the rest was substeps. test_torus_rests took
+    2843 detections for 974 -- its torus at rest kept rocking, its deepest
+    point 0.500 to 0.528 um in, 0.75 ms each way, never within the 2% that
+    counts as at rest, so its substeps stayed an impact's. Bullet finds the
+    ring's points on the tube's rows of vertices either side of its bottom,
+    some 1500 of them; on its facets they lie apart, put on the surface
+    those at one place along the ring land on one point.
+  - **Copies dropped** (patchesOf()): its rolled points' copies, within 25
+    um on the curved side and their normals together, were dropped where
+    both sides are curved (step 10); now too where the curved side is a
+    mesh's (not convex), on a flat face. Some 90 points stay, and
+    hullFarthest() puts a mesh's line on its surface as a convex hull's.
+  - Numbers: rigid 50.00 N flat; test_torus_rests 5.3 -> 6.6 s,
+    test_hertz_curvature 19.7 -> 17.5 s (its two laws' rests within its
+    0.05 um), TestContact 43.8 -> 40.3 s. Every other figure of
+    TestContact, TestDynamics, TestJointFriction and TestFlexibleBody as it
+    was.
+  - Test: TestFlexibleBody.test_torus_lying_flat, rigid too.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

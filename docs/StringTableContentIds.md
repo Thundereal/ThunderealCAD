@@ -1,7 +1,8 @@
 # String ids from their content
 
 Status: design agreed with the user 2026-11-18 ("Good. Write the doc and
-start implementing"). Phase 1 (sec 8) built on branch `Worker` (sec 9). The
+start implementing"). Phase 1 built (sec 9), phase 2 built (sec 10), on by
+default and readable by older builds (sec 11), on branch `Worker`. The
 string table and the transaction log are also the remote session oplab's
 area: every phase here is a separate commit for that review.
 
@@ -242,11 +243,11 @@ entries spelled alike: names that read the same, a duplicate that costs
 memory, not a reference.
 
 - **The mode**: `StringHasher::setContentIds()`, Python `ContentIds`; a new
-  table takes Preferences/Document `ContentStringIds` (off for now); saved
+  table takes Preferences/Document `ContentStringIds` (on since sec 11); saved
   as `contentids="1"` on the table's element (`Save`, `saveReference`), and
-  in a table file as a `v2` header with the registry -- an older build
-  refuses a v2 table rather than misread it. Restored without it, a table
-  counts ids, as every table before did.
+  in a table file with the registry (first as a `v2` header; since sec 11
+  after the rows, a v1 table an older build reads). Restored without it, a
+  table counts ids, as every table before did.
 - **The spelling** (sec 3.2): level 0 the digest's first 32 bits; above,
   52 bits of the digest of the digest and the level, under bit 60 and the
   level. The registry (`spellingRegistry()`, `takeRegistry()`) records a
@@ -293,4 +294,66 @@ Next:
   in as they come (they spell alike): no read by content;
 - the mode on for new documents, behind the schema;
 - old files migrated on open (sec 5).
+
+
+
+## 11. On by default, and a file an older build still reads (2026-11-18)
+
+The user: "If integer id is saved, then i think it is possible to make the
+table stores in backward compatible mode. And we can amend the name map
+version to trigger migration recompute in older version software. If so,
+make it default on."
+
+- **The table stays a v1 table.** Its rows are what they were -- by
+  counted id -- and the mode and the registry come after them:
+  `StringTableContent <n>` and the entries. An older build reads its count
+  of rows and stops; this one, finding the trailer, takes the registry and
+  spells what it read by digests, in the order the strings were made. On the
+  table's element they are attributes (`contentids`, `registry`), which an
+  older build ignores. The `v2` header of sec 10 is gone.
+- **The element maps' version** says it: `ComplexGeoData` gives `4.C` where
+  its table spells digests, `4` elsewhere. An older build knows `3`, `4`,
+  `3.*`, finds `...4.C`, and asks for the migration recompute that makes
+  every name again with its own counted ids -- the path any naming-version
+  change takes (`PropertyPartShape::Restore`, `addRecomputeObject`). This
+  build expects `4.C` exactly where the table spells digests, so an older
+  file keeps matching `4` and is left as it was.
+- **On by default**: Preferences/Document `ContentStringIds` (true) for a
+  new document. A table restored without the mode counts ids, unless
+  `ContentStringIdsForOldFiles` (false) says to convert it: its strings
+  spelled by digests as they are read, and the version mismatch above
+  making every name again at the migration recompute -- what an older build
+  does with a new file, run the other way.
+
+Checked with an older packaged build (dist-test env-1102, build 14555):
+scanner.FCStd saved both ways by this build opens in it; for the one
+spelling digests it reports `version change ... 1.17.80001.4.C ->
+1.15.80001.4` and the missing prefix ids, and after its recompute both
+come out the same -- 501,825 names, the same 13 objects invalid (that build
+lacks what this one has; it sees 456 of 686 objects).
+
+Benchmark, mini, scanner.FCStd made both ways by this build (opened,
+every object recomputed, saved; then each measured twice: open, recompute
+everything, save):
+
+| | counted ids | digests |
+|---|---|---|
+| open | 1.37 s | 1.33 s |
+| recompute everything (627) | 10.36-10.38 s | 10.39 s |
+| save | 1.82-1.83 s | 1.80 s |
+| memory after the open | 280-282 MB | 263-266 MB |
+| peak memory | 984-1064 MB | 1029-1035 MB |
+| strings in the table (after a recompute) | 51,985 (52,443) | 21,305 (21,800) |
+| element names | 501,909 | 501,909 |
+| average name | 45.4 characters | 46.6 characters |
+| file | 7.68 MB | 7.78 MB (+1.3%) |
+| string table member | 137 KB packed, 1021 KB raw | 95 KB, 530 KB |
+| Document.xml | 470 KB | 543 KB |
+
+Speed is the same within noise. The table holds 59% fewer strings: a
+string made again with the same content now has the same bytes, and the
+table finds it instead of making another. The file is 1.3% larger: the
+names, an id of 8 hex digits where counted ids reach 5, are a little longer
+in the element maps and the references (Document.xml +73 KB), more than the
+smaller table saves (-42 KB).
 

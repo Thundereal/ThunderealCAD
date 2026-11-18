@@ -456,3 +456,51 @@ no view, saved, opened in the GUI: a worker holds every string its names
 spell, as here, and its recompute goes in by id. Without the fix the
 worker's copy holds 107 strings and none of the 6.
 
+## 14. A worker's result emptied the document's table (2026-11-19)
+
+With sec 13 in, the GUI comparison of a recompute here and by a worker
+still had Binder032 (49 names here, 50 from the worker), and on the copy
+that spells digests Hole004 and Sketch046 too. Their names, expanded, were
+not the problem: after the put-in the document's string table held 139
+strings. On the console, scanner.FCStd, everything touched and recomputed by
+a worker: the table went from 51,683 strings to 34 at the 97th object put in
+(Sketch018), and 207 objects' names spelled 26,508 ids it no longer held. A
+save wrote them so, and the file reopened kept the loss.
+
+- **Why.** A shape's value says which string table its element map is in
+  by `HasherIndex`, and with `SaveHasher` carries that table. Both are set
+  by `PropertyPartShape::beforeSave()` for the save under way, which numbers
+  the document's tables with the document's first (`Document::Save`). An
+  export (`exportObjects`, so `copyObject`) numbers them afresh and does not
+  put the document's first: a shape on the document's table registers it as
+  new, index 0, to go with the value. `SubShapeBinder` with
+  `BindCopyOnChange` 2 copies what it binds on every recompute, so in the
+  worker the bound objects' shapes were left saying "index 0, the table
+  with it". The worker captures every value after its recompute
+  (`captureValue`), and a capture is no save: `Save()` wrote the stale pair,
+  and the table that went with it -- the strings marked in the worker,
+  which had saved nothing: 34. Here index 0 is the document's table, and
+  `PropertyPartShape::Restore()` read the carried one into it with
+  `StringHasher::Restore()`, which clears first.
+- **The log was not hit**: it captures a detached copy of a property, with
+  no owner, which writes no index at all.
+- **Fix, both ends.** A capture (`App::capturingDocument()`) settles the
+  pair itself: index 0, and the table goes with it only when it is not the
+  document's. A value restored (`App::restoringValue()`, new: true inside
+  `restoreValue()`) never reads a table into one the document has: the
+  document's table, or the one it carries read into a table of its own.
+  Its index is the writer's numbering, not this document's.
+- **Measured** (console, scanner.FCStd, everything touched, recomputed here
+  and by a worker, each object's names compared by their content expanded
+  to the end): table 51,685 strings after the put-in; no name of any
+  object spelling an id the table lacks, before or after a save and reopen;
+  0 of 416 objects with names differing. On the copy spelling digests the
+  names are the same bytes, 416 of 416. Binder032's extra name was this:
+  49 both ways now.
+
+Test: `TestWorkerRecompute.testAMutatedBinderLeavesTheTableWhole` -- a cut
+of a box and a cylinder bound by a Mutated binder, the box changed, the
+recompute given to a worker: the table keeps its strings and every id the
+cut's and the binder's names spell is in it. Without the fix the table
+went from 8 strings to 3.
+

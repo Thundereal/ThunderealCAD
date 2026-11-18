@@ -1223,6 +1223,12 @@ every run is now the same.
 
 Open:
 
+- Binder032: **fixed 2026-11-19** (docs/StringTableContentIds.md sec 14):
+  the put-in emptied the document's string table -- a value captured after
+  a Mutated binder's copy carried a table that its restore read into the
+  document's -- and the geometry search then named the wire. 49 both ways
+  now, and every object's names the same as a recompute here. What was
+  seen before:
 - Binder032: every run the same now, but a worker's 50 against this
   process's 49. Traced (`_updateElementReference` for `Pad050.Profile`):
   here the old name `#1efaa;Wire#1efa8;...` still resolves to Wire1; after

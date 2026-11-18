@@ -290,6 +290,7 @@ public:
         double seconds = 0;
         std::vector<std::pair<DocumentObject*, Property*>> writes;
         std::map<DocumentObject*, bool> touched;  ///< the other owners, when it was over
+        bool here = false;  ///< made by the other process itself: not sent
     };
 
     explicit Recorder(Document& doc)
@@ -300,7 +301,8 @@ public:
             [this](const DocumentObject& obj, const Property& prop) {
                 // Each value once, with the first object that wrote it: its
                 // value as the recompute leaves it is what goes back
-                if (!running.empty() && !notSaved(prop) && seen.insert(&prop).second) {
+                if (!running.empty() && !entries[running.back()].here && !notSaved(prop)
+                    && seen.insert(&prop).second) {
                     entries[running.back()].writes.emplace_back(
                         const_cast<DocumentObject*>(&obj), const_cast<Property*>(&prop));
                 }
@@ -378,6 +380,7 @@ public:
     {
         Entry entry;
         entry.obj = &obj;
+        entry.here = madeHere(obj);
         running.push_back(entries.size());
         entries.push_back(std::move(entry));
     }
@@ -475,6 +478,10 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
     if (RecomputeHook::minted() != minted) {
         return unfit("the recompute gave things new numbers");
     }
+    // What the other process makes itself is not sent
+    recorder.entries.erase(std::remove_if(recorder.entries.begin(), recorder.entries.end(),
+                                          [](const Recorder::Entry& e) { return e.here; }),
+                           recorder.entries.end());
     for (auto& entry : recorder.entries) {
         if (entry.res < 0) {
             reply.ok = false;
@@ -772,7 +779,28 @@ public:
         return true;
     }
 
+    void executing(DocumentObject& obj) override
+    {
+        answered.erase(&obj);  // a new recompute of it takes its next entry
+    }
+
     bool make(DocumentObject& obj, Made& made) override
+    {
+        // Its class retrying the execute within the one recompute of it (a
+        // Part feature on copies of its inputs): the answer it was given
+        auto again = answered.find(&obj);
+        if (again != answered.end()) {
+            made = again->second.second;
+            return again->second.first;
+        }
+        Made got;
+        const bool supplied = supply(obj, got);
+        answered[&obj] = {supplied, got};
+        made = got;
+        return supplied;
+    }
+
+    bool supply(DocumentObject& obj, Made& made)
     {
         if (madeHere(obj)) {
             ++madeByType;
@@ -849,6 +877,9 @@ public:
         return true;
     }
 
+    /// What make() said of each object in its current recompute
+    std::map<const DocumentObject*, std::pair<bool, Made>> answered;
+
     void noteHere(const DocumentObject& obj)
     {
         FC_LOG(obj.getFullName() << ": not made by the worker, executed here");
@@ -862,7 +893,11 @@ public:
     {
         long n = 0;
         for (auto& [name, list] : entries) {
-            n += static_cast<long>(list.size());
+            // One that carries nothing is no object made there: an object
+            // whose recompute came to no execute() here (a link's element)
+            for (auto& e : list) {
+                n += !e.values.empty() || !e.ok ? 1 : 0;
+            }
         }
         return n;
     }

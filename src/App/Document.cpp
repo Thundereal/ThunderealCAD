@@ -19100,34 +19100,19 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
                     doRecompute = true;
                     ++objectCount;
                     int res = 0;
-                    // Made by a worker, its values put in here instead of
-                    // executing (docs/WorkerProcess.md sec 19)
-                    RecomputeHook::Made made;
+                    // A worker's recompute notes each execute; the process
+                    // that takes its result in has DocumentObject::recompute()
+                    // put the values in instead of executing (docs/WorkerProcess.md
+                    // sec 19, 20)
                     auto hook = RecomputeHook::of(*this);
-                    if (hook && hook->make(*obj, made)) {
-                        d->clearRecomputeLog(obj);
-                        if (made.ok) {
-                            obj->resetError();
-                        }
-                        else {
-                            d->addRecomputeLog(made.error, obj);
-                            FC_ERR("Failed to recompute " << obj->getFullName() << ": "
-                                                          << made.error);
-                            res = 1;
-                        }
-                        took = made.seconds;
-                    }
-                    else {
-                        if (hook)
-                            hook->executing(*obj);
-                        const auto start = std::chrono::steady_clock::now();
-                        res = _recomputeFeature(obj);
-                        took = std::chrono::duration<double>(std::chrono::steady_clock::now()
-                                                             - start)
-                                   .count();
-                        if (hook)
-                            hook->executed(*obj, res, took);
-                    }
+                    if (hook)
+                        hook->executing(*obj);
+                    const auto start = std::chrono::steady_clock::now();
+                    res = _recomputeFeature(obj);
+                    took = std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+                               .count();
+                    if (hook)
+                        hook->executed(*obj, res, took);
                     if(res) {
                         noteDone(obj, took);
                         if(hasError)
@@ -19630,28 +19615,19 @@ bool Document::recomputeFeature(DocumentObject* Feat, bool recursive)
         } else {
             if (testStatus(FrozenVersion))
                 return Feat->isValid();
-            // One object recomputed from another's execute(): made by the
-            // worker too, or noted there (docs/WorkerProcess.md sec 19)
-            RecomputeHook::Made made;
+            // One object recomputed from another's execute(): noted by a
+            // worker as its own, made from the worker's values where the
+            // result is taken in (docs/WorkerProcess.md sec 19, 20)
             auto hook = RecomputeHook::of(*this);
-            if (hook && hook->make(*Feat, made)) {
-                d->clearRecomputeLog(Feat);
-                if (made.ok)
-                    Feat->resetError();
-                else
-                    d->addRecomputeLog(made.error, Feat);
-            }
-            else {
-                if (hook)
-                    hook->executing(*Feat);
-                const auto start = std::chrono::steady_clock::now();
-                int res = _recomputeFeature(Feat);
-                if (hook)
-                    hook->executed(*Feat, res,
-                                   std::chrono::duration<double>(
-                                       std::chrono::steady_clock::now() - start)
-                                       .count());
-            }
+            if (hook)
+                hook->executing(*Feat);
+            const auto start = std::chrono::steady_clock::now();
+            int res = _recomputeFeature(Feat);
+            if (hook)
+                hook->executed(*Feat, res,
+                               std::chrono::duration<double>(
+                                   std::chrono::steady_clock::now() - start)
+                                   .count());
             signalRecomputedObject(*Feat);
             GetApplication().signalRecomputedObject(*this, *Feat);
             return Feat->isValid();

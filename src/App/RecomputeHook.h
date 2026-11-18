@@ -34,11 +34,13 @@ class Document;
 class DocumentObject;
 
 /** What makes the objects of a recompute up to date, other than their
- * execute() (docs/WorkerProcess.md sec 19). While one is installed for a
- * document on this thread, Document::recompute() asks it before each
- * object it would execute, and tells it after each one it did execute.
- * Everything else of the recompute -- the order, the signals, the touched
- * state, the error log, the log's record -- is the recompute's own.
+ * execute() (docs/WorkerProcess.md sec 19, 20). While one is installed for
+ * a document on this thread, Document::recompute() tells it before and
+ * after each object it recomputes, and DocumentObject::recompute() asks it
+ * in place of the object's execute(). Everything else of the recompute --
+ * the order, what a class does around its execute() (a Part feature's
+ * references and shape generations), the signals, the touched state, the
+ * error log, the log's record -- is the recompute's own.
  *
  * A worker installs one that notes what each execute() wrote; the process
  * that asked installs one that puts those values in instead of executing.
@@ -62,11 +64,12 @@ public:
     RecomputeHook& operator=(const RecomputeHook&) = delete;
 
     /// Make `obj` instead of its execute(): true if it did, `made` saying
-    /// how; false to have it executed
+    /// how; false to have it executed. Asked again for the same object when
+    /// its class retries the execute within one recompute of it
     virtual bool make(DocumentObject& obj, Made& made);
-    /// Before `obj`'s own execute() runs, asked by make() returning false
+    /// Before `obj` is recomputed, made or executed
     virtual void executing(DocumentObject& obj);
-    /// After it ran: `res` as Document::_recomputeFeature's (0 made, 1 in
+    /// After it was: `res` as Document::_recomputeFeature's (0 made, 1 in
     /// error, < 0 the recompute stops)
     virtual void executed(DocumentObject& obj, int res, double seconds);
 

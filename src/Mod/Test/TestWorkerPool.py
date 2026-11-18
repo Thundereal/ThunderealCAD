@@ -206,6 +206,32 @@ class TestWorkerPool(unittest.TestCase):
         self.assertTrue(self.pool.wait(120))
         self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
 
+    def testTheCopyIsAVersionNothingChangedSince(self):
+        """The newest version of the branch that nothing since changed the
+        document from -- a save's here, an open's mostly -- is the copy:
+        no snapshot is taken for it. After an edit, one is
+        (docs/WorkerProcess.md sec 21)"""
+        import shutil
+
+        folder = tempfile.mkdtemp(prefix="fc-reuse-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        self.doc.saveAs(os.path.join(folder, "reuse.FCStd"))
+        versions = len(self.doc.getTransactionVersions())
+        self.assertGreater(versions, 0)
+        self.assertTrue(self.pool.start())
+        self.assertEqual(len(self.doc.getTransactionVersions()), versions)
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
+        self.pool.stop()
+
+        self.obj.Integer = 43
+        self.assertTrue(self.pool.start())
+        self.assertEqual(len(self.doc.getTransactionVersions()), versions + 1)
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(job)["Output"]["Value"], 43)
+
     def testTheCopyIsAVersionOfTheLog(self):
         """Without the store read by the workers, the version written out
         here as an unpacked project: the fallback (sec 3)"""

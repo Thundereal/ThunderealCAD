@@ -2885,7 +2885,17 @@ void Document::_commitTransaction(bool notify)
 
         if (notify && !implicit)
             GetApplication().closeActiveTransaction(false,id);
-        if (snapshotDue)
+        // The open's version, put off by the transaction just committed
+        // (afterRestore()): the document as the open left it, and undo
+        // reaches back to it and no further
+        if (d->openVersionPending && !d->activeUndoTransaction && !isPerformingTransaction()) {
+            d->openVersionPending = false;
+            if (_snapshotToLog("restore")) {
+                if (auto log = getTransactionLog())
+                    d->undoFloor = log->lastSeq();
+            }
+        }
+        else if (snapshotDue)
             snapshotToLog();
     }
 }
@@ -18144,7 +18154,14 @@ bool Document::afterRestore(bool checkPartial) {
     // The version of a file in an older format (sec 27.62): the document as
     // it was read, view providers included, at the current schema. Undo
     // reaches back to it and no further, as to the version of any open.
-    if (d->openVersionPending) {
+    // Put off while a transaction is open: in the GUI the view providers'
+    // and the views' first writes of the open have opened an implicit one by
+    // now, and a snapshot is refused while one is (_snapshotToLog()). Taken
+    // when it is committed (_commitTransaction()). Without it the GUI had no
+    // version of the open, no value the log held current, and every
+    // snapshot after -- the workers' copy at their start, 1.5 s on
+    // scanner.FCStd -- serialised every shape (docs/WorkerProcess.md sec 21).
+    if (d->openVersionPending && !d->activeUndoTransaction && !isPerformingTransaction()) {
         d->openVersionPending = false;
         if (_snapshotToLog("restore")) {
             if (auto log = getTransactionLog())

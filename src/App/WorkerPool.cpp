@@ -540,6 +540,48 @@ bool WorkerPool::Private::listen()
     return true;
 }
 
+namespace
+{
+/// The newest version of the document's branch that nothing since changed
+/// the document from -- after an open, the open's own -- or 0
+/// (docs/WorkerProcess.md sec 21): a copy of it is the document as it is,
+/// and the snapshot that would make one again (every shape's sharing
+/// analysed again, 0.35-0.5 s in the console, 1.3-1.5 s in the GUI) is not
+/// taken. The rows after it are records: the version's own, a save's, a
+/// recompute's.
+int64_t unchangedVersion(Document& doc)
+{
+    TransactionLog* log = doc.getTransactionLog();
+    if (!log || doc.hasPendingTransaction() || doc.isPerformingTransaction()
+        || doc.testStatus(Document::PartialDoc) || doc.testStatus(Document::Restoring)) {
+        return 0;
+    }
+    auto& core = TransactionLogCore::of(doc.getFileHistory());
+    core.flush();
+    auto& store = core.store();
+    const int64_t head = log->head();
+    LogVersion best;
+    for (const auto& v : store.versions()) {
+        if (v.branch == log->branch() && v.seq <= head && v.num > best.num) {
+            best = v;
+        }
+    }
+    if (best.num <= 0) {
+        return 0;
+    }
+    if (best.seq > 0) {
+        return core.unchangedSince(head, best.seq) ? best.num : 0;
+    }
+    // At the root, before any row: every row of the branch a record
+    for (const auto& t : store.chain(head, 0)) {
+        if (!store.ops(t.seq).empty()) {
+            return 0;
+        }
+    }
+    return best.num;
+}
+}  // namespace
+
 bool WorkerPool::Private::takeCopy()
 {
     if (!copy.empty() && !stale) {
@@ -608,7 +650,14 @@ bool WorkerPool::Private::takeCopy()
                 // worker moves along. An explicit transaction stays open,
                 // and the copy is then saved
                 doc.commitImplicitTransaction();
-                num = doc._snapshotToLog("workers");
+                num = params()->GetBool("ReuseVersion", true) ? unchangedVersion(doc) : 0;
+                if (num > 0) {
+                    FC_LOG(doc.getName() << ": the workers copy version " << num
+                                         << ", unchanged since");
+                }
+                else {
+                    num = doc._snapshotToLog("workers");
+                }
                 if (num > 0) {
                     auto& core = TransactionLogCore::of(doc.getFileHistory());
                     core.flush();

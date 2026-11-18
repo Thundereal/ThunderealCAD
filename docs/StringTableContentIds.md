@@ -97,8 +97,14 @@ share of that recompute, sampled, is about 10 ms.
 
 A name spells a string by a **prefix** of its digest: 32 bits by default,
 7 characters of base 32, under a marker other than `#` so that a name of
-an older file reads as it did (the marker: to choose, among the bytes no
-name uses). Levels: 32, 64, 128 bits.
+an older file reads as it did. Levels: 32, 64, 128 bits.
+
+The marker: across 505,495 element names (scanner.FCStd and the tree's
+PartDesign and example files) the only punctuation used is `# ( ) , - :
+; @ |`. Of the rest, `$` begins a label in a subname, `+ - * / ^ % < > = !
+&` are an expression's, `< > &` an XML attribute's: `~` is the candidate
+(or `` ` ``, `{`), to be checked against the subname and expression
+grammars before phase 2 fixes it.
 
 **The registry.** The table keeps, append-only, one entry per contested
 prefix: the prefix, its level, and its owner's canonical content. A string

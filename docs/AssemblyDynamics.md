@@ -6162,6 +6162,32 @@ Phase D1 is under way (2026-10-28):
     placement, which converges there.
   - Test: TestFlexibleBody.test_torus_on_pin, rigid and flexible on the
     rigid pin 20 long from x = -8, both angles; roundTurned()'s inside.
+- Built, D4b way 1 step 11 (2026-11-18): a line along a curve, flexible.
+  The torus of step 7 lying flat on a plate, 0.05 mm into it, turned about
+  its axis upright: it touches all round its ring, the tube's bottom
+  straight along the ring and round across it. Flexible 49.68 N flat over
+  the turn for the springs' 50; rigid 39.9.
+  - **Flexible: on its six-node faces** (towardsFlat()): towardsTrue()
+    took only a face curved both ways -- along a straight way the farthest
+    runs on, a cone's past a plate's end. Its points 49.4 to 50.2 um deep.
+    Now, straight one way, the true surface's farthest in the plane across
+    that way through the point's own place (farthestAcross()), as
+    farthestNear() does; a straight line's ends thinOut()'s as before.
+  - **Rigid: not built.** hullFarthest() leaves a mesh's line on its
+    facets, which stand in from the surface by OCCT's deflection. Each
+    point put on the surface instead (the line's early return dropped)
+    gave the flat torus 50.00 N, but TestContact ran 341 s for 31 and
+    test_hertz_curvature's two laws' rests were 0.25 um apart for 0.05 --
+    as the comment there said. A first timing said otherwise: FC_KEEPLINE
+    set empty is set to getenv(), and both runs had kept the early return.
+  - Numbers: flexible 50.00 N flat; its run 10 -> 27 s, 137 points each
+    put on the surface at each update. A cone on a plate's range 43.88 to
+    44.16 -> 43.87 to 44.17 N; a flexible torus on a rigid pin's torques
+    -0.5238 -> -0.5185 and -0.5192 -> -0.5403 N mm (0.0015 N R both); the
+    rest as it was.
+  - Open: the rigid mesh's line along a curve, 39.9 N for 50.
+  - Test: TestFlexibleBody.test_torus_lying_flat, within two thousandths;
+    roundTurned()'s flat.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

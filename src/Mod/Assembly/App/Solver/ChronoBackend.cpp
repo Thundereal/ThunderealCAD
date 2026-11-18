@@ -2324,8 +2324,15 @@ public:
     // (LocalSurface::farthestOn()), through the faces of that solid face
     // about it, the point's offset from its six-node face kept -- a torus
     // standing on a plate as a wheel, each point at its own face's farthest,
-    // pressed it from 5 to 50 N as the faces came round. False where the
-    // face has a round (roundAt() takes it there), or no true surface
+    // pressed it from 5 to 50 N as the faces came round. Where the face is
+    // straight one way -- a cone's side, a torus lying flat along its ring
+    // -- the farthest in the plane across that way through the point's own
+    // place (farthestAcross()): along it the farthest runs on, past a
+    // plate's end, its force 38 to 205 N for 45; a straight line's ends are
+    // thinOut()'s (toBent()). On its six-node faces, a torus lying flat
+    // pressed a plate 49.68 N for 50, its points 49.4 to 50.2 um deep. False
+    // where the face has a round (roundAt() takes it there), or no true
+    // surface
     bool towardsTrue(ContactLoad::OnMesh& on,
                      const ch::ChVector3d& normal,
                      bool sideA,
@@ -2339,23 +2346,29 @@ public:
         std::size_t faceNow = on.face;
         std::array<double, 3> L = on.L;
         LS::Face x;
-        // Curved both ways only: along a straight way, a cone's side, the
-        // farthest runs on along it -- past a plate's end, its force 38 to
-        // 205 N for 45 -- and the line's ends are thinOut()'s (toBent())
+        LS::Vec way {0.0, 0.0, 0.0};
         {
             trueCorners(faceNow, x);
             LS::Local local;
-            if (!LS::localSurface(x, L, local, &faceTrue[faceNow])
-                || !(local.k1 > 0.0) || local.k2 < 0.1 * local.k1) {
+            if (!LS::localSurface(x, L, local, &faceTrue[faceNow]) || !(local.k1 > 0.0)) {
                 return false;
             }
+            if (local.k2 < 0.1 * local.k1) {
+                way = LS::add(local.way2, v(into), -LS::dot(local.way2, v(into)));
+                if (!LS::normalize(way)) {
+                    return false;
+                }
+            }
         }
+        const bool across = LS::dot(way, way) > 0.0;
+        const LS::Vec own = v(on.flat);
         std::int64_t cameFrom = -1;
         bool found = false;
         for (int more = 0; more < 8; ++more) {
             trueCorners(faceNow, x);
             int leaving = -1;
-            if (LS::farthestOn(x, &faceTrue[faceNow], v(into), L, leaving)) {
+            if (across ? LS::farthestAcross(x, &faceTrue[faceNow], v(into), own, way, L, leaving)
+                       : LS::farthestOn(x, &faceTrue[faceNow], v(into), L, leaving)) {
                 found = true;
                 break;
             }
@@ -7821,7 +7834,10 @@ bool hullFarthest(const ShapeOn& on,
     // A mesh's line, a torus lying flat on its ring: its points as found.
     // Its line is no straight one, and hundreds of points along it, each put
     // on the surface at each state, took a test from 7 s to 200, the
-    // law's line by them off its closed form by 0.25 um
+    // law's line by them off its closed form by 0.25 um -- measured again
+    // 2026-11-18: TestContact 31 -> 341 s, test_hertz_curvature 0.25 um off.
+    // So a torus spun flat on a plate 0.05 mm into it presses it 39.9 N
+    // for 50, its facets in from its surface
     if (!on.bentConvex && way.Length2() > 0.0) {
         return stays();
     }

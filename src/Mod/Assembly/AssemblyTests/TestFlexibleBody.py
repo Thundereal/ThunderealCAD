@@ -1333,6 +1333,28 @@ class TestFlexibleBody(unittest.TestCase):
             self.assertGreater(mean, 49.5)
             self.renew()
 
+    def test_torus_lying_flat(self):
+        """A line along a curve: test_torus_on_plate's flexible torus lying
+        flat on a plate, 0.05 mm into it, turned about its axis upright --
+        it touches all round its ring, the tube's bottom straight along it
+        and round across it. Each point on the true surface at its own place
+        along the ring, farthest in the plane across it
+        (FlexibleContact::towardsTrue()): on its six-node faces, 49.68 N for
+        the springs' 50. Rigid, a mesh's line keeps its points on its facets
+        (hullFarthest()), 39.9 N: each put on its surface, TestContact took
+        341 s for 31 and its Hertz line was 0.25 um off"""
+        mean = self.roundTurned(
+            "a flexible torus lying flat on a plate",
+            30,
+            -15,
+            torus=True,
+            flat=True,
+            arm=10.0,
+            within=0.002,
+            most=50.5,
+        )
+        self.assertGreater(mean, 49.9)
+
     def test_rigid_round_on_rigid_roller(self):
         """Two rigid rounds lying along each other: test_round_on_roller's
         rod rigid, under the roller and round it by 20 deg. Their normal the
@@ -1454,6 +1476,7 @@ class TestFlexibleBody(unittest.TestCase):
         rollerAt=0.0,
         ring=False,
         inside=False,
+        flat=False,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1472,7 +1495,9 @@ class TestFlexibleBody(unittest.TestCase):
         friction's on the rod's axis, its radius where the force is. ball:
         the rod a ball R 5 instead, turned about its centre; socket: under
         it a block's spherical hollow of that radius, its wall 0.05 mm into
-        the ball's underside, for the plate; torus: the rod a torus, its ring
+        the ball's underside, for the plate; flat: the torus lying flat on a
+        plate 30 x 30 instead, turned about its axis upright -- a line
+        contact round its ring; torus: the rod a torus, its ring
         R 10 and its tube R 3, standing on the plate as a wheel, turned about
         its axis -- a point on a face of no round. rollerAt: the roller round
         the rod's axis by that many degrees from under it, sideways, still
@@ -1487,7 +1512,12 @@ class TestFlexibleBody(unittest.TestCase):
         the mean force over the turn"""
         import CommandCreateContact
 
-        mount = self.box("Mount", (10, 20, 20), (-10, -10, -10))
+        # Lying flat, the mount over the torus's hole
+        mount = (
+            self.box("Mount", (10, 10, 10), (-5, -5, 4))
+            if flat
+            else self.box("Mount", (10, 20, 20), (-10, -10, -10))
+        )
         ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedMount")
         JointObject.GroundedJoint(ground, mount)
         tilt = 0.0
@@ -1496,7 +1526,7 @@ class TestFlexibleBody(unittest.TestCase):
             rod = self.assembly.newObject("Part::Torus", "Rod")
             rod.Radius1 = 10
             rod.Radius2 = 3
-            top = -13.0
+            top = -3.0 if flat else -13.0
         elif ball:
             rod = self.assembly.newObject("Part::Sphere", "Rod")
             rod.Radius = 5
@@ -1512,7 +1542,7 @@ class TestFlexibleBody(unittest.TestCase):
             rod = self.assembly.newObject("Part::Cylinder", "Rod")
             rod.Radius = 5
             rod.Height = 40
-        rod.Placement = plc(0, 0, 0, App.Vector(0, 1, 0), 90 + tilt)
+        rod.Placement = plc() if flat else plc(0, 0, 0, App.Vector(0, 1, 0), 90 + tilt)
         low = top - 5.0 + 0.05
         if socket:
             import Part
@@ -1557,6 +1587,8 @@ class TestFlexibleBody(unittest.TestCase):
             plate.Radius = 3 if inside else 5
             plate.Height = length
             plate.Placement = plc(start, rollerY, rollerZ, App.Vector(0, 1, 0), 90)
+        elif flat:
+            plate = self.box("Plate", (30, 30, 5), (-15, -15, low))
         else:
             plate = self.box("Plate", (length, 20, 5), (start, -10, low))
         if flexiblePlate and roller:
@@ -1628,7 +1660,9 @@ class TestFlexibleBody(unittest.TestCase):
         hinge.Detach2 = True
         hinge.Reference1 = (mount, ["Face2"])
         hinge.Reference2 = (rod, [end])
-        hinge.Placement1 = plc(10, 10, 10, App.Vector(0, 1, 0), 90 + tilt)
+        hinge.Placement1 = (
+            plc(5, 5, -4) if flat else plc(10, 10, 10, App.Vector(0, 1, 0), 90 + tilt)
+        )
         hinge.Placement2 = plc(0, 0, 0)
         self.doc.recompute()
         self.assertEqual(self.assembly.solve(), 0)

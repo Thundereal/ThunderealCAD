@@ -188,7 +188,12 @@ std::string ExportSetPaths::pathTo(const Document* owner, const Document* target
     auto it = scope->_files.find(target);
     if (own == scope->_files.end() || it == scope->_files.end())
         return {};
-    return ss(QFileInfo(qs(own->second)).absoluteDir().relativeFilePath(qs(it->second)));
+    // Both canonical: a merge names the file it writes as our folder is
+    // spelled and a target by its key, and across a symlink (macOS's /var ->
+    // /private/var) the path would climb to the root and back down.
+    return ss(QFileInfo(qs(FileHistory::canonicalPath(own->second)))
+                  .absoluteDir()
+                  .relativeFilePath(qs(FileHistory::canonicalPath(it->second))));
 }
 
 const char* App::exportSetManifestName()
@@ -221,7 +226,11 @@ ExportSetResult App::planLinkedSet(Document& top, const ExportSetOptions& option
 
     // Q6, Q5 (sec 35.6): the layout under the top's folder kept; what lies
     // outside under _external/; a version or a branch a file of its own.
-    const QDir topDir = QFileInfo(qs(topPath)).absoluteDir();
+    // Both sides in the canonical spelling: a document keeps the path it
+    // was opened by, a version's or a branch's the canonical one, and a
+    // symlink between them (macOS's /var -> /private/var) otherwise puts
+    // a file beside the top under _external/.
+    const QDir topDir = QFileInfo(qs(FileHistory::canonicalPath(topPath))).absoluteDir();
     std::set<std::string> taken;
     ExportSetResult result;
     // The file, and the branch and version of a version's or a branch's
@@ -243,7 +252,7 @@ ExportSetResult App::planLinkedSet(Document& top, const ExportSetOptions& option
         ExportSetFile f;
         FileHistory::NameParts parts;
         const bool named = describe(doc, f, parts);
-        const QString abs = QFileInfo(qs(f.file)).absoluteFilePath();
+        const QString abs = qs(FileHistory::canonicalPath(f.file));
         QString rel = topDir.relativeFilePath(abs);
         if (rel.startsWith(QStringLiteral("..")) || QFileInfo(rel).isAbsolute())
             rel = QStringLiteral("_external/") + QFileInfo(abs).fileName();

@@ -3663,7 +3663,9 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertIsNone(link.getLinkPin("LinkedObject"))
         live = link.LinkedObject
         self.track(live.Document)
-        self.assertEqual(os.path.normpath(live.Document.FileName), os.path.normpath(partPath))
+        # A file is named by its history's canonical path (sec 27.7): through
+        # a symlink (macOS's /var) not the spelling it was saved by.
+        self.assertEqual(os.path.realpath(live.Document.FileName), os.path.realpath(partPath))
         self.assertEqual(live.Integer, 2)
         self.assertEqual(asm.UndoNames, ["unpin"])
         asm.undo()
@@ -3671,8 +3673,8 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertTrue(link.LinkedObject.Document.FileName.endswith("@v%d" % onDisk))
         asm.redo()
         self.assertIsNone(link.getLinkPin("LinkedObject"))
-        self.assertEqual(os.path.normpath(link.LinkedObject.Document.FileName),
-                         os.path.normpath(partPath))
+        self.assertEqual(os.path.realpath(link.LinkedObject.Document.FileName),
+                         os.path.realpath(partPath))
 
     def testAPinnedFolderKeepsItsVersion(self):
         # Sec 29.8, 27.5 ruling 1: a document saved as a folder that another
@@ -3836,7 +3838,8 @@ class TransactionBranchCases(unittest.TestCase):
         editable.openTransaction("edit")
         eobj.Integer = 7
         editable.commitTransaction()
-        branch = editable.FileName[len(partPath) + 1 : editable.FileName.rindex("@")]
+        efile = editable.FileName  # the history's canonical path (sec 27.7)
+        branch = efile[len(os.path.realpath(partPath)) + 1 : efile.rindex("@")]
         asm.openTransaction("live")
         asm.addObject("App::Link", "Live").LinkedObject = eobj
         asm.commitTransaction()
@@ -3948,8 +3951,8 @@ class TransactionBranchCases(unittest.TestCase):
             name = frozenName()
             self.assertIn(name, FreeCAD.listDocuments())
             # By file: the undo's copy named the closed document.
-            self.assertTrue(os.path.normpath(FreeCAD.getDocument(name).FileName).startswith(
-                os.path.normpath(partPath) + "@"))
+            self.assertTrue(os.path.realpath(FreeCAD.getDocument(name).FileName).startswith(
+                os.path.realpath(partPath) + "@"))
 
             # A second pin keeps it open when the first goes.
             asm.openTransaction("pin other")
@@ -4021,8 +4024,10 @@ class TransactionBranchCases(unittest.TestCase):
         link.pinLink("LinkedObject")
         shown = link.LinkedObject
         frozen = self.track(shown.Document)
-        self.assertEqual(os.path.normpath(frozen.FileName),
-                         os.path.normpath(partPath + "@v%d" % onDisk))
+        # Named by the history's canonical path (sec 27.7), which through a
+        # symlink (macOS's /var) is not the spelling the file was saved by.
+        self.assertEqual(os.path.realpath(frozen.FileName),
+                         os.path.realpath(partPath + "@v%d" % onDisk))
         self.assertTrue(frozen.Label.endswith("@v%d" % onDisk))
 
         with self.assertRaises(Exception):
@@ -4050,7 +4055,8 @@ class TransactionBranchCases(unittest.TestCase):
         editable.commitTransaction()
         self.assertEqual(shown.Integer, 1)
         self.assertEqual(link.LinkedObject.Integer, 1)
-        branch = editable.FileName[len(partPath) + 1 : editable.FileName.rindex("@")]
+        efile = editable.FileName  # the history's canonical path (sec 27.7)
+        branch = efile[len(os.path.realpath(partPath)) + 1 : efile.rindex("@")]
         self.assertTrue(branch)
 
         # A link to the editable instance is live, to its branch: no pin.
@@ -4098,8 +4104,8 @@ class TransactionBranchCases(unittest.TestCase):
         doc.commitTransaction()
         shown = link.LinkedObject
         frozen = self.track(shown.Document)
-        self.assertEqual(os.path.normpath(frozen.FileName),
-                         os.path.normpath(path + "@v%d" % first))
+        self.assertEqual(os.path.realpath(frozen.FileName),
+                         os.path.realpath(path + "@v%d" % first))
         self.assertEqual(shown.Integer, 1)
         self.assertEqual(obj.Integer, 2)
         self.assertEqual(link.getLinkPin("LinkedObject")[0], first)
@@ -4136,8 +4142,8 @@ class TransactionBranchCases(unittest.TestCase):
         doc.UndoMode = 1
         link = doc.getObject("L")
         self.track(link.LinkedObject.Document)
-        self.assertEqual(os.path.normpath(link.LinkedObject.Document.FileName),
-                         os.path.normpath(path2 + "@v%d" % first))
+        self.assertEqual(os.path.realpath(link.LinkedObject.Document.FileName),
+                         os.path.realpath(path2 + "@v%d" % first))
         self.assertEqual(link.LinkedObject.Integer, 1)
 
         # Unpinned: the object of that name in the document; undone: pinned.

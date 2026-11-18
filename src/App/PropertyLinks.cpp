@@ -3894,7 +3894,26 @@ public:
             return core.store().findBranch(branch, b) && core.holderOf(b.id) == doc;
         }
         QString fullpath(getFullPath());
-        return !fullpath.isEmpty() && getFullPath(doc->getFileName()) == fullpath;
+        if (fullpath.isEmpty())
+            return false;
+        if (getFullPath(doc->getFileName()) == fullpath)
+            return true;
+        // The same file by another spelling: a version's or a branch's
+        // document is named by the canonical path (TransactionLogJournal.md
+        // sec 27.7), a file's by the path it was opened by, and the links
+        // of the one resolve against its own. Through a symlink (macOS's
+        // /var -> /private/var) a plain match misses, and the file is read
+        // a second time as another document.
+        // The names first: this runs for every link's file at every
+        // document's restore, and a canonical path costs the file system.
+        const char* name = doc->getFileName();
+        if (!name || !*name)
+            return false;
+        const QString docPath = QString::fromUtf8(name);
+        if (QFileInfo(docPath).fileName() != QFileInfo(fullpath).fileName())
+            return false;
+        return FileHistory::canonicalPath(name)
+            == FileHistory::canonicalPath(fullpath.toUtf8().constData());
     }
 
     /** Cross-document links made while the owner or the linked document
@@ -4116,12 +4135,42 @@ public:
         // b) If both can, then Prefer the current path, because otherwise,
         //    loading the owner document from the same path may resolve to a
         //    different path due to the search order in resolvePath().
+        const QString target = path;
         path = QDir::cleanPath(docDir.relativeFilePath(path));
         if (!QFileInfo(path).isRelative()) {
             QString altPath = QDir::cleanPath(
                     QDir(docDir.canonicalPath()).relativeFilePath(path));
             if (QFileInfo(altPath).isRelative()) {
                 path = altPath;
+            }
+        }
+        else {
+            // c) Through a symlink -- the owner's folder or the target, as
+            //    macOS's /var -> /private/var -- the path relative to one
+            //    spelling of the owner may lead elsewhere from the other,
+            //    and the owner is read by both: a version's or a branch's
+            //    document is named by the canonical path (TransactionLog
+            //    sec 27.7), its file by the path it was opened by. Kept if
+            //    it reaches the target from both; else the one relative to
+            //    the canonical folder if that does; else the full path.
+            const QString canonDir = docDir.canonicalPath();
+            const QString want = QFileInfo(target).canonicalFilePath();
+            if (!canonDir.isEmpty() && !want.isEmpty()
+                    && (canonDir != QDir::cleanPath(docDir.absolutePath())
+                        || want != QDir::cleanPath(target))) {
+                auto reaches = [&](const QString& rel) {
+                    for (const QString& dir : {docDir.absolutePath(), canonDir}) {
+                        QFileInfo at(QDir::cleanPath(QDir(dir).filePath(rel)));
+                        if (at.canonicalFilePath() != want)
+                            return false;
+                    }
+                    return true;
+                };
+                if (!reaches(path)) {
+                    const QString alt =
+                        QDir::cleanPath(QDir(canonDir).relativeFilePath(want));
+                    path = reaches(alt) ? alt : want;
+                }
             }
         }
         return path.toUtf8().constData();
@@ -4297,7 +4346,11 @@ public:
             std::string reason;
             const std::string path = fullPath.toUtf8().constData();
             if (FileHistory::findVersion(path, l->_pinVersion, l->_pinUuid, history, reason)) {
-                key += QStringLiteral("@v") + QString::number(l->_pinVersion);
+                // Keyed by the file's identity, the canonical path (sec
+                // 27.7): the owner's spelling of it may go through a symlink
+                // (macOS's /var -> /private/var) the version's name does not.
+                key = QString::fromUtf8(FileHistory::canonicalPath(path).c_str())
+                    + QStringLiteral("@v") + QString::number(l->_pinVersion);
                 if (l->_pinUuid.empty()) {
                     LogVersion version;
                     if (TransactionLogCore::of(*history).store().getVersion(l->_pinVersion, version))
@@ -4524,6 +4577,11 @@ public:
 
     static void restoreDocument(const App::Document &doc) {
         auto it = _DocInfoMap.find(getFullPath(doc.FileName.getValue()));
+        if (it == _DocInfoMap.end() && doc.testStatus(App::Document::VersionDoc)) {
+            // A pin's DocInfo is keyed by the canonical path (get()).
+            it = _DocInfoMap.find(QString::fromUtf8(
+                FileHistory::canonicalPath(doc.FileName.getStrValue()).c_str()));
+        }
         if(it!=_DocInfoMap.end())
             it->second->slotFinishRestoreDocument(doc);
         // A branch's DocInfo is keyed by the branch, not by any document's
@@ -5849,8 +5907,14 @@ std::string PropertyXLink::ImportPaths::map(const std::string& file, Mapped* map
         // Held: where it is written, which is no place relative to ours.
         if (!target->held.empty())
             return target->file;
-        return QDir(QString::fromUtf8(_ourDir.c_str()))
-            .relativeFilePath(QString::fromUtf8(target->file.c_str())).toUtf8().constData();
+        // Both canonical: our folder is spelled as our file was opened, the
+        // target as its key, and across a symlink (macOS's /var ->
+        // /private/var) the path would climb to the root and back down,
+        // right from the one spelling only.
+        return QDir(QString::fromUtf8(FileHistory::canonicalPath(_ourDir).c_str()))
+            .relativeFilePath(QString::fromUtf8(FileHistory::canonicalPath(target->file).c_str()))
+            .toUtf8()
+            .constData();
     }
     if (absolute)
         return file;

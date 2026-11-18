@@ -26547,3 +26547,49 @@ whether the freed memory is reused before that walk. `Fillet::onChanged` no
 longer relinks while the fillet is being removed (`App::Remove`). The test now
 also asserts the FeatureBase's InList is the body's two links: that fails on
 the old build every time, with the freeze on or off.
+
+### 39.5 Path identity through a symlink (2026-11-18)
+
+38.21 listed path identity as reported and not probed. macOS probes it for
+free: its TMPDIR is under `/var/folders`, and `/var` is a symlink to
+`/private/var`, so every test that saves under the temporary folder saves
+by one spelling of the path and is read back by the other. 17 Python cases
+(`TransactionBranchCases`, `TransactionAuditCases`) and the C++
+`TransactionLogTest.aPinnedVersionIsFrozen` failed there, and passed with a
+TMPDIR spelled as its real path -- which is what hid it on Linux.
+
+Two spellings meet by design: a document keeps the path it was opened by,
+while a history, and with it every version's and branch's document, is
+named by the canonical path (27.7). Where the two were compared or made
+relative to each other as strings, it broke:
+
+- **Duplicate documents.** `Application::openDocument` takes another
+  spelling of an open file for another file (it warns "Identical physical
+  path" and reads it again). The set import opened files by their key, and
+  a branch's document resolved its links from its canonical folder: our
+  `Part` came back as `Part1`, and links landed on the copy. ImportSet now
+  finds the open document by `MatchCanonical` first (`openedAs`,
+  `openKeyed`), and an XLink's DocInfo takes an open document of the same
+  file by its canonical path when the plain match misses (`isDocument`,
+  basename first, as it runs at every restore).
+- **Pins that never attached.** A pin's DocInfo was keyed by the owner's
+  spelling plus `@v<num>`, the version's document named by the history's;
+  it is keyed by the canonical path now.
+- **Relative paths that climb to the root.** A path from `/var/...` to
+  `/private/var/...` is `../../../../../../../../private/var/...`: right from
+  the one spelling, a folder short from the other. Made relative between
+  canonical forms now: the export's layout (`planLinkedSet`, which put a
+  file beside the top under `_external/`), the merge's written links
+  (`ExportSetPaths::pathTo`), the import's mapped links
+  (`ImportPaths::map`) and the plan's pairing by path (`planSetImport`).
+  For XLink's own dynamic paths (`getDocPath`) upstream's choice stands
+  where it is safe: kept when it reaches the target from both the owner's
+  spelling and its canonical one, else the path relative to the canonical
+  folder if that does, else the full path.
+
+Eight Python assertions and the C++ one compared a version's or a file's name with
+the spelling it was saved by; they compare real paths now.
+
+**Gates:** under a `/var` TMPDIR, `TransactionBranchCases` 160,
+`TransactionAuditCases` 16, `TransactionTwoProcessCases` 11, and the
+log/history/set/XLink gtests (110, one skipped as before) all pass.

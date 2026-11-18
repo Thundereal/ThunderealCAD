@@ -4992,10 +4992,12 @@ TEST_F(TransactionLogTest, aPinnedVersionIsFrozen)
     App::Document* frozen = App::Document::openFileVersion(history, v1, false, nullptr, true);
     ASSERT_TRUE(frozen);
     EXPECT_TRUE(frozen->testStatus(App::Document::FrozenVersion));
-    // by the separators a path has here: the name saved under is as it was
-    // given, the version's as the history has it
-    EXPECT_EQ(Base::FileInfo(frozen->FileName.getStrValue()).filePath(),
-              Base::FileInfo(doc()->FileName.getStrValue() + "@v" + std::to_string(v1)).filePath());
+    // canonical on both sides: the name saved under is as it was given, the
+    // version's as the history has it -- the separators differ on Windows,
+    // and through a symlink (macOS's /var -> /private/var) the path itself
+    EXPECT_EQ(App::FileHistory::canonicalPath(frozen->FileName.getStrValue()),
+              App::FileHistory::canonicalPath(doc()->FileName.getStrValue() + "@v"
+                                              + std::to_string(v1)));
     EXPECT_EQ(App::Document::openFileVersion(history, v1, false, nullptr, true), frozen);
     App::Document* editable = doc()->openVersion(v1, false);
     ASSERT_TRUE(editable);

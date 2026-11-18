@@ -78,6 +78,25 @@ std::string keyOf(const std::string& path)
     return FileHistory::canonicalPath(path);
 }
 
+/// The document open for the file at `path` by any spelling of it. A key
+/// is canonical and a document keeps the path it was opened by: through a
+/// symlink (macOS's /var -> /private/var) the plain match misses, and an
+/// open by the key then reads the file a second time, as another document.
+Document* openedAs(const std::string& path)
+{
+    return GetApplication().getDocumentByPath(path.c_str(),
+                                              Application::PathMatchMode::MatchCanonical);
+}
+
+/// The document of `name` -- a file by its key, or a version's or a
+/// branch's name -- the one open for it if there is one.
+Document* openKeyed(const std::string& name)
+{
+    if (Document* open = openedAs(name))
+        return open;
+    return GetApplication().openDocument(name.c_str(), false);
+}
+
 /// An attribute's value as Persistence::encodeAttribute() wrote it, read.
 std::string decodeAttribute(const std::string& s)
 {
@@ -312,7 +331,10 @@ SetImportPlan App::planSetImport(Document& ourTop, const std::string& theirTop)
     if (ours.count(topKey))
         THROWM(Base::RuntimeError, "'" + theirTop + "' is a file of this set, not another's");
     const QDir theirDir = QFileInfo(qs(topKey)).absoluteDir();
-    const std::string ourTopFile = ourTop.FileName.getStrValue();
+    // Keyed like theirs and like `ours`: our top keeps the spelling it was
+    // opened by, and through a symlink (macOS's /var -> /private/var) every
+    // path relative to it would otherwise climb out and back in.
+    const std::string ourTopFile = keyOf(ourTop.FileName.getStrValue());
     const QDir ourDir = QFileInfo(qs(ourTopFile)).absoluteDir();
 
     // L2: their set, from the files. Ours by the same file are shared.
@@ -571,7 +593,7 @@ void gatherRelinks(Document* doc, const std::map<LinkKey, Target>& targets,
             if (it != targets.end())
                 found = &it->second;
         }
-        if (!found || nameOf(*found) == linked->FileName.getStrValue())
+        if (!found || keyOf(nameOf(*found)) == keyOf(linked->FileName.getStrValue()))
             return nullptr;
         return found;
     };
@@ -606,7 +628,7 @@ void gatherRelinks(Document* doc, const std::map<LinkKey, Target>& targets,
                 plain.emplace_back(link, found->file);
                 continue;
             }
-            Document* to = app.openDocument(nameOf(*found).c_str(), false);
+            Document* to = openKeyed(nameOf(*found));
             auto target = to ? to->getObject(link->getValue()->getNameInDocument()) : nullptr;
             if (!target) {
                 FC_WARN("set import: " << link->getFullName() << " has no "
@@ -632,10 +654,10 @@ void gatherRelinks(Document* doc, const std::map<LinkKey, Target>& targets,
                 const Target* found = targetOf(nullptr, old->getDocument());
                 if (!found)
                     continue;
-                Document* to = plainly ? app.getDocumentByPath(found->file.c_str())
-                                       : app.openDocument(nameOf(*found).c_str(), false);
+                Document* to = plainly ? openedAs(found->file)
+                                       : openKeyed(nameOf(*found));
                 if (plainly && !to)
-                    to = app.openDocument(found->file.c_str(), false);
+                    to = openKeyed(found->file);
                 auto now = to ? to->getObject(old->getNameInDocument()) : nullptr;
                 if (!now) {
                     FC_WARN("set import: " << prop->getFullName() << " reads "
@@ -813,7 +835,7 @@ SetImportResult App::importSet(const SetImportPlan& plan)
             // another session. Not when their file is open already: it is
             // not read again, and is held as it is.
             bool relinked = false;
-            if (!app.getDocumentByPath(f.theirs.c_str())) {
+            if (!openedAs(f.theirs)) {
                 PropertyXLink::ImportPaths paths(f.theirs, f.theirs);
                 PropertyXLink::ImportPaths::intoFile(f.theirs);
                 if (Document* doc = app.openDocument(f.theirs.c_str(), false)) {
@@ -1187,7 +1209,7 @@ std::map<std::string, Document*> afterMerge(const std::vector<SetMergeFile>& fil
         try {
             const std::string tip = keyOf(f.ourFile) + "@" + f.branch + "@";
             if (!f.branch.empty() && f.action == SetMergeAction::Merge) {
-                Document* ours = app.openDocument(f.ourFile.c_str(), false);
+                Document* ours = openKeyed(f.ourFile);
                 auto outcome = ours ? ours->previewMergeResult(f.branch, f.picks, f.fallback)
                                     : Document::MergeOutcome();
                 if (outcome.document) {
@@ -1200,7 +1222,7 @@ std::map<std::string, Document*> afterMerge(const std::vector<SetMergeFile>& fil
             else if (!f.branch.empty() && f.action == SetMergeAction::TakeTheirs)
                 doc = app.openDocument(tip.c_str(), false);
             if (!doc)
-                doc = app.openDocument(f.ourFile.c_str(), false);
+                doc = openKeyed(f.ourFile);
         }
         catch (Base::Exception& e) {
             out[i].push_back(std::string("not checked: ") + e.what());
@@ -1261,7 +1283,7 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
                     && keyOf(doc->FileName.getStrValue()) == keyOf(file))
                 return doc;
         }
-        return app.openDocument(file.c_str(), false);
+        return openKeyed(file);
     };
 
     // The set merged before and that merge undone: each file's Keep ours
@@ -1404,7 +1426,7 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
         for (const auto& f : files) {
             if (f.ourFile.empty())
                 continue;
-            if (auto doc = app.getDocumentByPath(f.ourFile.c_str()))
+            if (auto doc = openedAs(f.ourFile))
                 copies[doc] = keyOf(f.ourFile);
         }
         for (auto [i, doc] : read) {

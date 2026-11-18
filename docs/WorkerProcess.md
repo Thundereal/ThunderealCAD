@@ -1248,6 +1248,8 @@ Open:
   the document's table apart from the file's, which the log stores. The
   marks (`Count` 0) were not it. In by id now, the put-in 2.34 s against
   3.01 s.
+- **Worked on 2026-11-19** (sec 21): the open's version is the copy when
+  nothing changed since, and the GUI now has one. What was seen before:
 - Each snapshot of an unchanged document costs 0.35-0.5 s in the console
   (0.84 s in the GUI at start()), right after the open took one: every
   shape's sharing analysis (`ShapeRefSet::build`, 175 ms in the GUI
@@ -1257,3 +1259,45 @@ Open:
   is row 1 -- one row written after the open's version. A worker that
   opened version 1 and moved along that row would do; what the row is,
   and whether the open could take its version after it, is the log's.
+
+## 21. The workers' copy without a snapshot (2026-11-19)
+
+`start()` took a snapshot of the document for the workers' copy every
+time: 0.43 s on the console for scanner.FCStd, 1.49 s on the main thread
+in the GUI, where it was most of what a Std_Refresh by workers cost before
+the window was free again.
+
+- **A version nothing changed since is the copy.** `takeCopy()` first
+  looks for the newest version of the document's branch with only records
+  after it on the branch (`unchangedVersion()`, by `unchangedSince()`; a
+  version at the root, seq 0, by its rows having no ops). After an open,
+  that is the open's version; after a save, the save's. Preferences/Workers
+  `ReuseVersion` (true) turns it off. Console, scanner.FCStd: `start()`
+  0.07 s against 0.43 s, touched or not (a touch writes no row).
+- **The GUI had no version of the open.** An older file's open takes its
+  version in `afterRestore()` (sec 27.62 of the log); in the GUI, the view
+  providers' and the views' first writes of the open (a page's `X`/`Y`, a
+  view's `Size`, a removed `OnTopObjects`) had opened an implicit
+  transaction by then, and a snapshot is refused while one is open. So the
+  log held no value current, and every snapshot after serialised every
+  shape. The version is now put off until that transaction is committed
+  (`_commitTransaction()`), and taken then: the document as the open left
+  it, the undo floor after it.
+- **In the GUI the version is still not the copy** -- the GUI goes on
+  writing after the open (sketches' `SavedNames` and `ProjectedGeometry`,
+  views' properties), rows that change the document -- but the snapshot
+  `start()` takes now finds every unchanged value current and writes only
+  the rest: `start()` 0.55 s against 1.49 s on scanner.FCStd, the longest
+  stall of a recompute by workers 720 ms against 1,488 ms. The results the
+  same: 686 objects, only the infinite ones' volumes and the tree's
+  expanded state differing, as before.
+- **Not for a file of the current schema**: its open records the file as
+  it is (`onRestore`: Document.xml as read and the blobs), not a value per
+  property, and the snapshot at `start()` still writes every shape -- 1.35 s
+  for the copy of scanner.FCStd that spells digests, saved by this build.
+  Making that version one of values is the log's design (sec 23.3); left.
+
+Test: `TestWorkerPool.testTheCopyIsAVersionNothingChangedSince` -- after a
+save, `start()` adds no version and the worker reads the document; after
+an edit it adds one, and the worker reads the edit.
+

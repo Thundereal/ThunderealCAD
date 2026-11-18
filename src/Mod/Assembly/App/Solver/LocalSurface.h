@@ -757,12 +757,17 @@ nearestOnTriangle(const Vec& p, const Vec& a, const Vec& b, const Vec& c)
 // farthest along the unit 'out', from L, by Newton's steps on its height
 // (its second derivatives by differences): L the point. False where it is
 // beyond the face, 'leaving' the edge it goes out by as farthestAcross()
-// has it, L on that edge; -1 where the face curves away from 'out' there
+// has it, L on that edge; -1 where the face curves away from 'out' there.
+// 'stationary': where its normal is 'out' instead, its height's slope none
+// -- on a face hollow towards 'out' one way or both, a saddle's middle or a
+// hollow's bottom, which no farthest point is: Newton's steps wherever the
+// height's Hessian has an inverse
 inline bool farthestOn(const Face& x,
                        const Offsets* offsets,
                        const Vec& out,
                        std::array<double, 3>& L,
-                       int& leaving)
+                       int& leaving,
+                       bool stationary = false)
 {
     leaving = -1;
     double s = L[1];
@@ -792,7 +797,8 @@ inline bool farthestOn(const Face& x,
         const double det = hss * htt - hst * hst;
         double ds;
         double dt;
-        if (hss < 0.0 && det > 0.0) {
+        if ((hss < 0.0 && det > 0.0)
+            || (stationary && std::abs(det) > 1e-6 * (hss * hss + htt * htt + 2.0 * hst * hst))) {
             ds = -(htt * hs - hst * ht) / det;
             dt = -(hss * ht - hst * hs) / det;
         }
@@ -847,6 +853,58 @@ inline bool farthestOn(const Face& x,
     }
     L = {1.0 - s - t, s, t};
     return true;
+}
+
+// The face's point on its edge 'edge' -- (0 1) 0, (1 2) 1, (2 0) 2, as
+// farthestOn() leaves it -- on its true surface where 'offsets' are given,
+// where its height along the unit 'out' stops changing along the edge,
+// from L on it, by Newton's steps (its derivatives by differences), within
+// the edge's ends. Not 'stationary': there only where that is the edge's
+// farthest, L kept else. A point that a face's steps take out across an
+// edge and the face beyond takes back across it lies on that edge, and
+// where the step met it is off along it: a torus's inside against a pin,
+// its point found 0.16 mm round from where it faced the pin
+inline void alongEdge(const Face& x,
+                      const Offsets* offsets,
+                      const Vec& out,
+                      int edge,
+                      std::array<double, 3>& L,
+                      bool stationary)
+{
+    if (edge < 0 || edge > 2) {
+        return;
+    }
+    const auto a = static_cast<std::size_t>(edge);
+    const auto b = static_cast<std::size_t>((edge + 1) % 3);
+    const double sum = L[a] + L[b];
+    double u = sum > 0.0 ? L[b] / sum : 0.5;
+    auto at = [&](double w) {
+        std::array<double, 3> l {0.0, 0.0, 0.0};
+        l[a] = 1.0 - w;
+        l[b] = w;
+        return l;
+    };
+    auto height = [&](double w) { return dot(pointAt(x, offsets, at(w)), out); };
+    const double e = 1e-4;
+    for (int k = 0; k < 20; ++k) {
+        const double low = std::max(u - e, 0.0);
+        const double high = std::min(u + e, 1.0);
+        const double h0 = height(u);
+        const double hl = height(low);
+        const double hh = height(high);
+        const double slope = (hh - hl) / (high - low);
+        const double bend = (hh - 2.0 * h0 + hl) / (e * e);
+        if (!(std::abs(bend) > 0.0) || (!stationary && !(bend < 0.0))) {
+            break;
+        }
+        const double next = std::clamp(u - std::clamp(slope / bend, -0.25, 0.25), 0.0, 1.0);
+        const bool done = std::abs(next - u) < 1e-10;
+        u = next;
+        if (done) {
+            break;
+        }
+    }
+    L = at(u);
 }
 
 inline Contact contactOf(const Local& a, const Local& b, double depth, double reach)

@@ -2437,8 +2437,14 @@ public:
     // own farthest else (LocalSurface::farthestAcross(), farthestOn());
     // through the faces of that solid face about it, eight at most. A
     // cylinder's farthest along a normal is a line, and the point on it is
-    // the other part's. 'at' the place found, 'p' its point, absolute.
-    // False on a face of no true surface, or a hollow one
+    // the other part's. Where the face is hollow towards the other part one
+    // way or both -- a torus's inside, a saddle, past a tenth of its most
+    // curvature -- the point where its normal is 'normal' (farthestOn()'s
+    // stationary): along that way it has no farthest, and in the plane
+    // across it through a pin's point a torus's inside was found 0.8 deg
+    // round from where it faced the pin, the turn's torque 4.9 N mm with
+    // no friction. 'at' the place found, 'p' its point, absolute. False on
+    // a face of no true surface, or one hollow with a straight way (a bore)
     bool farthestNear(const ContactLoad::OnMesh& on,
                       const ch::ChVector3d& normal,
                       bool sideA,
@@ -2457,11 +2463,19 @@ public:
         LS::Face x;
         trueCorners(faceNow, x);
         LS::Local local;
-        if (!LS::localSurface(x, L, local, &faceTrue[faceNow]) || !(local.k1 > 0.0)) {
+        if (!LS::localSurface(x, L, local, &faceTrue[faceNow])) {
+            return false;
+        }
+        // Signed, k1 >= k2: hollow one way past a tenth of the other, or
+        // both ways with no straight one
+        const double most = std::max(std::abs(local.k1), std::abs(local.k2));
+        const bool stationary =
+            local.k1 > 0.0 ? local.k2 < -0.1 * local.k1 : local.k1 < -0.1 * most;
+        if (!(local.k1 > 0.0) && !stationary) {
             return false;
         }
         LS::Vec way {0.0, 0.0, 0.0};
-        if (local.k2 < 0.1 * local.k1) {
+        if (!stationary && local.k2 < 0.1 * local.k1) {
             way = LS::add(local.way2, into, -LS::dot(local.way2, into));
             if (!LS::normalize(way)) {
                 way = {0.0, 0.0, 0.0};
@@ -2474,7 +2488,7 @@ public:
             trueCorners(faceNow, x);
             int leaving = -1;
             if (across ? LS::farthestAcross(x, &faceTrue[faceNow], into, c, way, L, leaving)
-                       : LS::farthestOn(x, &faceTrue[faceNow], into, L, leaving)) {
+                       : LS::farthestOn(x, &faceTrue[faceNow], into, L, leaving, stationary)) {
                 found = true;
                 break;
             }
@@ -2484,6 +2498,11 @@ public:
             const std::int64_t next = surface->across(faceNow, leaving);
             if (next < 0 || next == cameFrom
                 || solidOf(static_cast<std::size_t>(next)) != faceSolid[on.face]) {
+                // On that edge: where it stops changing along it, not where
+                // the step met it (alongEdge())
+                if (!across) {
+                    LS::alongEdge(x, &faceTrue[faceNow], into, leaving, L, stationary);
+                }
                 found = true;
                 break;
             }
@@ -5348,6 +5367,8 @@ int keysOf(const ch::ChCollisionShape* shape, const void* keys[3])
 // patch is set, and the load's count. Only points sharing a key on both
 // bodies (keysOf()) are compared, those sorted together: comparing all of
 // them, a torus's 1560 points before the copies went took 18 ms a query.
+void rollAlong(const ch::ChFrame<>& a, const ch::ChFrame<>& b, ContactLoad::Point& point);
+
 void patchesOf(ContactLoad& load)
 {
     auto& points = load.points;
@@ -5355,6 +5376,48 @@ void patchesOf(ContactLoad& load)
     std::vector<bool> copy(points.size(), false);
     for (std::size_t i = 0; i < root.size(); ++i) {
         root[i] = i;
+    }
+    // A rigid hull's curved face of no round against a round or such a face
+    // (rollAlong()): each point goes to where the two surfaces' normals
+    // meet, whichever triangles collision detection found it on. Those that
+    // land on one place are copies: a torus's inside on a pin, its
+    // triangles there with no corner in common a patch each, pressed it with
+    // two and three springs, 100 and 150 N for 50 -- and as one patch, a
+    // point left where it was found pulled the spring down by its share
+    {
+        std::vector<std::size_t> bent;
+        std::vector<ContactLoad::Point> landed;
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            const auto& point = points[i];
+            // Both sides curved: against a flat face each point keeps its
+            // own place along the line, a cone's side on a plate
+            if (!(point.bentA || point.bentB) || !(point.bentA || point.roundA)
+                || !(point.bentB || point.roundB)) {
+                continue;
+            }
+            ContactLoad::Point moved = point;
+            rollAlong(*load.GetBodyA(), *load.GetBodyB(), moved);
+            for (std::size_t k = 0; k < bent.size(); ++k) {
+                const auto& before = landed[k];
+                // On the bent side within 25 um and the normals within 3
+                // mrad -- the steps leave them up to 9 um and 1.3 mrad
+                // apart, two places on one pair of faces are millimetres: a
+                // round's point is at the point's own place along its axis,
+                // 0.8 mm apart on a pin, square to the normal, the same depth
+                if (before.bentA == point.bentA && before.bentB == point.bentB
+                    && before.roundA == point.roundA && before.roundB == point.roundB
+                    && ch::Vdot(before.normal, moved.normal) > 1.0 - 5e-6
+                    && (!point.bentA || (before.onA - moved.onA).Length2() < 6.25e-10)
+                    && (!point.bentB || (before.onB - moved.onB).Length2() < 6.25e-10)) {
+                    copy[i] = true;
+                    break;
+                }
+            }
+            if (!copy[i]) {
+                bent.push_back(i);
+                landed.push_back(std::move(moved));
+            }
+        }
     }
     auto find = [&](std::size_t i) {
         while (root[i] != i) {
@@ -7787,6 +7850,21 @@ bool hullFarthest(const ShapeOn& on,
     if (fromL) {
         L = lastL;
     }
+    // Hollow towards 'out' one way past a tenth of the other, or both ways
+    // with no straight one: where its normal is 'out' (farthestOn()'s
+    // stationary, as FlexibleContact::farthestNear()). A torus's inside
+    // has no farthest round its ring, and against a pin its points were
+    // left as Bullet found them, 37 deg off and 163 um deep: 91 to 119 N
+    // for 50, the run not done in an hour
+    bool stationary = false;
+    if (way.Length2() == 0.0) {
+        LS::Local local;
+        if (LS::localSurface(x, L, local)) {
+            const double most = std::max(std::abs(local.k1), std::abs(local.k2));
+            stationary =
+                local.k1 > 0.0 ? local.k2 < -0.1 * local.k1 : local.k1 < -0.1 * most;
+        }
+    }
     int cameFrom = -1;
     for (int more = 0; more < 8; ++more) {
         bool found = false;
@@ -7795,7 +7873,7 @@ bool hullFarthest(const ShapeOn& on,
             found = LS::farthestAcross(x, nullptr, o, c, w, L, leaving, fromL);
         }
         else {
-            found = LS::farthestOn(x, nullptr, o, L, leaving);
+            found = LS::farthestOn(x, nullptr, o, L, leaving, stationary);
         }
         if (found) {
             break;
@@ -7806,6 +7884,10 @@ bool hullFarthest(const ShapeOn& on,
         const int next = on.hullAcross[t][static_cast<std::size_t>(leaving)];
         if (next < 0 || next == cameFrom) {
             // At the edge: an edge of the face, or the line along the edge
+            // -- where it stops changing along it (alongEdge())
+            if (way.Length2() == 0.0) {
+                LS::alongEdge(x, nullptr, o, leaving, L, stationary);
+            }
             break;
         }
         if (static_cast<std::size_t>(next) >= on.bentFaces.size()
@@ -7960,16 +8042,35 @@ void curvedNormal(ch::ChVector3d& normal,
             dn[0] *= 0.1 / turn;
             dn[1] *= 0.1 / turn;
         }
-        ch::ChVector3d next = n + u * dn[0] + v * dn[1];
-        next.Normalize();
-        ch::ChVector3d nA;
-        ch::ChVector3d nB;
-        if (!onA(next, qA, nA) || !onB(next, qB, nB)) {
+        // Taken back by halves where it leaves a wider gap: at an edge
+        // between two faces whose normals differ by a hair, a face's point
+        // stays on the edge as the normal turns, not its radius's way, and
+        // the full step overshot -- a torus's inside against a pin, six
+        // steps left 30 to 177 um across. Kept where none narrows it
+        const double before = std::hypot(g[0], g[1]);
+        bool moved = false;
+        bool lost = false;
+        double scale = 1.0;
+        for (int half = 0; half < 6 && !moved && !lost; ++half, scale *= 0.5) {
+            ch::ChVector3d next = n + (u * dn[0] + v * dn[1]) * scale;
+            next.Normalize();
+            ch::ChVector3d nA;
+            ch::ChVector3d nB;
+            if (!onA(next, qA, nA) || !onB(next, qB, nB)) {
+                lost = true;
+                break;
+            }
+            const ch::ChVector3d across = nA - nB - next * ch::Vdot(next, nA - nB);
+            if (across.Length() < before) {
+                n = next;
+                qA = nA;
+                qB = nB;
+                moved = true;
+            }
+        }
+        if (!moved) {
             break;
         }
-        n = next;
-        qA = nA;
-        qB = nB;
     }
     normal = n;
     pA = qA;

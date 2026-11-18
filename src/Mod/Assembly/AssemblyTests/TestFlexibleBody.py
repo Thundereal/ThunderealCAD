@@ -1287,6 +1287,52 @@ class TestFlexibleBody(unittest.TestCase):
             self.assertGreater(mean, 49.0)
             self.renew()
 
+    def test_torus_on_pin(self):
+        """A hollow face of no round: test_torus_on_plate's torus turned with
+        a pin R 3 through its hole along its axis, 0.05 mm into its inside --
+        hollow round the ring (R 7), round across the tube (R 3) -- under the
+        torus's axis and round it by 20 deg. The torus's point where its
+        normal is the contact's (LocalSurface::farthestOn()'s stationary,
+        FlexibleContact::farthestNear(), hullFarthest()), on an edge between
+        two faces where it stops changing along it (alongEdge()), Newton's
+        steps on the normal halved where they widen the gap (curvedNormal()).
+        Rigid, Bullet's points on its facets, 91 to 119 N, the run not done in
+        an hour; flexible, the turn's torque 4.86 N mm with no friction, the
+        point found 0.8 deg round from where it faced the pin. The pin 20
+        long from x = -8: the torus's triangles there with no corner in
+        common a patch each, its points pressed it with two and three
+        springs, 100 and 150 N, where they land on one place (patchesOf())"""
+        for at in (0.0, 20.0):
+            mean = self.roundTurned(
+                "a rigid torus on a rigid pin at %g deg" % at,
+                20,
+                -8,
+                roller=True,
+                inside=True,
+                torus=True,
+                rigidRod=True,
+                rollerAt=at,
+                arm=7.0,
+                within=0.002,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+            mean = self.roundTurned(
+                "a flexible torus on a rigid pin at %g deg" % at,
+                20,
+                -8,
+                roller=True,
+                inside=True,
+                torus=True,
+                rollerAt=at,
+                arm=7.0,
+                within=0.01,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.5)
+            self.renew()
+
     def test_rigid_round_on_rigid_roller(self):
         """Two rigid rounds lying along each other: test_round_on_roller's
         rod rigid, under the roller and round it by 20 deg. Their normal the
@@ -1407,6 +1453,7 @@ class TestFlexibleBody(unittest.TestCase):
         torus=False,
         rollerAt=0.0,
         ring=False,
+        inside=False,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1432,7 +1479,10 @@ class TestFlexibleBody(unittest.TestCase):
         0.05 mm into it, the contact's normal leaning by as much. ring: the
         roller a half torus instead, its ring R 10 and its tube R 3, its axis
         along the rod's, its middle towards it -- two faces of no round
-        touching; flexible, held at its two ends. pressure: the
+        touching; flexible, held at its two ends. inside: the roller a pin
+        R 3 through the torus's hole instead, 0.05 mm into its inner side --
+        a hollow face of no round, curved in round the ring and out across
+        the tube. pressure: the
         contact's law a pressure over the area (D4b way 2), N/mm^3. Returns
         the mean force over the turn"""
         import CommandCreateContact
@@ -1498,12 +1548,13 @@ class TestFlexibleBody(unittest.TestCase):
             turn = App.Matrix(0, 0, 1, 0, c, -s, 0, 0, s, c, 0, 0, 0, 0, 0, 1)
             plate.Placement = App.Placement(App.Vector(0, rollerY, rollerZ), App.Rotation(turn))
         elif roller:
-            # The roller's axis 0.05 mm short of the two radii from the rod's
-            reach = -top + 5.0 - 0.05
+            # The roller's axis 0.05 mm short of the two radii from the rod's;
+            # a pin's inside the torus's hole, 0.05 mm past its inner side
+            reach = 10.0 - 3.0 - 3.0 + 0.05 if inside else -top + 5.0 - 0.05
             rollerY = reach * math.sin(math.radians(rollerAt))
             rollerZ = -reach * math.cos(math.radians(rollerAt))
             plate = self.assembly.newObject("Part::Cylinder", "Roller")
-            plate.Radius = 5
+            plate.Radius = 3 if inside else 5
             plate.Height = length
             plate.Placement = plc(start, rollerY, rollerZ, App.Vector(0, 1, 0), 90)
         else:

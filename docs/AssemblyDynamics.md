@@ -6114,6 +6114,54 @@ Phase D1 is under way (2026-10-28):
     roller's motion's torque, 0.0019 -> 0.0014 N mm for none (0.0000 N R).
   - Test: TestFlexibleBody.test_flexible_torus_on_ring, both angles, within
     five thousandths; roundTurned()'s ring.
+- Built, D4b way 1 step 10 (2026-11-18): a hollow face of no round. The
+  torus of step 7 turned with a pin R 3 through its hole along its axis,
+  0.05 mm into its inside -- hollow round the ring (R 7), round across the
+  tube (R 3), a saddle. Rigid on the rigid pin, Bullet's 18 points on its
+  facets, 37 deg off and up to 163 um deep: 91 to 119 N for 50, and 2 ms
+  of the run not done in 10 min. Flexible, 50.00 N but the turn's torque
+  4.86 N mm with no friction (0.0139 N R).
+  - **A saddle has no farthest point**: round its ring the inside curves
+    away from the pin. farthestNear() took that way for a straight one --
+    the farthest in the plane across it through the pin's point -- and
+    found the torus's point 0.8 deg round from where it faced the pin;
+    hullFarthest() climbed off it and left Bullet's points.
+  - **Where its normal is the contact's** (`LocalSurface::farthestOn()`'s
+    stationary, Newton's steps wherever the height's Hessian has an
+    inverse), on a face hollow one way past a tenth of the other or both
+    ways, in farthestNear() and hullFarthest() alike.
+  - **On an edge where it stops changing along it** (`LS::alongEdge()`):
+    the contact on a mesh's vertex, each face's step went out across the
+    shared edge and the face beyond's back, and the point where the step
+    met the edge was 0.16 mm round. Where a face's own edge stops it, its
+    farthest along that edge, as before where none is.
+  - **Newton's steps on the normal halved where they widen the gap**
+    (curvedNormal()): at such an edge the face's point stays on it as the
+    normal turns, not its radius's way, and the full step overshot -- one
+    point in a thousand left 30 to 177 um across after six steps.
+  - **Points that land on one place are copies** (patchesOf()): a rigid
+    hull's points on a curved face of no round against a round or such a
+    face are rolled once as found, and a later one within 25 um on the
+    bent side and 3 mrad of an earlier one is dropped -- not against a
+    flat face, where each keeps its place along the line (a rigid cone on
+    a plate moved 0.3001 -> 0.3005 N R so). With the pin 20 long from x = -8 the torus's
+    triangles there with no corner in common were a patch each, rolled to
+    the one contact: two and three springs, 100 and 150 N for 50. Merged
+    as one patch instead, a point left where it was found pulled the
+    spring down by its share, 49.82 N. A round's point is at the point's
+    own place along its axis, 0.8 mm apart on a pin, square to the normal.
+  - Numbers: rigid on the rigid pin 50.00 N flat, 12 s, under it and at
+    20 deg; flexible 49.92 to 50.26 N, its torque -0.503 N mm, and 49.90
+    to 50.30, -0.546, at 20 deg; the rigid torus on a flexible pin 46.09
+    N flat. Every other force as it was; four flexible tori's torques by
+    0.0015 N mm at most, -0.5469 -> -0.5484 the most (the halving), a
+    rigid torus on a rigid roller's -0.5762 -> -0.5763 (the copies).
+  - Open: the flexible torus on a flexible pin, 46.12 N, rings from 37.9
+    to 55.4 N once in the turn at 86 ms, after the depth steps 0.4 um in a
+    substep: the faces of the flexible torus's true surface, not the
+    placement, which converges there.
+  - Test: TestFlexibleBody.test_torus_on_pin, rigid and flexible on the
+    rigid pin 20 long from x = -8, both angles; roundTurned()'s inside.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

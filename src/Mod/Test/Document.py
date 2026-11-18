@@ -5133,9 +5133,10 @@ class TransactionBranchCases(unittest.TestCase):
             table = z.read("StringTable.txt").decode("latin-1")
         self.assertEqual(xml.count("<StringHasher2"), 1)
         self.assertIn('<StringHasher2 table="StringTable.txt" hash="', xml)
-        # A table that spells digests says so, and its registry, at its head
-        version = 2 if doc.Hasher.ContentIds else 1
-        self.assertTrue(table.startswith("StringTableStart v%d %d" % (version, doc.Hasher.Size)))
+        # The same head whatever the table spells by: one an older build
+        # reads (docs/StringTableContentIds.md sec 11)
+        self.assertTrue(table.startswith("StringTableStart v1 %d\n" % doc.Hasher.Size))
+        self.assertEqual("StringTableContent" in table, doc.Hasher.ContentIds)
         versions = doc.getTransactionVersions()
         for v in versions:
             self.assertNotIn("StringTable.txt", [e for e, h in v["manifest"]])

@@ -2022,8 +2022,9 @@ std::string expandIds(const App::StringHasherRef& hasher, const QByteArray& text
             out += text[i++];
             continue;
         }
-        long id = text.mid(i + 1, end - i - 1).toLong(nullptr, 16);
-        auto sid = hasher->getID(id);
+        // The number the text spells (docs/StringTableContentIds.md sec 10)
+        const std::int64_t id = text.mid(i + 1, end - i - 1).toLongLong(nullptr, 16);
+        auto sid = hasher->getIDBySpelling(id);
         out += sid ? expandIds(hasher, sid.deref().data() + sid.deref().postfix())
                    : std::string("<missing>");
         i = end;
@@ -2140,6 +2141,8 @@ namespace
 Base::Reference<App::StringHasher> workerOf(App::StringHasher& pool, long count)
 {
     Base::Reference<App::StringHasher> worker(new App::StringHasher);
+    // Spelling as its pool does, as a worker's setup says (WorkerProcess sec 20)
+    worker->setContentIds(pool.getContentIds());
     worker->insertRows(pool.rows());
     auto lease = std::make_shared<App::StringIDLease>();
     lease->add(pool.reserveBlock(count), count);
@@ -2233,6 +2236,9 @@ TEST_F(StringHasherTest, aWorkersStringsComeBackUnderTheirIds)  // NOLINT
 
 TEST_F(StringHasherTest, takingRowsInIsAllOrNone)  // NOLINT
 {
+    // Counted ids: a content held here under another id is refused (one
+    // that spells digests takes it, rowsOfAContentHeldUnderOtherIds...)
+    Hasher()->setContentIds(false);
     Hasher()->getID("A");
     auto worker = workerOf(*Hasher(), 16);
     auto b = worker->getID("B");

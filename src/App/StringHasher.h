@@ -782,7 +782,7 @@ public:
 
     /** Whether new strings are spelled by their digests
      * (docs/StringTableContentIds.md): the table's, saved with it. A new
-     * table takes Preferences/Document ContentStringIds (off); one restored
+     * table takes Preferences/Document ContentStringIds (on); one restored
      * without it counts ids, as every table did before.
      */
     void setContentIds(bool enable);

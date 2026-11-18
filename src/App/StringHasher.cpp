@@ -559,7 +559,7 @@ StringHasher::StringHasher()
     _hashes->IndexedNames = DocumentParams::getHashIndexedName();
     _hashes->ContentIds = GetApplication()
                               .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Document")
-                              ->GetBool("ContentStringIds", false);
+                              ->GetBool("ContentStringIds", true);
 }
 
 StringHasher::~StringHasher() {
@@ -637,20 +637,18 @@ std::string StringHasher::saveTable() const
 {
     TableLock lock(*_hashes, TableLock::Write);
     std::ostringstream out;
+    out << "StringTableStart v1 " << size() << '\n';
+    saveStream(out, true);
     if (_hashes->ContentIds) {
-        // The mode and the registry with the strings: a table read back on
-        // its own spells them as it did (docs/StringTableContentIds.md sec 3.2)
-        out << "StringTableStart v2 " << size() << " contentids " << _hashes->Registry.size()
-            << '\n';
+        // The mode and the registry after the rows, where an older build,
+        // which reads its count of rows and no further, does not look: the
+        // table stays one it reads (docs/StringTableContentIds.md sec 11)
+        out << "StringTableContent " << _hashes->Registry.size() << '\n';
         for (const auto& [spelled, digest] : _hashes->Registry) {
             std::map<std::int64_t, StringID::Digest> one {{spelled, digest}};
             out << registryText(one) << '\n';
         }
     }
-    else {
-        out << "StringTableStart v1 " << size() << '\n';
-    }
-    saveStream(out, true);
     std::string bytes = out.str();
     _contentHash = QCryptographicHash::hash(QByteArray::fromRawData(bytes.data(),
                                                                      static_cast<int>(bytes.size())),
@@ -682,21 +680,32 @@ void StringHasher::restoreTable(std::istream& stream)
         std::string ver;
         std::size_t count = 0;
         stream >> ver >> count;
-        if (ver == "v2") {
-            std::string mode;
-            std::size_t entries = 0;
-            stream >> mode >> entries;
-            _hashes->ContentIds = mode == "contentids";
-            for (std::size_t k = 0; k < entries; ++k) {
-                std::string entry;
-                stream >> entry;
-                readRegistry(entry, _hashes->Registry);
-            }
-        }
-        else if (ver != "v1") {
+        if (ver != "v1") {
             FC_WARN("Unknown string table format");
         }
         restoreStreamNew(stream, count);
+        // A table that spells digests says so after its rows, with its
+        // registry: read so, it spells what it holds by them, in the order
+        // they were made -- as it spelled them then
+        std::string trailer;
+        if (stream >> trailer && trailer == "StringTableContent") {
+            std::size_t entries = 0;
+            stream >> entries;
+            std::map<std::int64_t, StringID::Digest> registry;
+            for (std::size_t k = 0; k < entries; ++k) {
+                std::string entry;
+                if (!(stream >> entry)) {
+                    break;
+                }
+                readRegistry(entry, registry);
+            }
+            for (const auto& entry : registry) {
+                _hashes->Registry.insert(entry);
+            }
+            if (!_hashes->ContentIds) {
+                setContentIds(true);
+            }
+        }
         return;
     }
     // A count alone: the older private tables (<shape>.Table).
@@ -2443,9 +2452,22 @@ void StringHasher::Restore(Base::XMLReader& reader)
         _hashes->InferIndexed = true;
     }
     _hashes->LastID = std::max<long>(_hashes->LastID, reader.getAttributeAsInteger("lastid", "0"));
-    // Spelled by digests only where saved so: a table saved before counts ids
-    _hashes->ContentIds = reader.hasAttribute("contentids")
-        && reader.getAttributeAsInteger("contentids") != 0;
+    // Spelled by digests where saved so. A table saved before counts ids,
+    // unless Preferences/Document ContentStringIdsForOldFiles says to spell
+    // it by digests from here on: its strings spelled so as they are read,
+    // and every name of the file made again by the migration recompute the
+    // element maps' version asks for ("4" saved, "4.C" now) -- as an older
+    // build does with a file that spells digests
+    // (docs/StringTableContentIds.md sec 11)
+    if (reader.hasAttribute("contentids")) {
+        _hashes->ContentIds = reader.getAttributeAsInteger("contentids") != 0;
+    }
+    else {
+        _hashes->ContentIds =
+            GetApplication()
+                .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Document")
+                ->GetBool("ContentStringIdsForOldFiles", false);
+    }
     _hashes->Registry.clear();
     if (reader.hasAttribute("registry")) {
         readRegistry(reader.getAttribute("registry"), _hashes->Registry);

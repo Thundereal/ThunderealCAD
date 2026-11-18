@@ -1992,11 +1992,19 @@ bool ComplexGeoData::hasLegacyCrossing() const
 } // namespace Data
 
 std::string ComplexGeoData::getElementMapVersion() const {
+    // Names spelling digests (docs/StringTableContentIds.md sec 11): a
+    // version an older build does not know, which regenerates the names
+    // with ids of its own; one of this build reads them as they are
+    if (Hasher && Hasher->getContentIds())
+        return "4.C";
     return "4";
 }
 
 bool ComplexGeoData::checkElementMapVersion(const char * ver) const
 {
+    // True: the names are to be made again
+    if (Hasher && Hasher->getContentIds())
+        return !boost::equals(ver, "4.C");
     return !boost::equals(ver, "3")
         && !boost::equals(ver, "4")
         && !boost::starts_with(ver, "3.");

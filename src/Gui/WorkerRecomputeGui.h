@@ -35,7 +35,8 @@ namespace Gui
 
 /** The recompute the user asks for -- Std_Refresh, the migration prompt --
  * handed to the document's workers (docs/WorkerProcess.md sec 19), when
- * RecomputeCommand of Preferences/Workers says so: the window stays free
+ * RecomputeCommand of Preferences/Workers says so (on by default; the
+ * Document preferences' "Recompute in a worker process"): the window stays free
  * while a worker makes it, and its result is put in when it comes. False
  * when it is not handed over -- off, no workers, nothing to recompute --
  * and the caller recomputes here. A recompute the workers then fail or

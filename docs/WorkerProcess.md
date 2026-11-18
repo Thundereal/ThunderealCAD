@@ -1038,9 +1038,11 @@ comes, while this process carries on.
   `ApplySeconds`, `Bytes`, `Reason`).
 - **The GUI** (`Gui/WorkerRecomputeGui.*`): Std_Refresh and the migration
   prompt's Yes (one document) hand the recompute over when
-  `RecomputeCommand` of Preferences/Workers is on -- **off by default**:
-  the result comes later than the command returns, which no caller of a
-  recompute expects yet. The status bar says when it is made and how
+  `RecomputeCommand` of Preferences/Workers is on -- **on by default**
+  since 2026-11-18 (sec 20, the worker's results matching the GUI's),
+  "Recompute in a worker process" in the Document preferences; it was
+  off at first because the result comes later than the command returns,
+  which no caller of a recompute expects yet. The status bar says when it is made and how
   long each side took; one the worker failed or could not make is run
   here.
 

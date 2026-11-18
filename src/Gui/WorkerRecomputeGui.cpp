@@ -133,7 +133,7 @@ bool Gui::recomputeByWorkers(App::Document& doc)
 {
     auto group = App::GetApplication().GetParameterGroupByPath(
         "User parameter:BaseApp/Preferences/Workers");
-    if (!group->GetBool("RecomputeCommand", false)) {
+    if (!group->GetBool("RecomputeCommand", true)) {
         return false;
     }
     static fastsignals::scoped_connection conn =

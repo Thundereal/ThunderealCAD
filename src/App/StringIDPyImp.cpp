@@ -77,6 +77,11 @@ Py::Boolean StringIDPy::getIsHashed(void) const
     return Py::Boolean(getStringIDPtr()->isHashed());
 }
 
+Py::String StringIDPy::getDigest() const
+{
+    return Py::String(getStringIDPtr()->digestText());
+}
+
 Py::Long StringIDPy::getIndex(void) const
 {
     return Py::Long(this->_index);

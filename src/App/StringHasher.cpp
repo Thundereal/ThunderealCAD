@@ -248,6 +248,143 @@ PyObject *StringID::getPyObjectWithIndex(int index) {
     return res;
 }
 
+namespace {
+
+/// A reference in a string's canonical content: 0x01 and the digest of the
+/// string referred to (docs/StringTableContentIds.md sec 3.1)
+void appendReference(QByteArray& out, const StringIDRef& ref)
+{
+    out.append('\x01');
+    const StringID::Digest& digest = ref.deref().digest();
+    out.append(reinterpret_cast<const char*>(digest.data()), static_cast<int>(digest.size()));
+}
+
+int hexDigit(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+/// `text` with every id spelled in it (`#` and hex digits) that names a
+/// string of `sids` replaced by that string's reference; a `#` naming none
+/// is left as it is
+QByteArray replaceSpelledIDs(const QByteArray& text, const QVector<StringIDRef>& sids)
+{
+    if (sids.isEmpty() || text.indexOf('#') < 0) {
+        return text;
+    }
+    QByteArray out;
+    out.reserve(text.size() + 32);
+    const int n = text.size();
+    int i = 0;
+    while (i < n) {
+        if (text[i] == '#') {
+            int j = i + 1;
+            long long value = 0;
+            int d = 0;
+            while (j < n && j - i <= 16 && (d = hexDigit(text[j])) >= 0) {
+                value = value * 16 + d;
+                ++j;
+            }
+            if (j > i + 1) {
+                const StringIDRef* found = nullptr;
+                for (const auto& sid : sids) {
+                    if (sid && sid.value() == value) {
+                        found = &sid;
+                        break;
+                    }
+                }
+                if (found) {
+                    appendReference(out, *found);
+                    i = j;
+                    continue;
+                }
+            }
+        }
+        out.append(text[i]);
+        ++i;
+    }
+    return out;
+}
+
+void appendSized(QCryptographicHash& hash, const QByteArray& bytes)
+{
+    const auto size = static_cast<std::uint32_t>(bytes.size());
+    const char length[4] = {static_cast<char>(size & 0xff), static_cast<char>((size >> 8) & 0xff),
+                            static_cast<char>((size >> 16) & 0xff),
+                            static_cast<char>((size >> 24) & 0xff)};
+    hash.addData(QByteArrayView(length, 4));
+    hash.addData(bytes);
+}
+
+}  // namespace
+
+/** The digest of a string's canonical content, version 1
+ * (docs/StringTableContentIds.md sec 3.1): its structural references by the
+ * digests of the strings referred to, the ids spelled in its text likewise
+ * -- the same for a string made here, read back from a stream (whose
+ * encoded postfix holds the text, not the id) or made by another table under
+ * other ids.
+ */
+static StringID::Digest digestOf(const QVector<StringIDRef>& sids, const QByteArray& dataBytes,
+                                 const QByteArray& postfixBytes, bool binary, bool hashed,
+                                 bool postfixEncoded, bool prefixRef, bool prefixIndex)
+{
+    const int offset = postfixEncoded ? 1 : 0;
+    QByteArray data;
+    if (prefixRef && sids.size() > offset && sids[offset]) {
+        appendReference(data, sids[offset]);
+        if (prefixIndex) {
+            data.append(':');
+        }
+    }
+    else if (binary || hashed) {
+        data = dataBytes;
+    }
+    else {
+        data = replaceSpelledIDs(dataBytes, sids);
+    }
+    QByteArray postfix;
+    if (postfixEncoded && !sids.isEmpty() && sids[0]) {
+        appendReference(postfix, sids[0]);
+    }
+    else {
+        postfix = replaceSpelledIDs(postfixBytes, sids);
+    }
+    QCryptographicHash hash(QCryptographicHash::Blake2s_128);
+    hash.addData(QByteArrayView("FCSID1\0", 7));
+    const char kind = static_cast<char>((binary ? 1 : 0) | (hashed ? 2 : 0));
+    hash.addData(QByteArrayView(&kind, 1));
+    appendSized(hash, data);
+    appendSized(hash, postfix);
+    const QByteArray result = hash.result();
+    StringID::Digest digest {};
+    for (std::size_t k = 0; k < digest.size() && k < static_cast<std::size_t>(result.size()); ++k) {
+        digest[k] = static_cast<std::uint8_t>(result[static_cast<int>(k)]);
+    }
+    return digest;
+}
+
+std::string StringID::digestText() const
+{
+    static const char hex[] = "0123456789abcdef";
+    std::string text;
+    text.reserve(32);
+    for (auto byte : _digest) {
+        text += hex[byte >> 4];
+        text += hex[byte & 0xf];
+    }
+    return text;
+}
+
 std::string StringID::toString(int index) const {
     std::ostringstream ss;
     ss << '#' << std::hex << value();
@@ -830,6 +967,23 @@ bool StringHasher::takeRows(const std::vector<Row>& rows, std::string* why, std:
         && (!_hashes->LowTaken || fresh.front().id < _hashes->LowTaken))
         _hashes->LowTaken = fresh.front().id;
     return true;
+}
+
+std::vector<std::vector<long>> StringHasher::duplicates() const
+{
+    TableLock lock(*_hashes, TableLock::Read);
+    std::map<StringID::Digest, std::vector<long>> byDigest;
+    for (const auto& v : _hashes->right) {
+        byDigest[v.second->digest()].push_back(v.first);
+    }
+    std::vector<std::vector<long>> groups;
+    for (auto& [digest, ids] : byDigest) {
+        if (ids.size() > 1) {
+            groups.push_back(std::move(ids));
+        }
+    }
+    std::sort(groups.begin(), groups.end());
+    return groups;
 }
 
 long StringHasher::takeLowTaken()
@@ -1936,6 +2090,12 @@ StringID* StringHasher::insert(const StringIDRef& sid)
     TableLock lock(*_hashes, TableLock::Write);
     assert(sid && sid._sid->_hasher == nullptr);
     auto & d = *sid._sid;
+    // Its identity, from its content as it comes in: every string it refers
+    // to is in a table already, its digest made
+    d._digest = digestOf(d._sids, d._data, d._postfix, d.isBinary(), d.isHashed(),
+                         d.isPostfixEncoded(),
+                         d.isIndexed() || d.isPrefixID() || d.isPrefixIDIndex(),
+                         d.isPrefixIDIndex());
     d._hasher = this;
     d.ref();
     ++_hashes->Revision;

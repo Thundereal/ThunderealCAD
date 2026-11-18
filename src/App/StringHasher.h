@@ -25,6 +25,7 @@
 
 #include <FCConfig.h>
 
+#include <array>
 #include <bitset>
 #include <cstdint>
 #include <functional>
@@ -147,6 +148,17 @@ public:
     }
 
     /// Returns all related StringIDs that used to encode this StringID
+    /// 128 bits of its content: what says two strings are one, in any table
+    /// and under any id (docs/StringTableContentIds.md sec 3.1). Made when
+    /// the string is put in a table; all zero before
+    using Digest = std::array<std::uint8_t, 16>;
+    const Digest& digest() const
+    {
+        return _digest;
+    }
+    /// The digest as 32 lowercase hex characters
+    std::string digestText() const;
+
     const QVector<StringIDRef>& relatedIDs() const
     {
         return _sids;
@@ -323,6 +335,7 @@ private:
     StringHasher* _hasher = nullptr;
     mutable Flags _flags;
     mutable QVector<StringIDRef> _sids;
+    Digest _digest {};
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -862,6 +875,13 @@ public:
      */
     bool takeRows(const std::vector<Row>& rows, std::string* why = nullptr,
                   std::size_t* taken = nullptr);
+    /** The groups of ids whose strings are one content (equal digests,
+     * docs/StringTableContentIds.md sec 6), each in id order, the groups by
+     * their first id: one element name spelled two ways wherever both are
+     * used. Empty when every content has one id.
+     */
+    std::vector<std::vector<long>> duplicates() const;
+
     /// The lowest id takeRows() put in below an id held already, since the
     /// last call; 0 for none. What the log, which writes the rows past the
     /// highest it wrote, has to look back to (sec 15).

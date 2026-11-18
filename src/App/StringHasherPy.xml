@@ -36,6 +36,14 @@ base64: indicate if the input 'txt' is base64 encoded binary data
                 <UserDocu>Check if two hasher are the same</UserDocu>
             </Documentation>
         </Methode>
+        <Methode Name="duplicates" Const="true">
+            <Documentation>
+                <UserDocu>duplicates() -> list of lists of ids
+
+The groups of ids whose strings are one content (equal digests), each in
+id order: one element name spelled two ways where both are used.</UserDocu>
+            </Documentation>
+        </Methode>
         <Methode Name="checkStorageSizes" Const="true">
             <Documentation>
                 <UserDocu>

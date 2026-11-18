@@ -68,6 +68,26 @@ PyObject* StringHasherPy::isSame(PyObject *args) const
     return Py::new_reference_to(Py::Boolean(getStringHasherPtr() == otherHasher));
 }
 
+PyObject* StringHasherPy::duplicates(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        Py::List groups;
+        for (const auto& ids : getStringHasherPtr()->duplicates()) {
+            Py::List group;
+            for (long id : ids) {
+                group.append(Py::Long(id));
+            }
+            groups.append(group);
+        }
+        return Py::new_reference_to(groups);
+    }
+    PY_CATCH
+}
+
 PyObject* StringHasherPy::getID(PyObject *args)
 {
     long id;

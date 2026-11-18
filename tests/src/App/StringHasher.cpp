@@ -2332,3 +2332,118 @@ TEST(StringHasherCost, DISABLED_aCallIntoTheTable)  // NOLINT
               << byId << " ns (" << sum << ")\n";
     EXPECT_EQ(hasher->size(), static_cast<std::size_t>(count));
 }
+
+// docs/StringTableContentIds.md sec 3.1: a string's digest, of its content
+// with every reference by the digest of the string referred to.
+
+namespace
+{
+/// A table's strings for a mapped name built on another by its spelled id:
+/// "Edge1" with a postfix, then "Face2" whose postfix spells Edge1's id. A
+/// table given `fillers` strings first gives them other ids.
+struct Built
+{
+    App::StringIDRef edge;
+    App::StringIDRef face;
+    App::StringIDRef plain;
+};
+
+Built buildNames(App::StringHasher& hasher, int fillers)
+{
+    for (int i = 0; i < fillers; ++i) {
+        hasher.getID(("filler" + std::to_string(i)).c_str());
+    }
+    Built b;
+    b.edge = hasher.getID(Data::MappedName(Data::MappedName("Edge1"), ";:M;FUS;:Hb:7,F"),
+                          QVector<App::StringIDRef>());
+    const std::string spelled = b.edge.toString();
+    const std::string postfix = ";:G" + spelled + ";FUS;:Hb:7,F";
+    b.face = hasher.getID(Data::MappedName(Data::MappedName("Face2"), postfix.c_str()),
+                          QVector<App::StringIDRef> {b.edge});
+    b.plain = hasher.getID("abc");
+    return b;
+}
+
+std::string digestOf(const App::StringIDRef& sid)
+{
+    return sid.deref().digestText();
+}
+}  // namespace
+
+TEST_F(StringHasherTest, digestIsPinnedToItsFormat)  // NOLINT
+{
+    // Python: hashlib.blake2s(b"FCSID1\0" + b"\0" + len + data + len + postfix,
+    // digest_size=16), lengths 32-bit little-endian
+    Hasher()->setIndexedNames(false);
+    EXPECT_EQ(digestOf(Hasher()->getID("abc")), "9ee414cb60187da18cf78a5b919107bb");
+    auto edge = Hasher()->getID(Data::MappedName(Data::MappedName("Edge1"), ";:M;FUS;:Hb:7,F"),
+                                QVector<App::StringIDRef>());
+    // Its postfix a string of its own, referred to by its digest
+    ASSERT_TRUE(edge.deref().isPostfixEncoded());
+    EXPECT_EQ(digestOf(edge.relatedIDs()[0]), "15eaa19f5fae36f1cd79c6f2351804a4");
+    EXPECT_EQ(digestOf(edge), "f45aa4481ab5301c4f33215fa1012fce");
+}
+
+TEST_F(StringHasherTest, oneContentOneDigestUnderOtherIds)  // NOLINT
+{
+    for (bool indexed : {false, true}) {
+        Base::Reference<App::StringHasher> a(new App::StringHasher);
+        Base::Reference<App::StringHasher> b(new App::StringHasher);
+        a->setIndexedNames(indexed);
+        b->setIndexedNames(indexed);
+        const Built x = buildNames(*a, 0);
+        const Built y = buildNames(*b, 7);
+        ASSERT_NE(x.edge.value(), y.edge.value());
+        ASSERT_NE(x.face.value(), y.face.value());
+        EXPECT_EQ(digestOf(x.plain), digestOf(y.plain));
+        EXPECT_EQ(digestOf(x.edge), digestOf(y.edge)) << indexed;
+        // Built on Edge1 by its spelled id, which differs: one digest still
+        EXPECT_EQ(digestOf(x.face), digestOf(y.face)) << indexed;
+        EXPECT_NE(digestOf(x.edge), digestOf(x.face));
+        EXPECT_NE(digestOf(x.plain), digestOf(x.edge));
+    }
+}
+
+TEST_F(StringHasherTest, aTableReadBackKeepsEveryDigest)  // NOLINT
+{
+    // Read back, an encoded postfix holds the referred string's text where
+    // the string made here holds its id: one content, one digest
+    for (bool indexed : {false, true}) {
+        Base::Reference<App::StringHasher> made(new App::StringHasher);
+        made->setIndexedNames(indexed);
+        buildNames(*made, 3);
+        const std::string bytes = made->saveTable();
+        std::istringstream in(bytes);
+        Base::Reference<App::StringHasher> restored(new App::StringHasher);
+        restored->restoreTable(in);
+        ASSERT_EQ(restored->size(), made->size());
+        for (const auto& v : made->getIDMap()) {
+            auto there = restored->getID(v.first);
+            ASSERT_TRUE(there);
+            EXPECT_EQ(digestOf(there), digestOf(v.second)) << v.first << " " << indexed;
+        }
+        EXPECT_TRUE(restored->duplicates().empty());
+    }
+}
+
+TEST_F(StringHasherTest, duplicatesFindsOneContentUnderTwoIds)  // NOLINT
+{
+    // Another table's strings taken in under their own ids, where this one
+    // holds the same content under others: what a worker's result did
+    // (its ids from a block this one does not give, as a worker's lease)
+    Base::Reference<App::StringHasher> there(new App::StringHasher);
+    const long block = there->reserveBlock(1000);
+    buildNames(*there, 0);
+    buildNames(*Hasher(), 0);
+    EXPECT_TRUE(Hasher()->duplicates().empty());
+    const auto rows = there->rows();
+    EXPECT_EQ(Hasher()->insertRows(rows), rows.size());
+    const auto groups = Hasher()->duplicates();
+    EXPECT_EQ(groups.size(), there->size());
+    for (const auto& group : groups) {
+        ASSERT_EQ(group.size(), 2u);
+        // This table's own, then the other's, after the block
+        EXPECT_LT(group[0], block + 1000);
+        EXPECT_GE(group[1], block + 1000);
+    }
+}

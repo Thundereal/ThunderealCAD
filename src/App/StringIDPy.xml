@@ -50,6 +50,12 @@
             </Documentation>
             <Parameter Name="IsHashed" Type="Boolean"/>
         </Attribute>
+        <Attribute Name="Digest" ReadOnly="true">
+            <Documentation>
+                <UserDocu>The 128-bit digest of its content, 32 hex characters: equal for one content in any table, under any id (docs/StringTableContentIds.md)</UserDocu>
+            </Documentation>
+            <Parameter Name="Digest" Type="String"/>
+        </Attribute>
         <Attribute Name="Index" ReadOnly="false">
             <Documentation>
                 <UserDocu>Geometry index. Only meaningful for geometry element name</UserDocu>

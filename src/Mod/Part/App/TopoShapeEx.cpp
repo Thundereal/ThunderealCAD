@@ -1275,9 +1275,9 @@ void TopoShape::copyElementMap(const TopoShape &s, const char *op)
     if (op && Hasher) {
         for (const char *p = strchr(op, '#'); p; p = strchr(p + 1, '#')) {
             char *end = nullptr;
-            long id = std::strtol(p + 1, &end, 16);
+            const std::int64_t id = std::strtoll(p + 1, &end, 16);
             if (end != p + 1 && id > 0) {
-                if (auto sid = Hasher->getID(id))
+                if (auto sid = Hasher->getIDBySpelling(id))
                     postfixIds.push_back(sid);
             }
         }
@@ -4594,6 +4594,9 @@ static bool pieceParameter(const TopoDS_Edge &source, const TopoDS_Edge &piece, 
 TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
         const std::vector<TopoShape> &shapes, const char *op)
 {
+    // The first of some names, by the age of their strings where the table
+    // spells digests (docs/StringTableContentIds.md)
+    Data::ElementNameOrder nameOrder(Hasher.get());
     setShape(shape);
     if(shape.IsNull())
         HANDLE_NULL_SHAPE;

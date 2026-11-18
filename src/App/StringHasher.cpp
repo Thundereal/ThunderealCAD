@@ -52,6 +52,7 @@
 #include <Base/Exception.h>
 #include <Base/Writer.h>
 #include <Base/Reader.h>
+#include <App/Application.h>
 #include <App/StringHasher.h>
 #include <App/StringHasherPy.h>
 #include <App/StringIDPy.h>
@@ -115,6 +116,34 @@ public:
     std::shared_ptr<StringIDLease> Lease;
     /// The lowest id takeRows() put in below one held, not yet told
     long LowTaken = 0;
+    /// New strings spelled by their digests (docs/StringTableContentIds.md)
+    bool ContentIds = false;
+    /// The strings by the number names spell them by, in a table that spells
+    /// digests (one content may be under two ids: one spelling)
+    std::unordered_multimap<std::int64_t, StringID*> Spelled;
+    /// The contested spellings, each its owner's digest (sec 3.2):
+    /// append-only, kept through clear() as the mode is
+    std::map<std::int64_t, StringID::Digest> Registry;
+
+    /// The entries and the spellings; the mode and the registry stay
+    void clear()
+    {
+        HashMapBase::clear();
+        Spelled.clear();
+    }
+    void forget(const StringID* sid)
+    {
+        if (!ContentIds) {
+            return;
+        }
+        auto range = Spelled.equal_range(sid->spelled());
+        for (auto it = range.first; it != range.second; ++it) {
+            if (it->second == sid) {
+                Spelled.erase(it);
+                return;
+            }
+        }
+    }
     /// Counts the changes to the entries, which is what the cached hash of
     /// the whole table (contentHash()) is valid for.
     uint64_t Revision = 0;
@@ -233,6 +262,7 @@ TYPESYSTEM_SOURCE_ABSTRACT(App::StringID, Base::BaseClass)
 StringID::~StringID()
 {
     if (_hasher) {
+        _hasher->_hashes->forget(this);
         _hasher->_hashes->right.erase(_id);
         ++_hasher->_hashes->Revision;
     }
@@ -297,7 +327,7 @@ QByteArray replaceSpelledIDs(const QByteArray& text, const QVector<StringIDRef>&
             if (j > i + 1) {
                 const StringIDRef* found = nullptr;
                 for (const auto& sid : sids) {
-                    if (sid && sid.value() == value) {
+                    if (sid && sid.spelled() == value) {
                         found = &sid;
                         break;
                     }
@@ -373,6 +403,88 @@ static StringID::Digest digestOf(const QVector<StringIDRef>& sids, const QByteAr
     return digest;
 }
 
+namespace {
+
+/// The first spelling level's bits (docs/StringTableContentIds.md sec 3.2);
+/// a test makes it small to have collisions
+int spellingBits = 32;
+
+/** The spelling of `digest` at `level`: the first `spellingBits` bits of it
+ * at level 0; above, 52 bits of the digest of it and the level, marked by
+ * bit 60 and the level so that no two levels share a number. Never 0.
+ */
+std::int64_t spellingAt(const StringID::Digest& digest, int level)
+{
+    if (level == 0) {
+        std::uint64_t prefix = 0;
+        for (int k = 0; k < 8; ++k) {
+            prefix = (prefix << 8) | digest[static_cast<std::size_t>(k)];
+        }
+        prefix >>= 64 - spellingBits;
+        return static_cast<std::int64_t>(prefix);
+    }
+    QCryptographicHash hash(QCryptographicHash::Blake2s_128);
+    hash.addData(QByteArrayView(reinterpret_cast<const char*>(digest.data()),
+                                static_cast<qsizetype>(digest.size())));
+    const char byte = static_cast<char>(level);
+    hash.addData(QByteArrayView(&byte, 1));
+    const QByteArray more = hash.result();
+    std::uint64_t bits = 0;
+    for (int k = 0; k < 8; ++k) {
+        bits = (bits << 8) | static_cast<std::uint8_t>(more[k]);
+    }
+    bits &= (std::uint64_t(1) << 52) - 1;
+    return static_cast<std::int64_t>((std::uint64_t(1) << 60) | (std::uint64_t(level) << 52) | bits);
+}
+
+}  // namespace
+
+namespace {
+
+/// The registry as an attribute: `<hex spelling>:<hex digest>`, space apart
+std::string registryText(const std::map<std::int64_t, StringID::Digest>& registry)
+{
+    static const char hex[] = "0123456789abcdef";
+    std::ostringstream out;
+    bool first = true;
+    for (const auto& [spelled, digest] : registry) {
+        if (!first) {
+            out << ' ';
+        }
+        first = false;
+        out << std::hex << spelled << ':';
+        for (auto byte : digest) {
+            out << hex[byte >> 4] << hex[byte & 0xf];
+        }
+    }
+    return out.str();
+}
+
+void readRegistry(const std::string& text, std::map<std::int64_t, StringID::Digest>& registry)
+{
+    std::istringstream in(text);
+    std::string entry;
+    while (in >> entry) {
+        const auto colon = entry.find(':');
+        if (colon == std::string::npos || entry.size() != colon + 33) {
+            continue;
+        }
+        StringID::Digest digest {};
+        bool ok = true;
+        for (std::size_t k = 0; k < digest.size() && ok; ++k) {
+            const int hi = hexDigit(entry[colon + 1 + 2 * k]);
+            const int lo = hexDigit(entry[colon + 2 + 2 * k]);
+            ok = hi >= 0 && lo >= 0;
+            digest[k] = static_cast<std::uint8_t>(hi * 16 + lo);
+        }
+        if (ok) {
+            registry.emplace(std::stoll(entry.substr(0, colon), nullptr, 16), digest);
+        }
+    }
+}
+
+}  // namespace
+
 std::string StringID::digestText() const
 {
     static const char hex[] = "0123456789abcdef";
@@ -387,7 +499,7 @@ std::string StringID::digestText() const
 
 std::string StringID::toString(int index) const {
     std::ostringstream ss;
-    ss << '#' << std::hex << value();
+    ss << '#' << std::hex << spelled();
     if (index)
         ss << ':' << index;
     return ss.str();
@@ -445,6 +557,9 @@ StringHasher::StringHasher()
     static std::atomic<std::uint64_t> serials {0};
     _serial = ++serials;
     _hashes->IndexedNames = DocumentParams::getHashIndexedName();
+    _hashes->ContentIds = GetApplication()
+                              .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Document")
+                              ->GetBool("ContentStringIds", false);
 }
 
 StringHasher::~StringHasher() {
@@ -482,6 +597,7 @@ std::vector<long> StringHasher::compact(const std::function<bool(long)>& keep)
     while(pendings.size()) {
         StringIDRef sid = pendings.front();
         pendings.pop_front();
+        _hashes->forget(sid._sid);
         if (!_hashes->right.erase(sid.value()))
             continue;
         ++_hashes->Revision;
@@ -521,7 +637,19 @@ std::string StringHasher::saveTable() const
 {
     TableLock lock(*_hashes, TableLock::Write);
     std::ostringstream out;
-    out << "StringTableStart v1 " << size() << '\n';
+    if (_hashes->ContentIds) {
+        // The mode and the registry with the strings: a table read back on
+        // its own spells them as it did (docs/StringTableContentIds.md sec 3.2)
+        out << "StringTableStart v2 " << size() << " contentids " << _hashes->Registry.size()
+            << '\n';
+        for (const auto& [spelled, digest] : _hashes->Registry) {
+            std::map<std::int64_t, StringID::Digest> one {{spelled, digest}};
+            out << registryText(one) << '\n';
+        }
+    }
+    else {
+        out << "StringTableStart v1 " << size() << '\n';
+    }
     saveStream(out, true);
     std::string bytes = out.str();
     _contentHash = QCryptographicHash::hash(QByteArray::fromRawData(bytes.data(),
@@ -554,7 +682,18 @@ void StringHasher::restoreTable(std::istream& stream)
         std::string ver;
         std::size_t count = 0;
         stream >> ver >> count;
-        if (ver != "v1") {
+        if (ver == "v2") {
+            std::string mode;
+            std::size_t entries = 0;
+            stream >> mode >> entries;
+            _hashes->ContentIds = mode == "contentids";
+            for (std::size_t k = 0; k < entries; ++k) {
+                std::string entry;
+                stream >> entry;
+                readRegistry(entry, _hashes->Registry);
+            }
+        }
+        else if (ver != "v1") {
             FC_WARN("Unknown string table format");
         }
         restoreStreamNew(stream, count);
@@ -949,7 +1088,10 @@ bool StringHasher::takeRows(const std::vector<Row>& rows, std::string* why, std:
         probe._data = row.data;
         probe._postfix = row.postfix;
         auto held = _hashes->left.find(&probe);
-        if (held != _hashes->left.end())
+        // Held under another id: in a table that spells digests the two
+        // spell alike, and every name reads the same -- one content under
+        // two ids, taken in as it comes (docs/StringTableContentIds.md sec 10)
+        if (held != _hashes->left.end() && !_hashes->ContentIds)
             return refuse(which + " is held here as " + std::to_string(held->first->value()));
         if (!strings.emplace(row.data, row.postfix).second)
             return refuse(which + " is sent twice");
@@ -1229,7 +1371,7 @@ StringIDRef StringHasher::getID(const Data::MappedName& name, const QVector<Stri
                 int offset = newStringID.isPostfixEncoded() ? 1 : 0;
                 // Search for the SID with that index
                 for (int i = offset; i < newStringID._sids.size(); ++i) {
-                    if (newStringID._sids[i].value() == res.id) {
+                    if (newStringID._sids[i].spelled() == res.id) {
                         if (i != offset) {
                             // If this SID is not already the first element in sids, move it there by
                             // swapping it with whatever WAS there
@@ -1498,7 +1640,7 @@ bool mintedReference(const App::StringID& theirs, const App::StringHasher& from,
     const QByteArray tail = theirs.postfix();
     if (theirs.data().startsWith('#')) {
         const auto head = App::StringID::fromString(theirs.data(), false);
-        App::StringIDRef prefix = head.id > 0 && head.index == 0 ? from.getID(head.id)
+        App::StringIDRef prefix = head.id > 0 && head.index == 0 ? from.getIDBySpelling(head.id)
                                                                  : App::StringIDRef();
         return prefix && mintedIndex(prefix.deref(), prefix.deref().postfix(), tail, index);
     }
@@ -1549,8 +1691,8 @@ bool StringHasher::rewriteIds(const QByteArray& text, const StringHasher& from, 
             continue;
         }
         bool ok = false;
-        long id = text.mid(pos + 1, end - pos - 1).toLong(&ok, 16);
-        StringIDRef theirs = ok ? from.getID(id) : StringIDRef();
+        const std::int64_t id = text.mid(pos + 1, end - pos - 1).toLongLong(&ok, 16);
+        StringIDRef theirs = ok ? from.getIDBySpelling(id) : StringIDRef();
         if (!theirs)
             return false;
         // The number a table that indexes names keeps in the reference,
@@ -1569,7 +1711,7 @@ bool StringHasher::rewriteIds(const QByteArray& text, const StringHasher& from, 
                 if (sids && sids->indexOf(here) < 0)
                     sids->push_back(here);
                 res.append(text.constData() + last, pos + 1 - last);
-                res.append(QByteArray::number(static_cast<qlonglong>(here.value()), 16));
+                res.append(QByteArray::number(static_cast<qlonglong>(here.spelled()), 16));
                 res.append(':');
                 res.append(QByteArray::number(index, 16));
                 last = stop;
@@ -1589,7 +1731,7 @@ bool StringHasher::rewriteIds(const QByteArray& text, const StringHasher& from, 
         if (sids && sids->indexOf(here) < 0)
             sids->push_back(here);
         res.append(text.constData() + last, pos + 1 - last);
-        res.append(QByteArray::number(static_cast<qlonglong>(here.value()), 16));
+        res.append(QByteArray::number(static_cast<qlonglong>(here.spelled()), 16));
         last = end;
         pos = text.indexOf('#', end);
     }
@@ -1638,7 +1780,7 @@ StringIDRef StringHasher::importNew(const StringID& theirs, const StringHasher& 
     if (!said && !theirs.isBinary() && !theirs.isHashed() && theirs._data.startsWith('#')
             && App::RestoreMinted::current()) {
         const StringID::IndexID head = StringID::fromString(theirs._data, false);
-        StringIDRef prefix = head.id > 0 ? from.getID(head.id) : StringIDRef();
+        StringIDRef prefix = head.id > 0 ? from.getIDBySpelling(head.id) : StringIDRef();
         QByteArray data;
         if (mintedText(prefix, theirs._postfix, data)) {
             builtOnHere = importNew(*prefix._sid, from, memo, take, &data);
@@ -1668,7 +1810,7 @@ StringIDRef StringHasher::importNew(const StringID& theirs, const StringHasher& 
             while (end < theirs._data.size()
                    && std::isxdigit(static_cast<unsigned char>(theirs._data[end])))
                 ++end;
-            data = "#" + QByteArray::number(static_cast<qlonglong>(builtOnHere.value()), 16)
+            data = "#" + QByteArray::number(static_cast<qlonglong>(builtOnHere.spelled()), 16)
                  + theirs._data.mid(end);
             named.push_back(builtOnHere);
         }
@@ -1757,6 +1899,10 @@ void StringHasher::Save(Base::Writer& writer) const
         << "\" threshold=\"" << _hashes->Threshold
         << "\" indexed=\"" << _hashes->IndexedNames
         << "\" lastid=\"" << lastID() << "\"";
+    if (_hashes->ContentIds) {
+        writer.Stream() << " contentids=\"1\" registry=\"" << registryText(_hashes->Registry)
+                        << "\"";
+    }
 
     if(!count) {
         writer.Stream() << " count=\"0\"></StringHasher>\n";
@@ -1785,8 +1931,12 @@ void StringHasher::saveReference(Base::Writer& writer, const std::string& file,
     TableLock lock(*_hashes, TableLock::Read);
     writer.Stream() << writer.ind()
         << "<StringHasher saveall=\"" << _hashes->SaveAll
-        << "\" threshold=\"" << _hashes->Threshold << "\" lastid=\"" << lastID()
-        << "\" count=\"0\" new=\"1\"/>\n";
+        << "\" threshold=\"" << _hashes->Threshold << "\" lastid=\"" << lastID() << "\"";
+    if (_hashes->ContentIds) {
+        writer.Stream() << " contentids=\"1\" registry=\"" << registryText(_hashes->Registry)
+                        << "\"";
+    }
+    writer.Stream() << " count=\"0\" new=\"1\"/>\n";
     writer.Stream() << writer.ind() << "<StringHasher2 table=\"" << encodeAttribute(file) << '"';
     if (!hash.empty())
         writer.Stream() << " hash=\"" << hash << '"';
@@ -1905,7 +2055,7 @@ void StringHasher::saveStream(std::ostream &stream, bool all) const {
         }
         else if (d.isPrefixIDIndex()) {
             prefixID = StringID::fromString(d._data);
-            assert(d._sids.size() > offset && d._sids[offset].value() == prefixID.id);
+            assert(d._sids.size() > offset && d._sids[offset].spelled() == prefixID.id);
         }
 
         auto flags = d._flags;
@@ -2096,6 +2246,7 @@ StringID* StringHasher::insert(const StringIDRef& sid)
                          d.isPostfixEncoded(),
                          d.isIndexed() || d.isPrefixID() || d.isPrefixIDIndex(),
                          d.isPrefixIDIndex());
+    d._spelled = d._id;
     d._hasher = this;
     d.ref();
     ++_hashes->Revision;
@@ -2105,7 +2256,120 @@ StringID* StringHasher::insert(const StringIDRef& sid)
         d._hasher = nullptr;
         d.unref();
     }
+    else if (_hashes->ContentIds) {
+        // Spelled once in: a string the table already had under its id is
+        // dropped, and contests nothing
+        d._spelled = spellingOf(d._digest);
+        _hashes->Spelled.emplace(d._spelled, &d);
+    }
     return res->second;
+}
+
+std::int64_t StringHasher::spellingOf(const StringID::Digest& digest)
+{
+    // The first level whose spelling no other content holds, and that the
+    // registry does not give another: a clash found is registered, its
+    // owner the content that had it (docs/StringTableContentIds.md sec 3.2)
+    for (int level = 0; level < 16; ++level) {
+        const std::int64_t spelled = spellingAt(digest, level);
+        if (spelled <= 0) {
+            continue;
+        }
+        auto owner = _hashes->Registry.find(spelled);
+        if (owner != _hashes->Registry.end()) {
+            if (owner->second == digest) {
+                return spelled;
+            }
+            continue;
+        }
+        bool clash = false;
+        auto range = _hashes->Spelled.equal_range(spelled);
+        for (auto it = range.first; it != range.second; ++it) {
+            if (it->second->digest() != digest) {
+                _hashes->Registry.emplace(spelled, it->second->digest());
+                ++_hashes->Revision;
+                clash = true;
+                break;
+            }
+        }
+        if (!clash) {
+            return spelled;
+        }
+    }
+    FC_ERR("a string's digest contested at every spelling level");
+    return spellingAt(digest, 15);
+}
+
+StringIDRef StringHasher::getIDBySpelling(std::int64_t spelled, int index) const
+{
+    TableLock lock(*_hashes, TableLock::Read);
+    if (!_hashes->ContentIds) {
+        return getID(static_cast<long>(spelled), index);
+    }
+    StringID* found = nullptr;
+    auto range = _hashes->Spelled.equal_range(spelled);
+    for (auto it = range.first; it != range.second; ++it) {
+        if (!found || it->second->_id < found->_id) {
+            found = it->second;
+        }
+    }
+    return found ? StringIDRef(found, index) : StringIDRef();
+}
+
+void StringHasher::setContentIds(bool enable)
+{
+    TableLock lock(*_hashes, TableLock::Write);
+    if (_hashes->ContentIds == enable) {
+        return;
+    }
+    // The spellings of what the table holds follow the mode
+    _hashes->ContentIds = enable;
+    _hashes->Spelled.clear();
+    for (auto& v : _hashes->right) {
+        StringID& d = *v.second;
+        d._spelled = enable ? spellingOf(d._digest) : d._id;
+        if (enable) {
+            _hashes->Spelled.emplace(d._spelled, &d);
+        }
+    }
+    ++_hashes->Revision;
+}
+
+bool StringHasher::getContentIds() const
+{
+    TableLock lock(*_hashes, TableLock::Read);
+    return _hashes->ContentIds;
+}
+
+std::map<std::int64_t, StringID::Digest> StringHasher::spellingRegistry() const
+{
+    TableLock lock(*_hashes, TableLock::Read);
+    return _hashes->Registry;
+}
+
+void StringHasher::takeRegistry(const std::map<std::int64_t, StringID::Digest>& registry)
+{
+    TableLock lock(*_hashes, TableLock::Write);
+    for (const auto& entry : registry) {
+        _hashes->Registry.insert(entry);
+    }
+}
+
+std::string StringHasher::registryToText(const std::map<std::int64_t, StringID::Digest>& registry)
+{
+    return registryText(registry);
+}
+
+std::map<std::int64_t, StringID::Digest> StringHasher::registryFromText(const std::string& text)
+{
+    std::map<std::int64_t, StringID::Digest> registry;
+    readRegistry(text, registry);
+    return registry;
+}
+
+void StringHasher::setSpellingBitsForTesting(int bits)
+{
+    spellingBits = bits > 0 && bits <= 32 ? bits : 32;
 }
 
 void StringHasher::restoreStream(std::istream &stream, std::size_t count) {
@@ -2179,6 +2443,13 @@ void StringHasher::Restore(Base::XMLReader& reader)
         _hashes->InferIndexed = true;
     }
     _hashes->LastID = std::max<long>(_hashes->LastID, reader.getAttributeAsInteger("lastid", "0"));
+    // Spelled by digests only where saved so: a table saved before counts ids
+    _hashes->ContentIds = reader.hasAttribute("contentids")
+        && reader.getAttributeAsInteger("contentids") != 0;
+    _hashes->Registry.clear();
+    if (reader.hasAttribute("registry")) {
+        readRegistry(reader.getAttribute("registry"), _hashes->Registry);
+    }
 
     bool newTag = false;
     if (reader.getAttributeAsInteger("new","0") > 0) {

@@ -36,6 +36,15 @@ base64: indicate if the input 'txt' is base64 encoded binary data
                 <UserDocu>Check if two hasher are the same</UserDocu>
             </Documentation>
         </Methode>
+        <Methode Name="getIDBySpelling" Const="true">
+            <Documentation>
+                <UserDocu>getIDBySpelling(number, index=0) -> StringID or None
+
+The string a name spells by `number`, the hex digits after a '#' in its
+text: the table's id in a table of counted ids, a prefix of the digest in
+one that spells digests (ContentIds).</UserDocu>
+            </Documentation>
+        </Methode>
         <Methode Name="duplicates" Const="true">
             <Documentation>
                 <UserDocu>duplicates() -> list of lists of ids
@@ -86,6 +95,14 @@ as upstream FreeCAD does. Saved with the document; a document saved before
 it was gets the mode its string table was written in.</UserDocu>
             </Documentation>
             <Parameter Name="IndexedNames" Type="Boolean"/>
+        </Attribute>
+        <Attribute Name="ContentIds">
+            <Documentation>
+                <UserDocu>Whether names spell new strings by a prefix of their content's digest,
+the same in every table, instead of the table's counted id
+(docs/StringTableContentIds.md). Saved with the document.</UserDocu>
+            </Documentation>
+            <Parameter Name="ContentIds" Type="Boolean"/>
         </Attribute>
         <Attribute Name="Table" ReadOnly="true">
             <Documentation>

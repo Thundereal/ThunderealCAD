@@ -29,6 +29,20 @@ import math
 # ---------------------------------------------------------------------------
 
 
+def spelledIds(hasher, text):
+    """The ids of the strings `text` names by '#' and hex digits: the numbers
+    a name spells them by, which a table that spells digests
+    (docs/StringTableContentIds.md) does not number its strings by. One it
+    does not hold comes back negative."""
+    import re
+
+    out = set()
+    for x in re.findall(r"#([0-9a-f]+)", text):
+        sid = hasher.getIDBySpelling(int(x, 16))
+        out.add(sid.Value if sid else -int(x, 16))
+    return out
+
+
 def consoleExe():
     """The console program beside this build: named after the running one,
     which a branded build renames (ThunderealCmd), else FreeCADCmd."""
@@ -5119,7 +5133,9 @@ class TransactionBranchCases(unittest.TestCase):
             table = z.read("StringTable.txt").decode("latin-1")
         self.assertEqual(xml.count("<StringHasher2"), 1)
         self.assertIn('<StringHasher2 table="StringTable.txt" hash="', xml)
-        self.assertTrue(table.startswith("StringTableStart v1 %d\n" % doc.Hasher.Size))
+        # A table that spells digests says so, and its registry, at its head
+        version = 2 if doc.Hasher.ContentIds else 1
+        self.assertTrue(table.startswith("StringTableStart v%d %d" % (version, doc.Hasher.Size)))
         versions = doc.getTransactionVersions()
         for v in versions:
             self.assertNotIn("StringTable.txt", [e for e, h in v["manifest"]])
@@ -5975,7 +5991,8 @@ class TransactionBranchCases(unittest.TestCase):
         hidden = [
             (n, e)
             for n, e in sorted(shape.ElementMap.items())
-            if ids(shape, n) - {int(x, 16) for x in re.findall(r"#([0-9a-f]+)", n)}
+            # An edge: what the tests measure it by is its length
+            if e.startswith("Edge") and ids(shape, n) - spelledIds(doc.Hasher, n)
         ]
         self.assertTrue(hidden)
         name, element = hidden[0]
@@ -6148,7 +6165,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -6165,7 +6182,7 @@ class TransactionBranchCases(unittest.TestCase):
             self.assertTrue(said.startswith(expand(B.Hasher, source[element])), (element, said))
             marker = re.search(r";:X#([0-9a-f]+)", name)
             self.assertTrue(marker, name)
-            self.assertEqual(A.Hasher.getID(int(marker.group(1), 16)).Data, B.Uid)
+            self.assertEqual(A.Hasher.getIDBySpelling(int(marker.group(1), 16)).Data, B.Uid)
 
         def said(doc):
             return {
@@ -6651,7 +6668,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -6707,7 +6724,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def stored(doc):
             attrs = saved(doc)
-            named = {int(x, 16) for x in re.findall(r"#([0-9a-f]+)", attrs["stored"])}
+            named = spelledIds(doc.Hasher, attrs["stored"])
             self.assertTrue(named)
             self.assertEqual(attrs["ids"], named)
             self.assertEqual({i for i in named if doc.Hasher.getID(i)}, named)
@@ -6729,7 +6746,12 @@ class TransactionBranchCases(unittest.TestCase):
         B.recompute()
         B.save()
         new = nameOf(B, element)
-        self.assertNotEqual(new, old)
+        if B.Hasher.ContentIds:
+            # Spelled by its digest: made again, the same name
+            # (docs/StringTableContentIds.md)
+            self.assertEqual(new, old)
+        else:
+            self.assertNotEqual(new, old)
         self.assertEqual(expand(B.Hasher, new), said)
         FreeCAD.closeDocument(B.Name)
 
@@ -6788,7 +6810,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -6799,7 +6821,7 @@ class TransactionBranchCases(unittest.TestCase):
         for name in shape.ElementMap:
             marker = re.search(r";:X#([0-9a-f]+)", name)
             self.assertTrue(marker, name)
-            self.assertEqual(A.Hasher.getID(int(marker.group(1), 16)).Data, B.Uid)
+            self.assertEqual(A.Hasher.getIDBySpelling(int(marker.group(1), 16)).Data, B.Uid)
         before = {e: expand(A.Hasher, n) for n, e in shape.ElementMap.items()}
         for text in before.values():
             self.assertNotIn("<missing>", text)
@@ -6849,7 +6871,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -6889,7 +6911,7 @@ class TransactionBranchCases(unittest.TestCase):
             # The stored name, in the owner's table, reads as the target's.
             attrs = saved(doc)
             self.assertEqual(attrs["stored"].split(".")[-1], attrs["shadow"].split(".")[-1])
-            named = {int(x, 16) for x in re.findall(r"#([0-9a-f]+)", attrs["stored"])}
+            named = spelledIds(doc.Hasher, attrs["stored"])
             self.assertTrue(named)
             self.assertEqual(attrs["ids"], named)
             self.assertEqual({i for i in named if doc.Hasher.getID(i)}, named)
@@ -6917,7 +6939,12 @@ class TransactionBranchCases(unittest.TestCase):
         B.recompute()
         B.save()
         new = nameOf(B, element)
-        self.assertNotEqual(new, old)
+        if B.Hasher.ContentIds:
+            # Spelled by its digest: made again, the same name
+            # (docs/StringTableContentIds.md)
+            self.assertEqual(new, old)
+        else:
+            self.assertNotEqual(new, old)
         self.assertEqual(expand(B.Hasher, new), said)
         A = self.track(FreeCAD.openDocument(pathA))
         self.assertEqual(A.Ref.S[1], [element])
@@ -9010,7 +9037,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -9073,7 +9100,7 @@ class TransactionBranchCases(unittest.TestCase):
         theirText = dict(expr.ExpressionEngine)["T"]
         theirHeld = heldBy(expr)
         self.assertTrue(theirHeld)
-        saidHeld = sorted(expand(fork.Hasher, "#%x" % i) for i in theirHeld)
+        saidHeld = sorted(expand(fork.Hasher, "#%x" % fork.Hasher.getID(i).Spelled) for i in theirHeld)
         for text in saidHeld:
             self.assertNotIn("<missing>", text)
         theirIds = {o.Name: o.ID for o in fork.Objects}
@@ -9133,12 +9160,12 @@ class TransactionBranchCases(unittest.TestCase):
         held = heldBy(doc.Expr)
         self.assertEqual({i for i in held if doc.Hasher.getID(i)}, held)
         self.assertEqual(
-            sorted(expand(doc.Hasher, "#%x" % i) for i in held),
+            sorted(expand(doc.Hasher, "#%x" % doc.Hasher.getID(i).Spelled) for i in held),
             sorted(retag(text, tags) for text in saidHeld),
         )
         # Which are the strings the edge's name here is made of.
         self.assertEqual(
-            {int(x, 16) for x in re.findall(r"#([0-9a-f]+)", byElement(doc.Theirs2.Shape)[edge])},
+            spelledIds(doc.Hasher, byElement(doc.Theirs2.Shape)[edge]),
             held,
         )
         self.assertTrue(doc.Mine.Shape.isValid())
@@ -10816,7 +10843,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)

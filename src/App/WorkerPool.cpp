@@ -803,6 +803,12 @@ json WorkerPool::Private::setupFor(Proc& proc)
     // (docs/WorkerProcess.md sec 20)
     if (StringHasherRef hasher = doc.getStringHasher()) {
         setup["indexed"] = hasher->getIndexedNames();
+        // Spelled as this table spells, by digests where it does
+        // (docs/StringTableContentIds.md sec 3.2)
+        if (hasher->getContentIds()) {
+            setup["contentids"] = true;
+            setup["registry"] = StringHasher::registryToText(hasher->spellingRegistry());
+        }
     }
     proc.version = store.empty() ? 0 : version;
     proc.versionSeq = store.empty() ? 0 : versionSeq;
@@ -2331,6 +2337,18 @@ int WorkerPool::serve()
                         }
                         if (reader && reader->hasher()) {
                             reader->hasher()->setIndexedNames(indexed->get<bool>());
+                        }
+                    }
+                    if (header.value("contentids", false)) {
+                        const auto registry =
+                            StringHasher::registryFromText(header.value("registry", std::string()));
+                        for (StringHasherRef hasher :
+                             {doc->getStringHasher(),
+                              reader ? reader->hasher() : StringHasherRef()}) {
+                            if (hasher) {
+                                hasher->takeRegistry(registry);
+                                hasher->setContentIds(true);
+                            }
                         }
                     }
                     why = unfitFor(*doc, header.value("proxies", json::array()));

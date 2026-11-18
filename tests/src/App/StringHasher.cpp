@@ -2447,3 +2447,164 @@ TEST_F(StringHasherTest, duplicatesFindsOneContentUnderTwoIds)  // NOLINT
         EXPECT_GE(group[1], block + 1000);
     }
 }
+
+// docs/StringTableContentIds.md sec 3.2: names spell a string by a prefix of
+// its digest, in a table that spells digests.
+
+TEST_F(StringHasherTest, contentIdsSpellOneContentAlikeInTwoTables)  // NOLINT
+{
+    for (bool indexed : {false, true}) {
+        Base::Reference<App::StringHasher> a(new App::StringHasher);
+        Base::Reference<App::StringHasher> b(new App::StringHasher);
+        for (auto h : {a, b}) {
+            h->setIndexedNames(indexed);
+            h->setContentIds(true);
+        }
+        const Built x = buildNames(*a, 0);
+        const Built y = buildNames(*b, 7);
+        ASSERT_NE(x.face.value(), y.face.value());
+        // One spelling: the names built on them are the same text
+        EXPECT_EQ(x.plain.toString(), y.plain.toString());
+        EXPECT_EQ(x.edge.toString(), y.edge.toString()) << indexed;
+        EXPECT_EQ(x.face.toString(), y.face.toString()) << indexed;
+        EXPECT_EQ(x.face.deref().postfix(), y.face.deref().postfix()) << indexed;
+        // Each found by the number it is spelled by
+        for (const auto& sid : {x.plain, x.edge, x.face}) {
+            auto found = a->getIDBySpelling(sid.spelled());
+            ASSERT_TRUE(found);
+            EXPECT_EQ(found.value(), sid.value());
+            auto parsed = App::StringID::fromString(sid.toString().c_str());
+            EXPECT_EQ(a->getID(parsed).value(), sid.value());
+        }
+    }
+}
+
+TEST_F(StringHasherTest, aTableOfCountedIdsSpellsItsIds)  // NOLINT
+{
+    Hasher()->setContentIds(false);
+    const Built x = buildNames(*Hasher(), 2);
+    for (const auto& sid : {x.plain, x.edge, x.face}) {
+        EXPECT_EQ(sid.spelled(), sid.value());
+        EXPECT_EQ(Hasher()->getIDBySpelling(sid.spelled()).value(), sid.value());
+    }
+}
+
+TEST_F(StringHasherTest, contestedSpellingsMoveUpAndStay)  // NOLINT
+{
+    // Four bits at the first level: 60 contents contest most of them
+    App::StringHasher::setSpellingBitsForTesting(4);
+    struct Reset
+    {
+        ~Reset()
+        {
+            App::StringHasher::setSpellingBitsForTesting(0);
+        }
+    } reset;
+    Base::Reference<App::StringHasher> made(new App::StringHasher);
+    made->setContentIds(true);
+    std::vector<App::StringIDRef> held;
+    std::map<std::int64_t, std::string> byspelling;
+    int above = 0;
+    for (int i = 0; i < 60; ++i) {
+        auto sid = made->getID(("content " + std::to_string(i)).c_str());
+        held.push_back(sid);
+        auto res = byspelling.emplace(sid.spelled(), sid.deref().digestText());
+        EXPECT_TRUE(res.second) << "spelling given twice: " << sid.toString();
+        above += sid.spelled() >= (std::int64_t(1) << 60) ? 1 : 0;
+    }
+    EXPECT_GT(above, 0);
+    EXPECT_FALSE(made->spellingRegistry().empty());
+    // Made again, one content keeps its spelling
+    EXPECT_EQ(made->getID("content 17").spelled(), held[17].spelled());
+
+    // Read back on its own: the mode, the registry, every spelling
+    const std::string bytes = made->saveTable();
+    std::istringstream in(bytes);
+    Base::Reference<App::StringHasher> restored(new App::StringHasher);
+    restored->restoreTable(in);
+    EXPECT_TRUE(restored->getContentIds());
+    EXPECT_EQ(restored->spellingRegistry(), made->spellingRegistry());
+    for (const auto& sid : held) {
+        auto there = restored->getID(sid.value());
+        ASSERT_TRUE(there);
+        EXPECT_EQ(there.spelled(), sid.spelled()) << sid.toString();
+    }
+
+    // A table that had only the contested ones' later contents, the earlier
+    // gone, still spells them as the registry says
+    Base::Reference<App::StringHasher> later(new App::StringHasher);
+    later->setContentIds(true);
+    later->takeRegistry(made->spellingRegistry());
+    for (int i = 59; i >= 0; --i) {
+        auto sid = later->getID(("content " + std::to_string(i)).c_str());
+        EXPECT_EQ(sid.spelled(), held[static_cast<std::size_t>(i)].spelled()) << i;
+    }
+}
+
+TEST_F(StringHasherTest, namesSpellingDigestsSortByTheirStringsAge)  // NOLINT
+{
+    // ElementNameComp puts the name of the older string first, which a
+    // table of counted ids gives by its numbers; one that spells digests
+    // gives no such numbers, and orders by the strings' ids instead while an
+    // ElementNameOrder names it (docs/StringTableContentIds.md)
+    Base::Reference<App::StringHasher> table(new App::StringHasher);
+    table->setContentIds(true);
+    std::vector<App::StringIDRef> made;
+    for (int i = 0; i < 12; ++i) {
+        made.push_back(table->getID(("edge " + std::to_string(i)).c_str()));
+    }
+    // Two whose spellings go the other way from their age
+    const App::StringIDRef* older = nullptr;
+    const App::StringIDRef* newer = nullptr;
+    for (std::size_t i = 0; i + 1 < made.size() && !older; ++i) {
+        for (std::size_t j = i + 1; j < made.size(); ++j) {
+            if (made[i].spelled() > made[j].spelled()) {
+                older = &made[i];
+                newer = &made[j];
+                break;
+            }
+        }
+    }
+    ASSERT_TRUE(older);
+    const Data::MappedName a((older->toString() + ";:H1,E").c_str());
+    const Data::MappedName b((newer->toString() + ";:H1,E").c_str());
+    Data::ElementNameComp comp;
+    // By their text, the newer first
+    EXPECT_TRUE(comp(b, a));
+    {
+        Data::ElementNameOrder order(table.get());
+        EXPECT_TRUE(comp(a, b));
+        EXPECT_FALSE(comp(b, a));
+        // One string: by the rest
+        const Data::MappedName c((older->toString() + ";:H2,E").c_str());
+        EXPECT_TRUE(comp(a, c));
+    }
+    EXPECT_TRUE(comp(b, a));
+}
+
+TEST_F(StringHasherTest, rowsOfAContentHeldUnderOtherIdsComeInSpelledAlike)  // NOLINT
+{
+    // A worker's result (docs/WorkerProcess.md sec 15, 19): its strings under
+    // the ids leased it. Where this table holds the same content under its
+    // own ids, a table of counted ids refuses them -- every name would be
+    // spelled two ways; one that spells digests takes them, the names alike.
+    for (bool content : {false, true}) {
+        Base::Reference<App::StringHasher> here(new App::StringHasher);
+        Base::Reference<App::StringHasher> worker(new App::StringHasher);
+        here->setContentIds(content);
+        worker->setContentIds(content);
+        const Built mine = buildNames(*here, 0);
+        worker->reserveBlock(1000);
+        const Built theirs = buildNames(*worker, 0);
+        std::string why;
+        const bool taken = here->takeRows(worker->rows(), &why);
+        EXPECT_EQ(taken, content) << why;
+        if (content) {
+            auto face = here->getID(theirs.face.value());
+            ASSERT_TRUE(face);
+            EXPECT_EQ(face.spelled(), mine.face.spelled());
+            EXPECT_NE(face.value(), mine.face.value());
+            EXPECT_EQ(here->duplicates().size(), worker->size());
+        }
+    }
+}

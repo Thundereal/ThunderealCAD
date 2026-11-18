@@ -124,7 +124,8 @@ public:
     StringID(long id, QByteArray data, const Flags& flags = Flag::None)
         : _id(id),
           _data(std::move(data)),
-          _flags(flags)
+          _flags(flags),
+          _spelled(id)
     {}
 
     /// Constructs an empty StringID
@@ -158,6 +159,16 @@ public:
     }
     /// The digest as 32 lowercase hex characters
     std::string digestText() const;
+    /** The number a name spells it by (`#<hex>`): its id in a table of
+     * counted ids, a prefix of its digest in one that spells digests
+     * (StringHasher::setContentIds(), docs/StringTableContentIds.md sec
+     * 3.2) -- the same for one content in every such table. Set when the
+     * string is put in a table.
+     */
+    std::int64_t spelled() const
+    {
+        return _spelled;
+    }
 
     const QVector<StringIDRef>& relatedIDs() const
     {
@@ -227,7 +238,9 @@ public:
 
     /// Light weight structure of holding a string ID and associated index
     struct IndexID {
-        long id;
+        /// The number spelled: a table's id in an older table, a prefix of
+        /// the digest in one that spells digests (spelled())
+        std::int64_t id;
         int index;
 
         explicit operator bool() const
@@ -336,6 +349,7 @@ private:
     mutable Flags _flags;
     mutable QVector<StringIDRef> _sids;
     Digest _digest {};
+    std::int64_t _spelled = 0;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -556,6 +570,12 @@ public:
         return 0;
     }
 
+    /// The number names spell it by (StringID::spelled()), 0 for none
+    std::int64_t spelled() const
+    {
+        return _sid ? _sid->spelled() : 0;
+    }
+
     QVector<StringIDRef> relatedIDs() const
     {
         if (_sid) {
@@ -753,9 +773,36 @@ public:
      * @param id: string ID with index
      * @return Return a shared pointer to the internally stored StringID.
      */
+    /** The string a name spells by `spelled` (StringID::spelled()) -- what
+     * a number read from a name's text is looked up by; getID(long) takes a
+     * table's own id, as saved lists of ids hold it. The same in a table of
+     * counted ids.
+     */
+    StringIDRef getIDBySpelling(std::int64_t spelled, int index = 0) const;
+
+    /** Whether new strings are spelled by their digests
+     * (docs/StringTableContentIds.md): the table's, saved with it. A new
+     * table takes Preferences/Document ContentStringIds (off); one restored
+     * without it counts ids, as every table did before.
+     */
+    void setContentIds(bool enable);
+    bool getContentIds() const;
+    /// The contested spellings and their owners' digests (sec 3.2)
+    std::map<std::int64_t, StringID::Digest> spellingRegistry() const;
+    /// Take in another table's contested spellings (a worker's copy, its
+    /// client's): before setContentIds(), which spells by them
+    void takeRegistry(const std::map<std::int64_t, StringID::Digest>& registry);
+    /// The registry as text, `<hex spelling>:<hex digest>` apart by spaces,
+    /// and read back from it
+    static std::string registryToText(const std::map<std::int64_t, StringID::Digest>& registry);
+    static std::map<std::int64_t, StringID::Digest> registryFromText(const std::string& text);
+    /// For tests: the bits of the first spelling level, 0 for 32
+    static void setSpellingBitsForTesting(int bits);
+
+    /// The string an id read from a name's text spells (getIDBySpelling())
     StringIDRef getID(const StringID::IndexID& id) const
     {
-        return getID(id.id, id.index);
+        return getIDBySpelling(id.id, id.index);
     }
 
     std::map<long,StringIDRef> getIDMap() const;
@@ -1018,6 +1065,8 @@ public:
 
 protected:
     StringID* insert(const StringIDRef& sid);
+    /// The spelling of a new string of `digest` (docs/StringTableContentIds.md sec 3.2)
+    std::int64_t spellingOf(const StringID::Digest& digest);
     /// The id a new string gets: the lease's, or the one after the highest
     long nextID();
     StringIDRef importOne(const StringIDRef& foreign, ImportMemo& memo, bool take);

@@ -951,8 +951,33 @@ struct AppExport ElementNameComp
      *
      * The reason for this is to prevent name with bigger digits (usually means
      * comes late in history) comes early when sorting.
+     *
+     * A table that spells digests (docs/StringTableContentIds.md) spells a
+     * string by no number of its age: while an ElementNameOrder names that
+     * table, two names that both lead with a string's spelling are ordered
+     * by the ids of the strings they spell, as a table of counted ids orders
+     * them by their text.
      */
     bool operator()(const MappedName &a, const MappedName &b) const;
+};
+
+/** While one lives on this thread, ElementNameComp orders names spelling
+ * the strings of `hasher` by their strings' age: what a naming routine that
+ * picks the first of some names in that order sets for its scope.
+ */
+class AppExport ElementNameOrder
+{
+public:
+    explicit ElementNameOrder(const App::StringHasher* hasher);
+    ~ElementNameOrder();
+    ElementNameOrder(const ElementNameOrder&) = delete;
+    ElementNameOrder& operator=(const ElementNameOrder&) = delete;
+
+    /// The table set on this thread, or null
+    static const App::StringHasher* current();
+
+private:
+    const App::StringHasher* _outer;
 };
 
 // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)

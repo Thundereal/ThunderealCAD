@@ -68,6 +68,24 @@ PyObject* StringHasherPy::isSame(PyObject *args) const
     return Py::new_reference_to(Py::Boolean(getStringHasherPtr() == otherHasher));
 }
 
+PyObject* StringHasherPy::getIDBySpelling(PyObject* args) const
+{
+    long long spelled = 0;
+    int index = 0;
+    if (!PyArg_ParseTuple(args, "L|i", &spelled, &index)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto sid = getStringHasherPtr()->getIDBySpelling(spelled, index);
+        if (!sid) {
+            Py_Return;
+        }
+        return sid.getPyObject();
+    }
+    PY_CATCH
+}
+
 PyObject* StringHasherPy::duplicates(PyObject* args) const
 {
     if (!PyArg_ParseTuple(args, "")) {
@@ -191,6 +209,16 @@ Py::Boolean StringHasherPy::getIndexedNames() const
 void StringHasherPy::setIndexedNames(Py::Boolean value)
 {
     getStringHasherPtr()->setIndexedNames(value);
+}
+
+Py::Boolean StringHasherPy::getContentIds() const
+{
+    return {getStringHasherPtr()->getContentIds()};
+}
+
+void StringHasherPy::setContentIds(Py::Boolean value)
+{
+    getStringHasherPtr()->setContentIds(value);
 }
 
 Py::Dict StringHasherPy::getTable() const {

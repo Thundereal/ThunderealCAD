@@ -6060,6 +6060,34 @@ Phase D1 is under way (2026-10-28):
     last digit or one of it.
   - Test: TestFlexibleBody.test_flexible_torus_on_roller, both angles,
     within two hundredths.
+- Built, D4b way 1 step 8 (2026-11-18): a flexible face of no round slid
+  into a round, the normal both surfaces' own. A flexible torus on a
+  flexible roller at 20 deg: 49.33 N, 48.72 to 49.88, the springs' alone
+  within 49.09 to 49.53.
+  - **The damping's, not the springs'**: of each frame's force less its
+    spring, 0.0659 N per mm/s of the point's speed along the normal, to
+    0.0003 N; that speed from -8.5 to 7.9 mm/s with the angle between the
+    normal and the torus's radius through its point (correlation -0.85),
+    up to 0.57 deg. The point slid into the round (slides 2) is the face's
+    deepest on its six-node faces, and along the round's turn the depth
+    barely moves -- 0.0001 um at 27 um off, with the curvatures of R 13
+    and R 5 -- so a micron of the faces' puts it that far off the line of
+    centres, and the torus turning at 1.2 m/s moves it along the normal.
+  - **Then as against a hull** (`FlexibleContact::towardsRound()`, from
+    place() and follow()): from the round's axis or centre through the
+    face's point, the round's farthest along the normal (roundSupport()),
+    the face's true surface's (farthestNear()), each one's curvature
+    (roundCurvature(), curvatureOf()), curvedNormal()'s steps. From where
+    place() slid it each time (OnMesh::fromFace, fromL), a way of the
+    state alone. A face of a round keeps the round's own way; a hollow
+    round, or a point taken to a line (toLine()), too.
+  - Numbers: a flexible torus on a rigid roller 49.99 N, 49.33 to 50.48 ->
+    50.00, 49.88 to 50.03, its motion's torque -1.467 -> -0.550 N mm under
+    the roller; 49.98, 49.29 to 50.43 -> 50.00, 49.91 to 50.03, -1.679 ->
+    -0.548 at 20 deg; on the flexible roller 49.33, 48.72 to 49.88 ->
+    49.34, 49.26 to 49.37.
+  - Test: TestFlexibleBody.test_flexible_torus_on_roller, within five
+    thousandths, the flexible roller's case added.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

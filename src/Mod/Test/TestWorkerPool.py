@@ -59,6 +59,10 @@ def _names(doc, inputs, out):
     return {"Names": sorted(o.Name for o in doc.Objects), "Pid": os.getpid()}
 
 
+def _indexed(doc, inputs, out):
+    return {"Indexed": doc.Hasher.IndexedNames}
+
+
 def _edges(doc, inputs, out):
     return {n: len(doc.getObject(n).Edges) for n in inputs["Objects"]}
 
@@ -124,6 +128,7 @@ for _kind, _handler in (
     ("test.volume", _volume),
     ("test.edges", _edges),
     ("test.names", _names),
+    ("test.indexed", _indexed),
 ):
     worker.register(_kind, _handler)
 
@@ -514,6 +519,22 @@ class TestWorkerPool(unittest.TestCase):
         info = self.pool.info()
         self.assertEqual(info["Pids"], pids)
         self.assertEqual((info["Moves"], info["Reopens"]), (3, 0), info)
+
+    def testTheCopySpellsNamesAsThisTable(self):
+        """A copy opened from the log took the new-document mode of naming
+        an element's index; an older file's table spells them whole, and
+        every name the worker made then differed from this process's
+        (docs/WorkerProcess.md sec 20)"""
+        self.settings(1)
+        for indexed in (not self.doc.Hasher.IndexedNames, self.doc.Hasher.IndexedNames):
+            self.doc.Hasher.IndexedNames = indexed
+            self.pool.stop()
+            self.assertTrue(self.pool.start())
+            job = self.submit("test.indexed")
+            self.assertTrue(self.pool.wait(120))
+            result = self.pool.result(job)
+            self.assertEqual(result["Status"], "Done", result)
+            self.assertEqual(result["Output"]["Indexed"], indexed)
 
     def testAnObjectAddedOrRemovedAlone(self):
         """No value of the design changes, and the copy is stale all the

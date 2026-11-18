@@ -796,6 +796,14 @@ json WorkerPool::Private::setupFor(Proc& proc)
     if (!proc.leaseCount && lease(proc, range)) {
         setup["ids"] = range;
     }
+    // How this table spells a name's index (StringHasher::setIndexedNames):
+    // a copy opened from the log takes the new-document mode, and would
+    // spell every name it makes otherwise than this table -- each reference
+    // here to what it made then missed, and was searched for by geometry
+    // (docs/WorkerProcess.md sec 20)
+    if (StringHasherRef hasher = doc.getStringHasher()) {
+        setup["indexed"] = hasher->getIndexedNames();
+    }
     proc.version = store.empty() ? 0 : version;
     proc.versionSeq = store.empty() ? 0 : versionSeq;
     proc.store = store;
@@ -2315,6 +2323,16 @@ int WorkerPool::serve()
                     why = "cannot open " + file;
                 }
                 else {
+                    // Names spelled as the pool's table spells them
+                    if (auto indexed = header.find("indexed");
+                        indexed != header.end() && indexed->is_boolean()) {
+                        if (StringHasherRef hasher = doc->getStringHasher()) {
+                            hasher->setIndexedNames(indexed->get<bool>());
+                        }
+                        if (reader && reader->hasher()) {
+                            reader->hasher()->setIndexedNames(indexed->get<bool>());
+                        }
+                    }
                     why = unfitFor(*doc, header.value("proxies", json::array()));
                 }
             }

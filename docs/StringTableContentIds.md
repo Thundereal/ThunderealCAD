@@ -420,3 +420,39 @@ Test: `TransactionBranchCases.testAnAcceptedMigrationSpellsAnOldFileByDigests`
 its names as saved; `spellNamesByContent()` marks the cut alone (the boxes
 name their elements without the table), a second call marks none; after the recompute the cut names the same elements
 by digests, and saved and reopened it reads them as they are, untouched.
+
+## 13. What a 3D view put in the table before an open (2026-11-18)
+
+In the GUI a worker's result for scanner.FCStd went in by content, "string
+131105 is held here as 772" (docs/WorkerProcess.md sec 20). The worker's
+copy of the table held 151 strings; this process held 41,048.
+
+- **Why.** The GUI makes a document's 3D view when the document is made,
+  before an open reads the file. The view materialises its `Render_*`
+  overrides as dynamic properties (`_containerProperty`,
+  `View3DInventorViewer.cpp`), and a dynamic property's documentation goes
+  into its owner document's string table (`DynamicProperty`,
+  `docID`): 104 strings, ids 1 to 104, before the file's table is read.
+  The open found the file's hasher (the transaction log's, sec 27.40 item
+  2) not empty, merged the file's table into it, found ids 1 to 104 meaning
+  other strings there, and kept the document's table apart. The log stores
+  the strings of the file's hasher, which then held the 104 and what came
+  after (151), and a worker reads its copy from the log. Not seen on the
+  console, which makes no view; not seen with a file the GUI made, whose
+  own view put the same texts at the same ids.
+- **Fix.** A dynamic property's documentation goes in the document's table
+  for the document itself and for its objects and view providers
+  (`TransactionalObject`) only; any other container of the document -- a
+  3D view -- keeps the text (`documentationTable()`, `DynamicProperty.cpp`).
+  What such a view saves is the text, which restore reads as before; a
+  `docID` a view saved before still resolves.
+- **Measured** (mini, GUI, scanner.FCStd, recompute everything by a
+  worker): the worker's copy 41,043 strings; `ById` true; put-in 2.34 s
+  against 3.01 s. The shapes as before: 3 of 686 objects differ from a
+  recompute here (two infinite planes by volume noise, Binder032).
+
+Test: `tests/gui/worker-table-after-open.py` (7 claims) -- a cut made with
+no view, saved, opened in the GUI: a worker holds every string its names
+spell, as here, and its recompute goes in by id. Without the fix the
+worker's copy holds 107 strings and none of the 6.
+

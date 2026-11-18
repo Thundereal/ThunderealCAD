@@ -1235,11 +1235,13 @@ Open:
   way.
 - In the GUI the result's strings still go by content: "string 131105 is
   held here as 772", 772 being `;SKT;:H4f6,E`, the postfix of one
-  sketch's edge names. Both processes hold it after the open; but the
-  GUI's table counts no string marked or persistent (`Count` 0) where
-  the console's counts 40748, and the log records a version's strings
-  from those marks -- a copy that lacks 772 makes it anew. Not proven;
-  the log's and the table's (oplab's) part.
+  sketch's edge names. **Fixed 2026-11-18** (docs/StringTableContentIds.md
+  sec 13): the worker's copy held 151 strings of the 41,048 here, because
+  the 3D view had put its render properties' documentation in the
+  document's table before the open read the file, and the open then kept
+  the document's table apart from the file's, which the log stores. The
+  marks (`Count` 0) were not it. In by id now, the put-in 2.34 s against
+  3.01 s.
 - Each snapshot of an unchanged document costs 0.35-0.5 s in the console
   (0.84 s in the GUI at start()), right after the open took one: every
   shape's sharing analysis (`ShapeRefSet::build`, 175 ms in the GUI

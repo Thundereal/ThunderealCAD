@@ -228,3 +228,69 @@ Measured with it, scanner.FCStd:
   the freed ones. One content, a new id, a new name for the wire. A
   recompute here keeps them held. With spelled digests (phase 2) it gets
   its old spelling back, and `Pad050`'s name still resolves.
+
+## 10. Phase 2, as built (2026-11-18): spelled digests, behind a mode
+
+What sec 4 planned changed on one point, for the better: **a string keeps
+its counted id** -- the table's key, in creation order -- and only what a
+name spells changes. `StringID::spelled()` is the number after `#`: the id
+in a table of counted ids, the digest's prefix in one that spells digests.
+Every saved list of ids, the log's rows and their order (`rows(after)`, the
+lowest taken, the leases), the element maps' lists, stay as they were; the
+log needed nothing. One content made under two ids in one table is two
+entries spelled alike: names that read the same, a duplicate that costs
+memory, not a reference.
+
+- **The mode**: `StringHasher::setContentIds()`, Python `ContentIds`; a new
+  table takes Preferences/Document `ContentStringIds` (off for now); saved
+  as `contentids="1"` on the table's element (`Save`, `saveReference`), and
+  in a table file as a `v2` header with the registry -- an older build
+  refuses a v2 table rather than misread it. Restored without it, a table
+  counts ids, as every table before did.
+- **The spelling** (sec 3.2): level 0 the digest's first 32 bits; above,
+  52 bits of the digest of the digest and the level, under bit 60 and the
+  level. The registry (`spellingRegistry()`, `takeRegistry()`) records a
+  contest with its owner's digest, saved with the table; a spelling index
+  finds a string by the number its names spell (`getIDBySpelling()`, Python
+  `getIDBySpelling()`, `StringID.Spelled`).
+- **Numbers read from a name's text are spellings**, numbers from a saved
+  list are ids -- the rule every site was sorted by:
+  `getID(IndexID)` (a parsed id) looks up by spelling; `toString()` writes
+  the spelling; switched: the element map's prefix-id names and its
+  legacy-crossing check, `GeoFeature`'s ids of a name, `TopoShape`'s
+  postfix ids and combo names, `ShapeDiff`, the table's own import
+  (`rewriteIds`, `importNew`, `mintedReference`), `getID(MappedName)`'s
+  prefix match, the digest's own scan. In a table of counted ids every one
+  is what it was. `IndexID::id` is 64 bits.
+- **Workers**: the setup carries `contentids` and the registry, the copy's
+  tables taking them before they spell (as `indexed`, WorkerProcess
+  sec 20).
+- **Names in order of age.** `ElementNameComp` orders names that lead with
+  `#` by the number, which in a table of counted ids is a string's age, and
+  naming picks the first: a face is named by the oldest of its edges' names.
+  Digests give no age, and a PartDesign test showed it -- a sketch on a
+  pad's top face lost it when an edge added later sorted first. While an
+  `ElementNameOrder` names a table that spells digests, the order goes by
+  the ids of the strings spelled (`TopoShape::makESHAPE`,
+  `FaceMaker::postBuild` set it): the oldest first again. Two processes give
+  their new strings ids in the same order, a worker's from its lease above
+  the client's.
+
+Tests: `contentIdsSpellOneContentAlikeInTwoTables`,
+`aTableOfCountedIdsSpellsItsIds`, `contestedSpellingsMoveUpAndStay` (a
+4-bit first level: contests move up, a table read back and one rebuilt in
+another order with the registry spell as before),
+`namesSpellingDigestsSortByTheirStringsAge`. The Python suites, run with
+`ContentStringIds` on, every new document spelling digests: Part,
+PartDesign, Sketcher, WorkerPool, Animation as with it off; Document's
+failures were its own helpers reading a name's numbers as ids
+(`spelledIds()`, `getIDBySpelling`), and two tests that asserted a string
+made again gets a new name -- which digests are there to prevent.
+
+Next:
+
+- a worker's rows whose content the client holds under other ids are taken
+  in as they come (they spell alike): no read by content;
+- the mode on for new documents, behind the schema;
+- old files migrated on open (sec 5).
+

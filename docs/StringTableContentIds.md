@@ -319,11 +319,8 @@ make it default on."
   build expects `4.C` exactly where the table spells digests, so an older
   file keeps matching `4` and is left as it was.
 - **On by default**: Preferences/Document `ContentStringIds` (true) for a
-  new document. A table restored without the mode counts ids, unless
-  `ContentStringIdsForOldFiles` (false) says to convert it: its strings
-  spelled by digests as they are read, and the version mismatch above
-  making every name again at the migration recompute -- what an older build
-  does with a new file, run the other way.
+  new document. A table restored without the mode counts ids; sec 12 says
+  when an old file changes.
 
 Checked with an older packaged build (dist-test env-1102, build 14555):
 scanner.FCStd saved both ways by this build opens in it; for the one
@@ -357,3 +354,69 @@ names, an id of 8 hex digits where counted ids reach 5, are a little longer
 in the element maps and the references (Document.xml +73 KB), more than the
 smaller table saves (-42 KB).
 
+## 12. An old file converts when its migration is accepted (2026-11-18)
+
+Sec 11 first converted an old file as it was read, behind a preference
+that was off. Now an old file opens counting its ids, as it was saved, and
+nothing about it changes on the open. It converts at one moment only: the
+migration prompt ("Some document(s) require recomputation for migration
+purpose ...", `Gui::Application`, at `signalFinishOpenDocument`), when its
+user answers Yes. Every name of the file is made again then anyway, so the
+conversion costs nothing more than the recompute already asked for. A file
+whose names need no migration never sees the prompt and keeps counting;
+one whose user answers No keeps counting too.
+
+- **`Document::spellNamesByContent()`** (Python `doc.spellNamesByContent()`)
+  switches the document's table (`StringHasher::setContentIds(true)`: every
+  string it holds spelled by its digest, the registry consulted) and marks
+  for the recompute every object with a shape that names elements with that
+  table -- `enforceRecompute()` and `MigrationPending`, as a restore marks
+  an object whose names are out of date. All of them, not only the ones
+  the restore marked: a name made under the counted table spells a handle,
+  which the switched table would read as a digest's spelling. It returns
+  the number marked, and does nothing (0) for a table spelling digests
+  already, or for a document without one.
+- **The prompt** calls it for each document that asked for the migration,
+  before the recompute, worker or not: a worker given the document takes the
+  mode with it (`setup["contentids"]`, sec 10). Documents recomputed only
+  because they depend on those are not converted.
+- **Preferences/Document `ContentStringIdsForOldFiles`** now gates this,
+  and is on (true). Off, an accepted migration recomputes the file counting
+  ids, as before sec 11. The restore no longer reads it.
+- Not on the console: `FreeCADCmd` shows no prompt and converts nothing;
+  a script calls `doc.spellNamesByContent()` and `doc.recompute()`.
+
+Two places took a table's mode from the hasher's constructor, that is
+from `ContentStringIds`, which is right only for a new document; both now
+take it from the file:
+
+- **The file's hasher, filled from the transaction log** (sec 27.40 item 2,
+  `shared` in `Document::Restore`): an open in the GUI, where the file's log
+  holds its strings, joins the table it reads into that hasher, made
+  spelling digests. The merge left the mode as it was, so an old file came
+  back spelling digests, its names `4` against `4.C` expected: the
+  migration prompt at every open of an old file in the GUI, and a recompute
+  of everything named if accepted (seen at the GUI test's first open; the
+  console, without the log's strings, did not show it). The file's table now
+  sets the shared hasher's mode, as it sets a hasher of the document's own.
+- **`StringHasher::restoreTable()`** of a table without the trailer, or of
+  an older private table, now counts ids whatever the hasher was made
+  spelling; with the trailer it spells digests, as before. A table read on
+  its own (`FileHistory::readTable`, the workers) is told its mode by its
+  bytes alone.
+
+GUI test `tests/gui/migration-spells-digests.py` (12 claims): the prompt
+answered No leaves the table counting and the names as saved; answered Yes
+the table spells digests, the recompute is done, and the cut names the same
+44 elements by spellings the table holds.
+
+A shape whose recompute fails keeps the names it had, spelling handles under
+a table that spells digests; a reference to one of them looks the element
+up by geometry, as any reference to a name the migration could not make
+again does.
+
+Test: `TransactionBranchCases.testAnAcceptedMigrationSpellsAnOldFileByDigests`
+-- a cut of two boxes saved counting ids reopens counting them, untouched,
+its names as saved; `spellNamesByContent()` marks the cut alone (the boxes
+name their elements without the table), a second call marks none; after the recompute the cut names the same elements
+by digests, and saved and reopened it reads them as they are, untouched.

@@ -407,8 +407,22 @@ long App::RestoreStrings::id(long id)
     return here.value();
 }
 
+namespace {
+thread_local int valueRestores = 0;
+}
+
+bool App::restoringValue()
+{
+    return valueRestores > 0;
+}
+
 void App::restoreValue(Property& prop, const CapturedValue& value)
 {
+    struct Depth
+    {
+        Depth() { ++valueRestores; }
+        ~Depth() { --valueRestores; }
+    } depth;
     // The value's element maps read by the ids it wrote, not the ones some
     // earlier restore left (sec 27.67).
     Data::ElementMapIdScope mapIds;

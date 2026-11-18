@@ -775,6 +775,43 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(after.ExecCount, afterCount)
         self.assertEqual((feature.State, after.State), states)
 
+    def testAMutatedBinderLeavesTheTableWhole(self):
+        """A binder that copies what it binds (BindCopyOnChange 2) exports
+        it, and an export numbers the string tables afresh: the document's
+        came out new, index 0, its strings to go with the value. The worker
+        captured the cut after that, and the put-in read the strings it
+        carried -- those marked in the worker -- into this document's table,
+        which its restore clears first: scanner.FCStd's table went from
+        51,683 strings to 34, and every name spelled ids it did not hold
+        (docs/StringTableContentIds.md sec 14)"""
+        import re
+
+        import Part  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        tool = self.doc.addObject("Part::Cylinder", "Tool")
+        tool.Radius = 2
+        tool.Height = 30
+        tool.Placement.Base = App.Vector(5, 5, -5)
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = box
+        cut.Tool = tool
+        binder = self.doc.addObject("Part::SubShapeBinder", "Binder")
+        binder.Support = [(cut, "")]
+        binder.BindCopyOnChange = 2
+        self.doc.recompute()
+        size = self.doc.Hasher.Size
+        box.Length = 14
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertTrue(info["ById"], info)
+        self.assertGreaterEqual(self.doc.Hasher.Size, size)
+        for obj in (cut, binder):
+            spelled = {int(x, 16) for k in obj.Shape.ElementMap for x in re.findall(r"#([0-9a-f]+)", k)}
+            self.assertTrue(spelled, obj.Name)
+            missing = [s for s in spelled if not self.doc.Hasher.getIDBySpelling(s)]
+            self.assertEqual(missing, [], obj.Name)
+
     def testAnEditDropsIt(self):
         counted = self.counted("Slow", Sleep=1.5)
         self.doc.recompute()

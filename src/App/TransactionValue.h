@@ -297,6 +297,15 @@ private:
  */
 AppExport const Document* capturingDocument();
 
+/** Whether a captured value is being restored on this thread (restoreValue():
+ * the log's undo, redo and checkout of a value, a worker's result put in),
+ * as against a document's restore from a file. A shape's value names the
+ * string table its element map uses by an index of the save that wrote it;
+ * a live value's index means nothing here, and a table it carries is its
+ * own, never one of the document's (docs/StringTableContentIds.md sec 14).
+ */
+AppExport bool restoringValue();
+
 /// SHA-1 hex of `bytes`, spelled as FileBlobManager spells it.
 AppExport std::string hashBytes(const std::string& bytes);
 

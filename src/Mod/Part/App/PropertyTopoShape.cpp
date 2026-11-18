@@ -1628,12 +1628,33 @@ void PropertyPartShape::Save (Base::Writer &writer) const
     //See SaveDocFile(), RestoreDocFile()
     writer.Stream() << writer.ind() << "<Part";
     auto owner = dynamic_cast<App::DocumentObject*>(getContainer());
+    // The index and whether the table goes with the value, as beforeSave()
+    // of this save settled them. A capture for the transaction log or a
+    // worker's result is no save, and beforeSave() last ran for whichever
+    // save or export came before: an export numbers the tables afresh, the
+    // document's first, as new -- and a capture after it wrote "index 0,
+    // the table with it" for a shape on the document's table. Put in, that
+    // value restored the table it carried, the strings marked where it was
+    // written, into the document's: every other string gone, every name of
+    // the document spelling ids its table no longer had
+    // (docs/StringTableContentIds.md sec 14). Settled here for a capture:
+    // the document's table is named, a table of the shape's own goes with
+    // it.
+    int hasherIndex = _HasherIndex;
+    bool saveHasher = _SaveHasher;
+    if (owner && App::capturingDocument()) {
+        hasherIndex = 0;
+        saveHasher = _Shape.Hasher.get() != owner->getDocument()->getStringHasher().get();
+    }
     if(owner && !_Shape.isNull()
              && _Shape.getElementMapSize()>0
              && !_Shape.Hasher.isNull()) {
-        writer.Stream() << " HasherIndex=\"" << _HasherIndex << '"';
-        if(_SaveHasher)
+        writer.Stream() << " HasherIndex=\"" << hasherIndex << '"';
+        if(saveHasher)
             writer.Stream() << " SaveHasher=\"1\"";
+    }
+    else {
+        saveHasher = false;
     }
     std::string version;
     // If exporting, do not export mapped element name, but still make a mark
@@ -1704,7 +1725,7 @@ void PropertyPartShape::Save (Base::Writer &writer) const
         writer.endCharStream() << '\n' << writer.ind() << "</Part>\n";
     }
 
-    if(_SaveHasher) {
+    if(saveHasher) {
         if(!toXML && writer.getFileVersion()>1)
             _Shape.Hasher->setPersistenceFileName(getFileName(".Table").c_str());
         else
@@ -1808,7 +1829,19 @@ void PropertyPartShape::Restore(Base::XMLReader &reader)
 
     reader.readEndElement("Part");
 
-    if(owner && hasher_idx>=0) {
+    if(owner && hasher_idx>=0 && App::restoringValue()) {
+        // A value of the log or a worker (docs/StringTableContentIds.md sec
+        // 14): its index is the save's that wrote it, not this document's
+        // numbering. The document's table, or the one it carries, read into
+        // a table of its own -- never into one the document has, which its
+        // restore clears first
+        if(save_hasher) {
+            _Shape.Hasher = new App::StringHasher;
+            _Shape.Hasher->Restore(reader);
+        }
+        else
+            _Shape.Hasher = owner->getDocument()->getStringHasher();
+    } else if(owner && hasher_idx>=0) {
         _Shape.Hasher = owner->getDocument()->getStringHasher(hasher_idx);
         if(save_hasher)
             _Shape.Hasher->Restore(reader);

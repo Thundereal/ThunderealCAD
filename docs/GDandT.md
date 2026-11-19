@@ -1,6 +1,6 @@
 # GD&T / PMI: design (2026-11-19, proposed)
 
-Status: PROPOSED, nothing built. Branch `GDandT`. The user asked on 2026-11-19 for GD&T on
+Status: APPROVED 2026-11-19 (section 11 decided); P0 in progress (section 10). Branch `GDandT`. The user asked on 2026-11-19 for GD&T on
 PartDesign parts, imported from and exported to STEP, and linked into TechDraw, with a survey of
 other CAD programs first. The survey is docs/GDandTSurvey.md, cited as [A n] (other programs,
 the standards) and [B n] (our code). Section 11 lists the decisions that are the user's.
@@ -62,51 +62,55 @@ module is -- which lives outside PartDesign and still works inside a Body [B4]:
   (8). Import (STEP) and TechDraw depend on it, not on PartDesign. Not in PartDesign, because an
   imported STEP part is a `Part::Feature`, not a Body, and must carry its PMI too; Assembly will
   want tolerances between parts later.
-- **Into a Body** through `Part::BodyBase::allowType(type, "Annotation")`, as Surface registers
-  its features (`Surface/App/AppSurface.cpp:132`); that also gives them an `AuxGroup` role of
-  their own in the tree.
+- **Beside the part, never inside a Body.** The annotation set links the Body it annotates, and
+  a Body depends on everything in its group, so a set inside the Body would make a cycle --
+  measured 2026-11-19: a VarSet in a Body linking the Body fails recompute with "The graph must
+  be a DAG". The set sits next to the Body (in the same App::Part, if the Body is in one), as
+  upstream's proposal places its container [A8]; `Part` names what it annotates.
 - **Gui** owns the commands and task panels, once, and offers them in two places:
   - its own **PMI workbench**, for an imported part or an assembly (and the name upstream's
     proposal and its "Mod: PMI" label use, [A8]);
   - **inside PartDesign** (and later Part and Assembly) through a `Gui::ToolContext`, as
     Surface's tool bars are offered in PartDesign while a surface group is active
-    (`Surface/Gui/AppSurfaceGui.cpp:102-111`): the PMI tool bars appear while the Body's
-    annotation group is active or a PMI object is in edit, so annotating a Body never means
+    (`Surface/Gui/AppSurfaceGui.cpp:102-111`): the PMI tool bars appear while a Body's
+    annotation set is active or a PMI object is in edit, so annotating a Body never means
     leaving PartDesign.
 
-(Decision 1, section 11: the module name and whether to adopt upstream's `PMI_` names.)
+Names follow the upstream proposal (decision 1): its `PMI_AnnotationSet` is our
+`PMI::AnnotationSet`, and so on; section 12 maps every part of it.
 
 ## 4. The object model
 
 ```
-PmiSet  (one per part: Body, Part::Feature, or Part)
+PMI::AnnotationSet  (one per part: Body, Part::Feature, or Part; beside it, section 3)
  |-- Standard, Units, GeneralTolerance (ISO 2768-m, ...), Planes, Views
  |
- |-- PmiFeature  "toleranced feature" (= shape_aspect)        <-- shared by everything below
+ |-- PMI::TolerancedFeature  "toleranced feature" (= shape_aspect)        <-- shared by everything below
  |      References (faces of the part, mapped names), Kind, derived geometry
  |
- |-- PmiDatumFeature 'A'   -> PmiFeature, targets
- |-- PmiDatumSystem  |A|B(M)|C|  -> datum features, modifiers
- |-- PmiDimension    size / location / basic   -> PmiFeature(s)
- |-- PmiTolerance    characteristic, zone, modifiers  -> PmiFeature, PmiDatumSystem
- |-- PmiNote         free text, flag notes
+ |-- PMI::Datum 'A'   -> PMI::TolerancedFeature, targets
+ |-- PMI::DatumReferenceFrame  |A|B(M)|C|  -> datum features, modifiers
+ |-- PMI::Dimension    size / location / basic   -> PMI::TolerancedFeature(s)
+ |-- PMI::GeometricTolerance    characteristic, zone, modifiers  -> PMI::TolerancedFeature, PMI::DatumReferenceFrame
+ |-- PMI::Note         free text, flag notes
  |
  |-- presentation on each item: plane, position, leaders, style (section 6)
- |-- PmiView         camera + member list + clipping (section 6.3)
+ |-- PMI::View         camera + member list + clipping (section 6.3)
 ```
 
 All are `App::DocumentObject`s (C++, App side, Python bindings by the usual XML pattern), so a
 headless FreeCADCmd reads, edits, checks and exports them; the Gui only draws and edits.
 
-### 4.1 PmiSet
+### 4.1 PMI::AnnotationSet
 
 The container and the part's settings: `Part` (link to the Body or shape object it annotates),
 `Standard` (ASME Y14.5-2018, ASME Y14.5-2009, ISO GPS -- it changes the default principle,
 envelope or independency, and which symbols are legal [A6]), `GeneralTolerance` (ISO 2768 class
 or a +/- default, for the title block and for dimensions without their own), `Units`,
-`DecimalPlaces`. A Body has at most one; it is created with the first annotation.
+`DecimalPlaces`. A part has at most one; it is created with the first annotation, beside the
+part. Its group takes only PMI objects.
 
-### 4.2 PmiFeature -- the toleranced feature
+### 4.2 PMI::TolerancedFeature -- the toleranced feature
 
 The heart of the model, because it is what survives edits.
 
@@ -125,25 +129,25 @@ The heart of the model, because it is what survives edits.
   look), `Broken`. `SavedGeometry` keeps the last faces it resolved to, so a broken feature is
   still drawn where it was, in red, and `Reattach` is one command (section 7).
 
-Every annotation on the same faces shares one PmiFeature; the tools look for an existing one
+Every annotation on the same faces shares one PMI::TolerancedFeature; the tools look for an existing one
 before making another (STEP's uniqueness rule, [A7]).
 
-### 4.3 PmiDatumFeature and PmiDatumSystem
+### 4.3 PMI::Datum and PMI::DatumReferenceFrame
 
-- `PmiDatumFeature`: `Name` ('A'), `Feature` (a PmiFeature), `Targets` (optional: point, line,
+- `PMI::Datum`: `Name` ('A'), `Feature` (a PMI::TolerancedFeature), `Targets` (optional: point, line,
   circle, rectangle, area, each with position and size, `Movable`), and the simulated datum
   (plane/axis/point) computed into `Shape` for display and for datum-system orientation.
-- `PmiDatumSystem`: `Compartments`, up to three, each a datum or a common datum with its
+- `PMI::DatumReferenceFrame`: `Compartments`, up to three, each a datum or a common datum with its
   modifiers. Stored as a string list in the frame's own notation -- `["A", "B(M)", "C-D"]` --
   parsed and validated by the object: readable in the file (the save-as-directory/VCS intent),
   editable from Python, and expressions work on it. One system per distinct frame: the tools
   reuse a matching one.
 
-### 4.4 PmiDimension
+### 4.4 PMI::Dimension
 
 - `Type`: size (linear, diameter, radius, spherical, angular, thickness), location (linear
   between two features, angular, with path), or `Basic` (a TED: exact, in a box, no tolerance).
-- `Features`: one PmiFeature for a size, two for a location.
+- `Features`: one PMI::TolerancedFeature for a size, two for a location.
 - `Nominal`: **measured from the geometry** at recompute -- a dimension cannot disagree with
   the model. `Driver` (optional): an expression to the parameter that makes it (a Hole's
   `Diameter`, a Pad's `Length`); when set, the check (section 8) reports when the two part.
@@ -152,14 +156,14 @@ before making another (STEP's uniqueness rule, [A7]).
 - TechDraw's `DrawViewDimension` already has +/-, basic and format specs [B3]; section 9 makes a
   drawing dimension a view of one of these.
 
-### 4.5 PmiTolerance -- the feature control frame
+### 4.5 PMI::GeometricTolerance -- the feature control frame
 
 - `Characteristic`: the 14 (12 under Y14.5-2018; the two are refused there).
-- `Feature`: the toleranced PmiFeature.
+- `Feature`: the toleranced PMI::TolerancedFeature.
 - `Zone`: `Shape` (none, DIA, S-DIA), `Value` (a quantity, expressions allowed),
   `Modifiers` (M, L, F, P + `ProjectedLength`, T, U + `UnequalValue`, ST, CZ, ACS, LE, NC,
   LD/MD/PD, ...), `MaxValue`, `UnitBasis` (per length / area).
-- `DatumSystem`: a PmiDatumSystem, or none (form tolerances).
+- `DatumSystem`: a PMI::DatumReferenceFrame, or none (form tolerances).
 - `Composite`: a link to the upper frame this one is a lower segment of; `Stacked` is the
   default (independent). OCCT does not carry composite frames today [B2] -- section 5.3.
 
@@ -171,7 +175,7 @@ table, not a translation) and CAx-IF Tables 13-15 where OCCT has gaps [A6, B2].
 A Hole already knows its thread class and fit [B4]; a Pad its length. Two ways in, both on top
 of the objects above rather than instead of them:
 
-1. **Recognise** (later, section 10): "Tolerance from features" creates PmiFeatures and
+1. **Recognise** (later, section 10): "Tolerance from features" creates PMI::TolerancedFeatures and
    dimensions from the Body's features -- holes become size + position, patterns become groups
    -- the way DimXpert recognises model features before topology [A1].
 2. **Drive**: a dimension's `Driver` binds it to the parameter, so editing the Hole's diameter
@@ -187,13 +191,13 @@ pass walks it:
 
 1. For each referenced shape label, find the sub-shape in the imported object and its element
    name -- the `findShape()` mapping `scanElementColors` uses [B1].
-2. Create the PmiSet, PmiFeatures (sharing per face set), datum features, datum systems,
+2. Create the PMI::AnnotationSet, PMI::TolerancedFeatures (sharing per face set), datum features, datum systems,
    dimensions and tolerances from the `XCAFDimTolObjects_*` objects.
 3. Presentation: OCCT gives each item a plane, a text point and a presentation shape. Keep the
    imported shape as the item's graphic, flagged `Imported`, until the user edits the item;
    then the graphic is regenerated from the semantics (section 6). Graphic-only PMI (AP203/AP214,
-   or AP242 without semantics) becomes `PmiNote`s that carry only the shape.
-4. Saved views (`XCAFDoc_ViewTool`) become PmiViews.
+   or AP242 without semantics) becomes `PMI::Note`s that carry only the shape.
+4. Saved views (`XCAFDoc_ViewTool`) become PMI::Views.
 
 Things to check before trusting it: the streamed import running OCCT's GD&T pass once per batch
 may duplicate labels [B1]; OCCT skips datum targets on read [B2]; the reported null tolerance
@@ -202,7 +206,7 @@ values from NX/NIST files in 7.8/7.9 [A8]. The NIST CTC/FTC/STC files are the te
 
 ### 5.2 Export
 
-1. `ExportOCAF2` adds sub-shape labels for every face a PmiFeature references (it already does
+1. `ExportOCAF2` adds sub-shape labels for every face a PMI::TolerancedFeature references (it already does
    for per-face colours [B1]).
 2. Datums, dimensions and tolerances go in with `AddDatum`/`SetDatum`, `AddDimension`/
    `SetDimension`, `AddGeomTolerance`/`SetGeomTolerance`/`SetDatumToGeomTol`.
@@ -228,7 +232,7 @@ The survey found five gaps [B2], in the order the phases need them:
 
 ### 6.1 One layout, many outputs
 
-A `PmiLayout` in PMI/App (no Qt, no Coin) turns an item into 2D strokes and fills in its
+A `PMI::Layout` in PMI/App (no Qt, no Coin) turns an item into 2D strokes and fills in its
 annotation plane's coordinates: the frame's boxes, the characteristic glyph, DIA, the value,
 modifier circles, datum letters, the datum triangle, leaders and arrowheads. Its text uses a
 built-in **stroke font** (ASCII plus the GD&T symbols, ISO 3098 lettering), not a system font,
@@ -252,24 +256,37 @@ plane, or one of the six standard views) or frozen [A2]. The defaults: the plane
 toleranced face if planar, else the standard view that looks most squarely at it. The text
 always reads from the front: seen from behind, it is drawn mirrored back.
 
-### 6.3 Views
+### 6.3 Views, and annotating in one
 
-`PmiView`: a camera, a member list (which annotations show), and optional clipping -- what
-SolidWorks calls a 3D view, CATIA a capture, STEP a saved view [A1, A4, A7]. Annotations are owned
-by the set and referenced by views. Std_ViewFront and friends need not know about them; the view
-list sits in the tree under the set.
+`PMI::View`: a camera (incl. zoom), a member list (which annotations show), which objects show,
+and optional clipping -- what SolidWorks calls a 3D view, CATIA a capture, STEP a saved view [A1,
+A4, A7]. Annotations are owned by the set and referenced by views, so one datum shows in several.
 
-### 6.4 In the 3D view
+The working style is upstream's [A8], and every commercial program's: the set offers the
+standard views (Front, Top, Right, Isometric) and the user adds their own (Section A-A).
+Double-clicking a view **activates** it -- camera set, clipping applied, objects and annotations
+filtered, its plane shown -- and an annotation made while a view is active joins it and takes its
+plane by default. Deactivating (or leaving the workbench) restores the camera and clipping; the
+annotations stay visible, with a global toggle in the View menu. With no view active everything
+shows and new annotations take the default plane of 6.2.
+
+### 6.4 Several annotations on one feature
+
+A size dimension, its position tolerance and a datum on one hole are one stack, not three
+floating labels [A8, its 5.18]: an item may be `AttachedTo` another, drawn below or beside it
+with the parent's leader, and moved with it.
+
+### 6.5 In the 3D view
 
 A view provider per item draws the layout through a `So3DAnnotation`-style node (screen-facing
 size option, depth-tested or always on top), with pre-selection and selection highlighting both
 the frame and its faces (cross-highlighting is what makes PMI checkable by eye). States colour
 it: broken red, remapped amber, check failures with a mark. Visibility follows the active
-PmiView, or all. The served scene carries the layout's strokes like edges.
+PMI::View, or all. The served scene carries the layout's strokes like edges.
 
 ## 7. Surviving edits
 
-On every recompute of the part, each PmiFeature resolves its references in order:
+On every recompute of the part, each PMI::TolerancedFeature resolves its references in order:
 
 1. by mapped name -- the normal case, the element map doing its job;
 2. by history (`getElementHistory`), when the name changed but the element descends from one it
@@ -284,7 +301,7 @@ the leader to the feature's nearest face; a broken *semantic* reference is the e
 
 ## 8. The check
 
-A `PmiCheck` (App, so headless and testable) runs on recompute and on demand, reporting into the
+A `PMI::Check` (App, so headless and testable) runs on recompute and on demand, reporting into the
 task panel and the tree:
 
 - syntax: characteristic versus zone shape (DIA on flatness), modifiers versus feature (M/L on
@@ -307,46 +324,117 @@ The 3D items are the master; TechDraw shows them (decision 4).
    `;HLRF:` faces), and create or refresh a 2D object linked to it. Items whose features are not
    visible in the view are left out. Re-running it updates and keeps the user's moves
    (`isMoved`, `ImportOffset`, as `DrawEdgeLabel` does).
-2. **`DrawFeatureControlFrame`** (new): a frame with a leader, linked to a PmiTolerance via
+2. **`DrawFeatureControlFrame`** (new): a frame with a leader, linked to a PMI::GeometricTolerance via
    `Source`; its content comes from the source. Unlinked, it holds its own data, so a drawing
    without a 3D model still gets real frames instead of balloons with glyphs [B3]. Built on the
    leader + tile structure of the weld symbol [B3].
-3. **`DrawDatumSymbol`** (new): the datum triangle and letter, linked to a PmiDatumFeature.
-4. **Dimensions**: `DrawViewDimension` gains `Source` (a PmiDimension). Linked, its tolerance,
+3. **`DrawDatumSymbol`** (new): the datum triangle and letter, linked to a PMI::Datum.
+4. **Dimensions**: `DrawViewDimension` gains `Source` (a PMI::Dimension). Linked, its tolerance,
    basic flag and decimals come from the source, its references from the source's features
    projected into the view; editing the tolerance in the drawing writes to the source, so there
    is one value.
-5. A drawing's general-tolerance note can read the PmiSet's `GeneralTolerance`.
+5. A drawing's general-tolerance note can read the PMI::AnnotationSet's `GeneralTolerance`.
 
 ## 10. Phases
 
 Each phase ends green on the full suites and with its own tests.
 
-- **P0 Model** (headless): PmiSet, PmiFeature (integral + axis + centre plane), datum
-  feature/system, dimension, tolerance, note; persistence; reference resolution (section 7);
-  the syntax check; Python API; gtests and Python tests editing a part under its annotations.
-- **P1 Authoring**: layout + stroke font; 3D view providers; task panels (an FCF builder with
-  a live preview, face picking in the view); planes; the PMI workbench and its ToolContext in PartDesign; GUI tests.
+- **P0 Model** (headless, this branch first): section 10.1.
+- **P1 Authoring**: the layout + stroke font (6.1); 3D view providers (6.5); planes, views and
+  their activation (6.2-6.3); stacking (6.4); task panels -- an FCF builder with a live preview,
+  face picking in the view, the tolerancing advisor offering only the characteristics the
+  picked faces admit; the PMI workbench and its ToolContext in PartDesign; the query tool
+  (pick a face, list what applies to it); GUI tests.
 - **P2 STEP import**: the DimTolTool pass, imported presentation, views; the NIST set;
   OCCT fixes 5.3.1-2.
 - **P3 STEP export**: AP242 semantic + tessellated presentation; round-trip and SFA; OCCT fix
   5.3.5.
-- **P4 TechDraw**: Import Model Annotations, the FCF and datum objects, linked dimensions.
-- **P5 Rest**: PmiViews to STEP and composite frames (OCCT 5.3.3-4), recognition from
-  features, coverage check, the served scene and browser viewer, Assembly location tolerances.
+- **P4 TechDraw**: Import Model Annotations, the FCF and datum objects, linked dimensions,
+  and a page derived from chosen PMI::Views (one TechDraw view per PMI view: its direction, its
+  objects, its clipping as a section, its annotations imported) [A8, its 5.22].
+- **P5 Rest**: PMI::Views to STEP and composite frames (OCCT 5.3.3-4), recognition from
+  features, the coverage check, general tolerances per ISO 22081, tables, the served scene and
+  browser viewer, Assembly location tolerances; later surface texture (ISO 21920), welds, edges
+  (ISO 13715), JT / 3D PDF / QIF.
 
-## 11. Decisions that are the user's
+### 10.1 P0: the model, headless
 
-1. **Names.** The module is `PMI` either way (section 3). Whether the objects take the upstream
-   proposal's names (#29772: `PMI_AnnotationSet`, `PMI_Datum`, `PMI_DatumReferenceFrame`, ...,
-   [A8]) so a later upstream exchange is easier. Recommended: their names where the concepts
-   match, ours (the shared toleranced feature) where theirs has no equivalent.
-2. **Default standard**: ASME Y14.5-2018 or ISO GPS. Both are supported; this picks the default
-   for new parts and the symbols the first tools show.
-3. **AP242 on export**: switch the schema to AP242 automatically when the document has PMI
-   (recommended; AP214 cannot carry semantics [B2]), or ask.
-4. **Master**: 3D master with TechDraw as a linked view (recommended, section 9), or two-way
-   with the drawing able to own tolerances the model does not have. (Unlinked 2D frames exist
-   either way.)
-5. **Presentation per item**: one presentation per item (recommended to start; STEP's n:m is
-   written as 1:1), or several callouts of the same item on different planes from P1.
+`src/Mod/PMI/App` (library `PMI`, Python `import PMI`), `BUILD_PMI` ON by default; no Gui yet.
+
+| Object | Base | P0 properties |
+|---|---|---|
+| `PMI::AnnotationSet` | `App::DocumentObjectGroup` | `Part`, `Standard` (ISO GPS, ASME Y14.5-2018, ASME Y14.5-2009), `GeneralTolerance`, `DecimalPlaces`; takes only PMI objects |
+| `PMI::TolerancedFeature` | `App::DocumentObject` | `References` (LinkSubList to the part), `Kind`, `Shape` (resolved faces or derived axis/plane/point), `SavedGeometry`, `IsSize`, `State`, `StateMessage` |
+| `PMI::Datum` | `App::DocumentObject` | `Letter`, `Feature`, `Shape` (the simulated datum) |
+| `PMI::DatumReferenceFrame` | `App::DocumentObject` | `Compartments` (string list, "A", "B(M)", "C-D") |
+| `PMI::Dimension` | `App::DocumentObject` | `Type`, `Features`, `Nominal` (measured), `Upper`, `Lower`, `Fit`, `Basic`, `Modifiers`, `DecimalPlaces` |
+| `PMI::GeometricTolerance` | `App::DocumentObject` | `Characteristic`, `Feature`, `ZoneShape`, `Value`, `MaterialCondition`, `Modifiers`, `ProjectedLength`, `MaxValue`, `DatumSystem`, `Composite` |
+| `PMI::Note` | `App::DocumentObject` | `Text` |
+
+Plain document objects, not `Part::Feature`s: an annotation is not geometry, and must not be
+picked up by exports, bounding boxes or a Body's tip. Enumerations follow
+`XCAFDimTolObjects_*` (4.5). Module functions: `PMI.check(set)` -> list of (object, severity,
+message), section 8; `PMI.findFeature(set, part, subs)` -> the existing toleranced feature on
+those elements, or none (4.2's sharing rule).
+
+P0's reference resolution is section 7's step 1 (by name, which the element map and `ShadowSub` already do on
+recompute), step 3 (by geometry against `SavedGeometry`) and step 4 (broken, kept); step 2 (history)
+follows in P1. Measurement in P0: diameter/radius of a cylinder or sphere, the width of two
+opposed parallel planes, distance plane-plane, axis-axis, plane-axis, angle plane-plane.
+
+Tests (`PMITests`, registered in `FreeCAD.__unit_test__`): building a set on a Body; sharing;
+every check rule, both ways; editing the Body under its annotations -- length change, a fillet
+renaming faces, a face removed -- and the states that follow; measured nominals; save and
+reopen; the set refused inside a Body.
+
+## 11. Decisions (made 2026-11-19)
+
+1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --
+   `PMI::AnnotationSet`, `PMI::View`, `PMI::Datum`, `PMI::DatumReferenceFrame`,
+   `PMI::Dimension`, `PMI::GeometricTolerance`, `PMI::Note` -- and ours where it has no
+   equivalent (`PMI::TolerancedFeature`). The user, 2026-11-19.
+2. **Default standard**: ISO GPS, as upstream starts; ASME Y14.5-2018 and -2009 are a property
+   of each set away. (Recommendation, taken with the user's go-ahead.)
+3. **AP242 on export**: automatic whenever the document has PMI; the export says so.
+   (Recommendation.)
+4. **Master**: the 3D model; TechDraw shows it, linked. Editing a linked tolerance in a drawing
+   edits the 3D item, so there is one value; upstream's proposal is strictly one-way, which this
+   includes. (Recommendation.)
+5. **Presentation per item**: one, to start; STEP's n:m written as 1:1. (Recommendation.)
+
+## 12. The upstream proposal, mapped
+
+Issue #29772 and its sub-issues [A8], to this design:
+
+| Upstream | Here |
+|---|---|
+| 29773 PMI workbench | 3 (module, workbench, ToolContext in PartDesign) -- P1 |
+| 29774 standards preferences | 4.1 `Standard`, 8 -- P0 |
+| 29775 container (annotation set) | 4.1 -- P0 |
+| 29776 views, activation | 6.3 -- P1 |
+| 29777 clipping planes | 6.3 (a view's clipping) -- P1 |
+| 29778 datums (incl. targets) | 4.3 -- P0 (targets P2, with STEP) |
+| 29779 datum reference frame | 4.3 -- P0 |
+| 29780 dimensional specifications | 4.4 -- P0 |
+| 29781 geometric tolerances | 4.5 -- P0 |
+| 29782 tolerancing advisor | 8 (rules, P0) + the task panel's offer (P1) |
+| 29783 text, notes, leaders | `PMI::Note` P0; leaders 6.2, P1 |
+| 29784 tables | P5 |
+| 29785 construction geometry | 4.2 derived kinds (axis, centre plane, centre point), drawn in P1 |
+| 29786 surface texture | P5 |
+| 29787 bind to geometry | 4.2 |
+| 29788 repair broken references | 7 -- states P0, Reattach P1 |
+| 29789 recompute behaviour | 4.4 (nominal measured, tolerances kept), 7 |
+| 29790 edit annotations | P1 task panels |
+| 29791 stacking | 6.4 -- P1 |
+| 29792 view membership | 6.3 -- P1 |
+| 29793 validate | 8 -- P0 |
+| 29794 query a feature's specifications | P1 query tool |
+| 29795 TechDraw pages from views | 9 + P4 |
+| 29796 STEP AP242 import | 5.1 -- P2 |
+| 29797 STEP AP242 export | 5.2 -- P3 |
+| 29798 semantic access for other workbenches | the Python API: every object is a plain document object with typed properties, P0 |
+
+What this design adds over the proposal: the shared toleranced feature (4.2, STEP's
+`shape_aspect`), the generated graphic from P1 rather than as a later goal (6.1), repair built
+into recompute (7), ASME beside ISO (4.1), and the OCCT fork work it needs (5.3).

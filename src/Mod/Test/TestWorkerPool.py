@@ -879,6 +879,49 @@ class TestWorkerRecompute(unittest.TestCase):
         self.pool.waitRecompute(5)
         self.assertEqual(self.pool.recomputeInfo()["Applied"], 0)
 
+    def testAWorkerDecidesPermissionsAsHere(self):
+        """An expression's permissions are decided in the worker as here
+        (docs/WorkerProcess.md sec 23): a session grant here, which no
+        grants.json holds, lets the worker make it; once taken back, the
+        worker refuses, the object is left to be made here, and here the
+        user is asked."""
+        security = App.ExpressionSecurity
+        counted = self.counted("Asker")
+        counted.setExpression("Input", "_app.Version().__len__()")
+        principal = security.principalOf(self.doc.Name)
+        self.addCleanup(security.revoke, principal, "app.query", "*")
+        self.addCleanup(security.clearPending, principal, "app.query", "*")
+        security.grant(principal, "app.query", "*", True, "session")
+        self.doc.recompute()
+        expected = 2 * len(App.Version())
+        self.assertEqual(counted.Result, expected)
+
+        # A write the expression overrides: evaluated again there (a touch
+        # alone evaluates no expression)
+        counted.Input = 0
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertNotEqual(counted.MadeBy, os.getpid())
+        self.assertEqual(counted.Result, expected)
+        self.assertEqual(self.touched(), [])
+
+        security.revoke(principal, "app.query", "*")
+        counted.Input = 0
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        self.assertTrue(self.pool.waitRecompute(120))
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Unfit"], 1, info)
+        self.assertIn("permission", info["Reason"])
+        self.assertEqual(self.touched(), ["Asker"])
+        self.assertEqual([p for p in security.pending() if p["principal"] == principal], [])
+        self.doc.recompute()  # here: refused, and asked
+        self.assertIn("Invalid", counted.State)
+        self.assertEqual(
+            [p["permission"] for p in security.pending() if p["principal"] == principal],
+            ["app.query"],
+        )
+
     def testOneThatMakesAnObjectIsUnfit(self):
         counted = self.counted("Maker")
         self.doc.recompute()

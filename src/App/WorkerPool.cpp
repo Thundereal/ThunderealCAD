@@ -93,6 +93,7 @@
 #include "Document.h"
 #include "DocumentObject.h"
 #include "DocumentObjectPy.h"
+#include "ExpressionSecurityRuntime.h"
 #include "FileBlobManager.h"
 #include "FileHistory.h"
 #include "PropertyPythonObject.h"
@@ -377,6 +378,9 @@ struct WorkerPool::Private
         std::string copyDir;     ///< the copy it holds, once it said ready
         std::string nextCopyDir; ///< the copy it was told to open
         long leaseCount = 0;     ///< the last range of string ids it was leased
+        /// The expression permissions it decides by, as last sent
+        /// (docs/WorkerProcess.md sec 23)
+        std::string security;
     };
     /// A connection that has not said who it is yet
     struct Stranger
@@ -859,6 +863,11 @@ json WorkerPool::Private::setupFor(Proc& proc)
             setup["registry"] = StringHasher::registryToText(hasher->spellingRegistry());
         }
     }
+    // Decided as here: what this process grants is what the worker grants,
+    // not whatever its own read of grants.json says (docs/WorkerProcess.md
+    // sec 23)
+    proc.security = ExpressionSecurity::Runtime::instance().exportState();
+    setup["security"] = proc.security;
     proc.version = store.empty() ? 0 : version;
     proc.versionSeq = store.empty() ? 0 : versionSeq;
     proc.store = store;
@@ -1503,6 +1512,14 @@ void WorkerPool::Private::dispatch(Proc& proc)
                      {"inputs", inputs},
                      {"module", it->second.job.module},
                      {"out", outFile(id)}};
+        // A grant given or taken back since it was last told reaches it
+        // before the job does: a job it runs is never decided by an answer
+        // this process no longer gives
+        std::string security = ExpressionSecurity::Runtime::instance().exportState();
+        if (security != proc.security) {
+            header["security"] = security;
+            proc.security = std::move(security);
+        }
         it->second.running = true;
         proc.job = id;
         proc.began = now();
@@ -2236,6 +2253,19 @@ int WorkerPool::serve()
     // from the store, under that table's ids, never meets one given here.
     // Shared by every table the copy uses, and kept when it is reopened
     std::shared_ptr<StringIDLease> lease;
+    // The expression permissions the pool's process decides by, which this
+    // one decides by alone from the first setup on (sec 23): a state that
+    // cannot be read leaves the job, or the copy, refused
+    auto adoptSecurity = [](const json& header) {
+        auto it = header.find("security");
+        if (it == header.end() || !it->is_string()) {
+            return;
+        }
+        std::string why;
+        if (!ExpressionSecurity::Runtime::instance().adoptState(it->get<std::string>(), &why)) {
+            THROWM(Base::RuntimeError, "cannot take the expression permissions: " + why);
+        }
+    };
     auto useLease = [&lease](const StringHasherRef& hasher) {
         if (hasher && lease) {
             hasher->setLease(lease);
@@ -2303,6 +2333,7 @@ int WorkerPool::serve()
             bool moved = false;
             const double began = now();
             try {
+                adoptSecurity(header);
                 const std::string file = header.value("document", std::string());
                 const std::string store = header.value("store", std::string());
                 const int64_t num = header.value("version", int64_t(0));
@@ -2424,6 +2455,13 @@ int WorkerPool::serve()
         if (type != "job") {
             continue;
         }
+        std::string refused;
+        try {
+            adoptSecurity(header);
+        }
+        catch (Base::Exception& e) {
+            refused = e.what();
+        }
         Request request;
         request.kind = header.value("kind", std::string());
         auto inputs = header.find("inputs");
@@ -2433,8 +2471,14 @@ int WorkerPool::serve()
         const double began = now();
         Reply reply;
         auto handler = kinds().find(request.kind);
+        auto& security = ExpressionSecurity::Runtime::instance();
+        const std::size_t refusals = security.refusals();
         try {
-            if (handler != kinds().end()) {
+            if (!refused.empty()) {
+                reply.unfit = true;
+                reply.error = refused;
+            }
+            else if (handler != kinds().end()) {
                 reply = handler->second(request);
             }
             else {
@@ -2448,6 +2492,14 @@ int WorkerPool::serve()
         catch (std::exception& e) {
             reply.ok = false;
             reply.error = e.what();
+        }
+        // A permission refused here is asked for, and the work done, by the
+        // pool's process: it records the refusal and puts the question to
+        // the user, where an answer the worker gave would be an error put
+        // in with nobody asked (docs/WorkerProcess.md sec 23)
+        if (security.refusals() != refusals && !reply.unfit) {
+            reply.unfit = true;
+            reply.error = "an expression permission was refused";
         }
         json output = json::parse(reply.output, nullptr, false);
         if (output.is_discarded()) {

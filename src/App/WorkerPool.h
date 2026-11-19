@@ -145,6 +145,15 @@ public:
         bool stale = false;
         long moves = 0;    ///< workers moved along the log to a newer copy
         long reopens = 0;  ///< workers that opened a newer copy whole
+        /// Workers ended because the job they were making was dropped, and
+        /// it had run longer than a worker takes to start (sec 26)
+        long ended = 0;
+        /// What a worker took from its start to its copy open, on average;
+        /// 0 before one has
+        double startSeconds = 0;
+        /// How long a dropped job must have run for its worker to be ended:
+        /// startSeconds, and at least EndDroppedAfter of Preferences/Workers
+        double endAfter = 0;
         long leases = 0;   ///< ranges of string ids leased to workers (sec 15)
         long leasesAsked = 0;  ///< of them, asked for by a worker run out in a job
         bool readStore = false;  ///< the workers read it from this process's store
@@ -175,7 +184,9 @@ public:
     Claim claim(JobId id);
     State state(JobId id) const;
     /// Drop the jobs whose tag `which` takes, without telling their
-    /// clients: queued ones go, a running one's result is thrown away
+    /// clients: queued ones go, a running one's result is thrown away --
+    /// and its worker is ended if the job has run past Info::endAfter
+    /// (docs/WorkerProcess.md sec 26)
     std::size_t cancel(const std::function<bool(const std::string&)>& which);
     /// End every worker and drop the copy: every job is handed back
     /// Cancelled with `why`. The next start() takes a new copy
@@ -183,7 +194,8 @@ public:
     /** The design changed (docs/WorkerProcess.md sec 4): the copy is stale,
      * and the jobs `obj` reaches -- those that read it or anything that
      * depends on it, and those that say nothing of what they read -- are
-     * handed back Cancelled. Without an object, every job is. The pool
+     * handed back Cancelled (a running one's worker ended as by cancel()).
+     * Without an object, every job is. The pool
      * sees the document's own edits itself; this is for a change it does
      * not, an Animation's tracks.
      */

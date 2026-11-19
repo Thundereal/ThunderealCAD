@@ -364,6 +364,7 @@ struct WorkerPool::Private
         long pid = 0;
         JobId job = 0;          ///< running, 0 for none
         double began = 0;       ///< when it was handed the job
+        double spawnedAt = 0;   ///< when it was started
         double idleSince = 0;   ///< when it last had nothing, 0 while busy
         bool ready = false;     ///< the copy is open
         bool quitting = false;  ///< told there is no more
@@ -461,6 +462,9 @@ struct WorkerPool::Private
     bool unrecorded = false;
     long moves = 0;
     long reopens = 0;
+    long ended = 0;
+    /// Seconds and count of the workers' starts, to their copy open
+    std::pair<double, long> starts {0.0, 0};
     long leases = 0;
     long leasesAsked = 0;
     /// Copies before this one, gone once no worker is on one
@@ -525,6 +529,22 @@ struct WorkerPool::Private
     void deliver(JobId id, Result& result);
     void checkIdle();
     void kill(Proc& proc);
+    /** A running job was dropped (docs/WorkerProcess.md sec 26): its
+     * worker is ended if the job has run past endAfter(), so what it goes
+     * on making does not hold it. One that has run less is let finish: it
+     * is as likely near its end as not, and a new worker -- started,
+     * opening the copy whole, importing what its jobs need -- costs more
+     * than it saves. Edits drop short jobs all the time
+     */
+    void endDropped(const std::vector<JobId>& ids);
+    double startSeconds() const
+    {
+        return starts.second ? starts.first / static_cast<double>(starts.second) : 0.0;
+    }
+    double endAfter() const
+    {
+        return std::max(startSeconds(), params()->GetFloat("EndDroppedAfter", 2.0));
+    }
     Proc* making(JobId id) const;
     void changedNotice()
     {
@@ -1017,6 +1037,7 @@ void WorkerPool::Private::dropReached(const DocumentObject* obj, const std::stri
         }
     }
     std::vector<std::pair<std::function<void(Result&)>, Result>> told;
+    std::vector<JobId> running;
     for (auto it = jobs.begin(); it != jobs.end();) {
         Entry& entry = it->second;
         bool hit = !entry.dropped && !entry.job.pinned
@@ -1037,6 +1058,7 @@ void WorkerPool::Private::dropReached(const DocumentObject* obj, const std::stri
         entry.job.done = nullptr;
         if (entry.running) {
             entry.dropped = true;  // its result, when it comes, is thrown away
+            running.push_back(it->first);
             ++it;
         }
         else {
@@ -1048,6 +1070,7 @@ void WorkerPool::Private::dropReached(const DocumentObject* obj, const std::stri
             told.emplace_back(std::move(done), std::move(result));
         }
     }
+    endDropped(running);
     // Told once the pool is as it will be: a client may cancel or submit
     for (auto& [done, result] : told) {
         try {
@@ -1213,6 +1236,7 @@ bool WorkerPool::Private::spawn()
         return false;
     }
     proc->pid = static_cast<long>(process->processId());
+    proc->spawnedAt = now();
     proc->process = std::move(process);
     procs.push_back(std::move(proc));
     ++spawned;
@@ -1334,6 +1358,10 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         proc.resident = header.value("resident", std::size_t(0));
         resident = std::max(resident, proc.resident);
         proc.ready = true;
+        if (proc.copyDir.empty() && proc.spawnedAt > 0) {
+            starts.first += now() - proc.spawnedAt;
+            ++starts.second;
+        }
         auto moved = header.find("moved");
         if (moved != header.end() && moved->is_boolean()) {
             // A newer copy, along the log or opened whole (sec 4)
@@ -1475,6 +1503,36 @@ void WorkerPool::Private::kill(Proc& proc)
         proc.process->waitForFinished(2000);
     }
     finished(proc);
+}
+
+void WorkerPool::Private::endDropped(const std::vector<JobId>& ids)
+{
+    if (ids.empty() || !params()->GetBool("EndDropped", true)) {
+        return;
+    }
+    const double after = endAfter();
+    bool any = false;
+    for (JobId id : ids) {
+        Proc* proc = making(id);
+        if (!proc || proc->over || proc->quitting) {
+            continue;
+        }
+        const double ran = now() - proc->began;
+        if (ran < after) {
+            continue;
+        }
+        auto it = jobs.find(id);
+        const std::string kind = it != jobs.end() ? it->second.job.kind : std::string();
+        FC_LOG(doc.getName() << ": worker " << proc->number << " ended, its job " << id << " ("
+                             << kind << ") dropped after " << ran << " s");
+        proc->quitting = true;  // not a failure: finished() says nothing of it
+        ++ended;
+        any = true;
+        kill(*proc);
+    }
+    if (any) {
+        grow();
+    }
 }
 
 void WorkerPool::Private::finished(Proc& proc)
@@ -2014,6 +2072,7 @@ std::size_t WorkerPool::cancel(const std::function<bool(const std::string&)>& wh
 {
     Private::Depth guard(*d, true);
     std::size_t count = 0;
+    std::vector<JobId> running;
     for (auto it = d->jobs.begin(); it != d->jobs.end();) {
         if (it->second.dropped || !which(it->second.job.tag)) {
             ++it;
@@ -2023,6 +2082,7 @@ std::size_t WorkerPool::cancel(const std::function<bool(const std::string&)>& wh
         if (it->second.running) {
             it->second.dropped = true;
             it->second.job.done = nullptr;
+            running.push_back(it->first);
             ++it;
         }
         else {
@@ -2031,6 +2091,7 @@ std::size_t WorkerPool::cancel(const std::function<bool(const std::string&)>& wh
             d->queue.erase(std::remove(d->queue.begin(), d->queue.end(), id), d->queue.end());
         }
     }
+    d->endDropped(running);
     if (count) {
         d->changedNotice();
     }
@@ -2225,6 +2286,9 @@ WorkerPool::Info WorkerPool::info() const
     info.stale = d->stale;
     info.moves = d->moves;
     info.reopens = d->reopens;
+    info.ended = d->ended;
+    info.startSeconds = d->startSeconds();
+    info.endAfter = d->endAfter();
     info.leases = d->leases;
     info.leasesAsked = d->leasesAsked;
     info.readStore = !d->store.empty();
@@ -2939,6 +3003,9 @@ public:
         dict.setItem("Stale", Py::Boolean(i.stale));
         dict.setItem("Moves", Py::Long(i.moves));
         dict.setItem("Reopens", Py::Long(i.reopens));
+        dict.setItem("Ended", Py::Long(i.ended));
+        dict.setItem("StartSeconds", Py::Float(i.startSeconds));
+        dict.setItem("EndAfter", Py::Float(i.endAfter));
         dict.setItem("Leases", Py::Long(i.leases));
         dict.setItem("LeasesAsked", Py::Long(i.leasesAsked));
         dict.setItem("ReadStore", Py::Boolean(i.readStore));

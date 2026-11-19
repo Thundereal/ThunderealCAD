@@ -466,6 +466,101 @@ class TestWorkerPool(unittest.TestCase):
             self.assertIsNone(self.pool.result(job))
         self.assertEqual(self.pool.info()["Done"], 1)
 
+    def readyWorker(self):
+        """A worker standing, its start measured: the pid"""
+        self.settings(1)
+        self.assertTrue(self.pool.start())
+        job = self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(job)["Status"], "Done")
+        self.assertGreater(self.pool.info()["StartSeconds"], 0)
+        return self.pool.info()["Pids"][0]
+
+    def longJobRunning(self, kind="test.sleep", **submit):
+        """A job of a minute, run past EndAfter"""
+        inputs = {"Seconds": 60.0, "Object": "Feature", "Property": "Integer"}
+        job = self.pool.submit(kind, inputs, module=MODULE, **submit)
+        self.assertGreater(job, 0)
+        self.assertTrue(self.waitFor(lambda: self.pool.state(job) == "Running"))
+        after = self.pool.info()["EndAfter"]
+        self.assertGreaterEqual(after, self.pool.info()["StartSeconds"])
+        began = time.time()
+        self.waitFor(lambda: time.time() - began > after + 0.2, after + 10)
+        return job
+
+    def gone(self, pid):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return True
+        return False
+
+    def testACancelledLongJobEndsItsWorker(self):
+        """A running job cancelled after it ran past EndAfter -- longer than a
+        worker takes to start, and 2 s -- ends its worker (docs/WorkerProcess.md sec 26): the minute it would
+        go on making is not spent, and the next job has a new worker"""
+        pid = self.readyWorker()
+        job = self.longJobRunning(tag="long")
+        began = time.time()
+        self.assertEqual(self.pool.cancel("long"), 1)
+        info = self.pool.info()
+        self.assertEqual(info["Ended"], 1, info)
+        self.assertEqual((info["Busy"], info["Failed"]), (0, 0), info)
+        self.assertNotIn(pid, info["Pids"])
+        self.assertTrue(self.gone(pid))
+        self.assertEqual(self.pool.state(job), "Unknown")
+        after = self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(after)
+        self.assertEqual(result["Status"], "Done", result)
+        self.assertNotEqual(result["Output"]["Pid"], pid)
+        self.assertLess(time.time() - began, 30)
+        self.assertIsNone(self.pool.result(job))  # cancelled: no one is told
+        self.assertTrue(self.pool.info()["Started"])
+
+    def testAJobCancelledSoonLetsItsWorkerFinish(self):
+        """Cancelled before it ran past EndAfter: the worker finishes it, and
+        is there for the next"""
+        pid = self.readyWorker()
+        job = self.submit("test.sleep", {"Seconds": 1.0}, tag="short")
+        self.assertTrue(self.waitFor(lambda: self.pool.state(job) == "Running"))
+        self.assertEqual(self.pool.cancel("short"), 1)
+        self.assertEqual(self.pool.info()["Ended"], 0)
+        self.assertEqual(self.pool.info()["Busy"], 1)
+        after = self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(after)["Output"]["Pid"], pid)
+        self.assertEqual(self.pool.info()["Spawned"], 1)
+
+    def testALongJobAnEditDropsEndsItsWorker(self):
+        """The same for a job an edit of what it reads drops: handed back
+        Cancelled, its worker ended"""
+        pid = self.readyWorker()
+        job = self.longJobRunning("test.sleepread", reads=["Feature"])
+        self.doc.openTransaction("Edit")
+        self.obj.Integer = 7
+        self.doc.commitTransaction()
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Cancelled", result)
+        self.assertFalse(result["Died"])
+        info = self.pool.info()
+        self.assertEqual(info["Ended"], 1, info)
+        self.assertNotIn(pid, info["Pids"])
+        after = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertEqual(self.pool.result(after)["Output"]["Value"], 7)
+
+    def testEndDroppedOffLetsTheWorkerFinish(self):
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("EndDropped", False)
+        self.addCleanup(group.RemBool, "EndDropped")
+        pid = self.readyWorker()
+        self.longJobRunning(tag="t")
+        self.assertEqual(self.pool.cancel("t"), 1)
+        info = self.pool.info()
+        self.assertEqual((info["Ended"], info["Busy"], info["Pids"]), (0, 1, [pid]), info)
+        self.pool.stop()
+
     def testAnEditDropsTheJobsAndMovesTheWorkers(self):
         """An edit drops the jobs that say nothing of what they read; the
         workers stay, and move to the next copy along the log's rows

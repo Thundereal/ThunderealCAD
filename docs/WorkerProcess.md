@@ -12,7 +12,8 @@ was asked for (sec 24); a geometry check made by a worker (sec 25); the
 worker of a long job that was dropped ended (sec 26); what a worker says
 through its Console said here (sec 27); an edit's long recompute made by a
 worker (sec 28); a worker keeping what it made as it moves across it (sec
-29); what a recompute took read from the log after an open (sec 30).
+29); what a recompute took read from the log after an open (sec 30); the
+recompute at the end of a task panel's or a sketch's edit (sec 31).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -1088,20 +1089,22 @@ map size, state):
   merged face exactly, the two differ by more than the tolerance, and the
   merge is skipped. A console process -- every worker -- recomputes
   scanner's Mirrored to 17, the GUI to 19, and everything after it
-  follows. Not changed: it moves results of saved documents (the file
-  holds 19), so it is the user's ruling. Until it is fixed, a worker's
-  refine can differ from the GUI's wherever meshes block a merge.
+  follows. Fixed the next day (sec 20): refine, and every App-side box
+  whose answer a mesh could move, read the geometry now, and a worker's
+  refine is the GUI's.
 - The App::Part and link groups, gathered from shown children, come out
   as the GUI's -- the version carries what is shown.
 - Binder032 (a sub-shape binder of a plain feature) keeps one mapped name
   more from a worker (`Wire1`, 50 against 49), in some runs; its geometry
   is the same, and its inputs in the worker were checked equal to this
-  process's before the recompute. Open.
+  process's before the recompute. Not seen since (2026-11-20, sec 31):
+  three runs, every one of the 405 shapes the same from a worker as made
+  here.
 - In the GUI, the strings of the result went by content: `takeRows`
   refused, "string 131105 is held here as 772" -- the worker gave a new id
   to a string this process holds under an old one. In the console they
-  go by id. Correct either way; the cause is the strings' (oplab's) part,
-  open.
+  go by id. Correct either way; the cause is the strings' (oplab's) part.
+  Not seen since (2026-11-20, sec 31): in the GUI too they go by id.
 
 Tests: TestWorkerPool 30 (+7 `TestWorkerRecompute`: a Part chain and a
 Python feature made by a worker, nothing executed here, its element
@@ -1773,3 +1776,64 @@ Test: `TestWorkerRecompute.testAnOpenKnowsWhatARecomputeTookFromTheLog`.
 A 0.4 s execute and what depends on it are recomputed, saved and opened
 again. An edit with nothing recomputed since is expected to take
 0.4-0.8 s, nothing unknown.
+
+## 31. The recompute at the end of an edit, and the open items checked (2026-11-20)
+
+**A PartDesign dialog's OK, a sketch's edit left.** Both end in a
+recompute of the document: `TaskDlgFeatureParameters::accept` checks the
+feature it made and keeps the dialog open if it failed, and
+`ViewProviderSketch::unsetEdit` recomputes what the sketch changed. What
+follows the edited object -- the rest of the body, what reads it -- is
+the part that can be long. The edited object itself is not a worker's to
+make. The dialog has to know at once whether it came out. A sketch's
+execute may give geometry new ids, which makes a worker's job unfit (sec
+19).
+
+`Gui::makeEditedFirst(edited)` sums what uses the object
+(`expectedSeconds` over its InList, sec 28). Below RecomputeEditSeconds
+it does nothing, and the caller recomputes as before. At or above it, it
+makes the object here (`Document::recomputeFeature`), clears its touch
+once it comes out valid, marks what uses it to be recomputed, and says
+so. The caller checks the object as it always did, closes its step, and
+hands the rest over (`recomputeEditByWorkers`), or recomputes here if
+that does not take it. The dialog's OK leaves the feature as made when
+its preview made it (upstream c1c9cb63e0), so then only the rest is
+made.
+
+**What is marked here goes with the job.** An object marked to be
+recomputed (`enforceRecompute`) has nothing in the log that says so: the
+worker's copy holds it untouched and its recompute passed it over. The
+sketch's Pad was not made again. `WorkerRecompute::start` sends, with
+the objects, those of them that must be recomputed here (`touched`), and
+the worker marks them before it recomputes.
+
+What the estimate counts is everything that depends on the edited
+object. A recompute skips one whose inputs did not change (a feature
+reading `Pad.Length` after a sketch edit), so the estimate can be more
+than what runs, and a recompute that turns out short is handed over
+anyway.
+
+**The open items of sec 19, checked again on scanner:**
+- Binder032's extra mapped name is not seen. In three console runs, a
+  worker's recompute and one made here at the same point give the same
+  volume, faces, element map size and state for every one of the 405
+  shapes, but the infinite datums, whose volume is noise.
+- The strings of a worker's result go by id in the GUI too (`ById` True,
+  nothing read by content), as they do in the console.
+- Found on the way, not the workers': two recomputes here in turn of
+  scanner just opened do not give the same element maps. Sketch046 has 18
+  mapped names after the first and 16 after the second, Sketch047 16 and
+  15, Hole004 301 and 300. A worker gives what a recompute here gives at
+  the same point. Scanner is a schema 4 file, and the first recompute
+  probably still carries names from the old element-map version.
+- Refine and the display mesh: done in sec 20.
+
+Tests: `TestWorkerRecompute.testWhatIsMarkedHereIsMadeThere`. GUI test
+`tests/gui/edit-end-recompute-by-worker.py` (10 claims): a body with a
+sketch and a Pad, and a Python feature reading the Pad's volume whose
+execute() takes 1 s.
+- A length typed into the Pad's dialog, then OK: the dialog closes in
+  0.08 s, the Pad is made here, and what reads it comes from the worker.
+- A sketch's distance changed, then its edit left: back in 0.1 s, the
+  sketch made here, and the Pad and the feature by the worker.
+- With nothing long after it, OK makes everything here at once.

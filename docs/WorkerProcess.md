@@ -12,7 +12,7 @@ was asked for (sec 24); a geometry check made by a worker (sec 25); the
 worker of a long job that was dropped ended (sec 26); what a worker says
 through its Console said here (sec 27); an edit's long recompute made by a
 worker (sec 28); a worker keeping what it made as it moves across it (sec
-29).
+29); what a recompute took read from the log after an open (sec 30).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -1671,10 +1671,9 @@ The worker's result came about 4 s after one made here would have. Most
 of that was the move along the log: the job ran 2.1 s after it was handed
 over to a worker already started. Sec 29 takes it out: 7.3 s now.
 
-Left as it is: after an open, no object has a time, so an edit's first
-recompute is made here, and that recompute gives the objects their times.
-The file's own recompute records (the transaction log's, with each
-object's seconds) could seed them.
+After an open, no object had a time, so an edit's first recompute was made
+here, and that recompute gave the objects their times. Sec 30 reads them
+from the file's recompute records instead.
 
 Tests: `TestWorkerRecompute.testARecomputeIsExpectedToTakeWhatItsObjectsTookLast`
 (objects never made are unknown; a 0.3 s execute and what depends on it,
@@ -1754,3 +1753,23 @@ The box's Length is edited and recomputed by the worker; then its Height
 twice, each recomputed by the worker. Each result is right, at least two
 moves keep values (`Kept` > 0), and the last one equals a recompute here,
 element map included.
+
+## 30. What a recompute took, read from the log after an open (2026-11-19)
+
+A recompute here leaves a record in the transaction log: a row of kind
+`recompute` whose script is JSON, with each object's id and the seconds
+its execute() took (`TransactionLog::onRecompute`). A file with its
+history carries those rows. `WorkerRecompute::expectedSeconds` reads them
+once per document, at its first ask (`readRecorded`). It reads the newest
+2000 rows of the chain to the head, and keeps for each object the most it
+took in any of them: the record of a worker's result put in here holds its
+putting in, a fraction of its making. A time measured since the tracking
+began comes first. An object with neither is unknown, as before. So the
+first edit after an open whose recompute was long when last made goes to
+a worker too. A file without history -- schema 4, as scanner is -- has no
+records; its first recompute here gives the times.
+
+Test: `TestWorkerRecompute.testAnOpenKnowsWhatARecomputeTookFromTheLog`.
+A 0.4 s execute and what depends on it are recomputed, saved and opened
+again. An edit with nothing recomputed since is expected to take
+0.4-0.8 s, nothing unknown.

@@ -3055,6 +3055,10 @@ public:
                            "cancelRecompute(reason='cancelled')");
         add_varargs_method("recomputeInfo", &WorkerPoolPy::recomputeInfo,
                            "recomputeInfo() -> dict");
+        add_varargs_method("expectedRecompute", &WorkerPoolPy::expectedRecompute,
+                           "expectedRecompute() -> (seconds, unknown): what the recompute of "
+                           "what is touched would take here, by what its objects took when "
+                           "last made; the first call starts noting it");
     }
 
     explicit WorkerPoolPy(const std::string& name)
@@ -3327,6 +3331,14 @@ public:
         }
         WorkerRecompute::cancel(document(), why);
         return Py::None();
+    }
+
+    Py::Object expectedRecompute(const Py::Tuple&)
+    {
+        WorkerRecompute::trackTimes();
+        long unknown = 0;
+        const double seconds = WorkerRecompute::expectedSeconds(document(), {}, &unknown);
+        return Py::TupleN(Py::Float(seconds), Py::Long(unknown));
     }
 
     Py::Object recomputeInfo(const Py::Tuple&)

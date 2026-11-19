@@ -1039,6 +1039,36 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(after.ExecCount, afterCount)
         self.assertEqual((feature.State, after.State), states)
 
+    def testARecomputeIsExpectedToTakeWhatItsObjectsTookLast(self):
+        """What a recompute of what is touched would take: what each object
+        it reaches took when last made, here or by a worker
+        (docs/WorkerProcess.md sec 28)"""
+        self.pool.expectedRecompute()  # noting from now
+        slow = self.counted("Slow", Sleep=0.3, Input=1)
+        after = self.counted("After")
+        after.setExpression("Input", "Slow.Result")
+        quick = self.counted("Quick")
+        self.assertEqual(self.pool.expectedRecompute()[1], 3)  # never made
+        self.doc.recompute()
+        slow.Input = 2  # reaches After
+        seconds, unknown = self.pool.expectedRecompute()
+        self.assertEqual(unknown, 0)
+        self.assertGreaterEqual(seconds, 0.3)
+        self.assertLess(seconds, 0.6)
+        self.doc.recompute()
+        quick.Input = 5
+        self.assertLess(self.pool.expectedRecompute()[0], 0.1)
+        self.doc.recompute()
+        # Made by a worker: its times
+        slow.Sleep = 0.8
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        slow.Input = 3
+        seconds, unknown = self.pool.expectedRecompute()
+        self.assertEqual(unknown, 0)
+        self.assertGreaterEqual(seconds, 0.8)
+        self.assertLess(seconds, 1.2)
+
     def testAFailureTheWorkerSawIsSaidOnce(self):
         """The worker's "Failed to recompute" is not said here: the put-in
         says it, as a recompute here does (docs/WorkerProcess.md sec 27)"""

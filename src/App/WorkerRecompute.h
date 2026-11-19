@@ -95,6 +95,19 @@ public:
     static void cancel(Document& doc, const std::string& why);
     static Info info(const Document& doc);
 
+    /** What the recompute of `objs` -- with none, of what is touched --
+     * would take here, in seconds (docs/WorkerProcess.md sec 28): what each
+     * object it reaches took when it was last made, here or by a worker.
+     * `unknown`, if given, counts the objects it reaches that were not made
+     * since trackTimes() began, which count for nothing.
+     */
+    static double expectedSeconds(const Document& doc,
+                                  const std::vector<DocumentObject*>& objs = {},
+                                  long* unknown = nullptr);
+    /// Note from now what each object's recompute here takes, for
+    /// expectedSeconds(); once is enough
+    static void trackTimes();
+
     /// Started, made, put in, dropped
     static fastsignals::signal<void(const Document&)> signalChanged;
 };

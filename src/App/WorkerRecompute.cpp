@@ -616,6 +616,20 @@ const bool registered = WorkerPool::registerKind(RecomputeKind, makeRecompute);
 
 /// Makes each object of a recompute here from what a worker's execute()
 /// wrote, in place of executing it
+/// What each object's last recompute took, by its id, per document
+/// (WorkerRecompute::expectedSeconds)
+struct Times
+{
+    std::unordered_map<long, double> seconds;
+    std::chrono::steady_clock::time_point last;
+};
+
+std::map<const Document*, Times>& times()
+{
+    static std::map<const Document*, Times> map;
+    return map;
+}
+
 class Supplier: public RecomputeHook
 {
 public:
@@ -782,6 +796,16 @@ public:
     void executing(DocumentObject& obj) override
     {
         answered.erase(&obj);  // a new recompute of it takes its next entry
+    }
+
+    /// What it took: the worker's execute() for one made from its values,
+    /// this process's for one executed here (expectedSeconds)
+    void executed(DocumentObject& obj, int res, double took) override
+    {
+        (void)res;
+        auto it = answered.find(&obj);
+        const bool supplied = it != answered.end() && it->second.first;
+        times()[&doc].seconds[obj.getID()] = supplied ? it->second.second.seconds : took;
     }
 
     bool make(DocumentObject& obj, Made& made) override
@@ -1203,30 +1227,13 @@ State& stateFor(Document& doc)
 
 fastsignals::signal<void(const Document&)> WorkerRecompute::signalChanged;
 
-bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& objs,
-                            std::string* why)
+namespace
 {
-    (void)registered;
-    State& s = stateFor(doc);
-    auto refuse = [&](const std::string& reason) {
-        s.info.reason = reason;
-        if (why) {
-            *why = reason;
-        }
-        return false;
-    };
-    std::string reason;
-    if (!WorkerPool::supported(&reason)) {
-        return refuse(reason);
-    }
-    if (doc.testStatus(Document::Recomputing) || doc.isPerformingTransaction()) {
-        return refuse("the document is busy");
-    }
-    if (s.job || !s.file.empty()) {
-        return refuse("a recompute is with the workers already");
-    }
-    // What a recompute would reach: what is touched, or asked for, and
-    // everything depending on it
+
+/// What a recompute of `objs` -- none: of what is touched -- reaches: them,
+/// and everything depending on them
+std::set<DocumentObject*> reachOf(const Document& doc, const std::vector<DocumentObject*>& objs)
+{
     std::set<DocumentObject*> seeds;
     if (objs.empty()) {
         for (auto obj : doc.getObjects()) {
@@ -1251,6 +1258,91 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
             }
         }
     }
+    return all;
+}
+
+}  // namespace
+
+void WorkerRecompute::trackTimes()
+{
+    static bool tracking = false;
+    if (tracking) {
+        return;
+    }
+    tracking = true;
+    // Each object's time is from the one before it was recomputed, or from
+    // the recompute's start: the gaps add up to the recompute's. A recompute
+    // under a hook is noted by the hook -- a worker's result put in, by the
+    // worker's times
+    static fastsignals::scoped_connection before =
+        GetApplication().signalBeforeRecomputeDocument.connect([](const Document& doc) {
+            times()[&doc].last = std::chrono::steady_clock::now();
+        });
+    static fastsignals::scoped_connection each = GetApplication().signalRecomputedObject.connect(
+        [](const Document& doc, const DocumentObject& obj) {
+            const auto t = std::chrono::steady_clock::now();
+            Times& slot = times()[&doc];
+            if (!RecomputeHook::of(doc)) {
+                slot.seconds[obj.getID()] = std::chrono::duration<double>(t - slot.last).count();
+            }
+            slot.last = t;
+        });
+    static fastsignals::scoped_connection gone =
+        GetApplication().signalDeleteDocument.connect([](const Document& doc) {
+            times().erase(&doc);
+        });
+}
+
+double WorkerRecompute::expectedSeconds(const Document& doc,
+                                        const std::vector<DocumentObject*>& objs, long* unknown)
+{
+    double total = 0;
+    long missing = 0;
+    auto it = times().find(&doc);
+    for (auto obj : reachOf(doc, objs)) {
+        if (it == times().end()) {
+            ++missing;
+            continue;
+        }
+        auto t = it->second.seconds.find(obj->getID());
+        if (t == it->second.seconds.end()) {
+            ++missing;
+        }
+        else {
+            total += t->second;
+        }
+    }
+    if (unknown) {
+        *unknown = missing;
+    }
+    return total;
+}
+
+bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& objs,
+                            std::string* why)
+{
+    (void)registered;
+    State& s = stateFor(doc);
+    auto refuse = [&](const std::string& reason) {
+        s.info.reason = reason;
+        if (why) {
+            *why = reason;
+        }
+        return false;
+    };
+    std::string reason;
+    if (!WorkerPool::supported(&reason)) {
+        return refuse(reason);
+    }
+    if (doc.testStatus(Document::Recomputing) || doc.isPerformingTransaction()) {
+        return refuse("the document is busy");
+    }
+    if (s.job || !s.file.empty()) {
+        return refuse("a recompute is with the workers already");
+    }
+    // What a recompute would reach: what is touched, or asked for, and
+    // everything depending on it
+    const std::set<DocumentObject*> all = reachOf(doc, objs);
     if (all.empty()) {
         return refuse("nothing to recompute");
     }

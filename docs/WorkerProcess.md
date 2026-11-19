@@ -10,7 +10,8 @@ depending on what was shown, and a worker's names spelled as its
 client's (sec 20); an export made by a worker, pinned to the design as it
 was asked for (sec 24); a geometry check made by a worker (sec 25); the
 worker of a long job that was dropped ended (sec 26); what a worker says
-through its Console said here (sec 27).
+through its Console said here (sec 27); an edit's long recompute made by a
+worker (sec 28).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -1619,3 +1620,71 @@ result and not said; a dropped job's are not said;
 `tests/gui/messages-by-worker.py` (5 claims): nothing in the Report view
 while the job runs; after it, "worker 0: careful there" and "worker 0:
 that went wrong"; an Unfit job's words not shown.
+
+## 28. An edit's long recompute made by a worker (2026-11-19)
+
+The property editor recomputes as it commits an edit
+(`PropertyEditor::closeTransaction`), inside the edit's transaction. That
+is the recompute users wait on most: the window is held for as long as
+whatever the edit reaches takes to execute. Nothing in the editor uses the
+result once it is made.
+
+**What a recompute will take.** `WorkerRecompute::trackTimes()`, started
+with the GUI's Application, notes what each object's last recompute took,
+by its id. In a recompute here, that is the gap between one object's
+`signalRecomputedObject` and the one before it, or the recompute's start.
+The gaps add up to the recompute's time, and an object an execute()
+recomputes itself is counted on its own. When a worker's result is put in,
+the time is the worker's execute()'s (`Supplier::executed`); an object
+executed here meanwhile gets this process's time.
+`WorkerRecompute::expectedSeconds(doc)` sums those times over what the
+recompute would reach: what is touched, and everything depending on it
+(`reachOf`, the same set `start()` hands over). An object not made since
+the tracking began counts for nothing, and is counted in `unknown`.
+Python: `pool.expectedRecompute()` -> (seconds, unknown).
+
+**The editor.** When the edit's recompute is expected to take at least
+RecomputeEditSeconds of Preferences/Workers (0.5 s by default) and
+RecomputeEdits is on (by default; "Recompute long edits in a worker
+process" in the Document preferences), the editor commits the edit first
+and then hands the recompute over (`Gui::editRecomputeIsLong`,
+`recomputeEditByWorkers`). A transaction left open would have the pool
+take a saved copy of the document. If it cannot be handed over, it is
+recomputed here, after the commit. A shorter one is made here at once,
+inside the transaction, as before: a worker's would come later than that.
+Undo is not changed by this. The result put in later goes into the
+edit's step: one undo takes back the edit and its result together, and
+one redo brings both back (both checked in the console; the GUI test
+checks the undo).
+
+Measured on mini, `scanner.FCStd`, an edit of Pad039's Length (22 objects
+reached, 6.5 s expected), in the console:
+
+| | made here | made by a worker |
+|---|---|---|
+| this thread held | 6.6 s | 1.7-2.0 s the first time (the pool starts), 0.45 s after |
+| the result in | 6.6 s | 10.5-11 s |
+| the worker's recompute / put in here | | 6.5-6.7 s / 0.15 s |
+
+The worker's result comes about 4 s after one made here would have. Most
+of that is the move along the log: the job runs 2.1 s after it is handed
+over to a worker already started. The step the worker moves across holds
+the previous result it made itself, and restoring those values is that
+time (open: skipping values the worker already holds as they are).
+
+Left as it is: after an open, no object has a time, so an edit's first
+recompute is made here, and that recompute gives the objects their times.
+The file's own recompute records (the transaction log's, with each
+object's seconds) could seed them.
+
+Tests: `TestWorkerRecompute.testARecomputeIsExpectedToTakeWhatItsObjectsTookLast`
+(objects never made are unknown; a 0.3 s execute and what depends on it,
+expected 0.3-0.6 s; a quick one under 0.1 s; made by a worker with a 0.8 s
+execute, expected 0.8-1.2 s). GUI test `tests/gui/edit-recompute-by-worker.py`
+(10 claims), which types into the property editor:
+- an Input for an object whose execute() took 1 s: the editor is back in
+  0.04 s, the recompute is with a worker, and the result comes, made by
+  the worker's process;
+- one undo step for the edit, which takes back the edit and its result;
+- an object that took no time is made here at once;
+- with RecomputeEdits off, the slow one is made here, 1.02 s.

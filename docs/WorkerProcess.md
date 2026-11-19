@@ -368,7 +368,7 @@ animation-export-clock 12 unchanged; ctest 1268/1268 (FormWidgets failed
 once under `-j 4`, passed alone).
 
 Not done in phase 1: the expression-security grants passed to a worker
-(sec 2); jobs dropped by `reads` (phase 4).
+(sec 2; done 2026-11-19, sec 23); jobs dropped by `reads` (phase 4).
 
 ## 11. Phase 2a, as built: the copy is a version of the log
 
@@ -1345,3 +1345,43 @@ Test: `ShapeStorage.ShapeCongruenceCases.testASaveOfSavedShapesComputesNoInvaria
 (Python `Part.congruenceWork()`, the counts of keys and invariants
 computed in the process): a second save of unchanged shapes computes none
 (before: 3 keys, 1 length, 1 area, 1 volume), an edit one key.
+
+## 23. A worker decides expression permissions as this process does (2026-11-19)
+
+Sec 2 said a worker has the GUI's trust: the same expression-security
+grants and policy. Phase 1 left it out. A worker read its own
+`grants.json` (the same user directory, so the same file) once, at its
+first check, and decided by that. What it did not have:
+
+- the `--grant` overrides and the `--policy` file of this process;
+- the session answers of the Document Permissions panel, which no file
+  holds;
+- a grant given or taken back after its first check. A grant taken back
+  here still let the worker evaluate what this process now refuses.
+
+And a check refused in a worker went nowhere: the expression failed, the
+object's error was put in here as a recompute's result, and the user was
+never asked -- the pending request was the worker's.
+
+**The state goes with the work.** `Runtime::exportState()` is what decides
+here: whether enforcement is on, the overrides, the session answers and the
+store (`GrantStore::toText()`). The setup a worker is sent carries it, and
+a job carries it again whenever it has changed since the worker was last
+told -- a grant or a revocation reaches a worker before the next job it
+runs. The worker adopts it (`Runtime::adoptState()`) and decides by it
+alone: it never reads or writes `grants.json` from then on. Once answers
+are not carried: they are for the re-run here they were given for.
+
+**A refusal is answered here.** A check that refuses in a worker -- a deny
+or a prompt -- counts (`Runtime::refusals()`), and a job during which one
+did answers unfit: a recompute leaves the object to be made here, a frame
+is made here. Here the check is made again, recorded in the audit log and,
+where it may be granted, asked for. The worker writes no audit line and no
+pending request for it.
+
+Test: `TestWorkerRecompute.testAWorkerDecidesPermissionsAsHere`: an
+expression reading `_app` (app.query, which a document must be granted)
+under a session grant here is made by the worker; with the grant taken
+back, the worker's job is unfit, the object is made here, refused, and the
+request is pending here. Without the state sent, the first part fails: the
+worker refuses what this process granted.

@@ -55,13 +55,26 @@ And what we have makes three things cheap [B1-B4]:
 
 ## 3. Where it lives
 
-The objects live in **Part** (`src/Mod/Part/App/Pmi*`, Python `Part.Pmi*`), with their tools in
-PartDesign's workbench. Not in PartDesign, because an imported STEP part is a `Part::Feature`,
-not a Body, and must carry its PMI too; and Assembly will want location tolerances between
-parts later. A Body admits them through `Part::BodyBase::allowType(type, "Annotation")`, which
-also gives them an `AuxGroup` role of their own in the tree (as surfaces have) [B4].
+A module of its own, **`src/Mod/PMI`** (App + Gui, Python `PMI`), built the way the Surface
+module is -- which lives outside PartDesign and still works inside a Body [B4]:
 
-(Decision 1, section 11: Part versus PartDesign, and whether to adopt upstream's `PMI_` names.)
+- **App** depends on Part only and owns the objects (section 4), the layout (6.1) and the check
+  (8). Import (STEP) and TechDraw depend on it, not on PartDesign. Not in PartDesign, because an
+  imported STEP part is a `Part::Feature`, not a Body, and must carry its PMI too; Assembly will
+  want tolerances between parts later.
+- **Into a Body** through `Part::BodyBase::allowType(type, "Annotation")`, as Surface registers
+  its features (`Surface/App/AppSurface.cpp:132`); that also gives them an `AuxGroup` role of
+  their own in the tree.
+- **Gui** owns the commands and task panels, once, and offers them in two places:
+  - its own **PMI workbench**, for an imported part or an assembly (and the name upstream's
+    proposal and its "Mod: PMI" label use, [A8]);
+  - **inside PartDesign** (and later Part and Assembly) through a `Gui::ToolContext`, as
+    Surface's tool bars are offered in PartDesign while a surface group is active
+    (`Surface/Gui/AppSurfaceGui.cpp:102-111`): the PMI tool bars appear while the Body's
+    annotation group is active or a PMI object is in edit, so annotating a Body never means
+    leaving PartDesign.
+
+(Decision 1, section 11: the module name and whether to adopt upstream's `PMI_` names.)
 
 ## 4. The object model
 
@@ -215,7 +228,7 @@ The survey found five gaps [B2], in the order the phases need them:
 
 ### 6.1 One layout, many outputs
 
-A `PmiLayout` in Part/App (no Qt, no Coin) turns an item into 2D strokes and fills in its
+A `PmiLayout` in PMI/App (no Qt, no Coin) turns an item into 2D strokes and fills in its
 annotation plane's coordinates: the frame's boxes, the characteristic glyph, DIA, the value,
 modifier circles, datum letters, the datum triangle, leaders and arrowheads. Its text uses a
 built-in **stroke font** (ASCII plus the GD&T symbols, ISO 3098 lettering), not a system font,
@@ -313,7 +326,7 @@ Each phase ends green on the full suites and with its own tests.
   feature/system, dimension, tolerance, note; persistence; reference resolution (section 7);
   the syntax check; Python API; gtests and Python tests editing a part under its annotations.
 - **P1 Authoring**: layout + stroke font; 3D view providers; task panels (an FCF builder with
-  a live preview, face picking in the view); planes; tools in PartDesign's toolbar; GUI tests.
+  a live preview, face picking in the view); planes; the PMI workbench and its ToolContext in PartDesign; GUI tests.
 - **P2 STEP import**: the DimTolTool pass, imported presentation, views; the NIST set;
   OCCT fixes 5.3.1-2.
 - **P3 STEP export**: AP242 semantic + tessellated presentation; round-trip and SFA; OCCT fix
@@ -324,10 +337,10 @@ Each phase ends green on the full suites and with its own tests.
 
 ## 11. Decisions that are the user's
 
-1. **Home and names.** Part (recommended, section 3) or PartDesign; and whether to adopt the
-   upstream proposal's names and scope (#29772, `PMI_*`, ISO GPS first [A8]) so a later
-   upstream exchange is easier. Recommended: our structure, their names where the concepts
-   match (`PmiDatum` for their `PMI_Datum`, `PmiDatumSystem` for `PMI_DatumReferenceFrame`).
+1. **Names.** The module is `PMI` either way (section 3). Whether the objects take the upstream
+   proposal's names (#29772: `PMI_AnnotationSet`, `PMI_Datum`, `PMI_DatumReferenceFrame`, ...,
+   [A8]) so a later upstream exchange is easier. Recommended: their names where the concepts
+   match, ours (the shared toleranced feature) where theirs has no equivalent.
 2. **Default standard**: ASME Y14.5-2018 or ISO GPS. Both are supported; this picks the default
    for new parts and the symbols the first tools show.
 3. **AP242 on export**: switch the schema to AP242 automatically when the document has PMI

@@ -461,6 +461,28 @@ CAx-IF `EquivalentText` (e.g. "position|DIA0.1(M)|A|B|C(M)" in its code points).
 - Seen, not yet done: dimension and extension lines for location dimensions (a leader for now),
   and annotations stacked onto one leader.
 
+### 10.4 P1 progress: the GUI (2026-11-20)
+
+Built: `PMIGui` -- a view provider drawing each callout's `Presentation` on top of the model
+(`Gui::So3DAnnotation`, which the render cache takes), blue, amber when remapped, red when
+broken or invalid; a toleranced feature's derived axis or centre plane drawn dashed (upstream's
+construction geometry); the annotation set, whose double-click makes it active in the view and
+offers the PMI tool bar in PartDesign (`Gui::ToolContext`, key "pmi"). The PMI workbench and
+commands Datum, Geometric tolerance, Dimension, Note, Check: each resolves the picked faces in
+C++ (`PMI.solidReference`) and writes plain Python with the names in it, so a macro replays it.
+The defaults: a plane's tolerance is flatness, a cylinder's a position of its axis in a diameter
+zone, anything else profile of a surface; a dimension on a hole its diameter, on two opposed
+planes the width, on two features their distance or angle. Edited in the property view for now
+(the FCF builder panel is next). GUI test `tests/gui/pmi-workbench.py`, 14 checks.
+
+- **The first pick on a Body without a set cannot be named** -- the solid body comes with the
+  set. The command makes the set first, inside its transaction, then resolves the pick. Found as
+  a hang: the refusal was a message box, which hangs Xvfb; the test now closes modals and fails.
+- **A size is measured on the faces, whatever the feature derives**: a hole's feature shared
+  with a position tolerance is its axis, and its diameter came out 0 (found by the GUI test).
+- Seen in the capture: a callout under the part (datum A on the bottom face, looked at from
+  above) is partly hidden by it -- the on-top node is not yet honoured all the way; to look at.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

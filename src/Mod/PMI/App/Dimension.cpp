@@ -128,22 +128,26 @@ bool Dimension::measure(double& value, std::string& why) const
     }
     const Primitive& p = feats[0]->primitive();
     const auto& faces = feats[0]->facePrimitives();
+    // A size is of the faces, whatever the feature derives from them: a
+    // hole's diameter is measured on its cylinder, also when the feature
+    // is its axis (shared with a position tolerance)
+    const Primitive& surface = faces.empty() ? p : faces.front();
     switch (getType()) {
         case Diameter:
         case Radius:
-            if (p.type != Primitive::Cylinder) {
+            if (surface.type != Primitive::Cylinder) {
                 why = "a diameter or radius needs a cylindrical feature";
                 return false;
             }
-            value = getType() == Diameter ? 2 * p.radius : p.radius;
+            value = getType() == Diameter ? 2 * surface.radius : surface.radius;
             return true;
         case SphericalDiameter:
         case SphericalRadius:
-            if (p.type != Primitive::Sphere) {
+            if (surface.type != Primitive::Sphere) {
                 why = "a spherical size needs a spherical feature";
                 return false;
             }
-            value = getType() == SphericalDiameter ? 2 * p.radius : p.radius;
+            value = getType() == SphericalDiameter ? 2 * surface.radius : surface.radius;
             return true;
         case Width:
             if (faces.size() != 2 || faces[0].type != Primitive::Plane
@@ -153,8 +157,8 @@ bool Dimension::measure(double& value, std::string& why) const
             }
             return Geom::distance(faces[0], faces[1], value, why);
         case AngularSize:
-            if (p.type == Primitive::Cone) {
-                value = 2 * p.angle * 180.0 / M_PI;
+            if (surface.type == Primitive::Cone) {
+                value = 2 * surface.angle * 180.0 / M_PI;
                 return true;
             }
             if (faces.size() == 2 && Geom::angle(faces[0], faces[1], value, why)) {

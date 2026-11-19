@@ -154,6 +154,14 @@ class TestModel(Base):
             self.assertEqual(dim.Condition, "Ok", "%s: %s" % (t, dim.ConditionMessage))
             self.assertAlmostEqual(dim.Nominal.Value, want, 6, t)
 
+    def test_a_size_is_measured_on_the_faces_of_an_axis(self):
+        # The hole's feature is its axis, shared with a position tolerance;
+        # its diameter is still the cylinder's
+        axis = self.feature(HOLE, kind="Axis")
+        dim = self.add("Dimension", "Dia", Type="Diameter", Features=[axis])
+        self.recompute()
+        self.assertAlmostEqual(dim.Nominal.Value, 6, 6)
+
     def test_find_feature_shares(self):
         top = self.feature(TOP)
         self.recompute()

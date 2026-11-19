@@ -56,6 +56,11 @@ class PMIExport AnnotationSet: public App::DocumentObjectGroup
 public:
     AnnotationSet();
 
+    const char* getViewProviderName() const override
+    {
+        return "PMIGui::ViewProviderAnnotationSet";
+    }
+
     /// What it annotates: the Body it is in, or the shape it sits beside.
     /// Hidden: no dependency -- in a Body, a link to it would be a cycle,
     /// and what an annotation depends on is the faces it refers to

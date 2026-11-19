@@ -1,11 +1,18 @@
 # PMI: product and manufacturing information -- GD&T on a part (docs/GDandT.md)
 
 add_subdirectory(App)
+if(BUILD_GUI)
+    add_subdirectory(Gui)
+endif(BUILD_GUI)
 
 set(PMI_Scripts
     Init.py
     TestPMIApp.py
 )
+
+if(BUILD_GUI)
+    list(APPEND PMI_Scripts InitGui.py)
+endif(BUILD_GUI)
 
 set(PMI_TestScripts
     PMITests/__init__.py

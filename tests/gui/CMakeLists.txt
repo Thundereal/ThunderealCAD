@@ -2763,3 +2763,9 @@ fc_add_gui_test(GuiFemWorkbench_tests_run
 # property editor's marks and I key, Record of a property and of a view's,
 # none of it marking the document modified.
 fc_add_gui_test(GuiAnimationTimeline_tests_run animation-timeline.py --timeout 240)
+
+# The PMI workbench driven as a user drives it (docs/GDandT.md sec 3, 5-8):
+# picks on the Body's tip become solid references, the commands make a
+# tolerance, datums and dimensions, the callouts are drawn, PartDesign
+# offers the PMI tool bar while the set is active, undo takes one away.
+fc_add_gui_test(GuiPMIWorkbench_tests_run pmi-workbench.py --timeout 300)

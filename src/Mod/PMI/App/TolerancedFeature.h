@@ -55,6 +55,11 @@ class PMIExport TolerancedFeature: public Annotation
 public:
     TolerancedFeature();
 
+    const char* getViewProviderName() const override
+    {
+        return "PMIGui::ViewProviderFeature";
+    }
+
     App::PropertyLinkSubList References;
     App::PropertyEnumeration Kind;
     /// The faces resolved, or the derived axis / plane / point

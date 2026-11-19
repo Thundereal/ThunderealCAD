@@ -116,6 +116,7 @@
 #include "TopoShapeSolidPy.h"
 #include "TopoShapeWirePy.h"
 #include "WireJoiner.h"
+#include "ShapeCongruence.h"
 
 #ifdef FCUseFreeType
 #  include "FT2FC.h"
@@ -807,6 +808,12 @@ public:
             "(\"TKFillet\", \"TKBRep\", ...): the realthunder OCCT fork's extensions are\n"
             "C functions of its toolkits, which upstream's do not have. FreeCAD finds\n"
             "them the same way. TKBRep's SetFuncShowTopoShape marks the fork itself.\n"
+        );
+        add_varargs_method("congruenceWork", &Module::congruenceWork,
+            "congruenceWork() -> dict\n"
+            "What the congruence search of saves (DedupCongruentShapes) has computed in\n"
+            "this process, never reset: keys, lengths, areas and volumes. A save of\n"
+            "shapes that were saved before computes none of them.\n"
         );
         initialize("This is a module working with shapes."); // register with Python
 
@@ -2971,6 +2978,19 @@ private:
             joiner.getOpenWires(openWires, op, PyObject_IsTrue(no_open_original));
             return Py::TupleN(shape2pyshape(result), shape2pyshape(openWires));
         } _PY_CATCH_OCC(throw Py::Exception())
+    }
+
+    Py::Object congruenceWork(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), ""))
+            throw Py::Exception();
+        const CongruenceIndex::Work work = CongruenceIndex::work();
+        Py::Dict dict;
+        dict.setItem("keys", Py::Long(static_cast<long>(work.keys)));
+        dict.setItem("lengths", Py::Long(static_cast<long>(work.lengths)));
+        dict.setItem("areas", Py::Long(static_cast<long>(work.areas)));
+        dict.setItem("volumes", Py::Long(static_cast<long>(work.volumes)));
+        return dict;
     }
 
     Py::Object hasOCCTFunction(const Py::Tuple& args)

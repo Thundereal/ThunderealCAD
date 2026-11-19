@@ -796,10 +796,12 @@ void PropertyPartShape::makeBlob(Base::Writer& writer) const
         // (docs/TransactionLogJournal.md sec 38.11).
         if (!_congruentFor.IsEqual(root)) {
             _congruentFor = root;
-            _congruentInvariants = CongruenceIndex::Invariants();
+            _congruentInvariants.reset();
             _congruentMatch = CongruenceIndex::Match();
         }
-        if (congruent->find(root, match, &_congruentInvariants, &_congruentMatch)) {
+        if (!_congruentInvariants)
+            _congruentInvariants = std::make_shared<CongruenceIndex::Invariants>();
+        if (congruent->find(root, match, _congruentInvariants.get(), &_congruentMatch)) {
             _congruentMatch = match;
             if (App::FileBlobHandle shared = manager.find(owners->file(match.slot).hash)) {
                 _blob = shared;
@@ -835,7 +837,7 @@ void PropertyPartShape::makeBlob(Base::Writer& writer) const
         // needs is a file that reads back as this shape, and borrowing is
         // internal to the file.
         if (congruent)
-            congruent->add(root, file);
+            congruent->add(root, file, _congruentInvariants);
     }
 }
 
@@ -886,7 +888,7 @@ void PropertyPartShape::dropBlob(const TopoDS_Shape& next)
     // Nor the old shape held for its invariants (sec 38.11).
     if (!_congruentFor.IsNull() && !_congruentFor.IsPartner(next)) {
         _congruentFor.Nullify();
-        _congruentInvariants = CongruenceIndex::Invariants();
+        _congruentInvariants.reset();
         _congruentMatch = CongruenceIndex::Match();
     }
     if (!_blob)

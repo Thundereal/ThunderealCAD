@@ -1036,6 +1036,44 @@ class ShapeCongruenceCases(ShapeTestCase):
         finally:
             group.SetBool("DedupCongruentShapes", previous)
 
+    def testASaveOfSavedShapesComputesNoInvariants(self):
+        """A shape compared against keeps what was computed of it too, not
+        only the shape asking (docs/WorkerProcess.md sec 22): First and Second
+        have the same vertices, so the same key, and Second is compared
+        against First at every save. Saved again unchanged, no key, length,
+        area or volume is computed; an edit computes only its own shape's."""
+        group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        previous = group.GetBool("DedupCongruentShapes", True)
+        group.SetBool("DedupCongruentShapes", True)
+        try:
+            doc = self.newDocument("CongWork")
+            first, second, third, other = self.congruentDocument(doc)
+            project = self.directoryPath("CongWork_dir")
+            before = Part.congruenceWork()
+            doc.saveAs(project)
+            after = Part.congruenceWork()
+            self.assertGreater(after["lengths"] - before["lengths"], 0,
+                               "the first save compares Second against First")
+
+            def computed():
+                now = Part.congruenceWork()
+                return {k: now[k] - after[k] for k in now}
+
+            doc.save()
+            self.assertEqual(computed(), {"keys": 0, "lengths": 0, "areas": 0, "volumes": 0})
+            self.assertEqual(len(self.blobNames(project)), 3)
+
+            # An edit: the edited shape's own, nothing of the others.
+            after = Part.congruenceWork()
+            other.Shape = Part.makeBox(10, 20, 32)
+            doc.save()
+            work = computed()
+            self.assertEqual(work["keys"], 1, work)
+            self.assertEqual(work["lengths"], 0, work)
+            self.assertEqual(len(self.blobNames(project)), 3)
+        finally:
+            group.SetBool("DedupCongruentShapes", previous)
+
     def testMovedInstancesShareTheirFaces(self):
         """The motion goes one level down: two instances of one part come back
         with every face the same TShape, and so with one mesh between them

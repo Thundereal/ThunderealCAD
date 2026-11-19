@@ -324,10 +324,14 @@ private:
     /** The shape's congruence invariants (CongruenceIndex::find), and the
      * shape they were taken of: kept from one save to the next while the
      * shape is the same, which is most of what a save of unchanged shapes
-     * used to compute (docs/TransactionLogJournal.md sec 38.11).
+     * used to compute (docs/TransactionLogJournal.md sec 38.11). Shared
+     * with the save's index once the file is added to it, which computes the
+     * ones a later shape compares against into it (docs/WorkerProcess.md
+     * sec 22). A new one, never a reset, when the shape changes: the index
+     * of a save in progress may hold the old.
      */
     mutable TopoDS_Shape _congruentFor;
-    mutable CongruenceIndex::Invariants _congruentInvariants;
+    mutable std::shared_ptr<CongruenceIndex::Invariants> _congruentInvariants;
     /// And the match the last save made for it.
     mutable CongruenceIndex::Match _congruentMatch;
     /** Whether this property's file is offered for other files to borrow

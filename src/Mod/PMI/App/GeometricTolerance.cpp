@@ -50,7 +50,7 @@ const char* GeometricTolerance::CharacteristicEnums[] = {"Straightness",
 const char* GeometricTolerance::ZoneShapeEnums[] = {"None", "Diameter", "SphericalDiameter", nullptr};
 const char* GeometricTolerance::MaterialEnums[] = {"None", "Maximum", "Least", nullptr};
 
-PROPERTY_SOURCE(PMI::GeometricTolerance, PMI::Annotation)
+PROPERTY_SOURCE(PMI::GeometricTolerance, PMI::Callout)
 
 GeometricTolerance::GeometricTolerance()
 {
@@ -109,6 +109,11 @@ GeometricTolerance::Category GeometricTolerance::category(CharacteristicValue c)
     }
 }
 
+TolerancedFeature* GeometricTolerance::calloutFeature() const
+{
+    return getFeature();
+}
+
 TolerancedFeature* GeometricTolerance::getFeature() const
 {
     return freecad_cast<TolerancedFeature*>(Feature.getValue());
@@ -122,6 +127,7 @@ DatumReferenceFrame* GeometricTolerance::getDatumSystem() const
 App::DocumentObjectExecReturn* GeometricTolerance::execute()
 {
     // Its own rules; the set's (datum letters defined, ...) are PMI.check's
+    updatePresentation();
     auto issues = Check::object(this);
     for (auto& issue : issues) {
         if (issue.severity == Check::Error) {

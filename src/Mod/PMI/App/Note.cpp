@@ -25,10 +25,11 @@
 #include "PreCompiled.h"
 
 #include "Note.h"
+#include "TolerancedFeature.h"
 
 using namespace PMI;
 
-PROPERTY_SOURCE(PMI::Note, PMI::Annotation)
+PROPERTY_SOURCE(PMI::Note, PMI::Callout)
 
 Note::Note()
 {
@@ -36,4 +37,16 @@ Note::Note()
     ADD_PROPERTY_TYPE(Flag, (0), "PMI", App::Prop_None, "A flag note's number; 0 for a plain note");
     ADD_PROPERTY_TYPE(Feature, (nullptr), "PMI", App::Prop_None,
                       "The toleranced feature it is about, if any");
+}
+
+TolerancedFeature* Note::calloutFeature() const
+{
+    return freecad_cast<TolerancedFeature*>(Feature.getValue());
+}
+
+App::DocumentObjectExecReturn* Note::execute()
+{
+    updatePresentation();
+    setState(Ok);
+    return App::DocumentObject::StdReturn;
 }

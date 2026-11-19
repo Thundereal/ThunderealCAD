@@ -1,0 +1,325 @@
+#include "PreCompiled.h"
+
+#include <cmath>
+#include <cstdio>
+
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <gp_Trsf.hxx>
+#include <BRep_Tool.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopLoc_Location.hxx>
+#include <TopoDS.hxx>
+
+#include <Base/Console.h>
+#include <Base/Placement.h>
+#include <Base/Tools.h>
+#include <Mod/Part/App/TopoShape.h>
+
+#include "AnnotationSet.h"
+#include "Callout.h"
+#include "Drawing.h"
+#include "Font.h"
+#include "TolerancedFeature.h"
+
+FC_LOG_LEVEL_INIT("PMI", true, true)
+
+using namespace PMI;
+
+PROPERTY_SOURCE_ABSTRACT(PMI::Callout, PMI::Annotation)
+
+Callout::Callout()
+{
+    ADD_PROPERTY_TYPE(Plane, (Base::Placement()), "Presentation", App::Prop_None,
+                      "The annotation plane: x the reading direction, y up, z toward the reader");
+    ADD_PROPERTY_TYPE(TextHeight, (3.5), "Presentation", App::Prop_None,
+                      "The capital height of its text");
+    ADD_PROPERTY_TYPE(AutoPlace, (true), "Presentation", App::Prop_None,
+                      "Place it from its feature; off once it is moved");
+    ADD_PROPERTY_TYPE(ShowLeader, (true), "Presentation", App::Prop_None,
+                      "A leader to the feature");
+    ADD_PROPERTY_TYPE(Presentation, (TopoDS_Shape()), "Presentation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Transient),
+                      "What is drawn: strokes as edges, fills as faces");
+    ADD_PROPERTY_TYPE(EquivalentText, (""), "Presentation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Output),
+                      "The equivalent unicode string (CAx-IF), for checking");
+}
+
+void Callout::onChanged(const App::Property* prop)
+{
+    // Moved by the user: from now on where it was put
+    if (prop == &Plane && !_placing && !isRestoring() && AutoPlace.getValue()) {
+        AutoPlace.setValue(false);
+    }
+    Annotation::onChanged(prop);
+}
+
+void Callout::onDocumentRestored()
+{
+    Annotation::onDocumentRestored();
+    bool touched = isTouched();
+    try {
+        updatePresentation();
+    }
+    catch (...) {
+    }
+    if (!touched) {
+        purgeTouched();
+    }
+}
+
+std::u32string Callout::number(double value, int decimals)
+{
+    char buf[64];
+    if (decimals >= 0) {
+        std::snprintf(buf, sizeof(buf), "%.*f", decimals, value);
+    }
+    else {
+        std::snprintf(buf, sizeof(buf), "%.6f", value);
+        std::string s(buf);
+        auto dot = s.find('.');
+        if (dot != std::string::npos) {
+            while (!s.empty() && s.back() == '0') {
+                s.pop_back();
+            }
+            if (!s.empty() && s.back() == '.') {
+                s.pop_back();
+            }
+        }
+        std::snprintf(buf, sizeof(buf), "%s", s.c_str());
+    }
+    std::string s(buf);
+    if (s == "-0") {
+        s = "0";
+    }
+    return std::u32string(s.begin(), s.end());
+}
+
+bool Callout::targetPoint(const TolerancedFeature* feature, gp_Pnt& target)
+{
+    if (!feature) {
+        return false;
+    }
+    TopoDS_Shape shape = feature->Shape.getShape().getShape();
+    if (shape.IsNull()) {
+        return false;
+    }
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    if (box.IsVoid()) {
+        return false;
+    }
+    double x0, y0, z0, x1, y1, z1;
+    box.Get(x0, y0, z0, x1, y1, z1);
+    gp_Pnt centre((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    BRepExtrema_DistShapeShape dist(BRepBuilderAPI_MakeVertex(centre).Vertex(), shape);
+    if (dist.IsDone() && dist.NbSolution() > 0) {
+        target = dist.PointOnShape2(1);
+    }
+    else {
+        target = centre;
+    }
+    return true;
+}
+
+bool Callout::defaultPlane(const TolerancedFeature* feature, double h, gp_Ax3& plane,
+                           gp_Pnt& target)
+{
+    if (!targetPoint(feature, target)) {
+        return false;
+    }
+    const Primitive& p = feature->primitive();
+    const gp_Dir axes[] = {gp::DX(), -gp::DX(), gp::DY(), -gp::DY(), gp::DZ(), -gp::DZ()};
+    gp_Dir z = gp::DZ();
+    if (p.type == Primitive::Plane) {
+        z = p.dir;
+    }
+    else if (p.type == Primitive::Line || feature->getKind() == TolerancedFeature::Axis) {
+        // An axis is looked at along itself, from its end toward the
+        // reader, and the leader goes to that end -- not to its middle,
+        // inside the part
+        double best = -1;
+        for (auto& a : axes) {
+            double d = std::fabs(gp_Vec(a).Dot(gp_Vec(p.dir)));
+            if (d > best + 1e-9) {
+                best = d;
+                z = a;
+            }
+        }
+        z = gp_Vec(z).Dot(gp_Vec(p.dir)) < 0 ? -gp_Vec(z) : gp_Vec(z);
+        // Prefer looking down or from the front: a view from below or
+        // behind only when the axis says so
+        if (z.Z() < -0.5 || z.Y() > 0.5 || z.X() < -0.5) {
+            z.Reverse();
+        }
+        double far = -1e100;
+        const TopoDS_Shape shape = feature->Shape.getShape().getShape();
+        for (TopExp_Explorer xp(shape, TopAbs_VERTEX); xp.More(); xp.Next()) {
+            gp_Pnt v = BRep_Tool::Pnt(TopoDS::Vertex(xp.Current()));
+            double d = gp_Vec(v.XYZ()).Dot(gp_Vec(z));
+            if (d > far) {
+                far = d;
+                target = v;
+            }
+        }
+    }
+    else {
+        // The direction the feature faces at the target, then the standard
+        // view looking most squarely along it
+        gp_Vec n(0, 0, 1);
+        switch (p.type) {
+            case Primitive::Cylinder:
+            case Primitive::Cone: {
+                gp_Vec v(p.loc, target);
+                n = v - gp_Vec(p.dir) * v.Dot(gp_Vec(p.dir));
+                break;
+            }
+            case Primitive::Sphere:
+                n = gp_Vec(p.loc, target);
+                break;
+            default:
+                break;
+        }
+        if (n.Magnitude() < 1e-9) {
+            n = gp_Vec(0, 0, 1);
+        }
+        double best = -2;
+        for (auto& a : axes) {
+            double d = n.Dot(gp_Vec(a)) / n.Magnitude();
+            if (d > best) {
+                best = d;
+                z = a;
+            }
+        }
+    }
+    // Up: the world's up where the plane can show it, else its y
+    gp_Vec up(0, 0, 1);
+    up = up - gp_Vec(z) * up.Dot(gp_Vec(z));
+    if (up.Magnitude() < 1e-6) {
+        up = gp_Vec(0, 1, 0);
+        up = up - gp_Vec(z) * up.Dot(gp_Vec(z));
+    }
+    gp_Dir y(up);
+    gp_Dir x = y.Crossed(z);
+    // Off the face a little, and up and to the right of the target
+    gp_Pnt origin = target.Translated(gp_Vec(z) * (0.05 * h) + gp_Vec(x) * (3 * h)
+                                      + gp_Vec(y) * (2 * h));
+    plane = gp_Ax3(origin, z, x);
+    return true;
+}
+
+int Callout::autoSlot(const gp_Ax3& mine, double h) const
+{
+    auto set = getSet();
+    if (!set) {
+        return 0;
+    }
+    int slot = 0;
+    for (auto obj : set->Group.getValues()) {
+        if (obj == this) {
+            break;
+        }
+        auto other = freecad_cast<Callout*>(obj);
+        if (!other || !other->AutoPlace.getValue() || !other->calloutFeature()) {
+            continue;
+        }
+        gp_Ax3 ax;
+        gp_Pnt t;
+        double oh = other->TextHeight.getValue() > 0 ? other->TextHeight.getValue() : h;
+        if (!defaultPlane(other->calloutFeature(), oh, ax, t)) {
+            continue;
+        }
+        if (!ax.Direction().IsEqual(mine.Direction(), 1e-6)) {
+            continue;
+        }
+        if (ax.Location().Distance(mine.Location()) < 12.0 * h) {
+            ++slot;
+        }
+    }
+    return slot;
+}
+
+void Callout::updatePresentation()
+{
+    double h = TextHeight.getValue();
+    if (h <= 0.0) {
+        h = 3.5;
+    }
+    TolerancedFeature* feat = calloutFeature();
+    gp_Pnt target;
+    bool hasTarget = targetPoint(feat, target);
+
+    if (AutoPlace.getValue() && hasTarget) {
+        gp_Ax3 ax;
+        if (defaultPlane(feat, h, ax, target)) {
+            // Callouts landing together on parallel planes are stacked, each
+            // a slot up, in the set's order -- deterministic, whatever order
+            // they recompute in (docs/GDandT.md sec 6.4)
+            int slot = autoSlot(ax, h);
+            if (slot > 0) {
+                ax.Translate(gp_Vec(ax.YDirection()) * (slot * 3.0 * h));
+            }
+            gp_Trsf trsf;
+            trsf.SetTransformation(ax);
+            trsf.Invert();
+            Base::Matrix4D mat;
+            Part::TopoShape::convertToMatrix(trsf, mat);
+            Base::Placement pla(mat);
+            if (!pla.isSame(Plane.getValue(), 1e-9)) {
+                Base::StateLocker guard(_placing);
+                Plane.setValue(pla);
+            }
+        }
+    }
+
+    Drawing d;
+    layout(d, h);
+
+    // The leader, in the plane: the target as the plane sees it (a target
+    // off the plane is drawn where it projects, CAx-IF sec 8.3)
+    Base::Matrix4D toPlane = Plane.getValue().toMatrix();
+    toPlane.inverseOrthogonal();
+    if (ShowLeader.getValue() && hasTarget && !d.isEmpty() && leaderStyle() != NoLeader) {
+        Base::Vector3d t = toPlane * Base::Vector3d(target.X(), target.Y(), target.Z());
+        double my = (d.ymin + d.ymax) / 2;
+        double mx = (d.xmin + d.xmax) / 2;
+        double sx, sy;
+        if (leaderStyle() == TriangleLeader) {
+            // From the datum box's middle, below or above
+            sx = mx;
+            sy = t.y < my ? d.ymin : d.ymax;
+        }
+        else {
+            sx = std::fabs(t.x - d.xmin) < std::fabs(t.x - d.xmax) ? d.xmin : d.xmax;
+            sy = my;
+        }
+        double dx = t.x - sx, dy = t.y - sy;
+        double len = std::hypot(dx, dy);
+        if (len > 1e-9) {
+            if (leaderStyle() == TriangleLeader) {
+                double s = h;
+                double ux = dx / len, uy = dy / len;
+                double bx = t.x - ux * s, by = t.y - uy * s;
+                double w = s * 0.6;
+                d.line(sx, sy, bx, by);
+                d.fill({{t.x - uy * w, t.y + ux * w}, {t.x + uy * w, t.y - ux * w}, {bx, by}});
+            }
+            else {
+                d.line(sx, sy, t.x, t.y);
+                d.arrow(t.x, t.y, dx, dy, h);
+            }
+        }
+    }
+
+    TopoDS_Shape shape = d.shape();
+    gp_Trsf trsf;
+    Part::TopoShape::convertTogpTrsf(Plane.getValue().toMatrix(), trsf);
+    Presentation.setValue(shape.Moved(TopLoc_Location(trsf)));
+    std::string text = Font::toUtf8(equivalentText());
+    if (EquivalentText.getStrValue() != text) {
+        EquivalentText.setValue(text);
+    }
+}

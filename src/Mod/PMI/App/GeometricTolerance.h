@@ -29,7 +29,7 @@
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
 
-#include "Annotation.h"
+#include "Callout.h"
 
 namespace PMI
 {
@@ -41,7 +41,7 @@ class TolerancedFeature;
  * PMI_GeometricTolerance. The enumerations follow OCCT's
  * XCAFDimTolObjects_* so STEP is a table, not a translation.
  */
-class PMIExport GeometricTolerance: public Annotation
+class PMIExport GeometricTolerance: public Callout
 {
     PROPERTY_HEADER_WITH_OVERRIDE(PMI::GeometricTolerance);
 
@@ -114,6 +114,9 @@ public:
     DatumReferenceFrame* getDatumSystem() const;
 
     App::DocumentObjectExecReturn* execute() override;
+    TolerancedFeature* calloutFeature() const override;
+    void layout(Drawing& d, double h) const override;
+    std::u32string equivalentText() const override;
 
     static const char* CharacteristicEnums[];
     static const char* ZoneShapeEnums[];

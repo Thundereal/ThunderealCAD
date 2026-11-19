@@ -31,6 +31,7 @@
 #include <Mod/Part/App/BodyBase.h>
 
 #include "Annotation.h"
+#include "Callout.h"
 #include "AnnotationSet.h"
 #include "Check.h"
 #include "Datum.h"
@@ -148,6 +149,7 @@ PyMOD_INIT_FUNC(PMI)
     // clang-format off
     PMI::Annotation          ::init();
     PMI::AnnotationSet       ::init();
+    PMI::Callout             ::init();
     PMI::TolerancedFeature   ::init();
     PMI::Datum               ::init();
     PMI::DatumReferenceFrame ::init();

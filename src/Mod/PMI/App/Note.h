@@ -28,13 +28,13 @@
 #include <App/PropertyLinks.h>
 #include <App/PropertyStandard.h>
 
-#include "Annotation.h"
+#include "Callout.h"
 
 namespace PMI
 {
 
 /// Free text or a flag note (docs/GDandT.md sec 4); upstream's PMI_Note
-class PMIExport Note: public Annotation
+class PMIExport Note: public Callout
 {
     PROPERTY_HEADER_WITH_OVERRIDE(PMI::Note);
 
@@ -46,6 +46,15 @@ public:
     App::PropertyInteger Flag;
     /// What it is about, if anything: a toleranced feature
     App::PropertyLink Feature;
+
+    App::DocumentObjectExecReturn* execute() override;
+    TolerancedFeature* calloutFeature() const override;
+    void layout(Drawing& d, double h) const override;
+    std::u32string equivalentText() const override;
+    LeaderStyle leaderStyle() const override
+    {
+        return Feature.getValue() ? ArrowLeader : NoLeader;
+    }
 };
 
 }  // namespace PMI

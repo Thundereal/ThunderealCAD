@@ -45,7 +45,7 @@ const char* Dimension::TypeEnums[] = {"Diameter",
                                       "Angle",
                                       nullptr};
 
-PROPERTY_SOURCE(PMI::Dimension, PMI::Annotation)
+PROPERTY_SOURCE(PMI::Dimension, PMI::Callout)
 
 Dimension::Dimension()
 {
@@ -99,7 +99,17 @@ void Dimension::onChanged(const App::Property* prop)
     if (prop == &Type) {
         setUnits();
     }
-    Annotation::onChanged(prop);
+    Callout::onChanged(prop);
+}
+
+TolerancedFeature* Dimension::calloutFeature() const
+{
+    for (auto obj : Features.getValues()) {
+        if (auto f = freecad_cast<TolerancedFeature*>(obj)) {
+            return f;
+        }
+    }
+    return nullptr;
 }
 
 bool Dimension::measure(double& value, std::string& why) const
@@ -177,6 +187,7 @@ App::DocumentObjectExecReturn* Dimension::execute()
     if (std::fabs(Nominal.getValue() - value) > 1e-12) {
         Nominal.setValue(value);
     }
+    updatePresentation();
     for (auto obj : Features.getValues()) {
         auto f = freecad_cast<TolerancedFeature*>(obj);
         if (f && f->getState() == Broken) {

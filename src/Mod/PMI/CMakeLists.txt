@@ -12,8 +12,13 @@ set(PMI_TestScripts
     PMITests/TestModel.py
 )
 
+set(PMI_Fonts
+    Resources/fonts/osifont-lgpl3fe.ttf
+    Resources/fonts/osifont.license
+)
+
 add_custom_target(PMIScripts ALL
-    SOURCES ${PMI_Scripts} ${PMI_TestScripts}
+    SOURCES ${PMI_Scripts} ${PMI_TestScripts} ${PMI_Fonts}
 )
 
 fc_target_copy_resource(PMIScripts
@@ -22,6 +27,13 @@ fc_target_copy_resource(PMIScripts
     ${PMI_Scripts}
     ${PMI_TestScripts}
 )
+
+fc_target_copy_resource(PMIScripts
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_DATADIR}/Mod/PMI
+    ${PMI_Fonts}
+)
+install(FILES ${PMI_Fonts} DESTINATION ${CMAKE_INSTALL_DATADIR}/Mod/PMI/Resources/fonts)
 
 install(FILES ${PMI_Scripts} DESTINATION Mod/PMI)
 install(FILES ${PMI_TestScripts} DESTINATION Mod/PMI/PMITests)

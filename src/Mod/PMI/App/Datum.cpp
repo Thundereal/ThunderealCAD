@@ -36,7 +36,7 @@
 
 using namespace PMI;
 
-PROPERTY_SOURCE(PMI::Datum, PMI::Annotation)
+PROPERTY_SOURCE(PMI::Datum, PMI::Callout)
 
 Datum::Datum()
 {
@@ -45,6 +45,11 @@ Datum::Datum()
     ADD_PROPERTY_TYPE(Shape, (TopoDS_Shape()), "PMI",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Transient),
                       "The simulated datum: a plane, an axis or a point");
+}
+
+TolerancedFeature* Datum::calloutFeature() const
+{
+    return getFeature();
 }
 
 TolerancedFeature* Datum::getFeature() const
@@ -109,6 +114,7 @@ App::DocumentObjectExecReturn* Datum::execute()
             break;
     }
     Shape.setValue(shape);
+    updatePresentation();
 
     std::string why;
     auto set = getSet();

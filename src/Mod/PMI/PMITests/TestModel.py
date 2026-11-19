@@ -481,3 +481,133 @@ class TestRepair(Base):
         msgs = [m for _, _, m in PMI.check(self.set)]
         self.assertFalse([m for m in msgs if "defined twice" in m], msgs)
         self.assertTrue([m for m in self.issues(gt, "Warning") if "datum B is on another solid" in m])
+
+
+class TestPresentation(Base):
+    """What an annotation looks like, drawn from its semantics (sec 6)"""
+
+    def frame(self):
+        for letter, point in (("A", BOTTOM), ("B", LEFT), ("C", FRONT)):
+            self.add("Datum", "Datum" + letter, Letter=letter, Feature=self.feature(point))
+        return self.add("DatumReferenceFrame", "DRF", Compartments=["A", "B", "C(M)"])
+
+    def test_a_frame_is_drawn_on_its_face(self):
+        top = self.feature(TOP)
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Flatness", Feature=top,
+                      Value=0.05)
+        self.recompute()
+        shape = gt.Presentation
+        self.assertFalse(shape.isNull())
+        self.assertTrue(shape.Edges, "no strokes")
+        self.assertTrue(shape.Faces, "no text")
+        # On the top face's own plane, a little above it, read from above
+        h = gt.TextHeight.Value
+        self.assertAlmostEqual(gt.Plane.Rotation.multVec(V(0, 0, 1)).z, 1, 9)
+        for v in shape.Vertexes:
+            self.assertAlmostEqual(v.Point.z, 10 + 0.05 * h, 6)
+        self.assertEqual(gt.EquivalentText, "\u23e5|0.05")
+
+    def test_the_leader_reaches_the_feature(self):
+        top = self.feature(TOP)
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Flatness", Feature=top,
+                      Value=0.05)
+        self.recompute()
+        face = top.Shape
+        near = min(face.distToShape(Part.Vertex(v.Point))[0] for v in gt.Presentation.Vertexes)
+        self.assertLess(near, 0.1 * gt.TextHeight.Value + 1e-6)
+
+    def test_a_frame_with_datums(self):
+        drf = self.frame()
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Position",
+                      Feature=self.feature(HOLE, kind="Axis"), ZoneShape="Diameter",
+                      Value=0.1, MaterialCondition="Maximum", DatumSystem=drf)
+        self.recompute()
+        self.assertEqual(gt.EquivalentText, "\u2316|\u23000.1\u24c2|A|B|C\u24c2")
+        # Four cells and more strokes than a bare frame
+        self.assertGreater(len(gt.Presentation.Edges), 20)
+
+    def test_dimension_texts(self):
+        hole = self.feature(HOLE)
+        dim = self.add("Dimension", "Dia", Type="Diameter", Features=[hole], Upper=0.1, Lower=-0.1)
+        fit = self.add("Dimension", "Fit", Type="Diameter", Features=[hole], Fit="H7")
+        basic = self.add("Dimension", "Basic", Type="Distance",
+                         Features=[self.feature(LEFT), hole], Basic=True)
+        width = self.add("Dimension", "Width", Type="Width",
+                         Features=[self.feature(LEFT, RIGHT)], Upper=0.2, Lower=-0.1,
+                         DecimalPlaces=1)
+        self.recompute()
+        self.assertEqual(dim.EquivalentText, "\u23006.00 \u00b10.1")
+        self.assertEqual(fit.EquivalentText, "\u23006.00 H7")
+        self.assertEqual(basic.EquivalentText, "[20.00]")
+        self.assertEqual(width.EquivalentText, "40.0 +0.2/-0.1")
+        for d in (dim, fit, basic, width):
+            self.assertTrue(d.Presentation.Faces, d.Name)
+
+    def test_a_datum_ends_in_a_triangle_on_its_face(self):
+        bottom = self.feature(BOTTOM)
+        datum = self.add("Datum", "A", Letter="A", Feature=bottom)
+        self.recompute()
+        self.assertEqual(datum.EquivalentText, "A")
+        # The triangle: a three-sided face touching the bottom face's plane
+        tri = [f for f in datum.Presentation.Faces if len(f.Edges) == 3]
+        self.assertTrue(tri)
+        self.assertLess(min(abs(v.Point.z) for f in tri for v in f.Vertexes), 0.1 * 3.5 + 1e-6)
+
+    def test_a_moved_callout_stays_where_it_was_put(self):
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Flatness",
+                      Feature=self.feature(TOP), Value=0.05)
+        self.recompute()
+        self.assertTrue(gt.AutoPlace)
+        put = App.Placement(V(0, -30, 5), App.Rotation(V(1, 0, 0), 90))
+        gt.Plane = put
+        self.assertFalse(gt.AutoPlace)
+        self.box.Height = 14
+        self.recompute()
+        self.assertTrue(gt.Plane.isSame(put, 1e-9))
+        # Its leader follows the face, which moved up: a target off the plane
+        # is drawn where it projects onto it (CAx-IF sec 8.3) -- here the
+        # plane y = -30, and the face's height, 14, above the frame's top
+        tips = [v.Point for v in gt.Presentation.Vertexes if abs(v.Point.z - 14) < 1e-6]
+        self.assertTrue(tips)
+        self.assertTrue(all(abs(p.y + 30) < 1e-6 for p in tips))
+
+    def test_a_note(self):
+        note = self.add("Note", "Note", Text=["BREAK SHARP EDGES", "DEBURR"])
+        self.recompute()
+        self.assertEqual(note.EquivalentText, "BREAK SHARP EDGES\nDEBURR")
+        self.assertTrue(note.Presentation.Faces)
+
+    def test_reopened_it_is_drawn_before_a_recompute(self):
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Flatness",
+                      Feature=self.feature(TOP), Value=0.05)
+        self.recompute()
+        edges = len(gt.Presentation.Edges)
+        path = os.path.join(tempfile.mkdtemp(), "pmi-look.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        gt = self.doc.getObject("GT")
+        self.assertEqual(len(gt.Presentation.Edges), edges)
+
+    def test_callouts_together_are_stacked(self):
+        top = self.feature(TOP)
+        a = self.add("GeometricTolerance", "GT1", Characteristic="Flatness", Feature=top,
+                     Value=0.05)
+        b = self.add("GeometricTolerance", "GT2", Characteristic="Straightness", Feature=top,
+                     Value=0.02)
+        self.recompute()
+        h = a.TextHeight.Value
+        # Each a slot of three text heights up, in the set's order
+        self.assertAlmostEqual((b.Plane.Base - a.Plane.Base).Length, 3 * h, 6)
+        ba, bb = a.Presentation.BoundBox, b.Presentation.BoundBox
+        self.assertGreater(bb.YMax, ba.YMax)
+
+    def test_an_axis_leader_ends_where_the_axis_leaves_the_part(self):
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Position",
+                      Feature=self.feature(HOLE, kind="Axis"), ZoneShape="Diameter", Value=0.1)
+        self.recompute()
+        h = gt.TextHeight.Value
+        # Looked at along the axis, from above; the leader's tip at the top end
+        self.assertAlmostEqual(gt.Plane.Rotation.multVec(V(0, 0, 1)).z, 1, 9)
+        tip = V(20, 10, 10 + 0.05 * h)
+        self.assertLess(min((v.Point - tip).Length for v in gt.Presentation.Vertexes), 1e-6)

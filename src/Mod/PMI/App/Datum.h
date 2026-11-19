@@ -32,7 +32,7 @@
 #include <App/PropertyStandard.h>
 #include <Mod/Part/App/PropertyTopoShape.h>
 
-#include "Annotation.h"
+#include "Callout.h"
 
 namespace PMI
 {
@@ -43,7 +43,7 @@ class TolerancedFeature;
  * sec 4.3): the faces are the feature's, the exact plane, axis or point in
  * Shape is the datum. Upstream's PMI_Datum.
  */
-class PMIExport Datum: public Annotation
+class PMIExport Datum: public Callout
 {
     PROPERTY_HEADER_WITH_OVERRIDE(PMI::Datum);
 
@@ -56,6 +56,13 @@ public:
     Part::PropertyPartShape Shape;
 
     App::DocumentObjectExecReturn* execute() override;
+    TolerancedFeature* calloutFeature() const override;
+    void layout(Drawing& d, double h) const override;
+    std::u32string equivalentText() const override;
+    LeaderStyle leaderStyle() const override
+    {
+        return TriangleLeader;
+    }
 
     TolerancedFeature* getFeature() const;
 

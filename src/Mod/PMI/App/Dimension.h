@@ -29,7 +29,7 @@
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
 
-#include "Annotation.h"
+#include "Callout.h"
 
 namespace PMI
 {
@@ -42,7 +42,7 @@ class TolerancedFeature;
  * dimension cannot disagree with the model; the tolerance is the user's and
  * is never touched. Upstream's PMI_Dimension.
  */
-class PMIExport Dimension: public Annotation
+class PMIExport Dimension: public Callout
 {
     PROPERTY_HEADER_WITH_OVERRIDE(PMI::Dimension);
 
@@ -90,6 +90,9 @@ public:
     }
 
     App::DocumentObjectExecReturn* execute() override;
+    TolerancedFeature* calloutFeature() const override;
+    void layout(Drawing& d, double h) const override;
+    std::u32string equivalentText() const override;
     void onChanged(const App::Property* prop) override;
 
     /// Measure the nominal; false with \a why if the features do not have

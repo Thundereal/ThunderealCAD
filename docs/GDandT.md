@@ -440,6 +440,27 @@ What building it taught:
   each `getShape()` locates afresh and locations compare by identity, so transforms compare by
   value -- and `gp_XYZ::IsEqual(other, 0.0)` is false for equal values in OCCT 8.
 
+### 10.3 P1 progress: the layout (2026-11-20)
+
+Built, headless: `PMI::Font` (osifont, the ISO 3098 font already in the tree, read with
+FreeType -- no Qt -- glyphs cached per height as planar faces and placed by translation, since
+OCCT 8 refuses scaling locations), `PMI::Drawing` (strokes, fills, the 14 characteristic symbols
+drawn as strokes -- osifont lacks perpendicularity and parallelism -- circled modifiers, ISO
+arrowheads), and `PMI::Callout`, the base of the tolerance, the datum, the dimension and the
+note: `Plane`, `TextHeight`, `AutoPlace`, `ShowLeader`, the generated `Presentation` and the
+CAx-IF `EquivalentText` (e.g. "position|DIA0.1(M)|A|B|C(M)" in its code points). 37 tests.
+
+- **Default plane** (6.2): a planar face's own, a little above it; an axis looked at along
+  itself, its leader to the end toward the reader (first try went to the axis's middle, inside
+  the part -- seen in a rendering, not a test); otherwise the standard view most square to the
+  surface at the target.
+- **Stacking** (6.4, first step): callouts landing together on parallel planes take slots of
+  three text heights, in the set's order, so the result does not depend on recompute order.
+- A callout moved off its feature's plane draws its leader to the target's projection (CAx-IF
+  sec 8.3).
+- Seen, not yet done: dimension and extension lines for location dimensions (a leader for now),
+  and annotations stacked onto one leader.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

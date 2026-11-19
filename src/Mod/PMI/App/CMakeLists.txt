@@ -19,6 +19,10 @@ set(PMI_LIBS
   FreeCADApp
   Part
 )
+if(FREETYPE_FOUND)
+    add_definitions(-DFCUseFreeType)
+    list(APPEND PMI_LIBS ${FREETYPE_LIBRARIES})
+endif(FREETYPE_FOUND)
 
 set(PMI_SRCS
   AppPMI.cpp
@@ -26,16 +30,23 @@ set(PMI_SRCS
   Annotation.h
   AnnotationSet.cpp
   AnnotationSet.h
+  Callout.cpp
+  Callout.h
   Check.cpp
   Check.h
   Datum.cpp
   Datum.h
   Dimension.cpp
   Dimension.h
+  Drawing.cpp
+  Drawing.h
+  Font.cpp
+  Font.h
   GeometricTolerance.cpp
   GeometricTolerance.h
   Geometry.cpp
   Geometry.h
+  Layout.cpp
   Note.cpp
   Note.h
   PreCompiled.cpp

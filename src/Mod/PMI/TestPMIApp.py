@@ -7,6 +7,7 @@ from PMITests.TestModel import (  # noqa: F401
     TestCheck,
     TestModel,
     TestPresentation,
+    TestQuery,
     TestRepair,
     TestView,
 )

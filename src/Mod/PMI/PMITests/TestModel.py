@@ -763,6 +763,47 @@ class TestView(Base):
         self.assertTrue(self.z(width.Plane).isEqual(V(0, 0, 1), 1e-9), self.z(width.Plane))
 
 
+class TestQuery(Base):
+    """What applies to a face (docs/GDandT.md sec 6.5; upstream's query)"""
+
+    def setUp(self):
+        super().setUp()
+        self.a = self.add("Datum", "DatumA", Letter="A", Feature=self.feature(BOTTOM))
+        self.b = self.add("Datum", "DatumB", Letter="B", Feature=self.feature(LEFT))
+        self.flat = self.add("GeometricTolerance", "Flatness", Characteristic="Flatness",
+                             Feature=self.feature(TOP), Value=0.05)
+        drf = self.add("DatumReferenceFrame", "DRF", Compartments=["A", "B"])
+        self.pos = self.add("GeometricTolerance", "Position", Characteristic="Position",
+                            Feature=self.feature(HOLE, kind="Axis"), Value=0.1,
+                            ZoneShape="Diameter", DatumSystem=drf)
+        self.width = self.add("Dimension", "Width", Type="Width",
+                              Features=[self.feature(LEFT, RIGHT)])
+        self.recompute()
+
+    def query(self, point):
+        return [(c.Name, how) for c, how in PMI.query(self.solid, face_at(self.solid.Shape, point))]
+
+    def test_what_is_on_a_face(self):
+        self.assertEqual(self.query(TOP), [("Flatness", "on")])
+        self.assertEqual(self.query(HOLE), [("Position", "on")])
+        self.assertEqual(self.query(BACK), [])
+
+    def test_a_datum_face_lists_what_cites_it(self):
+        self.assertEqual(self.query(BOTTOM), [("DatumA", "on"), ("Position", "datum A")])
+        self.assertEqual(self.query(LEFT),
+                         [("DatumB", "on"), ("Width", "on"), ("Position", "datum B")])
+        # Each once: a dimension on two faces, asked of the other
+        self.assertEqual(self.query(RIGHT), [("Width", "on")])
+
+    def test_a_pick_on_the_body(self):
+        # As a click gives it: the Body's tip feature and its face
+        sub = "%s.%s" % (self.hole.Name, face_at(self.hole.Shape, TOP))
+        self.assertEqual([(c.Name, how) for c, how in PMI.query(self.body, sub)],
+                         [("Flatness", "on")])
+        with self.assertRaises(ValueError):
+            PMI.query(self.body, "%s.Edge1" % self.hole.Name)
+
+
 class TestApi(Base):
     """What the commands call (docs/GDandT.md sec 3, 4)"""
 

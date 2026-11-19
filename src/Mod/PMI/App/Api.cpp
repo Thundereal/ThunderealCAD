@@ -43,7 +43,9 @@
 #include "Callout.h"
 #include "Dimension.h"
 #include "Datum.h"
+#include "GeometricTolerance.h"
 #include "Geometry.h"
+#include "Note.h"
 #include "TolerancedFeature.h"
 
 using namespace PMI;
@@ -285,4 +287,87 @@ Callout* Api::stackUnder(const Callout* callout)
         under = c;
     }
     return under;
+}
+
+std::vector<TolerancedFeature*> Api::featuresOf(const Callout* callout)
+{
+    std::vector<TolerancedFeature*> out;
+    if (auto dim = freecad_cast<const Dimension*>(callout)) {
+        for (auto obj : dim->Features.getValues()) {
+            if (auto f = freecad_cast<TolerancedFeature*>(obj)) {
+                out.push_back(f);
+            }
+        }
+    }
+    else if (callout) {
+        if (auto f = callout->calloutFeature()) {
+            out.push_back(f);
+        }
+    }
+    return out;
+}
+
+std::vector<Api::Applies> Api::query(const App::DocumentObject* solid, const std::string& face)
+{
+    std::vector<Applies> out;
+    auto set = solid ? AnnotationSet::find(solid) : nullptr;
+    if (!set) {
+        return out;
+    }
+    const std::string name = Data::oldElementName(face.c_str());
+    auto holds = [&](const TolerancedFeature* f) {
+        const auto& objs = f->References.getValues();
+        auto subs = f->References.getSubValues(false);
+        for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
+            if (objs[i] == solid && Data::oldElementName(subs[i].c_str()) == name) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::set<const Callout*> seen;
+    std::set<std::string> letters;
+    for (auto obj : set->Group.getValues()) {
+        auto c = freecad_cast<Callout*>(obj);
+        if (!c) {
+            continue;
+        }
+        for (auto f : featuresOf(c)) {
+            if (holds(f)) {
+                out.push_back({c, "on"});
+                seen.insert(c);
+                if (auto datum = freecad_cast<Datum*>(c)) {
+                    letters.insert(datum->Letter.getStrValue());
+                }
+                break;
+            }
+        }
+    }
+    if (letters.empty()) {
+        return out;
+    }
+    for (auto obj : set->Group.getValues()) {
+        auto gt = freecad_cast<GeometricTolerance*>(obj);
+        if (!gt || seen.count(gt) || AnnotationSet::solidOf(gt->getFeature()) != solid) {
+            continue;
+        }
+        auto drf = gt->getDatumSystem();
+        std::vector<DatumReferenceFrame::Compartment> comps;
+        std::string why;
+        if (!drf || !drf->parse(comps, why)) {
+            continue;
+        }
+        std::string cited;
+        for (auto& comp : comps) {
+            for (auto& d : comp.datums) {
+                if (letters.count(d) && cited.find(d) == std::string::npos) {
+                    cited += cited.empty() ? d : ", " + d;
+                }
+            }
+        }
+        if (!cited.empty()) {
+            out.push_back({gt, "datum " + cited});
+        }
+    }
+    return out;
 }

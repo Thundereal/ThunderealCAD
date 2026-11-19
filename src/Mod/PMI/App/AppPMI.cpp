@@ -76,6 +76,9 @@ public:
         add_varargs_method("stackUnder", &Module::stackUnder,
                            "stackUnder(callout) -> the callout it is stacked under by default: "
                            "the set's last one on its feature, or None");
+        add_varargs_method("query", &Module::query,
+                           "query(obj, subname) -> [(callout, how)]: what applies to a face, "
+                           "picked or of a solid -- 'on' it, or 'datum A' citing a datum on it");
         add_varargs_method("advise", &Module::advise,
                            "advise(feature, characteristic=None) -> {'characteristics': [...], "
                            "and with a characteristic 'zoneShapes': [...], 'materialCondition': "
@@ -234,6 +237,25 @@ private:
             return Py::None();
         }
         return Py::asObject(under->getPyObject());
+    }
+
+    Py::Object query(const Py::Tuple& args)
+    {
+        PyObject* pyobj;
+        const char* sub;
+        if (!PyArg_ParseTuple(args.ptr(), "Os", &pyobj, &sub)) {
+            throw Py::Exception();
+        }
+        App::DocumentObject* solid = nullptr;
+        std::string face, why;
+        if (!Api::solidReference(toObject(pyobj), sub, solid, face, why)) {
+            throw Py::ValueError(why);
+        }
+        Py::List out;
+        for (auto& a : Api::query(solid, face)) {
+            out.append(Py::TupleN(Py::asObject(a.callout->getPyObject()), Py::String(a.how)));
+        }
+        return out;
     }
 
     Py::Object advise(const Py::Tuple& args)

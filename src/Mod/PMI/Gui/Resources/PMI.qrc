@@ -9,5 +9,6 @@
         <file>icons/PMI_Check.svg</file>
         <file>icons/PMI_Feature.svg</file>
         <file>icons/PMI_View.svg</file>
+        <file>icons/PMI_Query.svg</file>
     </qresource>
 </RCC>

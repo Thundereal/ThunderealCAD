@@ -24,9 +24,15 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
+#include <cmath>
+#include <set>
+
+#include <BRepAdaptor_Curve.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
 #include <Poly_Triangulation.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -36,6 +42,9 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Vertex.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 
 #include <Inventor/nodes/SoCoordinate3.h>
 #include <Inventor/nodes/SoDrawStyle.h>
@@ -47,6 +56,11 @@
 #include <Inventor/nodes/SoShapeHints.h>
 #include <Inventor/nodes/SoSwitch.h>
 
+#include <App/Application.h>
+#include <App/Document.h>
+#include <App/DocumentObserver.h>
+#include <App/ElementNamingUtils.h>
+#include <Base/Parameter.h>
 #include <Gui/ActiveObjectList.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
@@ -54,7 +68,10 @@
 #include <Gui/Document.h>
 #include <Gui/Inventor/So3DAnnotation.h>
 #include <Gui/MDIView.h>
+#include <Gui/Selection/Selection.h>
+#include <Mod/Part/App/BodyBase.h>
 #include <Mod/PMI/App/AnnotationSet.h>
+#include <Mod/PMI/App/Api.h>
 #include <Mod/PMI/App/Callout.h>
 #include <Mod/PMI/App/Datum.h>
 #include <Mod/PMI/App/Dimension.h>
@@ -181,6 +198,184 @@ void ShapeLines::set(const TopoDS_Shape& shape)
     _faces->coordIndex.setNum(int(fi.size()));
 }
 
+void ShapeLines::setOutline(const TopoDS_Shape& shape, double deflection)
+{
+    std::vector<SbVec3f> lp;
+    std::vector<int32_t> li;
+    if (!shape.IsNull()) {
+        TopTools_IndexedMapOfShape edges;
+        TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+        for (int i = 1; i <= edges.Extent(); ++i) {
+            const TopoDS_Edge& edge = TopoDS::Edge(edges(i));
+            if (BRep_Tool::Degenerated(edge)) {
+                continue;
+            }
+            try {
+                BRepAdaptor_Curve curve(edge);
+                GCPnts_TangentialDeflection points(curve, 0.2, deflection);
+                for (int k = 1; k <= points.NbPoints(); ++k) {
+                    gp_Pnt p = points.Value(k);
+                    li.push_back(int32_t(lp.size()));
+                    lp.emplace_back(float(p.X()), float(p.Y()), float(p.Z()));
+                }
+                li.push_back(-1);
+            }
+            catch (const Standard_Failure&) {
+                continue;
+            }
+        }
+    }
+    _lineCoords->point.setValues(0, int(lp.size()), lp.data());
+    _lineCoords->point.setNum(int(lp.size()));
+    _lines->coordIndex.setValues(0, int(li.size()), li.data());
+    _lines->coordIndex.setNum(int(li.size()));
+    _faceCoords->point.setNum(0);
+    _faces->coordIndex.setNum(0);
+}
+
+namespace
+{
+
+/// The colour of a selection, from the preferences, as the model shows it
+Base::Color selectionColor()
+{
+    auto hGrp = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/View");
+    Base::Color c;
+    c.setPackedValue(hGrp->GetUnsigned("SelectionColor", 0x1CAD1C00));
+    return c;
+}
+
+ViewProviderCallout* calloutView(App::DocumentObject* obj)
+{
+    return dynamic_cast<ViewProviderCallout*>(Gui::Application::Instance->getViewProvider(obj));
+}
+
+/** Cross-highlighting (docs/GDandT.md sec 6.5), one observer for every
+ * callout: a callout selected or preselected outlines its faces; a face
+ * selected or preselected lights the callouts that apply to it. Worked out
+ * once the selection settles, not per message.
+ */
+class CrossHighlight: public Gui::SelectionObserver
+{
+public:
+    CrossHighlight()
+        : Gui::SelectionObserver(true, Gui::ResolveMode::NoResolve)
+    {}
+
+    static void start()
+    {
+        // Lives as long as the selection it watches: never deleted
+        static CrossHighlight* instance = new CrossHighlight;
+        (void)instance;
+    }
+
+private:
+    void onSelectionChanged(const Gui::SelectionChanges& msg) override
+    {
+        switch (msg.Type) {
+            case Gui::SelectionChanges::AddSelection:
+            case Gui::SelectionChanges::RmvSelection:
+            case Gui::SelectionChanges::SetSelection:
+            case Gui::SelectionChanges::ClrSelection:
+            case Gui::SelectionChanges::SetPreselect:
+            case Gui::SelectionChanges::RmvPreselect:
+                break;
+            default:
+                return;
+        }
+        if (!_pending) {
+            _pending = true;
+            QTimer::singleShot(0, [this]() { update(); });
+        }
+    }
+
+    /// One pick: a callout outlines, a face of an annotated part lights
+    void consider(App::DocumentObject* top, const char* sub,
+                  std::set<App::DocumentObject*>& outlined, std::set<App::DocumentObject*>& lit)
+    {
+        if (!top || !top->isAttachedToDocument()) {
+            return;
+        }
+        App::DocumentObject* leaf = sub && *sub ? top->getSubObject(sub) : top;
+        if (auto callout = freecad_cast<PMI::Callout*>(leaf)) {
+            outlined.insert(callout);
+            return;
+        }
+        const char* element = sub ? Data::findElementName(sub) : nullptr;
+        if (!leaf || !element || !*element) {
+            return;
+        }
+        if (Data::oldElementName(element).rfind("Face", 0) != 0) {
+            return;
+        }
+        // Only a part that has annotations is looked at
+        auto body = Part::BodyBase::findBodyOf(leaf);
+        if (!PMI::AnnotationSet::find(body ? static_cast<App::DocumentObject*>(body) : leaf)) {
+            return;
+        }
+        App::DocumentObject* solid = nullptr;
+        std::string face, why;
+        if (!PMI::Api::solidReference(top, sub, solid, face, why)) {
+            return;
+        }
+        for (auto& a : PMI::Api::query(solid, face)) {
+            lit.insert(a.callout);
+        }
+    }
+
+    void update()
+    {
+        _pending = false;
+        std::set<App::DocumentObject*> outlined, lit;
+        for (auto& sel : Gui::Selection().getCompleteSelection(Gui::ResolveMode::NoResolve)) {
+            consider(sel.pObject, sel.SubName, outlined, lit);
+        }
+        const auto& pre = Gui::Selection().getPreselection();
+        if (pre.pDocName && pre.pObjectName && *pre.pObjectName) {
+            if (auto doc = App::GetApplication().getDocument(pre.pDocName)) {
+                consider(doc->getObject(pre.pObjectName), pre.pSubName, outlined, lit);
+            }
+        }
+        for (auto& o : _outlined) {
+            auto obj = o.getObject();
+            if (obj && !outlined.count(obj)) {
+                if (auto vp = calloutView(obj)) {
+                    vp->showFaces(false);
+                }
+            }
+        }
+        for (auto& o : _lit) {
+            auto obj = o.getObject();
+            if (obj && !lit.count(obj)) {
+                if (auto vp = calloutView(obj)) {
+                    vp->setLit(false);
+                }
+            }
+        }
+        _outlined.clear();
+        _lit.clear();
+        for (auto obj : outlined) {
+            if (auto vp = calloutView(obj)) {
+                vp->showFaces(true);
+                _outlined.emplace_back(obj);
+            }
+        }
+        for (auto obj : lit) {
+            if (auto vp = calloutView(obj)) {
+                vp->setLit(true);
+                _lit.emplace_back(obj);
+            }
+        }
+    }
+
+    bool _pending = false;
+    std::vector<App::DocumentObjectT> _outlined;
+    std::vector<App::DocumentObjectT> _lit;
+};
+
+}  // namespace
+
 // ---- ViewProviderCallout ----
 
 PROPERTY_SOURCE(PMIGui::ViewProviderCallout, Gui::ViewProviderDocumentObject)
@@ -213,9 +408,57 @@ void ViewProviderCallout::attach(App::DocumentObject* obj)
     _filter->addChild(_drawing.root());
     _filter->whichChild = SO_SWITCH_ALL;
     top->addChild(_filter);
+    // Its faces, outlined while it is picked: shown through the model
+    _cross = new SoSwitch;
+    _cross->addChild(_outline.root());
+    _cross->whichChild = SO_SWITCH_NONE;
+    _outline.setLineWidth(3.0f);
+    top->addChild(_cross);
     addDisplayMaskMode(top, "Callout");
     refresh();
     refilter();
+    CrossHighlight::start();
+}
+
+void ViewProviderCallout::showFaces(bool show)
+{
+    auto callout = freecad_cast<PMI::Callout*>(getObject());
+    if (!callout || !_cross) {
+        return;
+    }
+    if (!show) {
+        _cross->whichChild = SO_SWITCH_NONE;
+        _outline.setOutline(TopoDS_Shape(), 1.0);
+        return;
+    }
+    // The faces themselves, also for a derived axis or plane
+    BRep_Builder builder;
+    TopoDS_Compound comp;
+    builder.MakeCompound(comp);
+    Bnd_Box box;
+    for (auto feat : PMI::Api::featuresOf(callout)) {
+        TopoDS_Shape faces = feat->SavedGeometry.getShape().getShape();
+        if (faces.IsNull()) {
+            faces = feat->Shape.getShape().getShape();
+        }
+        if (!faces.IsNull()) {
+            builder.Add(comp, faces);
+            BRepBndLib::Add(faces, box);
+        }
+    }
+    double deflection = box.IsVoid() ? 0.1 : std::max(1e-3, 0.002 * std::sqrt(box.SquareExtent()));
+    Base::Color c = selectionColor();
+    _outline.setColor(c.r, c.g, c.b);
+    _outline.setOutline(comp, deflection);
+    _cross->whichChild = SO_SWITCH_ALL;
+}
+
+void ViewProviderCallout::setLit(bool lit)
+{
+    if (_lit != lit) {
+        _lit = lit;
+        refresh();
+    }
 }
 
 void ViewProviderCallout::refilter()
@@ -262,6 +505,10 @@ void ViewProviderCallout::refresh()
             _drawing.setColor(c.r, c.g, c.b);
             break;
         }
+    }
+    if (_lit) {
+        Base::Color c = selectionColor();
+        _drawing.setColor(c.r, c.g, c.b);
     }
     _drawing.setLineWidth(float(LineWidth.getValue()));
     _drawing.set(callout->Presentation.getShape().getShape());

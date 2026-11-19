@@ -55,6 +55,9 @@ public:
         return _root;
     }
     void set(const TopoDS_Shape& shape);
+    /// The edges of \a shape's faces, followed within \a deflection: a
+    /// model's faces outlined, curved edges and all
+    void setOutline(const TopoDS_Shape& shape, double deflection);
     void setColor(float r, float g, float b);
     void setLineWidth(float w);
     void setDashed(bool dashed);
@@ -101,10 +104,23 @@ public:
     /// Shown unless a PMI view is active that does not show it (sec 6.3)
     void refilter();
 
+    /// Cross-highlighting (sec 6.5): its faces outlined, while it is
+    /// selected or preselected
+    void showFaces(bool show);
+    /// Lit: it applies to a face that is picked
+    void setLit(bool lit);
+    bool isLit() const
+    {
+        return _lit;
+    }
+
 private:
     void refresh();
     ShapeLines _drawing;
+    ShapeLines _outline;
     SoSwitch* _filter = nullptr;
+    SoSwitch* _cross = nullptr;
+    bool _lit = false;
 };
 
 /** A toleranced feature: nothing for the faces themselves, the derived

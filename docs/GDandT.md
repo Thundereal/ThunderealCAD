@@ -549,6 +549,28 @@ made while a view is active joins it and lies in its plane.
 - A callout changes plane at the recompute after its `Views` change, as for any property.
 - Not done: the object filter of sec 6.3 (`Objects` -- which bodies a view shows).
 
+### 10.8 P1 progress: what applies to a face, cross-highlighting (2026-11-20)
+
+Built: `PMI.query(obj, subname)` (`Api::query`) -- a face, picked on the Body or named on its
+solid, gives the callouts on a feature holding it ("on"), then the tolerances whose datum frame
+cites a datum on it ("datum A", the letters being the solid's own); in the set's order, each
+once. `Api::featuresOf` is a callout's features, a dimension's several.
+
+Cross-highlighting (sec 6.5), one selection observer for every callout, worked out once the
+selection settles: a callout selected or preselected outlines its faces (their edges, followed
+within 0.2 % of their size, drawn through the model); a face selected or preselected lights the
+callouts that apply to it in the selection colour. Only a part that has a set is looked at, so
+hovering over other parts costs nothing. The outline lives under the callout, and FreeCAD's
+whole-object selection recolours what is under a selected object: it shows light blue, not the
+selection green -- distinct from the face highlight, which is kept.
+
+`PMI_Query` opens a panel that follows the pick: the face, and what applies to it with its
+text and how. A pick of no face leaves the list, so clicking a callout in it selects it --
+outlining its faces -- and the list stays.
+
+- Still open in P1: a view's object filter (sec 6.3, `Objects`), and the default offsets of
+  callouts on different planes not seeing each other (sec 10.6).
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --
@@ -591,7 +613,7 @@ Issue #29772 and its sub-issues [A8], to this design:
 | 29791 stacking | 6.4 -- P1 |
 | 29792 view membership | 6.3 -- P1 |
 | 29793 validate | 8 -- P0 |
-| 29794 query a feature's specifications | P1 query tool |
+| 29794 query a feature's specifications | P1 query tool (10.8) |
 | 29795 TechDraw pages from views | 9 + P4 |
 | 29796 STEP AP242 import | 5.1 -- P2 |
 | 29797 STEP AP242 export | 5.2 -- P3 |

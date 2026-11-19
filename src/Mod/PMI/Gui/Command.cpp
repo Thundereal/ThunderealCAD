@@ -34,6 +34,7 @@
 #include <Gui/ActiveObjectList.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
+#include <Gui/Control.h>
 #include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 #include <Gui/MDIView.h>
@@ -50,6 +51,7 @@
 #include <Mod/PMI/App/Geometry.h>
 #include <Mod/PMI/App/View.h>
 
+#include "TaskQuery.h"
 #include "ViewProviderCallout.h"
 #include "ViewProviderView.h"
 
@@ -425,6 +427,34 @@ bool CmdPMICheck::isActive()
 
 // ---- PMI view ----
 
+DEF_STD_CMD_A(CmdPMIQuery)
+
+CmdPMIQuery::CmdPMIQuery()
+    : Command("PMI_Query")
+{
+    sAppModule = "PMI";
+    sGroup = QT_TR_NOOP("PMI");
+    sMenuText = QT_TR_NOOP("What applies");
+    sToolTipText = QT_TR_NOOP("Pick a face: list the annotations on it and the tolerances that "
+                              "cite a datum on it");
+    sWhatsThis = "PMI_Query";
+    sStatusTip = sToolTipText;
+    sPixmap = "PMI_Query";
+}
+
+void CmdPMIQuery::activated(int)
+{
+    if (Gui::Control().activeDialog()) {
+        return;
+    }
+    Gui::Control().showDialog(new PMIGui::TaskDlgQuery);
+}
+
+bool CmdPMIQuery::isActive()
+{
+    return haveDocument(this) && !Gui::Control().activeDialog();
+}
+
 DEF_STD_CMD_A(CmdPMIView)
 
 CmdPMIView::CmdPMIView()
@@ -530,4 +560,5 @@ void CreatePMICommands()
     mgr.addCommand(new CmdPMINote());
     mgr.addCommand(new CmdPMIView());
     mgr.addCommand(new CmdPMICheck());
+    mgr.addCommand(new CmdPMIQuery());
 }

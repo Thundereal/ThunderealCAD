@@ -2774,3 +2774,7 @@ fc_add_gui_test(GuiPMIWorkbench_tests_run pmi-workbench.py --timeout 300)
 # only its members and clips; an annotation made in it joins it, in its plane;
 # let go, the camera and clipping come back; the command makes one.
 fc_add_gui_test(GuiPMIViews_tests_run pmi-views.py --timeout 300)
+
+# What applies to a face (sec 6.5): a callout selected outlines its faces, a face
+# picked or preselected lights what applies; the query panel lists it.
+fc_add_gui_test(GuiPMIQuery_tests_run pmi-query.py --timeout 300)

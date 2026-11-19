@@ -78,6 +78,25 @@ PMIExport std::string nextDatumLetter(AnnotationSet* set, App::DocumentObject* s
 /// 6.4): the set's last one on the same feature, or null. A linear or an
 /// angular dimension, drawn with its own lines, is never in a stack.
 PMIExport Callout* stackUnder(const Callout* callout);
+
+/// The features a callout is about: a dimension's, or the one feature of a
+/// tolerance, a datum or a note
+PMIExport std::vector<TolerancedFeature*> featuresOf(const Callout* callout);
+
+/// A callout that applies to a face, and how: "on" it, or citing a datum on
+/// it ("datum A")
+struct Applies
+{
+    Callout* callout;
+    std::string how;
+};
+
+/** What applies to one face of a solid (docs/GDandT.md sec 6.5; upstream's
+ * query of a feature's specifications): the callouts on a feature holding
+ * the face, then the tolerances whose datum frame cites a datum on it --
+ * the datum letters are the solid's own. In the set's order, each once.
+ */
+PMIExport std::vector<Applies> query(const App::DocumentObject* solid, const std::string& face);
 }  // namespace Api
 
 }  // namespace PMI

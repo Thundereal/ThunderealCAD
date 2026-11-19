@@ -112,6 +112,7 @@ void DlgSettingsDocumentImp::saveSettings()
     ui->prefDuplicateLabel->onSave();
     ui->prefPartialLoading->onSave();
     ui->prefRecomputeByWorker->onSave();
+    ui->prefExportByWorker->onSave();
     ui->prefLicenseType->onSave();
     ui->prefLicenseUrl->onSave();
     ui->prefAuthor->onSave();
@@ -147,6 +148,7 @@ void DlgSettingsDocumentImp::loadSettings()
     ui->prefDuplicateLabel->onRestore();
     ui->prefPartialLoading->onRestore();
     ui->prefRecomputeByWorker->onRestore();
+    ui->prefExportByWorker->onRestore();
     ui->prefLicenseType->onRestore();
     ui->prefLicenseUrl->onRestore();
     libraryPaths->load();

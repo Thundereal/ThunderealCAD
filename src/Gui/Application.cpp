@@ -98,6 +98,7 @@
 
 #include "Application.h"
 #include "WorkerRecomputeGui.h"
+#include "WorkerExportGui.h"
 #include "GeneralParams.h"
 #include "AutoSaver.h"
 #include "AxisOriginPy.h"
@@ -1124,6 +1125,20 @@ void Application::exportTo(const char* FileName, const char* DocName, const char
 
             std::string code = str.str();
             // the original file name is required
+
+            // Written by a worker from the design as it is now, the window
+            // free meanwhile (docs/WorkerProcess.md sec 24); it tells when
+            // it is done, and adds the file to the recent ones then
+            App::Document* doc = App::GetApplication().getDocument(DocName);
+            std::vector<App::DocumentObject*> objs;
+            for (auto obj : sel) {
+                if (std::find(objs.begin(), objs.end(), obj) == objs.end()) {
+                    objs.push_back(obj);
+                }
+            }
+            if (doc && exportByWorkers(*doc, objs, Module, File.filePath(), code)) {
+                return;
+            }
 
             Gui::Command::runCommand(Gui::Command::App, code.c_str());
 

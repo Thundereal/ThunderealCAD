@@ -1528,6 +1528,7 @@ SET(FreeCADGui_CPP_SRCS
     Application.cpp
     ApplicationPy.cpp
     WorkerRecomputeGui.cpp
+    WorkerExportGui.cpp
     AutoSaver.cpp
     BitmapFactory.cpp
     Document.cpp
@@ -1574,6 +1575,7 @@ SET(FreeCADGui_CPP_SRCS
 SET(FreeCADGui_SRCS
     Application.h
     WorkerRecomputeGui.h
+    WorkerExportGui.h
     AutoSaver.h
     BitmapFactory.h
     Document.h

@@ -188,6 +188,27 @@ result is put in when it is ready</string>
         </property>
        </widget>
       </item>
+      <item row="11" column="0">
+       <widget class="Gui::PrefCheckBox" name="prefExportByWorker">
+        <property name="toolTip">
+         <string>The Export command writes STEP, IGES, BREP and mesh files in a worker
+process, from the design as it is when asked for: the window stays usable
+meanwhile, and the status bar tells when the file is written</string>
+        </property>
+        <property name="text">
+         <string>Export in a worker process</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>ExportCommand</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Workers</cstring>
+        </property>
+       </widget>
+      </item>
       <item row="6" column="0">
        <layout class="QHBoxLayout">
         <property name="spacing">

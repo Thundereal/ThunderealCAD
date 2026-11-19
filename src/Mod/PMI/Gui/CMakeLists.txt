@@ -30,6 +30,8 @@ set(PMIGui_SRCS
     TaskGeometricTolerance.h
     ViewProviderCallout.cpp
     ViewProviderCallout.h
+    ViewProviderView.cpp
+    ViewProviderView.h
     Workbench.cpp
     Workbench.h
 )

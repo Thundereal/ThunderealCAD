@@ -53,6 +53,8 @@ set(PMI_SRCS
   Layout.cpp
   Note.cpp
   Note.h
+  View.cpp
+  View.h
   PreCompiled.cpp
   PreCompiled.h
   TolerancedFeature.cpp

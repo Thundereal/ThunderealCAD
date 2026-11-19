@@ -2769,3 +2769,8 @@ fc_add_gui_test(GuiAnimationTimeline_tests_run animation-timeline.py --timeout 2
 # tolerance, datums and dimensions, the callouts are drawn, PartDesign
 # offers the PMI tool bar while the set is active, undo takes one away.
 fc_add_gui_test(GuiPMIWorkbench_tests_run pmi-workbench.py --timeout 300)
+
+# PMI views (docs/GDandT.md sec 6.3): activated, a view sets the camera, shows
+# only its members and clips; an annotation made in it joins it, in its plane;
+# let go, the camera and clipping come back; the command makes one.
+fc_add_gui_test(GuiPMIViews_tests_run pmi-views.py --timeout 300)

@@ -528,6 +528,27 @@ reads under it.
 - Seen in the iso capture: datums A (bottom face) and B (front face) land close together near
   the front corner; the default offsets of different planes do not see each other yet.
 
+### 10.7 P1 progress: views (2026-11-20)
+
+Built: `PMI::View` (sec 6.3) -- a camera (`Camera`, a placement whose z points at the viewer;
+`Height`, 0 to fit; `Perspective`), a `Standard` (front, top, right, isometric) that drives
+the camera and turns to Custom when the camera is turned by hand, `AnnotationPlane`, and a
+clipping plane (`Clip`, `ClipPlane`). Membership is on the callout: `Views`, a link list;
+`members()` reads it back. A callout's first view with `AnnotationPlane` set gives its default
+plane -- the view's, just in front of the feature -- and a linear dimension takes the view's
+frame when the view's right runs along what it measures, else falls back to a standard one.
+
+In the GUI the view is activated as `pmiview` (a double-click, or `setActiveObject`): the
+camera goes to the view's, its clipping is applied, and only its members are drawn (a switch
+over each callout's drawing). Let go, the camera and clipping come back as they were and
+every callout shows. One view is active per document; activating another in the same 3D view
+does not restore in between. The `PMI_View` command makes a view from the camera as it is,
+in the active set (or the selection's, or the active Body's), and activates it; an annotation
+made while a view is active joins it and lies in its plane.
+
+- A callout changes plane at the recompute after its `Views` change, as for any property.
+- Not done: the object filter of sec 6.3 (`Objects` -- which bodies a view shows).
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

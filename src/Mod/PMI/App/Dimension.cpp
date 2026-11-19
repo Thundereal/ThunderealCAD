@@ -38,6 +38,7 @@
 
 #include "Dimension.h"
 #include "TolerancedFeature.h"
+#include "View.h"
 
 using namespace PMI;
 
@@ -301,20 +302,29 @@ bool Dimension::autoPlane(double h, gp_Ax3& plane, gp_Pnt& target) const
     }
     // The standard view most square to what is measured: top, front, right
     // (z toward the reader), with its right and up
-    struct View
+    struct Frame
     {
         gp_Vec z, right, up;
     };
-    const View views[] = {{gp_Vec(0, 0, 1), gp_Vec(1, 0, 0), gp_Vec(0, 1, 0)},
+    const Frame views[] = {{gp_Vec(0, 0, 1), gp_Vec(1, 0, 0), gp_Vec(0, 1, 0)},
                           {gp_Vec(0, -1, 0), gp_Vec(1, 0, 0), gp_Vec(0, 0, 1)},
                           {gp_Vec(1, 0, 0), gp_Vec(0, 1, 0), gp_Vec(0, 0, 1)}};
-    const View* view = &views[0];
+    const Frame* view = &views[0];
     double best = 2;
     for (const auto& v : views) {
         double d = std::fabs(v.z.Dot(x));
         if (d < best - 1e-9) {
             best = d;
             view = &v;
+        }
+    }
+    // In a PMI view whose plane holds what is measured: that view
+    Frame inView;
+    if (PMI::View* pv = planeView()) {
+        gp_Ax3 f = pv->frame();
+        if (std::fabs(gp_Vec(f.Direction()).Dot(x)) < 1e-6) {
+            inView = {gp_Vec(f.Direction()), gp_Vec(f.XDirection()), gp_Vec(f.YDirection())};
+            view = &inView;
         }
     }
     // Read from the bottom or the right: along the view's right, or up

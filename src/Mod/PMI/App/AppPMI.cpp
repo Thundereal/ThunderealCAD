@@ -41,6 +41,7 @@
 #include "GeometricTolerance.h"
 #include "Note.h"
 #include "TolerancedFeature.h"
+#include "View.h"
 
 namespace PMI
 {
@@ -313,6 +314,7 @@ PyMOD_INIT_FUNC(PMI)
     PMI::Dimension           ::init();
     PMI::GeometricTolerance  ::init();
     PMI::Note                ::init();
+    PMI::View                ::init();
     // clang-format on
 
     // In a PartDesign Body, as its Elements group is: never solid, never its

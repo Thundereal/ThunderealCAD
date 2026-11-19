@@ -43,6 +43,7 @@ namespace PMI
 
 class Drawing;
 class TolerancedFeature;
+class View;
 
 /** What an annotation looks like (docs/GDandT.md sec 6): drawn from its
  * semantics on every recompute, never the other way round.
@@ -73,6 +74,9 @@ public:
     /// Another callout this one is stacked under (docs/GDandT.md sec 6.4):
     /// its plane, below its drawing, on its leader
     App::PropertyLink AttachedTo;
+    /// The PMI views showing it (sec 6.3); the first whose AnnotationPlane is
+    /// set gives it its plane
+    App::PropertyLinkList Views;
     Part::PropertyPartShape Presentation;
     App::PropertyString EquivalentText;
 
@@ -107,6 +111,11 @@ public:
 
     /// The callout this one is stacked under, or null (also for a loop)
     Callout* attachedParent() const;
+
+    /// Whether \a view shows it
+    bool inView(const View* view) const;
+    /// The view whose plane it lies in, or null
+    View* planeView() const;
 
     /// The plane a callout on \a feature takes: the face's own if planar,
     /// else the standard view looking most squarely at it; \a target is the

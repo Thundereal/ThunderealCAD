@@ -56,6 +56,7 @@
 #include "Drawing.h"
 #include "Font.h"
 #include "TolerancedFeature.h"
+#include "View.h"
 
 FC_LOG_LEVEL_INIT("PMI", true, true)
 
@@ -75,6 +76,8 @@ Callout::Callout()
                       "A leader to the feature");
     ADD_PROPERTY_TYPE(AttachedTo, (nullptr), "Presentation", App::Prop_None,
                       "Stacked under this callout: its plane, below it, on its leader");
+    ADD_PROPERTY_TYPE(Views, (), "Presentation", App::Prop_None,
+                      "The PMI views showing it; the first with AnnotationPlane gives its plane");
     ADD_PROPERTY_TYPE(Presentation, (TopoDS_Shape()), "Presentation",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Transient),
                       "What is drawn: strokes as edges, fills as faces");
@@ -194,8 +197,8 @@ bool insidePlanarFace(const TopoDS_Face& face, const gp_Pnt& centre, gp_Pnt& tar
             }
             // Ties go to the point nearer the centre, so a symmetric face
             // gets the same side every time
-            if (d > best * (1 + 1e-6)
-                || (d > best * (1 - 1e-6) && p.SquareDistance(centre) < target.SquareDistance(centre))) {
+            bool nearer = p.SquareDistance(centre) < target.SquareDistance(centre);
+            if (d > best * (1 + 1e-6) || (d > best * (1 - 1e-6) && nearer)) {
                 best = d;
                 target = p;
             }
@@ -345,9 +348,40 @@ Callout* Callout::attachedParent() const
     return parent;
 }
 
+bool Callout::inView(const View* view) const
+{
+    for (auto obj : Views.getValues()) {
+        if (obj == view) {
+            return true;
+        }
+    }
+    return false;
+}
+
+View* Callout::planeView() const
+{
+    for (auto obj : Views.getValues()) {
+        auto view = freecad_cast<View*>(obj);
+        if (view && view->AnnotationPlane.getValue()) {
+            return view;
+        }
+    }
+    return nullptr;
+}
+
 bool Callout::autoPlane(double h, gp_Ax3& plane, gp_Pnt& target) const
 {
-    return defaultPlane(calloutFeature(), h, plane, target);
+    if (!defaultPlane(calloutFeature(), h, plane, target)) {
+        return false;
+    }
+    if (View* view = planeView()) {
+        // In the view's plane through the target, up and to the right of it
+        gp_Ax3 f = view->frame();
+        gp_Vec x(f.XDirection()), y(f.YDirection()), z(f.Direction());
+        plane = gp_Ax3(target.Translated(z * (0.05 * h) + x * (3 * h) + y * (2 * h)),
+                       f.Direction(), f.XDirection());
+    }
+    return true;
 }
 
 int Callout::autoSlot(const gp_Ax3& mine, double h) const

@@ -706,6 +706,63 @@ class TestPresentation(Base):
         self.assertLess(min((v.Point - tip).Length for v in gt.Presentation.Vertexes), 1e-6)
 
 
+class TestView(Base):
+    """PMI views: a camera, its annotations, their plane (docs/GDandT.md sec 6.3)"""
+
+    def z(self, placement):
+        return placement.Rotation.multVec(V(0, 0, 1))
+
+    def test_standard_views(self):
+        for name, z, up in (("Top", V(0, 0, 1), V(0, 1, 0)),
+                            ("Front", V(0, -1, 0), V(0, 0, 1)),
+                            ("Right", V(1, 0, 0), V(0, 0, 1))):
+            view = self.add("View", name, Standard=name)
+            self.assertTrue(self.z(view.Camera).isEqual(z, 1e-9), (name, self.z(view.Camera)))
+            self.assertTrue(view.Camera.Rotation.multVec(V(0, 1, 0)).isEqual(up, 1e-9), name)
+        iso = self.add("View", "Iso", Standard="Isometric")
+        d = 1 / math.sqrt(3)
+        self.assertTrue(self.z(iso.Camera).isEqual(V(d, -d, d), 1e-9), self.z(iso.Camera))
+        # Turned by hand, it is no longer the standard one
+        iso.Camera = App.Placement(V(), App.Rotation(V(0, 0, 1), 10))
+        self.assertEqual(iso.Standard, "Custom")
+        self.recompute()
+        self.assertEqual(iso.Condition, "Ok")
+
+    def test_a_callout_in_a_view_takes_its_plane(self):
+        top = self.add("View", "Top", Standard="Top")
+        front = self.feature(FRONT)
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Flatness", Feature=front,
+                      Value=0.05)
+        self.recompute()
+        # Alone: the face's own plane
+        self.assertTrue(self.z(gt.Plane).isEqual(V(0, -1, 0), 1e-9), self.z(gt.Plane))
+        gt.Views = [top]
+        self.recompute()
+        self.assertTrue(self.z(gt.Plane).isEqual(V(0, 0, 1), 1e-9), self.z(gt.Plane))
+        self.assertIn(gt, top.InList)
+        # The view turned: laid out again
+        top.Standard = "Right"
+        self.recompute()
+        self.assertTrue(self.z(gt.Plane).isEqual(V(1, 0, 0), 1e-9), self.z(gt.Plane))
+        # A view without its plane only shows it
+        top.AnnotationPlane = False
+        self.recompute()
+        self.assertTrue(self.z(gt.Plane).isEqual(V(0, -1, 0), 1e-9), self.z(gt.Plane))
+
+    def test_a_width_in_a_view(self):
+        front = self.add("View", "Front", Standard="Front")
+        right = self.add("View", "Right", Standard="Right")
+        width = self.add("Dimension", "Width", Type="Width",
+                         Features=[self.feature(LEFT, RIGHT)], Views=[front])
+        self.recompute()
+        # Measured along x, which the front view holds
+        self.assertTrue(self.z(width.Plane).isEqual(V(0, -1, 0), 1e-9), self.z(width.Plane))
+        # The right view looks along it: the width keeps its own choice
+        width.Views = [right]
+        self.recompute()
+        self.assertTrue(self.z(width.Plane).isEqual(V(0, 0, 1), 1e-9), self.z(width.Plane))
+
+
 class TestApi(Base):
     """What the commands call (docs/GDandT.md sec 3, 4)"""
 

@@ -8,5 +8,6 @@
         <file>icons/PMI_Note.svg</file>
         <file>icons/PMI_Check.svg</file>
         <file>icons/PMI_Feature.svg</file>
+        <file>icons/PMI_View.svg</file>
     </qresource>
 </RCC>

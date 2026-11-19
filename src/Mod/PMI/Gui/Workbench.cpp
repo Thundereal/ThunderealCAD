@@ -44,6 +44,7 @@ void Workbench::addTools(Gui::ToolBarItem& toolbar)
             << "PMI_Dimension"
             << "PMI_Note"
             << "Separator"
+            << "PMI_View"
             << "PMI_Check";
 }
 
@@ -59,6 +60,7 @@ Gui::MenuItem* Workbench::setupMenuBar() const
          << "PMI_Dimension"
          << "PMI_Note"
          << "Separator"
+         << "PMI_View"
          << "PMI_Check";
     return root;
 }

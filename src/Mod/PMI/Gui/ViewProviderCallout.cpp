@@ -45,6 +45,7 @@
 #include <Inventor/nodes/SoMaterial.h>
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoShapeHints.h>
+#include <Inventor/nodes/SoSwitch.h>
 
 #include <Gui/ActiveObjectList.h>
 #include <Gui/Application.h>
@@ -67,6 +68,7 @@
 
 #include "TaskGeometricTolerance.h"
 #include "ViewProviderCallout.h"
+#include "ViewProviderView.h"
 
 using namespace PMIGui;
 
@@ -207,9 +209,27 @@ void ViewProviderCallout::attach(App::DocumentObject* obj)
     // above). 1, as the on-view labels are.
     auto top = new Gui::So3DAnnotation;
     top->priority = 1;
-    top->addChild(_drawing.root());
+    _filter = new SoSwitch;
+    _filter->addChild(_drawing.root());
+    _filter->whichChild = SO_SWITCH_ALL;
+    top->addChild(_filter);
     addDisplayMaskMode(top, "Callout");
     refresh();
+    refilter();
+}
+
+void ViewProviderCallout::refilter()
+{
+    auto callout = freecad_cast<PMI::Callout*>(getObject());
+    if (!callout || !_filter) {
+        return;
+    }
+    const PMI::View* view = ViewProviderView::active(callout->getDocument());
+    bool shown = !view || callout->inView(view);
+    int want = shown ? SO_SWITCH_ALL : SO_SWITCH_NONE;
+    if (_filter->whichChild.getValue() != want) {
+        _filter->whichChild = want;
+    }
 }
 
 std::vector<std::string> ViewProviderCallout::getDisplayModes() const
@@ -252,6 +272,9 @@ void ViewProviderCallout::updateData(const App::Property* prop)
     auto callout = freecad_cast<PMI::Callout*>(getObject());
     if (callout && (prop == &callout->Presentation || prop == &callout->Condition)) {
         refresh();
+    }
+    else if (callout && prop == &callout->Views) {
+        refilter();
     }
     ViewProviderDocumentObject::updateData(prop);
 }

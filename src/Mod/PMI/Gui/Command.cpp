@@ -26,6 +26,9 @@
 
 #include <QMessageBox>
 
+#include <Inventor/nodes/SoCamera.h>
+#include <Inventor/nodes/SoOrthographicCamera.h>
+
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <Gui/ActiveObjectList.h>
@@ -36,14 +39,19 @@
 #include <Gui/MDIView.h>
 #include <Gui/Selection/Selection.h>
 #include <Gui/Selection/SelectionObject.h>
+#include <Gui/View3DInventor.h>
+#include <Gui/View3DInventorViewer.h>
 #include <Mod/Part/App/BodyBase.h>
 #include <Mod/Part/App/PartFeature.h>
+#include <Mod/PMI/App/Annotation.h>
 #include <Mod/PMI/App/AnnotationSet.h>
 #include <Mod/PMI/App/Api.h>
 #include <Mod/PMI/App/Check.h>
 #include <Mod/PMI/App/Geometry.h>
+#include <Mod/PMI/App/View.h>
 
 #include "ViewProviderCallout.h"
+#include "ViewProviderView.h"
 
 // The PMI commands (docs/GDandT.md sec 5-8). Each resolves the faces picked
 // to what an annotation refers to, in C++, then writes plain Python with
@@ -156,6 +164,12 @@ void finish(Gui::Command* cmd)
 {
     // On a feature that has one already: stacked under it (sec 6.4)
     cmd->doCommand(Gui::Command::Doc, "_obj.AttachedTo = PMI.stackUnder(_obj)");
+    // Made in an active PMI view: shown in it, in its plane (sec 6.3)
+    auto gdoc = cmd->getActiveGuiDocument();
+    if (auto view = gdoc ? PMIGui::ViewProviderView::active(gdoc->getDocument()) : nullptr) {
+        cmd->doCommand(Gui::Command::Doc, "_obj.Views = [_set.Document.getObject('%s')]",
+                       view->getNameInDocument());
+    }
     cmd->doCommand(Gui::Command::Doc, "_set.Document.recompute()");
     cmd->doCommand(Gui::Command::Gui, "Gui.Selection.clearSelection()");
     cmd->doCommand(Gui::Command::Gui, "Gui.Selection.addSelection(_obj)");
@@ -409,6 +423,104 @@ bool CmdPMICheck::isActive()
     return haveDocument(this);
 }
 
+// ---- PMI view ----
+
+DEF_STD_CMD_A(CmdPMIView)
+
+CmdPMIView::CmdPMIView()
+    : Command("PMI_View")
+{
+    sAppModule = "PMI";
+    sGroup = QT_TR_NOOP("PMI");
+    sMenuText = QT_TR_NOOP("PMI view");
+    sToolTipText = QT_TR_NOOP("A view of the annotations from the camera as it is, made "
+                              "active: what is annotated now is shown in it and lies in its "
+                              "plane. Double-click a view to activate it or let it go.");
+    sWhatsThis = "PMI_View";
+    sStatusTip = sToolTipText;
+    sPixmap = "PMI_View";
+}
+
+void CmdPMIView::activated(int)
+{
+    auto gdoc = getActiveGuiDocument();
+    auto mdi = gdoc ? qobject_cast<Gui::View3DInventor*>(gdoc->getActiveView()) : nullptr;
+    if (!mdi) {
+        return;
+    }
+    // The set: the active one, the one of what is picked, the active
+    // Body's, or the document's only one
+    App::DocumentObject* set = mdi->getActiveObject<App::DocumentObject*>(PMIGui::PMIKEY);
+    App::DocumentObject* part = nullptr;
+    if (!set) {
+        for (auto& sel : Gui::Selection().getSelectionEx()) {
+            auto obj = sel.getObject();
+            if (obj && obj->isDerivedFrom<PMI::AnnotationSet>()) {
+                set = obj;
+            }
+            else if (auto anno = freecad_cast<PMI::Annotation*>(obj)) {
+                set = anno->getSet();
+            }
+            if (set) {
+                break;
+            }
+        }
+    }
+    if (!set) {
+        part = mdi->getActiveObject<App::DocumentObject*>("pdbody");
+    }
+    if (!set && !part) {
+        auto sets = gdoc->getDocument()->getObjectsOfType(PMI::AnnotationSet::getClassTypeId());
+        if (sets.size() == 1) {
+            set = sets.front();
+        }
+    }
+    if (!set && !part) {
+        Base::Console().Warning("PMI view: no annotation set to put it in -- activate one "
+                                "(double-click it) or a Body\n");
+        return;
+    }
+
+    SoCamera* cam = mdi->getViewer()->getSoRenderManager()->getCamera();
+    SbRotation rot = cam->orientation.getValue();
+    float q0, q1, q2, q3;
+    rot.getValue(q0, q1, q2, q3);
+    SbVec3f z;
+    rot.multVec(SbVec3f(0, 0, 1), z);
+    SbVec3f target = cam->position.getValue() - z * cam->focalDistance.getValue();
+    bool ortho = cam->isOfType(SoOrthographicCamera::getClassTypeId());
+
+    openCommand(QT_TRANSLATE_NOOP("Command", "PMI view"));
+    doCommand(Doc, "import PMI");
+    if (set) {
+        doCommand(Doc, "_set = %s", Gui::Command::getObjectCmd(set).c_str());
+    }
+    else {
+        doCommand(Doc, "_set = PMI.getSet(%s)", Gui::Command::getObjectCmd(part).c_str());
+    }
+    addToSet(this, "View", "View");
+    doCommand(Doc,
+              "_obj.Camera = App.Placement(App.Vector(%.9g, %.9g, %.9g), "
+              "App.Rotation(%.9g, %.9g, %.9g, %.9g))",
+              target[0], target[1], target[2], q0, q1, q2, q3);
+    if (ortho) {
+        doCommand(Doc, "_obj.Height = %.9g",
+                  static_cast<SoOrthographicCamera*>(cam)->height.getValue());
+    }
+    else {
+        doCommand(Doc, "_obj.Perspective = True");
+    }
+    doCommand(Doc, "_set.Document.recompute()");
+    commitCommand();
+    doCommand(Gui, "Gui.ActiveDocument.ActiveView.setActiveObject('%s', _obj)",
+              PMIGui::PMIVIEWKEY);
+}
+
+bool CmdPMIView::isActive()
+{
+    return haveDocument(this);
+}
+
 void CreatePMICommands()
 {
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
@@ -416,5 +528,6 @@ void CreatePMICommands()
     mgr.addCommand(new CmdPMIGeometricTolerance());
     mgr.addCommand(new CmdPMIDimension());
     mgr.addCommand(new CmdPMINote());
+    mgr.addCommand(new CmdPMIView());
     mgr.addCommand(new CmdPMICheck());
 }

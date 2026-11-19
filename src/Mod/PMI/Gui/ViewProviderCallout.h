@@ -36,6 +36,7 @@ class SoIndexedFaceSet;
 class SoIndexedLineSet;
 class SoMaterial;
 class SoSeparator;
+class SoSwitch;
 class TopoDS_Shape;
 
 namespace PMIGui
@@ -97,9 +98,13 @@ public:
     bool setEdit(int ModNum) override;
     void unsetEdit(int ModNum) override;
 
+    /// Shown unless a PMI view is active that does not show it (sec 6.3)
+    void refilter();
+
 private:
     void refresh();
     ShapeLines _drawing;
+    SoSwitch* _filter = nullptr;
 };
 
 /** A toleranced feature: nothing for the faces themselves, the derived

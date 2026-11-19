@@ -32,6 +32,7 @@
 #include <Mod/Part/App/BodyBase.h>
 
 #include "ViewProviderCallout.h"
+#include "ViewProviderView.h"
 #include "Workbench.h"
 
 void CreatePMICommands();
@@ -82,6 +83,7 @@ PyMOD_INIT_FUNC(PMIGui)
     PMIGui::ViewProviderCallout       ::init();
     PMIGui::ViewProviderFeature       ::init();
     PMIGui::ViewProviderAnnotationSet ::init();
+    PMIGui::ViewProviderView          ::init();
     // clang-format on
 
     // The PMI tool bar in PartDesign, offered while a Body's annotation set

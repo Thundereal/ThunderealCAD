@@ -1,0 +1,405 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+/***************************************************************************
+ *   Copyright (c) 2026 Zheng Lei (realthunder) <realthunder.dev@gmail.com> *
+ *                                                                         *
+ *   This file is part of the FreeCAD CAx development system.              *
+ *                                                                         *
+ *   This library is free software; you can redistribute it and/or         *
+ *   modify it under the terms of the GNU Library General Public           *
+ *   License as published by the Free Software Foundation; either          *
+ *   version 2 of the License, or (at your option) any later version.      *
+ *                                                                         *
+ *   This library  is distributed in the hope that it will be useful,      *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU Library General Public License for more details.                  *
+ *                                                                         *
+ *   You should have received a copy of the GNU Library General Public     *
+ *   License along with this library; see the file COPYING.LIB. If not,    *
+ *   write to the Free Software Foundation, Inc., 59 Temple Place,         *
+ *   Suite 330, Boston, MA  02111-1307, USA                                *
+ *                                                                         *
+ ***************************************************************************/
+
+#include "PreCompiled.h"
+
+#include <algorithm>
+#include <cmath>
+#include <set>
+
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <gp_Trsf.hxx>
+#include <gp_Vec.hxx>
+
+#include <App/ElementNamingUtils.h>
+#include <App/IndexedName.h>
+#include <App/MappedElement.h>
+#include <Base/Console.h>
+#include <Mod/Part/App/PartFeature.h>
+#include <Mod/Part/App/TopoShape.h>
+
+#include "TolerancedFeature.h"
+
+FC_LOG_LEVEL_INIT("PMI", true, true)
+
+using namespace PMI;
+
+const char* TolerancedFeature::KindEnums[] = {"Integral",
+                                              "Axis",
+                                              "CentrePlane",
+                                              "CentrePoint",
+                                              "Apex",
+                                              "Group",
+                                              "AllAround",
+                                              "Between",
+                                              nullptr};
+
+PROPERTY_SOURCE(PMI::TolerancedFeature, PMI::Annotation)
+
+TolerancedFeature::TolerancedFeature()
+{
+    ADD_PROPERTY_TYPE(References, (nullptr), "PMI", App::Prop_None,
+                      "The faces of the part this feature is");
+    ADD_PROPERTY_TYPE(Kind, (0L), "PMI", App::Prop_None,
+                      "Integral: the faces; Axis, CentrePlane, CentrePoint, Apex: the exact "
+                      "element derived from them; Group: several faces as one; AllAround, "
+                      "Between: a restricted feature");
+    Kind.setEnums(KindEnums);
+    // Shape, IsSize and State are not outputs: a dimension or a datum on
+    // this feature is recomputed only when one of them changes (with
+    // OptimizeRecompute a link sees an object's non-output revision only,
+    // docs/InputProperties.md sec 2)
+    ADD_PROPERTY_TYPE(Shape, (TopoDS_Shape()), "PMI",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Transient),
+                      "The faces, or the element derived from them");
+    ADD_PROPERTY_TYPE(SavedGeometry, (TopoDS_Shape()), "PMI",
+                      App::PropertyType(App::Prop_Output | App::Prop_ReadOnly | App::Prop_Hidden),
+                      "The faces as last resolved");
+    ADD_PROPERTY_TYPE(SavedNames, (), "PMI",
+                      App::PropertyType(App::Prop_Output | App::Prop_ReadOnly | App::Prop_Hidden),
+                      "The faces' mapped names as last resolved");
+    ADD_PROPERTY_TYPE(IsSize, (false), "PMI", App::Prop_ReadOnly,
+                      "Whether it is a feature of size: a cylinder, a sphere, two opposed planes");
+}
+
+namespace
+{
+std::string mappedNameOf(const App::ShadowSub& shadow)
+{
+    std::string name = Data::newElementName(shadow.first.c_str());
+    const char* mapped = Data::isMappedElement(name.c_str());
+    return mapped ? std::string(mapped) : std::string();
+}
+
+std::string stripMissing(const std::string& sub)
+{
+    const std::string& prefix = Data::missingPrefix();
+    if (sub.compare(0, prefix.size(), prefix) == 0) {
+        return sub.substr(prefix.size());
+    }
+    return sub;
+}
+
+Part::TopoShape faceOf(App::DocumentObject* obj, const std::string& sub)
+{
+    if (!obj || sub.empty() || Data::hasMissingElement(sub.c_str())) {
+        return Part::TopoShape();
+    }
+    try {
+        auto shape = Part::Feature::getTopoShape(obj, sub.c_str(), true);
+        if (!shape.isNull() && shape.getShape().ShapeType() == TopAbs_FACE) {
+            return shape;
+        }
+    }
+    catch (const Base::Exception&) {
+    }
+    catch (const Standard_Failure&) {
+    }
+    return Part::TopoShape();
+}
+}  // namespace
+
+App::DocumentObjectExecReturn* TolerancedFeature::execute()
+{
+    const std::vector<App::DocumentObject*> objs = References.getValues();
+    const std::vector<std::string> subs = References.getSubValues(false);
+    const std::vector<App::ShadowSub> shadows = References.getShadowSubs();
+    const std::vector<std::string> savedNames = SavedNames.getValues();
+    const std::vector<TopoDS_Shape> savedFaces = Geom::faces(SavedGeometry.getShape().getShape());
+
+    std::vector<App::DocumentObject*> newObjs;
+    std::vector<std::string> newSubs;
+    std::vector<TopoDS_Shape> faces;
+    std::vector<std::string> names;
+    std::vector<std::string> remapped;
+    std::vector<std::string> broken;
+    bool changed = false;
+
+    for (std::size_t i = 0; i < objs.size(); ++i) {
+        App::DocumentObject* obj = objs[i];
+        const std::string sub = i < subs.size() ? subs[i] : std::string();
+        std::string mapped = i < shadows.size() ? mappedNameOf(shadows[i]) : std::string();
+        if (mapped.empty() && i < savedNames.size()) {
+            mapped = savedNames[i];
+        }
+        const TopoDS_Shape saved = i < savedFaces.size() ? savedFaces[i] : TopoDS_Shape();
+        const std::string label = stripMissing(sub);
+
+        auto keep = [&](const std::string& s, const Part::TopoShape& face) {
+            newObjs.push_back(obj);
+            newSubs.push_back(s);
+            faces.push_back(face.getShape());
+            std::string name;
+            try {
+                auto whole = Part::Feature::getTopoShape(obj);
+                name = whole.getMappedName(Data::IndexedName(s.c_str())).toString();
+            }
+            catch (...) {
+            }
+            names.push_back(name);
+        };
+
+        // 1. By name: the element map has kept it
+        Part::TopoShape face = faceOf(obj, sub);
+        if (!face.isNull()) {
+            keep(sub, face);
+            // The link resolves a missing name by geometry itself
+            // (searchElementCache): a name that changed to one its history
+            // does not lead to is a face found by geometry, to look at
+            const std::string& now = names.back();
+            std::string before = i < savedNames.size() ? savedNames[i] : std::string();
+            if (!before.empty() && !now.empty() && now != before) {
+                bool related = false;
+                for (auto& rel : Part::Feature::getRelatedElements(obj, before.c_str())) {
+                    if (rel.index.toString() == sub) {
+                        related = true;
+                        break;
+                    }
+                }
+                if (!related) {
+                    remapped.push_back(label + " (by geometry)");
+                }
+            }
+            continue;
+        }
+
+        // 2. By history: the faces made from the one referred to
+        std::vector<std::string> found;
+        if (obj && !mapped.empty()) {
+            for (auto& rel : Part::Feature::getRelatedElements(obj, mapped.c_str())) {
+                std::string s = rel.index.toString();
+                if (s.compare(0, 4, "Face") == 0) {
+                    found.push_back(s);
+                }
+            }
+        }
+        const char* how = "history";
+
+        // 3. By geometry: a face of the part on the same surface
+        if (found.empty() && obj && !saved.IsNull()) {
+            Primitive want = Geom::ofFace(saved);
+            if (want.type != Primitive::None) {
+                auto whole = Part::Feature::getTopoShape(obj);
+                auto all = Geom::faces(whole.getShape());
+                for (std::size_t j = 0; j < all.size(); ++j) {
+                    if (Geom::sameSurface(want, Geom::ofFace(all[j]))) {
+                        found.push_back("Face" + std::to_string(j + 1));
+                    }
+                }
+            }
+            how = "geometry";
+        }
+
+        std::vector<std::string> took;
+        for (auto& s : found) {
+            Part::TopoShape f = faceOf(obj, s);
+            if (!f.isNull()) {
+                keep(s, f);
+                took.push_back(s);
+            }
+        }
+        if (!took.empty()) {
+            changed = true;
+            std::string msg = label + " -> ";
+            for (std::size_t k = 0; k < took.size(); ++k) {
+                msg += (k ? "+" : "") + took[k];
+            }
+            remapped.push_back(msg + " (by " + how + ")");
+            continue;
+        }
+
+        // 4. Gone: kept, as it was, until reattached
+        newObjs.push_back(obj);
+        newSubs.push_back(sub);
+        faces.push_back(saved);
+        names.push_back(mapped);
+        broken.push_back(label);
+    }
+
+    if (changed) {
+        // Into the link, so the next recompute finds them by name; the
+        // broken ones keep what they had
+        References.setValues(newObjs, newSubs);
+    }
+
+    std::string why;
+    std::vector<TopoDS_Shape> live;
+    for (auto& f : faces) {
+        if (!f.IsNull()) {
+            live.push_back(f);
+        }
+    }
+    bool derived = derive(live, why);
+
+    // What it was last resolved to, kept for a broken reference
+    SavedGeometry.setValue(Geom::compound(faces));
+    if (SavedNames.getValues() != names) {
+        SavedNames.setValues(names);
+    }
+
+    auto join = [](const std::vector<std::string>& v) {
+        std::string s;
+        for (auto& x : v) {
+            s += (s.empty() ? "" : ", ") + x;
+        }
+        return s;
+    };
+    if (objs.empty()) {
+        setState(Broken, "no faces referred to");
+    }
+    else if (!broken.empty()) {
+        setState(Broken, "gone: " + join(broken));
+    }
+    else if (!derived) {
+        setState(Invalid, why);
+    }
+    else if (!remapped.empty()) {
+        setState(Remapped, join(remapped));
+    }
+    else if (getState() != Remapped) {
+        // A remapped feature stays so until the user says it is right
+        setState(Ok);
+    }
+    return App::DocumentObject::StdReturn;
+}
+
+bool TolerancedFeature::derive(const std::vector<TopoDS_Shape>& faces, std::string& why)
+{
+    _faces.clear();
+    for (auto& f : faces) {
+        _faces.push_back(Geom::ofFace(f));
+    }
+    _primitive = Primitive();
+    TopoDS_Shape shape = Geom::compound(faces);
+    bool size = false;
+    bool ok = true;
+
+    if (!_faces.empty()) {
+        const Primitive& first = _faces.front();
+        bool common = std::all_of(_faces.begin(), _faces.end(), [&](const Primitive& p) {
+            return Geom::sameSurface(first, p);
+        });
+        _primitive = first;
+        if (first.type == Primitive::Cylinder || first.type == Primitive::Sphere) {
+            size = common;
+        }
+        else if (_faces.size() == 2 && first.type == Primitive::Plane
+                 && _faces[1].type == Primitive::Plane
+                 && first.dir.IsOpposite(_faces[1].dir, 1e-9)) {
+            size = true;
+        }
+    }
+
+    switch (getKind()) {
+        case Axis: {
+            if (_faces.empty() || (_faces[0].type != Primitive::Cylinder
+                                   && _faces[0].type != Primitive::Cone)) {
+                why = "an axis needs a cylindrical or conical face";
+                ok = false;
+                break;
+            }
+            _primitive = _faces[0].reference();
+            {
+                TopoDS_Shape edge =
+                    Geom::axisEdge(_primitive.loc, _primitive.dir, Geom::compound(faces));
+                if (!edge.IsNull()) {
+                    shape = edge;
+                }
+            }
+            break;
+        }
+        case CentrePlane: {
+            if (_faces.size() != 2 || _faces[0].type != Primitive::Plane
+                || _faces[1].type != Primitive::Plane
+                || !_faces[0].dir.IsParallel(_faces[1].dir, 1e-9)) {
+                why = "a centre plane needs two parallel planar faces";
+                ok = false;
+                break;
+            }
+            double s = gp_Vec(_faces[0].loc, _faces[1].loc).Dot(gp_Vec(_faces[0].dir));
+            gp_Trsf move;
+            move.SetTranslation(gp_Vec(_faces[0].dir) * (s / 2));
+            shape = BRepBuilderAPI_Transform(faces[0], move, true).Shape();
+            _primitive = _faces[0];
+            _primitive.loc = _faces[0].loc.Translated(gp_Vec(_faces[0].dir) * (s / 2));
+            break;
+        }
+        case CentrePoint:
+        case Apex: {
+            Primitive::Type need = getKind() == Apex ? Primitive::Cone : Primitive::Sphere;
+            if (_faces.empty() || _faces[0].type != need) {
+                why = getKind() == Apex ? "an apex needs a conical face"
+                                        : "a centre point needs a spherical face";
+                ok = false;
+                break;
+            }
+            _primitive.type = Primitive::Point;
+            _primitive.loc = _faces[0].loc;
+            shape = BRepBuilderAPI_MakeVertex(_faces[0].loc).Shape();
+            break;
+        }
+        default:
+            break;
+    }
+
+    Shape.setValue(shape);
+    if (IsSize.getValue() != size) {
+        IsSize.setValue(size);
+    }
+    return ok;
+}
+
+void TolerancedFeature::onDocumentRestored()
+{
+    Annotation::onDocumentRestored();
+    // Shape is not saved: made again from what was saved, so the check and
+    // the dimensions have their geometry before the first recompute
+    std::string why;
+    auto saved = Geom::faces(SavedGeometry.getShape().getShape());
+    bool touched = isTouched();
+    derive(saved, why);
+    if (!touched) {
+        purgeTouched();
+    }
+}
+
+bool TolerancedFeature::refersTo(const App::DocumentObject* part,
+                                 const std::vector<std::string>& subs) const
+{
+    std::set<std::string> want;
+    for (auto& s : subs) {
+        want.insert(Data::oldElementName(s.c_str()));
+    }
+    std::set<std::string> have;
+    const auto& objs = References.getValues();
+    auto mine = References.getSubValues(false);
+    for (std::size_t i = 0; i < objs.size() && i < mine.size(); ++i) {
+        if (objs[i] != part) {
+            return false;
+        }
+        have.insert(mine[i]);
+    }
+    return !want.empty() && want == have;
+}

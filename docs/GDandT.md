@@ -1,6 +1,6 @@
 # GD&T / PMI: design (2026-11-19, proposed)
 
-Status: APPROVED 2026-11-19 (section 11 decided); P0 in progress (section 10). Branch `GDandT`. The user asked on 2026-11-19 for GD&T on
+Status: APPROVED 2026-11-19 (section 11 decided); P0 in progress (section 10). Branch `pmi`. The user asked on 2026-11-19 for GD&T on
 PartDesign parts, imported from and exported to STEP, and linked into TechDraw, with a survey of
 other CAD programs first. The survey is docs/GDandTSurvey.md, cited as [A n] (other programs,
 the standards) and [B n] (our code). Section 11 lists the decisions that are the user's.
@@ -386,6 +386,28 @@ Tests (`PMITests`, registered in `FreeCAD.__unit_test__`): building a set on a B
 every check rule, both ways; editing the Body under its annotations -- length change, a fillet
 renaming faces, a face removed -- and the states that follow; measured nominals; save and
 reopen; the set refused inside a Body.
+
+### 10.2 P0 progress (2026-11-19)
+
+Built: `src/Mod/PMI/App` with every object of 10.1, `PMI.check`, `PMI.findFeature`,
+`PMI.findSet`, and `PMITests` (22 tests: the model, every check rule both ways, the repair).
+What building it taught:
+
+- **Step 2 (history) is P0, not P1.** A fillet on the top face's edges leaves the top and the
+  side faces with new names (`Top;:H..,F` becomes `Top;:M;FLT;...`), and the link marks both
+  missing. `Part::Feature::getRelatedElements(body, oldName)` finds the face each became; a face
+  a later feature swallows returns nothing, which is the Broken case.
+- **The link re-finds a missing name by geometry itself** (`searchElementCache`), silently. A
+  feature whose name changed to one its history does not lead to is reported Remapped "by
+  geometry" -- without that, a part rebuilt with new features read as Ok.
+- **Derived properties must not be outputs.** With `OptimizeRecompute` (the default) a link sees
+  only the linked object's non-output revision (docs/InputProperties.md sec 2): with `Shape` an
+  output, a Body edit recomputed the toleranced feature and stopped, and the dimension on it kept
+  its old nominal. `Shape`, `IsSize`, `State` and `Nominal` are read-only, not outputs.
+- **A new object with nothing touched is skipped** by the same optimisation; every annotation
+  calls `enforceRecompute()` when it is made.
+- **OCCT 8 builders**: `BRepBuilderAPI_MakeEdge(...).Edge()` no longer converts to a
+  `TopoDS_Shape`; `.Shape()` does.
 
 ## 11. Decisions (made 2026-11-19)
 

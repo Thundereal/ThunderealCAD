@@ -8,7 +8,8 @@ then a reduced phase 3. Since: string ids leased (sec 15), phase 5b (sec
 16), phase 6, a recompute made by a worker (sec 19); results no longer
 depending on what was shown, and a worker's names spelled as its
 client's (sec 20); an export made by a worker, pinned to the design as it
-was asked for (sec 24); a geometry check made by a worker (sec 25).
+was asked for (sec 24); a geometry check made by a worker (sec 25); the
+worker of a long job that was dropped ended (sec 26).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -1519,8 +1520,8 @@ panel says to check again.
 worker process" in the Document preferences), on unless set off. The
 shape content (`BasicShapes.ShapeContent`) is still made here. A worker
 that failed or is unfit: checked here. One that died over it: told, and
-not tried here. Closing the panel drops the job; a running one's worker
-finishes the check and its result is thrown away.
+not tried here. Closing the panel drops the job, and a worker that has
+checked for long is ended (sec 26).
 
 Tests: `TestWorkerPool.TestWorkerCheck`: a bow tie face (invalid, its wire
 self-intersecting), two overlapping boxes in a compound (valid to BRepCheck,
@@ -1530,3 +1531,44 @@ drops it. GUI test `tests/gui/check-by-worker.py` (8 claims): the panel
 opens with the check with a worker and says so; the results come, both
 shapes invalid, the wire self-intersecting, the boxes faulty to the BOP
 check; set off, the same rows, made here at once.
+
+## 26. The worker of a long job that was dropped is ended (2026-11-19)
+
+A job is dropped while a worker makes it when its client cancels it
+(`cancel()`: the Check Geometry panel closed, a recompute cancelled) or an
+edit reaches what it reads (sec 4). Until now its worker made it to the end
+and the result was thrown away: a dropped BOP check of the scanner model
+kept a worker for up to 43 s, and kept a later job waiting for it the whole
+time when the pool has one worker.
+
+**The rule.** A dropped job that has run longer than `EndAfter` has its
+worker ended (killed: a worker in OCCT cannot be interrupted). A job that
+has run less is left to finish. How long a job has run says little about
+how long it has left, and a new worker costs a start, a copy opened whole
+rather than moved along the log, and the imports its jobs need. Edits drop
+short jobs all the time, and ending a worker for each would replace
+workers over and over while someone types. `EndAfter` is the larger of
+what a worker took from its start to its copy open, averaged over the
+pool's workers (`StartSeconds`, which grows with the design), and
+EndDroppedAfter of Preferences/Workers, default 2 s. The worker on the
+Mac mini reaches ready in 0.14 s on a small design and 0.26 s in the GUI,
+so on a small design the 2 s floor is the threshold.
+
+An ended worker is not a failure: it does not count towards the three in a
+row that stop the pool, a dropped job is not tried again, and the queue
+goes on, on a new worker if none is left (`Private::endDropped`).
+EndDropped (default true) set false leaves every worker to finish.
+`info()` says `Ended` (workers ended so), `StartSeconds` and `EndAfter`.
+
+The Check Geometry panel cancels its check in `closed()`, the moment it
+closes: it used to do so in its destructor, which runs only when the
+deleted panel is collected later.
+
+Tests: `TestWorkerPool`: a minute's job cancelled after `EndAfter` ends
+its worker, and the next job is made by a new one well within the minute;
+a job cancelled as soon as it runs is finished by its worker, which makes
+the next; an edit dropping a long job that reads what was edited hands it
+back Cancelled, not Died, and ends its worker; EndDropped off leaves the
+worker running. GUI test `tests/gui/check-by-worker.py` (10 claims now): a
+check of 625 overlapping spheres, the panel closed after `EndAfter`, and
+its worker is gone at once.

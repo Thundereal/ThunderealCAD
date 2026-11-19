@@ -123,6 +123,41 @@ class TestModel(Base):
         self.assertTrue(hole.IsSize)
         self.assertTrue(width.IsSize)
 
+    def test_a_pattern_of_holes_is_of_size(self):
+        # Two more holes, one of the same size: "2X" is a pattern of features
+        # of size, a hole of another size with them is not
+        for name, x, r in (("Hole2", 8, 3), ("Small", 32, 2)):
+            h = self.doc.addObject("PartDesign::SubtractiveCylinder", name)
+            self.body.addObject(h)
+            h.Radius, h.Height = r, 10
+            h.Placement = App.Placement(V(x, 10, 0), App.Rotation())
+        self.doc.recompute()
+        two = self.feature(HOLE, V(11, 10, 5))
+        mixed = self.feature(HOLE, V(34, 10, 5))
+        self.recompute()
+        self.assertTrue(two.IsSize)
+        self.assertFalse(mixed.IsSize)
+
+    def test_a_fillet_radius(self):
+        cyl = Part.makeCylinder(5, 10)
+        top = [e for e in cyl.Edges if e.Curve.TypeId == "Part::GeomCircle"
+               and abs(e.Vertexes[0].Point.z - 10) < 1e-9]
+        part = self.doc.addObject("Part::Feature", "Filleted")
+        part.Shape = cyl.makeFillet(1, top)
+        faces = part.Shape.Faces
+        torus = [i for i, f in enumerate(faces) if f.Surface.TypeId == "Part::GeomToroid"]
+        self.assertEqual(len(torus), 1)
+        pmi = self.doc.addObject("PMI::AnnotationSet", "FilletPMI")
+        pmi.Part = part
+        feat = self.doc.addObject("PMI::TolerancedFeature", "Fillet")
+        pmi.addObject(feat)
+        feat.References = [(part, ["Face%d" % (torus[0] + 1)])]
+        dim = self.doc.addObject("PMI::Dimension", "R")
+        pmi.addObject(dim)
+        dim.Type, dim.Features = "Radius", [feat]
+        self.recompute()
+        self.assertAlmostEqual(dim.Nominal, 1, 9)
+
     def test_derived_axis_and_centre_plane(self):
         axis = self.feature(HOLE, kind="Axis")
         mid = self.feature(LEFT, RIGHT, kind="CentrePlane")
@@ -285,6 +320,17 @@ class TestCheck(Base):
                            DatumSystem=drf),
             "feature of size",
         )
+
+    def test_zero_at_a_material_condition(self):
+        drf = self.frame()
+        at_mmc = self.tolerance("Position", self.feature(HOLE, kind="Axis"), ZoneShape="Diameter",
+                                MaterialCondition="Maximum", DatumSystem=drf)
+        at_mmc.Value = 0
+        self.assertClean(at_mmc)
+        plain = self.tolerance("Position", self.feature(HOLE, kind="Axis"), ZoneShape="Diameter",
+                               DatumSystem=drf)
+        plain.Value = 0
+        self.assertRule(plain, "greater than zero")
 
     def test_asme_2018_has_no_concentricity(self):
         drf = self.frame()

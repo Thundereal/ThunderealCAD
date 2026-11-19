@@ -52,6 +52,8 @@
 # include <XCAFDoc_VisMaterialTool.hxx>
 # include <Image_Texture.hxx>
 #endif
+#include <NCollection_Sequence.hxx>
+#include <XCAFDoc_DimTolTool.hxx>
 
 #include <algorithm>
 #include <cmath>
@@ -72,6 +74,7 @@
 #include <App/Part.h>
 #include <App/PropertyAppearance.h>
 #include <Base/Console.h>
+#include <Base/Interpreter.h>
 #include <Base/Base64.h>
 #include <Base/FileInfo.h>
 #include <Base/Parameter.h>
@@ -1180,6 +1183,10 @@ App::DocumentObject* ImportOCAF2::loadShapes()
         ret->recomputeFeature(true);
     }
     sequencer = nullptr;
+    // Merged, the objects the passes would refer to are gone
+    if (!options.merge) {
+        runPostImport(false);
+    }
     for (auto doc : myNewDocuments)
         doc->setUndoMode(1);
     return ret;
@@ -2143,7 +2150,86 @@ App::DocumentObject* ImportOCAF2::finishOps()
     if (ret) {
         ret->recomputeFeature(true);
     }
+    runPostImport(true);
     return ret;
+}
+
+namespace
+{
+std::map<std::string, std::function<void(const PostImport&)>>& postImports()
+{
+    static std::map<std::string, std::function<void(const PostImport&)>> passes;
+    return passes;
+}
+
+bool hasGDT(const Handle(TDocStd_Document) & hDoc)
+{
+    if (hDoc.IsNull() || !XCAFDoc_DocumentTool::IsXCAFDocument(hDoc)) {
+        return false;
+    }
+    TDF_Label main = hDoc->Main();
+    TDF_Label dimTol = XCAFDoc_DocumentTool::DGTsLabel(main);
+    // Present only if the reader made it: asking the tool would make one
+    Handle(XCAFDoc_DimTolTool) tool;
+    if (!dimTol.FindAttribute(XCAFDoc_DimTolTool::GetID(), tool)) {
+        return false;
+    }
+    NCollection_Sequence<TDF_Label> dims, tols, datums;
+    tool->GetDimensionLabels(dims);
+    tool->GetGeomToleranceLabels(tols);
+    tool->GetDatumLabels(datums);
+    return !dims.IsEmpty() || !tols.IsEmpty() || !datums.IsEmpty();
+}
+}  // namespace
+
+void ImportOCAF2::addPostImport(const std::string& name,
+                                std::function<void(const PostImport&)> pass)
+{
+    postImports()[name] = std::move(pass);
+}
+
+void ImportOCAF2::runPostImport(bool progressive)
+{
+    if (!hasGDT(pDoc)) {
+        return;
+    }
+    if (postImports().empty()) {
+        try {
+            Base::Interpreter().runString("import PMI");
+        }
+        catch (const Base::Exception& e) {
+            FC_WARN("The file has GD&T, and the PMI module could not be loaded to read it: "
+                    << e.what());
+            return;
+        }
+    }
+    PostImport info;
+    info.hDoc = pDoc;
+    info.doc = pDocument;
+    info.objectOf = [this, progressive](const TDF_Label& label) -> App::DocumentObject* {
+        TopoDS_Shape shape = aShapeTool->GetShape(label);
+        if (shape.IsNull()) {
+            return nullptr;
+        }
+        shape = shape.Located(TopLoc_Location());
+        if (progressive) {
+            auto it = myShapeNodes.find(shape);
+            return it == myShapeNodes.end() ? nullptr : progObject(it->second);
+        }
+        auto it = myShapes.find(shape);
+        return it == myShapes.end() ? nullptr : it->second.obj;
+    };
+    for (auto& [name, pass] : postImports()) {
+        try {
+            pass(info);
+        }
+        catch (const Base::Exception& e) {
+            FC_ERR("Import pass '" << name << "' failed: " << e.what());
+        }
+        catch (const Standard_Failure& e) {
+            FC_ERR("Import pass '" << name << "' failed: " << e.GetMessageString());
+        }
+    }
 }
 
 void ImportOCAF2::getSHUOColors(TDF_Label label,

@@ -18,6 +18,8 @@ link_directories(${OCC_LIBRARY_DIR})
 set(PMI_LIBS
   FreeCADApp
   Part
+  Import
+  ${OCC_OCAF_LIBRARIES}
 )
 if(FREETYPE_FOUND)
     add_definitions(-DFCUseFreeType)
@@ -53,6 +55,8 @@ set(PMI_SRCS
   Layout.cpp
   Note.cpp
   Note.h
+  StepImport.cpp
+  StepImport.h
   View.cpp
   View.h
   PreCompiled.cpp

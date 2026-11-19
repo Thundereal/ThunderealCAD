@@ -37,6 +37,7 @@
 #include <gp_Lin.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Sphere.hxx>
+#include <gp_Torus.hxx>
 #include <TopAbs_Orientation.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -79,6 +80,8 @@ const char* Primitive::typeName() const
             return "axis";
         case Point:
             return "point";
+        case Torus:
+            return "torus";
         default:
             return "unsupported surface";
     }
@@ -130,6 +133,15 @@ Primitive Geom::ofFace(const TopoDS_Shape& shape)
             res.angle = std::fabs(cone.SemiAngle());
             break;
         }
+        case GeomAbs_Torus: {
+            gp_Torus tor = surf.Torus();
+            res.type = Primitive::Torus;
+            res.loc = tor.Location();
+            res.dir = tor.Axis().Direction();
+            res.radius = tor.MinorRadius();
+            res.major = tor.MajorRadius();
+            break;
+        }
         default:
             break;
     }
@@ -165,6 +177,9 @@ bool Geom::sameSurface(const Primitive& a, const Primitive& b, double tol, doubl
         case Primitive::Cone:
             return std::fabs(a.angle - b.angle) < atol && parallel(a.dir, b.dir, atol)
                 && a.loc.Distance(b.loc) < tol;
+        case Primitive::Torus:
+            return std::fabs(a.radius - b.radius) < tol && std::fabs(a.major - b.major) < tol
+                && parallel(a.dir, b.dir, atol) && a.loc.Distance(b.loc) < tol;
         default:
             return false;
     }

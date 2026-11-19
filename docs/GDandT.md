@@ -246,6 +246,18 @@ The survey found five gaps [B2], in the order the phases need them:
 4. Saved views not written to STEP (`model_geometric_view` + `camera_model_d3`).
 5. The presentation curve colour hard-coded white; `writeDGTsAP242` ignoring its label list.
 
+Found reading the NIST set (sec 10.9), and fixed on the fork (2026-11-20):
+
+6. A typed `SET_REPRESENTATION_ITEM((#a,#b))` read as one null item (`RWStepAP242`): a datum
+   feature on a hole in two half cylinders lost its faces.
+7. A datum's faces found only through a `geometric_item_specific_usage` on its datum feature
+   (`STEPCAFControl_Reader`): not through the plain `item_identified_representation_usage`, not
+   on a shape aspect the datum feature relates to, not on the datum itself. Of the set's 754
+   datum labels 224 had no shapes after 6, 16 after 7.
+
+Still open: `dimensional_size_with_datum_feature` is not an entity the reader knows (STC-07's
+datum features), and datum targets are read but not yet made (item 1 is now ours, sec 10.9).
+
 ## 6. Presentation
 
 ### 6.1 One layout, many outputs
@@ -571,6 +583,69 @@ outlining its faces -- and the list stays.
 - Still open in P1: a view's object filter (sec 6.3, `Objects`), and the default offsets of
   callouts on different planes not seeing each other (sec 10.6).
 
+### 10.9 P2 progress: the GD&T of a STEP file, read (2026-11-20)
+
+Built: a pass after `ImportOCAF2` has made the shapes (sec 5.1), the same whether the file is
+read at once or progressively. `ImportOCAF2::addPostImport` registers a pass by name; Import
+does not link PMI, so a file with GD&T and no pass registered imports PMI first. Each pass gets
+the XCAF document and a way from a shape label to the object made for it; the PMI pass is
+`PMI::Step::read` (`App/StepImport.cpp`).
+
+- **Faces**: a sub-shape label's owner gives the object, the face's index in the object's shape
+  (unplaced) its name. All of one annotation's faces must be on one object; when they span
+  objects, faces with no surface (a file with the geometry also tessellated names each face on
+  both) and faces off the solid (supplemental surfaces beside it, FTC-10) are set aside first.
+- **Where the set goes**: beside the shape, in its `App::Part` when it has one -- `getSet` now
+  asks for a GeoFeatureGroup before a plain group; outside the Part the features linked into it
+  out of scope.
+- **Datums**: OCCT makes a datum label for each time a frame cites a datum, carrying the
+  feature's faces when it found them; one datum is made per letter and faces. A letter no label
+  gives faces is reported once ("only frames cite it"); datum targets are counted per letter
+  and not made yet.
+- **Tolerances**: characteristic, zone (diameter, spherical), value, maximum, material
+  condition, the modifiers OCCT reads, projected length; the frame from the datums' positions
+  and modifiers, through `Api::frame`. A position, coaxiality or concentricity, or a diameter
+  zone, on a cylinder or cone takes its axis.
+- **Dimensions**: diameters, radii, spherical sizes, thicknesses (as widths), angular sizes,
+  angles and linear distances. OCCT keeps the lower deviation as a magnitude (its writer
+  negates it), so it is negated; a range becomes deviations from the value. The nominal is the
+  model's: a file's value the model does not measure is reported, and the model's kept.
+  "Dimension presentation" labels, and ones with no type and no value -- the file gives them
+  only as a graphic -- are counted, not made.
+- **Placed as the file places them**: the annotation plane with the text point as origin,
+  `AutoPlace` off; the text height half the file's smallest frame (ASME: a frame is twice the
+  text), so a part a metre long is not lettered at 3.5.
+
+The model learnt three things the files use: a pattern of holes of one size ("4X") is a feature
+of size; zero is a tolerance at MMC or LMC; a radius may be a fillet's, on a torus (`Primitive`
+gains `Torus`). A size is now measured on the first face of its kind, so a blind hole's diameter
+is its cylinder's, not its drill point's cone.
+
+Tests: `PMITests/TestStep.py` reads NIST CTC-01 (in the tree, public): datums A, B and C (B
+and C each on two half cylinders: the fork fix of sec 5.3 item 6), the six tolerances and the
+eight dimensions with value as its drawing gives them, every reference on the solid, placed and
+lettered as the file does. `TestNistSet`, run when `FC_PMI_NIST` names the set, reads all 17
+AP242 files: each gives GD&T (but `-tg`, whose PMI is only tessellated graphics) and nothing
+broken. `tests/gui/pmi-step.py`: through ImportGui, at once and progressively, the same as
+headless, none invalid, drawn.
+
+The NIST set's ledger, what is not read or is read invalid, all 17 files (2026-11-20):
+
+| What | Count | Why |
+| --- | --- | --- |
+| datum targets | 63, of 8 datums | not made yet (sec 4.3) |
+| datums only cited | 4 (B, C, G, H) | FTC-06's two, STC-07's two (sec 5.3) |
+| references to edges or points | 22 | features are faces only (sec 4.2) |
+| a second feature with no shape | 1 | the file gives none |
+| curve lengths | 10 | no dimension type for them |
+| widths on other than two planes | 11 | thickness used for a depth, or a width across several faces |
+| MMR on no feature of size | 3 | slots and counterbores: a feature of planes and cylinders |
+| graphic-only dimensions | 185 | presentation, not read yet (sec 5.1 step 3) |
+
+- Next in P2: the presentation the file draws (sec 5.1 step 3) and graphic-only PMI as
+  `PMI::Note`s; saved views to PMI::Views (step 4); datum targets; slots and counterbores as
+  features of size.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --
@@ -615,7 +690,7 @@ Issue #29772 and its sub-issues [A8], to this design:
 | 29793 validate | 8 -- P0 |
 | 29794 query a feature's specifications | P1 query tool (10.8) |
 | 29795 TechDraw pages from views | 9 + P4 |
-| 29796 STEP AP242 import | 5.1 -- P2 |
+| 29796 STEP AP242 import | 5.1 -- P2 (semantics read, 10.9) |
 | 29797 STEP AP242 export | 5.2 -- P3 |
 | 29798 semantic access for other workbenches | the Python API: every object is a plain document object with typed properties, P0 |
 

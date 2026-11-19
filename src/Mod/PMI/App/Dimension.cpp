@@ -138,12 +138,47 @@ bool Dimension::measure(double& value, std::string& why) const
     // A size is of the faces, whatever the feature derives from them: a
     // hole's diameter is measured on its cylinder, also when the feature
     // is its axis (shared with a position tolerance)
-    const Primitive& surface = faces.empty() ? p : faces.front();
+    // The first face of the kind the size is of: a blind hole's feature may
+    // hold its drill point's cone too
+    const Primitive* found = faces.empty() ? &p : &faces.front();
+    Primitive::Type want = Primitive::None;
     switch (getType()) {
         case Diameter:
         case Radius:
+            want = Primitive::Cylinder;
+            break;
+        case SphericalDiameter:
+        case SphericalRadius:
+            want = Primitive::Sphere;
+            break;
+        default:
+            break;
+    }
+    auto first = [&](Primitive::Type type) {
+        for (auto& f : faces) {
+            if (f.type == type) {
+                found = &f;
+                return true;
+            }
+        }
+        return false;
+    };
+    if (want != Primitive::None && !first(want) && getType() == Radius) {
+        first(Primitive::Torus);
+    }
+    const Primitive& surface = *found;
+    switch (getType()) {
+        case Radius:
+            // A fillet's radius: the tube of its torus
+            if (surface.type == Primitive::Torus) {
+                value = surface.radius;
+                return true;
+            }
+            [[fallthrough]];
+        case Diameter:
             if (surface.type != Primitive::Cylinder) {
-                why = "a diameter or radius needs a cylindrical feature";
+                why = getType() == Radius ? "a radius needs a cylindrical or toroidal feature"
+                                          : "a diameter needs a cylindrical feature";
                 return false;
             }
             value = getType() == Diameter ? 2 * surface.radius : surface.radius;

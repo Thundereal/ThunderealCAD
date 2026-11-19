@@ -53,12 +53,14 @@ struct PMIExport Primitive
         Cone,      ///< loc the apex, dir the axis, angle the half angle
         Line,      ///< loc on it, dir along it
         Point,     ///< loc
+        Torus,     ///< loc the centre, dir the axis, radius the tube's, major the ring's
     };
     Type type = None;
     gp_Pnt loc;
     gp_Dir dir;
     double radius = 0.0;
     double angle = 0.0;
+    double major = 0.0;
 
     bool isAxial() const
     {

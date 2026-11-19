@@ -32,6 +32,7 @@
 #include <GProp_GProps.hxx>
 
 #include <App/Document.h>
+#include <App/GeoFeatureGroupExtension.h>
 #include <App/GroupExtension.h>
 #include <App/ElementNamingUtils.h>
 #include <Mod/Part/App/BodyBase.h>
@@ -167,9 +168,14 @@ AnnotationSet* Api::getSet(App::DocumentObject* part, bool create)
             group->addObject(set);
         }
     }
-    else if (auto group = App::GroupExtension::getGroupOfObject(target)) {
-        // Beside the shape: in its group, if it has one
-        if (auto ext = group->getExtensionByType<App::GroupExtension>(true)) {
+    else {
+        // Beside the shape: in its App::Part, else its plain group, if it has
+        // one -- a set outside the Part would link into it out of scope
+        auto group = App::GeoFeatureGroupExtension::getGroupOfObject(target);
+        if (!group) {
+            group = App::GroupExtension::getGroupOfObject(target);
+        }
+        if (auto ext = group ? group->getExtensionByType<App::GroupExtension>(true) : nullptr) {
             ext->addObject(set);
         }
     }

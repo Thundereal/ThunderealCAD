@@ -322,12 +322,13 @@ bool TolerancedFeature::derive(const std::vector<TopoDS_Shape>& faces, std::stri
 
     if (!_faces.empty()) {
         const Primitive& first = _faces.front();
-        bool common = std::all_of(_faces.begin(), _faces.end(), [&](const Primitive& p) {
-            return Geom::sameSurface(first, p);
-        });
         _primitive = first;
         if (first.type == Primitive::Cylinder || first.type == Primitive::Sphere) {
-            size = common;
+            // One surface, or a pattern of them: holes of one size on several
+            // axes ("4X"), each a feature of size
+            size = std::all_of(_faces.begin(), _faces.end(), [&](const Primitive& p) {
+                return p.type == first.type && std::fabs(p.radius - first.radius) < 1e-6;
+            });
         }
         else if (_faces.size() == 2 && first.type == Primitive::Plane
                  && _faces[1].type == Primitive::Plane

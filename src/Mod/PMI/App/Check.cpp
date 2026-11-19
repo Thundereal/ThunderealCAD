@@ -66,8 +66,13 @@ void checkTolerance(const GT* gt, const AnnotationSet* set, std::vector<Issue>& 
     if (!feat) {
         error("a geometric tolerance needs a toleranced feature");
     }
-    if (gt->Value.getValue() <= 0.0) {
-        error("the tolerance value must be greater than zero");
+    // Zero is a tolerance at MMC or LMC: all of it from the departure from
+    // the material condition (ASME Y14.5)
+    if (gt->Value.getValue() < 0.0
+        || (gt->Value.getValue() == 0.0 && material == GT::NoMaterial)) {
+        error(material == GT::NoMaterial && gt->Value.getValue() == 0.0
+                  ? "the tolerance value must be greater than zero, but at MMC or LMC"
+                  : "the tolerance value must not be negative");
     }
     if (gt->MaxValue.getValue() > 0.0 && gt->MaxValue.getValue() < gt->Value.getValue()) {
         error("the maximum is smaller than the tolerance");

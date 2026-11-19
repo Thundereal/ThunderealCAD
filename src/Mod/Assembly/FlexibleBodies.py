@@ -309,17 +309,21 @@ _GRADIENTS = []
 def _tet10Gradients():
     """The 10-node tetrahedron's shape functions' derivatives by its natural
     coordinates (xi, eta, zeta: its corners 1, 2 and 3's barycentric
-    coordinates) at each of its own nodes: an array [node, function, 3], the
-    nodes in _EDGE's order -- corners, then the edges (0 1) (1 2) (2 0)
-    (0 3) (1 3) (2 3). A corner's function L (2 L - 1), an edge's 4 L_i L_j."""
+    coordinates) at its four Gauss points, and what takes values there to
+    its nodes: arrays [point, function, 3] and [node, point]. The nodes in
+    _EDGE's order -- corners, then the edges (0 1) (1 2) (2 0) (0 3) (1 3)
+    (2 3); a corner's function L (2 L - 1), an edge's 4 L_i L_j. The Gauss
+    points' values make a linear field over the tetrahedron, its corners'
+    from them and each edge's middle the mean of its two -- CalculiX's
+    C3D10 the same."""
     import numpy as np
 
     if _GRADIENTS:
         return _GRADIENTS[0]
     edges = [(0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3)]
-    corners = np.eye(4)
-    points = list(corners) + [0.5 * (corners[i] + corners[j]) for i, j in edges]
-    gradients = np.zeros((10, 10, 3))
+    a, b = (5.0 - 5.0**0.5) / 20.0, (5.0 + 3.0 * 5.0**0.5) / 20.0
+    points = np.full((4, 4), a) + np.eye(4) * (b - a)
+    gradients = np.zeros((4, 10, 3))
     for p, L in enumerate(points):
         # By the barycentric coordinates, then by (xi, eta, zeta): L_0 is
         # 1 - xi - eta - zeta
@@ -330,8 +334,10 @@ def _tet10Gradients():
             byL[4 + e, i] = 4.0 * L[j]
             byL[4 + e, j] = 4.0 * L[i]
         gradients[p] = byL[:, 1:] - byL[:, [0]]
-    _GRADIENTS.append(gradients)
-    return gradients
+    corners = np.linalg.inv(points)
+    toNodes = np.vstack([corners] + [0.5 * (corners[i] + corners[j]) for i, j in edges])
+    _GRADIENTS.append((gradients, toNodes))
+    return _GRADIENTS[0]
 
 
 def modalStresses(nodes, tetrahedra, shapes, youngs, poisson, wanted):
@@ -341,7 +347,11 @@ def modalStresses(nodes, tetrahedra, shapes, youngs, poisson, wanted):
     nodes: n x 3; tetrahedra: their nodes, ten each, _EDGE's order; shapes:
     the displacement per coordinate, n x 3 x columns, in the nodes' units --
     the run's mode shapes. Their strain is the small strain, which a rigid
-    turn has none of."""
+    turn has none of. Each tetrahedron's at its Gauss points, where the
+    modes' stiffness is integrated, taken to its nodes (_tet10Gradients()):
+    at a node itself a thin one's curved edge can turn it inside out --
+    one of a half torus's, its node's 116.7 MPa where the nodes about it
+    read 2.8, 1.9 from its Gauss points."""
     import numpy as np
 
     points = np.asarray(nodes, dtype=float)
@@ -350,8 +360,8 @@ def modalStresses(nodes, tetrahedra, shapes, youngs, poisson, wanted):
     at = np.zeros(len(points), dtype=bool)
     at[wanted] = True
     tets = tets[at[tets].any(axis=1)]
-    gradients = _tet10Gradients()
-    # dx_i / dxi_k at each node of each, then dN_a / dx_i
+    gradients, toNodes = _tet10Gradients()
+    # dx_i / dxi_k at each Gauss point of each, then dN_a / dx_i
     jacobian = np.einsum("eai,pak->epik", points[tets], gradients)
     byX = np.einsum("epki,pak->epai", np.linalg.inv(jacobian), gradients)
     lam = youngs * poisson / ((1 + poisson) * (1 - 2 * poisson))
@@ -373,6 +383,7 @@ def modalStresses(nodes, tetrahedra, shapes, youngs, poisson, wanted):
             mu * (h[..., 2, 0] + h[..., 0, 2]),
         )
         for k, s in enumerate(stress):
+            s = np.einsum("np,ep->en", toNodes, s)
             summed = np.bincount(flat, weights=s.ravel(), minlength=len(points))
             out[:, k, c] = summed[wanted] / count
     return out

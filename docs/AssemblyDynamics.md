@@ -3879,7 +3879,8 @@ Phase D1 is under way (2026-10-28):
     modalStresses()`), as Adams and MotionSolve do: each coordinate's
     stress field -- the small strain of its shape, by the 10-node
     tetrahedron's shape functions' gradients at each of its nodes, linear
-    elastic, each node's the mean of its tetrahedra's -- at the surface's
+    elastic, each node's the mean of its tetrahedra's (at their Gauss
+    points since D4b way 1 step 14) -- at the surface's
     nodes, then weighed by the run's coordinates at the time shown. A rigid
     turn's linear strain is none, so an interface's column that only
     carries the part is stress free. The material the run's
@@ -6240,6 +6241,28 @@ Phase D1 is under way (2026-10-28):
     scatter. TestFlexibleBody 48 tests in 449 s.
   - Test: TestFlexibleBody.test_torus_on_pin, the flexible torus on a
     flexible pin 40 long from x = -20 too, both angles, within a hundredth.
+- Built, D4b way 1 step 14 (2026-11-19): the stress drawn from the Gauss
+  points. The half torus under the flexible torus (step 9's video) showed
+  one red node on its inner side, 116.7 MPa, where the nodes about the
+  contact read 2.8.
+  - **Not the contact**: the stress of one tetrahedron at one of its own
+    nodes. A sliver of the ring's 4 mm mesh, 0.2 mm^3, its curved edge
+    bending it so far that its Jacobian there is nearly none and at one
+    corner of the other sign: 202.6, 44.4 and 116.7 MPa at three of its
+    nodes, 1.4 to 1.8 at its four Gauss points, and the edge's middle node
+    one only it has, so nothing averaged it.
+  - **At the Gauss points** (`modalStresses()`, `_tet10Gradients()`):
+    each tetrahedron's stress at its four Gauss points, where Chrono's
+    10-node tetrahedron integrates the modes' stiffness, made a linear
+    field over it -- its corners' from them, each edge's middle the mean
+    of its two -- then each node's the mean of its tetrahedra's, as before.
+    CalculiX's C3D10 does the same. A straight-edged tetrahedron's strain
+    is linear, so the two agree there: the cantilever's and the
+    pendulum's figures as before to four digits.
+  - Numbers: the half torus's largest over the run 116.6 -> 3.97 MPa
+    (the clamp's side), its other nodes within 1.7% (5 to 95%).
+  - Test: TestFlexibleBody.test_flexible_torus_on_ring, each part's
+    largest stress over the run under 10 MPa.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

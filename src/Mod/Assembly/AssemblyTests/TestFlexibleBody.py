@@ -1269,10 +1269,15 @@ class TestFlexibleBody(unittest.TestCase):
         by 20 deg, the ring held at its ends. Each point's two sides at once,
         the normal both surfaces' own (FlexibleContact::towardsFlexible(),
         curvedNormal()): on the facets' normals and points, 22.4 N, 0 to
-        42.3, where the torus rigid on the flexible ring presses it 49.57"""
+        42.3, where the torus rigid on the flexible ring presses it 49.57.
+        Their stress drawn, each part's largest over the run, a few MPa: at
+        the nodes it was the stress of one thin tetrahedron of the ring's,
+        its curved edge turning it inside out there, 116.7 MPa at 20 deg
+        where the nodes about the contact read 2.8 (modalStresses())"""
         for at in (0.0, 20.0):
+            name = "a flexible torus on a flexible ring at %g deg" % at
             mean = self.roundTurned(
-                "a flexible torus on a flexible ring at %g deg" % at,
+                name,
                 40,
                 -20,
                 roller=True,
@@ -1285,6 +1290,15 @@ class TestFlexibleBody(unittest.TestCase):
                 most=50.5,
             )
             self.assertGreater(mean, 49.0)
+            results = self.assembly.getSimulationResults()
+            bodies = [o for o in self.doc.Objects if FlexibleBodies.isFlexibleBody(o)]
+            self.assertEqual(len(bodies), 2)
+            for body in bodies:
+                shape = FlexibleBodies.Deformation(body, results)
+                self.assertTrue(shape.valid)
+                peak = shape.peakStress()
+                print("%s: %s's largest stress %.4g MPa" % (name, body.Label, peak))
+                self.assertLess(peak, 10.0, msg=body.Label)
             self.renew()
 
     def test_torus_on_pin(self):

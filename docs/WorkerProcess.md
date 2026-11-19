@@ -9,7 +9,8 @@ then a reduced phase 3. Since: string ids leased (sec 15), phase 5b (sec
 depending on what was shown, and a worker's names spelled as its
 client's (sec 20); an export made by a worker, pinned to the design as it
 was asked for (sec 24); a geometry check made by a worker (sec 25); the
-worker of a long job that was dropped ended (sec 26).
+worker of a long job that was dropped ended (sec 26); what a worker says
+through its Console said here (sec 27).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -1572,3 +1573,49 @@ back Cancelled, not Died, and ends its worker; EndDropped off leaves the
 worker running. GUI test `tests/gui/check-by-worker.py` (10 claims now): a
 check of 625 overlapping spheres, the panel closed after `EndAfter`, and
 its worker is gone at once.
+
+## 27. What a worker says is said here (2026-11-19)
+
+A worker's warnings and errors went only to its log, in the pool's
+directory, which is deleted with the pool: a Pad's "face is not planar"
+made by a worker, or a STEP writer's complaint, was never seen.
+
+**The relay.** A worker attaches a Console observer (`Relay`,
+`WorkerPool.cpp`) once it has said hello: everything said through the
+Console -- `FC_WARN`, `Base::Console().error`, `App.Console.PrintWarning`
+-- goes to the pool as a `log` message, with its level, recipient, content type and notifier.
+What the process prints to stdout still goes to the log as before. A log
+line (`LogStyle::Log`) goes only when RelayLog of Preferences/Workers is
+true (default false), sent with each setup; the rest always goes. Said on
+another thread, a message waits under a lock for the next one said on the
+worker's main thread, which owns the socket, or for the job's result or
+ready, which flush it first: it arrives before the result it belongs to.
+
+**Said with the result.** The pool keeps what came while a worker made a
+job with the job (at most 500, then one line saying how many more are in
+the log) and hands them over in `Result::messages`. After `done`, those of
+a result Done or Failed -- including Failed because the worker died, when
+what it said last may say why -- are said here through this process's
+Console (`WorkerPool::show`), the notifier "worker N", or "Pad (worker
+N)" for one that named one. A client may take them inside `done`: say
+them itself, or clear the ones it says another way. Those of an Unfit
+result are not said, since the job is done here and says its own, and a
+dropped job's are thrown away with it. What comes while a worker has no
+job -- opening a copy, moving along the log -- is said at once. Python
+results carry them as `Messages`: dicts of Level, Notifier, Text, Worker.
+
+**A recompute's failure, once.** A recompute made by a worker (sec 19)
+failing at an object has the worker's Document say "Failed to recompute
+X", and the put-in here says it again as it puts in that failure, as a
+recompute here does. `WorkerRecompute`'s `done` drops the worker's.
+What the object's `execute()` said there stays: it is not run here.
+
+Tests: `TestWorkerPool`: a job's warning, message, error and a warning
+said from another thread come with its result in order and are said here
+as "worker N", a log line not unless asked for; with RelayLog on, it is,
+with what the worker logged opening its copy; an Unfit job's are in its
+result and not said; a dropped job's are not said;
+`TestWorkerRecompute.testAFailureTheWorkerSawIsSaidOnce`. GUI test
+`tests/gui/messages-by-worker.py` (5 claims): nothing in the Report view
+while the job runs; after it, "worker 0: careful there" and "worker 0:
+that went wrong"; an Unfit job's words not shown.

@@ -8,7 +8,7 @@ then a reduced phase 3. Since: string ids leased (sec 15), phase 5b (sec
 16), phase 6, a recompute made by a worker (sec 19); results no longer
 depending on what was shown, and a worker's names spelled as its
 client's (sec 20); an export made by a worker, pinned to the design as it
-was asked for (sec 24).
+was asked for (sec 24); a geometry check made by a worker (sec 25).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -1484,3 +1484,49 @@ returns with the export with a worker; the file comes, the box edited and
 recomputed right after the command written at its old size, its faces'
 colours right; set off, it is written here at once, with the colours the
 worker wrote.
+
+## 25. A geometry check made by a worker (2026-11-19)
+
+Part_CheckGeometry ran BRepCheck_Analyzer and, when asked, OCCT's
+BOPAlgo_ArgumentAnalyzer on the GUI thread, a progress dialog the only
+thing left to the user. Measured on the console, scanner.FCStd's 76 shown
+shapes: BRepCheck alone 3.4 s, with the BOP check 43.2 s, one shape
+(`AxisBottom`, 35 faces) 14.2 s of it. The BOP analyzer is also where OCCT
+fails hardest on bad geometry. The check now runs in a worker by default,
+and the panel fills when it comes.
+
+**One check, two places.** The panel's walk moved to Part App, unchanged in
+what it finds: `Part::GeometryCheck::check(shape, options)`
+(`Mod/Part/App/GeometryCheck.*`), Python `Part.checkGeometry(shape,
+options)`. A finding names its shape by position -- its type and its index
+among the checked shape's shapes of that type (`TopExp::MapShapes`), the
+index the panel names an entry by (`ResultEntry::buildEntryName`) -- and
+the finding it is under. The panel makes its entries from findings
+(`putFindings`), on the shape it holds, whether they were made here or by
+a worker; the options are the panel's settings, read here and sent. Two
+things moved with it: the BOP check's entries are put on the checked
+shape, not on the copy the analyzer is given (`BRepBuilderAPI_Copy` keeps
+the order, so the names are the same), and each such entry refs the
+separator it draws its box in (it ref'd its parent's).
+
+**The kind.** `part.check` (`freecad/worker.py`): for each item -- an object
+and a subname, `Part.getShape(obj, sub, needSubElement=True)` as the panel
+takes it -- `Part.checkGeometry` with the options. Its `reads` are the
+objects: an edit of one, or of what it is made from, drops it, and the
+panel says to check again.
+
+**The panel.** CheckCommand of Preferences/Workers ("Check geometry in a
+worker process" in the Document preferences), on unless set off. The
+shape content (`BasicShapes.ShapeContent`) is still made here. A worker
+that failed or is unfit: checked here. One that died over it: told, and
+not tried here. Closing the panel drops the job; a running one's worker
+finishes the check and its result is thrown away.
+
+Tests: `TestWorkerPool.TestWorkerCheck`: a bow tie face (invalid, its wire
+self-intersecting), two overlapping boxes in a compound (valid to BRepCheck,
+faulty to the BOP check) and a box's face: the worker's findings are the
+ones made here, with and without the BOP check; an edit of what it checks
+drops it. GUI test `tests/gui/check-by-worker.py` (8 claims): the panel
+opens with the check with a worker and says so; the results come, both
+shapes invalid, the wire self-intersecting, the boxes faulty to the BOP
+check; set off, the same rows, made here at once.

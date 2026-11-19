@@ -29,6 +29,7 @@
 
 #include <App/Application.h>
 #include <App/Document.h>
+#include <App/DocumentObject.h>
 #include <App/WorkerPool.h>
 #include <App/WorkerRecompute.h>
 #include <Base/Console.h>
@@ -186,4 +187,36 @@ bool Gui::editRecomputeIsLong(const App::Document& doc)
 bool Gui::recomputeEditByWorkers(App::Document& doc)
 {
     return workerParams()->GetBool("RecomputeEdits", true) && handOver(doc);
+}
+
+bool Gui::makeEditedFirst(App::DocumentObject& edited)
+{
+    App::WorkerRecompute::trackTimes();
+    App::Document* doc = edited.getDocument();
+    auto group = workerParams();
+    if (!doc || !group->GetBool("RecomputeEdits", true) || App::WorkerRecompute::running(*doc)
+        || !App::WorkerPool::supported() || doc->testStatus(App::Document::Recomputing)) {
+        return false;
+    }
+    const std::vector<App::DocumentObject*> users = edited.getInList();
+    if (users.empty()) {
+        return false;
+    }
+    const double rest = App::WorkerRecompute::expectedSeconds(*doc, users);
+    FC_LOG(edited.getFullName() << ": what uses it is expected to take " << rest << " s");
+    if (rest < group->GetFloat("RecomputeEditSeconds", 0.5)) {
+        return false;
+    }
+    if (edited.isTouched() || edited.mustExecute()) {
+        // Up to date once made, as a recompute of the document leaves it;
+        // one in error stays touched, for the caller to tell
+        if (doc->recomputeFeature(&edited) && edited.isValid()) {
+            edited.purgeTouched();
+        }
+    }
+    // Made: what uses it is what is left, and is made from it
+    for (auto obj : edited.getInList()) {
+        obj->enforceRecompute();
+    }
+    return true;
 }

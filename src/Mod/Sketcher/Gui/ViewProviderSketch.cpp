@@ -114,6 +114,7 @@
 #include <App/ElementNamingUtils.h>
 #include <App/MappedElement.h>
 #include <Gui/Application.h>
+#include <Gui/WorkerRecomputeGui.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Document.h>
 #include <Gui/CommandT.h>
@@ -10217,13 +10218,29 @@ void ViewProviderSketch::unsetEdit(int ModNum)
         this->detachSelection();
 
         if (getSketchObject()->isTouched()) {
-            App::AutoTransaction trans("Sketch recompute");
-            try {
-                // and update the sketch
-                // getSketchObject()->getDocument()->recompute();
-                Gui::Command::updateActive();
+            // The sketch made here, what uses it by a worker when that is
+            // long to make (docs/WorkerProcess.md sec 31)
+            bool rest = false;
+            {
+                App::AutoTransaction trans("Sketch recompute");
+                try {
+                    rest = Gui::makeEditedFirst(*getSketchObject());
+                    if (!rest) {
+                        // and update the sketch
+                        // getSketchObject()->getDocument()->recompute();
+                        Gui::Command::updateActive();
+                    }
+                }
+                catch (...) {
+                }
             }
-            catch (...) {
+            App::Document* doc = getSketchObject()->getDocument();
+            if (rest && !Gui::recomputeEditByWorkers(*doc)) {
+                try {
+                    Gui::Command::updateActive();
+                }
+                catch (...) {
+                }
             }
         }
     }

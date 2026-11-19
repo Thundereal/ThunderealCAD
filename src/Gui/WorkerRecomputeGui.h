@@ -28,6 +28,7 @@
 namespace App
 {
 class Document;
+class DocumentObject;
 }
 
 namespace Gui
@@ -56,6 +57,18 @@ GuiExport bool editRecomputeIsLong(const App::Document& doc);
 /// The edit's recompute handed over, as recomputeByWorkers(); false and
 /// the caller recomputes here
 GuiExport bool recomputeEditByWorkers(App::Document& doc);
+
+/** The recompute after an edit of `edited` ends -- a task panel's OK, a
+ * sketch's edit left (docs/WorkerProcess.md sec 31). When what uses it is
+ * expected to take long (as editRecomputeIsLong()), `edited` is made here
+ * at once, if it must be, and what uses it is left touched: true, and the
+ * caller checks `edited` as it would, commits its step, and hands the
+ * rest over with recomputeEditByWorkers(), recomputing here if that does
+ * not take it. False, nothing done, and the caller recomputes as before.
+ * The edited object is the caller's to judge, and a sketch's execute gives
+ * geometry new ids, which no worker may (sec 19).
+ */
+GuiExport bool makeEditedFirst(App::DocumentObject& edited);
 
 }  // namespace Gui
 

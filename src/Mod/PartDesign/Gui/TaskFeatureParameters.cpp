@@ -31,7 +31,9 @@
 #include <QKeyEvent>
 #include <QTimer>
 
+#include <App/Application.h>
 #include <App/AutoTransaction.h>
+#include <App/Document.h>
 #include <App/PropertyGeo.h>
 #include <App/PropertyLinks.h>
 #include <Base/Tools.h>
@@ -49,6 +51,7 @@
 #include <Gui/ViewParams.h>
 #include <Gui/EditSteps.h>
 #include <Gui/WaitCursor.h>
+#include <Gui/WorkerRecomputeGui.h>
 #include <Mod/Part/Gui/PartParams.h>
 #include <Mod/PartDesign/App/FeatureAddSub.h>
 #include <Mod/PartDesign/App/Body.h>
@@ -787,6 +790,9 @@ bool TaskDlgFeatureParameters::accept() {
         return true;
 
     App::DocumentObject* feature = vp->getObject();
+    // What uses the feature, when it is long to make: made by a worker once
+    // the step is committed (docs/WorkerProcess.md sec 31)
+    std::string restOf;
 
     // A panel with an undo step per operation: OK's work a step of its own
     // (entry 136)
@@ -835,7 +841,12 @@ bool TaskDlgFeatureParameters::accept() {
             for (auto obj : feature->getInList())
                 obj->enforceRecompute();
         }
-        Gui::cmdAppDocument(feature, "recompute()");
+        if (Gui::makeEditedFirst(*feature)) {
+            restOf = feature->getDocument()->getName();
+        }
+        else {
+            Gui::cmdAppDocument(feature, "recompute()");
+        }
 
         if (!feature->isValid()) {
             THROWM(Base::RuntimeError, vp->getObject()->getStatusString())
@@ -858,6 +869,18 @@ bool TaskDlgFeatureParameters::accept() {
         return false;
     }
 
+    if (!restOf.empty()) {
+        if (auto doc = App::GetApplication().getDocument(restOf.c_str())) {
+            if (!Gui::recomputeEditByWorkers(*doc)) {
+                try {
+                    doc->recompute();
+                }
+                catch (const Base::Exception& e) {
+                    e.ReportException();
+                }
+            }
+        }
+    }
     return true;
 }
 

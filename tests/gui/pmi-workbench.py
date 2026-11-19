@@ -6,9 +6,11 @@ tip feature: (Body, "Hole.FaceN"). What is checked:
 
   - a geometric tolerance on the top face: the Body gets an annotation set
     and a solid body, the frame is a flatness on (Solid, "Face..."), drawn by
-    PMIGui's view provider;
-  - one on the hole: a position of the hole's axis, in a diameter zone;
+    PMIGui's view provider; the command opens the frame builder;
   - datums on the bottom and the front face take A and B;
+  - one on the hole: a position of the hole's axis, in a diameter zone; the
+    builder offers what a hole admits, and datums and MMR picked in it make
+    the frame; Cancel puts back what it changed;
   - a dimension on the hole is its diameter, 6; on the two end faces, the
     width, 40;
   - the callouts are drawn: a top view has their blue, and has none with
@@ -81,6 +83,23 @@ def blue(path):
     return n
 
 
+def panel():
+    for w in Gui.getMainWindow().findChildren(QtWidgets.QWidget, "PMITaskGeometricTolerance"):
+        if w.isVisible():
+            return w
+    return None
+
+
+def press(which):
+    for box in Gui.getMainWindow().findChildren(QtWidgets.QDialogButtonBox):
+        b = box.button(which)
+        if b is not None and b.isVisible():
+            b.click()
+            pump(20)
+            return True
+    return False
+
+
 def toolbar():
     for tb in Gui.getMainWindow().findChildren(QtWidgets.QToolBar, "PMI"):
         return tb
@@ -125,14 +144,9 @@ def run():
         check("drawn by PMIGui's view provider",
               flat.ViewObject.TypeId == "PMIGui::ViewProviderCallout", flat.ViewObject.TypeId)
 
-        # A tolerance on the hole: a position of its axis
-        pick(doc, body, hole, V(23, 10, 5))
-        Gui.runCommand("PMI_GeometricTolerance")
-        pump(20)
-        pos = newest(doc, "PMI::GeometricTolerance")
-        check("one on the hole is a position of its axis in a diameter zone",
-              pos != flat and pos.Characteristic == "Position" and pos.ZoneShape == "Diameter"
-              and pos.Feature.Kind == "Axis", (pos.Characteristic, pos.Feature.Kind))
+        check("the command opens the frame builder", panel() is not None)
+        press(QtWidgets.QDialogButtonBox.Ok)
+        check("and OK closes it", panel() is None)
 
         # Datums
         pick(doc, body, hole, V(5, 5, 0))
@@ -144,6 +158,44 @@ def run():
         pump(20)
         b = newest(doc, "PMI::Datum")
         check("datums take A and B", (a.Letter, b.Letter) == ("A", "B"), (a.Letter, b.Letter))
+
+        # A tolerance on the hole: a position of its axis, its frame built
+        pick(doc, body, hole, V(23, 10, 5))
+        Gui.runCommand("PMI_GeometricTolerance")
+        pump(20)
+        pos = newest(doc, "PMI::GeometricTolerance")
+        check("one on the hole is a position of its axis in a diameter zone",
+              pos != flat and pos.Characteristic == "Position" and pos.ZoneShape == "Diameter"
+              and pos.Feature.Kind == "Axis", (pos.Characteristic, pos.Feature.Kind))
+        p = panel()
+        chars = p.findChild(QtWidgets.QComboBox, "characteristic")
+        offered_chars = [chars.itemText(i) for i in range(chars.count())]
+        check("the builder offers what a hole admits, position first",
+              offered_chars[0] == "Position" and "Cylindricity" in offered_chars
+              and "Flatness" not in offered_chars, offered_chars)
+        p.findChild(QtWidgets.QComboBox, "primary").setCurrentText("A")
+        p.findChild(QtWidgets.QComboBox, "secondary").setCurrentText("B")
+        p.findChild(QtWidgets.QComboBox, "material").setCurrentIndex(1)
+        pump(10)
+        drf = pos.DatumSystem
+        check("datums picked in it make the frame |A|B, MMR on the hole",
+              drf is not None and drf.Compartments == ["A", "B"]
+              and pos.MaterialCondition == "Maximum"
+              and pos.EquivalentText.endswith("|A|B"),
+              (drf and drf.Compartments, pos.MaterialCondition, pos.EquivalentText.encode("unicode_escape")))
+        issues = p.findChild(QtWidgets.QLabel, "issues").text()
+        check("and it says there is no problem", "No problems" in issues, issues)
+        press(QtWidgets.QDialogButtonBox.Ok)
+
+        # Cancel puts it back
+        Gui.ActiveDocument.setEdit(pos)
+        pump(20)
+        panel().findChild(QtWidgets.QDoubleSpinBox, "value").setValue(0.5)
+        pump(10)
+        changed = abs(pos.Value.Value - 0.5) < 1e-9
+        press(QtWidgets.QDialogButtonBox.Cancel)
+        check("Cancel puts back what the builder changed",
+              changed and abs(pos.Value.Value - 0.1) < 1e-9, pos.Value)
 
         # Dimensions
         pick(doc, body, hole, V(23, 10, 5))

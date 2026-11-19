@@ -93,6 +93,9 @@ public:
     {
         return true;
     }
+    /// A geometric tolerance is edited in the frame builder
+    bool setEdit(int ModNum) override;
+    void unsetEdit(int ModNum) override;
 
 private:
     void refresh();

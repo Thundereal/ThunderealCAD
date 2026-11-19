@@ -473,15 +473,38 @@ C++ (`PMI.solidReference`) and writes plain Python with the names in it, so a ma
 The defaults: a plane's tolerance is flatness, a cylinder's a position of its axis in a diameter
 zone, anything else profile of a surface; a dimension on a hole its diameter, on two opposed
 planes the width, on two features their distance or angle. Edited in the property view for now
-(the FCF builder panel is next). GUI test `tests/gui/pmi-workbench.py`, 14 checks.
+(the FCF builder panel came next, sec 10.5). GUI test `tests/gui/pmi-workbench.py`, 14 checks.
 
 - **The first pick on a Body without a set cannot be named** -- the solid body comes with the
   set. The command makes the set first, inside its transaction, then resolves the pick. Found as
   a hang: the refusal was a message box, which hangs Xvfb; the test now closes modals and fails.
 - **A size is measured on the faces, whatever the feature derives**: a hole's feature shared
   with a position tolerance is its axis, and its diameter came out 0 (found by the GUI test).
-- Seen in the capture: a callout under the part (datum A on the bottom face, looked at from
-  above) is partly hidden by it -- the on-top node is not yet honoured all the way; to look at.
+- **A callout under the part was half hidden by it** (datum A on the bottom face, looked at
+  from above): the render cache draws an `So3DAnnotation` on top only with a priority other than
+  0. The view provider sets 1.
+
+### 10.5 P1 progress: the frame builder (2026-11-20)
+
+Built: `PMI::Advisor` (App) -- per kind of feature (plane, width, hole or axis, sphere, cone)
+the characteristics that apply, the usual first; the zone shapes each allows; whether M/L may be
+given; whether datums are needed, optional or forbidden. `PMI.advise(feature)` from Python.
+`PMI.frame(set, ["A", "B(M)"])` finds the set's datum reference frame with these compartments,
+or makes one: one per distinct frame, as STEP has it. The builder panel
+(`TaskGeometricTolerance`) opens when the tolerance command runs and on a double-click: the
+advised characteristics, zone, value, material condition, F/T/CZ/ST/P with the projected length,
+three datum compartments with their M/L. Each change is written at once, so the frame in the
+view follows, and what the check finds is shown under it; OK commits, Cancel undoes it all.
+
+- **Every tolerance the advisor offers passes the check** (`TestAdvisor`, on a plane, a hole
+  and a width): the two cannot disagree.
+- **A leader to a face with a hole in it pointed at the hole**: its end was the point of the
+  face nearest the box centre, on the hole's rim. On a planar face it is now the box centre if
+  that is in the material, else the point of a 24 x 24 grid deepest inside the face (farthest
+  from its edges). With `BRepTopAdaptor_FClass2d`, classified once per face, a recompute costs
+  3.6 ms; `BRepClass_FaceClassifier` per point cost 34.
+- GUI test: 20 checks -- the builder offers what a hole admits, datums A and B with MMR make
+  `|A|B`, no problems found, Cancel puts the value back.
 
 ## 11. Decisions (made 2026-11-19)
 

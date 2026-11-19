@@ -31,6 +31,7 @@
 #include <Mod/Part/App/BodyBase.h>
 
 #include "Annotation.h"
+#include "Advisor.h"
 #include "Api.h"
 #include "Callout.h"
 #include "AnnotationSet.h"
@@ -68,6 +69,13 @@ public:
                            "on these faces, made if there is none");
         add_varargs_method("nextDatumLetter", &Module::nextDatumLetter,
                            "nextDatumLetter(set, solid=None) -> the first letter not used");
+        add_varargs_method("frame", &Module::frame,
+                           "frame(set, compartments) -> the set's datum reference frame with "
+                           "these compartments, e.g. ['A', 'B(M)'], made if there is none");
+        add_varargs_method("advise", &Module::advise,
+                           "advise(feature, characteristic=None) -> {'characteristics': [...], "
+                           "and with a characteristic 'zoneShapes': [...], 'materialCondition': "
+                           "bool, 'datums': 1 needed / 0 optional / -1 none}");
         initialize("PMI: product and manufacturing information -- GD&T on a part");
     }
 
@@ -186,6 +194,63 @@ private:
         }
         App::DocumentObject* solid = pysolid == Py_None ? nullptr : toObject(pysolid);
         return Py::String(Api::nextDatumLetter(toSet(pyset), solid));
+    }
+
+    Py::Object frame(const Py::Tuple& args)
+    {
+        PyObject* pyset;
+        PyObject* pycomps;
+        if (!PyArg_ParseTuple(args.ptr(), "OO", &pyset, &pycomps)) {
+            throw Py::Exception();
+        }
+        std::vector<std::string> comps;
+        Py::Sequence seq(pycomps);
+        for (Py::Sequence::iterator it = seq.begin(); it != seq.end(); ++it) {
+            comps.push_back(Py::String(*it).as_std_string());
+        }
+        auto drf = Api::frame(toSet(pyset), comps);
+        if (!drf) {
+            return Py::None();
+        }
+        return Py::asObject(drf->getPyObject());
+    }
+
+    Py::Object advise(const Py::Tuple& args)
+    {
+        PyObject* pyfeat;
+        const char* name = nullptr;
+        if (!PyArg_ParseTuple(args.ptr(), "O|z", &pyfeat, &name)) {
+            throw Py::Exception();
+        }
+        auto feat = freecad_cast<TolerancedFeature*>(toObject(pyfeat));
+        if (!feat) {
+            throw Py::TypeError("a PMI::TolerancedFeature is expected");
+        }
+        Py::Dict res;
+        Py::List chars;
+        for (int c : Advisor::characteristics(feat)) {
+            chars.append(Py::String(GeometricTolerance::CharacteristicEnums[c]));
+        }
+        res.setItem("characteristics", chars);
+        if (name) {
+            int c = -1;
+            for (int i = 0; GeometricTolerance::CharacteristicEnums[i]; ++i) {
+                if (std::string(GeometricTolerance::CharacteristicEnums[i]) == name) {
+                    c = i;
+                }
+            }
+            if (c < 0) {
+                throw Py::ValueError(std::string("no characteristic ") + name);
+            }
+            Py::List zones;
+            for (int z : Advisor::zoneShapes(feat, c)) {
+                zones.append(Py::String(GeometricTolerance::ZoneShapeEnums[z]));
+            }
+            res.setItem("zoneShapes", zones);
+            res.setItem("materialCondition", Py::Boolean(Advisor::materialCondition(feat, c)));
+            res.setItem("datums", Py::Long(Advisor::datums(c)));
+        }
+        return res;
     }
 
     Py::Object findSet(const Py::Tuple& args)

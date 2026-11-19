@@ -9,6 +9,7 @@ geometry (TestModel), the rules of sec 8 both ways (TestCheck), and the
 references through edits of the Body under them (TestRepair, sec 7).
 """
 
+import math
 import os
 import tempfile
 import unittest
@@ -524,6 +525,17 @@ class TestPresentation(Base):
         near = min(face.distToShape(Part.Vertex(v.Point))[0] for v in gt.Presentation.Vertexes)
         self.assertLess(near, 0.1 * gt.TextHeight.Value + 1e-6)
 
+    def test_the_leader_ends_in_the_material(self):
+        # The top face has the hole in its middle: the leader goes into the
+        # face, not to the hole's rim
+        top = self.feature(TOP)
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Flatness", Feature=top,
+                      Value=0.05)
+        self.recompute()
+        face = top.Shape
+        end = min(gt.Presentation.Vertexes, key=lambda v: face.distToShape(v)[0]).Point
+        self.assertGreater(math.hypot(end.x - 20, end.y - 10), 6, end)
+
     def test_a_frame_with_datums(self):
         drf = self.frame()
         gt = self.add("GeometricTolerance", "GT", Characteristic="Position",
@@ -675,3 +687,55 @@ class TestApi(Base):
         self.assertEqual(PMI.nextDatumLetter(self.set, self.solid), "J")
         self.set.Standard = "ISO GPS"
         self.assertEqual(PMI.nextDatumLetter(self.set, self.solid), "I")
+
+
+class TestAdvisor(Base):
+    """What the panel offers for a feature (the tolerancing advisor)"""
+
+    def test_a_plane(self):
+        top = self.feature(TOP)
+        self.recompute()
+        advice = PMI.advise(top)
+        self.assertEqual(advice["characteristics"][0], "Flatness")
+        self.assertNotIn("Cylindricity", advice["characteristics"])
+        flat = PMI.advise(top, "Flatness")
+        self.assertEqual(flat["zoneShapes"], ["None"])
+        self.assertFalse(flat["materialCondition"])
+        self.assertEqual(flat["datums"], -1)
+
+    def test_a_hole(self):
+        hole = self.feature(HOLE, kind="Axis")
+        self.recompute()
+        advice = PMI.advise(hole, "Position")
+        self.assertEqual(advice["characteristics"][0], "Position")
+        self.assertIn("Cylindricity", advice["characteristics"])
+        self.assertEqual(advice["zoneShapes"][0], "Diameter")
+        self.assertTrue(advice["materialCondition"])
+        self.assertEqual(advice["datums"], 0)
+        self.assertEqual(PMI.advise(hole, "Perpendicularity")["datums"], 1)
+
+    def test_a_width(self):
+        width = self.feature(LEFT, RIGHT)
+        self.recompute()
+        advice = PMI.advise(width)
+        self.assertIn("Symmetry", advice["characteristics"])
+        self.assertTrue(PMI.advise(width, "Position")["materialCondition"])
+
+    def test_every_advised_choice_passes_the_check(self):
+        # What the advisor offers, the check takes -- with the frame it asks for
+        for letter, point in (("A", BOTTOM), ("B", LEFT), ("C", FRONT)):
+            self.add("Datum", "D" + letter, Letter=letter, Feature=self.feature(point))
+        drf = PMI.frame(self.set, ["A", "B", "C"])
+        self.assertEqual(PMI.frame(self.set, ["A", "B", "C"]), drf)
+        for feat in (self.feature(TOP), self.feature(HOLE, kind="Axis"), self.feature(LEFT, RIGHT)):
+            self.recompute()
+            for c in PMI.advise(feat)["characteristics"]:
+                advice = PMI.advise(feat, c)
+                gt = self.add("GeometricTolerance", "GT", Characteristic=c, Feature=feat,
+                              Value=0.1, ZoneShape=advice["zoneShapes"][0])
+                if advice["datums"] >= 0:
+                    gt.DatumSystem = drf
+                self.doc.recompute()
+                errors = self.issues(gt, "Error")
+                self.assertEqual(errors, [], "%s on %s: %s" % (c, feat.References, errors))
+                self.doc.removeObject(gt.Name)

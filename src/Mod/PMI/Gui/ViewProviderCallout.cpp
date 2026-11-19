@@ -61,6 +61,11 @@
 #include <Mod/PMI/App/Note.h>
 #include <Mod/PMI/App/TolerancedFeature.h>
 
+#include <QTimer>
+
+#include <Gui/Control.h>
+
+#include "TaskGeometricTolerance.h"
 #include "ViewProviderCallout.h"
 
 using namespace PMIGui;
@@ -196,8 +201,12 @@ ViewProviderCallout::~ViewProviderCallout() = default;
 void ViewProviderCallout::attach(App::DocumentObject* obj)
 {
     ViewProviderDocumentObject::attach(obj);
-    // On top of the model, with depth among its own lines and fills
+    // On top of the model, with depth among its own lines and fills. The
+    // priority is what the render cache orders by; at 0 it is drawn as the
+    // model is, and hidden by it (seen: a datum on the bottom face, from
+    // above). 1, as the on-view labels are.
     auto top = new Gui::So3DAnnotation;
+    top->priority = 1;
     top->addChild(_drawing.root());
     addDisplayMaskMode(top, "Callout");
     refresh();
@@ -269,6 +278,32 @@ QIcon ViewProviderCallout::getIcon() const
         name = "PMI_Dimension";
     }
     return mergeOverlayIcons(Gui::BitmapFactory().pixmap(name));
+}
+
+bool ViewProviderCallout::setEdit(int ModNum)
+{
+    auto gt = freecad_cast<PMI::GeometricTolerance*>(getObject());
+    if (ModNum != ViewProvider::Default || !gt) {
+        return ViewProviderDocumentObject::setEdit(ModNum);
+    }
+    if (auto dlg = Gui::Control().activeDialog()) {
+        if (qobject_cast<TaskDlgGeometricTolerance*>(dlg)) {
+            Gui::Control().showDialog(dlg);
+            return true;
+        }
+        return false;
+    }
+    Gui::Control().showDialog(new TaskDlgGeometricTolerance(gt));
+    return true;
+}
+
+void ViewProviderCallout::unsetEdit(int ModNum)
+{
+    if (ModNum == ViewProvider::Default) {
+        QTimer::singleShot(0, &Gui::Control(), qOverload<>(&Gui::ControlSingleton::closeDialog));
+        return;
+    }
+    ViewProviderDocumentObject::unsetEdit(ModNum);
 }
 
 // ---- ViewProviderFeature ----

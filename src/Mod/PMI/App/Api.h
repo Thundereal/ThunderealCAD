@@ -67,6 +67,10 @@ PMIExport TolerancedFeature* feature(AnnotationSet* set, App::DocumentObject* so
                                      const std::vector<std::string>& faces,
                                      const char* kind = nullptr);
 
+/// The set's datum reference frame with exactly these compartments, made if
+/// there is none: one per distinct frame (CAx-IF sec 6.9.8)
+PMIExport App::DocumentObject* frame(AnnotationSet* set, const std::vector<std::string>& compartments);
+
 /// The first datum letter the solid has not used (ASME skips I, O, Q)
 PMIExport std::string nextDatumLetter(AnnotationSet* set, App::DocumentObject* solid);
 }  // namespace Api

@@ -25,6 +25,7 @@
 #include "PreCompiled.h"
 
 #include <cmath>
+#include <algorithm>
 #include <set>
 
 #include <BRepGProp.hxx>
@@ -226,4 +227,35 @@ std::string Api::nextDatumLetter(AnnotationSet* set, App::DocumentObject* solid)
         }
     }
     return "AA";
+}
+
+App::DocumentObject* Api::frame(AnnotationSet* set, const std::vector<std::string>& compartments)
+{
+    if (!set || compartments.empty()) {
+        return nullptr;
+    }
+    auto trim = [](std::string v) {
+        v.erase(std::remove(v.begin(), v.end(), ' '), v.end());
+        return v;
+    };
+    std::vector<std::string> want;
+    for (auto& c : compartments) {
+        want.push_back(trim(c));
+    }
+    for (auto obj : set->Group.getValues()) {
+        if (auto drf = freecad_cast<DatumReferenceFrame*>(obj)) {
+            std::vector<std::string> have;
+            for (auto& c : drf->Compartments.getValues()) {
+                have.push_back(trim(c));
+            }
+            if (have == want) {
+                return drf;
+            }
+        }
+    }
+    auto drf = static_cast<DatumReferenceFrame*>(set->getDocument()->addObject(
+        DatumReferenceFrame::getClassTypeId().getName(), "DatumSystem"));
+    set->addObject(drf);
+    drf->Compartments.setValues(want);
+    return drf;
 }

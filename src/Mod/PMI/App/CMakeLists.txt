@@ -28,6 +28,8 @@ set(PMI_SRCS
   AppPMI.cpp
   Api.cpp
   Api.h
+  Advisor.cpp
+  Advisor.h
   Annotation.cpp
   Annotation.h
   AnnotationSet.cpp

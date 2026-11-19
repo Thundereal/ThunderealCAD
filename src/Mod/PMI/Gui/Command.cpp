@@ -247,6 +247,8 @@ void CmdPMIGeometricTolerance::activated(int)
     }
     doCommand(Doc, "_obj.Feature = _feat");
     finish(this);
+    // Then its frame is built in the panel
+    doCommand(Gui, "Gui.ActiveDocument.setEdit(_obj)");
 }
 
 bool CmdPMIGeometricTolerance::isActive()

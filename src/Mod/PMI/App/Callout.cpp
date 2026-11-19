@@ -26,11 +26,20 @@
 
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <BRepTopAdaptor_FClass2d.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
+#include <BRepTools.hxx>
+#include <ElSLib.hxx>
+#include <gp_Pln.hxx>
+#include <gp_Pnt2d.hxx>
 #include <gp_Trsf.hxx>
 #include <BRep_Tool.hxx>
 #include <TopExp_Explorer.hxx>
@@ -122,6 +131,72 @@ std::u32string Callout::number(double value, int decimals)
     return std::u32string(s.begin(), s.end());
 }
 
+namespace
+{
+
+// A point on a planar face, in its material: the box centre where that is on
+// the face, else of a grid over the face the point deepest inside it -- the
+// farthest from its edges. The point nearest the centre would do for a plain
+// face; for one with a hole in its middle it is on the hole's rim, and the
+// leader would point at the hole (docs/GDandT.md sec 6.4).
+bool insidePlanarFace(const TopoDS_Face& face, const gp_Pnt& centre, gp_Pnt& target)
+{
+    BRepAdaptor_Surface surf(face);
+    if (surf.GetType() != GeomAbs_Plane) {
+        return false;
+    }
+    const double tol = BRep_Tool::Tolerance(face);
+    gp_Pln pln = surf.Plane();
+    double u, v;
+    ElSLib::Parameters(pln, centre, u, v);
+    BRepClass_FaceClassifier cls(face, gp_Pnt2d(u, v), tol);
+    if (cls.State() == TopAbs_IN) {
+        target = ElSLib::Value(u, v, pln);
+        return true;
+    }
+
+    std::vector<gp_Pnt> rim;
+    for (TopExp_Explorer xp(face, TopAbs_EDGE); xp.More(); xp.Next()) {
+        BRepAdaptor_Curve c(TopoDS::Edge(xp.Current()));
+        const int n = 32;
+        for (int i = 0; i <= n; ++i) {
+            rim.push_back(c.Value(c.FirstParameter()
+                                  + (c.LastParameter() - c.FirstParameter()) * i / n));
+        }
+    }
+    if (rim.empty()) {
+        return false;
+    }
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(face, u0, u1, v0, v1);
+    const int n = 24;
+    BRepTopAdaptor_FClass2d in(face, tol);
+    double best = -1;
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            gp_Pnt2d uv(u0 + (u1 - u0) * (i + 0.5) / n, v0 + (v1 - v0) * (j + 0.5) / n);
+            if (in.Perform(uv) != TopAbs_IN) {
+                continue;
+            }
+            gp_Pnt p = ElSLib::Value(uv.X(), uv.Y(), pln);
+            double d = 1e100;
+            for (const auto& r : rim) {
+                d = std::min(d, p.SquareDistance(r));
+            }
+            // Ties go to the point nearer the centre, so a symmetric face
+            // gets the same side every time
+            if (d > best * (1 + 1e-6)
+                || (d > best * (1 - 1e-6) && p.SquareDistance(centre) < target.SquareDistance(centre))) {
+                best = d;
+                target = p;
+            }
+        }
+    }
+    return best > 0;
+}
+
+}  // namespace
+
 bool Callout::targetPoint(const TolerancedFeature* feature, gp_Pnt& target)
 {
     if (!feature) {
@@ -139,6 +214,19 @@ bool Callout::targetPoint(const TolerancedFeature* feature, gp_Pnt& target)
     double x0, y0, z0, x1, y1, z1;
     box.Get(x0, y0, z0, x1, y1, z1);
     gp_Pnt centre((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    if (shape.ShapeType() == TopAbs_FACE && insidePlanarFace(TopoDS::Face(shape), centre, target)) {
+        return true;
+    }
+    if (shape.ShapeType() == TopAbs_COMPOUND) {
+        TopExp_Explorer xp(shape, TopAbs_FACE);
+        if (xp.More()) {
+            TopoDS_Shape first = xp.Current();
+            xp.Next();
+            if (!xp.More() && insidePlanarFace(TopoDS::Face(first), centre, target)) {
+                return true;
+            }
+        }
+    }
     BRepExtrema_DistShapeShape dist(BRepBuilderAPI_MakeVertex(centre).Vertex(), shape);
     if (dist.IsDone() && dist.NbSolution() > 0) {
         target = dist.PointOnShape2(1);

@@ -26,6 +26,8 @@ set(PMIGui_SRCS
     Command.cpp
     PreCompiled.cpp
     PreCompiled.h
+    TaskGeometricTolerance.cpp
+    TaskGeometricTolerance.h
     ViewProviderCallout.cpp
     ViewProviderCallout.h
     Workbench.cpp

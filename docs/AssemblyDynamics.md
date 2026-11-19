@@ -6159,7 +6159,8 @@ Phase D1 is under way (2026-10-28):
   - Open: the flexible torus on a flexible pin, 46.12 N, rings from 37.9
     to 55.4 N once in the turn at 86 ms, after the depth steps 0.4 um in a
     substep: the faces of the flexible torus's true surface, not the
-    placement, which converges there.
+    placement, which converges there. (Wrong: a placement in Newton's
+    iterations stopped on a vertex; step 13.)
   - Test: TestFlexibleBody.test_torus_on_pin, rigid and flexible on the
     rigid pin 20 long from x = -8, both angles; roundTurned()'s inside.
 - Built, D4b way 1 step 11 (2026-11-18): a line along a curve, flexible.
@@ -6210,6 +6211,35 @@ Phase D1 is under way (2026-10-28):
     TestContact, TestDynamics, TestJointFriction and TestFlexibleBody as it
     was.
   - Test: TestFlexibleBody.test_torus_lying_flat, rigid too.
+- Built, D4b way 1 step 13 (2026-11-19): a walk from a mesh's vertex.
+  The flexible torus on a flexible pin (step 10's open item), 46.12 N,
+  rang from 37.9 to 55.4 N at 86 ms; now 46.02 to 46.28.
+  - **Not the true surface's faces** (step 10's reading): a placement that
+    did not converge. Traced each state of the substep, Newton's
+    iterations too: collision detection found the point on a mesh's vertex
+    0.78 mm round the ring from the bottom (L = (0, 1, 0)), the pin and the
+    torus's inside nearly conformal there (R 3 in a hollow of R 7, 0.06 mm
+    apart 0.8 mm off). towardsRound() starts each time from there; the
+    normal through the pin's axis, 15 deg off, walked the torus's point to
+    where its normal is that (1.817 mm round, right), but the next, 9.3 deg
+    off, stopped on the vertex: the first step from a corner leaves through
+    either edge there, the walk crossed to a face that stepped back through
+    it, and alongEdge() left it at the edge's end. Every halving of
+    curvedNormal()'s step widened the gap from there, so it kept the 9.3
+    deg normal: 1.6 um deep for 46, 2.5 N and 8.9 N in the iterations, and
+    the substep stepped on them -- the depth 0.4 um deeper, the pin ringing
+    at 7 kHz.
+  - **From within the face** (farthestNear()): a start on a corner of its
+    face (an L within 1e-6 of 1) moved a tenth of the way to the face's
+    middle. The walk's start, not its answer.
+  - Numbers: the flexible torus on a flexible pin 46.11 N, 46.02 to 46.28
+    (37.91 to 55.39); at 20 deg 46.07 to 46.11 (46.04 to 46.26).
+    Every other figure of the four suites as before: the forces to the
+    hundredth; the no-friction torques within 0.03 N mm (the flexible torus
+    on a rigid pin at 0 deg -0.547 N mm, -0.519 before), their usual
+    scatter. TestFlexibleBody 48 tests in 449 s.
+  - Test: TestFlexibleBody.test_torus_on_pin, the flexible torus on a
+    flexible pin 40 long from x = -20 too, both angles, within a hundredth.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

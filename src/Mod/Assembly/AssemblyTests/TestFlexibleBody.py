@@ -1301,7 +1301,11 @@ class TestFlexibleBody(unittest.TestCase):
         point found 0.8 deg round from where it faced the pin. The pin 20
         long from x = -8: the torus's triangles there with no corner in
         common a patch each, its points pressed it with two and three
-        springs, 100 and 150 N, where they land on one place (patchesOf())"""
+        springs, 100 and 150 N, where they land on one place (patchesOf()).
+        Both flexible, the pin too, 46.1 N, both bending: its point's walk
+        over the torus's faces from a mesh's vertex, where Bullet found it,
+        stopped there with the normal 9.3 deg off, 1.6 um deep for 46 -- the
+        pin rang, 37.9 to 55.4 N at 86 ms (farthestNear())"""
         for at in (0.0, 20.0):
             mean = self.roundTurned(
                 "a rigid torus on a rigid pin at %g deg" % at,
@@ -1331,6 +1335,21 @@ class TestFlexibleBody(unittest.TestCase):
                 most=50.5,
             )
             self.assertGreater(mean, 49.5)
+            self.renew()
+            mean = self.roundTurned(
+                "a flexible torus on a flexible pin at %g deg" % at,
+                40,
+                -20,
+                roller=True,
+                inside=True,
+                torus=True,
+                flexiblePlate=True,
+                rollerAt=at,
+                arm=7.0,
+                within=0.01,
+                most=50.5,
+            )
+            self.assertGreater(mean, 45.5)
             self.renew()
 
     def test_torus_lying_flat(self):

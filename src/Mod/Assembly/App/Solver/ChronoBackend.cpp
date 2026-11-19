@@ -2474,6 +2474,18 @@ public:
         const LS::Vec c = v(carrier->TransformPointParentToLocal(near));
         std::size_t faceNow = on.face;
         std::array<double, 3> L = on.L;
+        // From within the face, a tenth of the way to its middle, not from
+        // its corner: a mesh's vertex where collision detection found it, its
+        // first step leaves the face through either edge there, and its walk
+        // went to a face that steps back through it -- a torus's inside
+        // about a flexible pin, stopped on the vertex 0.78 mm from where its
+        // normal is the pin's, 9.3 deg off, 1.6 um deep for 46: the pin rang,
+        // 37.9 to 55.4 N
+        if (std::max({L[0], L[1], L[2]}) > 1.0 - 1e-6) {
+            for (double& l : L) {
+                l = 0.9 * l + 0.1 / 3.0;
+            }
+        }
         LS::Face x;
         trueCorners(faceNow, x);
         LS::Local local;

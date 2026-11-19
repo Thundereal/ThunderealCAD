@@ -36,11 +36,11 @@ PROPERTY_SOURCE_ABSTRACT(PMI::Annotation, App::DocumentObject)
 Annotation::Annotation()
 {
     // Not an output: what depends on this object sees its state change
-    ADD_PROPERTY_TYPE(State, (0L), "PMI", App::Prop_None,
+    ADD_PROPERTY_TYPE(Condition, (0L), "PMI", App::Prop_None,
                       "Ok; Remapped (found again by history or geometry, look at it); Broken "
                       "(what it refers to is gone); Invalid (its values do not make sense)");
-    State.setEnums(StateEnums);
-    ADD_PROPERTY_TYPE(StateMessage, (""), "PMI",
+    Condition.setEnums(StateEnums);
+    ADD_PROPERTY_TYPE(ConditionMessage, (""), "PMI",
                       App::PropertyType(App::Prop_Output | App::Prop_ReadOnly),
                       "Why the state is what it is");
 }
@@ -65,10 +65,10 @@ AnnotationSet* Annotation::getSet() const
 
 void Annotation::setState(StateValue state, const std::string& message)
 {
-    if (State.getValue() != state) {
-        State.setValue(static_cast<long>(state));
+    if (Condition.getValue() != state) {
+        Condition.setValue(static_cast<long>(state));
     }
-    if (StateMessage.getStrValue() != message) {
-        StateMessage.setValue(message);
+    if (ConditionMessage.getStrValue() != message) {
+        ConditionMessage.setValue(message);
     }
 }

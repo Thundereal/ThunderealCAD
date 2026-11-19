@@ -157,7 +157,7 @@ void checkTolerance(const GT* gt, const AnnotationSet* set, std::vector<Issue>& 
     }
 
     if (feat && feat->getState() == Annotation::Broken) {
-        error("its feature is broken: " + feat->StateMessage.getStrValue());
+        error("its feature is broken: " + feat->ConditionMessage.getStrValue());
     }
 }
 
@@ -205,13 +205,13 @@ void checkDimension(const Dimension* dim, std::vector<Issue>& out)
 void checkFeature(const TolerancedFeature* feat, std::vector<Issue>& out)
 {
     if (feat->getState() == Annotation::Broken) {
-        out.push_back({feat, Error, "broken: " + feat->StateMessage.getStrValue()});
+        out.push_back({feat, Error, "broken: " + feat->ConditionMessage.getStrValue()});
     }
     else if (feat->getState() == Annotation::Remapped) {
-        out.push_back({feat, Warning, "remapped: " + feat->StateMessage.getStrValue()});
+        out.push_back({feat, Warning, "remapped: " + feat->ConditionMessage.getStrValue()});
     }
     else if (feat->getState() == Annotation::Invalid) {
-        out.push_back({feat, Error, feat->StateMessage.getStrValue()});
+        out.push_back({feat, Error, feat->ConditionMessage.getStrValue()});
     }
 }
 }  // namespace
@@ -258,23 +258,30 @@ std::vector<Issue> Check::set(const AnnotationSet* set)
     if (!set) {
         return out;
     }
-    if (!set->Part.getValue()) {
+    if (!set->getPart()) {
         out.push_back({set, Error, "the set annotates no part"});
     }
-    std::map<std::string, const Datum*> letters;
+    // Datum letters are a solid's own: two solids of a body are two parts,
+    // and each has its A (docs/GDandT.md sec 3)
+    using Solid = const App::DocumentObject*;
+    std::map<Solid, std::map<std::string, const Datum*>> letters;
+    std::map<std::string, int> anywhere;
     for (auto obj : set->Group.getValues()) {
         auto issues = object(obj);
         out.insert(out.end(), issues.begin(), issues.end());
         if (auto datum = freecad_cast<Datum*>(obj)) {
-            auto res = letters.emplace(datum->Letter.getStrValue(), datum);
+            const std::string letter = datum->Letter.getStrValue();
+            Solid solid = AnnotationSet::solidOf(datum->getFeature());
+            auto res = letters[solid].emplace(letter, datum);
+            ++anywhere[letter];
             if (!res.second) {
-                out.push_back({obj, Error,
-                               "datum " + datum->Letter.getStrValue() + " is defined twice"});
+                out.push_back({obj, Error, "datum " + letter + " is defined twice"});
             }
         }
     }
     for (auto obj : set->Group.getValues()) {
-        auto drf = freecad_cast<DatumReferenceFrame*>(obj);
+        auto gt = freecad_cast<GT*>(obj);
+        auto drf = gt ? gt->getDatumSystem() : freecad_cast<DatumReferenceFrame*>(obj);
         if (!drf) {
             continue;
         }
@@ -283,10 +290,16 @@ std::vector<Issue> Check::set(const AnnotationSet* set)
         if (!drf->parse(comps, why)) {
             continue;
         }
+        Solid solid = gt ? AnnotationSet::solidOf(gt->getFeature()) : nullptr;
         for (auto& comp : comps) {
             for (auto& d : comp.datums) {
-                if (!letters.count(d)) {
-                    out.push_back({obj, Error, "datum " + d + " is not defined"});
+                if (!anywhere.count(d)) {
+                    if (!gt) {
+                        out.push_back({obj, Error, "datum " + d + " is not defined"});
+                    }
+                }
+                else if (gt && solid && !letters[solid].count(d)) {
+                    out.push_back({obj, Warning, "datum " + d + " is on another solid"});
                 }
             }
         }

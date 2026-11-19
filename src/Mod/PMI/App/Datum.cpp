@@ -116,7 +116,7 @@ App::DocumentObjectExecReturn* Datum::execute()
         setState(Invalid, why);
     }
     else if (feat->getState() == Broken) {
-        setState(Broken, "its feature is broken: " + feat->StateMessage.getStrValue());
+        setState(Broken, "its feature is broken: " + feat->ConditionMessage.getStrValue());
     }
     else if (p.type == Primitive::None) {
         setState(Invalid, "a datum feature must be a plane, a cylinder, a cone or a sphere");

@@ -180,7 +180,7 @@ App::DocumentObjectExecReturn* Dimension::execute()
     for (auto obj : Features.getValues()) {
         auto f = freecad_cast<TolerancedFeature*>(obj);
         if (f && f->getState() == Broken) {
-            setState(Broken, "its feature is broken: " + f->StateMessage.getStrValue());
+            setState(Broken, "its feature is broken: " + f->ConditionMessage.getStrValue());
             return App::DocumentObject::StdReturn;
         }
     }

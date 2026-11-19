@@ -28,6 +28,9 @@
 #include "AnnotationSet.h"
 #include "TolerancedFeature.h"
 
+#include <App/Document.h>
+#include <Mod/Part/App/BodyBase.h>
+
 using namespace PMI;
 
 const char* AnnotationSet::StandardEnums[] = {"ISO GPS",
@@ -39,7 +42,8 @@ PROPERTY_SOURCE(PMI::AnnotationSet, App::DocumentObjectGroup)
 
 AnnotationSet::AnnotationSet()
 {
-    ADD_PROPERTY_TYPE(Part, (nullptr), "PMI", App::Prop_None, "The part annotated");
+    ADD_PROPERTY_TYPE(Part, (nullptr), "PMI", App::Prop_None,
+                      "What it annotates: the Body it is in, or the shape it sits beside");
     ADD_PROPERTY_TYPE(Standard, (0L), "PMI", App::Prop_None,
                       "The standard the annotations follow: ISO GPS (independency principle) "
                       "or ASME Y14.5 (envelope principle)");
@@ -57,17 +61,63 @@ bool AnnotationSet::allowObject(App::DocumentObject* obj)
 
 AnnotationSet* AnnotationSet::find(const App::DocumentObject* part)
 {
-    if (!part) {
+    if (!part || !part->getDocument()) {
         return nullptr;
     }
-    for (auto obj : part->getInList()) {
-        if (auto set = freecad_cast<AnnotationSet*>(obj)) {
-            if (set->Part.getValue() == part) {
+    // A solid body's set is its body's
+    if (auto body = Part::BodyBase::findBodyOf(part)) {
+        if (body != part && !part->isDerivedFrom<Part::BodyBase>()) {
+            if (auto set = find(body)) {
                 return set;
             }
         }
     }
+    for (auto obj : part->getDocument()->getObjectsOfType(AnnotationSet::getClassTypeId())) {
+        auto set = static_cast<AnnotationSet*>(obj);
+        if (set->Part.getValue() == part) {
+            return set;
+        }
+    }
     return nullptr;
+}
+
+const App::DocumentObject* AnnotationSet::solidOf(const TolerancedFeature* feature)
+{
+    if (!feature) {
+        return nullptr;
+    }
+    const auto& objs = feature->References.getValues();
+    return objs.empty() ? nullptr : objs.front();
+}
+
+App::DocumentObject* AnnotationSet::getPart() const
+{
+    if (auto part = Part.getValue()) {
+        return part;
+    }
+    return Part::BodyBase::findBodyOf(this);
+}
+
+void AnnotationSet::setupObject()
+{
+    App::DocumentObjectGroup::setupObject();
+    enforceRecompute();
+}
+
+App::DocumentObjectExecReturn* AnnotationSet::execute()
+{
+    // Put in a Body, it names the Body: being added is the Body's change, not
+    // this object's, so it is found here
+    auto body = Part::BodyBase::findBodyOf(this);
+    if (body && Part.getValue() != body) {
+        Part.setValue(body);
+    }
+    return App::DocumentObjectGroup::execute();
+}
+
+void AnnotationSet::onChanged(const App::Property* prop)
+{
+    App::DocumentObjectGroup::onChanged(prop);
 }
 
 std::vector<TolerancedFeature*> AnnotationSet::features() const

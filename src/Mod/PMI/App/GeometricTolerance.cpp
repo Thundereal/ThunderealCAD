@@ -131,7 +131,7 @@ App::DocumentObjectExecReturn* GeometricTolerance::execute()
     }
     auto feat = getFeature();
     if (feat && feat->getState() == Broken) {
-        setState(Broken, "its feature is broken: " + feat->StateMessage.getStrValue());
+        setState(Broken, "its feature is broken: " + feat->ConditionMessage.getStrValue());
     }
     else {
         setState(Ok);

@@ -62,11 +62,28 @@ module is -- which lives outside PartDesign and still works inside a Body [B4]:
   (8). Import (STEP) and TechDraw depend on it, not on PartDesign. Not in PartDesign, because an
   imported STEP part is a `Part::Feature`, not a Body, and must carry its PMI too; Assembly will
   want tolerances between parts later.
-- **Beside the part, never inside a Body.** The annotation set links the Body it annotates, and
-  a Body depends on everything in its group, so a set inside the Body would make a cycle --
-  measured 2026-11-19: a VarSet in a Body linking the Body fails recompute with "The graph must
-  be a DAG". The set sits next to the Body (in the same App::Part, if the Body is in one), as
-  upstream's proposal places its container [A8]; `Part` names what it annotates.
+- **In the Body, referring to its solids** (revised 2026-11-19, the user's question). The
+  annotation set is one of the Body's members, as its Elements group is
+  (docs/AssemblyObjectModel.md sec 5.3), and its annotations refer to faces through the solid's
+  `PartDesign::SolidBody`: `(Solid, "Face6")`. Measured, the three ways a reference could go:
+  - `(Body, "Face6")` is wrong: a Body may hold several solids, and its own shape is its **tip's**
+    solid. With a second solid added (and the tip in it), the same reference resolved to the
+    *other* box's top face, silently -- nothing went missing, so nothing was flagged.
+  - The set *inside* the Body linking the Body is a cycle ("The graph must be a DAG").
+  - The set inside the Body linking a solid body is neither: the Body depends on the set through
+    its group, the set's annotations on the solid body, never on the Body. The set names the Body
+    by a hidden link (no dependency).
+  So: a Body holding a set gives even a lone solid a solid body (`Part::BodyBase::
+  requireSolidBody`, as sheet metal already gets one), annotations travel with the Body (copy,
+  link into an assembly, export), each solid is a part with its own datum letters, and the tree
+  can show each solid's annotations under it, as it shows its elements.
+- **Editing an annotation rebuilds nothing downstream.** A member of a Body that changes makes
+  the Body recompute; measured, that set the Body's shape again and rebuilt everything depending
+  on the Body (a refine stood in for a drawing). `Body::execute` now keeps its shape when the
+  tip's is the one it took last time (same TShape, transform, element map), so an annotation --
+  or a VarSet, which had the same cost -- changes the Body's revision no more.
+- **Beside the shape** where there is no Body: an imported `Part::Feature`, a Split piece. The
+  set sits next to it, `Part` names it, references are `(Feature, "FaceN")`.
 - **Gui** owns the commands and task panels, once, and offers them in two places:
   - its own **PMI workbench**, for an imported part or an assembly (and the name upstream's
     proposal and its "Mod: PMI" label use, [A8]);
@@ -82,7 +99,7 @@ Names follow the upstream proposal (decision 1): its `PMI_AnnotationSet` is our
 ## 4. The object model
 
 ```
-PMI::AnnotationSet  (one per part: Body, Part::Feature, or Part; beside it, section 3)
+PMI::AnnotationSet  (in a Body, its solids' faces by solid body; beside any other shape)
  |-- Standard, Units, GeneralTolerance (ISO 2768-m, ...), Planes, Views
  |
  |-- PMI::TolerancedFeature  "toleranced feature" (= shape_aspect)        <-- shared by everything below
@@ -103,21 +120,22 @@ headless FreeCADCmd reads, edits, checks and exports them; the Gui only draws an
 
 ### 4.1 PMI::AnnotationSet
 
-The container and the part's settings: `Part` (link to the Body or shape object it annotates),
+The container and the part's settings: `Part` (a hidden link: the Body it is in, or the shape it sits beside),
 `Standard` (ASME Y14.5-2018, ASME Y14.5-2009, ISO GPS -- it changes the default principle,
 envelope or independency, and which symbols are legal [A6]), `GeneralTolerance` (ISO 2768 class
 or a +/- default, for the title block and for dimensions without their own), `Units`,
-`DecimalPlaces`. A part has at most one; it is created with the first annotation, beside the
-part. Its group takes only PMI objects.
+`DecimalPlaces`. A Body has at most one, in it; another shape at most one, beside it. It is
+created with the first annotation. Its group takes only PMI objects. Datum letters are each
+solid's own (sec 8): a Body's two solids are two parts.
 
 ### 4.2 PMI::TolerancedFeature -- the toleranced feature
 
 The heart of the model, because it is what survives edits.
 
-- `References`: `PropertyLinkSubList` to the **part's result shape** (the Body, not a feature
-  inside it) with mapped element names. Pointing at the Body means a face that a later Pad
-  modifies is still found through the element map; pointing at the Pad that made it would
-  freeze it at that step.
+- `References`: `PropertyLinkSubList` to the **solid's result shape** -- its
+  `PartDesign::SolidBody`, not a feature inside it and not the Body (sec 3) -- with mapped
+  element names. A face a later Pad modifies is still found through the element map; pointing
+  at the Pad that made it would freeze it at that step.
 - `Kind`: `Integral` (the faces themselves), `Axis`, `CentrePlane`, `CentrePoint`, `Apex`,
   `Group` (several faces as one: "2X", a pattern), `AllAround`, `Between` (from X to Y). The
   derived kinds compute their geometry at recompute from the faces (a cylinder's axis, two
@@ -296,6 +314,11 @@ On every recompute of the part, each PMI::TolerancedFeature resolves its referen
    TechDraw's `fixByName` does [B3], marked `Remapped`;
 4. otherwise `Broken`: drawn where it was, red, listed in the check, waiting for `Reattach`.
 
+**Nothing is resolved while the solid is rolled back** -- its tip set to an earlier feature to
+edit there: its faces are not the part's then, and a repair against them would be written back
+and survive the roll forward. The feature keeps what it had, and resolves again when the tip
+is back at the solid's last feature.
+
 Nothing is deleted. Creo's split [A2] applies: a broken *placement* (a leader anchor) only moves
 the leader to the feature's nearest face; a broken *semantic* reference is the error.
 
@@ -363,8 +386,8 @@ Each phase ends green on the full suites and with its own tests.
 
 | Object | Base | P0 properties |
 |---|---|---|
-| `PMI::AnnotationSet` | `App::DocumentObjectGroup` | `Part`, `Standard` (ISO GPS, ASME Y14.5-2018, ASME Y14.5-2009), `GeneralTolerance`, `DecimalPlaces`; takes only PMI objects |
-| `PMI::TolerancedFeature` | `App::DocumentObject` | `References` (LinkSubList to the part), `Kind`, `Shape` (resolved faces or derived axis/plane/point), `SavedGeometry`, `IsSize`, `State`, `StateMessage` |
+| `PMI::AnnotationSet` | `App::DocumentObjectGroup` | `Part` (hidden link), `Standard` (ISO GPS, ASME Y14.5-2018, ASME Y14.5-2009), `GeneralTolerance`, `DecimalPlaces`; takes only PMI objects |
+| `PMI::TolerancedFeature` | `App::DocumentObject` | `References` (LinkSubList to the solid body), `Kind`, `Shape` (resolved faces or derived axis/plane/point), `SavedGeometry`, `IsSize`, `Condition`, `ConditionMessage` |
 | `PMI::Datum` | `App::DocumentObject` | `Letter`, `Feature`, `Shape` (the simulated datum) |
 | `PMI::DatumReferenceFrame` | `App::DocumentObject` | `Compartments` (string list, "A", "B(M)", "C-D") |
 | `PMI::Dimension` | `App::DocumentObject` | `Type`, `Features`, `Nominal` (measured), `Upper`, `Lower`, `Fit`, `Basic`, `Modifiers`, `DecimalPlaces` |
@@ -382,10 +405,10 @@ recompute), step 3 (by geometry against `SavedGeometry`) and step 4 (broken, kep
 follows in P1. Measurement in P0: diameter/radius of a cylinder or sphere, the width of two
 opposed parallel planes, distance plane-plane, axis-axis, plane-axis, angle plane-plane.
 
-Tests (`PMITests`, registered in `FreeCAD.__unit_test__`): building a set on a Body; sharing;
+Tests (`PMITests`, registered in `FreeCAD.__unit_test__`): building a set in a Body; sharing;
 every check rule, both ways; editing the Body under its annotations -- length change, a fillet
 renaming faces, a face removed -- and the states that follow; measured nominals; save and
-reopen; the set refused inside a Body.
+reopen; a second solid; a rollback; an edit not rebuilding the Body's dependents.
 
 ### 10.2 P0 progress (2026-11-19)
 
@@ -403,11 +426,19 @@ What building it taught:
 - **Derived properties must not be outputs.** With `OptimizeRecompute` (the default) a link sees
   only the linked object's non-output revision (docs/InputProperties.md sec 2): with `Shape` an
   output, a Body edit recomputed the toleranced feature and stopped, and the dimension on it kept
-  its old nominal. `Shape`, `IsSize`, `State` and `Nominal` are read-only, not outputs.
+  its old nominal. `Shape`, `IsSize`, `Condition` and `Nominal` are read-only, not outputs.
 - **A new object with nothing touched is skipped** by the same optimisation; every annotation
   calls `enforceRecompute()` when it is made.
 - **OCCT 8 builders**: `BRepBuilderAPI_MakeEdge(...).Edge()` no longer converts to a
   `TopoDS_Shape`; `.Shape()` does.
+- **A property named `State` hides every object's status list** in Python (`obj.State`, where
+  "Touched" and "Invalid" are read); the annotations' is `Condition`.
+- **Reworked the same day into the Body** (sec 3): the second-solid jump, the rollback freeze,
+  the Body keeping its shape, letters per solid -- 27 tests. Traps on the way: the Body's `Shape`
+  holds a *copy* of the tip's shape, so the comparison is with the tip shape taken last; a
+  located tip is moved into place by a copy each time, so the comparison is before the move;
+  each `getShape()` locates afresh and locations compare by identity, so transforms compare by
+  value -- and `gp_XYZ::IsEqual(other, 0.0)` is false for equal values in OCCT 8.
 
 ## 11. Decisions (made 2026-11-19)
 

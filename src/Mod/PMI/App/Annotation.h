@@ -41,7 +41,7 @@ class AnnotationSet;
  *
  * A PMI object never fails a recompute: a tolerance on a face that went is
  * an annotation to look at, not a broken document (docs/GDandT.md sec 7).
- * What is wrong with it is said by State and StateMessage instead, which
+ * What is wrong with it is said by Condition and ConditionMessage instead, which
  * the check (sec 8) and the view read.
  */
 class PMIExport Annotation: public App::DocumentObject
@@ -62,15 +62,16 @@ public:
         Invalid,
     };
 
-    App::PropertyEnumeration State;
-    App::PropertyString StateMessage;
+    /// Not State: that name is every object's status list in Python
+    App::PropertyEnumeration Condition;
+    App::PropertyString ConditionMessage;
 
     /// The set this object is in, or null
     AnnotationSet* getSet() const;
 
     StateValue getState() const
     {
-        return static_cast<StateValue>(State.getValue());
+        return static_cast<StateValue>(Condition.getValue());
     }
     void setState(StateValue state, const std::string& message = std::string());
 

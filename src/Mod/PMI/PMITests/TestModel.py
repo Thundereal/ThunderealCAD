@@ -2,7 +2,9 @@
 """The PMI model, headless (docs/GDandT.md sec 10.1).
 
 A Body -- a 40 x 20 x 10 box with a through hole of radius 3 at (20, 10) --
-and an annotation set beside it. What is checked: the objects and their
+holding an annotation set, whose annotations refer to the Body's solid
+through its solid body: (Solid, "Face6"), never (Body, "Face6"), which
+follows the Body's tip to whichever solid it is in (docs/GDandT.md sec 3). What is checked: the objects and their
 geometry (TestModel), the rules of sec 8 both ways (TestCheck), and the
 references through edits of the Body under them (TestRepair, sec 7).
 """
@@ -42,9 +44,10 @@ class Base(unittest.TestCase):
         self.body.addObject(self.hole)
         self.hole.Radius, self.hole.Height = 3, 10
         self.hole.Placement = App.Placement(V(20, 10, 0), App.Rotation())
-        self.doc.recompute()
         self.set = self.doc.addObject("PMI::AnnotationSet", "PMI")
-        self.set.Part = self.body
+        self.body.addObject(self.set)
+        self.doc.recompute()
+        self.solid = self.body.SolidBodies[0]
 
     def tearDown(self):
         App.closeDocument(self.doc.Name)
@@ -56,14 +59,15 @@ class Base(unittest.TestCase):
             setattr(obj, key, value)
         return obj
 
-    def feature(self, *points, kind="Integral", body=None):
-        body = body or self.body
-        subs = [face_at(body.Shape, p) for p in points]
-        return self.add("TolerancedFeature", "Feature", References=[(body, subs)], Kind=kind)
+    def feature(self, *points, kind="Integral", solid=None):
+        solid = solid or self.solid
+        subs = [face_at(solid.Shape, p) for p in points]
+        return self.add("TolerancedFeature", "Feature", References=[(solid, subs)], Kind=kind)
 
     def recompute(self):
         self.doc.recompute()
-        bad = [o.Name for o in self.doc.Objects if "Invalid" in o.State]
+        bad = [o.Name for o in self.doc.Objects if "Invalid" in o.State or "Error" in o.State]
+        bad += [o.Name for o in self.doc.Objects if getattr(o, "Condition", "Ok") == "Invalid"]
         self.assertEqual(bad, [], "objects failed to recompute")
 
     def issues(self, obj=None, severity=None):
@@ -75,13 +79,28 @@ class Base(unittest.TestCase):
 
 
 class TestModel(Base):
-    def test_set_is_refused_inside_a_body(self):
-        # A set inside the Body it annotates would be a cycle (sec 3)
-        try:
-            self.body.addObject(self.set)
-        except Exception:
-            pass
-        self.assertNotIn(self.set, self.body.Group)
+    def test_set_lives_in_the_body(self):
+        # No cycle: the set names the Body by a hidden link, and its
+        # annotations depend on the solid body only
+        self.assertIn(self.set, self.body.Group)
+        self.assertEqual(self.set.Part, self.body)
+        self.assertNotIn(self.body, self.set.OutListRecursive)
+        # A lone solid has a solid body once the body holds a set
+        self.assertEqual(len(self.body.SolidBodies), 1)
+        self.feature(TOP)
+        self.recompute()
+
+    def test_set_beside_a_shape_that_is_no_body(self):
+        box = self.doc.addObject("Part::Box", "Plain")
+        self.doc.recompute()
+        other = self.doc.addObject("PMI::AnnotationSet", "PlainPMI")
+        other.Part = box
+        feat = self.doc.addObject("PMI::TolerancedFeature", "PlainTop")
+        other.addObject(feat)
+        feat.References = [(box, [face_at(box.Shape, V(5, 5, 10))])]
+        self.recompute()
+        self.assertEqual(feat.Condition, "Ok", feat.ConditionMessage)
+        self.assertEqual(PMI.findSet(box), other)
 
     def test_set_takes_pmi_objects_only(self):
         other = self.doc.addObject("Part::Box", "Other")
@@ -97,7 +116,7 @@ class TestModel(Base):
         width = self.feature(LEFT, RIGHT)
         self.recompute()
         for f in (top, hole, width):
-            self.assertEqual(f.State, "Ok", f.StateMessage)
+            self.assertEqual(f.Condition, "Ok", f.ConditionMessage)
         self.assertEqual(top.Shape.ShapeType, "Face")
         self.assertFalse(top.IsSize)
         self.assertTrue(hole.IsSize)
@@ -116,7 +135,7 @@ class TestModel(Base):
         self.assertAlmostEqual(mid.Shape.CenterOfMass.x, 20, 6)
         bad = self.feature(TOP, kind="Axis")
         self.doc.recompute()
-        self.assertEqual(bad.State, "Invalid")
+        self.assertEqual(bad.Condition, "Invalid")
 
     def test_dimensions_measure_the_model(self):
         hole, top, bottom = self.feature(HOLE), self.feature(TOP), self.feature(BOTTOM)
@@ -132,16 +151,17 @@ class TestModel(Base):
         dims = [self.add("Dimension", "D", Type=t, Features=f) for t, f, _ in cases]
         self.recompute()
         for dim, (t, _, want) in zip(dims, cases):
-            self.assertEqual(dim.State, "Ok", "%s: %s" % (t, dim.StateMessage))
+            self.assertEqual(dim.Condition, "Ok", "%s: %s" % (t, dim.ConditionMessage))
             self.assertAlmostEqual(dim.Nominal.Value, want, 6, t)
 
     def test_find_feature_shares(self):
         top = self.feature(TOP)
         self.recompute()
-        name = face_at(self.body.Shape, TOP)
-        self.assertEqual(PMI.findFeature(self.set, self.body, [name]), top)
-        self.assertIsNone(PMI.findFeature(self.set, self.body, [face_at(self.body.Shape, LEFT)]))
+        name = face_at(self.solid.Shape, TOP)
+        self.assertEqual(PMI.findFeature(self.set, self.solid, [name]), top)
+        self.assertIsNone(PMI.findFeature(self.set, self.solid, [face_at(self.solid.Shape, LEFT)]))
         self.assertEqual(PMI.findSet(self.body), self.set)
+        self.assertEqual(PMI.findSet(self.solid), self.set)
 
     def test_datum_reference_frame(self):
         for letter, point in (("A", BOTTOM), ("B", LEFT), ("C", FRONT)):
@@ -149,14 +169,14 @@ class TestModel(Base):
         good = self.add("DatumReferenceFrame", "DRF", Compartments=["A", "B", "C(M)"])
         common = self.add("DatumReferenceFrame", "DRF", Compartments=["A-B"])
         self.recompute()
-        self.assertEqual(good.State, "Ok", good.StateMessage)
-        self.assertEqual(common.State, "Ok", common.StateMessage)
+        self.assertEqual(good.Condition, "Ok", good.ConditionMessage)
+        self.assertEqual(common.Condition, "Ok", common.ConditionMessage)
         datum = self.doc.getObject("DatumA")
         self.assertEqual(datum.Shape.ShapeType, "Face")
         for bad in (["A", "A"], ["A(Q)"], ["A", "B", "C", "A"], [], ["a"]):
             drf = self.add("DatumReferenceFrame", "Bad", Compartments=bad)
             self.doc.recompute()
-            self.assertEqual(drf.State, "Invalid", bad)
+            self.assertEqual(drf.Condition, "Invalid", bad)
 
     def test_save_and_reopen(self):
         hole = self.feature(HOLE)
@@ -180,7 +200,7 @@ class TestModel(Base):
         self.assertAlmostEqual(dim.Upper.Value, 0.1, 9)
         self.assertEqual(self.issues(dim, "Error"), [])
         self.recompute()
-        self.assertEqual(hole.State, "Ok")
+        self.assertEqual(hole.Condition, "Ok")
 
 
 class TestCheck(Base):
@@ -203,12 +223,12 @@ class TestCheck(Base):
         self.doc.recompute()
         found = [m for m in self.issues(obj, "Error") if text in m]
         self.assertTrue(found, "no error with '%s': %s" % (text, self.issues(obj)))
-        self.assertEqual(obj.State, "Invalid")
+        self.assertEqual(obj.Condition, "Invalid")
 
     def assertClean(self, obj):
         self.doc.recompute()
         self.assertEqual(self.issues(obj, "Error"), [])
-        self.assertEqual(obj.State, "Ok", obj.StateMessage)
+        self.assertEqual(obj.Condition, "Ok", obj.ConditionMessage)
 
     def test_form_takes_no_datums(self):
         drf = self.frame()
@@ -278,7 +298,7 @@ class TestCheck(Base):
         letter_i = self.add("Datum", "I", Letter="I", Feature=self.feature(LEFT))
         self.doc.recompute()
         self.assertTrue([m for m in self.issues(letter_i) if "letter I" in m])
-        self.assertEqual(letter_i.State, "Invalid")
+        self.assertEqual(letter_i.Condition, "Invalid")
 
     def test_dimension_rules(self):
         hole = self.feature(HOLE)
@@ -294,7 +314,7 @@ class TestCheck(Base):
         self.assertTrue([m for m in self.issues(fit) if "ISO 286" in m])
         bad = self.add("Dimension", "Bad", Type="Diameter", Features=[self.feature(TOP)])
         self.doc.recompute()
-        self.assertEqual(bad.State, "Invalid")
+        self.assertEqual(bad.Condition, "Invalid")
 
     def test_projected_zone_and_composite(self):
         drf = self.frame()
@@ -315,7 +335,7 @@ class TestRepair(Base):
         self.recompute()
         self.box.Length = 50
         self.recompute()
-        self.assertEqual(width.State, "Ok", width.StateMessage)
+        self.assertEqual(width.Condition, "Ok", width.ConditionMessage)
         self.assertAlmostEqual(dim.Nominal.Value, 50, 6)
         self.assertAlmostEqual(dim.Upper.Value, 0.2, 9)
 
@@ -328,9 +348,9 @@ class TestRepair(Base):
         second.Placement = App.Placement(V(32, 10, 0), App.Rotation())
         self.recompute()
         # The left face is untouched; the top face is cut, by history
-        self.assertEqual(left.State, "Ok", left.StateMessage)
-        self.assertIn(top.State, ("Ok", "Remapped"), top.StateMessage)
-        self.assertNotIn("geometry", top.StateMessage)
+        self.assertEqual(left.Condition, "Ok", left.ConditionMessage)
+        self.assertIn(top.Condition, ("Ok", "Remapped"), top.ConditionMessage)
+        self.assertNotIn("geometry", top.ConditionMessage)
         self.assertAlmostEqual(top.Shape.CenterOfMass.z, 10, 6)
 
     def test_a_fillet_remaps_by_history(self):
@@ -342,19 +362,19 @@ class TestRepair(Base):
         fillet.Base = (self.hole, [face_at(self.hole.Shape, TOP)])
         fillet.Radius = 1
         self.recompute()
-        self.assertEqual(top.State, "Remapped", top.StateMessage)
-        self.assertIn("history", top.StateMessage)
+        self.assertEqual(top.Condition, "Remapped", top.ConditionMessage)
+        self.assertIn("history", top.ConditionMessage)
         self.assertEqual(top.Shape.ShapeType, "Face")
         self.assertLess(top.Shape.Area, area)
         self.assertAlmostEqual(top.Shape.CenterOfMass.z, 10, 6)
         # It stays remapped until the user says it is right
         self.body.touch()
         self.recompute()
-        self.assertEqual(top.State, "Remapped")
-        top.State = "Ok"
+        self.assertEqual(top.Condition, "Remapped")
+        top.Condition = "Ok"
         self.body.touch()
         self.recompute()
-        self.assertEqual(top.State, "Ok", top.StateMessage)
+        self.assertEqual(top.Condition, "Ok", top.ConditionMessage)
 
     def test_a_face_gone_is_broken_and_kept(self):
         right = self.feature(RIGHT)
@@ -365,27 +385,99 @@ class TestRepair(Base):
         cover.Length, cover.Width, cover.Height = 42, 22, 12
         cover.Placement = App.Placement(V(-1, -1, -1), App.Rotation())
         self.doc.recompute()
-        self.assertEqual(right.State, "Broken")
+        self.assertEqual(right.Condition, "Broken")
         # Drawn where it was
         self.assertFalse(right.Shape.isNull())
         self.assertAlmostEqual(right.Shape.CenterOfMass.x, 40, 6)
-        self.assertEqual(dim.State, "Broken")
+        self.assertEqual(dim.Condition, "Broken")
         self.assertTrue([m for m in self.issues(right, "Error") if "broken" in m])
 
-    def test_a_rebuilt_part_remaps_by_geometry(self):
-        body = self.doc.addObject("PartDesign::Body", "Body2")
-        box = self.doc.addObject("PartDesign::AdditiveBox", "Box2")
-        body.addObject(box)
-        self.doc.recompute()
-        self.set.Part = body
-        top = self.feature(V(5, 5, 10), body=body)
+    def test_a_rebuilt_feature_remaps_by_geometry(self):
+        lid = self.doc.addObject("PartDesign::AdditiveBox", "Lid")
+        self.body.addObject(lid)
+        lid.Placement = App.Placement(V(0, 0, 10), App.Rotation())
         self.recompute()
-        # The same box made again, by a new feature: new names, no history
-        body.removeObject(box)
-        self.doc.removeObject(box.Name)
-        again = self.doc.addObject("PartDesign::AdditiveBox", "Box3")
-        body.addObject(again)
+        top = self.feature(V(5, 5, 20))
+        self.recompute()
+        # The same lid made again, by a new feature: new names, no history
+        self.body.removeObject(lid)
+        self.doc.removeObject(lid.Name)
+        again = self.doc.addObject("PartDesign::AdditiveBox", "Lid2")
+        self.body.addObject(again)
+        again.Placement = App.Placement(V(0, 0, 10), App.Rotation())
         self.doc.recompute()
-        self.assertEqual(top.State, "Remapped", top.StateMessage)
-        self.assertIn("geometry", top.StateMessage)
+        self.assertEqual(top.Condition, "Remapped", top.ConditionMessage)
+        self.assertIn("geometry", top.ConditionMessage)
+        self.assertAlmostEqual(top.Shape.CenterOfMass.z, 20, 6)
+
+    def test_a_second_solid_does_not_move_a_reference(self):
+        # (Body, "Face6") would now be the new solid's face (the Body's shape
+        # is its tip's); (Solid, "Face6") stays on this one
+        top = self.feature(TOP)
+        self.recompute()
+        other = self.doc.addObject("PartDesign::AdditiveBox", "Other")
+        self.body.addObject(other)
+        other.Placement = App.Placement(V(100, 0, 0), App.Rotation())
+        other.NewSolid = True
+        self.recompute()
+        self.assertEqual(len(self.body.SolidBodies), 2)
+        self.assertIn(self.solid, self.body.SolidBodies)
+        self.assertEqual(top.Condition, "Ok", top.ConditionMessage)
+        self.assertAlmostEqual(top.Shape.CenterOfMass.x, 20, 6)
         self.assertAlmostEqual(top.Shape.CenterOfMass.z, 10, 6)
+
+    def test_a_rolled_back_solid_leaves_its_annotations_alone(self):
+        hole = self.feature(HOLE)
+        dim = self.add("Dimension", "Dia", Type="Diameter", Features=[hole])
+        self.recompute()
+        refs, com = hole.References, hole.Shape.CenterOfMass
+        self.body.Tip = self.box
+        self.doc.recompute()
+        self.assertEqual(self.solid.Tip, self.box)
+        # The hole is not there at this step: nothing resolved against it,
+        # nothing broken, nothing written back
+        self.assertEqual(hole.Condition, "Ok", hole.ConditionMessage)
+        self.assertTrue(hole.Shape.CenterOfMass.isEqual(com, 1e-9))
+        self.assertAlmostEqual(dim.Nominal.Value, 6, 6)
+        self.body.Tip = self.hole
+        self.recompute()
+        self.assertEqual(hole.Condition, "Ok", hole.ConditionMessage)
+        self.assertEqual(hole.References, refs)
+
+    def test_editing_a_tolerance_leaves_the_body_alone(self):
+        # A drawing or an assembly depends on the Body; editing a tolerance
+        # must not rebuild either (docs/GDandT.md sec 3). A refine of the
+        # Body stands for them: it makes a new shape whenever it executes.
+        downstream = self.doc.addObject("Part::Refine", "Downstream")
+        downstream.Source = self.body
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Flatness",
+                      Feature=self.feature(TOP), Value=0.05)
+        self.recompute()
+        body, after = self.body.Shape.hashCode(), downstream.Shape.hashCode()
+        gt.Value = 0.02
+        self.recompute()
+        self.assertEqual(self.body.Shape.hashCode(), body)
+        self.assertEqual(downstream.Shape.hashCode(), after)
+        # A change of the solid still goes through
+        self.box.Length = 45
+        self.recompute()
+        self.assertNotEqual(downstream.Shape.hashCode(), after)
+
+    def test_each_solid_has_its_own_datums(self):
+        other = self.doc.addObject("PartDesign::AdditiveBox", "Other")
+        self.body.addObject(other)
+        other.Placement = App.Placement(V(100, 0, 0), App.Rotation())
+        other.NewSolid = True
+        self.recompute()
+        second = [s for s in self.body.SolidBodies if s != self.solid][0]
+        self.add("Datum", "A1", Letter="A", Feature=self.feature(BOTTOM))
+        self.add("Datum", "A2", Letter="A", Feature=self.feature(V(105, 5, 0), solid=second))
+        self.add("Datum", "B1", Letter="B", Feature=self.feature(LEFT))
+        drf = self.add("DatumReferenceFrame", "DRF", Compartments=["A", "B"])
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Parallelism",
+                      Feature=self.feature(V(105, 5, 10), solid=second), Value=0.05,
+                      DatumSystem=drf)
+        self.recompute()
+        msgs = [m for _, _, m in PMI.check(self.set)]
+        self.assertFalse([m for m in msgs if "defined twice" in m], msgs)
+        self.assertTrue([m for m in self.issues(gt, "Warning") if "datum B is on another solid" in m])

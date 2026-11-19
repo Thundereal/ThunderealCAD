@@ -37,6 +37,7 @@
 #include <App/IndexedName.h>
 #include <App/MappedElement.h>
 #include <Base/Console.h>
+#include <Mod/Part/App/BodyBase.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/TopoShape.h>
 
@@ -67,7 +68,7 @@ TolerancedFeature::TolerancedFeature()
                       "element derived from them; Group: several faces as one; AllAround, "
                       "Between: a restricted feature");
     Kind.setEnums(KindEnums);
-    // Shape, IsSize and State are not outputs: a dimension or a datum on
+    // Shape, IsSize and Condition are not outputs: a dimension or a datum on
     // this feature is recomputed only when one of them changes (with
     // OptimizeRecompute a link sees an object's non-output revision only,
     // docs/InputProperties.md sec 2)
@@ -119,10 +120,33 @@ Part::TopoShape faceOf(App::DocumentObject* obj, const std::string& sub)
     }
     return Part::TopoShape();
 }
+/// A solid rolled back -- its tip not its last feature -- is being edited at
+/// an earlier step: its faces are not the part's, and nothing is resolved
+/// against them (docs/GDandT.md sec 7)
+bool rolledBack(const App::DocumentObject* obj)
+{
+    if (!obj || obj->isDerivedFrom<Part::BodyBase>()) {
+        return false;
+    }
+    auto tip = freecad_cast<App::PropertyLink*>(obj->getPropertyByName("Tip"));
+    auto group = freecad_cast<App::PropertyLinkList*>(obj->getPropertyByName("Group"));
+    if (!tip || !group || !tip->getValue() || group->getValues().empty()) {
+        return false;
+    }
+    return tip->getValue() != group->getValues().back();
+}
 }  // namespace
 
 App::DocumentObjectExecReturn* TolerancedFeature::execute()
 {
+    for (auto obj : References.getValues()) {
+        if (rolledBack(obj)) {
+            FC_LOG(getFullName() << ": " << obj->getFullName()
+                                 << " is rolled back; kept as it was");
+            return App::DocumentObject::StdReturn;
+        }
+    }
+
     const std::vector<App::DocumentObject*> objs = References.getValues();
     const std::vector<std::string> subs = References.getSubValues(false);
     const std::vector<App::ShadowSub> shadows = References.getShadowSubs();

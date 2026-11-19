@@ -28,6 +28,7 @@
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/PyObjectBase.h>
+#include <Mod/Part/App/BodyBase.h>
 
 #include "Annotation.h"
 #include "AnnotationSet.h"
@@ -154,6 +155,15 @@ PyMOD_INIT_FUNC(PMI)
     PMI::GeometricTolerance  ::init();
     PMI::Note                ::init();
     // clang-format on
+
+    // In a PartDesign Body, as its Elements group is: never solid, never its
+    // tip. A body holding a set gives even a lone solid a solid body, which
+    // is what the annotations' faces are named through (docs/GDandT.md sec 3)
+    for (Base::Type type : {PMI::AnnotationSet::getClassTypeId(),
+                            PMI::Annotation::getClassTypeId()}) {
+        Part::BodyBase::allowType(type, "Annotation");
+    }
+    Part::BodyBase::requireSolidBody(PMI::AnnotationSet::getClassTypeId());
 
     Base::Console().Log("Loading PMI module... done\n");
     PyMOD_Return(mod);

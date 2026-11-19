@@ -11,7 +11,8 @@ client's (sec 20); an export made by a worker, pinned to the design as it
 was asked for (sec 24); a geometry check made by a worker (sec 25); the
 worker of a long job that was dropped ended (sec 26); what a worker says
 through its Console said here (sec 27); an edit's long recompute made by a
-worker (sec 28).
+worker (sec 28); a worker keeping what it made as it moves across it (sec
+29).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -1666,11 +1667,9 @@ reached, 6.5 s expected), in the console:
 | the result in | 6.6 s | 10.5-11 s |
 | the worker's recompute / put in here | | 6.5-6.7 s / 0.15 s |
 
-The worker's result comes about 4 s after one made here would have. Most
-of that is the move along the log: the job runs 2.1 s after it is handed
-over to a worker already started. The step the worker moves across holds
-the previous result it made itself, and restoring those values is that
-time (open: skipping values the worker already holds as they are).
+The worker's result came about 4 s after one made here would have. Most
+of that was the move along the log: the job ran 2.1 s after it was handed
+over to a worker already started. Sec 29 takes it out: 7.3 s now.
 
 Left as it is: after an open, no object has a time, so an edit's first
 recompute is made here, and that recompute gives the objects their times.
@@ -1688,3 +1687,70 @@ execute, expected 0.8-1.2 s). GUI test `tests/gui/edit-recompute-by-worker.py`
 - one undo step for the edit, which takes back the edit and its result;
 - an object that took no time is made here at once;
 - with RecomputeEdits off, the slow one is made here, 1.02 s.
+
+## 29. A worker keeps what it made as it moves across it (2026-11-19)
+
+The move along the log that brings a worker to the next copy (sec 4)
+crosses the rows its own last result was put in as. On scanner, after an
+edit of Pad039's Length, the step held 7 values: the Length, and the
+Shape and AddSubShape of the three objects the worker had just made. The
+move restored all 7, and the three shapes took 3.5 s of it.
+
+**Why each was restored.** A move puts in only a value that differs from
+the document's: it writes the document's value again (`captureValue`)
+and compares the bytes. A worker's own result never compares equal:
+- the log's copy was written by the other process, after the worker's
+  bytes were read there, under that process's naming: `HasherIndex="0"`,
+  and the attachment named `Property.brp` rather than `Pad039.Shape.brp`,
+  the shape's bytes themselves equal;
+- one value (PolarPattern003's shape) differs in the last digits of a
+  location's matrix (`-0.41084317105790380` against `...374`): a
+  location read back is normalised, so what was read and written again
+  is not what was made.
+Bytes cannot show that it is the same value, and comparing shapes by
+geometry would cost what restoring them does.
+
+**What the pool tells the worker.** The process that puts a result in
+knows which of its rows that was. `WorkerRecompute::apply` notes the log's
+`lastSeq()` before and after the put-in, and the objects made from the
+worker's values (`Supplier::fromWorker`; one executed here is not), and
+tells the pool (`WorkerPool::putIn(job, from, to, objects)`). The pool
+holds it for the worker that made the job (`Proc::own`), as long as that
+worker has had no job and no setup since, and sends it with that
+worker's next move (`own` in the setup).
+
+**What the worker keeps.** The worker checks it too: its last job must be
+that one, with no setup since. It moves with a `LogMoveKeep` installed
+(`App/LogMoveKeep.h`, a hook for the scope of the move, like
+`RecomputeHook`). `_moveAlongLog` notes, for each value a recompute wrote
+going forward, the row that wrote it (`LogFold::writer`; any later op on
+the same property clears it). It asks the hook of each such value before
+it compares, and leaves the value as it is when the hook agrees. The
+hook agrees for a value that is:
+- written in the put-in's rows;
+- of an object made from the worker's values;
+- one the worker's last recompute sent (`WorkerRecompute::sent`).
+An edit after the put-in is a later write of its own, not a recompute's,
+and is put in as before: the Length was. What the worker holds of a shape
+is what it sent, meshes included: the mesh for the view is made on the
+worker's own shape (`captureMeshed`), not a copy. `ready` says how many
+were kept; `info()["Kept"]` sums them.
+
+Measured on mini, scanner, three edits of Pad039's Length in turn, each
+recomputed by the worker:
+
+| | before | after |
+|---|---|---|
+| the move: values restored / kept | 7 / 0, 3.6 s | 1 / 6, 0.2 ms |
+| the result in, from the hand-over | 10.8-10.9 s | 7.3-7.4 s (6.6 s made here) |
+
+After the three, the 405 shapes made so were compared with a recompute
+here of the same state (volume, faces, element map size, state): none
+differs.
+
+Tests: `TestWorkerRecompute.testAWorkerKeepsWhatItMadeAsItMovesAcrossIt`:
+a box cut by a rotated cylinder, and a counted feature reading the box.
+The box's Length is edited and recomputed by the worker; then its Height
+twice, each recomputed by the worker. Each result is right, at least two
+moves keep values (`Kept` > 0), and the last one equals a recompute here,
+element map included.

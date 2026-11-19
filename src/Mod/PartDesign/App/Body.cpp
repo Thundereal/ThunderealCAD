@@ -35,6 +35,8 @@
 #include <Mod/Material/App/Materials.h>
 
 
+#include <gp_Trsf.hxx>
+
 #include "Body.h"
 #include "BodyPy.h"
 #include "Feature.h"
@@ -670,6 +672,9 @@ App::DocumentObjectExecReturn *Body::execute()
     }
 
     Part::TopoShape tipShape;
+    // What the tip has, before it is moved into place below: a located tip
+    // is copied, so the copy is new each time and cannot be compared
+    TopoDS_Shape tipSource;
     if ( tip ) {
         if ( !isSolidFeature(tip)
                 && !tip->isDerivedFrom<PartDesign::Feature>()) {
@@ -678,6 +683,7 @@ App::DocumentObjectExecReturn *Body::execute()
 
         // get the shape of the tip
         tipShape = static_cast<Part::Feature *>(tip)->Shape.getShape();
+        tipSource = tipShape.getShape();
 
         if ( tipShape.getShape().IsNull () ) {
             return new App::DocumentObjectExecReturn (QT_TRANSLATE_NOOP("Exception", "Tip shape is empty" ));
@@ -692,6 +698,36 @@ App::DocumentObjectExecReturn *Body::execute()
     } else {
         tipShape = Part::TopoShape();
     }
+
+    // The tip's shape is the one the body took last time: set again, it would
+    // advance the body's revision, and everything depending on the body -- a
+    // drawing, an assembly, a refine -- would recompute for the change of a
+    // member that makes no solid: an annotation, a VarSet (docs/GDandT.md
+    // sec 3). Compared with what was taken, not with Shape, which holds a
+    // copy of it.
+    // The same TShape where it was: each getShape() locates it afresh, and
+    // locations compare by identity, so the transform is compared by value
+    auto sameShape = [](const TopoDS_Shape &a, const TopoDS_Shape &b) {
+        if (a.IsNull() || b.IsNull() || a.TShape() != b.TShape()
+                || a.Orientation() != b.Orientation())
+            return false;
+        const gp_Trsf ta = a.Location().Transformation();
+        const gp_Trsf tb = b.Location().Transformation();
+        // Exact: gp_XYZ::IsEqual() at a zero tolerance says no to equal values
+        for (int r = 1; r <= 3; ++r) {
+            for (int c = 1; c <= 4; ++c) {
+                if (ta.Value(r, c) != tb.Value(r, c))
+                    return false;
+            }
+        }
+        return true;
+    };
+    if (!tipShape.isNull() && !Shape.getShape().isNull()
+            && sameShape(tipSource, lastTipShape)
+            && tipShape.getElementMapSize(false) == lastTipMapSize)
+        return App::DocumentObject::StdReturn;
+    lastTipShape = tipSource;
+    lastTipMapSize = tipShape.isNull() ? 0 : tipShape.getElementMapSize(false);
 
     Shape.setValue ( tipShape );
     return App::DocumentObject::StdReturn;
@@ -1146,7 +1182,9 @@ void Body::syncSolidBodies(bool force)
 
     // Every solid gets one once there are two solids. A lone solid keeps the
     // one it has, and is given none -- unless it holds sheet metal, whose
-    // rule is shown under its solid body (docs/SheetMetal.md sec 4.6).
+    // rule is shown under its solid body (docs/SheetMetal.md sec 4.6), or
+    // the body holds what refers to a solid's faces and asked for one
+    // (BodyBase::requireSolidBody: PMI's annotations, docs/GDandT.md sec 3).
     auto holdsSheetMetal = [](const std::vector<App::DocumentObject*> &features) {
         for (auto obj : features) {
             if (obj->hasExtension(SheetMetalExtension::getExtensionClassTypeId()))
@@ -1154,11 +1192,19 @@ void Body::syncSolidBodies(bool force)
         }
         return false;
     };
+    bool wantsSolidBody = false;
+    for (auto obj : Group.getValues()) {
+        if (obj && Part::BodyBase::needsSolidBody(obj->getTypeId())) {
+            wantsSolidBody = true;
+            break;
+        }
+    }
     std::vector<SolidBody*> created;
     {
         auto group = Group.getValues();
         for (int i=0; i<(int)solids.size(); ++i) {
-            if (assigned[i] || (solids.size() < 2 && !holdsSheetMetal(solids[i])))
+            if (assigned[i]
+                || (solids.size() < 2 && !holdsSheetMetal(solids[i]) && !wantsSolidBody))
                 continue;
             // Not made the document's active object: that stays the feature
             // whose arrival made the second solid

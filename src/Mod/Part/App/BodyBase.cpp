@@ -70,6 +70,33 @@ void BodyBase::allowType(Base::Type type, const char* kind)
     }
 }
 
+namespace
+{
+std::vector<Base::Type>& solidBodyTypes()
+{
+    static std::vector<Base::Type> types;
+    return types;
+}
+}  // namespace
+
+void BodyBase::requireSolidBody(Base::Type type)
+{
+    auto& types = solidBodyTypes();
+    if (std::find(types.begin(), types.end(), type) == types.end()) {
+        types.push_back(type);
+    }
+}
+
+bool BodyBase::needsSolidBody(Base::Type type)
+{
+    for (const auto& t : solidBodyTypes()) {
+        if (type.isDerivedFrom(t)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool BodyBase::isTypeAllowed(Base::Type type)
 {
     for (const auto& entry : allowedTypes()) {

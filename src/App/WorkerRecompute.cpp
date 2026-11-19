@@ -503,6 +503,20 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             }
         }
     }
+    // What the asking process has to recompute: an object it marked to be
+    // recomputed (enforceRecompute) has nothing in the log that says so
+    // (docs/WorkerProcess.md sec 31)
+    auto marked = inputs.find("touched");
+    if (marked != inputs.end() && marked->is_array()) {
+        for (auto& item : *marked) {
+            if (auto obj = item.is_string() ? doc->getObject(item.get<std::string>().c_str())
+                                            : nullptr) {
+                if (!obj->mustRecompute()) {
+                    obj->enforceRecompute();
+                }
+            }
+        }
+    }
     long touched = 0;
     for (auto obj : doc->getObjects()) {
         if (obj->mustRecompute()) {
@@ -678,6 +692,9 @@ struct Times
 {
     std::unordered_map<long, double> seconds;
     std::chrono::steady_clock::time_point last;
+    /// In a recompute of the document: an object recomputed on its own
+    /// (Document::recomputeFeature) has no start to time it from
+    bool recomputing = false;
     /// From the log's recompute records, for an object not made since
     /// (docs/WorkerProcess.md sec 30)
     std::unordered_map<long, double> recorded;
@@ -1393,12 +1410,21 @@ void WorkerRecompute::trackTimes()
     // worker's times
     static fastsignals::scoped_connection before =
         GetApplication().signalBeforeRecomputeDocument.connect([](const Document& doc) {
-            times()[&doc].last = std::chrono::steady_clock::now();
+            Times& slot = times()[&doc];
+            slot.last = std::chrono::steady_clock::now();
+            slot.recomputing = true;
+        });
+    static fastsignals::scoped_connection after =
+        GetApplication().signalRecomputed.connect([](const Document& doc) {
+            times()[&doc].recomputing = false;
         });
     static fastsignals::scoped_connection each = GetApplication().signalRecomputedObject.connect(
         [](const Document& doc, const DocumentObject& obj) {
             const auto t = std::chrono::steady_clock::now();
             Times& slot = times()[&doc];
+            if (!slot.recomputing) {
+                return;
+            }
             if (!RecomputeHook::of(doc)) {
                 slot.seconds[obj.getID()] = std::chrono::duration<double>(t - slot.last).count();
             }
@@ -1477,9 +1503,13 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         return refuse("cannot make " + s.tables);
     }
     std::vector<std::string> names;
+    std::vector<std::string> touchedHere;
     json display = json::object();
     for (auto obj : all) {
         names.emplace_back(obj->getNameInDocument());
+        if (obj->mustRecompute()) {
+            touchedHere.emplace_back(obj->getNameInDocument());
+        }
         // How the view here meshes it, for the worker to mesh it so
         if (Animation::displayHint) {
             std::string hint = Animation::displayHint(*obj);
@@ -1496,6 +1526,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     job.tag = s.tag;
     job.reads = names;
     job.inputs = json {{"objects", names},
+                       {"touched", touchedHere},
                        {"display", meshes ? display : json::object()},
                        {"tables", s.tables}}
                      .dump();

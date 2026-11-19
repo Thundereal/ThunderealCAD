@@ -1140,6 +1140,19 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertGreaterEqual(seconds, 0.4)
         self.assertLess(seconds, 0.8)
 
+    def testWhatIsMarkedHereIsMadeThere(self):
+        """An object marked here to be recomputed (enforceRecompute), which
+        nothing in the log says, is recomputed by the worker too
+        (docs/WorkerProcess.md sec 31)"""
+        marked = self.counted("Marked", Input=3)
+        self.doc.recompute()
+        marked.enforceRecompute()
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(info["Supplied"], 1, info)
+        self.assertNotEqual(marked.MadeBy, os.getpid())
+        self.assertEqual(marked.Result, 6)
+
     def testAFailureTheWorkerSawIsSaidOnce(self):
         """The worker's "Failed to recompute" is not said here: the put-in
         says it, as a recompute here does (docs/WorkerProcess.md sec 27)"""

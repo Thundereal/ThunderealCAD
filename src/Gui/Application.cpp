@@ -98,6 +98,7 @@
 
 #include "Application.h"
 #include "WorkerRecomputeGui.h"
+#include <App/WorkerRecompute.h>
 #include "WorkerExportGui.h"
 #include "GeneralParams.h"
 #include "AutoSaver.h"
@@ -529,6 +530,10 @@ void Application::initStyleParameterManager()
 Application::Application(bool GUIenabled)
 {
     //App::GetApplication().Attach(this);
+    // What each object's recompute takes, from the start: an edit's
+    // recompute expected to be long goes to a worker (docs/WorkerProcess.md
+    // sec 28)
+    App::WorkerRecompute::trackTimes();
     // obj.ViewObject asked for before a progressive load has made it: what
     // the load parked is made now (App/ViewObjectRequest.h)
     App::setViewObjectRequest([](const App::DocumentObject &obj) {

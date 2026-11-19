@@ -29,6 +29,7 @@
 
 #include <App/Application.h>
 #include <App/Document.h>
+#include <App/WorkerPool.h>
 #include <App/WorkerRecompute.h>
 #include <Base/Console.h>
 #include <Base/Parameter.h>
@@ -129,13 +130,17 @@ void onChanged(const App::Document& doc)
 
 }  // namespace
 
-bool Gui::recomputeByWorkers(App::Document& doc)
+namespace
 {
-    auto group = App::GetApplication().GetParameterGroupByPath(
+
+ParameterGrp::handle workerParams()
+{
+    return App::GetApplication().GetParameterGroupByPath(
         "User parameter:BaseApp/Preferences/Workers");
-    if (!group->GetBool("RecomputeCommand", true)) {
-        return false;
-    }
+}
+
+bool handOver(App::Document& doc)
+{
     static fastsignals::scoped_connection conn =
         App::WorkerRecompute::signalChanged.connect(&onChanged);
     if (App::WorkerRecompute::running(doc)) {
@@ -151,4 +156,34 @@ bool Gui::recomputeByWorkers(App::Document& doc)
     say(QObject::tr("%1: recomputing in a worker process")
             .arg(QString::fromUtf8(doc.Label.getValue())));
     return true;
+}
+
+}  // namespace
+
+bool Gui::recomputeByWorkers(App::Document& doc)
+{
+    App::WorkerRecompute::trackTimes();
+    if (!workerParams()->GetBool("RecomputeCommand", true)) {
+        return false;
+    }
+    return handOver(doc);
+}
+
+bool Gui::editRecomputeIsLong(const App::Document& doc)
+{
+    App::WorkerRecompute::trackTimes();
+    auto group = workerParams();
+    if (!group->GetBool("RecomputeEdits", true) || App::WorkerRecompute::running(doc)
+        || !App::WorkerPool::supported()) {
+        return false;
+    }
+    const double expected = App::WorkerRecompute::expectedSeconds(doc);
+    const double most = group->GetFloat("RecomputeEditSeconds", 0.5);
+    FC_LOG(doc.getName() << ": the edit's recompute is expected to take " << expected << " s");
+    return expected >= most;
+}
+
+bool Gui::recomputeEditByWorkers(App::Document& doc)
+{
+    return workerParams()->GetBool("RecomputeEdits", true) && handOver(doc);
 }

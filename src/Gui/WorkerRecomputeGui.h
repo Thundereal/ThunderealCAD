@@ -44,6 +44,19 @@ namespace Gui
  */
 GuiExport bool recomputeByWorkers(App::Document& doc);
 
+/** Whether the recompute an edit calls for -- the property editor's, as
+ * it commits an edit -- is for the workers (docs/WorkerProcess.md sec 28):
+ * RecomputeEdits of Preferences/Workers on (by default), and what it
+ * reaches took at least RecomputeEditSeconds (0.5 s by default) when last
+ * made (App::WorkerRecompute::expectedSeconds). A short one is made here,
+ * at once, as it was: a worker's would come later than that. Asked before
+ * the edit's transaction is committed; recomputeEditByWorkers() after.
+ */
+GuiExport bool editRecomputeIsLong(const App::Document& doc);
+/// The edit's recompute handed over, as recomputeByWorkers(); false and
+/// the caller recomputes here
+GuiExport bool recomputeEditByWorkers(App::Document& doc);
+
 }  // namespace Gui
 
 #endif  // GUI_WORKER_RECOMPUTE_GUI_H

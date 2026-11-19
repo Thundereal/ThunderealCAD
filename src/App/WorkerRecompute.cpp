@@ -55,6 +55,7 @@
 #include "Property.h"
 #include "RecomputeHook.h"
 #include "TransactionLog.h"
+#include "TransactionStore.h"
 #include "StringHasher.h"
 #include "TransactionValue.h"
 #include "WorkerPool.h"
@@ -677,7 +678,49 @@ struct Times
 {
     std::unordered_map<long, double> seconds;
     std::chrono::steady_clock::time_point last;
+    /// From the log's recompute records, for an object not made since
+    /// (docs/WorkerProcess.md sec 30)
+    std::unordered_map<long, double> recorded;
+    bool read = false;
 };
+
+/// The most each object took in the recompute records of the rows that
+/// lead to the document's head, the newest 2000: what an open knows of
+/// them before any recompute here. A result put in from a worker records
+/// its putting in, not its making; the largest of an object's records is
+/// the one that made it
+void readRecorded(const Document& doc, Times& slot)
+{
+    slot.read = true;
+    TransactionLog* log = doc.getTransactionLog();
+    if (!log || log->head() <= 0) {
+        return;
+    }
+    try {
+        const int64_t head = log->head();
+        for (const auto& t : log->store().chain(head, std::max<int64_t>(0, head - 2000))) {
+            if (t.kind != "recompute" || t.script.empty()) {
+                continue;
+            }
+            json record = json::parse(t.script, nullptr, false);
+            if (!record.is_object()) {
+                continue;
+            }
+            for (const auto& o : record.value("objects", json::array())) {
+                auto s = o.find("s");
+                if (!o.is_object() || s == o.end() || !s->is_number()) {
+                    continue;
+                }
+                const long id = o.value("id", 0L);
+                double& most = slot.recorded[id];
+                most = std::max(most, s->get<double>());
+            }
+        }
+    }
+    catch (Base::Exception& e) {
+        FC_LOG(doc.getName() << ": the recompute records not read: " << e.what());
+    }
+}
 
 std::map<const Document*, Times>& times()
 {
@@ -1372,18 +1415,22 @@ double WorkerRecompute::expectedSeconds(const Document& doc,
 {
     double total = 0;
     long missing = 0;
-    auto it = times().find(&doc);
+    Times& slot = times()[&doc];
+    if (!slot.read) {
+        readRecorded(doc, slot);
+    }
     for (auto obj : reachOf(doc, objs)) {
-        if (it == times().end()) {
-            ++missing;
+        auto t = slot.seconds.find(obj->getID());
+        if (t != slot.seconds.end()) {
+            total += t->second;
             continue;
         }
-        auto t = it->second.seconds.find(obj->getID());
-        if (t == it->second.seconds.end()) {
-            ++missing;
+        auto r = slot.recorded.find(obj->getID());
+        if (r != slot.recorded.end()) {
+            total += r->second;
         }
         else {
-            total += t->second;
+            ++missing;
         }
     }
     if (unknown) {

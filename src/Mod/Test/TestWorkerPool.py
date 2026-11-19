@@ -1114,6 +1114,32 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertGreaterEqual(seconds, 0.8)
         self.assertLess(seconds, 1.2)
 
+    def testAnOpenKnowsWhatARecomputeTookFromTheLog(self):
+        """After an open, an object not made since is expected to take what
+        the log's recompute records say it took (docs/WorkerProcess.md
+        sec 30)"""
+        import shutil
+
+        folder = tempfile.mkdtemp(prefix="fc-times-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        slow = self.counted("Slow", Sleep=0.4, Input=1)
+        after = self.counted("After")
+        after.setExpression("Input", "Slow.Result")
+        self.doc.recompute()
+        slow.Input = 2
+        self.doc.recompute()
+        path = os.path.join(folder, "times.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.pool = App.workerPool(self.doc)
+        slow = self.doc.getObject("Slow")
+        slow.Input = 3  # nothing made since the open
+        seconds, unknown = self.pool.expectedRecompute()
+        self.assertEqual(unknown, 0)
+        self.assertGreaterEqual(seconds, 0.4)
+        self.assertLess(seconds, 0.8)
+
     def testAFailureTheWorkerSawIsSaidOnce(self):
         """The worker's "Failed to recompute" is not said here: the put-in
         says it, as a recompute here does (docs/WorkerProcess.md sec 27)"""

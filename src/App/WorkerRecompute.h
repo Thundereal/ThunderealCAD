@@ -97,9 +97,10 @@ public:
 
     /** What the recompute of `objs` -- with none, of what is touched --
      * would take here, in seconds (docs/WorkerProcess.md sec 28): what each
-     * object it reaches took when it was last made, here or by a worker.
-     * `unknown`, if given, counts the objects it reaches that were not made
-     * since trackTimes() began, which count for nothing.
+     * object it reaches took when it was last made, here or by a worker,
+     * and for one not made since trackTimes() began, the most it took in
+     * the log's recompute records (sec 30). `unknown`, if given, counts the
+     * objects it reaches with neither, which count for nothing.
      */
     static double expectedSeconds(const Document& doc,
                                   const std::vector<DocumentObject*>& objs = {},

@@ -209,6 +209,26 @@ meanwhile, and the status bar tells when the file is written</string>
         </property>
        </widget>
       </item>
+      <item row="12" column="0">
+       <widget class="Gui::PrefCheckBox" name="prefCheckByWorker">
+        <property name="toolTip">
+         <string>Check Geometry runs its checks in a worker process: the window stays usable
+meanwhile, and the results are shown when they are ready</string>
+        </property>
+        <property name="text">
+         <string>Check geometry in a worker process</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>CheckCommand</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Workers</cstring>
+        </property>
+       </widget>
+      </item>
       <item row="6" column="0">
        <layout class="QHBoxLayout">
         <property name="spacing">

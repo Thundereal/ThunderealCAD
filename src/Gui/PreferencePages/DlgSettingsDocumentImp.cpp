@@ -113,6 +113,7 @@ void DlgSettingsDocumentImp::saveSettings()
     ui->prefPartialLoading->onSave();
     ui->prefRecomputeByWorker->onSave();
     ui->prefExportByWorker->onSave();
+    ui->prefCheckByWorker->onSave();
     ui->prefLicenseType->onSave();
     ui->prefLicenseUrl->onSave();
     ui->prefAuthor->onSave();
@@ -149,6 +150,7 @@ void DlgSettingsDocumentImp::loadSettings()
     ui->prefPartialLoading->onRestore();
     ui->prefRecomputeByWorker->onRestore();
     ui->prefExportByWorker->onRestore();
+    ui->prefCheckByWorker->onRestore();
     ui->prefLicenseType->onRestore();
     ui->prefLicenseUrl->onRestore();
     libraryPaths->load();

@@ -33,7 +33,9 @@
 #include <Message_ProgressIndicator.hxx>
 #include <Standard_Version.hxx>
 #include <TopTools_MapOfShape.hxx>
+#include <App/WorkerPool.h>
 #include <Gui/TaskView/TaskDialog.h>
+#include <Mod/Part/App/GeometryCheck.h>
 #include <Gui/TaskView/TaskView.h>
 
 
@@ -114,26 +116,35 @@ private Q_SLOTS:
 
 private:
     void setupInterface();
-    void recursiveCheck(const BRepCheck_Analyzer &shapeCheck, const TopoDS_Shape &shape,
-                        ResultEntry *parent);
-    void checkSub(const BRepCheck_Analyzer &shapeCheck, const TopoDS_Shape &shape,
-                  const TopAbs_ShapeEnum subType, ResultEntry *parent);
     void dispatchError(ResultEntry *entry, const BRepCheck_Status &stat);
     bool split(QString &input, QString &doc, QString &object, QString &sub);
     void setupFunctionMap();
-#if OCC_VERSION_HEX < 0x070500
-    int goBOPSingleCheck(const TopoDS_Shape &shapeIn, ResultEntry *theRoot, const QString &baseName,
-                         const Handle(Message_ProgressIndicator)& theProgress);
-#else
-    int goBOPSingleCheck(const TopoDS_Shape &shapeIn, ResultEntry *theRoot, const QString &baseName,
-                         const Message_ProgressScope& theScope);
-#endif
+    /// What is checked: a selected shape, and where its entries draw
+    struct Item
+    {
+        App::DocumentObject* object = nullptr;
+        std::string sub;
+        TopoDS_Shape shape;
+        SoSeparator* separator = nullptr;
+        QString baseName;
+    };
+    /// The entries of `found` under `theRoot`; the count of invalid shapes
+    int putFindings(const std::vector<Part::GeometryCheck::Finding>& found, const Item& item,
+                    ResultEntry* theRoot);
+    void showResults(ResultEntry* theRoot, int checkedCount, int invalidShapes);
+    /// Handed to a worker (docs/WorkerProcess.md sec 25): false to check here
+    bool checkInWorkers(const Part::GeometryCheck::Options& options);
+    void workerDone(App::WorkerPool::Result& result, double seconds);
+    void cancelWorker();
     void buildShapeContent(App::DocumentObject *pObject, const QString &baseName, const TopoDS_Shape &shape);
     ResultModel *model;
     QTreeView *treeView;
     QLabel *message;
-    TopTools_MapOfShape checkedMap;
-    SoSeparator *currentSeparator;
+    std::vector<Item> items;
+    int selectedCount = 0;
+    std::string workerTag;       ///< the check with a worker, empty for none
+    std::string workerDocument;
+    bool checkHere = false;  ///< a worker could not: here, whatever the setting says
     std::vector<FunctionMapType> functionMap;
     std::string shapeContentString;
 

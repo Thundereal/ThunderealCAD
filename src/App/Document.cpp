@@ -113,6 +113,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 
 #include "Document.h"
 #include "Actor.h"
+#include "LogMoveKeep.h"
 #include "ElementMap.h"
 #include "ElementNamingUtils.h"
 #include "private/DocumentP.h"
@@ -10539,6 +10540,9 @@ struct LogFold
     std::set<Key> removed;               // gone at the end
     std::set<long> touch;                // its derived values the log did not keep
     std::set<Key> derived;               // of `values`: what a recompute wrote
+    /// Of `derived`, gone forward to: the row that wrote it, for a value
+    /// the document may keep as it holds it (LogMoveKeep)
+    std::map<Key, int64_t> writer;
     TouchedFold touched;                 // the touched state, sec 27.58
     /// Whether a view op is one of a value its object holds, and is taken
     /// where view ops are not (Prop_OwnerValue). Unset: none is.
@@ -10554,6 +10558,8 @@ struct LogFold
         touched.forget(cid);
         for (auto it = values.begin(); it != values.end();)
             it = std::get<1>(it->first) == cid ? values.erase(it) : std::next(it);
+        for (auto it = writer.begin(); it != writer.end();)
+            it = std::get<1>(it->first) == cid ? writer.erase(it) : std::next(it);
         for (auto it = added.begin(); it != added.end();)
             it = std::get<1>(it->first) == cid ? added.erase(it) : std::next(it);
         for (auto it = removed.begin(); it != removed.end();)
@@ -10568,6 +10574,7 @@ struct LogFold
             if (skipped(o, views))
                 continue;
             Key key(o.ckind, o.cid, o.prop);
+            writer.erase(key);   // set again below by a recompute's write forward
             if (o.op == "create" && o.ckind == "obj") {
                 forget(o.cid);
                 objects[o.cid] = Obj {false, o.cname, o.ctype, {}};
@@ -10629,6 +10636,7 @@ struct LogFold
             if (skipped(o, views))
                 continue;
             Key key(o.ckind, o.cid, o.prop);
+            writer.erase(key);   // set again below by a recompute's write forward
             if (o.op == "create" && o.ckind == "obj") {
                 forget(o.cid);
                 objects[o.cid] = Obj {true, o.cname, o.ctype, extensionsOfOp(o)};
@@ -10653,6 +10661,7 @@ struct LogFold
                     if (o.derived) {
                         touch.erase(o.cid);
                         derived.insert(key);
+                        writer[key] = o.txn;
                     }
                     else {
                         derived.erase(key);
@@ -10976,6 +10985,7 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
     }
     const auto touchedNow = fold.touched.save(*this, valued);
     CaptureConfig config(*this);
+    LogMoveKeep* keepHook = LogMoveKeep::of(*this);
     RestoreBatch batch;   // each afterRestore() once all are in (sec 27.67)
     for (auto& kv : want) {
         guarded("value of", std::get<2>(kv.first), [&]() {
@@ -10989,6 +10999,18 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
             // before it was one, and that value is not its own any more
             if (prop->testStatus(Property::Legacy))
                 return;
+            // One the document holds as it was made, where the rows say it
+            // was put in from it (LogMoveKeep: a worker across its own
+            // result)
+            if (keepHook && std::get<0>(kv.first) == "obj") {
+                auto w = fold.writer.find(kv.first);
+                if (w != fold.writer.end()
+                        && keepHook->keeps(std::get<1>(kv.first), std::get<2>(kv.first),
+                                           w->second)) {
+                    ++keepHook->kept;
+                    return;
+                }
+            }
             CapturedValue now = captureValue(config, *prop);
             const CapturedValue& v = kv.second;
             if (now.ok && now.fragment == v.fragment

@@ -108,6 +108,10 @@ public:
     /// expectedSeconds(); once is enough
     static void trackTimes();
 
+    /// In a worker: whether its last recompute job sent the value of
+    /// `prop` of `obj` (docs/WorkerProcess.md sec 29)
+    static bool sent(const std::string& obj, const std::string& prop);
+
     /// Started, made, put in, dropped
     static fastsignals::signal<void(const Document&)> signalChanged;
 };

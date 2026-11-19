@@ -173,6 +173,9 @@ public:
         bool stale = false;
         long moves = 0;    ///< workers moved along the log to a newer copy
         long reopens = 0;  ///< workers that opened a newer copy whole
+        /// Values workers kept as they held them, moving across the rows
+        /// their own result was put in as (sec 29)
+        long kept = 0;
         /// Workers ended because the job they were making was dropped, and
         /// it had run longer than a worker takes to start (sec 26)
         long ended = 0;
@@ -228,6 +231,13 @@ public:
      * not, an Animation's tracks.
      */
     void designChanged(const DocumentObject* obj);
+    /** The result of `job` was put in here as the log's rows `fromSeq` to
+     * `toSeq`, the values of `objects` the worker's own (docs/WorkerProcess.md
+     * sec 29): the worker that made it, moving across those rows next,
+     * keeps those values as it holds them rather than read them back.
+     */
+    void putIn(JobId job, long long fromSeq, long long toSeq,
+               const std::vector<std::string>& objects);
     /// Take in what came, and with `ms` > 0 what comes for as long
     void poll(int ms = 0);
     /// Poll until no job is queued or running, or `seconds` pass (< 0:

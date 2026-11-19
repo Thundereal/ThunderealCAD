@@ -51,8 +51,10 @@
 #include "Application.h"
 #include "Document.h"
 #include "DocumentObject.h"
+#include "LogMoveKeep.h"
 #include "Property.h"
 #include "RecomputeHook.h"
+#include "TransactionLog.h"
 #include "StringHasher.h"
 #include "TransactionValue.h"
 #include "WorkerPool.h"
@@ -72,7 +74,48 @@ namespace
 thread_local RecomputeHook* innermost = nullptr;
 thread_local unsigned long mintedCount = 0;
 thread_local int puttingInDepth = 0;
+thread_local LogMoveKeep* innermostKeep = nullptr;
+
+/// What this process's last recompute job sent, by object and property
+/// name (WorkerRecompute::sent)
+std::set<std::pair<std::string, std::string>>& sentWrites()
+{
+    static std::set<std::pair<std::string, std::string>> set;
+    return set;
+}
 }  // namespace
+
+LogMoveKeep::LogMoveKeep(const Document& doc, Keep keep)
+    : doc(doc)
+    , keep(std::move(keep))
+    , outer(innermostKeep)
+{
+    innermostKeep = this;
+}
+
+LogMoveKeep::~LogMoveKeep()
+{
+    if (innermostKeep == this) {
+        innermostKeep = outer;
+        return;
+    }
+    for (auto k = innermostKeep; k; k = k->outer) {
+        if (k->outer == this) {
+            k->outer = outer;
+            return;
+        }
+    }
+}
+
+LogMoveKeep* LogMoveKeep::of(const Document& doc)
+{
+    for (auto k = innermostKeep; k; k = k->outer) {
+        if (&k->doc == &doc) {
+            return k;
+        }
+    }
+    return nullptr;
+}
 
 RecomputeHook::RecomputeHook(const Document& doc)
     : _doc(&doc)
@@ -512,6 +555,7 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
     CaptureConfig config(*doc);
     config.blobs = nullptr;  // whole, in the result's own file
     config.preferBinary = true;
+    sentWrites().clear();
     std::vector<std::vector<CapturedValue>> values(recorder.entries.size());
     std::vector<long> ids;
     std::size_t count = 0;
@@ -533,6 +577,7 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             }
             ids.insert(ids.end(), value.stringIds.begin(), value.stringIds.end());
             values[i].push_back(std::move(value));
+            sentWrites().emplace(obj->getNameInDocument(), prop->getName());
             ++count;
         }
     }
@@ -610,6 +655,16 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
 }
 
 const bool registered = WorkerPool::registerKind(RecomputeKind, makeRecompute);
+
+}  // namespace
+
+bool WorkerRecompute::sent(const std::string& obj, const std::string& prop)
+{
+    return sentWrites().count({obj, prop}) > 0;
+}
+
+namespace
+{
 
 // --------------------------------------------------------------------------
 // This process's side
@@ -820,6 +875,9 @@ public:
         Made got;
         const bool supplied = supply(obj, got);
         answered[&obj] = {supplied, got};
+        if (supplied) {
+            fromWorker.insert(obj.getNameInDocument());
+        }
         made = got;
         return supplied;
     }
@@ -943,6 +1001,9 @@ public:
     long executedHere = 0;
     std::vector<std::string> hereNames;
     long touchSet = 0;
+    /// Made from the worker's values, by name: what the worker holds as
+    /// they were put in (docs/WorkerProcess.md sec 29)
+    std::set<std::string> fromWorker;
     long madeByType = 0;  ///< executed here by their type (madeHere())  ///< objects whose touched state was set as the worker left it
 };
 
@@ -958,6 +1019,7 @@ struct State
     WorkerPool::JobId job = 0;
     std::vector<std::string> names;  ///< what it recomputes
     std::string file;  ///< its result, come and not put in yet
+    WorkerPool::JobId fileJob = 0;  ///< the job it is of
     std::string tables;
     bool applying = false;
     bool timer = false;
@@ -1062,6 +1124,8 @@ void apply(State& s)
         }
     }
     const double began = now();
+    TransactionLog* log = s.doc.getTransactionLog();
+    const int64_t before = log ? log->lastSeq() : 0;
     {
         Base::FlagToggler<bool> applying(s.applying, false);
         try {
@@ -1072,6 +1136,15 @@ void apply(State& s)
         }
     }
     s.info.applySeconds = now() - began;
+    // The rows it was put in as, and what in them is the worker's: told to
+    // the worker that made it, which keeps those values as it holds them
+    // when it next moves across the rows (docs/WorkerProcess.md sec 29)
+    if (log && log->lastSeq() > before && !supplier->fromWorker.empty()) {
+        if (auto pool = WorkerPool::of(s.doc, false)) {
+            pool->putIn(s.fileJob, before + 1, log->lastSeq(),
+                        {supplier->fromWorker.begin(), supplier->fromWorker.end()});
+        }
+    }
     noteSupplied(s, *supplier);
     ++s.info.applied;
     s.info.reason.clear();
@@ -1119,6 +1192,7 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
                 break;
             }
             s->file = r.file;
+            s->fileJob = id;
             r.file.clear();  // ours now, in the pool's directory until put in
             schedule(*s);
             break;

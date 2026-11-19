@@ -101,6 +101,7 @@
 #include "PropertyPythonObject.h"
 #include "WorkerRecompute.h"
 #include "StringHasher.h"
+#include "LogMoveKeep.h"
 #include "TransactionLog.h"
 #include "WorkerPool.h"
 #include "WriteScope.h"
@@ -513,6 +514,10 @@ struct WorkerPool::Private
         /// The expression permissions it decides by, as last sent
         /// (docs/WorkerProcess.md sec 23)
         std::string security;
+        JobId lastJob = 0;  ///< the last it made
+        bool setUpSince = false;  ///< told to open or move since
+        /// Its last job's result as put in here (putIn), for its next move
+        json own;
     };
     /// A connection that has not said who it is yet
     struct Stranger
@@ -598,6 +603,7 @@ struct WorkerPool::Private
     long moves = 0;
     long reopens = 0;
     long ended = 0;
+    long kept = 0;
     /// Seconds and count of the workers' starts, to their copy open
     std::pair<double, long> starts {0.0, 0};
     long leases = 0;
@@ -1053,6 +1059,9 @@ json WorkerPool::Private::setupFor(Proc& proc)
             setup["from"] = proc.version;
             setup["fromSeq"] = proc.versionSeq;
             setup["toSeq"] = versionSeq;
+            if (!proc.own.is_null()) {
+                setup["own"] = proc.own;
+            }
         }
     }
     else {
@@ -1087,6 +1096,8 @@ json WorkerPool::Private::setupFor(Proc& proc)
     proc.versionSeq = store.empty() ? 0 : versionSeq;
     proc.store = store;
     proc.nextCopyDir = dir;
+    proc.own = json();
+    proc.setUpSince = true;
     return setup;
 }
 
@@ -1516,6 +1527,7 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
             starts.first += now() - proc.spawnedAt;
             ++starts.second;
         }
+        kept += header.value("kept", 0L);
         auto moved = header.find("moved");
         if (moved != header.end() && moved->is_boolean()) {
             // A newer copy, along the log or opened whole (sec 4)
@@ -1578,6 +1590,9 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         if (proc.job == id) {
             proc.job = 0;
         }
+        proc.lastJob = id;
+        proc.setUpSince = false;
+        proc.own = json();
         proc.resident = header.value("resident", std::size_t(0));
         resident = std::max(resident, proc.resident);
         ++proc.made;
@@ -2281,6 +2296,20 @@ WorkerPool::Claim WorkerPool::claim(JobId id)
     return Claim::Failed;
 }
 
+void WorkerPool::putIn(JobId job, long long fromSeq, long long toSeq,
+                       const std::vector<std::string>& objects)
+{
+    if (!job || fromSeq <= 0 || toSeq < fromSeq || objects.empty()) {
+        return;
+    }
+    for (auto& proc : d->procs) {
+        // Only while what it holds is that job's: no job and no move since
+        if (proc->lastJob == job && !proc->job && !proc->over && !proc->setUpSince) {
+            proc->own = json {{"job", job}, {"from", fromSeq}, {"to", toSeq}, {"objects", objects}};
+        }
+    }
+}
+
 std::size_t WorkerPool::cancel(const std::function<bool(const std::string&)>& which)
 {
     Private::Depth guard(*d, true);
@@ -2500,6 +2529,7 @@ WorkerPool::Info WorkerPool::info() const
     info.moves = d->moves;
     info.reopens = d->reopens;
     info.ended = d->ended;
+    info.kept = d->kept;
     info.startSeconds = d->startSeconds();
     info.endAfter = d->endAfter();
     info.leases = d->leases;
@@ -2632,6 +2662,10 @@ int WorkerPool::serve()
     std::string readerStore;
     int64_t held = 0;  ///< the version `doc` is, read from `reader`; 0 for none
     std::string folder;  ///< the folder `doc` was read from, its files with it
+    // The last job made, and whether it was set up since: a move right after
+    // it may keep the values that job made as they are held (sec 29)
+    JobId lastJob = 0;
+    bool setUpSince = true;
     auto closeDoc = [&]() {
         if (doc) {
             GetApplication().closeDocument(doc->getName());
@@ -2754,6 +2788,7 @@ int WorkerPool::serve()
             const bool later = doc != nullptr;
             bool moved = false;
             const double began = now();
+            long kept = 0;
             relay->bLog = header.value("relayLog", false);
             try {
                 adoptSecurity(header);
@@ -2769,7 +2804,38 @@ int WorkerPool::serve()
                 if (doc && reader && held > 0 && held == from && fromSeq > 0 && toSeq > 0
                     && store == readerStore) {
                     try {
+                        // Across the rows its last result was put in as:
+                        // what it sent is kept as it holds it, not read back
+                        // as the other process wrote it again (sec 29)
+                        std::unique_ptr<LogMoveKeep> keep;
+                        auto own = header.find("own");
+                        if (own != header.end() && own->is_object() && !setUpSince
+                            && own->value("job", JobId(0)) == lastJob) {
+                            const int64_t first = own->value("from", int64_t(0));
+                            const int64_t last = own->value("to", int64_t(0));
+                            std::set<std::string> names;
+                            for (auto& n : own->value("objects", json::array())) {
+                                if (n.is_string()) {
+                                    names.insert(n.get<std::string>());
+                                }
+                            }
+                            Document* d = doc;
+                            keep = std::make_unique<LogMoveKeep>(
+                                *doc, [d, first, last, names](long cid, const std::string& prop,
+                                                             int64_t txn) {
+                                    if (txn < first || txn > last) {
+                                        return false;
+                                    }
+                                    auto obj = d->getObjectByID(cid);
+                                    const char* name = obj ? obj->getNameInDocument() : nullptr;
+                                    return name && names.count(name) > 0
+                                        && WorkerRecompute::sent(name, prop);
+                                });
+                        }
                         moved = moveAlong(from, fromSeq, toSeq);
+                        if (keep) {
+                            kept = keep->kept;
+                        }
                     }
                     catch (Base::Exception& e) {
                         FC_WARN("moving along the log: " << e.what());
@@ -2873,6 +2939,9 @@ int WorkerPool::serve()
                 if (later) {
                     ready["moved"] = moved;
                 }
+                if (kept) {
+                    ready["kept"] = kept;
+                }
                 relay->flush();
                 send(socket, ready);
             }
@@ -2880,6 +2949,7 @@ int WorkerPool::serve()
                 send(socket, json {{"type", "unfit"}, {"error", why}});
                 break;
             }
+            setUpSince = true;
             continue;
         }
         if (type != "job") {
@@ -2944,6 +3014,8 @@ int WorkerPool::serve()
                      {"seconds", now() - began},
                      {"resident", residentBytes()}};
         relay->flush();  // what other threads said, before the result
+        lastJob = header.value("job", JobId(0));
+        setUpSince = false;
         if (!send(socket, answer)) {
             break;
         }
@@ -3265,6 +3337,7 @@ public:
         dict.setItem("Moves", Py::Long(i.moves));
         dict.setItem("Reopens", Py::Long(i.reopens));
         dict.setItem("Ended", Py::Long(i.ended));
+        dict.setItem("Kept", Py::Long(i.kept));
         dict.setItem("StartSeconds", Py::Float(i.startSeconds));
         dict.setItem("EndAfter", Py::Float(i.endAfter));
         dict.setItem("Leases", Py::Long(i.leases));

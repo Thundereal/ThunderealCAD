@@ -1039,6 +1039,51 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(after.ExecCount, afterCount)
         self.assertEqual((feature.State, after.State), states)
 
+    def testAWorkerKeepsWhatItMadeAsItMovesAcrossIt(self):
+        """The next move of a worker crosses the rows its own result was put
+        in as: what it sent it keeps as it holds it, not read back as this
+        process wrote it again (docs/WorkerProcess.md sec 29). The edit
+        after it is still taken, and what it makes next is what a recompute
+        here makes"""
+        import Part  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        tool = self.doc.addObject("Part::Cylinder", "Tool")
+        tool.Radius = 2
+        tool.Height = 30
+        tool.Placement = App.Placement(App.Vector(6, 3, -5), App.Rotation(App.Vector(0, 0, 1), 37))
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = box
+        cut.Tool = tool
+        counted = self.counted("Counted")
+        counted.setExpression("Input", "Box.Height")
+        self.doc.recompute()
+        box.Length = 14
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(self.pool.info()["Kept"], 0)
+        made = []
+        for height in (12, 9):
+            box.Height = height  # an edit of what the worker made
+            info = self.byWorker()
+            self.assertEqual(info["Applied"], len(made) + 2, info)
+            self.assertEqual(info["ExecutedHere"], 0, info)
+            self.assertEqual(counted.Result, 2 * height)
+            made.append((cut.Shape.Volume, len(cut.Shape.Faces),
+                         sorted(cut.Shape.ElementMap.items())))
+            self.assertAlmostEqual(made[-1][0], 14 * 10 * height - 3.141592653589793 * 4 * height,
+                                   6)
+        pool = self.pool.info()
+        self.assertGreaterEqual(pool["Moves"], 2, pool)
+        self.assertGreater(pool["Kept"], 0, pool)
+        # The same made here
+        box.Height = 10
+        self.doc.recompute()
+        box.Height = 9
+        self.doc.recompute()
+        self.assertEqual((cut.Shape.Volume, len(cut.Shape.Faces),
+                          sorted(cut.Shape.ElementMap.items())), made[-1])
+
     def testARecomputeIsExpectedToTakeWhatItsObjectsTookLast(self):
         """What a recompute of what is touched would take: what each object
         it reaches took when last made, here or by a worker

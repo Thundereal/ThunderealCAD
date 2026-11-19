@@ -646,6 +646,7 @@ SET(Document_HPP_SRCS
     WorkerPool.h
     WorkerRecompute.h
     RecomputeHook.h
+    LogMoveKeep.h
 )
 SET(Document_SRCS
     ${Document_CPP_SRCS}

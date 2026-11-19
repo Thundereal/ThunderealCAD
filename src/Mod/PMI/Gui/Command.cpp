@@ -154,6 +154,8 @@ void addToSet(Gui::Command* cmd, const char* type, const char* name)
 
 void finish(Gui::Command* cmd)
 {
+    // On a feature that has one already: stacked under it (sec 6.4)
+    cmd->doCommand(Gui::Command::Doc, "_obj.AttachedTo = PMI.stackUnder(_obj)");
     cmd->doCommand(Gui::Command::Doc, "_set.Document.recompute()");
     cmd->doCommand(Gui::Command::Gui, "Gui.Selection.clearSelection()");
     cmd->doCommand(Gui::Command::Gui, "Gui.Selection.addSelection(_obj)");

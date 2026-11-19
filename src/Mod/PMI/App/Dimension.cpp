@@ -24,9 +24,15 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <regex>
+#include <vector>
+
+#include <BRep_Tool.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
 
 #include <Base/Unit.h>
 
@@ -201,4 +207,142 @@ App::DocumentObjectExecReturn* Dimension::execute()
     }
     setState(Ok);
     return App::DocumentObject::StdReturn;
+}
+
+bool Dimension::linear(gp_Vec& dir, gp_Pnt& p1, gp_Pnt& p2, TopoDS_Shape& s1,
+                       TopoDS_Shape& s2) const
+{
+    std::vector<TolerancedFeature*> feats;
+    for (auto obj : Features.getValues()) {
+        if (auto f = freecad_cast<TolerancedFeature*>(obj)) {
+            feats.push_back(f);
+        }
+    }
+    const double atol = 1e-9;
+    if (getType() == Width) {
+        if (feats.size() != 1) {
+            return false;
+        }
+        const auto& faces = feats[0]->facePrimitives();
+        std::vector<TopoDS_Shape> shapes;
+        for (TopExp_Explorer xp(feats[0]->Shape.getShape().getShape(), TopAbs_FACE); xp.More();
+             xp.Next()) {
+            shapes.push_back(xp.Current());
+        }
+        if (faces.size() != 2 || shapes.size() != 2 || faces[0].type != Primitive::Plane
+            || faces[1].type != Primitive::Plane || !faces[0].dir.IsParallel(faces[1].dir, atol)) {
+            return false;
+        }
+        dir = gp_Vec(faces[0].dir);
+        p1 = faces[0].loc;
+        p2 = faces[1].loc;
+        s1 = shapes[0];
+        s2 = shapes[1];
+    }
+    else if (getType() == Distance) {
+        if (feats.size() != 2) {
+            return false;
+        }
+        Primitive a = feats[0]->primitive().reference();
+        Primitive b = feats[1]->primitive().reference();
+        // Measured across: a plane's normal; between two parallel axes, or
+        // an axis and a point, square to the axis; between points, the line
+        // joining them
+        auto across = [](const Primitive& line, const gp_Pnt& p) {
+            gp_Vec v(line.loc, p);
+            return v - gp_Vec(line.dir) * v.Dot(gp_Vec(line.dir));
+        };
+        bool aLine = a.type == Primitive::Line, bLine = b.type == Primitive::Line;
+        if (a.type == Primitive::Plane || b.type == Primitive::Plane) {
+            const Primitive& pl = a.type == Primitive::Plane ? a : b;
+            const Primitive& other = a.type == Primitive::Plane ? b : a;
+            if (other.type == Primitive::Plane && !other.dir.IsParallel(pl.dir, atol)) {
+                return false;
+            }
+            if (other.type == Primitive::Line && !other.dir.IsNormal(pl.dir, atol)) {
+                return false;
+            }
+            dir = gp_Vec(pl.dir);
+        }
+        else if (aLine && bLine) {
+            if (!a.dir.IsParallel(b.dir, atol)) {
+                return false;
+            }
+            dir = across(a, b.loc);
+        }
+        else if (aLine || bLine) {
+            dir = aLine ? across(a, b.loc) : across(b, a.loc);
+        }
+        else {
+            dir = gp_Vec(a.loc, b.loc);
+        }
+        p1 = a.loc;
+        p2 = b.loc;
+        s1 = feats[0]->Shape.getShape().getShape();
+        s2 = feats[1]->Shape.getShape().getShape();
+    }
+    else {
+        return false;
+    }
+    if (dir.Magnitude() < 1e-9 || s1.IsNull() || s2.IsNull()) {
+        return false;
+    }
+    dir.Normalize();
+    return true;
+}
+
+bool Dimension::autoPlane(double h, gp_Ax3& plane, gp_Pnt& target) const
+{
+    gp_Vec x;
+    gp_Pnt p1, p2;
+    TopoDS_Shape s1, s2;
+    if (!linear(x, p1, p2, s1, s2)) {
+        return Callout::autoPlane(h, plane, target);
+    }
+    // The standard view most square to what is measured: top, front, right
+    // (z toward the reader), with its right and up
+    struct View
+    {
+        gp_Vec z, right, up;
+    };
+    const View views[] = {{gp_Vec(0, 0, 1), gp_Vec(1, 0, 0), gp_Vec(0, 1, 0)},
+                          {gp_Vec(0, -1, 0), gp_Vec(1, 0, 0), gp_Vec(0, 0, 1)},
+                          {gp_Vec(1, 0, 0), gp_Vec(0, 1, 0), gp_Vec(0, 0, 1)}};
+    const View* view = &views[0];
+    double best = 2;
+    for (const auto& v : views) {
+        double d = std::fabs(v.z.Dot(x));
+        if (d < best - 1e-9) {
+            best = d;
+            view = &v;
+        }
+    }
+    // Read from the bottom or the right: along the view's right, or up
+    double r = x.Dot(view->right);
+    if (r < -1e-9 || (std::fabs(r) <= 1e-9 && x.Dot(view->up) < 0)) {
+        x.Reverse();
+    }
+    gp_Vec z = view->z - x * view->z.Dot(x);
+    if (z.Magnitude() < 1e-9) {
+        return Callout::autoPlane(h, plane, target);
+    }
+    z.Normalize();
+    gp_Vec y = z.Crossed(x);
+    // Beside the part on the view's up side, in front of both sides
+    gp_Pnt mid((p1.XYZ() + p2.XYZ()) / 2);
+    double ytop = -1e100, ztop = -1e100;
+    for (const TopoDS_Shape* s : {&s1, &s2}) {
+        for (TopExp_Explorer xp(*s, TopAbs_VERTEX); xp.More(); xp.Next()) {
+            gp_Vec v(mid, BRep_Tool::Pnt(TopoDS::Vertex(xp.Current())));
+            ytop = std::max(ytop, v.Dot(y));
+            ztop = std::max(ztop, v.Dot(z));
+        }
+    }
+    if (ytop < -1e99) {
+        ytop = ztop = 0;
+    }
+    gp_Pnt origin = mid.Translated(y * (ytop + 2 * h) + z * (ztop + 0.05 * h));
+    plane = gp_Ax3(origin, gp_Dir(z), gp_Dir(x));
+    target = mid;
+    return true;
 }

@@ -73,6 +73,8 @@ Callout::Callout()
                       "Place it from its feature; off once it is moved");
     ADD_PROPERTY_TYPE(ShowLeader, (true), "Presentation", App::Prop_None,
                       "A leader to the feature");
+    ADD_PROPERTY_TYPE(AttachedTo, (nullptr), "Presentation", App::Prop_None,
+                      "Stacked under this callout: its plane, below it, on its leader");
     ADD_PROPERTY_TYPE(Presentation, (TopoDS_Shape()), "Presentation",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Transient),
                       "What is drawn: strokes as edges, fills as faces");
@@ -86,6 +88,13 @@ void Callout::onChanged(const App::Property* prop)
     // Moved by the user: from now on where it was put
     if (prop == &Plane && !_placing && !isRestoring() && AutoPlace.getValue()) {
         AutoPlace.setValue(false);
+    }
+    // Only under another callout, and never in a loop
+    if (prop == &AttachedTo && AttachedTo.getValue() && !attachedParent() && !isRestoring()) {
+        FC_WARN(getFullName() << " cannot be stacked under "
+                              << AttachedTo.getValue()->getFullName()
+                              << ": not a callout, or a loop");
+        AttachedTo.setValue(nullptr);
     }
     Annotation::onChanged(prop);
 }
@@ -323,6 +332,24 @@ bool Callout::defaultPlane(const TolerancedFeature* feature, double h, gp_Ax3& p
     return true;
 }
 
+Callout* Callout::attachedParent() const
+{
+    auto parent = freecad_cast<Callout*>(AttachedTo.getValue());
+    // A loop is no stack: each would wait on the other
+    int depth = 0;
+    for (auto c = parent; c; c = freecad_cast<Callout*>(c->AttachedTo.getValue())) {
+        if (c == this || ++depth > 64) {
+            return nullptr;
+        }
+    }
+    return parent;
+}
+
+bool Callout::autoPlane(double h, gp_Ax3& plane, gp_Pnt& target) const
+{
+    return defaultPlane(calloutFeature(), h, plane, target);
+}
+
 int Callout::autoSlot(const gp_Ax3& mine, double h) const
 {
     auto set = getSet();
@@ -335,13 +362,14 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
             break;
         }
         auto other = freecad_cast<Callout*>(obj);
-        if (!other || !other->AutoPlace.getValue() || !other->calloutFeature()) {
+        if (!other || !other->AutoPlace.getValue() || !other->calloutFeature()
+            || other->attachedParent()) {
             continue;
         }
         gp_Ax3 ax;
         gp_Pnt t;
         double oh = other->TextHeight.getValue() > 0 ? other->TextHeight.getValue() : h;
-        if (!defaultPlane(other->calloutFeature(), oh, ax, t)) {
+        if (!other->autoPlane(oh, ax, t)) {
             continue;
         }
         if (!ax.Direction().IsEqual(mine.Direction(), 1e-6)) {
@@ -364,9 +392,35 @@ void Callout::updatePresentation()
     gp_Pnt target;
     bool hasTarget = targetPoint(feat, target);
 
-    if (AutoPlace.getValue() && hasTarget) {
+    Callout* parent = attachedParent();
+    if (parent) {
+        // Under the parent's drawing, left edges in line, in its plane
+        double ph = parent->TextHeight.getValue() > 0 ? parent->TextHeight.getValue() : h;
+        Drawing above;
+        parent->layout(above, ph);
+        Base::Placement pla = parent->Plane.getValue();
+        {
+            Base::StateLocker guard(_placing);
+            if (!pla.isSame(Plane.getValue(), 1e-9)) {
+                Plane.setValue(pla);
+            }
+        }
+        Drawing mine;
+        layout(mine, h);
+        if (!above.isEmpty() && !mine.isEmpty()) {
+            pla = pla
+                * Base::Placement(Base::Vector3d(above.xmin - mine.xmin,
+                                                 above.ymin - 0.5 * h - mine.ymax, 0),
+                                  Base::Rotation());
+            Base::StateLocker guard(_placing);
+            if (!pla.isSame(Plane.getValue(), 1e-9)) {
+                Plane.setValue(pla);
+            }
+        }
+    }
+    else if (AutoPlace.getValue() && hasTarget) {
         gp_Ax3 ax;
-        if (defaultPlane(feat, h, ax, target)) {
+        if (autoPlane(h, ax, target)) {
             // Callouts landing together on parallel planes are stacked, each
             // a slot up, in the set's order -- deterministic, whatever order
             // they recompute in (docs/GDandT.md sec 6.4)
@@ -394,7 +448,8 @@ void Callout::updatePresentation()
     // off the plane is drawn where it projects, CAx-IF sec 8.3)
     Base::Matrix4D toPlane = Plane.getValue().toMatrix();
     toPlane.inverseOrthogonal();
-    if (ShowLeader.getValue() && hasTarget && !d.isEmpty() && leaderStyle() != NoLeader) {
+    if (!parent && ShowLeader.getValue() && hasTarget && !d.isEmpty()
+        && leaderStyle() != NoLeader) {
         Base::Vector3d t = toPlane * Base::Vector3d(target.X(), target.Y(), target.Z());
         double my = (d.ymin + d.ymax) / 2;
         double mx = (d.xmin + d.xmax) / 2;

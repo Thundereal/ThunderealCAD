@@ -26,6 +26,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
+
+#include <BRep_Tool.hxx>
+#include <gp_Trsf.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
+
+#include <Mod/Part/App/TopoShape.h>
 
 #include "AnnotationSet.h"
 #include "Datum.h"
@@ -354,27 +362,84 @@ std::u32string dimensionText(const Dimension& dim)
 }
 }  // namespace
 
-void Dimension::layout(Drawing& d, double h) const
+double Dimension::label(Drawing& d, double h, double x0, double y0) const
 {
     std::u32string s = dimensionText(*this);
     // Drawn with its modifiers' circles: the text up to them, then each
-    double x = 0.0;
+    double x = x0;
     std::u32string plain;
     for (char32_t c : s) {
         if (c >= 0x24B6 && c <= 0x24CF) {
-            x += d.text(plain, h, x, 0);
+            x += d.text(plain, h, x, y0);
             plain.clear();
-            x += d.circled(char32_t('A' + (c - 0x24B6)), h, x, h / 2);
+            x += d.circled(char32_t('A' + (c - 0x24B6)), h, x, y0 + h / 2);
         }
         else {
             plain += c;
         }
     }
-    x += d.text(plain, h, x, 0);
+    x += d.text(plain, h, x, y0);
     if (Basic.getValue()) {
         // A basic (theoretically exact) dimension is boxed
-        d.rect(-0.3 * h, -0.5 * h, x + 0.6 * h, 2 * h);
+        d.rect(x0 - 0.3 * h, y0 - 0.5 * h, x - x0 + 0.6 * h, 2 * h);
     }
+    return x - x0;
+}
+
+void Dimension::layout(Drawing& d, double h) const
+{
+    _linear = false;
+    gp_Vec dir;
+    gp_Pnt p1, p2;
+    TopoDS_Shape s1, s2;
+    gp_Trsf toPlane;
+    Part::TopoShape::convertTogpTrsf(Plane.getValue().toMatrix(), toPlane);
+    gp_Vec px = gp_Vec(1, 0, 0).Transformed(toPlane);
+    toPlane.Invert();
+    // A width or a distance whose plane runs along what it measures: the
+    // dimension line along the plane's x axis, through its origin, between
+    // extension lines from the two sides (ISO 129-1)
+    if (!linear(dir, p1, p2, s1, s2) || std::fabs(px.Dot(dir)) < 1 - 1e-6) {
+        label(d, h, 0, 0);
+        return;
+    }
+    _linear = true;
+    const double gap = 0.3 * h, beyond = 0.6 * h;
+    double u[2];
+    int i = 0;
+    for (auto [p, s] : {std::pair {p1, &s1}, std::pair {p2, &s2}}) {
+        u[i] = p.Transformed(toPlane).X();
+        double lo = 1e100, hi = -1e100;
+        for (TopExp_Explorer xp(*s, TopAbs_VERTEX); xp.More(); xp.Next()) {
+            double y = BRep_Tool::Pnt(TopoDS::Vertex(xp.Current())).Transformed(toPlane).Y();
+            lo = std::min(lo, y);
+            hi = std::max(hi, y);
+        }
+        // From the side to a little past the dimension line; none where the
+        // line crosses the side
+        if (hi < -gap) {
+            d.line(u[i], hi + gap, u[i], beyond);
+        }
+        else if (lo > gap) {
+            d.line(u[i], lo - gap, u[i], -beyond);
+        }
+        ++i;
+    }
+    double a = std::min(u[0], u[1]), b = std::max(u[0], u[1]);
+    Drawing scratch;
+    double w = label(scratch, h, 0, 0);
+    if (b - a >= 2.5 * h) {
+        d.line(a, 0, b, 0);
+        d.arrow(a, 0, -1, 0, h);
+        d.arrow(b, 0, 1, 0, h);
+    }
+    else {
+        // Too narrow for the arrows: they point in from outside
+        d.line(a - 2 * h, 0, b + 2 * h, 0);
+        d.arrow(a, 0, 1, 0, h);
+        d.arrow(b, 0, -1, 0, h);
+    }
+    label(d, h, (a + b) / 2 - w / 2, 0.5 * h);
 }
 
 std::u32string Dimension::equivalentText() const

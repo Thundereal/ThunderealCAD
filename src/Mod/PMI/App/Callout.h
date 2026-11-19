@@ -31,6 +31,7 @@
 #include <gp_Pnt.hxx>
 
 #include <App/PropertyGeo.h>
+#include <App/PropertyLinks.h>
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
 #include <Mod/Part/App/PropertyTopoShape.h>
@@ -69,6 +70,9 @@ public:
     App::PropertyLength TextHeight;
     App::PropertyBool AutoPlace;
     App::PropertyBool ShowLeader;
+    /// Another callout this one is stacked under (docs/GDandT.md sec 6.4):
+    /// its plane, below its drawing, on its leader
+    App::PropertyLink AttachedTo;
     Part::PropertyPartShape Presentation;
     App::PropertyString EquivalentText;
 
@@ -95,6 +99,14 @@ public:
     /// Lay the callout out again: Plane (if AutoPlace), Presentation,
     /// EquivalentText
     void updatePresentation();
+
+    /// The plane the callout takes while AutoPlace is on, before stacking;
+    /// by default defaultPlane() on its feature. \a target is where a
+    /// leader goes.
+    virtual bool autoPlane(double h, gp_Ax3& plane, gp_Pnt& target) const;
+
+    /// The callout this one is stacked under, or null (also for a loop)
+    Callout* attachedParent() const;
 
     /// The plane a callout on \a feature takes: the face's own if planar,
     /// else the standard view looking most squarely at it; \a target is the

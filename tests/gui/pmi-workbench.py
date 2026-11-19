@@ -11,8 +11,8 @@ tip feature: (Body, "Hole.FaceN"). What is checked:
   - one on the hole: a position of the hole's axis, in a diameter zone; the
     builder offers what a hole admits, and datums and MMR picked in it make
     the frame; Cancel puts back what it changed;
-  - a dimension on the hole is its diameter, 6; on the two end faces, the
-    width, 40;
+  - a dimension on the hole is its diameter, 6, stacked under the hole's
+    position frame; on the two end faces, the width, 40, not stacked;
   - the callouts are drawn: a top view has their blue, and has none with
     them hidden;
   - in PartDesign the PMI tool bar is not offered until the set is made
@@ -205,6 +205,8 @@ def run():
         check("a dimension on the hole is its diameter, 6",
               dia.Type == "Diameter" and abs(dia.Nominal.Value - 6) < 1e-6,
               (dia.Type, dia.Nominal))
+        check("and is stacked under the hole's position frame", dia.AttachedTo == pos,
+              dia.AttachedTo and dia.AttachedTo.Name)
         pick(doc, body, hole, V(0, 5, 5), V(40, 5, 5))
         Gui.runCommand("PMI_Dimension")
         pump(20)
@@ -212,6 +214,7 @@ def run():
         check("on the two end faces, the width, 40",
               width.Type == "Width" and abs(width.Nominal.Value - 40) < 1e-6,
               (width.Type, width.Nominal))
+        check("a width is not stacked: it has its own lines", width.AttachedTo is None)
         bad = [o.Name for o in doc.Objects if getattr(o, "Condition", "Ok") == "Invalid"]
         check("nothing invalid", not bad, bad)
 
@@ -235,6 +238,10 @@ def run():
         for o in callouts:
             o.ViewObject.Visibility = True
         pump(10)
+        view.viewIsometric()
+        Gui.SendMsgToActiveView("ViewFit")
+        pump(30)
+        view.saveImage(os.path.join(OUT, "pmi-iso.png"), 800, 600, "#FFFFFF")
 
         # The tool bar in PartDesign
         Gui.activateWorkbench("PartDesignWorkbench")

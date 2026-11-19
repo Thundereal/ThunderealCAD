@@ -506,6 +506,28 @@ view follows, and what the check finds is shown under it; OK commits, Cancel und
 - GUI test: 20 checks -- the builder offers what a hole admits, datums A and B with MMR make
   `|A|B`, no problems found, Cancel puts the value back.
 
+### 10.6 P1 progress: linear dimensions, stacks (2026-11-20)
+
+Built: a width or a distance (two parallel planes, a plane and an axis, two parallel axes, a
+point and anything) is drawn as a drawing draws it -- extension lines from both sides, a
+dimension line with arrows (from outside, pointing in, where it is narrower than 2.5 h), the
+text over its middle -- in a plane along what it measures: the standard view (top, front,
+right) most square to it, read from the bottom or the right, beside the part on the view's up
+side; no leader. `Callout::autoPlane()` is now virtual, so the stacking slots of sec 6.4
+count each callout where it really lands. A plane moved off the measured direction falls back
+to text and leader.
+
+`AttachedTo` (sec 6.4): a callout stacked under another takes its plane, sits under its
+drawing with the left edges in line, has no leader of its own, and moves with it. A link to
+anything but a callout, or one making a loop, is refused at once with a warning. The commands
+stack by default: `PMI.stackUnder(callout)` is the set's last callout on the same feature
+(never a linear or angular dimension), written into the macro as
+`_obj.AttachedTo = PMI.stackUnder(_obj)`. A hole's diameter made after its position frame
+reads under it.
+
+- Seen in the iso capture: datums A (bottom face) and B (front face) land close together near
+  the front corner; the default offsets of different planes do not see each other yet.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

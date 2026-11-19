@@ -40,6 +40,8 @@
 
 #include "AnnotationSet.h"
 #include "Api.h"
+#include "Callout.h"
+#include "Dimension.h"
 #include "Datum.h"
 #include "Geometry.h"
 #include "TolerancedFeature.h"
@@ -258,4 +260,29 @@ App::DocumentObject* Api::frame(AnnotationSet* set, const std::vector<std::strin
     set->addObject(drf);
     drf->Compartments.setValues(want);
     return drf;
+}
+
+Callout* Api::stackUnder(const Callout* callout)
+{
+    auto ownLines = [](const Callout* c) {
+        auto dim = freecad_cast<const Dimension*>(c);
+        return dim && !dim->isSize();
+    };
+    if (!callout || ownLines(callout)) {
+        return nullptr;
+    }
+    auto set = callout->getSet();
+    TolerancedFeature* feature = callout->calloutFeature();
+    if (!set || !feature) {
+        return nullptr;
+    }
+    Callout* under = nullptr;
+    for (auto obj : set->Group.getValues()) {
+        auto c = freecad_cast<Callout*>(obj);
+        if (!c || c == callout || ownLines(c) || c->calloutFeature() != feature) {
+            continue;
+        }
+        under = c;
+    }
+    return under;
 }

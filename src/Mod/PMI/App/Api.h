@@ -39,6 +39,7 @@ namespace PMI
 {
 
 class AnnotationSet;
+class Callout;
 class TolerancedFeature;
 
 /** What the commands do, App side: headless, scriptable, tested
@@ -73,6 +74,10 @@ PMIExport App::DocumentObject* frame(AnnotationSet* set, const std::vector<std::
 
 /// The first datum letter the solid has not used (ASME skips I, O, Q)
 PMIExport std::string nextDatumLetter(AnnotationSet* set, App::DocumentObject* solid);
+/// The callout \a callout is stacked under by default (docs/GDandT.md sec
+/// 6.4): the set's last one on the same feature, or null. A linear or an
+/// angular dimension, drawn with its own lines, is never in a stack.
+PMIExport Callout* stackUnder(const Callout* callout);
 }  // namespace Api
 
 }  // namespace PMI

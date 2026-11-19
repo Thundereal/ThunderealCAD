@@ -25,6 +25,9 @@
 #ifndef PMI_DIMENSION_H
 #define PMI_DIMENSION_H
 
+#include <gp_Vec.hxx>
+#include <TopoDS_Shape.hxx>
+
 #include <App/PropertyLinks.h>
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
@@ -94,6 +97,19 @@ public:
     void layout(Drawing& d, double h) const override;
     std::u32string equivalentText() const override;
     void onChanged(const App::Property* prop) override;
+    /// A linear dimension (a width, a distance) lies in a plane along what
+    /// it measures, beside the part, its dimension line between extension
+    /// lines from the features
+    bool autoPlane(double h, gp_Ax3& plane, gp_Pnt& target) const override;
+    LeaderStyle leaderStyle() const override
+    {
+        return _linear ? NoLeader : ArrowLeader;
+    }
+
+    /// What a linear dimension measures along (\a dir), from a point of the
+    /// first side to one of the second, and the shapes of the two sides;
+    /// false if it is not one
+    bool linear(gp_Vec& dir, gp_Pnt& p1, gp_Pnt& p2, TopoDS_Shape& s1, TopoDS_Shape& s2) const;
 
     /// Measure the nominal; false with \a why if the features do not have
     /// one of this type. Lengths in mm, angles in degrees.
@@ -107,6 +123,12 @@ public:
 
 private:
     void setUnits();
+    /// Draws the text (and its box, if basic) with the baseline's start at
+    /// (x, y); returns its width
+    double label(Drawing& d, double h, double x, double y) const;
+
+    /// Whether the last layout drew dimension and extension lines
+    mutable bool _linear = false;
 };
 
 }  // namespace PMI

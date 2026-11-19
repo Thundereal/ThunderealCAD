@@ -72,6 +72,9 @@ public:
         add_varargs_method("frame", &Module::frame,
                            "frame(set, compartments) -> the set's datum reference frame with "
                            "these compartments, e.g. ['A', 'B(M)'], made if there is none");
+        add_varargs_method("stackUnder", &Module::stackUnder,
+                           "stackUnder(callout) -> the callout it is stacked under by default: "
+                           "the set's last one on its feature, or None");
         add_varargs_method("advise", &Module::advise,
                            "advise(feature, characteristic=None) -> {'characteristics': [...], "
                            "and with a characteristic 'zoneShapes': [...], 'materialCondition': "
@@ -213,6 +216,23 @@ private:
             return Py::None();
         }
         return Py::asObject(drf->getPyObject());
+    }
+
+    Py::Object stackUnder(const Py::Tuple& args)
+    {
+        PyObject* pyobj;
+        if (!PyArg_ParseTuple(args.ptr(), "O", &pyobj)) {
+            throw Py::Exception();
+        }
+        auto callout = freecad_cast<Callout*>(toObject(pyobj));
+        if (!callout) {
+            throw Py::TypeError("a PMI callout is wanted");
+        }
+        auto under = Api::stackUnder(callout);
+        if (!under) {
+            return Py::None();
+        }
+        return Py::asObject(under->getPyObject());
     }
 
     Py::Object advise(const Py::Tuple& args)

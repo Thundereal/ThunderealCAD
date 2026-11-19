@@ -563,6 +563,79 @@ class TestPresentation(Base):
         for d in (dim, fit, basic, width):
             self.assertTrue(d.Presentation.Faces, d.Name)
 
+    def test_a_linear_dimension_has_extension_and_dimension_lines(self):
+        width = self.add("Dimension", "Width", Type="Width",
+                         Features=[self.feature(LEFT, RIGHT)])
+        dist = self.add("Dimension", "Dist", Type="Distance",
+                        Features=[self.feature(LEFT), self.feature(HOLE)])
+        self.recompute()
+
+        def segments(dim):
+            return [(e.Vertexes[0].Point, e.Vertexes[-1].Point)
+                    for e in dim.Presentation.Edges if len(e.Vertexes) == 2]
+
+        def across(dim, x):
+            # An extension line: along y at x
+            return any(abs(a.x - x) < 1e-6 and abs(b.x - x) < 1e-6 and abs(a.y - b.y) > 1
+                       for a, b in segments(dim))
+
+        def along(dim, x0, x1):
+            # The dimension line: along x from x0 to x1
+            return any(abs(a.y - b.y) < 1e-6 and abs(min(a.x, b.x) - x0) < 1e-6
+                       and abs(max(a.x, b.x) - x1) < 1e-6 for a, b in segments(dim))
+
+        # Read along x in a top view, beside the part, nothing over it
+        rot = width.Plane.Rotation
+        self.assertAlmostEqual(rot.multVec(V(1, 0, 0)).x, 1, 9)
+        self.assertAlmostEqual(rot.multVec(V(0, 0, 1)).z, 1, 9)
+        self.assertTrue(across(width, 0) and across(width, 40), segments(width))
+        self.assertTrue(along(width, 0, 40), segments(width))
+        self.assertGreater(min(v.Point.y for v in width.Presentation.Vertexes), 20)
+        self.assertEqual(width.EquivalentText, "40.00")
+        # To a hole: from its axis
+        self.assertTrue(across(dist, 0) and across(dist, 20), segments(dist))
+        self.assertTrue(along(dist, 0, 20), segments(dist))
+        # Stacked: the second is further out than the first
+        self.assertGreater(dist.Plane.Base.y, width.Plane.Base.y)
+
+    def test_a_frame_stacked_under_a_size(self):
+        # A hole's diameter and its position: one stack on one leader
+        hole = self.feature(HOLE)
+        dia = self.add("Dimension", "Dia", Type="Diameter", Features=[hole])
+        pos = self.add("GeometricTolerance", "Pos", Characteristic="Position", Feature=hole,
+                       ZoneShape="Diameter", Value=0.1)
+        self.recompute()
+        h = dia.TextHeight.Value
+
+        def reach(c):
+            return min(hole.Shape.distToShape(Part.Vertex(v.Point))[0]
+                       for v in c.Presentation.Vertexes)
+
+        self.assertLess(reach(pos), 0.1 * h + 1e-6)
+        pos.AttachedTo = dia
+        self.recompute()
+        self.assertTrue(pos.Plane.Rotation.isSame(dia.Plane.Rotation, 1e-9))
+        # Below the diameter's text, its left edge in line with it
+        inv = dia.Plane.inverse()
+        local = [inv.multVec(v.Point) for v in pos.Presentation.Vertexes]
+        self.assertLess(max(p.y for p in local), 0)
+        self.assertAlmostEqual(min(p.x for p in local), 0, delta=0.5 * dia.TextHeight.Value)
+        # No leader of its own
+        self.assertGreater(reach(pos), h)
+        # Moved with it
+        dia.Plane = dia.Plane.multiply(App.Placement(V(10, 5, 0), App.Rotation()))
+        self.recompute()
+        moved = [dia.Plane.inverse().multVec(v.Point) for v in pos.Presentation.Vertexes]
+        for a, b in zip(local, moved):
+            self.assertTrue(a.isEqual(b, 1e-6), (a, b))
+        # A loop is no stack, nor is anything but a callout
+        dia.AttachedTo = pos
+        self.assertIsNone(dia.AttachedTo)
+        dia.AttachedTo = hole
+        self.assertIsNone(dia.AttachedTo)
+        self.recompute()
+        self.assertEqual(dia.Condition, "Ok")
+
     def test_a_datum_ends_in_a_triangle_on_its_face(self):
         bottom = self.feature(BOTTOM)
         datum = self.add("Datum", "A", Letter="A", Feature=bottom)
@@ -654,6 +727,26 @@ class TestApi(Base):
         name = face_at(self.hole.Shape, TOP)
         solid, face = PMI.solidReference(self.body, "%s.%s" % (self.hole.Name, name))
         self.assertEqual((solid, face), (self.solid, face_at(self.solid.Shape, TOP)))
+
+    def test_a_callout_is_stacked_under_the_last_on_its_feature(self):
+        hole = self.feature(HOLE)
+        pos = self.add("GeometricTolerance", "Pos", Characteristic="Position", Feature=hole,
+                       ZoneShape="Diameter", Value=0.1)
+        self.assertIsNone(PMI.stackUnder(pos))
+        dia = self.add("Dimension", "Dia", Type="Diameter", Features=[hole])
+        self.assertEqual(PMI.stackUnder(dia), pos)
+        dia.AttachedTo = pos
+        note = self.add("Note", "Note", Text=["THRU"], Feature=hole)
+        self.assertEqual(PMI.stackUnder(note), dia)
+        # Not a width or a distance: they have their own lines
+        left = self.feature(LEFT)
+        flat = self.add("GeometricTolerance", "Flat", Characteristic="Flatness", Feature=left,
+                        Value=0.05)
+        dist = self.add("Dimension", "Dist", Type="Distance", Features=[left, hole])
+        self.assertIsNone(PMI.stackUnder(dist))
+        self.assertIsNone(PMI.stackUnder(flat))
+        with self.assertRaises(TypeError):
+            PMI.stackUnder(hole)
 
     def test_the_set_is_found_or_made(self):
         self.assertEqual(PMI.getSet(self.body), self.set)

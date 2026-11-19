@@ -1183,6 +1183,15 @@ bool TaskCheckGeometryDialog::reject()
     return true;
 }
 
+void TaskCheckGeometryDialog::closed()
+{
+    // Now, not when the panel is deleted later
+    if (widget) {
+        widget->cancelWorker();
+    }
+    TaskDialog::closed();
+}
+
 void TaskCheckGeometryDialog::onClicked(QAbstractButton *btn)
 {
     /** when ok (run check) is clicked or when close is clicked

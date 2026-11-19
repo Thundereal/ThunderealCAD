@@ -109,6 +109,9 @@ public:
     ~TaskCheckGeometryResults() override;
     QString getShapeContentString();
     void goCheck();
+    /// Drop the check a worker has (docs/WorkerProcess.md sec 26): one run
+    /// long ends its worker
+    void cancelWorker();
 
 private Q_SLOTS:
     void currentRowChanged (const QModelIndex &current, const QModelIndex &previous);
@@ -135,7 +138,6 @@ private:
     /// Handed to a worker (docs/WorkerProcess.md sec 25): false to check here
     bool checkInWorkers(const Part::GeometryCheck::Options& options);
     void workerDone(App::WorkerPool::Result& result, double seconds);
-    void cancelWorker();
     void buildShapeContent(App::DocumentObject *pObject, const QString &baseName, const TopoDS_Shape &shape);
     ResultModel *model;
     QTreeView *treeView;
@@ -204,6 +206,8 @@ private:
     QCheckBox *curveOnSurfaceModeCheckBox;
     bool accept() override;
     bool reject() override;
+    /// Closed: what a worker is checking is not wanted
+    void closed() override;
     void modifyStandardButtons(QDialogButtonBox*) override;
     QPushButton *okBtn;
     QPushButton *settingsBtn;

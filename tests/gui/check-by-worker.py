@@ -8,7 +8,10 @@ set off. Claims:
     with a worker, and says so;
   - the results come: the bow tie face invalid, its wire self-intersecting,
     the overlapping boxes faulty to the BOP check;
-  - set off, the panel lists the same rows, made here at once.
+  - set off, the panel lists the same rows, made here at once;
+  - on again, a check that runs long -- a grid of overlapping spheres --
+    and the panel closed while a worker makes it: the worker is ended
+    (sec 26), not left making what no one will see.
 """
 import os
 import time
@@ -135,6 +138,31 @@ def run():
         check("set off, made here at once", here and pool.info()["Busy"] == 0, text)
         check("... the same rows", here == there, (here, there))
         FreeCADGui.Control.closeDialog()
+        pump(0.5)
+
+        WORKERS.RemBool("CheckCommand")
+        grid = doc.addObject("Part::Feature", "Grid")
+        grid.Shape = Part.makeCompound([Part.makeSphere(3, V(i * 4, j * 4, 0))
+                                        for i in range(25) for j in range(25)])
+        doc.recompute()
+        pump(0.5)
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(grid)
+        FreeCADGui.runCommand("Part_CheckGeometry")
+        end = time.time() + 60
+        while not pool.info()["Busy"] and time.time() < end:
+            pump(0.05)
+        info = pool.info()
+        pids = info["Pids"]
+        pump(info["EndAfter"] + 0.5)
+        info = pool.info()
+        check("a long check is with a worker still", info["Busy"] == 1, info)
+        FreeCADGui.Control.closeDialog()
+        pump(0.3)
+        info = pool.info()
+        check("... closing the panel ends its worker",
+              info["Ended"] == 1 and info["Busy"] == 0 and not set(pids) & set(info["Pids"]),
+              (pids, info))
     except Exception:
         note("ABORT " + traceback.format_exc().replace("\n", " | "))
     finally:

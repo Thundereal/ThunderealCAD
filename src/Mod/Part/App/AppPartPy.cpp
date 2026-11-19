@@ -118,6 +118,7 @@
 #include "WireJoiner.h"
 #include "ShapeCongruence.h"
 #include "OCAF/ImportExportSettings.h"
+#include "GeometryCheck.h"
 
 #ifdef FCUseFreeType
 #  include "FT2FC.h"
@@ -810,6 +811,16 @@ public:
             "C functions of its toolkits, which upstream's do not have. FreeCAD finds\n"
             "them the same way. TKBRep's SetFuncShowTopoShape marks the fork itself.\n"
         );
+        add_varargs_method("checkGeometry", &Module::checkGeometry,
+            "checkGeometry(shape, options=None) -> list of (parent, type, index, source, status)\n"
+            "What Part_CheckGeometry finds (docs/WorkerProcess.md sec 25): each found\n"
+            "shape by its type (TopAbs) and index among the shape's of that type (0:\n"
+            "the shape itself), under the finding `parent` (-1: none); source 0 for\n"
+            "BRepCheck (status a BRepCheck_Status), 1 for the BOP check (a\n"
+            "BOPAlgo_CheckStatus), status -1 for the shape itself. options: a dict of\n"
+            "the panel's settings -- bop, singleThreaded, argumentType, selfInter,\n"
+            "smallEdge, rebuildFace, continuity, tangent, mergeVertex, mergeEdge,\n"
+            "curveOnSurface");
         add_varargs_method("applyExchangeSettings", &Module::applyExchangeSettings,
             "applyExchangeSettings()\n"
             "The STEP and IGES writers' settings (scheme, units, header) taken\n"
@@ -2983,6 +2994,48 @@ private:
             joiner.getOpenWires(openWires, op, PyObject_IsTrue(no_open_original));
             return Py::TupleN(shape2pyshape(result), shape2pyshape(openWires));
         } _PY_CATCH_OCC(throw Py::Exception())
+    }
+
+    Py::Object checkGeometry(const Py::Tuple& args)
+    {
+        PyObject* pyShape = nullptr;
+        PyObject* pyOptions = Py_None;
+        if (!PyArg_ParseTuple(args.ptr(), "O!|O", &TopoShapePy::Type, &pyShape, &pyOptions)) {
+            throw Py::Exception();
+        }
+        GeometryCheck::Options options;
+        if (pyOptions != Py_None) {
+            Py::Dict dict(pyOptions);
+            auto take = [&dict](const char* key, bool& value) {
+                if (dict.hasKey(key)) {
+                    value = Py::Boolean(dict.getItem(key));
+                }
+            };
+            take("bop", options.bop);
+            take("singleThreaded", options.singleThreaded);
+            take("argumentType", options.argumentType);
+            take("selfInter", options.selfInter);
+            take("smallEdge", options.smallEdge);
+            take("rebuildFace", options.rebuildFace);
+            take("continuity", options.continuity);
+            take("tangent", options.tangent);
+            take("mergeVertex", options.mergeVertex);
+            take("mergeEdge", options.mergeEdge);
+            take("curveOnSurface", options.curveOnSurface);
+        }
+        const TopoDS_Shape& shape =
+            static_cast<TopoShapePy*>(pyShape)->getTopoShapePtr()->getShape();
+        std::vector<GeometryCheck::Finding> found;
+        PY_TRY {
+            Base::PyGILStateRelease release;
+            found = GeometryCheck::check(shape, options);
+        } _PY_CATCH_OCC(throw Py::Exception())
+        Py::List list;
+        for (const auto& f : found) {
+            list.append(Py::TupleN(Py::Long(f.parent), Py::Long(f.type), Py::Long(f.index),
+                                   Py::Long(static_cast<int>(f.source)), Py::Long(f.status)));
+        }
+        return list;
     }
 
     Py::Object applyExchangeSettings(const Py::Tuple& args)

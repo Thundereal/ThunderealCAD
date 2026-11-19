@@ -593,6 +593,8 @@ SET(Part_SRCS
     MeshTwin.h
     Tools.cpp
     Tools.h
+    GeometryCheck.cpp
+    GeometryCheck.h
     encodeFilename.h
     OCCError.h
     FT2FC.cpp

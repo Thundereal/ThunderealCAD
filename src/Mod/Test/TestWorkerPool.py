@@ -1241,3 +1241,62 @@ class TestWorkerExport(unittest.TestCase):
         result = self.pool.result(job)
         self.assertEqual(result["Status"], "Unfit", result)
         self.assertFalse(os.path.exists(os.path.join(self.dir, "x.step")))
+
+
+class TestWorkerCheck(unittest.TestCase):
+    """Kind "part.check" (docs/WorkerProcess.md sec 25): Part_CheckGeometry's
+    checks made by a worker, its findings those made here"""
+
+    def setUp(self):
+        import Part
+
+        self.doc = App.newDocument("WorkerCheck")
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetInt("Workers", 1)
+        self.addCleanup(group.RemInt, "Workers")
+        self.pool = App.workerPool(self.doc)
+        V = App.Vector
+        bow = self.doc.addObject("Part::Feature", "Bow")
+        bow.Shape = Part.Face(Part.makePolygon([V(0, 0, 0), V(10, 10, 0), V(10, 0, 0),
+                                                V(0, 10, 0), V(0, 0, 0)]))
+        overlap = self.doc.addObject("Part::Feature", "Overlap")
+        overlap.Shape = Part.makeCompound([Part.makeBox(10, 10, 10),
+                                           Part.makeBox(10, 10, 10, V(5, 5, 5))])
+        self.doc.addObject("Part::Box", "Box")
+        self.doc.recompute()
+
+    def tearDown(self):
+        App.closeDocument(self.doc.Name)
+
+    def testTheFindingsAreTheOnesMadeHere(self):
+        import Part
+
+        items = [{"object": "Bow", "sub": ""}, {"object": "Overlap", "sub": ""},
+                 {"object": "Box", "sub": "Face1"}]
+        for options in ({"bop": False}, {"bop": True}):
+            self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+            job = self.pool.submit("part.check", {"items": items, "options": options},
+                                   reads=[i["object"] for i in items])
+            self.assertGreater(job, 0)
+            self.assertTrue(self.pool.wait(180), self.pool.info())
+            result = self.pool.result(job)
+            self.assertEqual(result["Status"], "Done", result)
+            there = [[tuple(f) for f in r["findings"]] for r in result["Output"]["results"]]
+            here = [Part.checkGeometry(Part.getShape(self.doc.getObject(i["object"]), i["sub"],
+                                                     needSubElement=True), options)
+                    for i in items]
+            self.assertEqual(there, here, options)
+            self.assertTrue(here[0], "the bow tie is invalid")
+            self.assertEqual(bool(here[1]), options["bop"], "the overlap, to the BOP check")
+            self.assertFalse(here[2])
+
+    def testAnEditOfWhatItChecksDropsIt(self):
+        self.assertTrue(self.pool.start())
+        ready = self.pool.submit("test.sleep", {"Seconds": 0.5}, module=MODULE)
+        job = self.pool.submit("part.check", {"items": [{"object": "Box", "sub": ""}],
+                                              "options": {"bop": True}}, reads=["Box"])
+        self.doc.openTransaction("Edit")
+        self.doc.Box.Length = 20
+        self.doc.commitTransaction()
+        self.assertEqual(self.pool.result(job)["Status"], "Cancelled")
+        self.assertTrue(ready)

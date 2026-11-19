@@ -117,6 +117,31 @@ def _export(doc, inputs, out):
 register("export", _export)
 
 
+def _check(doc, inputs, out):
+    """Kind "part.check" (docs/WorkerProcess.md sec 25): Part_CheckGeometry's
+    checks of each item -- an object and a subname, the shape the panel
+    checks -- with the panel's options, its findings by position
+    (Part.checkGeometry)"""
+    del out
+    import Part
+
+    if doc is None:
+        raise Unfit("no document")
+    results = []
+    for item in inputs.get("items", []):
+        obj = doc.getObject(item["object"])
+        if obj is None:
+            raise Unfit("no object %s in the copy" % item["object"])
+        shape = Part.getShape(obj, item.get("sub", ""), needSubElement=True)
+        found = [] if shape.isNull() else Part.checkGeometry(shape, inputs.get("options"))
+        results.append({"object": item["object"], "sub": item.get("sub", ""),
+                        "findings": [list(f) for f in found]})
+    return {"results": results}
+
+
+register("part.check", _check)
+
+
 def serve():
     """The worker's loop; returns when the pool says quit or goes"""
     try:

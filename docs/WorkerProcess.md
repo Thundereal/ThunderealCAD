@@ -1296,8 +1296,52 @@ the window was free again.
   property, and the snapshot at `start()` still writes every shape -- 1.35 s
   for the copy of scanner.FCStd that spells digests, saved by this build.
   Making that version one of values is the log's design (sec 23.3); left.
+  Not wanted (the user, 2026-11-19: "No need to snapshot on open"): the
+  write is once per open, at the first snapshot after an edit; sec 22 is
+  what each snapshot after it costs.
 
 Test: `TestWorkerPool.testTheCopyIsAVersionNothingChangedSince` -- after a
 save, `start()` adds no version and the worker reads the document; after
 an edit it adds one, and the worker reads the edit.
 
+## 22. A snapshot costs what changed, not the document (2026-11-19)
+
+Measured on the console, scanner.FCStd's copy of the current schema:
+after the one write of every shape (sec 21), each `start()` after moving
+one object still took 0.66 s. A sample of a loop of one-move snapshots put
+72% of it in the congruence search of the shapes' files
+(`CongruenceIndex::find`, `docs/SharedShapeStorage.md` sec 12.12): the
+area and the volume of shapes, integrated again at every snapshot.
+
+- **The shapes compared against.** A property keeps its own shape's
+  invariants from one save to the next (`docs/TransactionLogJournal.md`
+  sec 38.11), but the save's index held its stored shapes with invariants
+  of their own, new at each save. So every candidate a later shape was
+  compared against -- the same key, so the same vertices, but no match --
+  was integrated again. On scanner most shapes are such candidates. The
+  index's entry now shares the property's kept invariants
+  (`CongruenceIndex::add(shape, slot, kept)`), and what a later shape's
+  find computes of it is kept for the next save. A shape that changes
+  takes new ones, never a reset: the index of a save in progress may still
+  hold the old.
+- **The key.** `shapeCongruenceKey()` walked every vertex of every shape
+  twice per save, in `find()` and in `add()`. No rigid motion changes it
+  either, so it is kept with the invariants.
+
+| `start()` after moving one object, scanner.FCStd (schema 5 copy) | before | after |
+|---|---|---|
+| console | 0.65 s | 0.215 s |
+| GUI | 0.72 s | 0.31 s |
+
+The files written are the same: a save after warm snapshots and one from a
+cold open give the same objects and the same blobs.
+
+What is left, about 55% of the 0.215 s, is `ShapeRefSet::build` -- each
+shape's sharing plan made again. Most of it is our OCCT fork's
+`GeomTools_Curve2dSet::Add`, which prints every 2D curve to text to merge
+equal ones. Not changed.
+
+Test: `ShapeStorage.ShapeCongruenceCases.testASaveOfSavedShapesComputesNoInvariants`
+(Python `Part.congruenceWork()`, the counts of keys and invariants
+computed in the process): a second save of unchanged shapes computes none
+(before: 3 keys, 1 length, 1 area, 1 volume), an edit one key.

@@ -66,6 +66,8 @@
 #include <QThread>
 #include <QTimer>
 
+#include <mutex>
+
 #include <nlohmann/json.hpp>
 
 #if defined(__APPLE__)
@@ -319,6 +321,135 @@ bool send(QLocalSocket& socket, const json& header)
     return true;
 }
 
+/// What a worker says through the Console, sent to its pool as it is said
+/// (docs/WorkerProcess.md sec 27); what it prints still goes to its log.
+/// Said on another thread, it waits for the next said on the worker's own,
+/// or for the job's result: the socket is that thread's
+class Relay: public Base::ILogger
+{
+public:
+    explicit Relay(QLocalSocket& socket)
+        : socket(socket)
+        , main(std::this_thread::get_id())
+    {
+        bLog = false;  // unless the pool asks for them
+    }
+    void SendLog(const std::string& notifier,
+                 const std::string& msg,
+                 Base::LogStyle level,
+                 Base::IntendedRecipient recipient,
+                 Base::ContentType content) override
+    {
+        json m {{"type", "log"},
+                {"level", static_cast<int>(level)},
+                {"recipient", static_cast<int>(recipient)},
+                {"content", static_cast<int>(content)},
+                {"notifier", notifier},
+                {"text", msg}};
+        if (std::this_thread::get_id() != main) {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (queued.size() < 1000) {
+                queued.push_back(std::move(m));
+            }
+            return;
+        }
+        if (sending) {
+            return;  // what sending says of itself
+        }
+        sending = true;
+        flushQueued();
+        send(socket, m);
+        sending = false;
+    }
+    /// What other threads said: on the worker's own thread
+    void flush()
+    {
+        if (!sending) {
+            sending = true;
+            flushQueued();
+            sending = false;
+        }
+    }
+    const char* Name() override
+    {
+        return "WorkerRelay";
+    }
+
+private:
+    void flushQueued()
+    {
+        std::vector<json> list;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            list.swap(queued);
+        }
+        for (auto& m : list) {
+            send(socket, m);
+        }
+    }
+    QLocalSocket& socket;
+    const std::thread::id main;
+    std::mutex mutex;
+    std::vector<json> queued;
+    bool sending = false;
+};
+
+template<Base::LogStyle S, Base::IntendedRecipient R>
+void showAs(Base::ContentType content, const std::string& notifier, const std::string& text)
+{
+    switch (content) {
+        case Base::ContentType::Translated:
+            Base::Console().sendMsg<S, R, Base::ContentType::Translated>(notifier, text);
+            break;
+        case Base::ContentType::Untranslatable:
+            Base::Console().sendMsg<S, R, Base::ContentType::Untranslatable>(notifier, text);
+            break;
+        default:
+            Base::Console().sendMsg<S, R, Base::ContentType::Untranslated>(notifier, text);
+            break;
+    }
+}
+
+template<Base::LogStyle S>
+void showAs(const WorkerPool::Message& m, const std::string& notifier)
+{
+    switch (m.recipient) {
+        case Base::IntendedRecipient::User:
+            showAs<S, Base::IntendedRecipient::User>(m.content, notifier, m.text);
+            break;
+        case Base::IntendedRecipient::Developer:
+            showAs<S, Base::IntendedRecipient::Developer>(m.content, notifier, m.text);
+            break;
+        default:
+            showAs<S, Base::IntendedRecipient::All>(m.content, notifier, m.text);
+            break;
+    }
+}
+
+/// A message as a worker sent it; false for what is not one
+bool readMessage(const json& header, int worker, WorkerPool::Message& m)
+{
+    const int level = header.value("level", -1);
+    const int recipient = header.value("recipient", 0);
+    const int content = header.value("content", 0);
+    if (level < static_cast<int>(Base::LogStyle::Warning)
+        || level > static_cast<int>(Base::LogStyle::Notification) || recipient < 0
+        || recipient > static_cast<int>(Base::IntendedRecipient::Developer) || content < 0
+        || content > static_cast<int>(Base::ContentType::Untranslatable)) {
+        return false;
+    }
+    m.level = static_cast<Base::LogStyle>(level);
+    m.recipient = static_cast<Base::IntendedRecipient>(recipient);
+    m.content = static_cast<Base::ContentType>(content);
+    m.notifier = header.value("notifier", std::string());
+    m.text = header.value("text", std::string());
+    m.worker = worker;
+    return true;
+}
+
+/// The most of a job's messages kept: a worker saying more is said to
+const std::size_t MostMessages = 500;
+
 std::map<std::string, WorkerPool::Handler>& kinds()
 {
     static std::map<std::string, WorkerPool::Handler> map;
@@ -397,6 +528,10 @@ struct WorkerPool::Private
         bool dropped = false;  ///< cancelled while running: its result is thrown away
         /// The copy it was submitted on: a pinned job is made there only
         std::string copyDir;
+        /// What its workers said while making it (sec 27), and how many
+        /// more there were than were kept
+        std::vector<Message> messages;
+        std::size_t messagesLost = 0;
     };
     /// A copy the design moved past that a pinned job is still made on: its
     /// version stays held until no job is on it (Job::pinned)
@@ -527,6 +662,24 @@ struct WorkerPool::Private
     bool keepPinned(const std::string& was, std::vector<std::pair<std::function<void(Result&)>, Result>>& told);
     void grow();
     void deliver(JobId id, Result& result);
+    /// What the job's workers said, into its result
+    static void takeMessages(Entry& entry, Result& result)
+    {
+        result.messages = std::move(entry.messages);
+        entry.messages.clear();
+        if (entry.messagesLost) {
+            Message more;
+            more.level = Base::LogStyle::Warning;
+            more.recipient = Base::IntendedRecipient::Developer;
+            more.content = Base::ContentType::Untranslatable;
+            more.worker = result.messages.empty() ? 0 : result.messages.back().worker;
+            more.text = std::to_string(entry.messagesLost)
+                + " more of what it said while making a job (" + entry.job.kind
+                + ") are in its log\n";
+            result.messages.push_back(std::move(more));
+            entry.messagesLost = 0;
+        }
+    }
     void checkIdle();
     void kill(Proc& proc);
     /** A running job was dropped (docs/WorkerProcess.md sec 26): its
@@ -886,7 +1039,8 @@ json WorkerPool::Private::setupFor(Proc& proc)
     json setup {{"type", "setup"},
                 {"proxies", proxies},
                 {"name", doc.getName()},
-                {"label", doc.Label.getStrValue()}};
+                {"label", doc.Label.getStrValue()},
+                {"relayLog", params()->GetBool("RelayLog", false)}};
     if (!store.empty()) {
         // A version read from this process's store, into a folder of its own
         setup["store"] = store;
@@ -1376,6 +1530,30 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         dispatch(proc);
         changedNotice();
     }
+    else if (type == "log") {
+        // Said through its Console (sec 27): with the job it makes, said
+        // here when its result is; else now
+        Message m;
+        if (!readMessage(header, proc.number, m)) {
+            return;
+        }
+        auto it = proc.job ? jobs.find(proc.job) : jobs.end();
+        if (it == jobs.end()) {
+            if (!proc.job) {
+                WorkerPool::show(m);
+            }
+            return;
+        }
+        if (it->second.dropped) {
+            return;
+        }
+        if (it->second.messages.size() < MostMessages) {
+            it->second.messages.push_back(std::move(m));
+        }
+        else {
+            ++it->second.messagesLost;
+        }
+    }
     else if (type == "ids") {
         // A job ran out of the ids it was leased: more, or none (count 0),
         // and the job fails there
@@ -1429,6 +1607,7 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         }
         result.seconds = header.value("seconds", 0.0);
         result.resident = proc.resident;
+        takeMessages(it->second, result);
         if (Base::FileInfo(out).exists()) {
             result.file = out;
         }
@@ -1479,6 +1658,39 @@ void WorkerPool::Private::deliver(JobId id, Result& result)
     }
     if (!result.file.empty()) {
         Base::FileInfo(result.file).deleteFile();
+    }
+    // What its worker said, unless the client took it: not for one done
+    // here instead, or not wanted (Result::messages)
+    if (result.status == Result::Status::Done || result.status == Result::Status::Failed) {
+        for (auto& m : result.messages) {
+            WorkerPool::show(m);
+        }
+    }
+}
+
+void WorkerPool::show(const Message& m)
+{
+    const std::string worker = "worker " + std::to_string(m.worker);
+    const std::string notifier = m.notifier.empty() ? worker : m.notifier + " (" + worker + ")";
+    switch (m.level) {
+        case Base::LogStyle::Warning:
+            showAs<Base::LogStyle::Warning>(m, notifier);
+            break;
+        case Base::LogStyle::Message:
+            showAs<Base::LogStyle::Message>(m, notifier);
+            break;
+        case Base::LogStyle::Error:
+            showAs<Base::LogStyle::Error>(m, notifier);
+            break;
+        case Base::LogStyle::Log:
+            showAs<Base::LogStyle::Log>(m, notifier);
+            break;
+        case Base::LogStyle::Critical:
+            showAs<Base::LogStyle::Critical>(m, notifier);
+            break;
+        case Base::LogStyle::Notification:
+            showAs<Base::LogStyle::Notification>(m, notifier);
+            break;
     }
 }
 
@@ -1582,6 +1794,7 @@ void WorkerPool::Private::finished(Proc& proc)
                 result.tag = it->second.job.tag;
                 result.status = Result::Status::Failed;
                 result.error = "its worker died over it";
+                takeMessages(it->second, result);
                 result.died = true;
                 deliver(lost, result);
             }
@@ -2399,6 +2612,18 @@ int WorkerPool::serve()
     send(socket, json {{"type", "hello"},
                        {"token", token.toStdString()},
                        {"pid", static_cast<long>(QCoreApplication::applicationPid())}});
+    // What it says through the Console goes to the pool too (sec 27), until
+    // the socket goes: retired before it, last in first out
+    auto relay = new Relay(socket);
+    Base::Console().AttachObserver(relay);
+    struct Retire
+    {
+        Relay* relay;
+        ~Retire()
+        {
+            Base::Console().RetireObserver(relay);
+        }
+    } retire {relay};
     std::string buffer;
     Document* doc = nullptr;
     // The pool's process's store, read for the version and to move along
@@ -2529,6 +2754,7 @@ int WorkerPool::serve()
             const bool later = doc != nullptr;
             bool moved = false;
             const double began = now();
+            relay->bLog = header.value("relayLog", false);
             try {
                 adoptSecurity(header);
                 const std::string file = header.value("document", std::string());
@@ -2647,6 +2873,7 @@ int WorkerPool::serve()
                 if (later) {
                     ready["moved"] = moved;
                 }
+                relay->flush();
                 send(socket, ready);
             }
             else {
@@ -2716,6 +2943,7 @@ int WorkerPool::serve()
                      {"output", output},
                      {"seconds", now() - began},
                      {"resident", residentBytes()}};
+        relay->flush();  // what other threads said, before the result
         if (!send(socket, answer)) {
             break;
         }
@@ -2733,6 +2961,25 @@ int WorkerPool::serve()
 
 namespace
 {
+
+const char* levelName(Base::LogStyle level)
+{
+    switch (level) {
+        case Base::LogStyle::Warning:
+            return "Warning";
+        case Base::LogStyle::Message:
+            return "Message";
+        case Base::LogStyle::Error:
+            return "Error";
+        case Base::LogStyle::Log:
+            return "Log";
+        case Base::LogStyle::Critical:
+            return "Critical";
+        case Base::LogStyle::Notification:
+            return "Notification";
+    }
+    return "";
+}
 
 const char* statusName(WorkerPool::Result::Status status)
 {
@@ -2933,6 +3180,16 @@ public:
         dict.setItem("Status", Py::String(statusName(r.status)));
         dict.setItem("Error", Py::String(r.error));
         dict.setItem("Died", Py::Boolean(r.died));
+        Py::List messages;
+        for (auto& m : r.messages) {
+            Py::Dict item;
+            item.setItem("Level", Py::String(levelName(m.level)));
+            item.setItem("Notifier", Py::String(m.notifier));
+            item.setItem("Text", Py::String(m.text));
+            item.setItem("Worker", Py::Long(m.worker));
+            messages.append(item);
+        }
+        dict.setItem("Messages", messages);
         dict.setItem("Output", fromJson(r.output));
         dict.setItem("File", Py::String(r.file));
         dict.setItem("Seconds", Py::Float(r.seconds));

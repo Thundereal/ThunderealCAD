@@ -10,6 +10,7 @@ worker does before its first job of one (module="TestWorkerPool").
 
 import os
 import tempfile
+import threading
 import time
 import unittest
 
@@ -54,6 +55,21 @@ def _read(doc, inputs, out):
 def _sleepRead(doc, inputs, out):
     time.sleep(inputs.get("Seconds", 0.2))
     return _read(doc, inputs, out)
+
+
+def _say(doc, inputs, out):
+    """Says through the Console what it is given, at the levels given, and
+    from another thread if asked"""
+    for level, text in inputs.get("Say", []):
+        getattr(App.Console, "Print" + level)(text + "\n")
+    if inputs.get("Thread"):
+        thread = threading.Thread(target=App.Console.PrintWarning, args=(inputs["Thread"] + "\n",))
+        thread.start()
+        thread.join()
+    if inputs.get("Unfit"):
+        raise worker.Unfit("not here")
+    time.sleep(inputs.get("Seconds", 0))
+    return {}
 
 
 def _volume(doc, inputs, out):
@@ -141,6 +157,7 @@ for _kind, _handler in (
     ("test.dieonce", _dieOnce),
     ("test.read", _read),
     ("test.sleepread", _sleepRead),
+    ("test.say", _say),
     ("test.write", _write),
     ("test.volume", _volume),
     ("test.edges", _edges),
@@ -561,6 +578,76 @@ class TestWorkerPool(unittest.TestCase):
         self.assertEqual((info["Ended"], info["Busy"], info["Pids"]), (0, 1, [pid]), info)
         self.pool.stop()
 
+    def listen(self, everyone=False):
+        """What this process's Console says from now: (notifier, text,
+        level), a worker's only unless `everyone`"""
+        heard = []
+
+        def observer(notifier, message, level):
+            if everyone or notifier.startswith("worker ") or "(worker " in notifier:
+                heard.append((notifier, message, level))
+
+        App.Console.AttachObserver(observer)
+        self.addCleanup(App.Console.DetachObserver, observer)
+        return heard
+
+    def testWhatAWorkerSaysIsSaidHereWithItsResult(self):
+        """What a job's worker says through its Console comes with the
+        result, and is said here, the worker its notifier
+        (docs/WorkerProcess.md sec 27): a log line only if asked for, what
+        another thread said before the result"""
+        heard = self.listen()
+        self.assertTrue(self.pool.start())
+        job = self.submit("test.say", {"Say": [["Warning", "careful"], ["Message", "made"],
+                                               ["Log", "in detail"], ["Error", "wrong"]],
+                                       "Thread": "from a thread"})
+        self.assertTrue(self.pool.wait(120))
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Done", result)
+        said = [(m["Level"], m["Text"]) for m in result["Messages"]]
+        self.assertEqual(said, [("Warning", "careful\n"), ("Message", "made\n"),
+                                ("Error", "wrong\n"), ("Warning", "from a thread\n")])
+        name = "worker %d" % result["Messages"][0]["Worker"]
+        self.assertEqual(heard, [(name, text, level) for level, text in said])
+
+    def testALogLineIsSaidWhenAskedFor(self):
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("RelayLog", True)
+        self.addCleanup(group.RemBool, "RelayLog")
+        heard = self.listen()
+        self.assertTrue(self.pool.start())
+        job = self.submit("test.say", {"Say": [["Log", "in detail"]]})
+        self.assertTrue(self.pool.wait(120))
+        said = [(m["Level"], m["Text"]) for m in self.pool.result(job)["Messages"]]
+        self.assertEqual(said, [("Log", "in detail\n")])
+        # With what it logged opening its copy, said at once
+        self.assertIn(("in detail\n", "Log"), [h[1:] for h in heard])
+
+    def testAnUnfitJobsWordsAreNotSaidHere(self):
+        """Unfit, the job is done here, which says its own"""
+        heard = self.listen()
+        self.assertTrue(self.pool.start())
+        job = self.submit("test.say", {"Say": [["Warning", "careful"]], "Unfit": True})
+        self.assertTrue(self.pool.wait(120))
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Unfit")
+        self.assertEqual([m["Text"] for m in result["Messages"]], ["careful\n"])
+        self.assertEqual(heard, [])
+
+    def testADroppedJobsWordsAreNotSaid(self):
+        heard = self.listen()
+        self.settings(1)
+        self.assertTrue(self.pool.start())
+        job = self.submit("test.say", {"Say": [["Warning", "careful"]], "Seconds": 0.5},
+                          tag="t")
+        self.assertTrue(self.waitFor(lambda: self.pool.state(job) == "Running"))
+        self.pool.poll(200)  # what it said came
+        self.assertEqual(self.pool.cancel("t"), 1)
+        self.assertTrue(self.pool.wait(120))
+        self.assertIsNone(self.pool.result(job))
+        self.assertEqual(self.pool.info()["Ended"], 0)
+        self.assertEqual(heard, [])
+
     def testAnEditDropsTheJobsAndMovesTheWorkers(self):
         """An edit drops the jobs that say nothing of what they read; the
         workers stay, and move to the next copy along the log's rows
@@ -951,6 +1038,25 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(feature.getStatusString(), message)
         self.assertEqual(after.ExecCount, afterCount)
         self.assertEqual((feature.State, after.State), states)
+
+    def testAFailureTheWorkerSawIsSaidOnce(self):
+        """The worker's "Failed to recompute" is not said here: the put-in
+        says it, as a recompute here does (docs/WorkerProcess.md sec 27)"""
+        feature = self.doc.addObject("App::FeatureTest", "Failing")
+        self.doc.recompute()
+        feature.ExceptionType = 2
+        heard = []
+
+        def observer(notifier, message, level):
+            if level == "Error" and "Failed to recompute" in message:
+                heard.append((notifier, message))
+
+        App.Console.AttachObserver(observer)
+        self.addCleanup(App.Console.DetachObserver, observer)
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(len(heard), 1, heard)
+        self.assertNotIn("worker", heard[0][0])
 
     def testAMutatedBinderLeavesTheTableWhole(self):
         """A binder that copies what it binds (BindCopyOnChange 2) exports

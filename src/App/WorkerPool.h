@@ -27,8 +27,9 @@
 // A pool belongs to a document: its workers are console processes, each
 // holding a copy of the document, that run jobs of registered kinds and
 // answer with results. Control goes over a local socket of the pool's,
-// in messages of a JSON header and a binary body; what a worker prints
-// goes to its log and is never read.
+// in messages of a JSON header and a binary body. What a worker prints
+// goes to its log; what it says through the Console comes here too
+// (docs/WorkerProcess.md sec 27).
 
 #include <cstddef>
 #include <functional>
@@ -42,6 +43,13 @@
 
 struct _object;  // PyObject
 
+namespace Base
+{
+enum class LogStyle;
+enum class IntendedRecipient;
+enum class ContentType;
+}  // namespace Base
+
 namespace App
 {
 
@@ -52,6 +60,20 @@ class AppExport WorkerPool
 {
 public:
     using JobId = long;
+
+    /// What a worker said through the Console (docs/WorkerProcess.md sec 27)
+    struct Message
+    {
+        Base::LogStyle level {};
+        Base::IntendedRecipient recipient {};
+        Base::ContentType content {};
+        std::string notifier;
+        std::string text;
+        int worker = 0;  ///< its number in the pool
+    };
+    /// Said here, the worker named as its notifier ("worker 2", or
+    /// "Pad (worker 2)")
+    static void show(const Message& message);
 
     /// What became of a job, handed to its client once
     struct Result
@@ -78,6 +100,12 @@ public:
         /// Failed because its worker died over it, or was ended past the
         /// deadline: not the handler's own failure
         bool died = false;
+        /// What its worker said while it made it (sec 27): said here after
+        /// `done` for one Done or Failed, unless the client takes them --
+        /// clears this, or what it says itself -- inside `done`. Those of
+        /// one Unfit or Cancelled are not: it is done here, saying its own,
+        /// or not wanted
+        std::vector<Message> messages;
         double seconds = 0;  ///< the handler's time
         std::size_t resident = 0;  ///< what the worker held after it
     };

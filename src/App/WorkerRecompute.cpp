@@ -1079,6 +1079,16 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
     s->job = 0;
     switch (r.status) {
         case WorkerPool::Result::Status::Done:
+            // An object it failed to recompute is said to have failed here
+            // as the result is put in: the worker's saying so is not said
+            // again (docs/WorkerProcess.md sec 27)
+            r.messages.erase(std::remove_if(r.messages.begin(), r.messages.end(),
+                                            [](const WorkerPool::Message& m) {
+                                                return m.level == Base::LogStyle::Error
+                                                    && m.text.find("Failed to recompute ")
+                                                    != std::string::npos;
+                                            }),
+                             r.messages.end());
             if (r.file.empty()) {
                 ++s->info.failed;
                 s->info.reason = "the worker wrote nothing";

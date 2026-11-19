@@ -26,6 +26,8 @@ endif(FREETYPE_FOUND)
 
 set(PMI_SRCS
   AppPMI.cpp
+  Api.cpp
+  Api.h
   Annotation.cpp
   Annotation.h
   AnnotationSet.cpp

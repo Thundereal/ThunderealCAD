@@ -31,6 +31,7 @@
 #include <Mod/Part/App/BodyBase.h>
 
 #include "Annotation.h"
+#include "Api.h"
 #include "Callout.h"
 #include "AnnotationSet.h"
 #include "Check.h"
@@ -56,6 +57,17 @@ public:
                            "exactly these elements of part, or None");
         add_varargs_method("findSet", &Module::findSet,
                            "findSet(part) -> the annotation set of part, or None");
+        add_varargs_method("solidReference", &Module::solidReference,
+                           "solidReference(obj, subname) -> (solid, 'FaceN'): a picked face as an "
+                           "annotation refers to it -- through the solid body of a Body");
+        add_varargs_method("getSet", &Module::getSet,
+                           "getSet(part, create=True) -> the annotation set of part, made in its "
+                           "Body or beside it");
+        add_varargs_method("feature", &Module::feature,
+                           "feature(set, solid, faces, kind=None) -> the set's toleranced feature "
+                           "on these faces, made if there is none");
+        add_varargs_method("nextDatumLetter", &Module::nextDatumLetter,
+                           "nextDatumLetter(set, solid=None) -> the first letter not used");
         initialize("PMI: product and manufacturing information -- GD&T on a part");
     }
 
@@ -114,6 +126,66 @@ private:
             }
         }
         return Py::None();
+    }
+
+    Py::Object solidReference(const Py::Tuple& args)
+    {
+        PyObject* pyobj;
+        const char* sub;
+        if (!PyArg_ParseTuple(args.ptr(), "Os", &pyobj, &sub)) {
+            throw Py::Exception();
+        }
+        App::DocumentObject* solid = nullptr;
+        std::string face, why;
+        if (!Api::solidReference(toObject(pyobj), sub, solid, face, why)) {
+            throw Py::ValueError(why);
+        }
+        return Py::TupleN(Py::asObject(solid->getPyObject()), Py::String(face));
+    }
+
+    Py::Object getSet(const Py::Tuple& args)
+    {
+        PyObject* pypart;
+        PyObject* create = Py_True;
+        if (!PyArg_ParseTuple(args.ptr(), "O|O", &pypart, &create)) {
+            throw Py::Exception();
+        }
+        if (auto set = Api::getSet(toObject(pypart), PyObject_IsTrue(create))) {
+            return Py::asObject(set->getPyObject());
+        }
+        return Py::None();
+    }
+
+    Py::Object feature(const Py::Tuple& args)
+    {
+        PyObject* pyset;
+        PyObject* pysolid;
+        PyObject* pyfaces;
+        const char* kind = nullptr;
+        if (!PyArg_ParseTuple(args.ptr(), "OOO|z", &pyset, &pysolid, &pyfaces, &kind)) {
+            throw Py::Exception();
+        }
+        std::vector<std::string> faces;
+        Py::Sequence seq(pyfaces);
+        for (Py::Sequence::iterator it = seq.begin(); it != seq.end(); ++it) {
+            faces.push_back(Py::String(*it).as_std_string());
+        }
+        auto feat = Api::feature(toSet(pyset), toObject(pysolid), faces, kind);
+        if (!feat) {
+            throw Py::ValueError("no feature: a set, a solid and faces are needed");
+        }
+        return Py::asObject(feat->getPyObject());
+    }
+
+    Py::Object nextDatumLetter(const Py::Tuple& args)
+    {
+        PyObject* pyset;
+        PyObject* pysolid = Py_None;
+        if (!PyArg_ParseTuple(args.ptr(), "O|O", &pyset, &pysolid)) {
+            throw Py::Exception();
+        }
+        App::DocumentObject* solid = pysolid == Py_None ? nullptr : toObject(pysolid);
+        return Py::String(Api::nextDatumLetter(toSet(pyset), solid));
     }
 
     Py::Object findSet(const Py::Tuple& args)

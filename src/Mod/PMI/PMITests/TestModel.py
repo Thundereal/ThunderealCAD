@@ -611,3 +611,59 @@ class TestPresentation(Base):
         self.assertAlmostEqual(gt.Plane.Rotation.multVec(V(0, 0, 1)).z, 1, 9)
         tip = V(20, 10, 10 + 0.05 * h)
         self.assertLess(min((v.Point - tip).Length for v in gt.Presentation.Vertexes), 1e-6)
+
+
+class TestApi(Base):
+    """What the commands call (docs/GDandT.md sec 3, 4)"""
+
+    def test_a_pick_on_the_tip_becomes_a_solid_reference(self):
+        # A pick lands on the Body's tip feature, through the Body
+        name = face_at(self.hole.Shape, TOP)
+        solid, face = PMI.solidReference(self.body, "%s.%s" % (self.hole.Name, name))
+        self.assertEqual(solid, self.solid)
+        self.assertEqual(face, face_at(self.solid.Shape, TOP))
+        # Picked on the solid body itself
+        solid, face = PMI.solidReference(self.solid, face_at(self.solid.Shape, LEFT))
+        self.assertEqual(face, face_at(self.solid.Shape, LEFT))
+        with self.assertRaises(ValueError):
+            PMI.solidReference(self.body, "%s.Edge1" % self.hole.Name)
+
+    def test_a_pick_on_a_moved_body(self):
+        self.body.Placement = App.Placement(V(100, 0, 0), App.Rotation(V(0, 0, 1), 30))
+        self.recompute()
+        name = face_at(self.hole.Shape, TOP)
+        solid, face = PMI.solidReference(self.body, "%s.%s" % (self.hole.Name, name))
+        self.assertEqual((solid, face), (self.solid, face_at(self.solid.Shape, TOP)))
+
+    def test_the_set_is_found_or_made(self):
+        self.assertEqual(PMI.getSet(self.body), self.set)
+        self.assertEqual(PMI.getSet(self.solid), self.set)
+        body = self.doc.addObject("PartDesign::Body", "Body2")
+        body.newObjectAt("PartDesign::AdditiveBox", "Box2")
+        self.doc.recompute()
+        self.assertIsNone(PMI.getSet(body, False))
+        made = PMI.getSet(body)
+        self.assertIn(made, body.Group)
+        self.assertEqual(made.Part, body)
+        self.doc.recompute()
+        self.assertEqual(len(body.SolidBodies), 1)
+        plain = self.doc.addObject("Part::Box", "Plain")
+        beside = PMI.getSet(plain)
+        self.assertEqual(beside.Part, plain)
+
+    def test_features_are_shared(self):
+        name = face_at(self.solid.Shape, TOP)
+        a = PMI.feature(self.set, self.solid, [name])
+        b = PMI.feature(self.set, self.solid, [name])
+        self.assertEqual(a, b)
+        axis = PMI.feature(self.set, self.solid, [face_at(self.solid.Shape, HOLE)], "Axis")
+        self.assertEqual(axis.Kind, "Axis")
+
+    def test_datum_letters_go_on(self):
+        self.assertEqual(PMI.nextDatumLetter(self.set, self.solid), "A")
+        for letter in "ABCDEFGH":
+            self.add("Datum", "D" + letter, Letter=letter, Feature=self.feature(BOTTOM))
+        self.set.Standard = "ASME Y14.5-2018"
+        self.assertEqual(PMI.nextDatumLetter(self.set, self.solid), "J")
+        self.set.Standard = "ISO GPS"
+        self.assertEqual(PMI.nextDatumLetter(self.set, self.solid), "I")

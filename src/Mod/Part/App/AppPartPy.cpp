@@ -117,6 +117,7 @@
 #include "TopoShapeWirePy.h"
 #include "WireJoiner.h"
 #include "ShapeCongruence.h"
+#include "OCAF/ImportExportSettings.h"
 
 #ifdef FCUseFreeType
 #  include "FT2FC.h"
@@ -809,6 +810,10 @@ public:
             "C functions of its toolkits, which upstream's do not have. FreeCAD finds\n"
             "them the same way. TKBRep's SetFuncShowTopoShape marks the fork itself.\n"
         );
+        add_varargs_method("applyExchangeSettings", &Module::applyExchangeSettings,
+            "applyExchangeSettings()\n"
+            "The STEP and IGES writers' settings (scheme, units, header) taken\n"
+            "again from the preferences, which Part reads once when it loads");
         add_varargs_method("congruenceWork", &Module::congruenceWork,
             "congruenceWork() -> dict\n"
             "What the congruence search of saves (DedupCongruentShapes) has computed in\n"
@@ -2978,6 +2983,15 @@ private:
             joiner.getOpenWires(openWires, op, PyObject_IsTrue(no_open_original));
             return Py::TupleN(shape2pyshape(result), shape2pyshape(openWires));
         } _PY_CATCH_OCC(throw Py::Exception())
+    }
+
+    Py::Object applyExchangeSettings(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), "")) {
+            throw Py::Exception();
+        }
+        OCAF::ImportExportSettings::initialize();
+        return Py::None();
     }
 
     Py::Object congruenceWork(const Py::Tuple& args)

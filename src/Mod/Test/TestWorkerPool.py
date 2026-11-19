@@ -51,6 +51,11 @@ def _read(doc, inputs, out):
     return {"Value": getattr(obj, inputs["Property"])}
 
 
+def _sleepRead(doc, inputs, out):
+    time.sleep(inputs.get("Seconds", 0.2))
+    return _read(doc, inputs, out)
+
+
 def _volume(doc, inputs, out):
     return {"Volume": doc.getObject(inputs["Object"]).Shape.Volume}
 
@@ -135,6 +140,7 @@ for _kind, _handler in (
     ("test.unfit", _unfit),
     ("test.dieonce", _dieOnce),
     ("test.read", _read),
+    ("test.sleepread", _sleepRead),
     ("test.write", _write),
     ("test.volume", _volume),
     ("test.edges", _edges),
@@ -519,6 +525,56 @@ class TestWorkerPool(unittest.TestCase):
         self.assertEqual(self.pool.result(first)["Status"], "Done")
         self.assertEqual(self.pool.result(kept)["Output"]["Value"], 42)
         self.assertTrue(self.pool.info()["Stale"])
+
+    def testAPinnedJobIsMadeOnItsCopy(self):
+        """A pinned job is made on the copy standing when it was submitted
+        (docs/WorkerProcess.md sec 24): an edit does not drop it, and the
+        copy it runs on goes only after it is done"""
+        self.settings(1)
+        self.assertTrue(self.pool.start())
+        copy = self.pool.info()["Copy"]
+        pinned = self.pool.submit("test.sleepread",
+                                  {"Seconds": 1.0, "Object": "Feature", "Property": "Integer"},
+                                  module=MODULE, pinned=True)
+        self.assertGreater(pinned, 0)
+        self.assertTrue(self.waitFor(lambda: self.pool.state(pinned) == "Running"))
+        self.doc.openTransaction("Edit")
+        self.obj.Integer = 7
+        self.doc.commitTransaction()
+        self.assertEqual(self.pool.state(pinned), "Running")
+        # The next job takes a newer copy; the worker moves to it after
+        after = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertNotEqual(self.pool.info()["Copy"], copy)
+        self.assertTrue(os.path.isdir(copy))  # the pinned job is made there
+        self.assertTrue(self.pool.wait(120))
+        result = self.pool.result(pinned)
+        self.assertEqual(result["Status"], "Done", result)
+        self.assertEqual(result["Output"]["Value"], 42)
+        self.assertEqual(self.pool.result(after)["Output"]["Value"], 7)
+        self.assertFalse(os.path.exists(copy))
+        self.assertEqual(self.pool.info()["Spawned"], 1)
+
+    def testAPinnedJobNoWorkerTookIsCancelledByANewerCopy(self):
+        """Queued behind another when the design moved on: no worker is left
+        on its copy, and it comes back Cancelled"""
+        self.settings(1)
+        self.assertTrue(self.pool.start())
+        busy = self.submit("test.sleep", {"Seconds": 0.5})
+        pinned = self.pool.submit("test.read", {"Object": "Feature", "Property": "Integer"},
+                                  module=MODULE, pinned=True)
+        self.assertTrue(self.waitFor(lambda: self.pool.state(busy) == "Running"))
+        self.assertEqual(self.pool.state(pinned), "Queued")
+        self.doc.openTransaction("Edit")
+        self.obj.Integer = 7
+        self.doc.commitTransaction()
+        self.assertEqual(self.pool.result(busy)["Status"], "Cancelled")
+        self.assertEqual(self.pool.state(pinned), "Queued")  # an edit alone keeps it
+        after = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        result = self.pool.result(pinned)
+        self.assertEqual(result["Status"], "Cancelled", result)
+        self.assertIn("before a worker", result["Error"])
+        self.assertTrue(self.pool.wait(120))
+        self.assertEqual(self.pool.result(after)["Output"]["Value"], 7)
 
     def testMovesAlongTheLog(self):
         """Shapes changed, an object added and one removed: the worker's
@@ -956,3 +1012,187 @@ class TestWorkerRecompute(unittest.TestCase):
         self.doc.recompute()
         self.assertFalse(self.pool.recompute())
         self.assertIn("nothing to recompute", self.pool.recomputeInfo()["Reason"])
+
+
+def _stepData(path):
+    """A STEP file's DATA section: the header names the time it was written.
+    A colour to the 8 bits a document file keeps of it: one not on a 1/255
+    step (the default material's 0.9) is written otherwise after a save and
+    an open, here as much as in a worker's copy"""
+    import re
+
+    with open(path, encoding="latin-1") as f:
+        text = f.read()
+    text = text[text.index("DATA;"):]
+
+    def colour(match):
+        values = [round(float(v) * 255) for v in match.group(2).split(",")]
+        return match.group(1) + ",".join(str(v) for v in values) + ")"
+
+    text = re.sub(r"(COLOUR_RGB\('[^']*',)([^)]*)\)", colour, text)
+    # A count of the writer's process, not of the file
+    return re.sub(r"NEXT_ASSEMBLY_USAGE_OCCURRENCE\('\d+'", "NEXT_ASSEMBLY_USAGE_OCCURRENCE('n'", text)
+
+
+def _stepGeometry(path):
+    """What comes before the colours: OCCT writes those (one presentation
+    per shape) in the order of a map hashed by the shapes' addresses
+    (STEPCAFControl_Writer, myMapCompMDGPR), which two processes can differ
+    in, here as much as in a worker"""
+    text = _stepData(path)
+    at = text.find("MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION")
+    return text if at < 0 else text[:text.rfind("\n", 0, at)]
+
+
+def _stepLooks(path):
+    """The colours read back: each object's label and its faces' colours"""
+    import Import
+
+    doc = App.newDocument("WorkerExportRead")
+    try:
+        Import.insert(path, doc.Name)
+        doc.recompute()
+        looks = []
+        for obj in doc.Objects:
+            if obj.isDerivedFrom("Part::Feature") and obj.Shape.Faces:
+                colours = [tuple(round(c * 255) for c in m.DiffuseColor[:3])
+                           for m in obj.ShapeAppearance]
+                looks.append((obj.Label, len(obj.Shape.Faces), tuple(colours)))
+        return sorted(looks)
+    finally:
+        App.closeDocument(doc.Name)
+
+
+class TestWorkerExport(unittest.TestCase):
+    """Kind "export" (docs/WorkerProcess.md sec 24): Module.export() on the
+    worker's copy, the file the same as one written here"""
+
+    def setUp(self):
+        import Import  # noqa: F401
+        import Part  # noqa: F401
+
+        self.doc = App.newDocument("WorkerExport")
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetInt("Workers", 1)
+        self.addCleanup(group.RemInt, "Workers")
+        self.pool = App.workerPool(self.doc)
+        self.dir = tempfile.mkdtemp(prefix="fc-wexport-")
+
+    def tearDown(self):
+        App.closeDocument(self.doc.Name)
+
+    def reopened(self):
+        """The document saved and opened again here. What a worker writes is
+        made from its copy, which is that: the shapes read back share
+        their equal geometry, and the writer meets it in another order --
+        the same model, a zero's sign moved between two directions"""
+        path = os.path.join(self.dir, self.doc.Name + ".FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        return self.doc
+
+    def export(self, objs, name, settings=""):
+        path = os.path.join(self.dir, name)
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        job = self.pool.submit("export", {"module": "Import", "objects": [o.Name for o in objs],
+                                          "file": path, "options": None, "settings": settings},
+                               tag="export", pinned=True)
+        self.assertGreater(job, 0, self.pool.info()["Reason"])
+        return job, path
+
+    def testTheFileIsTheOneMadeHere(self):
+        import Import
+
+        box = self.doc.addObject("Part::Box", "Box")
+        cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+        cyl.Placement.Base = App.Vector(30, 0, 0)
+        link = self.doc.addObject("App::Link", "Link")
+        link.LinkedObject = box
+        link.Placement.Base = App.Vector(0, 30, 0)
+        self.doc.recompute()
+        box.ShapeColor = (1.0, 0.0, 0.0)
+        faces = box.ShapeAppearance.copy()
+        faces.setSize(6)
+        look = faces[2]
+        look.DiffuseColor = (0.0, 0.0, 1.0, 1.0)
+        faces[2] = look
+        box.ShapeAppearance = faces
+        cyl.ShapeColor = (0.0, 1.0, 0.0)
+        link.OverrideMaterial = True
+        base = link.ShapeAppearance.Base
+        base.DiffuseColor = (0.0, 1.0, 0.0, 1.0)
+        link.ShapeAppearance.Base = base
+        self.doc.recompute()
+        objs = [box, cyl, link]
+        job, there = self.export(objs, "there.step")
+        self.assertTrue(self.pool.wait(180), self.pool.info())
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Done", result)
+        self.assertEqual(result["Output"]["file"], there)
+        doc = self.reopened()
+        here = os.path.join(self.dir, "here.step")
+        Import.export([doc.getObject(o) for o in ("Box", "Cyl", "Link")], here)
+        self.assertEqual(_stepGeometry(there), _stepGeometry(here))
+        looks = _stepLooks(there)
+        self.assertEqual(looks, _stepLooks(here))
+        self.assertIn((255, 0, 0), looks[0][2] + looks[-1][2])
+        self.assertTrue(any((0, 0, 255) in look[2] for look in looks), looks)
+
+    def testTheDesignAsItWasAskedFor(self):
+        """An edit after it was asked for, a recompute and a newer copy for
+        the workers: the file is the design as it was"""
+        import Import
+
+        box = self.doc.addObject("Part::Box", "Box")
+        self.doc.recompute()
+        self.doc = self.reopened()
+        box = self.doc.getObject("Box")
+        self.pool = App.workerPool(self.doc)
+        here = os.path.join(self.dir, "here.step")
+        Import.export([box], here)
+        # A worker ready on the copy: the export is handed to it at once
+        self.assertTrue(self.pool.start())
+        ready = self.pool.submit("test.echo", {}, module=MODULE)
+        self.assertTrue(ready and self.pool.wait(180), self.pool.info())
+        job, there = self.export([box], "there.step")
+        self.assertEqual(self.pool.state(job), "Running")
+        self.doc.openTransaction("Edit")
+        box.Length = 25
+        self.doc.commitTransaction()
+        self.doc.recompute()
+        self.assertTrue(self.pool.start())  # a newer copy, the worker moved after
+        self.assertTrue(self.pool.wait(180), self.pool.info())
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Done", result)
+        self.assertEqual(_stepData(there), _stepData(here))
+
+    def testAPreferenceSetSinceTheWorkerStarted(self):
+        """The preferences an exporter reads go with the job: the worker's
+        own are from when it was started"""
+        box = self.doc.addObject("Part::Box", "Box")
+        self.doc.recompute()
+        self.assertTrue(self.pool.start())
+        step = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Part/STEP")
+        self.assertEqual(step.GetString("Company", ""), "")
+        self.addCleanup(step.RemString, "Company")
+        step.SetString("Company", "WorkerExportCompany")
+        settings = os.path.join(self.dir, "settings.cfg")
+        App.ParamGet("User parameter:BaseApp/Preferences").Export(settings)
+        job, there = self.export([box], "there.step", settings)
+        self.assertTrue(self.pool.wait(180), self.pool.info())
+        self.assertEqual(self.pool.result(job)["Status"], "Done")
+        with open(there, encoding="latin-1") as f:
+            self.assertIn("WorkerExportCompany", f.read())
+
+    def testAnObjectTheCopyHasNotIsUnfit(self):
+        self.doc.addObject("Part::Box", "Box")
+        self.doc.recompute()
+        self.assertTrue(self.pool.start())
+        job = self.pool.submit("export", {"module": "Import", "objects": ["Nothing"],
+                                          "file": os.path.join(self.dir, "x.step")},
+                               pinned=True)
+        self.assertTrue(self.pool.wait(180))
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Unfit", result)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "x.step")))

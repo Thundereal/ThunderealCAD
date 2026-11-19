@@ -75,6 +75,9 @@ public:
         /// takes it (renames it, and clears this) inside `done`, or it is
         /// deleted after
         std::string file;
+        /// Failed because its worker died over it, or was ended past the
+        /// deadline: not the handler's own failure
+        bool died = false;
         double seconds = 0;  ///< the handler's time
         std::size_t resident = 0;  ///< what the worker held after it
     };
@@ -94,6 +97,13 @@ public:
         /// the copy it was queued for (docs/WorkerProcess.md sec 4). Empty:
         /// any change of the design drops it
         std::vector<std::string> reads;
+        /// Made on the copy standing when it was submitted, whatever changes
+        /// after (docs/WorkerProcess.md sec 24): what an export writes is the
+        /// design as it was when asked for. No change of the design drops it,
+        /// `reads` is not looked at, and the copy is kept for it while it
+        /// runs; a newer copy taken before a worker could be handed it hands
+        /// it back Cancelled
+        bool pinned = false;
         /// Called once, from the thread the pool runs in, unless the
         /// client cancels the job or claims it while it is queued
         std::function<void(Result&)> done;

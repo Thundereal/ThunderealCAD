@@ -394,7 +394,17 @@ struct WorkerPool::Private
         int tries = 0;
         bool running = false;
         bool dropped = false;  ///< cancelled while running: its result is thrown away
+        /// The copy it was submitted on: a pinned job is made there only
+        std::string copyDir;
     };
+    /// A copy the design moved past that a pinned job is still made on: its
+    /// version stays held until no job is on it (Job::pinned)
+    struct Held
+    {
+        std::weak_ptr<TransactionLogCore> core;
+        int64_t version = 0;
+    };
+    std::map<std::string, Held> heldCopies;
     /// The file a job's handler may write
     std::string outFile(JobId id) const
     {
@@ -505,6 +515,12 @@ struct WorkerPool::Private
     void handle(Proc& proc, const json& header);
     void finished(Proc& proc);
     void dispatch(Proc& proc);
+    /// Hand job `id` to `proc`, which has none
+    void sendJob(Proc& proc, JobId id);
+    /// The pinned jobs of the copy at `was` (Job::pinned), the design moved
+    /// past it: each queued one handed to a worker still on it, or back
+    /// Cancelled; true if one is made there now
+    bool keepPinned(const std::string& was, std::vector<std::pair<std::function<void(Result&)>, Result>>& told);
     void grow();
     void deliver(JobId id, Result& result);
     void checkIdle();
@@ -714,7 +730,8 @@ bool WorkerPool::Private::takeCopy()
             // and its pose again
             num = 0;
             seq = 0;
-            file = where + "/Document.FCStd";
+            // Named as the document, which an open names itself by
+            file = where + "/" + doc.getName() + ".FCStd";
             try {
                 if (!doc.saveCopy(file.c_str(), false)) {
                     file.clear();
@@ -734,10 +751,11 @@ bool WorkerPool::Private::takeCopy()
     }
     // The copy before is let go of: its version is not held any more -- a
     // worker moving from it reads the rows after it, and the values of the
-    // new one -- and its directory goes once no worker is on it
-    if (auto core = leased.lock()) {
-        core->holdVersion(version, false);
-    }
+    // new one -- and its directory goes once no worker is on it. Unless a
+    // pinned job is made on it: handed to a worker before that worker is
+    // told to move (a socket keeps order), the version held until it is done
+    const std::string was = dir;
+    const Held before {leased, version};
     leased.reset();
     if (!dir.empty()) {
         oldCopies.push_back(dir);
@@ -748,6 +766,13 @@ bool WorkerPool::Private::takeCopy()
     store = readFrom;
     if (held) {
         leased = doc.getFileHistory().logCore();
+    }
+    std::vector<std::pair<std::function<void(Result&)>, Result>> told;
+    if (!was.empty() && keepPinned(was, told) && !before.core.expired()) {
+        heldCopies[was] = before;
+    }
+    else if (auto core = before.core.lock()) {
+        core->holdVersion(before.version, false);
     }
     // Its own copy of the settings: a console program writes them back as
     // it exits, which would race this one's
@@ -820,12 +845,28 @@ bool WorkerPool::Private::takeCopy()
     }
     unrecorded = false;
     pruneCopies();
+    for (auto& [done, result] : told) {
+        try {
+            done(result);
+        }
+        catch (Base::Exception& e) {
+            e.ReportException();
+        }
+        catch (std::exception& e) {
+            FC_ERR("a worker job's client: " << e.what());
+        }
+    }
     return true;
 }
 
 json WorkerPool::Private::setupFor(Proc& proc)
 {
-    json setup {{"type", "setup"}, {"proxies", proxies}};
+    // The document's name and label: an export names what it writes by them
+    // (docs/WorkerProcess.md sec 24)
+    json setup {{"type", "setup"},
+                {"proxies", proxies},
+                {"name", doc.getName()},
+                {"label", doc.Label.getStrValue()}};
     if (!store.empty()) {
         // A version read from this process's store, into a folder of its own
         setup["store"] = store;
@@ -909,9 +950,23 @@ void WorkerPool::Private::pruneCopies()
                 used = true;
             }
         }
+        // A pinned job made on it (Job::pinned): the worker making it is
+        // told to move once it is done, the copy goes after that
+        for (const auto& kv : jobs) {
+            if (kv.second.job.pinned && kv.second.running && kv.second.copyDir == *it) {
+                used = true;
+            }
+        }
         if (used) {
             ++it;
             continue;
+        }
+        auto held = heldCopies.find(*it);
+        if (held != heldCopies.end()) {
+            if (auto core = held->second.core.lock()) {
+                core->holdVersion(held->second.version, false);
+            }
+            heldCopies.erase(held);
         }
         if (!params()->GetBool("KeepJob", false)) {
             Base::FileInfo(*it).deleteDirectoryRecursive();
@@ -964,7 +1019,7 @@ void WorkerPool::Private::dropReached(const DocumentObject* obj, const std::stri
     std::vector<std::pair<std::function<void(Result&)>, Result>> told;
     for (auto it = jobs.begin(); it != jobs.end();) {
         Entry& entry = it->second;
-        bool hit = !entry.dropped
+        bool hit = !entry.dropped && !entry.job.pinned
             && (!obj || entry.job.reads.empty()
                 || std::any_of(entry.job.reads.begin(), entry.job.reads.end(),
                                [&](const std::string& name) { return reached.count(name) > 0; }));
@@ -1094,6 +1149,12 @@ void WorkerPool::Private::dropCopy()
         core->holdVersion(version, false);
     }
     leased.reset();
+    for (auto& [where, held] : heldCopies) {
+        if (auto core = held.core.lock()) {
+            core->holdVersion(held.version, false);
+        }
+    }
+    heldCopies.clear();
     store.clear();
     changed.disconnect();
     made.clear();
@@ -1361,6 +1422,7 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
             pool.stop("the workers fail: " + result.error);
             return;
         }
+        pruneCopies();
         dispatch(proc);
         grow();
         changedNotice();
@@ -1448,8 +1510,10 @@ void WorkerPool::Private::finished(Proc& proc)
             if (it->second.dropped) {
                 jobs.erase(it);
             }
-            else if (++it->second.tries < 2) {
-                // Once more, first in line: the death may not be the job's
+            else if (++it->second.tries < 2
+                     && (!it->second.job.pinned || it->second.copyDir == dir)) {
+                // Once more, first in line: the death may not be the job's.
+                // A pinned one only while its copy is the one standing
                 queue.push_front(lost);
             }
             else {
@@ -1460,6 +1524,7 @@ void WorkerPool::Private::finished(Proc& proc)
                 result.tag = it->second.job.tag;
                 result.status = Result::Status::Failed;
                 result.error = "its worker died over it";
+                result.died = true;
                 deliver(lost, result);
             }
         }
@@ -1488,13 +1553,19 @@ void WorkerPool::Private::dispatch(Proc& proc)
     if (copy.empty() || !proc.ready || proc.job || proc.quitting || proc.over || !proc.socket) {
         return;
     }
-    while (!queue.empty()) {
-        JobId id = queue.front();
-        queue.pop_front();
+    for (auto at = queue.begin(); at != queue.end();) {
+        const JobId id = *at;
         auto it = jobs.find(id);
         if (it == jobs.end() || it->second.running) {
+            at = queue.erase(at);
             continue;
         }
+        if (it->second.job.pinned && it->second.copyDir != proc.nextCopyDir) {
+            // Made on its own copy only, which this worker is not on
+            ++at;
+            continue;
+        }
+        queue.erase(at);
         json inputs = json::parse(it->second.job.inputs, nullptr, false);
         if (inputs.is_discarded()) {
             Result result;
@@ -1504,29 +1575,10 @@ void WorkerPool::Private::dispatch(Proc& proc)
             result.error = "its inputs are not JSON";
             ++failed;
             deliver(id, result);
+            at = queue.begin();
             continue;
         }
-        json header {{"type", "job"},
-                     {"job", id},
-                     {"kind", it->second.job.kind},
-                     {"inputs", inputs},
-                     {"module", it->second.job.module},
-                     {"out", outFile(id)}};
-        // A grant given or taken back since it was last told reaches it
-        // before the job does: a job it runs is never decided by an answer
-        // this process no longer gives
-        std::string security = ExpressionSecurity::Runtime::instance().exportState();
-        if (security != proc.security) {
-            header["security"] = security;
-            proc.security = std::move(security);
-        }
-        it->second.running = true;
-        proc.job = id;
-        proc.began = now();
-        proc.idleSince = 0;
-        if (!send(*proc.socket, header)) {
-            kill(proc);
-        }
+        sendJob(proc, id);
         return;
     }
     // Nothing for it: let go of it once it has been idle long enough
@@ -1540,6 +1592,86 @@ void WorkerPool::Private::dispatch(Proc& proc)
     else if (!idleTimer.isActive()) {
         idleTimer.start(static_cast<int>(idle * 1000) + 50);
     }
+}
+
+void WorkerPool::Private::sendJob(Proc& proc, JobId id)
+{
+    auto it = jobs.find(id);
+    if (it == jobs.end()) {
+        return;
+    }
+    json inputs = json::parse(it->second.job.inputs, nullptr, false);
+    json header {{"type", "job"},
+                 {"job", id},
+                 {"kind", it->second.job.kind},
+                 {"inputs", inputs},
+                 {"module", it->second.job.module},
+                 {"out", outFile(id)}};
+    // A grant given or taken back since it was last told reaches it
+    // before the job does: a job it runs is never decided by an answer
+    // this process no longer gives
+    std::string security = ExpressionSecurity::Runtime::instance().exportState();
+    if (security != proc.security) {
+        header["security"] = security;
+        proc.security = std::move(security);
+    }
+    it->second.running = true;
+    proc.job = id;
+    proc.began = now();
+    proc.idleSince = 0;
+    if (!send(*proc.socket, header)) {
+        kill(proc);
+    }
+}
+
+bool WorkerPool::Private::keepPinned(
+    const std::string& was, std::vector<std::pair<std::function<void(Result&)>, Result>>& told)
+{
+    bool there = false;
+    for (const auto& kv : jobs) {
+        if (kv.second.job.pinned && kv.second.running && kv.second.copyDir == was) {
+            there = true;
+        }
+    }
+    const std::deque<JobId> waiting = queue;
+    for (JobId id : waiting) {
+        auto it = jobs.find(id);
+        if (it == jobs.end() || it->second.running || !it->second.job.pinned
+            || it->second.copyDir != was) {
+            continue;
+        }
+        // A worker on that copy, or told to open it, with nothing to do: the
+        // job goes before the word to move, and is made there
+        Proc* free = nullptr;
+        for (auto& proc : procs) {
+            if (!proc->over && !proc->quitting && proc->socket && !proc->job
+                && proc->nextCopyDir == was) {
+                free = proc.get();
+                break;
+            }
+        }
+        if (free) {
+            queue.erase(std::remove(queue.begin(), queue.end(), id), queue.end());
+            sendJob(*free, id);
+            if (jobs.count(id) && jobs[id].running) {
+                there = true;
+            }
+            continue;
+        }
+        Result result;
+        result.id = id;
+        result.kind = it->second.job.kind;
+        result.tag = it->second.job.tag;
+        result.status = Result::Status::Cancelled;
+        result.error = "the design changed before a worker could make it";
+        auto done = std::move(it->second.job.done);
+        jobs.erase(it);
+        queue.erase(std::remove(queue.begin(), queue.end(), id), queue.end());
+        if (done) {
+            told.emplace_back(std::move(done), std::move(result));
+        }
+    }
+    return there;
 }
 
 void WorkerPool::Private::checkIdle()
@@ -1770,6 +1902,7 @@ WorkerPool::JobId WorkerPool::submit(Job job)
     const JobId id = d->next++;
     Private::Entry entry;
     entry.job = std::move(job);
+    entry.copyDir = d->dir;
     d->jobs.emplace(id, std::move(entry));
     d->queue.push_back(id);
     if (d->procs.empty() && !d->spawn()) {
@@ -2386,7 +2519,9 @@ int WorkerPool::serve()
                         folder = file;
                         Document::materialiseVersion(core, num, file, true);
                         auto& app = GetApplication();
-                        const std::string name = app.getUniqueDocumentName("Copy", true);
+                        // Named as the document it is a copy of, alone here
+                        const std::string name = app.getUniqueDocumentName(
+                            header.value("name", std::string("Copy")).c_str(), true);
                         doc = app.newDocument(name.c_str(), name.c_str(), false, false, false);
                         if (!doc) {
                             THROWM(Base::RuntimeError, "cannot make the copy's document");
@@ -2409,6 +2544,10 @@ int WorkerPool::serve()
                     why = "cannot open " + file;
                 }
                 else {
+                    if (auto label = header.find("label");
+                        label != header.end() && label->is_string()) {
+                        doc->Label.setValue(label->get<std::string>());
+                    }
                     // Names spelled as the pool's table spells them
                     if (auto indexed = header.find("indexed");
                         indexed != header.end() && indexed->is_boolean()) {
@@ -2576,8 +2715,9 @@ public:
         add_varargs_method("start", &WorkerPoolPy::start,
                            "start() -> bool: take the document's copy and start a worker");
         add_keyword_method("submit", &WorkerPoolPy::submit,
-                           "submit(kind, inputs={}, module='', tag='', reads=None) -> job id, 0 if not\n"
-                           "started; reads: the objects (or names) its result is made from");
+                           "submit(kind, inputs={}, module='', tag='', reads=None, pinned=False) ->\n"
+                           "job id, 0 if not started; reads: the objects (or names) its result is\n"
+                           "made from; pinned: made on the copy standing now, whatever changes");
         add_varargs_method("claim", &WorkerPoolPy::claim,
                            "claim(id) -> 'Yours', 'Done', 'Failed' or 'Unknown'");
         add_varargs_method("state", &WorkerPoolPy::state,
@@ -2631,15 +2771,17 @@ public:
 
     Py::Object submit(const Py::Tuple& args, const Py::Dict& kwds)
     {
-        static const std::array<const char*, 6> keywords {"kind", "inputs", "module", "tag",
-                                                          "reads", nullptr};
+        static const std::array<const char*, 7> keywords {"kind", "inputs", "module", "tag",
+                                                          "reads", "pinned", nullptr};
         const char* kind = nullptr;
         PyObject* inputs = nullptr;
         const char* module = "";
         const char* tag = "";
         PyObject* reads = nullptr;
-        if (!Base::Wrapped_ParseTupleAndKeywords(args.ptr(), kwds.ptr(), "s|OssO", keywords, &kind,
-                                                 &inputs, &module, &tag, &reads)) {
+        PyObject* pinned = Py_False;
+        if (!Base::Wrapped_ParseTupleAndKeywords(args.ptr(), kwds.ptr(), "s|OssOO!", keywords,
+                                                 &kind, &inputs, &module, &tag, &reads,
+                                                 &PyBool_Type, &pinned)) {
             throw Py::Exception();
         }
         WorkerPool& p = pool();
@@ -2648,6 +2790,7 @@ public:
         job.inputs = inputs ? toJson(Py::Object(inputs)) : std::string("{}");
         job.module = module;
         job.tag = tag;
+        job.pinned = PyObject_IsTrue(pinned) != 0;
         if (reads && reads != Py_None) {
             // Names, or the objects themselves
             Py::Sequence seq(reads);
@@ -2725,6 +2868,7 @@ public:
         dict.setItem("Tag", Py::String(r.tag));
         dict.setItem("Status", Py::String(statusName(r.status)));
         dict.setItem("Error", Py::String(r.error));
+        dict.setItem("Died", Py::Boolean(r.died));
         dict.setItem("Output", fromJson(r.output));
         dict.setItem("File", Py::String(r.file));
         dict.setItem("Seconds", Py::Float(r.seconds));

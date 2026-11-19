@@ -75,6 +75,48 @@ def _run(kind, docName, inputs, out, module):
         return _reply(ok=False, error=str(e) or type(e).__name__)
 
 
+def _export(doc, inputs, out):
+    """Kind "export" (docs/WorkerProcess.md sec 24): Module.export(objs, file
+    [, options]) on the worker's copy, the call an export here makes.
+
+    inputs: module, objects (names, in order), file, options (a dict, or
+    None for a module that takes none), keywords (a dict of keyword
+    arguments, or none), settings (a file of this process's Preferences as
+    they were when it was asked for, or empty)"""
+    del out
+    if doc is None:
+        raise Unfit("no document")
+    objs = []
+    for name in inputs.get("objects", []):
+        obj = doc.getObject(name)
+        if obj is None:
+            raise Unfit("no object %s in the copy" % name)
+        objs.append(obj)
+    settings = inputs.get("settings")
+    if settings:
+        # What an exporter reads of the preferences, as the client has them
+        # now: the worker's own copy is from when it was started
+        App.ParamGet("User parameter:BaseApp/Preferences").Import(settings)
+        # The STEP and IGES writers' own, which Part took from them once
+        try:
+            import Part
+
+            Part.applyExchangeSettings()
+        except ImportError:
+            pass
+    module = importlib.import_module(inputs["module"])
+    options = inputs.get("options")
+    keywords = inputs.get("keywords") or {}
+    if options is None:
+        module.export(objs, inputs["file"], **keywords)
+    else:
+        module.export(objs, inputs["file"], options, **keywords)
+    return {"file": inputs["file"]}
+
+
+register("export", _export)
+
+
 def serve():
     """The worker's loop; returns when the pool says quit or goes"""
     try:

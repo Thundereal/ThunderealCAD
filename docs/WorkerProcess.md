@@ -7,7 +7,8 @@ phase 1 (sec 10), phase 2 (sec 11, 12), phase 4 (sec 13), phase 5a (sec
 then a reduced phase 3. Since: string ids leased (sec 15), phase 5b (sec
 16), phase 6, a recompute made by a worker (sec 19); results no longer
 depending on what was shown, and a worker's names spelled as its
-client's (sec 20).
+client's (sec 20); an export made by a worker, pinned to the design as it
+was asked for (sec 24).
 
 Companion to `docs/ComputeBoundaries.md` (Boundary B, whole-document
 workers first) and `docs/TransactionLogJournal.md` (the log this builds
@@ -1385,3 +1386,101 @@ under a session grant here is made by the worker; with the grant taken
 back, the worker's job is unfit, the object is made here, refused, and the
 request is pending here. Without the state sent, the first part fails: the
 worker refuses what this process granted.
+
+## 24. An export made by a worker (2026-11-19)
+
+The user, 2026-11-19: "work on export", the looks being the objects' now
+(docs/ShapeAppearanceDesign.md sec 14.6.7: the exporters read what an
+object draws through the object, with no view provider). Std_Export of a
+STEP or an IGES file -- ImportGui's in the GUI -- is written by a worker
+from its copy of the design, and the window is free meanwhile.
+
+**The kind.** `export`, in `freecad/worker.py`: `Module.export(objs, file
+[, options], **keywords)` on the worker's copy, the call an export here
+makes. Its inputs name the module, the objects (in order), the file, the
+options and keywords, and a file of this process's Preferences as they
+were when it was asked for: a worker's own settings are from when it was
+started, and the exporters read theirs there -- the STEP header's author
+and company, the scheme, the units. The STEP and IGES writers' settings are
+OCCT's process globals, which Part sets from the preferences once, when it
+loads: `Part.applyExchangeSettings()` sets them again
+(`OCAF::ImportExportSettings::initialize()`). An object the copy has not
+is unfit.
+
+**Pinned to the design as asked for.** An export is of the design when the
+user asked, not when a worker gets to it. `Job::pinned`: the job is made on
+the copy standing when it was submitted. No change of the design drops it
+(`reads` is not looked at); when a newer copy is taken, a pinned job of the
+old one is handed, before the word to move, to a worker on that copy with
+nothing to do (a socket keeps order), its copy's directory and log version
+held until it is done (`heldCopies`, released by `pruneCopies()`). A pinned
+job no worker on its copy can take then -- every one busy, or none
+connected yet -- comes back Cancelled ("the design changed before a worker
+could make it"). A worker that dies over a pinned job tries it again only
+while its copy is the one standing.
+
+**The client** (`Gui/WorkerExportGui`, from `Gui::Application::exportTo`):
+
+- Only a module in `ExportModules` of Preferences/Workers
+  ("Import;ImportGui;Part;Mesh"), and of ImportGui only STEP and IGES: they
+  are Import's (`ExportOCAF2::objectColors()`/`objectAppearance()`, the
+  looks through the object). ImportGui's glTF reads render settings only
+  view providers have (`Render_*`), and stays here; so does a module that
+  chooses its own objects (`exportSelection`). `ExportCommand` of
+  Preferences/Workers, on unless set off: "Export in a worker process" in
+  the Document preferences.
+- The options are asked for here, where the module's dialog is (ImportGui's
+  STEP dialog), and go with the job as Import's keyword arguments
+  (`exportHidden`, `keepPlacement`). The legacy exporter, an option Import
+  has no keyword for, or options that are not JSON: exported here, with
+  the options asked for, and not asked again.
+- The macro records the export as if it had run here.
+- Done: the status bar says so, with the worker's seconds, and the file is
+  added to the recent ones as an export here adds it. The exporter failed:
+  "Export failed" with its message, as here. The worker died over it: told,
+  and not tried here, where whatever ended the worker would end the
+  session. Unfit or cancelled: exported here if the document did not change
+  since it was asked for; otherwise told, to export again.
+
+**The worker's copy is named as the document.** A STEP file's root is named
+by the document's name (`ExportOCAF2`, several objects), and a worker named
+its copy `Copy`. The setup now carries the document's name and label; the
+copy takes them, and a copy saved for the workers is saved under the name.
+
+**What a worker writes is what the document reopened writes.** Compared
+with an export of the live document here, a worker's file differs where an
+export of the same document saved and opened again here differs too, and
+nowhere else:
+
+- a colour that is not on a 1/255 step -- the default material's diffuse
+  0.9 -- is written from the float here and from the 8 bits a document file
+  keeps of it after an open (0.90196104 against 0.90196080);
+- the shapes read back share their equal geometry, and the writer meets it
+  in another order: two directions trade a zero's sign.
+
+And two files written by two processes differ anyway: OCCT numbers the
+assembly usages by a count of its process, and writes the colours' groups
+(`STEPCAFControl_Writer`, `myMapCompMDGPR`, one per shape) in the order of
+a map hashed by the shapes' addresses -- the same saved file, exported in
+six processes here, came out in two orders. Neither is changed: the first
+is the document's precision, the second OCCT's (our fork; not touched).
+
+| scanner.FCStd (schema 5 copy), its 76 shown shapes to STEP (19.6 MB), console | this process held | file written after |
+|---|---|---|
+| here | 3.11 s | 3.11 s |
+| by a worker, none running | 0.07 s | 4.79 s (the worker's start, then 3.10 s) |
+
+Tests: `TestWorkerPool.testAPinnedJobIsMadeOnItsCopy` (an edit and a newer
+copy while it runs: it is made on its copy, which stays until it is done),
+`testAPinnedJobNoWorkerTookIsCancelledByANewerCopy`;
+`TestWorkerExport`: a box with a painted face, a cylinder and a link
+overriding its colour -- the worker's file has the geometry of the
+reopened document's export byte for byte and the same colours read back;
+an edit, a recompute and a newer copy after it was asked for leave the
+file the design as asked; a preference set since the worker started (the
+STEP company) is in its file; an object the copy has not is unfit. GUI test
+`tests/gui/export-by-worker.py` (12 claims): Std_Export of a STEP file
+returns with the export with a worker; the file comes, the box edited and
+recomputed right after the command written at its old size, its faces'
+colours right; set off, it is written here at once, with the colours the
+worker wrote.

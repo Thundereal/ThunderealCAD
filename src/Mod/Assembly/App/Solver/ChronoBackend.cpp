@@ -1029,6 +1029,303 @@ struct ShapeOn
 };
 class FlexibleContact;
 
+/** How a pressure's patch spreads over its points (D4b way 2 step 4): the
+ * depth taken linear between them, along a line or over the triangles of an
+ * area, and the pressure integrated where it is pressed -- not the patch
+ * pressing as one point at its springs' mean, the deeper weighing more: a
+ * block pressed 0.05 mm at one end and touching at the other pressed 50.3 N
+ * for the 25 of its pressure over it, a rod so tilted 2.5 times its own.
+ * Each point's share its consistent part, the pressure by its own linear
+ * function over the line or triangles it is of, so the force's moment is
+ * the pressure's too. Of the points at the patch's start, fixed on the
+ * patch for the step: the depths each state's (ContactLoad::ComputeQ()).
+ */
+struct PressureSpread
+{
+    enum class Kind
+    {
+        None,  // the patch's springs, as any law's
+        Line,
+        Area
+    };
+    Kind kind = Kind::None;
+    // The load's points' numbers, a line's in order along it at 'stations',
+    // an area's at 'flat' in its plane, its triangles of them by position in
+    // 'points'
+    std::vector<std::size_t> points;
+    std::vector<double> stations;
+    std::vector<std::array<double, 2>> flat;
+    std::vector<std::array<std::size_t, 3>> triangles;
+    // The line's length, or the area's, the points'; the patch's stiffness
+    // is its force pressed alike over it by a depth, d^e
+    double measure = 0.0;
+};
+
+/** The points' Delaunay triangles in a plane (Bowyer and Watson's): each
+ * a triple of positions in 'flat'. None where they are along one line.
+ * Points within a millionth of the extent of one before it are left out of
+ * every triangle. */
+std::vector<std::array<std::size_t, 3>>
+delaunay(const std::vector<std::array<double, 2>>& flat)
+{
+    std::vector<std::array<std::size_t, 3>> out;
+    const std::size_t n = flat.size();
+    if (n < 3) {
+        return out;
+    }
+    double lowX = flat[0][0];
+    double highX = lowX;
+    double lowY = flat[0][1];
+    double highY = lowY;
+    for (const auto& p : flat) {
+        lowX = std::min(lowX, p[0]);
+        highX = std::max(highX, p[0]);
+        lowY = std::min(lowY, p[1]);
+        highY = std::max(highY, p[1]);
+    }
+    const double size = std::max(highX - lowX, highY - lowY);
+    if (!(size > 0.0)) {
+        return out;
+    }
+    const double near = 1e-6 * size;
+    // In the extent's own scale, about its middle, the enclosing triangle's
+    // corners n, n + 1, n + 2
+    const double midX = 0.5 * (lowX + highX);
+    const double midY = 0.5 * (lowY + highY);
+    std::vector<std::array<double, 2>> p;
+    p.reserve(n + 3);
+    for (const auto& q : flat) {
+        p.push_back({(q[0] - midX) / size, (q[1] - midY) / size});
+    }
+    p.push_back({-100.0, -100.0});
+    p.push_back({100.0, -100.0});
+    p.push_back({0.0, 100.0});
+    struct Triangle
+    {
+        std::array<std::size_t, 3> v;
+        double cx;
+        double cy;
+        double r2;
+    };
+    auto made = [&](std::size_t a, std::size_t b, std::size_t c, Triangle& t) {
+        const double ax = p[a][0];
+        const double ay = p[a][1];
+        const double bx = p[b][0];
+        const double by = p[b][1];
+        const double cx = p[c][0];
+        const double cy = p[c][1];
+        const double d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+        if (!(std::abs(d) > 1e-18)) {
+            return false;
+        }
+        const double a2 = ax * ax + ay * ay;
+        const double b2 = bx * bx + by * by;
+        const double c2 = cx * cx + cy * cy;
+        t.v = {a, b, c};
+        t.cx = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
+        t.cy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
+        t.r2 = (ax - t.cx) * (ax - t.cx) + (ay - t.cy) * (ay - t.cy);
+        return true;
+    };
+    std::vector<Triangle> triangles(1);
+    made(n, n + 1, n + 2, triangles[0]);
+    std::vector<std::size_t> kept;
+    for (std::size_t i = 0; i < n; ++i) {
+        bool copy = false;
+        for (const std::size_t j : kept) {
+            if (std::abs(flat[i][0] - flat[j][0]) <= near
+                && std::abs(flat[i][1] - flat[j][1]) <= near) {
+                copy = true;
+                break;
+            }
+        }
+        if (copy) {
+            continue;
+        }
+        kept.push_back(i);
+        std::vector<std::array<std::size_t, 2>> edges;
+        std::vector<Triangle> left;
+        left.reserve(triangles.size());
+        for (const auto& t : triangles) {
+            const double dx = p[i][0] - t.cx;
+            const double dy = p[i][1] - t.cy;
+            if (dx * dx + dy * dy < t.r2 * (1.0 + 1e-12)) {
+                for (int e = 0; e < 3; ++e) {
+                    edges.push_back({t.v[e], t.v[(e + 1) % 3]});
+                }
+            }
+            else {
+                left.push_back(t);
+            }
+        }
+        // The hole's rim: the edges of one triangle taken, not of two
+        for (std::size_t a = 0; a < edges.size(); ++a) {
+            bool shared = false;
+            for (std::size_t b = 0; b < edges.size(); ++b) {
+                if (a != b && edges[a][0] == edges[b][1] && edges[a][1] == edges[b][0]) {
+                    shared = true;
+                    break;
+                }
+            }
+            Triangle t;
+            if (!shared && made(edges[a][0], edges[a][1], i, t)) {
+                left.push_back(t);
+            }
+        }
+        triangles.swap(left);
+    }
+    for (const auto& t : triangles) {
+        if (t.v[0] < n && t.v[1] < n && t.v[2] < n) {
+            // Of any area: one of three points along a line has none
+            const double area = (p[t.v[1]][0] - p[t.v[0]][0]) * (p[t.v[2]][1] - p[t.v[0]][1])
+                - (p[t.v[2]][0] - p[t.v[0]][0]) * (p[t.v[1]][1] - p[t.v[0]][1]);
+            if (std::abs(area) > 1e-12) {
+                out.push_back(t.v);
+            }
+        }
+    }
+    return out;
+}
+
+/** A pressure spread's force at each of its points (PressureSpread), by
+ * 'depths' at the load's points: each the integral of its own linear
+ * function by max(d, 0)^e over its line's pieces or its triangles, the
+ * depth linear over each, over the spread's measure -- the patch's
+ * stiffness times it its force. Where the depth comes to none within a
+ * piece, its pressed part alone, so a point's force goes smoothly to none
+ * as the depth about it does. 'forces' at the load's points' numbers. */
+void spreadForces(const PressureSpread& spread,
+                  const std::vector<double>& depths,
+                  double e,
+                  std::vector<double>& forces)
+{
+    if (spread.kind == PressureSpread::Kind::None || !(spread.measure > 0.0)) {
+        return;
+    }
+    for (const std::size_t i : spread.points) {
+        if (i >= depths.size() || i >= forces.size()) {
+            return;
+        }
+    }
+    auto pressure = [e](double d) {
+        return d > 0.0 ? std::pow(d, e) : 0.0;
+    };
+    if (spread.kind == PressureSpread::Kind::Line) {
+        // Gauss-Legendre's five points on [0, 1]
+        static const double at[5] = {0.0469100770306680,
+                                     0.2307653449471585,
+                                     0.5,
+                                     0.7692346550528415,
+                                     0.9530899229693320};
+        static const double weight[5] = {0.1184634425280945,
+                                         0.2393143352496832,
+                                         0.2844444444444444,
+                                         0.2393143352496832,
+                                         0.1184634425280945};
+        for (std::size_t k = 0; k + 1 < spread.points.size(); ++k) {
+            const double length = spread.stations[k + 1] - spread.stations[k];
+            const std::size_t a = spread.points[k];
+            const std::size_t b = spread.points[k + 1];
+            const double da = depths[a];
+            const double db = depths[b];
+            // Its pressed part, t from 'low' to 'high' along it
+            double low = 0.0;
+            double high = 1.0;
+            if (!(da > 0.0) && !(db > 0.0)) {
+                continue;
+            }
+            if (!(da > 0.0)) {
+                low = da / (da - db);
+            }
+            else if (!(db > 0.0)) {
+                high = da / (da - db);
+            }
+            double onA = 0.0;
+            double onB = 0.0;
+            for (int q = 0; q < 5; ++q) {
+                const double t = low + (high - low) * at[q];
+                const double g = weight[q] * pressure(da + (db - da) * t);
+                onA += (1.0 - t) * g;
+                onB += t * g;
+            }
+            const double scale = length * (high - low) / spread.measure;
+            forces[a] += onA * scale;
+            forces[b] += onB * scale;
+        }
+        return;
+    }
+    // Dunavant's seven points, of the fifth degree, by their barycentric
+    // coordinates
+    static const double r1 = 0.0597158717897698;
+    static const double s1 = 0.4701420641051151;
+    static const double r2 = 0.7974269853530873;
+    static const double s2 = 0.1012865073234563;
+    static const double rule[7][4] = {{1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0, 0.225},
+                                      {r1, s1, s1, 0.1323941527885062},
+                                      {s1, r1, s1, 0.1323941527885062},
+                                      {s1, s1, r1, 0.1323941527885062},
+                                      {r2, s2, s2, 0.1259391805448271},
+                                      {s2, r2, s2, 0.1259391805448271},
+                                      {s2, s2, r2, 0.1259391805448271}};
+    using Bary = std::array<double, 3>;
+    for (const auto& triangle : spread.triangles) {
+        std::array<std::size_t, 3> at;
+        std::array<double, 3> d;
+        for (int c = 0; c < 3; ++c) {
+            at[c] = spread.points[triangle[c]];
+            d[c] = depths[at[c]];
+        }
+        if (!(d[0] > 0.0) && !(d[1] > 0.0) && !(d[2] > 0.0)) {
+            continue;
+        }
+        const auto& p0 = spread.flat[triangle[0]];
+        const auto& p1 = spread.flat[triangle[1]];
+        const auto& p2 = spread.flat[triangle[2]];
+        const double area = 0.5
+            * std::abs((p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1]));
+        // Its pressed part: the triangle clipped where the depth is none,
+        // its corners by their barycentric coordinates
+        std::vector<Bary> polygon;
+        auto depthAt = [&](const Bary& l) {
+            return l[0] * d[0] + l[1] * d[1] + l[2] * d[2];
+        };
+        const Bary corners[3] = {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+        for (int c = 0; c < 3; ++c) {
+            const Bary& from = corners[c];
+            const Bary& to = corners[(c + 1) % 3];
+            const double df = depthAt(from);
+            const double dt = depthAt(to);
+            if (df > 0.0) {
+                polygon.push_back(from);
+            }
+            if ((df > 0.0) != (dt > 0.0)) {
+                const double t = df / (df - dt);
+                polygon.push_back({from[0] + (to[0] - from[0]) * t,
+                                   from[1] + (to[1] - from[1]) * t,
+                                   from[2] + (to[2] - from[2]) * t});
+            }
+        }
+        // Its pieces, a fan from the first corner: each its share of the
+        // triangle's area, the determinant of its corners' coordinates
+        for (std::size_t k = 1; k + 1 < polygon.size(); ++k) {
+            const Bary& a = polygon[0];
+            const Bary& b = polygon[k];
+            const Bary& c = polygon[k + 1];
+            const double part = std::abs((b[1] - a[1]) * (c[2] - a[2]) - (c[1] - a[1]) * (b[2] - a[2]));
+            for (const auto& q : rule) {
+                Bary l;
+                for (int j = 0; j < 3; ++j) {
+                    l[j] = q[0] * a[j] + q[1] * b[j] + q[2] * c[j];
+                }
+                const double g = q[3] * pressure(depthAt(l)) * part * area / spread.measure;
+                for (int j = 0; j < 3; ++j) {
+                    forces[at[j]] += l[j] * g;
+                }
+            }
+        }
+    }
+}
+
 class ContactLoad: public ch::ChLoadBodyBody
 {
 public:
@@ -1176,10 +1473,26 @@ public:
                 sum[point.patch] += spring;
             }
         }
+        // A pressure's patches spread over their points: each point's force
+        // its part of the pressure integrated, the depth linear between them
+        // (spreadForces()), pressed or not
+        spread.assign(at.size(), 0.0);
+        bool spreading = false;
+        for (std::size_t p = 0; p < spreads.size() && p < patches; ++p) {
+            if (spreads[p].kind != PressureSpread::Kind::None) {
+                spreadForces(spreads[p], depths, exponents[p], spread);
+                spreading = true;
+            }
+        }
+        auto isSpread = [&](const Point& point) {
+            return spreading && point.patch < spreads.size()
+                && spreads[point.patch].kind != PressureSpread::Kind::None;
+        };
         for (std::size_t i = 0; i < at.size(); ++i) {
             const Point& point = at[i];
             const double depth = depths[i];
-            if (!(depth > 0.0)) {
+            const bool spreadOne = isSpread(point);
+            if (!(depth > 0.0) && !(spreadOne && spread[i] > 0.0)) {
                 continue;
             }
             const bool mesh = meshed(i);
@@ -1194,16 +1507,21 @@ public:
             const double total = sum[point.patch];
             const double share = total > 0.0 ? squares[point.patch] / total / total : 1.0;
             const double spring =
-                stiffness[point.patch] * std::pow(depth, exponents[point.patch]);
+                stiffness[point.patch] * std::pow(std::max(depth, 0.0), exponents[point.patch]);
             const bool restitution = law.damping == ContactLaw::Damping::Restitution;
-            const double factor = restitution
+            const double factor = restitution && total > 0.0
                 ? hunt(std::pow(squares[point.patch] / total, 1.0 / exponents[point.patch]),
                        point.patch)
                 : 0.0;
             const double viscous =
                 restitution ? 0.0 : step(depth, 0.0, 0.0, law.penetration, law.maxDamping);
-            double normal =
-                share * (restitution ? spring * (1.0 + factor * rate) : spring + viscous * rate);
+            // A spread's spring its own part of the pressure; the damping's
+            // shared as the springs' are. The others' as they were, in the
+            // same order: an impact's frames are compared to the last bit
+            const double pushed = spreadOne ? stiffness[point.patch] * spread[i] : share * spring;
+            double normal = spreadOne
+                ? (restitution ? pushed * (1.0 + factor * rate) : pushed + share * viscous * rate)
+                : share * (restitution ? spring * (1.0 + factor * rate) : spring + viscous * rate);
             if (!(normal > 0.0)) {
                 continue;
             }
@@ -1250,8 +1568,12 @@ public:
                 f,
                 point.normal,
                 point.onA,
-                std::max(share * exponents[point.patch] * spring / depth * rates, 0.0),
-                std::max(share * (restitution ? spring * factor : viscous), 0.0),
+                !spreadOne ? std::max(share * exponents[point.patch] * spring / depth * rates, 0.0)
+                    : depth > 0.0 ? std::max(exponents[point.patch] * pushed / depth * rates, 0.0)
+                                  : 0.0,
+                std::max(spreadOne ? (restitution ? pushed * factor : share * viscous)
+                                   : share * (restitution ? spring * factor : viscous),
+                         0.0),
                 f / normal,
                 drag};
             if (mesh) {
@@ -1567,8 +1889,12 @@ public:
     // its round's surface, 1 A's, 2 B's, or 0 (FlexibleContact::place())
     std::vector<char> given;
 
+    // A pressure's patches' spread over their points (patchStiffness()):
+    // each patch's, or none, its springs shared as any law's
+    std::vector<PressureSpread> spreads;
+
 private:
-    std::vector<double> depths, squares, sum;
+    std::vector<double> depths, squares, sum, spread;
 };
 
 #ifdef ASSEMBLY_WITH_CHRONO_MODAL
@@ -4688,6 +5014,12 @@ bool reachOver(const ShapeOn& on,
 // middle one by depth, a flexible torus on a rigid roller, half its
 // place's points at such a crease, 19.3 N for a substep for the mean's
 // 49.9
+// A pressure's line in eighths along it (thinOut(), PressureSpread): its
+// depth sampled inside it, not only at its two ends -- a flexible rod held at
+// one end bends off a plate along it, its tip 9 um up, and taken linear
+// between its ends its depth was too little all along
+constexpr int lineEighths = 8;
+
 void thinOut(ContactLoad& load,
              const std::function<const ShapeOn*(const ch::ChCollisionShape*)>& shapeOf)
 {
@@ -4931,11 +5263,46 @@ void thinOut(ContactLoad& load,
         (sideA ? movedA : movedB) = true;
         placedOn[nearLow].beyond = in;
         placedOn[nearHigh].beyond = in;
+        // A pressure's line its depth along it too, seven of its other
+        // places taken to its eighths between its two (PressureSpread)
+        std::vector<std::size_t> between;
+        if (load.law.from == ContactLaw::Stiffness::Pressure) {
+            for (int j = 1; j < lineEighths; ++j) {
+                const double station = low + in + (high - low - 2.0 * in) * j / lineEighths;
+                std::vector<std::size_t> closest;
+                for (const std::size_t i : onRound) {
+                    if (i != nearLow && i != nearHigh
+                        && std::find(between.begin(), between.end(), i) == between.end()) {
+                        closest.push_back(i);
+                    }
+                }
+                std::stable_sort(closest.begin(), closest.end(), [&](std::size_t a, std::size_t b) {
+                    return std::abs(placedOn[a].station - station)
+                        < std::abs(placedOn[b].station - station);
+                });
+                if (closest.size() > 4) {
+                    closest.resize(4);
+                }
+                for (const std::size_t i : closest) {
+                    const ContactLoad::OnMesh was = placedOn[i];
+                    const ContactLoad::Point point = load.points[i];
+                    if (part->restation(load, i, sideA, station)) {
+                        placedOn[i].beyond = 0.0;
+                        between.push_back(i);
+                        break;
+                    }
+                    placedOn[i] = was;
+                    load.points[i] = point;
+                }
+            }
+        }
+        std::vector<std::size_t> ofLine = {nearLow, nearHigh};
+        ofLine.insert(ofLine.end(), between.begin(), between.end());
         // The other flexible part's point of each end, set on its round by
         // this one's (ContactLoad::given): where the end is now
         if (other) {
             auto& otherOn = sideA ? load.onMesh : load.onMeshA;
-            for (const std::size_t i : {nearLow, nearHigh}) {
+            for (const std::size_t i : ofLine) {
                 if (i < otherOn.size() && i < load.given.size()
                     && load.given[i] == (sideA ? 2 : 1)) {
                     other->setGiven(otherOn[i],
@@ -4945,16 +5312,18 @@ void thinOut(ContactLoad& load,
                 }
             }
         }
-        lineEnd[nearLow] = 1;
-        lineEnd[nearHigh] = 1;
+        for (const std::size_t i : ofLine) {
+            lineEnd[i] = 1;
+        }
         for (const std::size_t i : line.points) {
-            if (i != nearLow && i != nearHigh && !lineEnd[i]) {
+            if (!lineEnd[i]) {
                 gone[i] = 1;
                 any = true;
             }
         }
-        load.points[nearLow].patch = line.first->patch;
-        load.points[nearHigh].patch = line.first->patch;
+        for (const std::size_t i : ofLine) {
+            load.points[i].patch = line.first->patch;
+        }
         // And the part's points along the line that were not slid into the
         // round: on its flat faces' triangles at the rim
         const ch::ChFramed theirs = placedOn[nearLow].round.frame >> roundBody;
@@ -5268,12 +5637,47 @@ void thinOut(ContactLoad& load,
         (sideA ? movedA : movedB) = true;
         placedOn[nearLow].beyond = toLow - low;
         placedOn[nearHigh].beyond = high - toHigh;
+        // A pressure's line its depth along it too, seven of its other
+        // points taken to its eighths between its two (PressureSpread)
+        std::vector<std::size_t> between;
+        if (load.law.from == ContactLaw::Stiffness::Pressure) {
+            for (int j = 1; j < lineEighths; ++j) {
+                const double station = toLow + (toHigh - toLow) * j / lineEighths;
+                std::vector<std::size_t> closest;
+                for (const std::size_t i : flat.points) {
+                    if (i != nearLow && i != nearHigh
+                        && std::find(between.begin(), between.end(), i) == between.end()) {
+                        closest.push_back(i);
+                    }
+                }
+                std::stable_sort(closest.begin(), closest.end(), [&](std::size_t a, std::size_t b) {
+                    return std::abs(stationOf(a) - station) < std::abs(stationOf(b) - station);
+                });
+                if (closest.size() > 4) {
+                    closest.resize(4);
+                }
+                for (const std::size_t i : closest) {
+                    if (part->restationFlat(load, i, sideA, station)) {
+                        placedOn[i].beyond = 0.0;
+                        between.push_back(i);
+                        break;
+                    }
+                }
+            }
+        }
+        auto onTheLine = [&](std::size_t i) {
+            return i == nearLow || i == nearHigh
+                || std::find(between.begin(), between.end(), i) != between.end();
+        };
         if (other) {
             onFlexible.push_back({nearLow, sideA});
             onFlexible.push_back({nearHigh, sideA});
+            for (const std::size_t i : between) {
+                onFlexible.push_back({i, sideA});
+            }
         }
         for (const std::size_t i : onLine) {
-            if (i != nearLow && i != nearHigh) {
+            if (!onTheLine(i)) {
                 gone[i] = 1;
                 any = true;
             }
@@ -5281,6 +5685,10 @@ void thinOut(ContactLoad& load,
         const std::size_t patch = load.points[flat.first].patch;
         load.points[nearLow].patch = patch;
         load.points[nearHigh].patch = patch;
+        for (const std::size_t i : between) {
+            gone[i] = 0;
+            load.points[i].patch = patch;
+        }
     }
     // And a point left on a curved face's triangle, in a patch whose others
     // on that side were slid into the round: found against the round's end,
@@ -9251,9 +9659,11 @@ double acrossLine(double depth, double kA, double kB, double e, bool round = fal
  *   L d^1.5 at e = 1; a point's line, a ball's of k2 a hundredth of k1;
  * - flat, k1 under a kilometre's: the area of the points' hull square to
  *   the normal, n = e; of two points or one, a disc of the parts' sizes.
- * The patch's springs share it as any law's (ContactLoad::ComputeQ()):
- * exact where its depth is the same at its points, a line's ends pressed
- * alike.
+ * A line's and an area's spread over their points, 'spread' (positions in
+ * 'at'), the depth linear between them (PressureSpread): its stiffness then
+ * the force pressed alike over them; a round's, and a line's or an area's of
+ * points along none, shared by the patch's springs as any law's
+ * (ContactLoad::ComputeQ()), exact where its depth is the same at its points.
  */
 void pressureLaw(const ContactLaw& law,
                  std::size_t count,
@@ -9270,8 +9680,10 @@ void pressureLaw(const ContactLaw& law,
                  const ShapeOn* onA,
                  const ShapeOn* onB,
                  double& stiffness,
-                 double& exponent)
+                 double& exponent,
+                 PressureSpread& spread)
 {
+    spread = PressureSpread();
     const double e = law.exponent;
     if (!count || !(e > 0.0)) {
         return;
@@ -9288,6 +9700,35 @@ void pressureLaw(const ContactLaw& law,
             }
             const double part = sizes > 0.0 ? 1.0 / sizes : 0.0;
             area = pi * part * part;
+        }
+        else {
+            // Its points in its plane, as hullArea()'s, and their triangles
+            ch::ChVector3d u =
+                ch::Vcross(normal, std::abs(normal.x()) < 0.9 ? ch::VECT_X : ch::VECT_Y);
+            u.Normalize();
+            const ch::ChVector3d v = ch::Vcross(normal, u);
+            std::vector<std::array<double, 2>> flat;
+            for (const auto& p : at) {
+                flat.push_back({ch::Vdot(p, u), ch::Vdot(p, v)});
+            }
+            auto triangles = delaunay(flat);
+            double measure = 0.0;
+            for (const auto& t : triangles) {
+                const auto& p0 = flat[t[0]];
+                const auto& p1 = flat[t[1]];
+                const auto& p2 = flat[t[2]];
+                measure += 0.5
+                    * std::abs((p1[0] - p0[0]) * (p2[1] - p0[1])
+                               - (p2[0] - p0[0]) * (p1[1] - p0[1]));
+            }
+            if (measure > 0.0) {
+                spread.kind = PressureSpread::Kind::Area;
+                spread.flat = std::move(flat);
+                spread.triangles = std::move(triangles);
+                spread.measure = measure;
+                // Its stiffness the force over the triangles', the hull's
+                area = measure;
+            }
         }
         stiffness = law.stiffness * area;
         exponent = e;
@@ -9388,6 +9829,23 @@ void pressureLaw(const ContactLaw& law,
                 : std::sqrt(0.5 * (ra + rb));
             stiffness = law.stiffness * std::sqrt(2.0) * mean * beta * length;
             exponent = e + 0.5;
+            // Along it, its points in order: the depth linear between them
+            if (way.Length() > 0.5) {
+                std::vector<std::pair<double, std::size_t>> along;
+                for (std::size_t i = 0; i < at.size(); ++i) {
+                    along.emplace_back(ch::Vdot(at[i], way), i);
+                }
+                std::sort(along.begin(), along.end());
+                const double span = along.back().first - along.front().first;
+                if (span > 0.0) {
+                    spread.kind = PressureSpread::Kind::Line;
+                    for (const auto& [station, i] : along) {
+                        spread.stations.push_back(station);
+                        spread.points.push_back(i);
+                    }
+                    spread.measure = span;
+                }
+            }
             // Pressed: the two sections' circles, each side's own curvature
             // across at the line's ends and their middle (Simpson's), the
             // law the power tangent to it at the depth -- a pin in a bore
@@ -9473,6 +9931,8 @@ void pressureLaw(const ContactLaw& law,
 // it read it as a round contact of 4 mm.
 void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
 {
+    // Of the points found now (pressureLaw())
+    load.spreads.clear();
     const ContactLaw& law = load.law;
     load.stiffness.assign(load.patches, law.stiffness);
     load.exponents.assign(load.patches, law.exponent);
@@ -9540,8 +10000,11 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
         // And each side's alone across there, A's and B's, signed
         std::vector<double> k1A;
         std::vector<double> k1B;
+        // Its points' numbers among the load's
+        std::vector<std::size_t> indices;
     };
     std::vector<Patch> patches(load.patches);
+    load.spreads.assign(pressure ? load.patches : 0, PressureSpread());
     for (std::size_t i = 0; i < points.size(); ++i) {
         const auto& point = points[i];
         Patch& patch = patches[point.patch];
@@ -9592,6 +10055,7 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
             patch.k1B.push_back(ch::Vdot(w, onB * w));
         }
         patch.centre += point.onA;
+        patch.indices.push_back(i);
         patch.at.push_back(pA);
         patch.normal += n;
         patch.gaps.push_back(ch::Vdot(n, pB - pA));
@@ -9626,7 +10090,19 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
                         patch.onA,
                         patch.onB,
                         load.stiffness[p],
-                        load.exponents[p]);
+                        load.exponents[p],
+                        load.spreads[p]);
+            // Its points by their numbers among the load's: a line's in
+            // order along it, an area's by position
+            auto& spread = load.spreads[p];
+            if (spread.kind == PressureSpread::Kind::Area) {
+                spread.points = patch.indices;
+            }
+            else if (spread.kind == PressureSpread::Kind::Line) {
+                for (auto& i : spread.points) {
+                    i = patch.indices[i];
+                }
+            }
             continue;
         }
         if (!patch.onA || !patch.onB || !(patch.onA->modulus > 0.0)

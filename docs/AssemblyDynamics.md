@@ -5874,7 +5874,7 @@ Phase D1 is under way (2026-10-28):
     R 5, a line past a face's end, a flat face's area by points that are not
     its corners -- summed finer than the faces on the surfaces themselves;
     a line's depth along it taken as its ends' share, exact where they
-    press alike.
+    press alike (the depth along a line or over an area: step 4).
 - Ruled (2026-11-16): Pressure stays opt-in. Against the Value law at
   1000 N/mm, Pressure set at 26.52 N/mm^3 so the rigid rod presses the same
   50 N, over the turn: the flexible rod 44.77 -> 43.60 N, past a plate's
@@ -5901,7 +5901,7 @@ Phase D1 is under way (2026-10-28):
     131.5 (137.4 by the parabolas).
   - Test: TestFlexibleBody.test_pressure_in_a_bore (158.3 within a
     percent; before, 50.0). Not yet: a ball in a socket, the same by
-    spheres; a line whose depth varies along it shares by its ends.
+    spheres; a line whose depth varies along it shares by its ends (step 4).
 - Built, D4b way 2 step 3 (2026-11-17): a point's pressure over its disc
   by the two spheres, both sides round alike every way (the patch's k2 at
   least nine tenths of k1): `acrossLine()` over the disc, each ring 2 pi y
@@ -5912,6 +5912,60 @@ Phase D1 is under way (2026-10-28):
   d^2 / sqrt(k1 k2) gave 432.0. On a plate the sphere gives 39.14 for the
   paraboloid's 39.27. Test: TestFlexibleBody.test_pressure_in_a_socket
   (392.58 within a percent; 432.0 before); roundTurned() takes `socket=`.
+- Built, D4b way 2 step 4 (2026-11-19): a pressure where the depth changes
+  over the patch. A patch pressed as one point at its springs' mean,
+  sum(s^2) / sum(s), each point's share its spring's -- the points' law's,
+  so a face resting flat pushes as one point however many it has -- read
+  a varying depth by its deepest: a rigid block 40 x 10 tilted from 0.05
+  mm into a plate at one end to touching at the other pressed 50.28 N for
+  k b L d / 2 = 25, a rod R 5 so tilted 4.707 for 1.886, 2.5 times.
+  - **Spread over its points** (`PressureSpread`, `spreadForces()`): a
+    line's points in order along it, an area's in Delaunay triangles in its
+    plane (`delaunay()`, Bowyer and Watson's), the depth linear between
+    them, max(d, 0)^e integrated where it is pressed -- a piece cut where
+    the depth comes to none -- over the line's length or the triangles'
+    area, the patch's stiffness its force pressed alike. Each point's share
+    its consistent part, its own linear function by the pressure, so the
+    moment is the pressure's too. Built with the patch (`pressureLaw()`),
+    its points fixed for the step, their depths each state's
+    (`ContactLoad::ComputeQ()`); a point not pressed carries its part of
+    its neighbours'. A round's patch, and a line's or an area's of points
+    along none, as before.
+  - **A line in eighths** (`thinOut()`, `lineEighths`): a flexible part's
+    line was its two ends, its depth then linear between them -- a rod held
+    at one end bends off a plate along it, its tip 9 um up, and pressed
+    39.27 N where the beam has 42.14. A pressure's line keeps seven of its
+    other points too, taken to its eighths (`restationFlat()`,
+    `restation()`). The points' law keeps its two, and its figures.
+  - Against beam theory: a flexible block 40 x 10 x 4 lying level 0.05 mm
+    in, held at its end by the hinge, bends up off the plate -- a beam on an
+    elastic layer, clamped and free, Euler and Bernoulli's 31.9 N (31.9 by
+    finite differences, `~/.cache/flexcontact/winkler.py`) for the rigid
+    one's 50: 32.11, at its springs' mean 37.84; tilted to 0.03 mm at its
+    far end 27.23 for 27.09. The flexible rod on the plate the same, on the
+    line's layer c (d0 - w)^1.5, 42.14 (`winklerline.py`; Timoshenko's shear
+    about half a percent less): 41.74, at its springs' mean 41.22.
+  - Numbers, rigid: the tilted block 25.13 N for 25, the rod 1.884 for
+    1.886; tilted to 0.03 mm, 40.20 for 40 (42.72) and 3.395 for 3.400
+    (3.908). Level, as before: the block 50.25, the rod 47.07, the ball
+    39.14, the cone 44.64, in a bore 158.8, in a socket 392.6.
+  - The ruling's comparison again (Pressure at 26.52 N/mm^3, over the
+    turn, `~/.cache/flexcontact/lawcompare.py`): the flexible rod 43.60 ->
+    44.00 N, past a plate's end 33.98 -> 34.12, on the roller 31.63 ->
+    32.18, the ball 1.04 as was, the rigid cone 47.60 -> 47.35, the
+    flexible cone 40.88 -> 41.27, the flexible rod in a rigid bore 137.4 ->
+    117.4 -- the bore's line now its eighths along a rod bent in it, the
+    depth that varies most. The Value law's figures as they were.
+  - Not yet: an area's points where they press alone. A block tilted past
+    none -- 0.05 mm in at one end, 0.05 clear at the other -- has two points
+    found, its deep corners, the far ones beyond collision detection's
+    margin: no area, and its force from a disc of the parts' sizes, 12.61 N
+    for 12.5 by chance. Its area is the faces' overlap cut where the depth
+    is none, which wants the faces' outlines, not the points.
+  - Test: TestFlexibleBody.test_pressure_tilted (the rigid block and rod
+    within a percent, the flexible block within 3% of the beam's; before,
+    50.28, 4.707 and 37.84), test_pressure_on_a_cone_and_a_flexible_round
+    (the flexible rod within 2% of the beam's 42.14; before, 41.22).
 - Built, D4b way 1 step 6 (2026-11-17): a point on a curved face of no
   round, rigid or flexible. A torus, ring R 10, tube R 3, standing on a
   plate as a wheel 0.05 mm into it, turned about its axis: rigid 32.3 to

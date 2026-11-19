@@ -1185,6 +1185,51 @@ class TestWorkerExport(unittest.TestCase):
         with open(there, encoding="latin-1") as f:
             self.assertIn("WorkerExportCompany", f.read())
 
+    def testMeshAndPartFilesAreTheOnesMadeHere(self):
+        """The other modules a worker exports for (ExportModules): Mesh's
+        formats and Part's, each the file the reopened document gives here"""
+        import Mesh
+        import Part
+
+        box = self.doc.addObject("Part::Box", "Box")
+        cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+        cyl.Placement.Base = App.Vector(30, 0, 0)
+        self.doc.recompute()
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        formats = [("Mesh", "stl"), ("Mesh", "obj"), ("Mesh", "3mf"), ("Mesh", "off"),
+                   ("Part", "brep"), ("Part", "igs")]
+        jobs = []
+        for module, ext in formats:
+            path = os.path.join(self.dir, "there-%s.%s" % (module, ext))
+            jobs.append((self.pool.submit("export", {"module": module,
+                                                     "objects": ["Box", "Cyl"],
+                                                     "file": path}, pinned=True), path))
+        self.assertTrue(self.pool.wait(180), self.pool.info())
+        for job, _ in jobs:
+            result = self.pool.result(job)
+            self.assertEqual(result["Status"], "Done", result)
+        doc = self.reopened()
+        objs = [doc.getObject("Box"), doc.getObject("Cyl")]
+        modules = {"Mesh": Mesh, "Part": Part}
+        for (module, ext), (_, there) in zip(formats, jobs):
+            here = os.path.join(self.dir, "here-%s.%s" % (module, ext))
+            modules[module].export(objs, here)
+            with open(there, "rb") as f:
+                made = f.read()
+            with open(here, "rb") as f:
+                want = f.read()
+            if ext == "igs":
+                # The global section names the time it was written
+                made, want = (b"\n".join(l for l in t.split(b"\n") if l[72:73] != b"G")
+                              for t in (made, want))
+            if ext == "3mf":
+                import zipfile
+
+                made, want = (sorted((i.filename, zipfile.ZipFile(p).read(i))
+                                     for i in zipfile.ZipFile(p).infolist())
+                              for p in (there, here))
+            self.assertEqual(made, want, "%s %s" % (module, ext))
+
     def testAnObjectTheCopyHasNotIsUnfit(self):
         self.doc.addObject("Part::Box", "Box")
         self.doc.recompute()

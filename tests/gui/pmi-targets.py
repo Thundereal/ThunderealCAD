@@ -6,7 +6,8 @@ the tip. What is checked:
 
   - the datum target command makes a target where the face is picked,
     looking out of the part, and a datum with the next letter it is of;
-  - picked with that datum, the next target is the datum's, numbered on;
+  - picked with that datum, the next target is the datum's, numbered on --
+    the datum selected itself or through a path (Body, "PMI.Datum.");
   - the targets are drawn: their symbols and their X on the part.
 
   scripts/gui-test.sh tests/gui/pmi-targets.py /tmp/pmi-targets
@@ -114,6 +115,21 @@ def run():
               len(datums) == 1 and len(datums[0].Targets) == 2
               and datums[0].Targets[1].Number == 2
               and datums[0].Targets[1].EquivalentText == "A2",
+              [(d.Letter, [t.EquivalentText for t in d.Targets]) for d in datums])
+        # The datum selected through a path, as a pick in the tree may give
+        # it: (Body, "PMI.Datum.")
+        Gui.Selection.clearSelection()
+        pmi = [o for o in datums[0].InList if o.TypeId == "PMI::AnnotationSet"][0]
+        Gui.Selection.addSelection(doc.Name, body.Name, "%s.%s." % (pmi.Name, datums[0].Name))
+        Gui.Selection.addSelection(doc.Name, body.Name, "%s.%s" % (box.Name, bottom), 30, 5, 0)
+        pump(5)
+        Gui.runCommand("PMI_DatumTarget")
+        pump(20)
+        targets = [o for o in doc.Objects if o.TypeId == "PMI::DatumTarget"]
+        datums = [o for o in doc.Objects if o.TypeId == "PMI::Datum"]
+        check("picked with the datum's path, the datum's next",
+              len(datums) == 1 and len(datums[0].Targets) == 3
+              and datums[0].Targets[2].EquivalentText == "A3",
               [(d.Letter, [t.EquivalentText for t in d.Targets]) for d in datums])
         check("none invalid", all(o.Condition == "Ok" for o in targets + datums),
               [(o.Name, o.Condition, o.ConditionMessage) for o in targets + datums])

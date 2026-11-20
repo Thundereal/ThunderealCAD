@@ -344,16 +344,31 @@ CmdPMIDatumTarget::CmdPMIDatumTarget()
 void CmdPMIDatumTarget::activated(int)
 {
     // The datum picked with the face, if any: kept before the face pick
-    // is read, as it is not a face
+    // is read, as it is not a face. It may be selected itself or through a
+    // path (Body, "Datum001."): the entry it was selected by is taken out
     PMI::Datum* datum = nullptr;
-    for (auto& sel : Gui::Selection().getSelectionEx()) {
-        if (auto d = freecad_cast<PMI::Datum*>(sel.getObject())) {
-            datum = d;
+    std::vector<std::pair<App::DocumentObject*, std::string>> picked;
+    for (auto& sel : Gui::Selection().getSelectionEx(nullptr,
+                                                     App::DocumentObject::getClassTypeId(),
+                                                     Gui::ResolveMode::NoResolve)) {
+        auto obj = sel.getObject();
+        if (sel.getSubNames().empty()) {
+            if (auto d = freecad_cast<PMI::Datum*>(obj)) {
+                datum = d;
+                picked.emplace_back(obj, std::string());
+            }
+            continue;
+        }
+        for (auto& sub : sel.getSubNames()) {
+            if (auto d = freecad_cast<PMI::Datum*>(obj->getSubObject(sub.c_str()))) {
+                datum = d;
+                picked.emplace_back(obj, sub);
+            }
         }
     }
-    if (datum) {
-        Gui::Selection().rmvSelection(datum->getDocument()->getName(),
-                                      datum->getNameInDocument());
+    for (auto& [obj, sub] : picked) {
+        Gui::Selection().rmvSelection(obj->getDocument()->getName(), obj->getNameInDocument(),
+                                      sub.empty() ? nullptr : sub.c_str());
     }
     openCommand(QT_TRANSLATE_NOOP("Command", "PMI datum target"));
     auto picks = pickedFaces(this, "Datum target");

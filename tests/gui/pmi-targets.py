@@ -1,7 +1,8 @@
 """PMI datum targets made as a user makes them (docs/GDandT.md sec 4.3).
 
-A PartDesign Body -- a 40 x 20 x 10 box -- and its bottom face picked at
-points. What is checked:
+A PartDesign Body -- a 40 x 20 x 10 box, a hole through it its tip, placed
+at the hole -- and its bottom face picked at points, the pick going through
+the tip. What is checked:
 
   - the datum target command makes a target where the face is picked,
     looking out of the part, and a datum with the next letter it is of;
@@ -69,6 +70,12 @@ def run():
         body = doc.addObject("PartDesign::Body", "Body")
         box = body.newObjectAt("PartDesign::AdditiveBox", "Box")
         box.Length, box.Width, box.Height = 40, 20, 10
+        # The tip a primitive with a placement of its own: the pick goes
+        # through it, and its placement is not the solid's
+        hole = body.newObjectAt("PartDesign::SubtractiveCylinder", "Hole")
+        hole.Radius, hole.Height = 2, 10
+        hole.Placement = App.Placement(V(20, 10, 0), App.Rotation())
+        box = hole
         doc.recompute()
         Gui.activateWorkbench("PMIWorkbench")
         pump(30)

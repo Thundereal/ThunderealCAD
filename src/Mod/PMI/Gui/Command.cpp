@@ -24,6 +24,8 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
+
 #include <QMessageBox>
 
 #include <Bnd_Box.hxx>
@@ -40,6 +42,7 @@
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/GeoFeature.h>
+#include <App/GeoFeatureGroupExtension.h>
 #include <Gui/ActiveObjectList.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
@@ -81,6 +84,28 @@ struct Pick
     Base::Vector3d point;
     Base::Placement solidGlobal;
 };
+
+/// The solid's placement where a pick reached it. A Body's solid body is not
+/// on the path a click makes -- that goes through the Body's tip feature,
+/// whose own placement (a primitive's, say) is not the solid's -- so the
+/// path is followed to the solid's group, then the solid's own is applied
+Base::Placement solidPlacement(App::DocumentObject* solid, App::DocumentObject* root,
+                               const std::string& sub)
+{
+    auto path = root->getSubObjectList(sub.c_str());
+    if (std::find(path.begin(), path.end(), solid) != path.end()) {
+        return App::GeoFeature::getGlobalPlacement(solid, root, sub);
+    }
+    auto group = App::GeoFeatureGroupExtension::getGroupOfObject(solid);
+    if (group && std::find(path.begin(), path.end(), group) != path.end()) {
+        Base::Placement own;
+        if (auto geo = freecad_cast<App::GeoFeature*>(solid)) {
+            own = geo->Placement.getValue();
+        }
+        return App::GeoFeature::getGlobalPlacement(group, root, sub) * own;
+    }
+    return App::GeoFeature::getGlobalPlacement(solid);
+}
 
 /// The faces picked, as solid references; empty, with a message shown, if
 /// the pick is not faces of one solid. A Body picked that has no annotation
@@ -127,8 +152,7 @@ std::vector<Pick> pickedFaces(Gui::Command* cmd, const char* what)
             }
             auto shape = Part::Feature::getTopoShape(pick.solid, pick.face.c_str(), true);
             pick.surface = PMI::Geom::ofFace(shape.getShape());
-            pick.solidGlobal = App::GeoFeature::getGlobalPlacement(pick.solid, sel.getObject(),
-                                                                   sub);
+            pick.solidGlobal = solidPlacement(pick.solid, sel.getObject(), sub);
             if (!picks.empty() && picks.front().solid != pick.solid) {
                 QMessageBox::warning(Gui::getMainWindow(), QObject::tr("PMI"),
                                      QObject::tr("%1: pick faces of one solid")
@@ -399,13 +423,26 @@ void CmdPMIGeometricTolerance::activated(int)
         return;
     }
     const auto type = picks[0].surface.type;
-    const char* kind = type == PMI::Primitive::Cylinder ? "Axis" : nullptr;
+    // A width or a slot is positioned; holes, a counterbore's too, by their
+    // axes, whichever face was picked first
+    std::vector<PMI::Primitive> all;
+    for (auto& pick : picks) {
+        all.push_back(pick.surface);
+    }
+    double width = 0;
+    std::size_t hole = 0;
+    bool slot = picks.size() > 1 && PMI::Geom::width(all, width);
+    bool holes = !slot && PMI::Geom::holes(all, hole);
+    const char* kind = type == PMI::Primitive::Cylinder || holes ? "Axis" : nullptr;
     makeFeature(this, picks, kind);
     addToSet(this, "GeometricTolerance", "Tolerance");
     if (type == PMI::Primitive::Plane && picks.size() == 1) {
         doCommand(Doc, "_obj.Characteristic = 'Flatness'");
     }
-    else if (type == PMI::Primitive::Cylinder) {
+    else if (slot) {
+        doCommand(Doc, "_obj.Characteristic = 'Position'");
+    }
+    else if (type == PMI::Primitive::Cylinder || holes) {
         doCommand(Doc, "_obj.Characteristic = 'Position'");
         doCommand(Doc, "_obj.ZoneShape = 'Diameter'");
     }

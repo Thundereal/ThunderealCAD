@@ -12,7 +12,8 @@ tip feature: (Body, "Hole.FaceN"). What is checked:
     builder offers what a hole admits, and datums and MMR picked in it make
     the frame; Cancel puts back what it changed;
   - a dimension on the hole is its diameter, 6, stacked under the hole's
-    position frame; on the two end faces, the width, 40, not stacked;
+    position frame; on the two end faces, the width, 40, not stacked; on
+    two edges the distance between them, on the hole's rim its diameter;
   - the callouts are drawn: a top view has their blue, and has none with
     them hidden;
   - in PartDesign the PMI tool bar is not offered until the set is made
@@ -67,6 +68,24 @@ def pick(doc, body, tip, *points):
     Gui.Selection.clearSelection()
     for p in points:
         Gui.Selection.addSelection(doc.Name, body.Name, "%s.%s" % (tip.Name, face_at(tip.Shape, p)))
+    pump(5)
+
+
+def edge_at(shape, *points):
+    import Part
+
+    for i, edge in enumerate(shape.Edges):
+        if all(edge.distToShape(Part.Vertex(p))[0] < 1e-6 for p in points):
+            return "Edge%d" % (i + 1)
+    raise AssertionError("no edge through %s" % (points,))
+
+
+def pick_edges(doc, body, tip, *edges):
+    """Edges picked as a click picks them, each given by points on it"""
+    Gui.Selection.clearSelection()
+    for points in edges:
+        Gui.Selection.addSelection(doc.Name, body.Name,
+                                   "%s.%s" % (tip.Name, edge_at(tip.Shape, *points)))
     pump(5)
 
 
@@ -230,6 +249,22 @@ def run():
               width.Type == "Width" and abs(width.Nominal.Value - 40) < 1e-6,
               (width.Type, width.Nominal))
         check("a width is not stacked: it has its own lines", width.AttachedTo is None)
+        # On edges: the top's front and back edges, 20 apart; the hole's rim
+        pick_edges(doc, body, hole, (V(5, 0, 10), V(35, 0, 10)), (V(5, 20, 10), V(35, 20, 10)))
+        Gui.runCommand("PMI_Dimension")
+        pump(20)
+        across = newest(doc, "PMI::Dimension")
+        refs = across.Features[0].References if across.Features else []
+        check("on two edges, the distance between them, 20, on the solid's edges",
+              across.Type == "Distance" and abs(across.Nominal.Value - 20) < 1e-6
+              and refs and refs[0][1][0].startswith("Edge"), (across.Type, across.Nominal, refs))
+        pick_edges(doc, body, hole, (V(23, 10, 10), V(17, 10, 10)))
+        Gui.runCommand("PMI_Dimension")
+        pump(20)
+        rim = newest(doc, "PMI::Dimension")
+        check("on the hole's rim, its diameter, 6",
+              rim.Type == "Diameter" and abs(rim.Nominal.Value - 6) < 1e-6,
+              (rim.Type, rim.Nominal))
         bad = [o.Name for o in doc.Objects if getattr(o, "Condition", "Ok") == "Invalid"]
         check("nothing invalid", not bad, bad)
 

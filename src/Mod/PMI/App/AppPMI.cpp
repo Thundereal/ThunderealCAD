@@ -61,8 +61,9 @@ public:
         add_varargs_method("findSet", &Module::findSet,
                            "findSet(part) -> the annotation set of part, or None");
         add_varargs_method("solidReference", &Module::solidReference,
-                           "solidReference(obj, subname) -> (solid, 'FaceN'): a picked face as an "
-                           "annotation refers to it -- through the solid body of a Body");
+                           "solidReference(obj, subname) -> (solid, 'FaceN'): a picked face, "
+                           "edge or vertex as an annotation refers to it -- through the solid "
+                           "body of a Body");
         add_varargs_method("getSet", &Module::getSet,
                            "getSet(part, create=True) -> the annotation set of part, made in its "
                            "Body or beside it");

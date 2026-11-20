@@ -69,17 +69,47 @@ std::vector<App::DocumentObject*> solidBodiesOf(Part::BodyBase* body)
     return res;
 }
 
-/// The same face: the same surface, area and centre
-bool sameFace(const TopoDS_Shape& a, const TopoDS_Shape& b)
+/// The same element: a face on the same surface, of the same area and
+/// centre; an edge on the same curve, of the same length and centre; a
+/// vertex at the same point
+bool sameElement(const TopoDS_Shape& a, const TopoDS_Shape& b)
 {
-    if (!Geom::sameSurface(Geom::ofFace(a), Geom::ofFace(b), 1e-6, 1e-9)) {
+    if (a.ShapeType() != b.ShapeType()) {
+        return false;
+    }
+    if (a.ShapeType() == TopAbs_VERTEX) {
+        return Geom::sameSurface(Geom::ofElement(a), Geom::ofElement(b), 1e-6, 1e-9);
+    }
+    Primitive pa0 = Geom::ofElement(a), pb0 = Geom::ofElement(b);
+    if (pa0.type != pb0.type
+        || (pa0.type != Primitive::None && !Geom::sameSurface(pa0, pb0, 1e-6, 1e-9))) {
         return false;
     }
     GProp_GProps pa, pb;
-    BRepGProp::SurfaceProperties(a, pa);
-    BRepGProp::SurfaceProperties(b, pb);
+    if (a.ShapeType() == TopAbs_FACE) {
+        BRepGProp::SurfaceProperties(a, pa);
+        BRepGProp::SurfaceProperties(b, pb);
+    }
+    else {
+        BRepGProp::LinearProperties(a, pa);
+        BRepGProp::LinearProperties(b, pb);
+    }
     return std::fabs(pa.Mass() - pb.Mass()) < 1e-6 * std::max(1.0, pa.Mass())
         && pa.CentreOfMass().Distance(pb.CentreOfMass()) < 1e-6;
+}
+
+const char* elementType(const TopoDS_Shape& s)
+{
+    switch (s.ShapeType()) {
+        case TopAbs_FACE:
+            return "Face";
+        case TopAbs_EDGE:
+            return "Edge";
+        case TopAbs_VERTEX:
+            return "Vertex";
+        default:
+            return nullptr;
+    }
 }
 }  // namespace
 
@@ -101,8 +131,9 @@ bool Api::solidReference(App::DocumentObject* obj, const std::string& subname,
         why = e.what();
         return false;
     }
-    if (picked.isNull() || picked.getShape().ShapeType() != TopAbs_FACE) {
-        why = "pick a face";
+    const char* type = picked.isNull() ? nullptr : elementType(picked.getShape());
+    if (!type) {
+        why = "pick a face, an edge or a vertex";
         return false;
     }
     // A face of a Body's feature: the solid body holding it
@@ -129,16 +160,17 @@ bool Api::solidReference(App::DocumentObject* obj, const std::string& subname,
             // The pick came through the Body's placement
             shape = Part::Feature::getTopoShape(body, (std::string(cand->getNameInDocument()) + ".").c_str());
         }
-        auto faces = Geom::faces(shape.getShape());
-        for (std::size_t i = 0; i < faces.size(); ++i) {
-            if (sameFace(faces[i], picked.getShape())) {
+        auto elements = Geom::elements(shape.getShape(), type);
+        for (std::size_t i = 0; i < elements.size(); ++i) {
+            if (sameElement(elements[i], picked.getShape())) {
                 solid = cand;
-                face = "Face" + std::to_string(i + 1);
+                face = type + std::to_string(i + 1);
                 return true;
             }
         }
     }
-    why = "the face is on no solid of the part";
+    why = std::string("the ") + (type[0] == 'F' ? "face" : type[0] == 'E' ? "edge" : "vertex")
+        + " is on no solid of the part";
     return false;
 }
 

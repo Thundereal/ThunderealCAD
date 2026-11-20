@@ -169,6 +169,11 @@ bool Dimension::measure(double& value, std::string& why) const
     if (want != Primitive::None && !first(want) && getType() == Radius) {
         first(Primitive::Torus);
     }
+    // A hole's or a boss's edge stands for its size as its cylinder does
+    if (want == Primitive::Cylinder && found->type != Primitive::Cylinder
+        && found->type != Primitive::Torus) {
+        first(Primitive::Circle);
+    }
     const Primitive& surface = *found;
     switch (getType()) {
         case Radius:
@@ -179,9 +184,10 @@ bool Dimension::measure(double& value, std::string& why) const
             }
             [[fallthrough]];
         case Diameter:
-            if (surface.type != Primitive::Cylinder) {
-                why = getType() == Radius ? "a radius needs a cylindrical or toroidal feature"
-                                          : "a diameter needs a cylindrical feature";
+            if (surface.type != Primitive::Cylinder && surface.type != Primitive::Circle) {
+                why = getType() == Radius
+                    ? "a radius needs a cylindrical or toroidal feature, or a circular edge"
+                    : "a diameter needs a cylindrical feature or a circular edge";
                 return false;
             }
             value = getType() == Diameter ? 2 * surface.radius : surface.radius;

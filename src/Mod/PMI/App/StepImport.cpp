@@ -106,7 +106,7 @@ struct Faces
 {
     Part::Feature* object = nullptr;
     std::vector<std::string> names;
-    /// The first face's surface: what decides an axis
+    /// The first element's surface or curve: what decides an axis
     Primitive::Type type = Primitive::None;
 };
 
@@ -220,24 +220,36 @@ private:
                 base = Part::TopoShape(shape.Located(TopLoc_Location()));
             }
             TopoDS_Shape sub = _shapes->GetShape(l);
+            // Its faces; a file may name edges or points instead (a
+            // dimension between two edges, a line profile): those
             bool any = false;
-            for (TopExp_Explorer xp(sub, TopAbs_FACE); xp.More(); xp.Next()) {
-                int idx = base.findShape(xp.Current());
-                if (idx <= 0) {
-                    why = "a face of " + entry(l) + " is not in its object";
-                    return false;
+            for (auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
+                const char* typeName = type == TopAbs_FACE ? "Face"
+                    : type == TopAbs_EDGE                  ? "Edge"
+                                                           : "Vertex";
+                for (TopExp_Explorer xp(sub, type); xp.More(); xp.Next()) {
+                    int idx = base.findShape(xp.Current());
+                    if (idx <= 0) {
+                        why = std::string("an element of ") + entry(l)
+                            + " is not in its object";
+                        return false;
+                    }
+                    std::string name = typeName + std::to_string(idx);
+                    if (std::find(out.names.begin(), out.names.end(), name)
+                        == out.names.end()) {
+                        out.names.push_back(name);
+                    }
+                    if (!any && out.names.size() == 1) {
+                        out.type = Geom::ofElement(xp.Current()).type;
+                    }
+                    any = true;
                 }
-                std::string name = "Face" + std::to_string(idx);
-                if (std::find(out.names.begin(), out.names.end(), name) == out.names.end()) {
-                    out.names.push_back(name);
+                if (any) {
+                    break;
                 }
-                if (!any && out.names.size() == 1) {
-                    out.type = Geom::ofFace(xp.Current()).type;
-                }
-                any = true;
             }
             if (!any) {
-                why = "it refers to " + entry(l) + ", which has no face";
+                why = "it refers to " + entry(l) + ", which has no face, edge or vertex";
                 return false;
             }
         }
@@ -269,7 +281,8 @@ private:
 
     TolerancedFeature* feature(const Faces& f, bool axis)
     {
-        bool axial = f.type == Primitive::Cylinder || f.type == Primitive::Cone;
+        bool axial = f.type == Primitive::Cylinder || f.type == Primitive::Cone
+            || f.type == Primitive::Circle;
         return Api::feature(set(f.object), f.object, f.names, axis && axial ? "Axis" : nullptr);
     }
 

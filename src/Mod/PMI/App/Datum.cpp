@@ -182,6 +182,7 @@ App::DocumentObjectExecReturn* Datum::execute()
             break;
         case Primitive::Cylinder:
         case Primitive::Cone:
+        case Primitive::Circle:
         case Primitive::Line: {
             const TopoDS_Shape fs = feat->Shape.getShape().getShape();
             if (feat->getKind() == TolerancedFeature::Axis) {

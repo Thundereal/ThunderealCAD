@@ -104,15 +104,26 @@ std::string stripMissing(const std::string& sub)
     return sub;
 }
 
-Part::TopoShape faceOf(App::DocumentObject* obj, const std::string& sub)
+/// The type of element a reference names: "Face", "Edge" or "Vertex"
+std::string typeOf(const std::string& sub)
+{
+    Data::IndexedName name(sub.c_str());
+    return name ? std::string(name.getType()) : std::string();
+}
+
+/// The face, edge or vertex \a sub names on \a obj
+Part::TopoShape elementOf(App::DocumentObject* obj, const std::string& sub)
 {
     if (!obj || sub.empty() || Data::hasMissingElement(sub.c_str())) {
         return Part::TopoShape();
     }
     try {
         auto shape = Part::Feature::getTopoShape(obj, sub.c_str(), true);
-        if (!shape.isNull() && shape.getShape().ShapeType() == TopAbs_FACE) {
-            return shape;
+        if (!shape.isNull()) {
+            auto t = shape.getShape().ShapeType();
+            if (t == TopAbs_FACE || t == TopAbs_EDGE || t == TopAbs_VERTEX) {
+                return shape;
+            }
         }
     }
     catch (const Base::Exception&) {
@@ -184,7 +195,8 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
     const std::vector<std::string> subs = References.getSubValues(false);
     const std::vector<App::ShadowSub> shadows = References.getShadowSubs();
     const std::vector<std::string> savedNames = SavedNames.getValues();
-    const std::vector<TopoDS_Shape> savedFaces = Geom::faces(SavedGeometry.getShape().getShape());
+    const std::vector<TopoDS_Shape> savedFaces =
+        Geom::members(SavedGeometry.getShape().getShape());
 
     std::vector<App::DocumentObject*> newObjs;
     std::vector<std::string> newSubs;
@@ -203,6 +215,16 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
         }
         const TopoDS_Shape saved = i < savedFaces.size() ? savedFaces[i] : TopoDS_Shape();
         const std::string label = stripMissing(sub);
+        // The kind of element it is: a face is found again as a face, an
+        // edge as an edge
+        std::string type = typeOf(label);
+        if (type.empty() && !saved.IsNull()) {
+            type = saved.ShapeType() == TopAbs_EDGE ? "Edge"
+                : saved.ShapeType() == TopAbs_VERTEX ? "Vertex" : "Face";
+        }
+        if (type.empty()) {
+            type = "Face";
+        }
 
         auto keep = [&](const std::string& s, const Part::TopoShape& face) {
             newObjs.push_back(obj);
@@ -219,7 +241,7 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
         };
 
         // 1. By name: the element map has kept it
-        Part::TopoShape face = faceOf(obj, sub);
+        Part::TopoShape face = elementOf(obj, sub);
         if (!face.isNull()) {
             keep(sub, face);
             // The link resolves a missing name by geometry itself
@@ -242,27 +264,28 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
             continue;
         }
 
-        // 2. By history: the faces made from the one referred to
+        // 2. By history: the elements made from the one referred to
         std::vector<std::string> found;
         if (obj && !mapped.empty()) {
             for (auto& rel : Part::Feature::getRelatedElements(obj, mapped.c_str())) {
                 std::string s = rel.index.toString();
-                if (s.compare(0, 4, "Face") == 0) {
+                if (typeOf(s) == type) {
                     found.push_back(s);
                 }
             }
         }
         const char* how = "history";
 
-        // 3. By geometry: a face of the part on the same surface
+        // 3. By geometry: an element of the part on the same surface,
+        // curve or point
         if (found.empty() && obj && !saved.IsNull()) {
-            Primitive want = Geom::ofFace(saved);
+            Primitive want = Geom::ofElement(saved);
             if (want.type != Primitive::None) {
                 auto whole = Part::Feature::getTopoShape(obj);
-                auto all = Geom::faces(whole.getShape());
+                auto all = Geom::elements(whole.getShape(), type.c_str());
                 for (std::size_t j = 0; j < all.size(); ++j) {
-                    if (Geom::sameSurface(want, Geom::ofFace(all[j]))) {
-                        found.push_back("Face" + std::to_string(j + 1));
+                    if (Geom::sameSurface(want, Geom::ofElement(all[j]))) {
+                        found.push_back(type + std::to_string(j + 1));
                     }
                 }
             }
@@ -271,7 +294,7 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
 
         std::vector<std::string> took;
         for (auto& s : found) {
-            Part::TopoShape f = faceOf(obj, s);
+            Part::TopoShape f = elementOf(obj, s);
             if (!f.isNull()) {
                 keep(s, f);
                 took.push_back(s);
@@ -324,7 +347,7 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
         return s;
     };
     if (objs.empty()) {
-        setState(Broken, "no faces referred to");
+        setState(Broken, "no faces, edges or points referred to");
     }
     else if (!broken.empty()) {
         setState(Broken, "gone: " + join(broken));
@@ -346,7 +369,7 @@ bool TolerancedFeature::derive(const std::vector<TopoDS_Shape>& faces, std::stri
 {
     _faces.clear();
     for (auto& f : faces) {
-        _faces.push_back(Geom::ofFace(f));
+        _faces.push_back(Geom::ofElement(f));
     }
     _primitive = Primitive();
     std::size_t main = 0;
@@ -363,8 +386,9 @@ bool TolerancedFeature::derive(const std::vector<TopoDS_Shape>& faces, std::stri
         case Axis: {
             // A counterbored hole's: its hole's
             if (_faces.empty() || (_faces[main].type != Primitive::Cylinder
-                                   && _faces[main].type != Primitive::Cone)) {
-                why = "an axis needs a cylindrical or conical face";
+                                   && _faces[main].type != Primitive::Cone
+                                   && _faces[main].type != Primitive::Circle)) {
+                why = "an axis needs a cylindrical or conical face, or a circular edge";
                 ok = false;
                 break;
             }
@@ -397,9 +421,12 @@ bool TolerancedFeature::derive(const std::vector<TopoDS_Shape>& faces, std::stri
         case CentrePoint:
         case Apex: {
             Primitive::Type need = getKind() == Apex ? Primitive::Cone : Primitive::Sphere;
-            if (_faces.empty() || _faces[0].type != need) {
-                why = getKind() == Apex ? "an apex needs a conical face"
-                                        : "a centre point needs a spherical face";
+            if (_faces.empty()
+                || (_faces[0].type != need
+                    && !(getKind() == CentrePoint && _faces[0].type == Primitive::Circle))) {
+                why = getKind() == Apex
+                    ? "an apex needs a conical face"
+                    : "a centre point needs a spherical face or a circular edge";
                 ok = false;
                 break;
             }
@@ -425,7 +452,7 @@ void TolerancedFeature::onDocumentRestored()
     // Shape is not saved: made again from what was saved, so the check and
     // the dimensions have their geometry before the first recompute
     std::string why;
-    auto saved = Geom::faces(SavedGeometry.getShape().getShape());
+    auto saved = Geom::members(SavedGeometry.getShape().getShape());
     bool touched = isTouched();
     derive(saved, why);
     if (!touched) {

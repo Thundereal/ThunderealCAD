@@ -44,6 +44,9 @@ enum Shape
     Axial,
     Spherical,
     Conical,
+    StraightEdge,
+    CircularEdge,
+    Vertex,
 };
 
 Shape shapeOf(const TolerancedFeature* f)
@@ -76,6 +79,12 @@ Shape shapeOf(const TolerancedFeature* f)
             return Spherical;
         case Primitive::Cone:
             return Conical;
+        case Primitive::Line:
+            return StraightEdge;
+        case Primitive::Circle:
+            return CircularEdge;
+        case Primitive::Point:
+            return Vertex;
         default:
             return Other;
     }
@@ -101,6 +110,14 @@ std::vector<int> Advisor::characteristics(const TolerancedFeature* f)
         case Conical:
             return {GT::ProfileOfSurface, GT::CircularRunout, GT::Circularity, GT::Angularity,
                     GT::ProfileOfLine};
+        // An edge is a line element of the part (ASME Y14.5 5.4.1, 11.5)
+        case StraightEdge:
+            return {GT::Straightness, GT::ProfileOfLine, GT::Parallelism, GT::Perpendicularity,
+                    GT::Angularity, GT::Position};
+        case CircularEdge:
+            return {GT::Circularity, GT::Position, GT::ProfileOfLine, GT::CircularRunout};
+        case Vertex:
+            return {GT::Position};
         default:
             return {GT::ProfileOfSurface, GT::ProfileOfLine};
     }
@@ -110,7 +127,7 @@ std::vector<int> Advisor::zoneShapes(const TolerancedFeature* f, int c)
 {
     std::vector<int> res {GT::NoZoneShape};
     Shape s = shapeOf(f);
-    bool axial = s == Axial;
+    bool axial = s == Axial || s == CircularEdge;
     if ((c == GT::Position && (axial || s == Spherical))
         || (axial && (c == GT::Coaxiality || c == GT::Concentricity || c == GT::Straightness
                       || GT::category(static_cast<GT::CharacteristicValue>(c))

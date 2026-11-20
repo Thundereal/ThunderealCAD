@@ -47,11 +47,12 @@ class TolerancedFeature;
  */
 namespace Api
 {
-/** A face picked on a part, as an annotation refers to it: the solid body
- * of a PartDesign Body that holds the face, and the face's name in its
- * shape -- a pick lands on the Body's tip feature, (Body, "Hole.Face6"),
- * and must become (Solid, "Face7"). A face of a shape that is no Body stays
- * as it is. False, with \a why, if it is no face of a solid.
+/** A face, an edge or a vertex picked on a part, as an annotation refers
+ * to it: the solid body of a PartDesign Body that holds it, and its name in
+ * the solid body's shape -- a pick lands on the Body's tip feature, (Body,
+ * "Hole.Face6"), and must become (Solid, "Face7"). An element of a shape
+ * that is no Body stays as it is. False, with \a why, if it is none of a
+ * solid's.
  */
 PMIExport bool solidReference(App::DocumentObject* obj, const std::string& subname,
                               App::DocumentObject*& solid, std::string& face, std::string& why);

@@ -26,14 +26,19 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 #include <Bnd_Box.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRep_Tool.hxx>
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <GeomAbs_CurveType.hxx>
 #include <GeomAbs_SurfaceType.hxx>
 #include <gp_Ax1.hxx>
+#include <gp_Circ.hxx>
 #include <gp_Cone.hxx>
 #include <gp_Cylinder.hxx>
 #include <gp_Lin.hxx>
@@ -41,10 +46,13 @@
 #include <gp_Sphere.hxx>
 #include <gp_Torus.hxx>
 #include <TopAbs_Orientation.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Iterator.hxx>
 
 #include "Geometry.h"
 
@@ -56,6 +64,7 @@ Primitive Primitive::reference() const
     switch (type) {
         case Cylinder:
         case Cone:
+        case Circle:
             res.type = Line;
             break;
         case Sphere:
@@ -84,6 +93,8 @@ const char* Primitive::typeName() const
             return "point";
         case Torus:
             return "torus";
+        case Circle:
+            return "circle";
         default:
             return "unsupported surface";
     }
@@ -150,6 +161,56 @@ Primitive Geom::ofFace(const TopoDS_Shape& shape)
     return res;
 }
 
+Primitive Geom::ofEdge(const TopoDS_Shape& shape)
+{
+    Primitive res;
+    if (shape.IsNull() || shape.ShapeType() != TopAbs_EDGE
+        || BRep_Tool::Degenerated(TopoDS::Edge(shape))) {
+        return res;
+    }
+    BRepAdaptor_Curve curve(TopoDS::Edge(shape));
+    switch (curve.GetType()) {
+        case GeomAbs_Line: {
+            gp_Lin line = curve.Line();
+            res.type = Primitive::Line;
+            res.loc = curve.Value(curve.FirstParameter());
+            res.dir = line.Direction();
+            break;
+        }
+        case GeomAbs_Circle: {
+            gp_Circ circ = curve.Circle();
+            res.type = Primitive::Circle;
+            res.loc = circ.Location();
+            res.dir = circ.Axis().Direction();
+            res.radius = circ.Radius();
+            break;
+        }
+        default:
+            break;
+    }
+    return res;
+}
+
+Primitive Geom::ofElement(const TopoDS_Shape& shape)
+{
+    Primitive res;
+    if (shape.IsNull()) {
+        return res;
+    }
+    switch (shape.ShapeType()) {
+        case TopAbs_FACE:
+            return ofFace(shape);
+        case TopAbs_EDGE:
+            return ofEdge(shape);
+        case TopAbs_VERTEX:
+            res.type = Primitive::Point;
+            res.loc = BRep_Tool::Pnt(TopoDS::Vertex(shape));
+            return res;
+        default:
+            return res;
+    }
+}
+
 namespace
 {
 double lineDistance(const gp_Pnt& p, const gp_Pnt& loc, const gp_Dir& dir)
@@ -182,6 +243,13 @@ bool Geom::sameSurface(const Primitive& a, const Primitive& b, double tol, doubl
         case Primitive::Torus:
             return std::fabs(a.radius - b.radius) < tol && std::fabs(a.major - b.major) < tol
                 && parallel(a.dir, b.dir, atol) && a.loc.Distance(b.loc) < tol;
+        case Primitive::Line:
+            return parallel(a.dir, b.dir, atol) && lineDistance(b.loc, a.loc, a.dir) < tol;
+        case Primitive::Circle:
+            return std::fabs(a.radius - b.radius) < tol && parallel(a.dir, b.dir, atol)
+                && a.loc.Distance(b.loc) < tol;
+        case Primitive::Point:
+            return a.loc.Distance(b.loc) < tol;
         default:
             return false;
     }
@@ -428,6 +496,51 @@ std::vector<TopoDS_Shape> Geom::faces(const TopoDS_Shape& shape)
     }
     for (TopExp_Explorer xp(shape, TopAbs_FACE); xp.More(); xp.Next()) {
         res.push_back(xp.Current());
+    }
+    return res;
+}
+
+std::vector<TopoDS_Shape> Geom::elements(const TopoDS_Shape& shape, const char* type)
+{
+    std::vector<TopoDS_Shape> res;
+    if (shape.IsNull() || !type) {
+        return res;
+    }
+    TopAbs_ShapeEnum t = TopAbs_SHAPE;
+    if (std::strcmp(type, "Face") == 0) {
+        t = TopAbs_FACE;
+    }
+    else if (std::strcmp(type, "Edge") == 0) {
+        t = TopAbs_EDGE;
+    }
+    else if (std::strcmp(type, "Vertex") == 0) {
+        t = TopAbs_VERTEX;
+    }
+    else {
+        return res;
+    }
+    // The order TopoShape numbers them in: each once
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(shape, t, map);
+    res.reserve(map.Extent());
+    for (int i = 1; i <= map.Extent(); ++i) {
+        res.push_back(map(i));
+    }
+    return res;
+}
+
+std::vector<TopoDS_Shape> Geom::members(const TopoDS_Shape& shape)
+{
+    std::vector<TopoDS_Shape> res;
+    if (shape.IsNull()) {
+        return res;
+    }
+    if (shape.ShapeType() != TopAbs_COMPOUND) {
+        res.push_back(shape);
+        return res;
+    }
+    for (TopoDS_Iterator it(shape); it.More(); it.Next()) {
+        res.push_back(it.Value());
     }
     return res;
 }

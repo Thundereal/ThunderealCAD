@@ -889,6 +889,161 @@ class TestPresentation(Base):
         self.assertAlmostEqual(dia.Plane.Base.z, 10, 0)
 
 
+def edge_at(shape, *points):
+    """The edge through all the points"""
+    for i, edge in enumerate(shape.Edges):
+        if all(edge.distToShape(Part.Vertex(p))[0] < 1e-6 for p in points):
+            return "Edge%d" % (i + 1)
+    raise AssertionError("no edge through %s" % (points,))
+
+
+def vertex_at(shape, point):
+    for i, v in enumerate(shape.Vertexes):
+        if v.Point.distanceToPoint(point) < 1e-6:
+            return "Vertex%d" % (i + 1)
+    raise AssertionError("no vertex at %s" % point)
+
+
+# The top's front and back edges, the hole's top rim, a corner
+TOP_FRONT = (V(5, 0, 10), V(35, 0, 10))
+TOP_BACK = (V(5, 20, 10), V(35, 20, 10))
+RIM = (V(23, 10, 10), V(17, 10, 10))
+CORNER = V(0, 0, 0)
+
+
+class TestEdges(Base):
+    """Edges and points referred to (docs/GDandT.md sec 10.14): a file's
+    dimension between two edges, a line profile, a hole's rim"""
+
+    def element(self, sub, kind="Integral", solid=None):
+        solid = solid or self.solid
+        return self.add("TolerancedFeature", "Feature", References=[(solid, [sub])], Kind=kind)
+
+    def edge(self, points, **kw):
+        return self.element(edge_at(self.solid.Shape, *points), **kw)
+
+    def test_an_edge_and_a_point_are_features(self):
+        edge = self.edge(TOP_FRONT)
+        rim = self.edge(RIM)
+        corner = self.element(vertex_at(self.solid.Shape, CORNER))
+        self.recompute()
+        for f in (edge, rim, corner):
+            self.assertEqual(f.Condition, "Ok", f.ConditionMessage)
+        self.assertEqual(edge.Shape.ShapeType, "Edge")
+        self.assertAlmostEqual(edge.Shape.Length, 40, 6)
+        self.assertEqual(corner.Shape.ShapeType, "Vertex")
+        self.assertFalse(rim.IsSize)
+        # A rim's axis and centre
+        axis = self.edge(RIM, kind="Axis")
+        centre = self.edge(RIM, kind="CentrePoint")
+        self.recompute()
+        self.assertAlmostEqual(axis.Shape.Edges[0].Curve.Direction.cross(V(0, 0, 1)).Length, 0, 9)
+        self.assertTrue(centre.Shape.Vertexes[0].Point.isEqual(V(20, 10, 10), 1e-6))
+
+    def test_dimensions_on_edges_and_points(self):
+        across = self.add("Dimension", "Across", Type="Distance",
+                          Features=[self.edge(TOP_FRONT), self.edge(TOP_BACK)])
+        corner = self.element(vertex_at(self.solid.Shape, CORNER))
+        to_end = self.add("Dimension", "ToEnd", Type="Distance",
+                          Features=[corner, self.feature(RIGHT)])
+        down = self.add("Dimension", "Down", Type="Distance",
+                        Features=[self.edge(TOP_FRONT), self.feature(BOTTOM)])
+        rim = self.add("Dimension", "Rim", Type="Diameter", Features=[self.edge(RIM)])
+        located = self.add("Dimension", "Located", Type="Distance",
+                           Features=[self.edge(RIM), self.feature(LEFT)])
+        self.recompute()
+        for dim, value in ((across, 20), (to_end, 40), (down, 10), (rim, 6), (located, 20)):
+            self.assertEqual(dim.Condition, "Ok", (dim.Name, dim.ConditionMessage))
+            self.assertAlmostEqual(dim.Nominal.Value, value, 6, dim.Name)
+        # An edge has no diameter
+        bad = self.add("Dimension", "Bad", Type="Diameter", Features=[self.edge(TOP_FRONT)])
+        self.doc.recompute()
+        self.assertEqual(bad.Condition, "Invalid")
+        self.assertIn("circular edge", bad.ConditionMessage)
+
+    def test_tolerances_on_edges(self):
+        edge = self.edge(TOP_FRONT)
+        rim = self.edge(RIM)
+        self.recompute()
+        self.assertEqual(PMI.advise(edge)["characteristics"][0], "Straightness")
+        self.assertIn("Circularity", PMI.advise(rim)["characteristics"])
+        self.assertIn("Diameter", PMI.advise(rim, "Position")["zoneShapes"])
+        straight = self.add("GeometricTolerance", "Straight", Characteristic="Straightness",
+                            Feature=edge, Value=0.02)
+        for letter, point in (("A", BOTTOM), ("B", LEFT), ("C", FRONT)):
+            self.add("Datum", "Datum" + letter, Letter=letter, Feature=self.feature(point))
+        drf = self.add("DatumReferenceFrame", "DRF", Compartments=["A", "B", "C"])
+        pos = self.add("GeometricTolerance", "Pos", Characteristic="Position", Feature=rim,
+                       Value=0.1, ZoneShape="Diameter", DatumSystem=drf)
+        self.recompute()
+        for t in (straight, pos):
+            self.assertEqual(self.issues(t, "Error"), [], t.Name)
+            self.assertEqual(t.Condition, "Ok", t.ConditionMessage)
+            self.assertFalse(t.Presentation.isNull(), t.Name)
+
+    def test_a_pick_on_an_edge_or_a_vertex(self):
+        tip = self.body.Tip
+        sub = "%s.%s" % (tip.Name, edge_at(tip.Shape, *TOP_FRONT))
+        solid, name = PMI.solidReference(self.body, sub)
+        self.assertEqual(solid, self.solid)
+        self.assertTrue(name.startswith("Edge"), name)
+        self.assertEqual(name, edge_at(self.solid.Shape, *TOP_FRONT))
+        sub = "%s.%s" % (tip.Name, vertex_at(tip.Shape, CORNER))
+        solid, name = PMI.solidReference(self.body, sub)
+        self.assertEqual(name, vertex_at(self.solid.Shape, CORNER))
+
+    def test_an_edge_elsewhere_left_alone_and_found_again(self):
+        edge = self.edge(TOP_FRONT)
+        self.recompute()
+        second = self.doc.addObject("PartDesign::SubtractiveCylinder", "Second")
+        self.body.addObject(second)
+        second.Radius, second.Height = 2, 10
+        second.Placement = App.Placement(V(32, 10, 0), App.Rotation())
+        self.recompute()
+        self.assertIn(edge.Condition, ("Ok", "Remapped"), edge.ConditionMessage)
+        self.assertNotIn("geometry", edge.ConditionMessage)
+        self.assertEqual(edge.Shape.ShapeType, "Edge")
+        self.assertAlmostEqual(edge.Shape.Length, 40, 6)
+
+    def test_an_edge_of_a_rebuilt_feature_remaps_by_geometry(self):
+        lid = self.doc.addObject("PartDesign::AdditiveBox", "Lid")
+        self.body.addObject(lid)
+        lid.Placement = App.Placement(V(0, 0, 10), App.Rotation())
+        self.recompute()
+        edge = self.edge((V(2, 0, 20), V(8, 0, 20)))
+        self.recompute()
+        self.body.removeObject(lid)
+        self.doc.removeObject(lid.Name)
+        again = self.doc.addObject("PartDesign::AdditiveBox", "Lid2")
+        self.body.addObject(again)
+        again.Placement = App.Placement(V(0, 0, 10), App.Rotation())
+        self.doc.recompute()
+        self.assertEqual(edge.Condition, "Remapped", edge.ConditionMessage)
+        self.assertIn("geometry", edge.ConditionMessage)
+        self.assertEqual(edge.Shape.ShapeType, "Edge")
+        self.assertAlmostEqual(edge.Shape.CenterOfMass.z, 20, 6)
+        self.assertAlmostEqual(edge.Shape.CenterOfMass.y, 0, 6)
+
+    def test_saved_and_reopened(self):
+        rim = self.edge(RIM)
+        dim = self.add("Dimension", "Dia", Type="Diameter", Features=[rim])
+        corner = self.element(vertex_at(self.solid.Shape, CORNER))
+        self.recompute()
+        path = os.path.join(tempfile.mkdtemp(), "pmi-edges.FCStd")
+        names = rim.Name, corner.Name
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.set = self.doc.getObject("PMI")
+        rim, corner = (self.doc.getObject(n) for n in names)
+        # Back before a recompute, from what was saved
+        self.assertEqual(rim.Shape.ShapeType, "Edge")
+        self.assertEqual(corner.Shape.ShapeType, "Vertex")
+        self.assertAlmostEqual(self.doc.getObject("Dia").Nominal.Value, 6, 6)
+        self.recompute()
+        self.assertEqual(rim.Condition, "Ok", rim.ConditionMessage)
+
+
 class TestDatumTarget(Base):
     """Datum targets (docs/GDandT.md sec 4.3): a datum established from
     points, lines and areas of the part rather than from a whole face"""
@@ -1088,8 +1243,9 @@ class TestQuery(Base):
         sub = "%s.%s" % (self.hole.Name, face_at(self.hole.Shape, TOP))
         self.assertEqual([(c.Name, how) for c, how in PMI.query(self.body, sub)],
                          [("Flatness", "on")])
+        self.assertEqual(PMI.query(self.body, "%s.Edge1" % self.hole.Name), [])
         with self.assertRaises(ValueError):
-            PMI.query(self.body, "%s.Edge1" % self.hole.Name)
+            PMI.query(self.body, "%s.Edge9999" % self.hole.Name)
 
 
 class TestApi(Base):
@@ -1104,8 +1260,13 @@ class TestApi(Base):
         # Picked on the solid body itself
         solid, face = PMI.solidReference(self.solid, face_at(self.solid.Shape, LEFT))
         self.assertEqual(face, face_at(self.solid.Shape, LEFT))
+        # An edge or a vertex too (sec 10.14); not what is not there
+        for kind in ("Edge", "Vertex"):
+            solid, sub = PMI.solidReference(self.body, "%s.%s1" % (self.hole.Name, kind))
+            self.assertEqual(solid, self.solid)
+            self.assertTrue(sub.startswith(kind), sub)
         with self.assertRaises(ValueError):
-            PMI.solidReference(self.body, "%s.Edge1" % self.hole.Name)
+            PMI.solidReference(self.body, "%s.Edge9999" % self.hole.Name)
 
     def test_a_pick_on_a_moved_body(self):
         self.body.Placement = App.Placement(V(100, 0, 0), App.Rotation(V(0, 0, 1), 30))

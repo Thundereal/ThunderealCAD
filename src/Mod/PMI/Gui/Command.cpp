@@ -154,7 +154,7 @@ std::vector<Pick> pickedFaces(Gui::Command* cmd, const char* what)
                 return {};
             }
             auto shape = Part::Feature::getTopoShape(pick.solid, pick.face.c_str(), true);
-            pick.surface = PMI::Geom::ofFace(shape.getShape());
+            pick.surface = PMI::Geom::ofElement(shape.getShape());
             pick.solidGlobal = solidPlacement(pick.solid, sel.getObject(), sub);
             if (!picks.empty() && picks.front().solid != pick.solid) {
                 QMessageBox::warning(Gui::getMainWindow(), QObject::tr("PMI"),
@@ -167,7 +167,7 @@ std::vector<Pick> pickedFaces(Gui::Command* cmd, const char* what)
     }
     if (picks.empty()) {
         QMessageBox::information(Gui::getMainWindow(), QObject::tr("PMI"),
-                                 QObject::tr("%1: pick a face of a part first")
+                                 QObject::tr("%1: pick a face, an edge or a vertex of a part first")
                                      .arg(QString::fromUtf8(what)));
     }
     return picks;
@@ -481,9 +481,16 @@ void CmdPMIGeometricTolerance::activated(int)
     else if (slot) {
         doCommand(Doc, "_obj.Characteristic = 'Position'");
     }
-    else if (type == PMI::Primitive::Cylinder || holes) {
+    else if (type == PMI::Primitive::Cylinder || type == PMI::Primitive::Circle || holes) {
         doCommand(Doc, "_obj.Characteristic = 'Position'");
         doCommand(Doc, "_obj.ZoneShape = 'Diameter'");
+    }
+    else if (type == PMI::Primitive::Line) {
+        // A line element of the part
+        doCommand(Doc, "_obj.Characteristic = 'Straightness'");
+    }
+    else if (type == PMI::Primitive::Point) {
+        doCommand(Doc, "_obj.Characteristic = 'Position'");
     }
     else {
         doCommand(Doc, "_obj.Characteristic = 'ProfileOfSurface'");
@@ -525,6 +532,14 @@ void CmdPMIDimension::activated(int)
         return;
     }
     const auto& a = picks[0].surface;
+    if (picks.size() == 1 && a.type == PMI::Primitive::Line) {
+        QMessageBox::information(Gui::getMainWindow(), QObject::tr("PMI"),
+                                 QObject::tr("Dimension: an edge's length is not a dimension "
+                                             "yet; pick two elements for the distance between "
+                                             "them"));
+        abortCommand();
+        return;
+    }
     if (picks.size() == 1) {
         makeFeature(this, picks, nullptr);
         addToSet(this, "Dimension", "Dimension");
@@ -553,7 +568,8 @@ void CmdPMIDimension::activated(int)
             makeFeature(this, picks, b.type == PMI::Primitive::Cylinder ? "Axis" : nullptr, 1, 2,
                         "_second");
             addToSet(this, "Dimension", "Dimension");
-            bool parallel = a.dir.IsParallel(b.dir, 1e-9) || a.isAxial() || b.isAxial();
+            bool parallel = a.dir.IsParallel(b.dir, 1e-9) || a.isAxial() || b.isAxial()
+                || a.type == PMI::Primitive::Point || b.type == PMI::Primitive::Point;
             doCommand(Doc, "_obj.Type = '%s'", parallel ? "Distance" : "Angle");
             doCommand(Doc, "_obj.Features = [_first, _second]");
         }

@@ -137,8 +137,9 @@ The heart of the model, because it is what survives edits.
 
 - `References`: `PropertyLinkSubList` to the **solid's result shape** -- its
   `PartDesign::SolidBody`, not a feature inside it and not the Body (sec 3) -- with mapped
-  element names. A face a later Pad modifies is still found through the element map; pointing
-  at the Pad that made it would freeze it at that step.
+  element names: faces, or edges and vertices (a line element, a hole's rim, a corner; 10.14). A
+  face a later Pad modifies is still found through the element map; pointing at the Pad that
+  made it would freeze it at that step.
 - `Kind`: `Integral` (the faces themselves), `Axis`, `CentrePlane`, `CentrePoint`, `Apex`,
   `Group` (several faces as one: "2X", a pattern), `AllAround`, `Between` (from X to Y). The
   derived kinds compute their geometry at recompute from the faces (a cylinder's axis, two
@@ -646,7 +647,7 @@ The NIST set's ledger, what is not read or is read invalid, all 17 files (2026-1
 | --- | --- | --- |
 | datum targets | 63, of 8 datums | read since: 15 targets, 10.11 |
 | datums only cited | 4 (B, C, G, H) | FTC-06's two, STC-07's two (sec 5.3) |
-| references to edges or points | 22 | features are faces only (sec 4.2) |
+| references to edges or points | 22 | read since: 37 features on edges, none on a point, 10.14 |
 | a second feature with no shape | 1 | the file gives none |
 | curve lengths | 10 | no dimension type for them |
 | widths on other than two planes | 11 | thickness used for a depth, or a width across several faces |
@@ -762,7 +763,7 @@ widths, STC-06's four counterbored holes, STC-09's slot. Tests: `TestModel` (a s
 slots' walls are of size and measure 4; two faces facing the same way are not; one and two
 counterbored holes are, a counterbored hole and a plain one are not; the axis the hole's).
 
-- Next in P2: edge and point references.
+- Next in P2: edge and point references (10.14).
 
 ### 10.13 Found making the manual's media (2026-11-20)
 
@@ -794,6 +795,42 @@ on the end the standard isometric hides); FreeCAD's Bottom view turns a bottom f
 callouts upside down (it flips y). In PartDesign a Body's first PMI set could not be made: the
 tool bar was offered only once a set existed and was active. Closed: the Part Design menu's PMI
 submenu, and an annotation made there making its set active (sec 3; `GuiPMIWorkbench_tests_run`).
+
+### 10.14 P2 progress: edge and point references (2026-11-20)
+
+Built: a toleranced feature may be on edges and vertices of the solid, not only faces -- a line
+element (ASME Y14.5 5.4.1: straightness of a line on a surface), a hole's rim, a corner, and
+what a STEP file names as such (a dimension between two edges, a note on an edge).
+
+- **The geometry** (`Geom::ofElement`): a straight edge is a `Line`, a circular one a `Circle`
+  (centre, axis, radius), a vertex a `Point`; a face is what it was. `sameSurface` compares
+  them (a line collinear, a circle of the same centre, axis and radius, a point coincident),
+  so an edge is found again **by name, by history or by geometry** as a face is, each among
+  its own kind: a face is never taken for an edge. `SavedGeometry` keeps edges and vertices as
+  it keeps faces, so a broken one is still drawn where it was.
+- **What they measure**: a distance between two edges, an edge and a face, or points; a
+  circular edge stands for its cylinder -- a diameter or a radius, an `Axis` or a
+  `CentrePoint` feature. A diameter on a straight edge is invalid ("a circular edge").
+- **What they take**: the advisor's characteristics for a straight edge (straightness, line
+  profile, orientations, position), a circular edge (circularity, position, line profile,
+  circular runout) and a vertex (position); a rim's position zone may be a diameter.
+- **The commands** take edge and vertex picks: a straight edge's tolerance defaults to a
+  straightness, a vertex's to a position, a rim's to a position of its axis. One straight edge
+  picked for a Dimension is refused with why: its length is not a dimension type yet.
+- **The import**: a shape aspect's faces, or else its edges, or else its vertices, become the
+  feature's references; a circular edge is axial, as a cylinder is.
+
+The NIST set: every one of the files' edge references is read, 37 features in 10 files, all Ok,
+none invalid. On them, 29 dimensions (CTC-04's on 60 edges, CTC-05's, FTC-06's -- two axes of
+rims --, FTC-07's, FTC-09's four axes of rims, FTC-10's), 11 graphic-only notes and one of
+CTC-05's tolerances. None is on a vertex. The ledger's invalid list is unchanged. Tests:
+`TestModel.TestEdges` (an edge and a vertex are features; distances between edges, a rim's
+diameter, a straight edge's refused; the advisor; picks; an edge elsewhere untouched and found
+again after its feature is rebuilt, by geometry; saved and reopened), `TestStep` (CTC-01's two
+notes on edges), `tests/gui/pmi-workbench.py` (two picked edges' distance of 20, a rim's
+diameter of 6).
+
+- Next: P3, STEP export (sec 10).
 
 ## 11. Decisions (made 2026-11-19)
 

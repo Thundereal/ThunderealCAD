@@ -54,6 +54,7 @@ struct PMIExport Primitive
         Line,      ///< loc on it, dir along it
         Point,     ///< loc
         Torus,     ///< loc the centre, dir the axis, radius the tube's, major the ring's
+        Circle,    ///< an edge: loc the centre, dir the axis, radius
     };
     Type type = None;
     gp_Pnt loc;
@@ -64,10 +65,10 @@ struct PMIExport Primitive
 
     bool isAxial() const
     {
-        return type == Cylinder || type == Cone || type == Line;
+        return type == Cylinder || type == Cone || type == Line || type == Circle;
     }
-    /// The element a location is measured to: the axis of a cylinder or a
-    /// cone, the centre of a sphere, else itself
+    /// The element a location is measured to: the axis of a cylinder, a
+    /// cone or a circle, the centre of a sphere, else itself
     Primitive reference() const;
     const char* typeName() const;
 };
@@ -78,8 +79,16 @@ namespace Geom
 /// sphere or a cone
 PMIExport Primitive ofFace(const TopoDS_Shape& face);
 
-/// Whether two face primitives are the same surface, within tol (lengths)
-/// and atol (radians); a plane's normal may be reversed
+/// The curve of an edge: a Line (loc its start), a Circle; None for others
+PMIExport Primitive ofEdge(const TopoDS_Shape& edge);
+
+/// The primitive of an element a feature refers to: a face's surface, an
+/// edge's curve, a vertex's Point
+PMIExport Primitive ofElement(const TopoDS_Shape& element);
+
+/// Whether two primitives are the same surface, curve or point, within tol
+/// (lengths) and atol (radians); a plane's normal and a line's direction
+/// may be reversed
 PMIExport bool sameSurface(const Primitive& a, const Primitive& b, double tol = 1e-6,
                            double atol = 1e-9);
 
@@ -108,6 +117,14 @@ PMIExport TopoDS_Shape axisEdge(const gp_Pnt& loc, const gp_Dir& dir, const Topo
 
 /// Faces of a shape, in order
 PMIExport std::vector<TopoDS_Shape> faces(const TopoDS_Shape& shape);
+
+/// Elements of a shape of the type ("Face", "Edge", "Vertex"), in the
+/// order their names number them
+PMIExport std::vector<TopoDS_Shape> elements(const TopoDS_Shape& shape, const char* type);
+
+/// The shapes compound() put together, in order: a compound's children, or
+/// the shape alone
+PMIExport std::vector<TopoDS_Shape> members(const TopoDS_Shape& shape);
 
 /// A compound of the shapes, or the shape alone
 PMIExport TopoDS_Shape compound(const std::vector<TopoDS_Shape>& shapes);

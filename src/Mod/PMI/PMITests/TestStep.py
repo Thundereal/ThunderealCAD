@@ -76,12 +76,20 @@ class TestStepImport(Base):
         self.assertEqual(len(sets), 1)
         part = sets[0].Part
         self.assertTrue(part is not None and part.isDerivedFrom("Part::Feature"))
-        nfaces = len(part.Shape.Faces)
+        counts = {k: len(getattr(part.Shape, k + "es" if k == "Vertex" else k + "s"))
+                  for k in ("Face", "Edge", "Vertex")}
+        edges = []
         for feat in objects(self.doc, "TolerancedFeature"):
             for obj, subs in feat.References:
                 self.assertEqual(obj, part)
                 for s in subs:
-                    self.assertTrue(s.startswith("Face") and 0 < int(s[4:]) <= nfaces, s)
+                    kind = s.rstrip("0123456789")
+                    self.assertTrue(kind in counts and 0 < int(s[len(kind):]) <= counts[kind], s)
+                    if kind != "Face":
+                        edges.append(s)
+        # Two of its graphic-only notes are on edges (docs/GDandT.md sec 10.14)
+        self.assertEqual(len(edges), 2)
+        self.assertTrue(all(e.startswith("Edge") for e in edges), edges)
 
     def test_frames_cite_their_datums(self):
         letters = set(d.Letter for d in objects(self.doc, "Datum"))

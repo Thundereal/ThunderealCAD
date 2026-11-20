@@ -341,7 +341,7 @@ bool Callout::defaultPlane(const TolerancedFeature* feature, double h, gp_Ax3& p
         z = p.dir;
     }
     else if (p.type == Primitive::Line || p.type == Primitive::Cylinder
-             || feature->getKind() == TolerancedFeature::Axis) {
+             || p.type == Primitive::Circle || feature->getKind() == TolerancedFeature::Axis) {
         // An axis is looked at along itself, from its end toward the
         // reader, and the leader goes to that end -- not to its middle,
         // inside the part. A hole's or a pin's surface the same way: its

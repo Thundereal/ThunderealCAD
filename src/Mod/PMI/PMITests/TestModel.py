@@ -879,6 +879,14 @@ class TestPresentation(Base):
         tip = V(20, 10, 10 + 0.05 * h)
         self.assertLess(min((v.Point - tip).Length for v in gt.Presentation.Vertexes), 1e-6)
 
+    def test_a_holes_size_is_read_where_it_is_a_circle(self):
+        # Looking down the hole, its leader to the rim -- not edge on from
+        # the top, as a plane facing out of the cylinder would be
+        dia = self.add("Dimension", "Dia", Type="Diameter", Features=[self.feature(HOLE)])
+        self.recompute()
+        self.assertTrue(dia.Plane.Rotation.multVec(V(0, 0, 1)).isEqual(V(0, 0, 1), 1e-9),
+                        dia.Plane)
+        self.assertAlmostEqual(dia.Plane.Base.z, 10, 0)
 
 
 class TestDatumTarget(Base):

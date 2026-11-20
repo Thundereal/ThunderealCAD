@@ -30,11 +30,14 @@
 #include <regex>
 #include <vector>
 
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
 #include <BRep_Tool.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 
 #include <Base/Unit.h>
+#include <Mod/Part/App/PartFeature.h>
 
 #include "Dimension.h"
 #include "TolerancedFeature.h"
@@ -384,6 +387,31 @@ bool Dimension::autoPlane(double h, gp_Ax3& plane, gp_Pnt& target) const
     for (const TopoDS_Shape* s : {&s1, &s2}) {
         for (TopExp_Explorer xp(*s, TopAbs_VERTEX); xp.More(); xp.Next()) {
             gp_Vec v(mid, BRep_Tool::Pnt(TopoDS::Vertex(xp.Current())));
+            ytop = std::max(ytop, v.Dot(y));
+            ztop = std::max(ztop, v.Dot(z));
+        }
+    }
+    // Beside the whole part, not just the faces measured: a distance
+    // between two holes' axes would be inside it, and dimensions landing
+    // beside the part together are stacked a slot apart (autoSlot)
+    for (auto obj : Features.getValues()) {
+        auto f = freecad_cast<TolerancedFeature*>(obj);
+        if (!f || f->References.getValues().empty()) {
+            continue;
+        }
+        auto part = freecad_cast<Part::Feature*>(f->References.getValues().front());
+        if (!part) {
+            continue;
+        }
+        Bnd_Box box;
+        BRepBndLib::Add(part->Shape.getShape().getShape(), box);
+        if (box.IsVoid()) {
+            continue;
+        }
+        double x0, y0, z0, x1, y1, z1;
+        box.Get(x0, y0, z0, x1, y1, z1);
+        for (int i = 0; i < 8; ++i) {
+            gp_Vec v(mid, gp_Pnt(i & 1 ? x1 : x0, i & 2 ? y1 : y0, i & 4 ? z1 : z0));
             ytop = std::max(ytop, v.Dot(y));
             ztop = std::max(ztop, v.Dot(z));
         }

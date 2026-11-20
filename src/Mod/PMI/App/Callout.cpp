@@ -340,10 +340,13 @@ bool Callout::defaultPlane(const TolerancedFeature* feature, double h, gp_Ax3& p
     else if (p.type == Primitive::Plane) {
         z = p.dir;
     }
-    else if (p.type == Primitive::Line || feature->getKind() == TolerancedFeature::Axis) {
+    else if (p.type == Primitive::Line || p.type == Primitive::Cylinder
+             || feature->getKind() == TolerancedFeature::Axis) {
         // An axis is looked at along itself, from its end toward the
         // reader, and the leader goes to that end -- not to its middle,
-        // inside the part
+        // inside the part. A hole's or a pin's surface the same way: its
+        // size is shown where it is a circle (ASME Y14.5 1.8), the leader
+        // to its rim
         double best = -1;
         for (auto& a : axes) {
             double d = std::fabs(gp_Vec(a).Dot(gp_Vec(p.dir)));

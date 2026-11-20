@@ -324,7 +324,9 @@ A view provider per item draws the layout through a `So3DAnnotation`-style node 
 size option, depth-tested or always on top), with pre-selection and selection highlighting both
 the frame and its faces (cross-highlighting is what makes PMI checkable by eye). States colour
 it: broken red, remapped amber, check failures with a mark. Visibility follows the active
-PMI::View, or all. The served scene carries the layout's strokes like edges.
+PMI::View, or all. The served scene carries the layout's strokes like edges. A frame, a
+datum's box, a dimension's value turn per frame to read upright from wherever they are seen,
+as a sketch's datum label does; leaders and extension lines stay (10.15).
 
 ## 7. Surviving edits
 
@@ -571,7 +573,8 @@ in the active set (or the selection's, or the active Body's), and activates it; 
 made while a view is active joins it and lies in its plane.
 
 - A callout changes plane at the recompute after its `Views` change, as for any property.
-- Not done: the object filter of sec 6.3 (`Objects` -- which bodies a view shows).
+- Not done: the object filter of sec 6.3 (`Objects` -- which bodies a view shows). Closed
+  since, 10.15.
 
 ### 10.8 P1 progress: what applies to a face, cross-highlighting (2026-11-20)
 
@@ -592,8 +595,8 @@ selection green -- distinct from the face highlight, which is kept.
 text and how. A pick of no face leaves the list, so clicking a callout in it selects it --
 outlining its faces -- and the list stays.
 
-- Still open in P1: a view's object filter (sec 6.3, `Objects`), and the default offsets of
-  callouts on different planes not seeing each other (sec 10.6).
+- Still open in P1: a view's object filter (sec 6.3, `Objects`; closed since, 10.15), and the
+  default offsets of callouts on different planes not seeing each other (sec 10.6).
 
 ### 10.9 P2 progress: the GD&T of a STEP file, read (2026-11-20)
 
@@ -790,11 +793,12 @@ does, on a part whose features carry placements of their own. It found:
   measures, so one between two holes' axes landed inside the part, over the part's length.
   It goes beside the whole part now, where dimensions landing together are slotted apart.
 
-Still open from the same pictures: a planar callout seen from behind reads mirrored (a datum
-on the end the standard isometric hides); FreeCAD's Bottom view turns a bottom face's
-callouts upside down (it flips y). In PartDesign a Body's first PMI set could not be made: the
-tool bar was offered only once a set existed and was active. Closed: the Part Design menu's PMI
-submenu, and an annotation made there making its set active (sec 3; `GuiPMIWorkbench_tests_run`).
+Still open from the same pictures: a planar callout seen from behind reads mirrored (a datum on
+the end the standard isometric hides); FreeCAD's Bottom view turns a bottom face's callouts
+upside down (it flips y). Both closed since, 10.15. In PartDesign a Body's first PMI set could
+not be made: the tool bar was offered only once a set existed and was active. Closed: the Part
+Design menu's PMI submenu, and an annotation made there making its set active (sec 3;
+`GuiPMIWorkbench_tests_run`).
 
 ### 10.14 P2 progress: edge and point references (2026-11-20)
 
@@ -835,6 +839,52 @@ diameter, a straight edge's refused; the advisor; picks; an edge elsewhere untou
 again after its feature is rebuilt, by geometry; saved and reopened), `TestStep` (CTC-01's two
 notes on edges), `tests/gui/pmi-workbench.py` (two picked edges' distance of 20, a rim's
 diameter of 6, an edge's straightness between two lines).
+
+- Next: P1's leftovers (10.15), then P3, STEP export.
+
+### 10.15 P1 closed: callouts read upright from every side; a view's objects (2026-11-20)
+
+**Read upright.** A callout lies in its plane, so from behind it read mirrored and from below
+(FreeCAD's Bottom view turns the camera about x) upside down. It turns now as a sketch's
+datum label does, per frame, in its own plane:
+
+- The App marks what turns: `Drawing::beginUpright()`/`endUpright()` around a part of the
+  layout, else the whole layout before its leader (a frame, a datum's box, a note) -- a
+  linear dimension marks its value alone, its extension and dimension lines staying.
+  `Presentation` is then what stays (leader, lines, marks on the part) as its first
+  sub-shape, and one sub-shape per part that turns; `UprightAt` (transient, rebuilt with
+  `Presentation` on restore) holds where each turns about, in the plane.
+- The view draws each part in a frame of its own under an `SoAutoZoomTranslation` with
+  `datumFlip` on and `scaleFactor` 0 (the model's size, no zoom): the local X or Y that
+  points left or down on the screen is mirrored, about the part's middle. A part's leader
+  starts on its box's edge, which a mirror about the middle keeps.
+- `datumFlip` is now done by Coin itself (`SoAutoZoomTranslation::doAction`), as bgfx did
+  it: a pick, the GL render cache that replays the node and a direct Coin render agree. A
+  zero `flipNormal` means the node's own local Z, so a Body's placement turns it too.
+- The render cache's box for a draw under such a node (`SoFCRenderCache::drawBoundingBox`)
+  is carried through the node's matrix, turned every way it may turn: a fit framed the
+  frames' strokes at the origin, where their local frame is.
+
+**A view's objects.** `PMI::View::Objects` (a hidden link list: the view lives in the set
+inside the Body it would name): while the view is active only they show, in the 3D view it
+is active in -- every other object at the top of the tree hidden, and within a group holding
+one it lists the rest of the group; the PMI stays. Empty shows all. The hides are a layer of
+the view's transient visibility (`View3DInventorViewer::setVisibilityLayer`, owner
+"PMI::View", beside an edit session's, which come first): never written into the view's
+map, so a save sees none of them, and taken back when the view is let go. Hidden first,
+then fitted, so a view fitting everything frames what it shows. A STEP saved view's shapes
+(`XCAFDoc_ViewTool::GetRefShapeLabel`) become its `Objects` when they name a solid:
+STC-10's 13 views name its solid; STC-09's name only a compound of construction curves,
+which would hide the part, and are left showing all.
+
+Tests: `tests/gui/pmi-workbench.py` (a Coin callback pass reads each turning part's local X
+and Y on the screen from the Front, Rear, Top, Bottom, Left, Right and the isometric: none
+reads backwards; with the turn off, 8 of 9 do from the Rear and from below),
+`tests/gui/pmi-views.py` (a view listing the Body hides a box beside it in its 3D view only,
+its Visibility untouched, back when let go and hidden again at once when made active),
+`TestModel.TestPresentation` (what turns: a frame whole, a dimension's value only, a file's
+graphic nothing), `TestViewObjects` (a view naming the Body it is in: no loop, saved and
+reopened), `TestNistSet` (a saved view's objects include a solid).
 
 - Next: P3, STEP export (sec 10).
 

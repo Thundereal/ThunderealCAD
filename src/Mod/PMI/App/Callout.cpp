@@ -86,6 +86,10 @@ Callout::Callout()
     ADD_PROPERTY_TYPE(Presentation, (TopoDS_Shape()), "Presentation",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Transient),
                       "What is drawn: strokes as edges, fills as faces");
+    ADD_PROPERTY_TYPE(UprightAt, (), "Presentation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Transient
+                                        | App::Prop_Hidden | App::Prop_Output),
+                      "Where the parts of Presentation after the first turn to read upright");
     ADD_PROPERTY_TYPE(EquivalentText, (""), "Presentation",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Output),
                       "The equivalent unicode string (CAx-IF), for checking");
@@ -513,6 +517,9 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
 void Callout::updatePresentation()
 {
     if (UseImported.getValue() && !ImportedGraphic.getShape().isNull()) {
+        if (UprightAt.getSize()) {
+            UprightAt.setValues({});
+        }
         Presentation.setValue(ImportedGraphic.getShape().getShape());
         std::string text = Font::toUtf8(equivalentText());
         if (EquivalentText.getStrValue() != text) {
@@ -578,6 +585,8 @@ void Callout::updatePresentation()
 
     Drawing d;
     layout(d, h);
+    // A frame, a datum's box, a note turn whole; a dimension marks its value
+    d.uprightAll();
 
     // The leader, in the plane: the target as the plane sees it (a target
     // off the plane is drawn where it projects, CAx-IF sec 8.3)
@@ -619,18 +628,27 @@ void Callout::updatePresentation()
         }
     }
 
-    TopoDS_Shape shape = d.shape();
+    // What stays first, then each part that turns (UprightAt)
     gp_Trsf trsf;
     Part::TopoShape::convertTogpTrsf(Plane.getValue().toMatrix(), trsf);
-    shape = shape.Moved(TopLoc_Location(trsf));
+    TopLoc_Location loc(trsf);
+    BRep_Builder builder;
+    TopoDS_Compound shape, stays;
+    builder.MakeCompound(shape);
+    builder.MakeCompound(stays);
+    builder.Add(stays, d.rest().Moved(loc));
     TopoDS_Shape onPart = mark(h);
     if (!onPart.IsNull()) {
-        TopoDS_Compound both;
-        BRep_Builder builder;
-        builder.MakeCompound(both);
-        builder.Add(both, shape);
-        builder.Add(both, onPart);
-        shape = both;
+        builder.Add(stays, onPart);
+    }
+    builder.Add(shape, stays);
+    std::vector<Base::Vector3d> at;
+    for (auto& u : d.uprights()) {
+        builder.Add(shape, u.shape.Moved(loc));
+        at.emplace_back(u.x, u.y, 0.0);
+    }
+    if (at != UprightAt.getValues()) {
+        UprightAt.setValues(at);
     }
     Presentation.setValue(shape);
     std::string text = Font::toUtf8(equivalentText());

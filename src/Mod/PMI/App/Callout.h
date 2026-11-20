@@ -78,6 +78,11 @@ public:
     /// set gives it its plane
     App::PropertyLinkList Views;
     Part::PropertyPartShape Presentation;
+    /// Where each part of Presentation the view turns to read upright turns
+    /// about, in Plane's coordinates: Presentation's sub-shapes after the
+    /// first, which is what stays -- leaders, extension lines, marks on the
+    /// part (docs/GDandT.md sec 6.5). Empty: nothing turns (a file's graphic)
+    App::PropertyVectorList UprightAt;
     App::PropertyString EquivalentText;
     /// The graphic a file drew for it (docs/GDandT.md sec 5.1 step 3), in
     /// the set's coordinates: what is drawn while UseImported is set

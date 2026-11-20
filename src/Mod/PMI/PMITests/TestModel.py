@@ -737,6 +737,42 @@ class TestPresentation(Base):
         for d in (dim, fit, basic, width):
             self.assertTrue(d.Presentation.Faces, d.Name)
 
+    def test_what_turns_to_read_upright(self):
+        # Presentation is what stays -- a leader, extension lines -- then
+        # each part the view turns to read upright, about UprightAt in the
+        # plane (sec 6.5): a frame whole, a dimension its value alone
+        flat = self.add("GeometricTolerance", "Flat", Characteristic="Flatness",
+                        Feature=self.feature(TOP), Value=0.05)
+        datum = self.add("Datum", "DatumA", Letter="A", Feature=self.feature(BOTTOM))
+        width = self.add("Dimension", "Width", Type="Width",
+                         Features=[self.feature(LEFT, RIGHT)])
+        self.recompute()
+
+        def local(c, shape):
+            inv = c.Plane.inverse()
+            pts = [inv.multVec(v.Point) for v in shape.Vertexes]
+            return (min(p.x for p in pts), max(p.x for p in pts),
+                    min(p.y for p in pts), max(p.y for p in pts))
+
+        for c in (flat, datum, width):
+            parts = c.Presentation.childShapes()
+            self.assertEqual(len(c.UprightAt), 1, c.Name)
+            self.assertEqual(len(parts), 2, c.Name)
+            # The leader, or the lines, stay
+            self.assertTrue(parts[0].Edges, c.Name)
+            x0, x1, y0, y1 = local(c, parts[1])
+            at = c.UprightAt[0]
+            self.assertAlmostEqual(at.z, 0, 9)
+            self.assertTrue(x0 < at.x < x1 and y0 < at.y < y1, (c.Name, at, x0, x1, y0, y1))
+        # The width's value only: narrower than the 40 between its lines
+        x0, x1, _, _ = local(width, width.Presentation.childShapes()[1])
+        self.assertLess(x1 - x0, 20)
+        # A file's graphic does not turn
+        flat.ImportedGraphic = Part.makeLine(V(0, 0, 20), V(10, 0, 20))
+        flat.UseImported = True
+        self.recompute()
+        self.assertEqual(len(flat.UprightAt), 0)
+
     def test_a_linear_dimension_has_extension_and_dimension_lines(self):
         width = self.add("Dimension", "Width", Type="Width",
                          Features=[self.feature(LEFT, RIGHT)])
@@ -1050,6 +1086,25 @@ class TestEdges(Base):
         self.assertAlmostEqual(self.doc.getObject("Dia").Nominal.Value, 6, 6)
         self.recompute()
         self.assertEqual(rim.Condition, "Ok", rim.ConditionMessage)
+
+
+class TestViewObjects(Base):
+    """A view's Objects (docs/GDandT.md sec 6.3): what shows while it is
+    active"""
+
+    def test_a_view_lists_the_body_it_is_in(self):
+        # In the set inside the Body it names, with no loop
+        view = self.add("View", "Bodies", Standard="Isometric")
+        view.Objects = [self.body]
+        self.recompute()
+        self.assertEqual(view.Condition, "Ok")
+        self.assertFalse("Touched" in self.body.State or "Touched" in view.State)
+        path = os.path.join(tempfile.mkdtemp(), "pmi-view-objects.FCStd")
+        body = self.body.Name
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.assertEqual([o.Name for o in self.doc.getObject("Bodies").Objects], [body])
 
 
 class TestDatumTarget(Base):

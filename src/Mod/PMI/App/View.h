@@ -29,6 +29,7 @@
 #include <gp_Ax3.hxx>
 
 #include <App/PropertyGeo.h>
+#include <App/PropertyLinks.h>
 #include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
 
@@ -69,6 +70,10 @@ public:
     /// Cut away what is in front of ClipPlane (its z toward the viewer)
     App::PropertyBool Clip;
     App::PropertyPlacement ClipPlane;
+    /// The objects that show while the view is active (sec 6.3); empty
+    /// shows them all. A hidden link: the view lives in the set inside the
+    /// Body it would name, and depends on nothing it shows
+    App::PropertyLinkListHidden Objects;
 
     enum StandardValue
     {

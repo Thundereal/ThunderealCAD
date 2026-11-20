@@ -223,6 +223,11 @@ class TestNistSet(Base):
                 self.assertEqual([b for b in bad if " Broken: " in b], [])
                 for b in bad:
                     print("NIST %s: %s" % (os.path.basename(path), b))
+                # A saved view's objects, when the file names them, include
+                # the part's solid: never construction curves alone
+                for v in objects(doc, "View"):
+                    if v.Objects:
+                        self.assertTrue(any(o.Shape.Solids for o in v.Objects), v.Label)
 
     def test_datum_targets(self):
         # The datums only targets establish: points (CTC-02's A, B, C), a

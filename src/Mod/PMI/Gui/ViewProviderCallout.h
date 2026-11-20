@@ -25,6 +25,8 @@
 #ifndef PMIGUI_VIEWPROVIDERCALLOUT_H
 #define PMIGUI_VIEWPROVIDERCALLOUT_H
 
+#include <memory>
+#include <vector>
 #include <Gui/ViewProviderDocumentObject.h>
 #include <Gui/ViewProviderDocumentObjectGroup.h>
 
@@ -61,6 +63,8 @@ public:
     void setColor(float r, float g, float b);
     void setLineWidth(float w);
     void setDashed(bool dashed);
+    void color(float& r, float& g, float& b) const;
+    float lineWidth() const;
 
 private:
     SoSeparator* _root;
@@ -116,7 +120,13 @@ public:
 
 private:
     void refresh();
+    /// Presentation's parts that turn to read upright (PMI::Callout::
+    /// UprightAt), each in its own frame under a node that mirrors it per
+    /// frame as the view needs, the way a sketch's datum label turns
+    void setUprights(std::size_t count);
     ShapeLines _drawing;
+    SoSeparator* _turning = nullptr;
+    std::vector<std::unique_ptr<ShapeLines>> _uprights;
     ShapeLines _outline;
     SoSwitch* _filter = nullptr;
     SoSwitch* _cross = nullptr;
@@ -147,7 +157,13 @@ public:
 
 private:
     void refresh();
+    /// Presentation's parts that turn to read upright (PMI::Callout::
+    /// UprightAt), each in its own frame under a node that mirrors it per
+    /// frame as the view needs, the way a sketch's datum label turns
+    void setUprights(std::size_t count);
     ShapeLines _drawing;
+    SoSeparator* _turning = nullptr;
+    std::vector<std::unique_ptr<ShapeLines>> _uprights;
 };
 
 /// The annotation set: double-clicked, made active, which offers the PMI

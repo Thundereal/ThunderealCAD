@@ -78,6 +78,31 @@ public:
     {
         return _comp;
     }
+
+    /** A part of the drawing the view turns to read upright from wherever it
+     * is seen (docs/GDandT.md sec 6.5): a frame and its text, a dimension's
+     * value -- not its leader or its extension lines. What is drawn between
+     * beginUpright() and endUpright() is one, turned about the middle of what
+     * it covers.
+     */
+    struct Upright
+    {
+        TopoDS_Compound shape;
+        double x = 0.0, y = 0.0;
+    };
+    void beginUpright();
+    void endUpright();
+    /// Everything drawn so far one upright part, unless parts were marked
+    void uprightAll();
+    const std::vector<Upright>& uprights() const
+    {
+        return _uprights;
+    }
+    /// What is drawn outside the upright parts
+    TopoDS_Shape rest() const
+    {
+        return _rest;
+    }
     bool isEmpty() const
     {
         return _empty;
@@ -91,7 +116,12 @@ private:
     void grow(double x, double y);
 
     TopoDS_Compound _comp;
+    TopoDS_Compound _rest;
     bool _empty = true;
+    std::vector<Upright> _uprights;
+    bool _open = false;
+    bool _openEmpty = true;
+    double _ox0 = 0.0, _oy0 = 0.0, _ox1 = 0.0, _oy1 = 0.0;
 };
 
 }  // namespace PMI

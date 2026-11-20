@@ -1204,6 +1204,24 @@ private:
         if (obj->WindowVerticalSize() > Precision::Confusion()) {
             v->Height.setValue(obj->WindowVerticalSize());
         }
+        // The shapes it shows (sec 6.3, Objects): the objects made of them
+        NCollection_Sequence<TDF_Label> shapes;
+        std::vector<App::DocumentObject*> shown;
+        if (tool->GetRefShapeLabel(l, shapes)) {
+            for (auto& sl : shapes) {
+                auto o = objectOf(sl);
+                if (o && std::find(shown.begin(), shown.end(), o) == shown.end()) {
+                    shown.push_back(o);
+                }
+            }
+        }
+        // Only a list naming a solid: one naming construction curves alone
+        // (STC-09's) would hide the part itself
+        if (std::any_of(shown.begin(), shown.end(), [this](App::DocumentObject* o) {
+                return hasSolid(static_cast<Part::Feature*>(o));
+            })) {
+            v->Objects.setValues(shown);
+        }
         for (auto c : members) {
             auto views = c->Views.getValues();
             views.push_back(v);

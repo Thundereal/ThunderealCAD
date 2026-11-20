@@ -42,6 +42,7 @@
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
@@ -56,8 +57,10 @@
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoShapeHints.h>
 #include <Inventor/nodes/SoSwitch.h>
+#include <Inventor/nodes/SoTransform.h>
 
 #include <App/Application.h>
+#include <Gui/Inventor/SoAutoZoomTranslation.h>
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
 #include <App/ElementNamingUtils.h>
@@ -132,6 +135,16 @@ void ShapeLines::setColor(float r, float g, float b)
 void ShapeLines::setLineWidth(float w)
 {
     _style->lineWidth = w;
+}
+
+void ShapeLines::color(float& r, float& g, float& b) const
+{
+    _material->diffuseColor[0].getValue(r, g, b);
+}
+
+float ShapeLines::lineWidth() const
+{
+    return _style->lineWidth.getValue();
 }
 
 void ShapeLines::setDashed(bool dashed)
@@ -431,6 +444,8 @@ void ViewProviderCallout::attach(App::DocumentObject* obj)
     top->priority = 1;
     _filter = new SoSwitch;
     _filter->addChild(_drawing.root());
+    _turning = new SoSeparator;
+    _filter->addChild(_turning);
     _filter->whichChild = SO_SWITCH_ALL;
     top->addChild(_filter);
     // Its faces, outlined while it is picked: shown through the model
@@ -536,7 +551,68 @@ void ViewProviderCallout::refresh()
         _drawing.setColor(c.r, c.g, c.b);
     }
     _drawing.setLineWidth(float(LineWidth.getValue()));
-    _drawing.set(callout->Presentation.getShape().getShape());
+    const TopoDS_Shape& shape = callout->Presentation.getShape().getShape();
+    const std::vector<Base::Vector3d>& at = callout->UprightAt.getValues();
+    // What stays, then each part that turns; a shape not so made (a file's
+    // graphic) is drawn as it is
+    std::vector<TopoDS_Shape> parts;
+    if (!at.empty() && !shape.IsNull() && shape.ShapeType() == TopAbs_COMPOUND) {
+        for (TopoDS_Iterator it(shape); it.More(); it.Next()) {
+            parts.push_back(it.Value());
+        }
+    }
+    if (parts.size() != at.size() + 1) {
+        _drawing.set(shape);
+        setUprights(0);
+        return;
+    }
+    _drawing.set(parts[0]);
+    setUprights(at.size());
+    const Base::Placement plane = callout->Plane.getValue();
+    for (std::size_t i = 0; i < at.size(); ++i) {
+        // In a frame of its own: the plane's, at the point it turns about
+        Base::Placement frame = plane * Base::Placement(at[i], Base::Rotation());
+        gp_Trsf trsf;
+        Part::TopoShape::convertTogpTrsf(frame.toMatrix(), trsf);
+        _uprights[i]->set(parts[i + 1].Moved(TopLoc_Location(trsf.Inverted())));
+        auto sep = static_cast<SoSeparator*>(_turning->getChild(int(i)));
+        auto xf = static_cast<SoTransform*>(sep->getChild(0));
+        const Base::Vector3d& pos = frame.getPosition();
+        double q0, q1, q2, q3;
+        frame.getRotation().getValue(q0, q1, q2, q3);
+        xf->translation.setValue(float(pos.x), float(pos.y), float(pos.z));
+        xf->rotation.setValue(float(q0), float(q1), float(q2), float(q3));
+    }
+}
+
+void ViewProviderCallout::setUprights(std::size_t count)
+{
+    // One per part: its frame, the turn, its strokes and fills
+    while (_uprights.size() > count) {
+        _uprights.pop_back();
+        _turning->removeChild(_turning->getNumChildren() - 1);
+    }
+    while (_uprights.size() < count) {
+        auto sep = new SoSeparator;
+        sep->addChild(new SoTransform);
+        auto turn = new Gui::SoAutoZoomTranslation;
+        // Not sized to the screen: the drawing keeps the model's size
+        turn->scaleFactor = 0.0f;
+        turn->datumFlip = TRUE;
+        // Its own local Z, the plane's normal, however the part is placed
+        turn->flipNormal.setValue(0.0f, 0.0f, 0.0f);
+        sep->addChild(turn);
+        _uprights.push_back(std::make_unique<ShapeLines>());
+        sep->addChild(_uprights.back()->root());
+        _turning->addChild(sep);
+    }
+    // The colour and the width of the rest
+    float r, g, b;
+    _drawing.color(r, g, b);
+    for (auto& u : _uprights) {
+        u->setColor(r, g, b);
+        u->setLineWidth(_drawing.lineWidth());
+    }
 }
 
 void ViewProviderCallout::updateData(const App::Property* prop)

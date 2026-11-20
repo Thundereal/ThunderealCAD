@@ -12,5 +12,6 @@ from PMITests.TestModel import (  # noqa: F401
     TestQuery,
     TestRepair,
     TestView,
+    TestViewObjects,
 )
 from PMITests.TestStep import TestNistSet, TestStepImport  # noqa: F401

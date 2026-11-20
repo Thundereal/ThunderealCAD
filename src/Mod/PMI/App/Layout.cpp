@@ -586,7 +586,10 @@ void Dimension::layout(Drawing& d, double h) const
         d.arrow(a, 0, 1, 0, h);
         d.arrow(b, 0, -1, 0, h);
     }
+    // Its value turns to read upright; its lines stay
+    d.beginUpright();
     label(d, h, (a + b) / 2 - w / 2, 0.5 * h);
+    d.endUpright();
 }
 
 std::u32string Dimension::equivalentText() const

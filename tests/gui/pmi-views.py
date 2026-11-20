@@ -10,6 +10,9 @@ checked:
     not in its face's;
   - its clipping is applied while it is active;
   - let go, the camera and the clipping come back, and every callout shows;
+  - a view listing its Objects shows only them while it is active, in that
+    3D view only (the others' Visibility untouched), and they all come back
+    when it is let go;
   - the PMI view command makes a view from the camera as it is, and makes
     it active.
 
@@ -63,6 +66,19 @@ def blue(view, name):
         for x in range(0, img.width(), 2):
             c = QtGui.QColor(img.pixel(x, y))
             if c.blue() > 110 and c.blue() - c.red() > 60 and c.blue() - c.green() > 30:
+                n += 1
+    return n
+
+
+def red(view, name):
+    path = os.path.join(OUT, name)
+    view.saveImage(path, 800, 600, "#FFFFFF")
+    img = QtGui.QImage(path)
+    n = 0
+    for y in range(0, img.height(), 2):
+        for x in range(0, img.width(), 2):
+            c = QtGui.QColor(img.pixel(x, y))
+            if c.red() > 120 and c.red() - c.green() > 60 and c.red() - c.blue() > 60:
                 n += 1
     return n
 
@@ -147,6 +163,37 @@ def run():
         check("and the clipping goes", not view.hasClippingPlane())
         again = blue(view, "iso-again.png")
         check("and every callout shows", again >= shown, "before %d, after %d" % (shown, again))
+
+        # Its objects: what it does not list hidden while it is active, in
+        # this view only, and back when it is let go
+        other = doc.addObject("Part::Box", "Other")
+        other.Placement = App.Placement(V(60, 0, 0), App.Rotation())
+        other.ViewObject.ShapeColor = (1.0, 0.0, 0.0)
+        bodies = doc.addObject("PMI::View", "Bodies")
+        pmi.addObject(bodies)
+        bodies.Standard = "Isometric"
+        doc.recompute()
+        pump(20)
+        view.setActiveObject("pmiview", bodies)
+        pump(30)
+        both = red(view, "objects-all.png")
+        bodies.Objects = [body]
+        doc.recompute()
+        pump(30)
+        only = red(view, "objects-body.png")
+        check("listing its objects, only they show: the other box hidden",
+              both > 100 and only < 5, "all %d, listed %d" % (both, only))
+        check("in the view only: the box's own Visibility untouched", other.Visibility)
+        view.setActiveObject("pmiview", None)
+        pump(30)
+        back = red(view, "objects-back.png")
+        check("let go, the box shows again", back > 100, back)
+        view.setActiveObject("pmiview", bodies)
+        pump(30)
+        again = red(view, "objects-again.png")
+        view.setActiveObject("pmiview", None)
+        pump(30)
+        check("made active again, its objects apply at once", again < 5, again)
 
         # The command
         view.viewTop()

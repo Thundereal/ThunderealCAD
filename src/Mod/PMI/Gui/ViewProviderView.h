@@ -41,6 +41,11 @@ namespace PMI
 class View;
 }
 
+namespace Gui
+{
+class View3DInventor;
+}
+
 namespace PMIGui
 {
 
@@ -76,6 +81,9 @@ private:
     void deactivate();
     void apply();
     void refilter();
+    /// Its Objects, in the 3D view it is active in: what it does not list
+    /// hidden there, transiently (sec 6.3); \a show false takes that back
+    void showObjects(Gui::View3DInventor* mdi, bool show);
 
     fastsignals::scoped_connection _connActivated;
 };

@@ -55,10 +55,55 @@ gp_Pnt p3(double x, double y)
 Drawing::Drawing()
 {
     BRep_Builder().MakeCompound(_comp);
+    BRep_Builder().MakeCompound(_rest);
+}
+
+void Drawing::beginUpright()
+{
+    _uprights.emplace_back();
+    BRep_Builder().MakeCompound(_uprights.back().shape);
+    _open = true;
+    _openEmpty = true;
+}
+
+void Drawing::endUpright()
+{
+    if (!_open) {
+        return;
+    }
+    _open = false;
+    if (_openEmpty) {
+        _uprights.pop_back();
+        return;
+    }
+    _uprights.back().x = (_ox0 + _ox1) / 2;
+    _uprights.back().y = (_oy0 + _oy1) / 2;
+}
+
+void Drawing::uprightAll()
+{
+    if (!_uprights.empty() || _empty) {
+        return;
+    }
+    _uprights.push_back({_rest, (xmin + xmax) / 2, (ymin + ymax) / 2});
+    BRep_Builder().MakeCompound(_rest);
 }
 
 void Drawing::grow(double x, double y)
 {
+    if (_open) {
+        if (_openEmpty) {
+            _ox0 = _ox1 = x;
+            _oy0 = _oy1 = y;
+            _openEmpty = false;
+        }
+        else {
+            _ox0 = std::min(_ox0, x);
+            _ox1 = std::max(_ox1, x);
+            _oy0 = std::min(_oy0, y);
+            _oy1 = std::max(_oy1, y);
+        }
+    }
     if (_empty) {
         xmin = xmax = x;
         ymin = ymax = y;
@@ -75,6 +120,7 @@ void Drawing::add(const TopoDS_Shape& s)
 {
     if (!s.IsNull()) {
         BRep_Builder().Add(_comp, s);
+        BRep_Builder().Add(_open ? _uprights.back().shape : _rest, s);
     }
 }
 

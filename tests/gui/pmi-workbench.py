@@ -16,7 +16,8 @@ tip feature: (Body, "Hole.FaceN"). What is checked:
     two edges the distance between them, on the hole's rim its diameter; on
     an edge a straightness, between two lines;
   - the callouts are drawn: a top view has their blue, and has none with
-    them hidden;
+    them hidden; their frames, boxes and values read upright from every
+    side, from behind and from below too;
   - in PartDesign the PMI tool bar is not offered until the set is made
     active (a double-click), and goes when it is let go;
   - undo takes the last annotation away;
@@ -104,6 +105,35 @@ def blue(path):
             if c.blue() > 110 and c.blue() - c.red() > 60 and c.blue() - c.green() > 30:
                 n += 1
     return n
+
+
+def upright_parts(view):
+    """For each part of a callout that turns to read upright, as the view
+    draws it now: which way its local X and Y point on the screen. A Coin
+    callback pass through the viewer's scene, its camera and all, runs the
+    turn the way a render and a pick do"""
+    from pivy import coin
+    found = []
+
+    def cb(_data, action, node):
+        # Its strokes' separator, in the part's: the turn beside it
+        path = action.getCurPath()
+        part = path.getNodeFromTail(2) if path.getLength() > 2 else None
+        if (part is not None and part.isOfType(coin.SoGroup.getClassTypeId())
+                and part.getNumChildren() > 1
+                and part.getChild(1).getTypeId().getName().getString()
+                == "SoAutoZoomTranslation"):
+            m = action.getModelMatrix().getValue()
+            v = action.getViewingMatrix().getValue()
+            found.append((sum(m[0][k] * v[k][0] for k in range(3)),
+                          sum(m[1][k] * v[k][1] for k in range(3))))
+        return coin.SoCallbackAction.CONTINUE
+
+    manager = view.getViewer().getSoRenderManager()
+    action = coin.SoCallbackAction(manager.getViewportRegion())
+    action.addPreCallback(coin.SoIndexedLineSet.getClassTypeId(), cb, None)
+    action.apply(manager.getSceneGraph())
+    return found
 
 
 def panel():
@@ -303,6 +333,44 @@ def run():
         Gui.SendMsgToActiveView("ViewFit")
         pump(30)
         view.saveImage(os.path.join(OUT, "pmi-iso.png"), 800, 600, "#FFFFFF")
+
+        # Read upright from every side: a frame, a datum's box, a dimension's
+        # value turn as a sketch's datum label does -- mirrored back from
+        # behind, turned the right way up from below
+        sides = {}
+        for side in ("Front", "Rear", "Top", "Bottom", "Left", "Right", "Isometric"):
+            getattr(view, "view" + side)()
+            pump(10)
+            parts = upright_parts(view)
+            wrong = [p for p in parts if p[0] < -1e-6 or p[1] < -1e-6]
+            sides[side] = (len(parts), len(wrong))
+        check("callouts read upright from every side, from behind and below too",
+              all(n > 5 and not w for n, w in sides.values()), sides)
+        # And without the turn they would not: what the check is there for
+        from pivy import coin
+        search = coin.SoSearchAction()
+        search.setType(coin.SoType.fromName("SoAutoZoomTranslation"))
+        search.setInterest(coin.SoSearchAction.ALL)
+        turns = []
+        for o in doc.Objects:
+            if hasattr(o, "UprightAt"):
+                search.apply(o.ViewObject.RootNode)
+                paths = search.getPaths()
+                turns += [paths[i].getTail() for i in range(paths.getLength())]
+        for t in turns:
+            t.getField("datumFlip").set("FALSE")
+        unturned = {}
+        for side in ("Rear", "Bottom"):
+            getattr(view, "view" + side)()
+            pump(10)
+            parts = upright_parts(view)
+            unturned[side] = len([p for p in parts if p[0] < -1e-6 or p[1] < -1e-6])
+        for t in turns:
+            t.getField("datumFlip").set("TRUE")
+        check("unturned, from the rear and from below some would read backwards",
+              turns and all(unturned.values()), (len(turns), unturned))
+        view.viewIsometric()
+        pump(10)
 
         # The tool bar in PartDesign
         Gui.activateWorkbench("PartDesignWorkbench")

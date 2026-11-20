@@ -53,6 +53,8 @@ View::View()
                       "Cut away what is in front of ClipPlane");
     ADD_PROPERTY_TYPE(ClipPlane, (Base::Placement()), "View", App::Prop_None,
                       "The clipping plane, its z toward the viewer");
+    ADD_PROPERTY_TYPE(Objects, (), "View", App::Prop_None,
+                      "The objects that show while the view is active; empty shows all");
 }
 
 Base::Rotation View::standardRotation(StandardValue which)

@@ -194,6 +194,14 @@ class TestModel(Base):
         self.assertFalse(feats["Facing"].IsSize)
         for d in dims.values():
             self.assertAlmostEqual(d.Nominal, 4, 9)
+        # Its frame is read looking down the slot, its leader to the top of
+        # a wall
+        gt = self.add("GeometricTolerance", "SlotPosition", Characteristic="Position",
+                      Feature=feats["Slot"], Value=0.3)
+        self.recompute()
+        self.assertTrue(gt.Plane.Rotation.multVec(V(0, 0, 1)).isEqual(V(0, 0, 1), 1e-9),
+                        gt.Plane)
+        self.assertAlmostEqual(gt.Plane.Base.z, 10, 0)
 
     def test_counterbored_holes_are_of_size(self):
         # The hole of the base (radius 3 at (20, 10)) bored to radius 5, 3

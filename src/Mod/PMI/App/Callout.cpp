@@ -24,6 +24,7 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -56,6 +57,7 @@
 
 #include "AnnotationSet.h"
 #include "Callout.h"
+#include "Geometry.h"
 #include "Drawing.h"
 #include "Font.h"
 #include "TolerancedFeature.h"
@@ -296,7 +298,46 @@ bool Callout::defaultPlane(const TolerancedFeature* feature, double h, gp_Ax3& p
     const Primitive& p = feature->primitive();
     const gp_Dir axes[] = {gp::DX(), -gp::DX(), gp::DY(), -gp::DY(), gp::DZ(), -gp::DZ()};
     gp_Dir z = gp::DZ();
-    if (p.type == Primitive::Plane) {
+    double width = 0;
+    const auto& faces = feature->facePrimitives();
+    if (faces.size() > 1 && Geom::width(faces, width)) {
+        // A slot or a width is read looking along its depth, as a hole is
+        // along its axis: from the top, else the front, else the right; a
+        // slot's round ends say which way that is. The leader goes to the
+        // top of its wall.
+        const gp_Dir n = faces.front().dir;
+        z = gp::DZ();
+        bool found = false;
+        for (auto& f : faces) {
+            if (f.type == Primitive::Cylinder) {
+                z = f.dir;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            for (const gp_Dir& a : {gp::DZ(), -gp::DY(), gp::DX()}) {
+                if (a.IsNormal(n, 1e-6)) {
+                    z = a;
+                    break;
+                }
+            }
+        }
+        if (z.Z() < -0.5 || z.Y() > 0.5 || z.X() < -0.5) {
+            z.Reverse();
+        }
+        double far = -1e100;
+        const TopoDS_Shape shape = feature->Shape.getShape().getShape();
+        for (TopExp_Explorer xp(shape, TopAbs_VERTEX); xp.More(); xp.Next()) {
+            far = std::max(far, gp_Vec(BRep_Tool::Pnt(TopoDS::Vertex(xp.Current())).XYZ())
+                                    .Dot(gp_Vec(z)));
+        }
+        if (far > -1e100) {
+            double at = gp_Vec(target.XYZ()).Dot(gp_Vec(z));
+            target.Translate(gp_Vec(z) * (far - at));
+        }
+    }
+    else if (p.type == Primitive::Plane) {
         z = p.dir;
     }
     else if (p.type == Primitive::Line || feature->getKind() == TolerancedFeature::Axis) {

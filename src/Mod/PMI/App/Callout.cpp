@@ -340,6 +340,18 @@ bool Callout::defaultPlane(const TolerancedFeature* feature, double h, gp_Ax3& p
     else if (p.type == Primitive::Plane) {
         z = p.dir;
     }
+    else if (p.type == Primitive::Line && feature->getKind() != TolerancedFeature::Axis
+             && !faces.empty() && faces.front().type == Primitive::Line) {
+        // A line element -- a straight edge -- is read side on, not along
+        // itself: from the top, else the front, else the right, the leader
+        // to its middle
+        for (const gp_Dir& a : {gp::DZ(), -gp::DY(), gp::DX()}) {
+            if (a.IsNormal(p.dir, 1e-6)) {
+                z = a;
+                break;
+            }
+        }
+    }
     else if (p.type == Primitive::Line || p.type == Primitive::Cylinder
              || p.type == Primitive::Circle || feature->getKind() == TolerancedFeature::Axis) {
         // An axis is looked at along itself, from its end toward the

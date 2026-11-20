@@ -13,7 +13,8 @@ tip feature: (Body, "Hole.FaceN"). What is checked:
     the frame; Cancel puts back what it changed;
   - a dimension on the hole is its diameter, 6, stacked under the hole's
     position frame; on the two end faces, the width, 40, not stacked; on
-    two edges the distance between them, on the hole's rim its diameter;
+    two edges the distance between them, on the hole's rim its diameter; on
+    an edge a straightness, between two lines;
   - the callouts are drawn: a top view has their blue, and has none with
     them hidden;
   - in PartDesign the PMI tool bar is not offered until the set is made
@@ -265,6 +266,16 @@ def run():
         check("on the hole's rim, its diameter, 6",
               rim.Type == "Diameter" and abs(rim.Nominal.Value - 6) < 1e-6,
               (rim.Type, rim.Nominal))
+        # A tolerance on an edge: a line element's straightness, two lines its zone
+        pick_edges(doc, body, hole, (V(5, 0, 10), V(35, 0, 10)))
+        Gui.runCommand("PMI_GeometricTolerance")
+        pump(20)
+        line = newest(doc, "PMI::GeometricTolerance")
+        zone = panel().findChild(QtWidgets.QComboBox, "zone").currentText()
+        check("one on an edge is a straightness between two lines",
+              line.Characteristic == "Straightness" and zone == "Between two lines",
+              (line.Characteristic, zone))
+        press(QtWidgets.QDialogButtonBox.Ok)
         bad = [o.Name for o in doc.Objects if getattr(o, "Condition", "Ok") == "Invalid"]
         check("nothing invalid", not bad, bad)
 
@@ -307,10 +318,11 @@ def run():
         check("let go, it goes", view.getActiveObject("pmi") is None and not offered())
 
         # Undo
-        before = len([o for o in doc.Objects if o.TypeId == "PMI::Dimension"])
+        kinds = ("PMI::Dimension", "PMI::GeometricTolerance")
+        before = len([o for o in doc.Objects if o.TypeId in kinds])
         doc.undo()
         pump(20)
-        after = len([o for o in doc.Objects if o.TypeId == "PMI::Dimension"])
+        after = len([o for o in doc.Objects if o.TypeId in kinds])
         check("undo takes the last annotation away", after == before - 1, (before, after))
 
         # A Body's first annotation made in PartDesign: from the Part Design

@@ -69,13 +69,26 @@ QString label(int characteristic)
     }
 }
 
-QString zoneLabel(int zone)
+/// The zone's shape as the characteristic makes it: a line element's zone
+/// is two lines, a circular element's two circles (ASME Y14.5 5.4.1, 5.4.3,
+/// 11.4.1, 12.4.1)
+QString zoneLabel(int zone, int characteristic)
 {
     switch (zone) {
         case GT::DiameterZone:
             return QObject::tr("Diameter (cylinder)");
         case GT::SphericalDiameterZone:
             return QObject::tr("Spherical diameter");
+        default:
+            break;
+    }
+    switch (characteristic) {
+        case GT::Straightness:
+        case GT::ProfileOfLine:
+            return QObject::tr("Between two lines");
+        case GT::Circularity:
+        case GT::CircularRunout:
+            return QObject::tr("Between two circles");
         default:
             return QObject::tr("Between two surfaces");
     }
@@ -270,7 +283,7 @@ void TaskGeometricTolerance::offer()
     _zones = PMI::Advisor::zoneShapes(feat, c);
     _zone->clear();
     for (int z : _zones) {
-        _zone->addItem(zoneLabel(z));
+        _zone->addItem(zoneLabel(z, c));
     }
     auto it = std::find(_zones.begin(), _zones.end(), gt->ZoneShape.getValue());
     _zone->setCurrentIndex(it == _zones.end() ? 0 : int(it - _zones.begin()));

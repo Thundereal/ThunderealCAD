@@ -819,6 +819,12 @@ what a STEP file names as such (a dimension between two edges, a note on an edge
   picked for a Dimension is refused with why: its length is not a dimension type yet.
 - **The import**: a shape aspect's faces, or else its edges, or else its vertices, become the
   feature's references; a circular edge is axial, as a cylinder is.
+- **Drawn**: a straight edge's callout is read side on, from the top, else the front, else the
+  right, its leader to the edge's middle -- not along the edge to its end, as an axis is. A
+  circular edge's is read down its axis, as its hole's is. The builder names a zone as the
+  characteristic makes it: two lines for a straightness or a line profile, two circles for a
+  circularity or a circular runout, two surfaces otherwise. Both were found making the
+  manual's pictures.
 
 The NIST set: every one of the files' edge references is read, 37 features in 10 files, all Ok,
 none invalid. On them, 29 dimensions (CTC-04's on 60 edges, CTC-05's, FTC-06's -- two axes of
@@ -828,7 +834,7 @@ CTC-05's tolerances. None is on a vertex. The ledger's invalid list is unchanged
 diameter, a straight edge's refused; the advisor; picks; an edge elsewhere untouched and found
 again after its feature is rebuilt, by geometry; saved and reopened), `TestStep` (CTC-01's two
 notes on edges), `tests/gui/pmi-workbench.py` (two picked edges' distance of 20, a rim's
-diameter of 6).
+diameter of 6, an edge's straightness between two lines).
 
 - Next: P3, STEP export (sec 10).
 

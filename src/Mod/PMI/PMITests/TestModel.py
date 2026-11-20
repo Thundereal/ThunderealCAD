@@ -980,6 +980,14 @@ class TestEdges(Base):
             self.assertEqual(self.issues(t, "Error"), [], t.Name)
             self.assertEqual(t.Condition, "Ok", t.ConditionMessage)
             self.assertFalse(t.Presentation.isNull(), t.Name)
+        # A line element read side on, from the top, its leader to its
+        # middle -- not along itself, to its end, as an axis is. The plane
+        # sits a twentieth of the text height off the part
+        normal = straight.Plane.Rotation.multVec(V(0, 0, 1))
+        self.assertAlmostEqual(abs(normal.z), 1, 6)
+        lift = 0.05 * straight.TextHeight + 1e-6
+        middle = Part.Vertex(V(20, 0, 10))
+        self.assertLess(straight.Presentation.distToShape(middle)[0], lift)
 
     def test_a_pick_on_an_edge_or_a_vertex(self):
         tip = self.body.Tip

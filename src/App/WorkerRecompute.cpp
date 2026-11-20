@@ -160,6 +160,22 @@ RecomputeHook* RecomputeHook::of(const Document& doc)
     return nullptr;
 }
 
+namespace
+{
+RecomputeHook::Refusal refusal = nullptr;
+}
+
+void RecomputeHook::setRefusal(Refusal r)
+{
+    refusal = r;
+}
+
+bool RecomputeHook::refuses(const DocumentObject& obj, std::string& why)
+{
+    auto doc = obj.getDocument();
+    return refusal && doc && !of(*doc) && refusal(obj, why);
+}
+
 unsigned long RecomputeHook::minted()
 {
     return mintedCount;
@@ -337,9 +353,10 @@ public:
         bool here = false;  ///< made by the other process itself: not sent
     };
 
-    explicit Recorder(Document& doc)
+    Recorder(Document& doc, std::function<void(const std::string&)> at)
         : RecomputeHook(doc)
         , doc(doc)
+        , at(std::move(at))
     {
         conns.emplace_back(doc.signalChangedObject.connect(
             [this](const DocumentObject& obj, const Property& prop) {
@@ -406,9 +423,18 @@ public:
         return props;
     }
 
-    /// Not made here: the other process makes it itself
+    /// Not made here: the other process makes it itself; or refused there,
+    /// left in the error it is in there
     bool make(DocumentObject& obj, Made& made) override
     {
+        if (!refused.empty() && obj.getNameInDocument()) {
+            auto it = refused.find(obj.getNameInDocument());
+            if (it != refused.end()) {
+                made.ok = false;
+                made.error = it->second;
+                return true;
+            }
+        }
         if (!madeHere(obj)) {
             return false;
         }
@@ -425,6 +451,11 @@ public:
         Entry entry;
         entry.obj = &obj;
         entry.here = madeHere(obj);
+        // Where it is, should this process die in it (docs/WorkerProcess.md
+        // sec 34)
+        if (at && !entry.here) {
+            at(obj.getNameInDocument());
+        }
         running.push_back(entries.size());
         entries.push_back(std::move(entry));
     }
@@ -447,6 +478,11 @@ public:
                 entry.error = msg && msg[0] ? msg : "Error";
             }
             running.pop_back();
+            if (at) {
+                // Back in the one that recomputed it, or between objects
+                at(running.empty() ? std::string()
+                                   : std::string(entries[running.back()].obj->getNameInDocument()));
+            }
         }
     }
 
@@ -457,6 +493,9 @@ public:
     std::string spoiled;
     std::vector<std::pair<DocumentObject*, std::string>> added;
     long left = 0;  ///< objects left for the other process to make
+    std::function<void(const std::string&)> at;
+    /// What the other process does not execute, each with its error
+    std::map<std::string, std::string> refused;
     std::vector<fastsignals::scoped_connection> conns;
 };
 
@@ -525,7 +564,15 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
     }
     const unsigned long minted = RecomputeHook::minted();
     const double began = now();
-    Recorder recorder(*doc);
+    Recorder recorder(*doc, request.at);
+    auto refusedIn = inputs.find("refused");
+    if (refusedIn != inputs.end() && refusedIn->is_object()) {
+        for (auto& [name, why] : refusedIn->items()) {
+            if (why.is_string()) {
+                recorder.refused[name] = why.get<std::string>();
+            }
+        }
+    }
     doc->recompute(objs);
     const double seconds = now() - began;
     if (auto why = recorder.why(); !why.empty()) {
@@ -1085,6 +1132,12 @@ struct State
     bool timer = false;
     /// Taken by a recompute run here: the hook for as long as it runs
     std::unique_ptr<Supplier> borrowed;
+    /// Objects whose execute() crashed a worker on what they read now, each
+    /// with the error it is left in: not executed here (sec 34)
+    std::map<std::string, std::string> crashed;
+    /// Objects that crashed a worker once: a recompute reaching one is
+    /// handed to a worker whatever it is expected to take
+    std::set<std::string> risky;
     WorkerRecompute::Info info;
     std::vector<fastsignals::scoped_connection> conns;
 };
@@ -1110,6 +1163,10 @@ State* stateByName(const std::string& name)
 void changed(State& s)
 {
     s.info.running = s.job != 0 || !s.file.empty();
+    s.info.crashed.clear();
+    for (auto& [name, why] : s.crashed) {
+        s.info.crashed.push_back(name);
+    }
     WorkerRecompute::signalChanged(s.doc);
 }
 
@@ -1227,6 +1284,66 @@ void schedule(State& s)
     });
 }
 
+/** A job whose workers died over it, each in the same object's execute():
+ * that object is not executed here on what it reads now, which would take
+ * this process with it (docs/WorkerProcess.md sec 34). It is left in an error
+ * that says so; what depends on it stays touched. A death with nothing said,
+ * or in different objects, is put down to nothing: a worker may be ended
+ * for want of memory.
+ */
+void quarantine(State& s, const WorkerPool::Result& r)
+{
+    if (!r.died || r.diedAt.empty() || r.diedAt.back().empty()) {
+        return;
+    }
+    const std::string& name = r.diedAt.back();
+    for (auto& where : r.diedAt) {
+        if (where != name) {
+            return;
+        }
+    }
+    DocumentObject* obj = s.doc.getObject(name.c_str());
+    if (!obj) {
+        return;
+    }
+    std::string why = "its recompute crashed a worker process";
+    if (r.diedAt.size() == 2) {
+        why += " twice";
+    }
+    else if (r.diedAt.size() > 2) {
+        why += " " + std::to_string(r.diedAt.size()) + " times";
+    }
+    std::string how = r.how;
+    if (how.rfind("crashed (", 0) == 0) {
+        how = how.substr(9, how.size() - 10);
+    }
+    if (!how.empty()) {
+        why += " (" + how + ")";
+    }
+    why += ". It is not recomputed in this process, which it would crash too: change it, or what "
+           "it uses, to have it tried again";
+    s.crashed[name] = why;
+    s.risky.insert(name);
+    s.doc.setErrorDescription(obj, why.c_str());
+    FC_ERR(obj->getFullName() << ": " << why);
+}
+
+/// Whether `obj` is not to be executed here (RecomputeHook::setRefusal)
+bool refuseCrashed(const DocumentObject& obj, std::string& why)
+{
+    auto doc = obj.getDocument();
+    State* s = doc ? stateOf(*doc) : nullptr;
+    if (!s || s->crashed.empty() || !obj.getNameInDocument()) {
+        return false;
+    }
+    auto it = s->crashed.find(obj.getNameInDocument());
+    if (it == s->crashed.end()) {
+        return false;
+    }
+    why = it->second;
+    return true;
+}
+
 void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
 {
     State* s = stateByName(name);
@@ -1260,6 +1377,7 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
             ++s->info.failed;
             s->info.reason = r.error;
             FC_LOG(name << ": a worker did not recompute: " << r.error);
+            quarantine(*s, r);
             break;
         case WorkerPool::Result::Status::Unfit:
             ++s->info.unfit;
@@ -1282,6 +1400,7 @@ State& stateFor(Document& doc)
     }
     slot = std::make_unique<State>(doc);
     State& s = *slot;
+    RecomputeHook::setRefusal(&refuseCrashed);
     static fastsignals::scoped_connection gone =
         GetApplication().signalDeleteDocument.connect([](const Document& d) {
             states().erase(&d);
@@ -1330,6 +1449,38 @@ State& stateFor(Document& doc)
         }
         return false;
     };
+    // What a crashed object reads, or it, changed by hand (an edit, an undo):
+    // it is tried again, in a worker first (sec 34)
+    s.conns.emplace_back(doc.signalChangedObject.connect(
+        [&s](const DocumentObject& obj, const Property& prop) {
+            if (s.crashed.empty() || s.applying || s.doc.testStatus(Document::Recomputing)
+                || (WriteScope::causes() & WriteCause::Animation)
+                || !(s.doc.writeEffects(prop) & WriteEffect::Dirty)) {
+                return;
+            }
+            const std::set<DocumentObject*> reached = writeReaches(obj, prop);
+            bool lifted = false;
+            for (auto it = s.crashed.begin(); it != s.crashed.end();) {
+                auto crashed = s.doc.getObject(it->first.c_str());
+                if (crashed && reached.count(crashed)) {
+                    FC_LOG(crashed->getFullName() << ": " << obj.getFullName() << "."
+                                                  << prop.getName()
+                                                  << " changed, to be tried again");
+                    it = s.crashed.erase(it);
+                    // Its error was the crash's: what it says next is its
+                    // recompute's. A task panel's OK refuses an object left
+                    // in error
+                    crashed->purgeError();
+                    lifted = true;
+                }
+                else {
+                    ++it;
+                }
+            }
+            if (lifted) {
+                changed(s);
+            }
+        }));
     s.conns.emplace_back(doc.signalChangedObject.connect(
         [&s, reaches](const DocumentObject& obj, const Property& prop) {
             if (s.file.empty() || s.applying || s.doc.testStatus(Document::Recomputing)
@@ -1344,6 +1495,14 @@ State& stateFor(Document& doc)
                 changed(s);
             }
         }));
+    s.conns.emplace_back(doc.signalDeletedObject.connect([&s](const DocumentObject& obj) {
+        if (obj.getNameInDocument()) {
+            s.risky.erase(obj.getNameInDocument());
+            if (s.crashed.erase(obj.getNameInDocument())) {
+                changed(s);
+            }
+        }
+    }));
     auto object = [&s](const DocumentObject&) {
         if (!s.file.empty() && !s.applying) {
             dropFile(s);
@@ -1436,6 +1595,26 @@ void WorkerRecompute::trackTimes()
         });
 }
 
+bool WorkerRecompute::risky(const Document& doc, const std::vector<DocumentObject*>& objs)
+{
+    State* s = stateOf(doc);
+    if (!s || s->risky.empty()) {
+        return false;
+    }
+    for (auto obj : reachOf(doc, objs)) {
+        if (obj->getNameInDocument() && s->risky.count(obj->getNameInDocument())) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool WorkerRecompute::crashed(const DocumentObject& obj)
+{
+    std::string why;
+    return refuseCrashed(obj, why);
+}
+
 double WorkerRecompute::expectedSeconds(const Document& doc,
                                         const std::vector<DocumentObject*>& objs, long* unknown)
 {
@@ -1525,10 +1704,17 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     job.kind = RecomputeKind;
     job.tag = s.tag;
     job.reads = names;
+    // What this process does not execute is not executed there either: left
+    // in the same error, not tried again on what crashed it (sec 34)
+    json refused = json::object();
+    for (auto& [crashed, why] : s.crashed) {
+        refused[crashed] = why;
+    }
     job.inputs = json {{"objects", names},
                        {"touched", touchedHere},
                        {"display", meshes ? display : json::object()},
-                       {"tables", s.tables}}
+                       {"tables", s.tables},
+                       {"refused", refused}}
                      .dump();
     const std::string name = doc.getName();
     auto slot = std::make_shared<WorkerPool::JobId>(0);

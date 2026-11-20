@@ -54,6 +54,7 @@
 #include <map>
 #include <random>
 #include <set>
+#include <sstream>
 #include <thread>
 
 #include <QCoreApplication>
@@ -501,6 +502,7 @@ struct WorkerPool::Private
         bool ready = false;     ///< the copy is open
         bool quitting = false;  ///< told there is no more
         bool over = false;      ///< finished() ran
+        bool killed = false;    ///< ended by the pool (kill())
         long made = 0;
         std::size_t resident = 0;
         /// What it was last told to open: the log's version and its row, in
@@ -537,6 +539,11 @@ struct WorkerPool::Private
         /// more there were than were kept
         std::vector<Message> messages;
         std::size_t messagesLost = 0;
+        /// Where in it its worker said it is (Request::at), and where each
+        /// worker that died over it was (sec 34)
+        std::string at;
+        std::vector<std::string> diedAt;
+        std::string how;
     };
     /// A copy the design moved past that a pinned job is still made on: its
     /// version stays held until no job is on it (Job::pinned)
@@ -659,6 +666,8 @@ struct WorkerPool::Private
     void read(Proc& proc);
     void handle(Proc& proc, const json& header);
     void finished(Proc& proc);
+    /// How `proc`'s process ended, once it has
+    static std::string endedHow(const Proc& proc);
     void dispatch(Proc& proc);
     /// Hand job `id` to `proc`, which has none
     void sendJob(Proc& proc, JobId id);
@@ -1480,7 +1489,12 @@ void WorkerPool::Private::readStranger(Stranger& s)
     QObject::connect(socket, &QLocalSocket::disconnected, &context, [this, proc]() {
         Depth guard(*this);
         if (!proc->quitting) {
-            // Gone without being told: what it was doing is not coming
+            // Gone without being told: what it was doing is not coming. A
+            // process that died closed its socket on the way out: a moment
+            // for it to be reaped, so that how it ended is known (sec 34)
+            if (proc->process && proc->process->state() != QProcess::NotRunning) {
+                proc->process->waitForFinished(1000);
+            }
             kill(*proc);
         }
     });
@@ -1544,6 +1558,13 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         pruneCopies();
         dispatch(proc);
         changedNotice();
+    }
+    else if (type == "at") {
+        // Where in its job it is (sec 34): what a death is put down to
+        auto it = proc.job ? jobs.find(proc.job) : jobs.end();
+        if (it != jobs.end() && header.value("job", JobId(0)) == proc.job) {
+            it->second.at = header.value("what", std::string());
+        }
     }
     else if (type == "log") {
         // Said through its Console (sec 27): with the job it makes, said
@@ -1729,6 +1750,7 @@ void WorkerPool::Private::kill(Proc& proc)
     }
     if (proc.process && proc.process->state() != QProcess::NotRunning) {
         QObject::disconnect(proc.process.get(), nullptr, &context, nullptr);
+        proc.killed = true;
         proc.process->kill();
         proc.process->waitForFinished(2000);
     }
@@ -1765,6 +1787,35 @@ void WorkerPool::Private::endDropped(const std::vector<JobId>& ids)
     }
 }
 
+std::string WorkerPool::Private::endedHow(const Proc& proc)
+{
+    if (proc.killed) {
+        return "ended by the pool";
+    }
+    if (!proc.process || proc.process->state() != QProcess::NotRunning) {
+        return "gone";
+    }
+    const int code = proc.process->exitCode();
+    if (proc.process->exitStatus() == QProcess::CrashExit) {
+#ifdef FC_OS_WIN32
+        std::ostringstream ss;
+        ss << "crashed (0x" << std::hex << static_cast<unsigned int>(code) << ")";
+        return ss.str();
+#else
+        // On a crash QProcess has the signal as the exit code
+        std::string how = "crashed (signal " + std::to_string(code);
+        if (const char* name = strsignal(code)) {
+            // macOS ends it in the number: "Segmentation fault: 11"
+            std::string text = name;
+            const auto colon = text.find(':');
+            how += ": " + text.substr(0, colon);
+        }
+        return how + ")";
+#endif
+    }
+    return "exited with code " + std::to_string(code);
+}
+
 void WorkerPool::Private::finished(Proc& proc)
 {
     if (proc.over) {
@@ -1782,6 +1833,22 @@ void WorkerPool::Private::finished(Proc& proc)
     }
     const JobId lost = proc.job;
     proc.job = 0;
+    // Where in the job it died: a death in an object's execute() is that
+    // object's, not the workers' (sec 34)
+    bool inObject = false;
+    if (lost) {
+        auto it = jobs.find(lost);
+        inObject = it != jobs.end() && !it->second.at.empty();
+    }
+    // How it ended, for the job it was making: the socket may say it went
+    // before the process is reaped, which is a moment away
+    std::string how;
+    if (lost && proc.process) {
+        if (proc.process->state() != QProcess::NotRunning) {
+            proc.process->waitForFinished(2000);
+        }
+        how = endedHow(proc);
+    }
     for (auto it = procs.begin(); it != procs.end(); ++it) {
         if (it->get() == &proc) {
             gone.push_back(std::move(*it));  // not deleted inside its own signal
@@ -1795,6 +1862,9 @@ void WorkerPool::Private::finished(Proc& proc)
         auto it = jobs.find(lost);
         if (it != jobs.end()) {
             it->second.running = false;
+            it->second.diedAt.push_back(it->second.at);
+            it->second.at.clear();
+            it->second.how = how;
             if (it->second.dropped) {
                 jobs.erase(it);
             }
@@ -1812,8 +1882,16 @@ void WorkerPool::Private::finished(Proc& proc)
                 result.tag = it->second.job.tag;
                 result.status = Result::Status::Failed;
                 result.error = "its worker died over it";
+                if (!how.empty()) {
+                    result.error += " (" + how + ")";
+                }
+                if (!it->second.diedAt.back().empty()) {
+                    result.error += ", at " + it->second.diedAt.back();
+                }
                 takeMessages(it->second, result);
                 result.died = true;
+                result.diedAt = it->second.diedAt;
+                result.how = how;
                 deliver(lost, result);
             }
         }
@@ -1821,7 +1899,7 @@ void WorkerPool::Private::finished(Proc& proc)
     if (!quiet) {
         FC_LOG(doc.getName() << ": worker " << proc.number << " ended"
                              << (lost ? " in the middle of a job" : ""));
-        if (++failedInRow >= 3) {
+        if (!inObject && ++failedInRow >= 3) {
             pool.stop("the workers exited");
             return;
         }
@@ -2971,6 +3049,17 @@ int WorkerPool::serve()
         request.inputs = inputs != header.end() ? inputs->dump() : std::string("{}");
         request.out = header.value("out", std::string());
         request.document = doc;
+        // Said as it changes, flushed as it is: a worker that dies next has
+        // said it (sec 34)
+        const JobId jobId = header.value("job", JobId(0));
+        std::string lastAt;
+        request.at = [&](const std::string& where) {
+            if (where == lastAt) {
+                return;
+            }
+            lastAt = where;
+            send(socket, json {{"type", "at"}, {"job", jobId}, {"what", where}});
+        };
         const double began = now();
         Reply reply;
         auto handler = kinds().find(request.kind);
@@ -3259,6 +3348,12 @@ public:
         dict.setItem("Status", Py::String(statusName(r.status)));
         dict.setItem("Error", Py::String(r.error));
         dict.setItem("Died", Py::Boolean(r.died));
+        Py::List diedAt;
+        for (auto& where : r.diedAt) {
+            diedAt.append(Py::String(where));
+        }
+        dict.setItem("DiedAt", diedAt);
+        dict.setItem("How", Py::String(r.how));
         Py::List messages;
         for (auto& m : r.messages) {
             Py::Dict item;
@@ -3444,6 +3539,11 @@ public:
         dict.setItem("ApplySeconds", Py::Float(i.applySeconds));
         dict.setItem("Bytes", Py::Long(static_cast<unsigned long>(i.bytes)));
         dict.setItem("Reason", Py::String(i.reason));
+        Py::List crashed;
+        for (auto& n : i.crashed) {
+            crashed.append(Py::String(n));
+        }
+        dict.setItem("Crashed", crashed);
         return dict;
     }
 

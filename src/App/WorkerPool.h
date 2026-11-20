@@ -100,6 +100,13 @@ public:
         /// Failed because its worker died over it, or was ended past the
         /// deadline: not the handler's own failure
         bool died = false;
+        /// Where in the job each of the workers that died over it was, as
+        /// the handler said (Request::at), first to last: empty where it
+        /// had said nothing (docs/WorkerProcess.md sec 34)
+        std::vector<std::string> diedAt;
+        /// How the last of them ended: "crashed (signal 11)", "exited
+        /// with code 3", ...
+        std::string how;
         /// What its worker said while it made it (sec 27): said here after
         /// `done` for one Done or Failed, unless the client takes them --
         /// clears this, or what it says itself -- inside `done`. Those of
@@ -258,6 +265,11 @@ public:
         std::string inputs;  ///< JSON
         std::string out;     ///< a file the handler may write its result to
         Document* document = nullptr;  ///< the copy this worker holds
+        /// Tell the pool where in the job the handler is (an object's
+        /// name; empty for nowhere in particular), on the worker's own
+        /// thread: what the job is put down to should the worker die
+        /// (Result::diedAt). Cheap, and said only when it changes
+        std::function<void(const std::string& where)> at;
     };
     struct Reply
     {

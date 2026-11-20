@@ -178,6 +178,12 @@ bool Gui::editRecomputeIsLong(const App::Document& doc)
         || !App::WorkerPool::supported()) {
         return false;
     }
+    // One that crashed a worker before goes to a worker again, however
+    // short: it may crash again (docs/WorkerProcess.md sec 34)
+    if (App::WorkerRecompute::risky(doc)) {
+        FC_LOG(doc.getName() << ": the edit's recompute reaches one that crashed a worker");
+        return true;
+    }
     const double expected = App::WorkerRecompute::expectedSeconds(doc);
     const double most = group->GetFloat("RecomputeEditSeconds", 0.5);
     FC_LOG(doc.getName() << ": the edit's recompute is expected to take " << expected << " s");
@@ -197,6 +203,12 @@ bool Gui::makeEditedFirst(App::DocumentObject& edited)
     if (!doc || !group->GetBool("RecomputeEdits", true) || App::WorkerRecompute::running(*doc)
         || !App::WorkerPool::supported() || doc->testStatus(App::Document::Recomputing)) {
         return false;
+    }
+    // What it reaches crashed a worker before: all of it to a worker, the
+    // edited one too, however short (docs/WorkerProcess.md sec 34)
+    if (App::WorkerRecompute::risky(*doc, {&edited})) {
+        FC_LOG(edited.getFullName() << ": its recompute reaches one that crashed a worker");
+        return true;
     }
     const std::vector<App::DocumentObject*> users = edited.getInList();
     if (users.empty()) {

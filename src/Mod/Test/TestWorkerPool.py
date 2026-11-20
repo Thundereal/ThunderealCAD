@@ -149,6 +149,30 @@ class _Counted:
         return None
 
 
+class _Crashing(_Counted):
+    """A _Counted that takes its process down when its Crash is set and it
+    runs in any process but the one it was made in (Home): a feature whose
+    execute() crashes. Run in that process, it raises instead, which the
+    tests take for its having been run there"""
+
+    def __init__(self, obj):
+        super().__init__(obj)
+        obj.addProperty("App::PropertyBool", "Crash")
+        obj.addProperty("App::PropertyInteger", "Home")
+        obj.Home = os.getpid()
+        obj.Crash = True
+
+    def execute(self, obj):
+        if obj.Crash:
+            if os.getpid() == obj.Home:
+                _executions["crashed here"] = _executions.get("crashed here", 0) + 1
+                raise RuntimeError("a crashing execute() ran in the test's own process")
+            import signal
+
+            os.kill(os.getpid(), signal.SIGSEGV)
+        super().execute(obj)
+
+
 for _kind, _handler in (
     ("test.echo", _echo),
     ("test.sleep", _sleep),
@@ -1208,6 +1232,113 @@ class TestWorkerRecompute(unittest.TestCase):
         spelled = set(m for name in names for m in re.findall(r"#([0-9a-f]+)", name))
         self.assertGreater(len(spelled), 5)
         self.assertEqual([s for s in spelled if not hasher.getIDBySpelling(int(s, 16))], [])
+
+    def crashingChain(self):
+        """Before -> Crash -> After: Crash's execute() takes a worker down"""
+        before = self.counted("Before", Input=2)
+        crash = self.doc.addObject("App::FeaturePython", "Crash")
+        _Crashing(crash)
+        crash.setExpression("Input", "Before.Result")
+        after = self.counted("After")
+        after.setExpression("Input", "Crash.Result")
+        _executions.pop("crashed here", None)
+        return before, crash, after
+
+    def testACrashInAWorkerIsPutDownToItsObject(self):
+        """A worker that dies in an object's execute() names it: the object
+        is left in an error that says so, and a recompute here does not run
+        it (docs/WorkerProcess.md sec 34)"""
+        before, crash, after = self.crashingChain()
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Failed"], 1, info)
+        self.assertEqual(info["Crashed"], ["Crash"], info)
+        self.assertIn("at Crash", info["Reason"])
+        self.assertIn("crashed", info["Reason"])
+        self.assertIn("Invalid", crash.State)
+        self.assertIn("crashed a worker process", crash.getStatusString())
+        # Here: what comes before is made, the crashing one is not run, and
+        # what reads it is not made from it
+        self.doc.recompute()
+        self.assertNotIn("crashed here", _executions)
+        self.assertEqual(before.Result, 4)
+        self.assertEqual(before.MadeBy, os.getpid())
+        self.assertIn("Invalid", crash.State)
+        self.assertEqual(after.Result, 0)
+        # Its own recompute is refused as well
+        crash.recompute()
+        self.assertNotIn("crashed here", _executions)
+        # Given to a worker again, as it is: not run there either -- no
+        # worker dies, and it comes back in the same error
+        crash.touch()
+        failed = self.pool.info()["Failed"]
+        pids = set(self.pool.info()["Pids"])
+        info = self.byWorker()
+        self.assertEqual(info["Failed"], 1, info)
+        self.assertGreaterEqual(info["Applied"], 1, info)
+        self.assertIn("Invalid", crash.State)
+        self.assertIn("crashed a worker process twice (signal 11", crash.getStatusString())
+        self.assertEqual(self.pool.info()["Failed"], failed)
+        self.assertTrue(pids <= set(self.pool.info()["Pids"]), self.pool.info()["Pids"])
+
+    def testAChangeToWhatItReadsHasItTriedAgainByAWorker(self):
+        """A change to the crashed object, or to what it reads, lifts the
+        refusal; it is then tried in a worker first (sec 34)"""
+        before, crash, after = self.crashingChain()
+        self.byWorker()
+        self.assertEqual(self.pool.recomputeInfo()["Crashed"], ["Crash"])
+        self.doc.recompute()
+        # A change that reaches nothing of it does not lift it
+        other = self.counted("Other", Input=1)
+        self.doc.recompute()
+        self.assertEqual(self.pool.recomputeInfo()["Crashed"], ["Crash"])
+        # What it reads changed: tried again -- and made, the crash fixed
+        crash.Crash = False
+        self.assertEqual(self.pool.recomputeInfo()["Crashed"], [])
+        self.assertTrue(crash.isValid())
+        before.Input = 3
+        info = self.byWorker()
+        self.assertGreaterEqual(info["Applied"], 1, info)
+        self.assertEqual(crash.Result, 12)
+        self.assertNotEqual(crash.MadeBy, os.getpid())
+        self.assertEqual(after.Result, 24)
+        self.assertNotIn("crashed here", _executions)
+        self.assertEqual(other.Result, 2)
+
+    def testACrashAgainAfterAChangeIsRefusedAgain(self):
+        """Tried again on a change that does not fix it: it crashes the
+        worker again, and is refused here again"""
+        before, crash, after = self.crashingChain()
+        self.byWorker()
+        before.Input = 5
+        self.assertEqual(self.pool.recomputeInfo()["Crashed"], [])
+        info = self.byWorker()
+        self.assertEqual(info["Crashed"], ["Crash"], info)
+        self.doc.recompute()
+        self.assertNotIn("crashed here", _executions)
+        self.assertEqual(before.Result, 10)
+
+    def testADeathThatDoesNotComeAgainRefusesNothing(self):
+        """A worker ended from outside in an object's execute() -- for want of
+        memory, say -- and the job made the second time: nothing is refused,
+        it was not the object's"""
+        before = self.counted("Before", Input=2, Sleep=3.0)
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        # Killed while it sleeps in Before's execute(): that is in an object.
+        # Wait for it to be in it, then take the worker down from outside
+        deadline = time.time() + 30
+        while self.pool.info()["Busy"] == 0 and time.time() < deadline:
+            self.pool.poll(50)
+        time.sleep(0.5)
+        for pid in self.pool.info()["Pids"]:
+            os.kill(pid, 9)
+        self.pool.waitRecompute(60)
+        info = self.pool.recomputeInfo()
+        # Retried once, made the second time
+        self.assertEqual(info["Crashed"], [], info)
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(before.Result, 4)
 
     def testAFailureTheWorkerSawIsSaidOnce(self):
         """The worker's "Failed to recompute" is not said here: the put-in

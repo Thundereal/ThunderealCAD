@@ -77,6 +77,9 @@ public:
         std::size_t bytes = 0;     ///< its file
         /// Why the last one was not started, made or put in
         std::string reason;
+        /// Objects whose recompute crashed a worker on what they read now:
+        /// not executed in this process (docs/WorkerProcess.md sec 34)
+        std::vector<std::string> crashed;
     };
 
     /** Hand the recompute of `objs` -- with none, of what is touched -- and
@@ -108,6 +111,16 @@ public:
     /// Note from now what each object's recompute here takes, for
     /// expectedSeconds(); once is enough
     static void trackTimes();
+
+    /** Whether the recompute of `objs` -- with none, of what is touched --
+     * reaches an object whose recompute crashed a worker (Info::crashed),
+     * now or before its input changed since: one to hand to a worker
+     * whatever it is expected to take (docs/WorkerProcess.md sec 34).
+     */
+    static bool risky(const Document& doc, const std::vector<DocumentObject*>& objs = {});
+    /// Whether `obj` is not executed in this process: its recompute crashed
+    /// a worker on what it reads now
+    static bool crashed(const DocumentObject& obj);
 
     /// In a worker: whether its last recompute job sent the value of
     /// `prop` of `obj` (docs/WorkerProcess.md sec 29)

@@ -76,6 +76,18 @@ public:
     /// The innermost hook installed for `doc` on this thread, or null
     static RecomputeHook* of(const Document& doc);
 
+    /** Whether this process is not to execute `obj` at all, `why` the
+     * error it is left in: an object whose execute() crashed a worker
+     * process on what it reads now (docs/WorkerProcess.md sec 34). Asked by
+     * Document::_recomputeFeature() before an execute; set by
+     * WorkerRecompute. Not asked while a hook is installed for the
+     * document: a worker's recompute, and a result being put in, decide
+     * that themselves.
+     */
+    using Refusal = bool (*)(const DocumentObject& obj, std::string& why);
+    static void setRefusal(Refusal refusal);
+    static bool refuses(const DocumentObject& obj, std::string& why);
+
     /// How many numbers objects were given on this thread so far
     /// (Document::nextGeoId, nextObjectCount): a recompute in a worker that
     /// gave one cannot be taken in by another process as it is

@@ -19578,6 +19578,18 @@ int Document::_recomputeFeature(DocumentObject* Feat)
     // delete recompute log
     d->clearRecomputeLog(Feat);
 
+    // One that crashed a worker on what it reads now would crash this
+    // process too: left in its error, not executed (docs/WorkerProcess.md
+    // sec 34)
+    {
+        std::string why;
+        if (RecomputeHook::refuses(*Feat, why)) {
+            FC_ERR(Feat->getFullName() << ": " << why);
+            d->addRecomputeLog(why.c_str(), Feat);
+            return 1;
+        }
+    }
+
     try {
         returnCode = Feat->ExpressionEngine.execute(PropertyExpressionEngine::ExecuteNonOutput);
         if (returnCode == DocumentObject::StdReturn) {

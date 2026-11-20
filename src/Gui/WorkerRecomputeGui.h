@@ -66,7 +66,9 @@ GuiExport bool recomputeEditByWorkers(App::Document& doc);
  * rest over with recomputeEditByWorkers(), recomputing here if that does
  * not take it. False, nothing done, and the caller recomputes as before.
  * The edited object is the caller's to judge, and a sketch's execute gives
- * geometry new ids, which no worker may (sec 19).
+ * geometry new ids, which no worker may (sec 19). When what it reaches
+ * crashed a worker before (App::WorkerRecompute::risky()), nothing is made
+ * here: true, `edited` left touched for the worker too (sec 34).
  */
 GuiExport bool makeEditedFirst(App::DocumentObject& edited);
 

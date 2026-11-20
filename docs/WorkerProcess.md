@@ -1931,3 +1931,69 @@ the task finishes and the process exits 0. Without the wait the process
 ended in 0.37 s and the task never finished. A TechDraw script did not make
 the crash happen reliably enough to test with: a console recompute waits
 for a view's hidden lines, and only its faces are left running after it.
+
+## 34. An object that crashes a worker costs the worker (2026-11-20)
+
+The user, 2026-11-20: "do 6 first" -- crash isolation as a feature.
+Before, a worker that died in a recompute was tried once more, the job
+then failed, and nothing said in which object: the objects stayed
+touched, the next recompute here -- or every one, once three deaths had
+stopped the pool -- ran the object that crashed in the application itself.
+
+- **The worker says where it is.** `WorkerPool::Request::at`: the handler
+  tells the pool what it is on, as it changes (a message `at`, written out
+  before the next object begins). A recompute's recorder says each object
+  as its execute() begins, and the one it is back in when an inner one is
+  done. The pool keeps it with the job.
+- **A death is put down to its place.** When the worker goes, the pool
+  notes where the job was and how the process ended (`endedHow()`:
+  "crashed (signal 11: Segmentation fault)", "exited with code 3", "ended
+  by the pool"; the socket closing is given a second for the process to
+  be reaped first, so a crash is not read as the pool's kill). A failed
+  result carries both (`Result::diedAt`, `how`; Python `DiedAt`, `How`),
+  and the error says them: "its worker died over it (crashed (signal 11:
+  Segmentation fault)), at Crash". A death in an object's execute() is
+  the object's: it no longer counts towards the three in a row that stop
+  the pool.
+- **The object is quarantined.** A recompute job whose workers each died
+  in the same object's execute() (`quarantine()`): the object is left in
+  an error -- "its recompute crashed a worker process twice (signal 11:
+  Segmentation fault). It is not recomputed in this process, which it
+  would crash too: change it, or what it uses, to have it tried again" --
+  on the object and in the Report view. `Document::_recomputeFeature()`
+  asks `RecomputeHook::refuses()` before an execute, and a quarantined
+  object is left in that error, not executed: in a recompute here, in its
+  own recompute, in a task panel's. What depends on it is not made from
+  it. A job given to a worker afterwards says which objects are refused
+  (`refused`), and the worker leaves them in the same error: no worker
+  dies again over it. Deaths in different places, or with nothing said,
+  are put down to nothing -- a worker ended for want of memory, say --
+  and the job made the second time quarantines nothing.
+- **A change lifts it.** A change to the object or to what it reads
+  (`writeReaches`, as a job is dropped; by hand, an undo, not a recompute
+  or the Animation) takes it out of the quarantine and its error off. It
+  stays *risky* (`WorkerRecompute::risky()`): an edit's recompute that
+  reaches it goes to a worker whatever it is expected to take
+  (`editRecomputeIsLong`, `makeEditedFirst`, which then makes nothing
+  here), so a second crash again costs only a worker. The Recompute
+  command gives a recompute to a worker already. In the console nothing
+  hands it over: a lifted object runs here.
+- `WorkerRecompute::Info::crashed` (Python `recomputeInfo()["Crashed"]`),
+  `WorkerRecompute::crashed(obj)`.
+
+Not built: a sketch's execute gives geometry new ids, which no worker may
+(sec 19), so a crashing sketch handed over comes back unfit and is made
+here. The macOS crash reporter writes a report for each worker that dies.
+
+Tests: `TestWorkerRecompute.testACrashInAWorkerIsPutDownToItsObject` (a
+chain Before -> Crash -> After, Crash a Python feature that sends itself
+SIGSEGV in any process but the test's: quarantined, refused here, and
+given to a worker again no worker dies), `
+testAChangeToWhatItReadsHasItTriedAgainByAWorker`,
+`testACrashAgainAfterAChangeIsRefusedAgain`,
+`testADeathThatDoesNotComeAgainRefusesNothing` (the worker killed from
+outside once: made by the next). GUI test
+`tests/gui/crash-isolated-by-worker.py` (9 claims): the same chain through
+the Recompute command -- the application goes on, the error shown in the
+Report view and on the object, Recompute again kills no worker, the crash
+fixed and Recompute made by a worker.

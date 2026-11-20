@@ -28,11 +28,25 @@
 #include <cctype>
 #include <set>
 
+#include <BRep_Builder.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Trsf.hxx>
+#include <TopLoc_Location.hxx>
+#include <TopoDS_Compound.hxx>
+
+#include <Mod/Part/App/TopoShape.h>
 
 #include "AnnotationSet.h"
+#include "Check.h"
 #include "Datum.h"
 #include "TolerancedFeature.h"
+#include "View.h"
 
 using namespace PMI;
 
@@ -42,6 +56,8 @@ Datum::Datum()
 {
     ADD_PROPERTY_TYPE(Letter, ("A"), "PMI", App::Prop_None, "The datum's letter");
     ADD_PROPERTY_TYPE(Feature, (nullptr), "PMI", App::Prop_None, "The datum feature");
+    ADD_PROPERTY_TYPE(Targets, (), "PMI", App::Prop_None,
+                      "The datum targets establishing it, if any");
     ADD_PROPERTY_TYPE(Shape, (TopoDS_Shape()), "PMI",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Transient),
                       "The simulated datum: a plane, an axis or a point");
@@ -55,6 +71,58 @@ TolerancedFeature* Datum::calloutFeature() const
 TolerancedFeature* Datum::getFeature() const
 {
     return freecad_cast<TolerancedFeature*>(Feature.getValue());
+}
+
+std::vector<DatumTarget*> Datum::getTargets() const
+{
+    std::vector<DatumTarget*> out;
+    for (auto obj : Targets.getValues()) {
+        if (auto t = freecad_cast<DatumTarget*>(obj)) {
+            out.push_back(t);
+        }
+    }
+    return out;
+}
+
+const App::DocumentObject* Datum::solid() const
+{
+    if (auto s = AnnotationSet::solidOf(getFeature())) {
+        return s;
+    }
+    for (auto t : getTargets()) {
+        auto feat = freecad_cast<TolerancedFeature*>(t->Feature.getValue());
+        if (auto s = AnnotationSet::solidOf(feat)) {
+            return s;
+        }
+    }
+    return nullptr;
+}
+
+void Datum::onChanged(const App::Property* prop)
+{
+    // The targets draw the letter: they depend on the datum only through it
+    if (prop == &Letter && !isRestoring()) {
+        for (auto t : getTargets()) {
+            t->touch();
+        }
+    }
+    Callout::onChanged(prop);
+}
+
+TopoDS_Shape Datum::fromTargets() const
+{
+    TopoDS_Compound comp;
+    BRep_Builder builder;
+    builder.MakeCompound(comp);
+    bool any = false;
+    for (auto t : getTargets()) {
+        TopoDS_Shape s = t->Shape.getShape().getShape();
+        if (!s.IsNull()) {
+            builder.Add(comp, s);
+            any = true;
+        }
+    }
+    return any ? TopoDS_Shape(comp) : TopoDS_Shape();
 }
 
 bool Datum::isLegalLetter(const std::string& letter, bool asme, std::string& why)
@@ -79,6 +147,26 @@ bool Datum::isLegalLetter(const std::string& letter, bool asme, std::string& why
 App::DocumentObjectExecReturn* Datum::execute()
 {
     auto feat = getFeature();
+    if (!feat && !getTargets().empty()) {
+        // Established by its targets alone: they are drawn, each with its
+        // symbol; a datum feature symbol needs a feature to stand on
+        Shape.setValue(fromTargets());
+        if (UseImported.getValue() && !ImportedGraphic.getShape().isNull()) {
+            updatePresentation();
+        }
+        else {
+            Presentation.setValue(TopoDS_Shape());
+        }
+        std::string why;
+        auto set = getSet();
+        if (!isLegalLetter(Letter.getStrValue(), set && set->isASME(), why)) {
+            setState(Invalid, why);
+        }
+        else {
+            setState(Ok);
+        }
+        return App::DocumentObject::StdReturn;
+    }
     if (!feat) {
         Shape.setValue(TopoDS_Shape());
         setState(Broken, "no datum feature");
@@ -238,6 +326,167 @@ App::DocumentObjectExecReturn* DatumReferenceFrame::execute()
     std::string why;
     if (!parse(comps, why)) {
         setState(Invalid, why);
+    }
+    else {
+        setState(Ok);
+    }
+    return App::DocumentObject::StdReturn;
+}
+
+// ---- DatumTarget ----
+
+PROPERTY_SOURCE(PMI::DatumTarget, PMI::Callout)
+
+const char* DatumTarget::TargetTypeEnums[] = {"Point", "Line", "Rectangle", "Circle", "Area",
+                                              nullptr};
+
+DatumTarget::DatumTarget()
+{
+    ADD_PROPERTY_TYPE(Number, (1), "PMI", App::Prop_None, "The target's number: the 1 of A1");
+    ADD_PROPERTY_TYPE(TargetType, (long(Point)), "PMI", App::Prop_None,
+                      "A point, a line, a rectangle, a circle, or an area (its faces)");
+    TargetType.setEnums(TargetTypeEnums);
+    ADD_PROPERTY_TYPE(Target, (Base::Placement()), "PMI", App::Prop_None,
+                      "Where it is: the origin its centre, z out of the part, x along a line "
+                      "or a rectangle's length");
+    ADD_PROPERTY_TYPE(Length, (0.0), "PMI", App::Prop_None,
+                      "A line's length, a rectangle's length, a circle's diameter");
+    ADD_PROPERTY_TYPE(Width, (0.0), "PMI", App::Prop_None, "A rectangle's width");
+    ADD_PROPERTY_TYPE(Movable, (false), "PMI", App::Prop_None,
+                      "A movable target: its simulator moves with the feature (ASME)");
+    ADD_PROPERTY_TYPE(Feature, (nullptr), "PMI", App::Prop_None,
+                      "The faces it lies on; an area target is these faces");
+    ADD_PROPERTY_TYPE(Shape, (TopoDS_Shape()), "PMI",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Transient),
+                      "The target: a vertex, an edge or a face");
+}
+
+TolerancedFeature* DatumTarget::calloutFeature() const
+{
+    return freecad_cast<TolerancedFeature*>(Feature.getValue());
+}
+
+Datum* DatumTarget::getDatum() const
+{
+    for (auto obj : getInList()) {
+        auto d = freecad_cast<Datum*>(obj);
+        if (!d) {
+            continue;
+        }
+        const auto& ts = d->Targets.getValues();
+        if (std::find(ts.begin(), ts.end(), this) != ts.end()) {
+            return d;
+        }
+    }
+    return nullptr;
+}
+
+std::string DatumTarget::label() const
+{
+    auto d = getDatum();
+    return (d ? d->Letter.getStrValue() : std::string()) + std::to_string(Number.getValue());
+}
+
+bool DatumTarget::hasSize() const
+{
+    auto t = getTargetType();
+    return t == Line || t == Rectangle || t == Circle;
+}
+
+bool DatumTarget::calloutTarget(gp_Pnt& target) const
+{
+    if (getTargetType() == Area) {
+        return Callout::calloutTarget(target);
+    }
+    Base::Vector3d p = Target.getValue().getPosition();
+    target = gp_Pnt(p.x, p.y, p.z);
+    return true;
+}
+
+bool DatumTarget::autoPlane(double h, gp_Ax3& plane, gp_Pnt& target) const
+{
+    if (getTargetType() == Area) {
+        return Callout::autoPlane(h, plane, target);
+    }
+    if (!calloutTarget(target)) {
+        return false;
+    }
+    if (View* view = planeView()) {
+        // In the view's plane through the target, up and to the right of it
+        gp_Ax3 f = view->frame();
+        gp_Vec x(f.XDirection()), y(f.YDirection()), z(f.Direction());
+        plane = gp_Ax3(target.Translated(z * (0.05 * h) + x * (3 * h) + y * (2 * h)),
+                       f.Direction(), f.XDirection());
+        return true;
+    }
+    // In the plane of the part's surface there, up and to the right
+    const Base::Placement& pla = Target.getValue();
+    Base::Vector3d z = pla.getRotation().multVec(Base::Vector3d(0, 0, 1));
+    Base::Vector3d x = pla.getRotation().multVec(Base::Vector3d(1, 0, 0));
+    gp_Dir dz(z.x, z.y, z.z), dx(x.x, x.y, x.z);
+    gp_Vec vy = gp_Vec(dz).Crossed(gp_Vec(dx));
+    double off = hasSize() ? 0.5 * Length.getValue() : 0.0;
+    gp_Pnt o = target.Translated(gp_Vec(dz) * (0.05 * h) + gp_Vec(dx) * (off + 3 * h)
+                                 + vy * (off + 3 * h));
+    plane = gp_Ax3(o, dz, dx);
+    return true;
+}
+
+TopoDS_Shape DatumTarget::makeShape() const
+{
+    const Base::Placement& pla = Target.getValue();
+    gp_Trsf trsf;
+    Part::TopoShape::convertTogpTrsf(pla.toMatrix(), trsf);
+    double len = Length.getValue();
+    double wid = Width.getValue();
+    TopoDS_Shape s;
+    switch (getTargetType()) {
+        case Point:
+            s = BRepBuilderAPI_MakeVertex(gp_Pnt()).Shape();
+            break;
+        case Line:
+            if (len > 0) {
+                s = BRepBuilderAPI_MakeEdge(gp_Pnt(-len / 2, 0, 0), gp_Pnt(len / 2, 0, 0)).Shape();
+            }
+            break;
+        case Rectangle:
+            if (len > 0 && wid > 0) {
+                BRepBuilderAPI_MakePolygon poly(gp_Pnt(-len / 2, -wid / 2, 0),
+                                                gp_Pnt(len / 2, -wid / 2, 0),
+                                                gp_Pnt(len / 2, wid / 2, 0),
+                                                gp_Pnt(-len / 2, wid / 2, 0), true);
+                s = BRepBuilderAPI_MakeFace(poly.Wire(), true).Shape();
+            }
+            break;
+        case Circle:
+            if (len > 0) {
+                gp_Circ c(gp_Ax2(), len / 2);
+                TopoDS_Edge e = BRepBuilderAPI_MakeEdge(c).Edge();
+                s = BRepBuilderAPI_MakeFace(BRepBuilderAPI_MakeWire(e).Wire(), true).Shape();
+            }
+            break;
+        case Area:
+            if (auto feat = calloutFeature()) {
+                return feat->Shape.getShape().getShape();
+            }
+            return {};
+    }
+    return s.IsNull() ? s : s.Moved(TopLoc_Location(trsf));
+}
+
+App::DocumentObjectExecReturn* DatumTarget::execute()
+{
+    Shape.setValue(makeShape());
+    updatePresentation();
+    for (auto& issue : Check::object(this)) {
+        if (issue.severity == Check::Error) {
+            setState(Invalid, issue.message);
+            return App::DocumentObject::StdReturn;
+        }
+    }
+    auto feat = calloutFeature();
+    if (feat && feat->getState() == Broken) {
+        setState(Broken, "its feature is broken: " + feat->ConditionMessage.getStrValue());
     }
     else {
         setState(Ok);

@@ -38,10 +38,13 @@ namespace PMI
 {
 
 class TolerancedFeature;
+class DatumTarget;
 
 /** A datum feature and the datum simulated from it (docs/GDandT.md
  * sec 4.3): the faces are the feature's, the exact plane, axis or point in
- * Shape is the datum. Upstream's PMI_Datum.
+ * Shape is the datum. A datum may be established by targets instead, or
+ * as well: points, lines and areas of the part, each a DatumTarget with
+ * its own symbol. Upstream's PMI_Datum.
  */
 class PMIExport Datum: public Callout
 {
@@ -52,6 +55,8 @@ public:
 
     App::PropertyString Letter;
     App::PropertyLink Feature;
+    /// The targets establishing it, if any
+    App::PropertyLinkList Targets;
     /// The simulated datum: a plane, an axis or a point
     Part::PropertyPartShape Shape;
 
@@ -65,10 +70,90 @@ public:
     }
 
     TolerancedFeature* getFeature() const;
+    std::vector<DatumTarget*> getTargets() const;
+    /// The solid it is of: its feature's, else its first target's
+    const App::DocumentObject* solid() const;
 
     /// Whether \a letter is a legal datum letter under the set's standard
     /// (ASME refuses I, O and Q); \a why says what is wrong
     static bool isLegalLetter(const std::string& letter, bool asme, std::string& why);
+
+protected:
+    void onChanged(const App::Property* prop) override;
+
+private:
+    /// The datum its targets simulate: a plane through three or more
+    /// points, a line through two, a point
+    TopoDS_Shape fromTargets() const;
+};
+
+/** A datum target (docs/GDandT.md sec 4.3): a point, a line or an area of
+ * the part that a datum is established from (ASME Y14.5 sec 7.24, ISO
+ * 5459). Drawn as the target symbol -- a circle, the area's size above its
+ * line, the datum's letter and the target's number below -- with a leader
+ * to the target, and the target on the part: an X for a point, a phantom
+ * line for a line, an outline hatched for an area. The Datum that lists it
+ * in its Targets gives the letter. Upstream's datum target of PMI_Datum.
+ */
+class PMIExport DatumTarget: public Callout
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(PMI::DatumTarget);
+
+public:
+    DatumTarget();
+
+    enum TargetTypes
+    {
+        Point,
+        Line,
+        Rectangle,
+        Circle,
+        Area,
+    };
+
+    App::PropertyInteger Number;
+    App::PropertyEnumeration TargetType;
+    /// Where it is: the origin its centre (a line's middle), z out of the
+    /// part, x along a line or a rectangle's length
+    App::PropertyPlacement Target;
+    /// A line's length, a rectangle's length, a circle's diameter
+    App::PropertyLength Length;
+    /// A rectangle's width
+    App::PropertyLength Width;
+    /// A movable target (ASME): its simulator moves with the feature
+    App::PropertyBool Movable;
+    /// The faces it lies on; an area target is these faces
+    App::PropertyLink Feature;
+    /// The target: a vertex, an edge or a face
+    Part::PropertyPartShape Shape;
+
+    App::DocumentObjectExecReturn* execute() override;
+    TolerancedFeature* calloutFeature() const override;
+    bool calloutTarget(gp_Pnt& target) const override;
+    bool autoPlane(double h, gp_Ax3& plane, gp_Pnt& target) const override;
+    void layout(Drawing& d, double h) const override;
+    TopoDS_Shape mark(double h) const override;
+    std::u32string equivalentText() const override;
+    LeaderStyle leaderStyle() const override
+    {
+        return PlainLeader;
+    }
+
+    TargetTypes getTargetType() const
+    {
+        return static_cast<TargetTypes>(TargetType.getValue());
+    }
+    /// The Datum listing it, or null
+    Datum* getDatum() const;
+    /// The datum's letter and its number: "A1"
+    std::string label() const;
+    /// Whether it has a size: a line or an area
+    bool hasSize() const;
+
+    static const char* TargetTypeEnums[];
+
+private:
+    TopoDS_Shape makeShape() const;
 };
 
 /** A datum reference frame (docs/GDandT.md sec 4.3): up to three ordered

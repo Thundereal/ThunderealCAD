@@ -780,6 +780,112 @@ class TestPresentation(Base):
         self.assertLess(min((v.Point - tip).Length for v in gt.Presentation.Vertexes), 1e-6)
 
 
+
+class TestDatumTarget(Base):
+    """Datum targets (docs/GDandT.md sec 4.3): a datum established from
+    points, lines and areas of the part rather than from a whole face"""
+
+    def target(self, kind, at, number, **props):
+        return self.add("DatumTarget", "T", TargetType=kind, Number=number,
+                        Target=App.Placement(at, App.Rotation()), **props)
+
+    def test_a_datum_from_three_points(self):
+        # Three points on the bottom face: datum A is theirs, no feature
+        points = [V(5, 5, 0), V(35, 5, 0), V(20, 15, 0)]
+        targets = [self.target("Point", p, i + 1, Feature=self.feature(p))
+                   for i, p in enumerate(points)]
+        for t in targets:
+            t.Target = App.Placement(t.Target.Base, App.Rotation(V(1, 0, 0), 180))
+        datum = self.add("Datum", "A", Letter="A", Targets=targets)
+        self.recompute()
+        self.assertEqual(datum.Condition, "Ok", datum.ConditionMessage)
+        self.assertEqual(len(datum.Shape.Vertexes), 3)
+        self.assertTrue(datum.Presentation.isNull())
+        for t in targets:
+            self.assertEqual(t.Condition, "Ok", t.ConditionMessage)
+            self.assertEqual(t.EquivalentText, "A%d" % t.Number)
+            # An X on the part at the point, and the symbol with its leader
+            near = min(e.distToShape(Part.Vertex(t.Target.Base))[0]
+                       for e in t.Presentation.Edges)
+            self.assertLess(near, 1e-6)
+        # A frame citing A finds it on the solid
+        drf = self.add("DatumReferenceFrame", "DRF", Compartments=["A"])
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Parallelism",
+                      Feature=self.feature(TOP), Value=0.1, DatumSystem=drf)
+        self.recompute()
+        self.assertEqual(self.issues(gt), [])
+
+    def test_the_letter_is_the_datums(self):
+        t = self.target("Point", V(5, 5, 0), 2)
+        datum = self.add("Datum", "B", Letter="B", Targets=[t])
+        self.recompute()
+        self.assertEqual(t.EquivalentText, "B2")
+        datum.Letter = "C"
+        self.recompute()
+        self.assertEqual(t.EquivalentText, "C2")
+
+    def test_areas_carry_their_size(self):
+        rect = self.target("Rectangle", V(20, 10, 10), 1, Length=8, Width=4)
+        circ = self.target("Circle", V(10, 10, 10), 2, Length=6)
+        line = self.target("Line", V(30, 10, 10), 3, Length=5)
+        self.add("Datum", "A", Letter="A", Targets=[rect, circ, line])
+        self.recompute()
+        self.assertEqual(rect.EquivalentText, "8X4 A1")
+        self.assertEqual(circ.EquivalentText, "\u2300" + "6 A2")
+        self.assertEqual(line.EquivalentText, "A3")
+        self.assertEqual(rect.Shape.ShapeType, "Face")
+        self.assertAlmostEqual(rect.Shape.Area, 32, 6)
+        self.assertAlmostEqual(circ.Shape.Area, math.pi * 9, 6)
+        self.assertAlmostEqual(line.Shape.Length, 5, 6)
+        # Drawn on the part, in the face: the outline and the hatching within
+        # the area, the phantom line along the line
+        inside = {
+            rect.Name: lambda p: abs(p.x - 20) <= 4 + 1e-6 and abs(p.y - 10) <= 2 + 1e-6,
+            circ.Name: lambda p: (p - V(10, 10, 10)).Length <= 3 + 1e-6,
+            line.Name: lambda p: abs(p.x - 30) <= 2.5 + 1e-6 and abs(p.y - 10) < 1e-6,
+        }
+        for t in (rect, circ, line):
+            marks = [e for e in t.Presentation.Edges
+                     if abs(e.BoundBox.ZMin - 10) < 1e-6 and abs(e.BoundBox.ZMax - 10) < 1e-6]
+            self.assertGreaterEqual(len(marks), 2, t.Name)
+            for e in marks:
+                for v in e.Vertexes:
+                    self.assertTrue(inside[t.Name](v.Point), (t.Name, v.Point))
+
+    def test_rules(self):
+        lone = self.target("Point", V(5, 5, 0), 1)
+        line = self.target("Line", V(5, 5, 0), 2)
+        rect = self.target("Rectangle", V(5, 5, 0), 3, Length=4)
+        area = self.target("Area", V(5, 5, 0), 4)
+        self.add("Datum", "A", Letter="A", Targets=[line, rect, area])
+        self.doc.recompute()
+        self.assertTrue([m for m in self.issues(lone) if "Targets" in m])
+        self.assertTrue([m for m in self.issues(line) if "length" in m])
+        self.assertTrue([m for m in self.issues(rect) if "width" in m])
+        self.assertTrue([m for m in self.issues(area) if "its faces" in m])
+        for t in (lone, line, rect, area):
+            self.assertEqual(t.Condition, "Invalid", t.Name)
+        empty = self.add("Datum", "B", Letter="B")
+        self.doc.recompute()
+        self.assertTrue([m for m in self.issues(empty) if "feature or datum targets" in m])
+
+    def test_saved_and_restored(self):
+        t = self.target("Circle", V(10, 10, 10), 1, Length=6, Feature=self.feature(TOP))
+        self.add("Datum", "A", Letter="A", Targets=[t])
+        self.recompute()
+        name = t.Name
+        path = os.path.join(tempfile.mkdtemp(), "targets.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.doc.recompute()
+        t = self.doc.getObject(name)
+        datum = [o for o in self.doc.Objects if o.TypeId == "PMI::Datum"][0]
+        self.assertEqual(datum.Targets, [t])
+        self.assertEqual(t.TargetType, "Circle")
+        self.assertEqual(t.EquivalentText, "\u2300" + "6 A1")
+        self.assertEqual(t.Condition, "Ok", t.ConditionMessage)
+
 class TestView(Base):
     """PMI views: a camera, its annotations, their plane (docs/GDandT.md sec 6.3)"""
 

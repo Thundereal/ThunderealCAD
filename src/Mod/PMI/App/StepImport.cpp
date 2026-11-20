@@ -32,6 +32,10 @@
 #include <BRep_Tool.hxx>
 #include <Precision.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <BRepGProp_Face.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <Bnd_Box.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Trsf.hxx>
@@ -42,8 +46,10 @@
 #include <TDF_Tool.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
+#include <NCollection_IndexedMap.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Vertex.hxx>
 #include <XCAFDimTolObjects_DatumObject.hxx>
 #include <XCAFDimTolObjects_DimensionObject.hxx>
 #include <XCAFDimTolObjects_GeomToleranceObject.hxx>
@@ -122,13 +128,10 @@ public:
         for (auto& l : labels) {
             guard(l, "datum", [&]() { datum(l); });
         }
+        targetDatums();
         // OCCT makes a datum label for each time a frame cites it; only the
         // ones whose feature it found carry shapes. A letter none carries
         // is a datum lost.
-        for (auto& [letter, n] : _targets) {
-            _report.skipped.push_back("datum " + letter + ": " + std::to_string(n)
-                                      + " datum targets, not read yet");
-        }
         for (auto& letter : _cited) {
             if (!_read.count(letter) && !_targets.count(letter)) {
                 _report.skipped.push_back("datum " + letter
@@ -158,7 +161,7 @@ private:
             f();
         }
         catch (const Standard_Failure& e) {
-            skip(l, what, e.GetMessageString());
+            skip(l, what, e.what());
         }
         catch (const Base::Exception& e) {
             skip(l, what, e.what());
@@ -360,6 +363,7 @@ private:
         }
         if (obj->IsDatumTarget()) {
             ++_targets[letter];
+            target(l, obj, letter);
             return;
         }
         NCollection_Sequence<TDF_Label> first, second;
@@ -393,6 +397,259 @@ private:
               obj->GetPointTextAttach());
         graphic(d, f.object, obj->GetPresentation());
         ++_report.datums;
+    }
+
+    /// A datum target (sec 4.3): one per letter and number, the other
+    /// labels of it the frames citing it
+    void target(const TDF_Label& l, const Handle(XCAFDimTolObjects_DatumObject) & obj,
+                const std::string& letter)
+    {
+        std::string k = "target " + letter + std::to_string(obj->GetDatumTargetNumber());
+        if (auto it = _keyed.find(k); it != _keyed.end()) {
+            _byLabel[entry(l)] = it->second;
+            return;
+        }
+        int type = -1;
+        switch (obj->GetDatumTargetType()) {
+            case XCAFDimTolObjects_DatumTargetType_Point: type = DatumTarget::Point; break;
+            case XCAFDimTolObjects_DatumTargetType_Line: type = DatumTarget::Line; break;
+            case XCAFDimTolObjects_DatumTargetType_Rectangle: type = DatumTarget::Rectangle; break;
+            case XCAFDimTolObjects_DatumTargetType_Circle: type = DatumTarget::Circle; break;
+            case XCAFDimTolObjects_DatumTargetType_Area: type = DatumTarget::Area; break;
+        }
+        if (type < 0) {
+            return skip(l, "datum target " + k.substr(7), "its type is not read");
+        }
+        NCollection_Sequence<TDF_Label> first, second;
+        XCAFDoc_DimTolTool::GetRefShapeLabel(l, first, second);
+        Faces f;
+        std::string why;
+        bool onFaces = false;
+        Part::Feature* owner = nullptr;
+        if (type == DatumTarget::Area) {
+            if (!faces(first, f, why)) {
+                return skip(l, "datum target " + k.substr(7), why);
+            }
+            onFaces = true;
+            owner = f.object;
+        }
+        else if (!obj->HasDatumTargetParams()) {
+            return skip(l, "datum target " + k.substr(7), "it has no position");
+        }
+        else {
+            // The object of the shape the file gives it (a vertex, an edge
+            // or a face), else the part: a rectangle has none
+            owner = first.IsEmpty() ? nullptr : objectOf(first.First());
+            if (!owner) {
+                owner = solidObject();
+            }
+            if (!owner) {
+                return skip(l, "datum target " + k.substr(7), "no object for it");
+            }
+        }
+        // The target's frame: the file's axis is often only a point (CTC-02
+        // gives every point (0, 0, 1)), and a line's runs along its normal
+        // (FTC-06). The part says: z the face's outward normal, a line along
+        // the edge it is when it is one.
+        gp_Ax2 ax = obj->GetDatumTargetAxis();
+        gp_Pnt at = ax.Location();
+        gp_Dir along = ax.XDirection();
+        double edgeLength = 0;
+        if (type == DatumTarget::Line && !first.IsEmpty()) {
+            TopoDS_Shape sh = _shapes->GetShape(first.First());
+            if (sh.ShapeType() == TopAbs_EDGE) {
+                TopoDS_Vertex v0, v1;
+                TopExp::Vertices(TopoDS::Edge(sh), v0, v1);
+                if (!v0.IsNull() && !v1.IsNull()) {
+                    gp_Pnt p0 = BRep_Tool::Pnt(v0), p1 = BRep_Tool::Pnt(v1);
+                    if (p0.Distance(p1) > Precision::Confusion()) {
+                        at = gp_Pnt((p0.XYZ() + p1.XYZ()) / 2);
+                        along = gp_Dir(gp_Vec(p0, p1));
+                        edgeLength = p0.Distance(p1);
+                    }
+                }
+            }
+        }
+        gp_Dir normal = ax.Direction();
+        if (type != DatumTarget::Area) {
+            // On the part's face: the shape the file gives is often loose
+            // geometry of its own (CTC-02's points in an empty compound,
+            // FTC-06's lines too), else its own face (CTC-02's K1, a disk)
+            std::vector<Part::Feature*> tries;
+            if (hasSolid(owner)) {
+                tries.push_back(owner);
+            }
+            if (auto solid = solidObject(); solid && solid != owner) {
+                tries.push_back(solid);
+            }
+            tries.push_back(owner);
+            for (auto o : tries) {
+                if (faceAt(o, gp_Ax2(at, ax.Direction()), f, normal)) {
+                    owner = o;
+                    onFaces = true;
+                    break;
+                }
+            }
+            if (!onFaces) {
+                owner = tries.front();
+            }
+        }
+        gp_Vec x = gp_Vec(along) - gp_Vec(normal) * gp_Vec(along).Dot(gp_Vec(normal));
+        if (x.Magnitude() < 1e-9) {
+            // Any direction across the normal
+            gp_Dir any = std::fabs(normal.X()) < 0.9 ? gp_Dir(1, 0, 0) : gp_Dir(0, 1, 0);
+            x = gp_Vec(any) - gp_Vec(normal) * gp_Vec(any).Dot(gp_Vec(normal));
+        }
+        ax = gp_Ax2(at, normal, gp_Dir(x));
+        auto t = add<DatumTarget>(owner, "PMI::DatumTarget", "DatumTarget");
+        _keyed[k] = t;
+        _byLabel[entry(l)] = t;
+        _targetsOf[letter].push_back(t);
+        t->Label.setValue(k.substr(7));
+        t->Number.setValue(obj->GetDatumTargetNumber());
+        t->TargetType.setValue(long(type));
+        if (obj->HasDatumTargetParams()) {
+            auto vec = [](const gp_XYZ& p) { return Base::Vector3d(p.X(), p.Y(), p.Z()); };
+            Base::Placement local(vec(ax.Location().XYZ()),
+                                  Base::Rotation::makeRotationByAxes(vec(ax.XDirection().XYZ()),
+                                                                     vec(ax.YDirection().XYZ()),
+                                                                     vec(ax.Direction().XYZ()),
+                                                                     "ZXY"));
+            t->Target.setValue(owner->Placement.getValue() * local);
+            t->Length.setValue(edgeLength > 0 ? edgeLength : obj->GetDatumTargetLength());
+            t->Width.setValue(obj->GetDatumTargetWidth());
+        }
+        if (onFaces) {
+            t->Feature.setValue(feature(f, false));
+        }
+        place(t, owner, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
+              obj->GetPointTextAttach());
+        graphic(t, owner, obj->GetPresentation());
+        ++_report.targets;
+    }
+
+    /// The object made for a shape label or its owner
+    Part::Feature* objectOf(const TDF_Label& l)
+    {
+        TDF_Label owner = XCAFDoc_ShapeTool::IsSubShape(l) ? l.Father() : l;
+        return freecad_cast<Part::Feature*>(_info.objectOf(owner));
+    }
+
+    /// The first object made with a solid: what a target with no shape is on
+    Part::Feature* solidObject()
+    {
+        NCollection_Sequence<TDF_Label> free;
+        _shapes->GetFreeShapes(free);
+        std::vector<TDF_Label> todo;
+        for (NCollection_Sequence<TDF_Label>::Iterator it(free); it.More(); it.Next()) {
+            todo.push_back(it.Value());
+        }
+        while (!todo.empty()) {
+            TDF_Label l = todo.back();
+            todo.pop_back();
+            if (auto feat = objectOf(l); feat && hasSolid(feat)) {
+                return feat;
+            }
+            NCollection_Sequence<TDF_Label> comps;
+            if (XCAFDoc_ShapeTool::IsAssembly(l) && XCAFDoc_ShapeTool::GetComponents(l, comps)) {
+                for (auto& c : comps) {
+                    TDF_Label ref;
+                    todo.push_back(XCAFDoc_ShapeTool::GetReferredShape(c, ref) ? ref : c);
+                }
+            }
+        }
+        return nullptr;
+    }
+
+    /// The face of \a obj a target at \a ax lies on: within reach of its
+    /// centre, facing as it does
+    bool faceAt(Part::Feature* obj, const gp_Ax2& ax, Faces& out, gp_Dir& normal)
+    {
+        auto& base = _bases[obj];
+        if (base.isNull()) {
+            base = Part::TopoShape(obj->Shape.getShape().getShape().Located(TopLoc_Location()));
+        }
+        TopoDS_Vertex v = BRepBuilderAPI_MakeVertex(ax.Location()).Vertex();
+        int best = 0;
+        double bestDist = 0;
+        bool bestFacing = false;
+        gp_Vec bestNormal;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces;
+        TopExp::MapShapes(base.getShape(), TopAbs_FACE, faces);
+        for (int i = 1; i <= faces.Extent(); ++i) {
+            const TopoDS_Face& face = TopoDS::Face(faces(i));
+            BRepExtrema_DistShapeShape dist(v, face);
+            if (!dist.IsDone() || dist.NbSolution() == 0) {
+                continue;
+            }
+            double d = dist.Value();
+            // The normal where the point is: on the face's boundary too
+            gp_Vec n;
+            {
+                double u, w;
+                BRepGProp_Face prop(face);
+                if (dist.SupportTypeShape2(1) == BRepExtrema_IsInFace) {
+                    dist.ParOnFaceS2(1, u, w);
+                }
+                else {
+                    GeomAPI_ProjectPointOnSurf proj(dist.PointOnShape2(1),
+                                                    BRep_Tool::Surface(face));
+                    if (proj.NbPoints() == 0) {
+                        continue;
+                    }
+                    proj.LowerDistanceParameters(u, w);
+                }
+                gp_Pnt p;
+                prop.Normal(u, w, p, n);
+            }
+            bool facing = n.Magnitude() > 1e-12 && gp_Dir(n).Dot(ax.Direction()) > 0.9;
+            if (!best || d < bestDist - 1e-9 || (d < bestDist + 1e-9 && facing && !bestFacing)) {
+                best = i;
+                bestDist = d;
+                bestFacing = facing;
+                bestNormal = n;
+            }
+        }
+        if (!best || bestDist > TargetReach || bestNormal.Magnitude() < 1e-12) {
+            return false;
+        }
+        normal = gp_Dir(bestNormal);
+        out = Faces();
+        out.object = obj;
+        out.names.push_back("Face" + std::to_string(base.findShape(faces(best))));
+        out.type = Geom::ofFace(faces(best)).type;
+        return true;
+    }
+
+    /// The datums of the letters only targets give: one each, with no
+    /// feature; and each datum's targets, in number order
+    void targetDatums()
+    {
+        for (auto& [letter, ts] : _targetsOf) {
+            Datum* d = nullptr;
+            auto range = _byLetter.equal_range(letter);
+            for (auto it = range.first; it != range.second && !d; ++it) {
+                d = freecad_cast<Datum*>(it->second);
+            }
+            if (!d) {
+                AnnotationSet* s = ts.front()->getSet();
+                if (!s) {
+                    continue;
+                }
+                d = static_cast<Datum*>(_info.doc->addObject("PMI::Datum", "Datum"));
+                s->addObject(d);
+                _made.push_back(d);
+                _byLetter.emplace(letter, d);
+                d->Letter.setValue(letter);
+                _read.insert(letter);
+                ++_report.datums;
+            }
+            std::sort(ts.begin(), ts.end(), [](DatumTarget* a, DatumTarget* b) {
+                return a->Number.getValue() < b->Number.getValue();
+            });
+            std::vector<App::DocumentObject*> all(ts.begin(), ts.end());
+            d->Targets.setValues(all);
+        }
     }
 
     static int characteristic(XCAFDimTolObjects_GeomToleranceType t)
@@ -771,7 +1028,7 @@ private:
     static Extent extent(const TopoDS_Shape& shape)
     {
         Extent e;
-        TopTools_IndexedMapOfShape edges;
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> edges;
         TopExp::MapShapes(shape, TopAbs_EDGE, edges);
         e.edges = edges.Extent();
         BRepBndLib::Add(shape, e.box);
@@ -964,6 +1221,9 @@ private:
     std::map<std::string, std::string> _letterOf;
     std::set<std::string> _cited, _read;
     std::map<std::string, int> _targets;
+    std::map<std::string, std::vector<DatumTarget*>> _targetsOf;
+    /// How far from its face a target's centre may be: a file's rounding
+    static constexpr double TargetReach = 1e-3;
     Step::Report _report;
 };
 
@@ -1005,7 +1265,8 @@ Step::Report Step::read(const Import::PostImport& info)
     }
     FC_MSG("PMI: read " << report.datums << " datums, " << report.tolerances << " tolerances, "
                         << report.dimensions << " dimensions, " << report.notes
-                        << " graphic-only notes, " << report.views << " views"
+                        << " graphic-only notes, " << report.views << " views, "
+                        << report.targets << " datum targets"
                         << (report.duplicates ? ", " + std::to_string(report.duplicates)
                                                     + " read twice and kept once"
                                               : std::string())

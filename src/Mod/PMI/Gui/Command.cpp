@@ -26,11 +26,20 @@
 
 #include <QMessageBox>
 
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <BRepGProp_Face.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Face.hxx>
+
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/nodes/SoOrthographicCamera.h>
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <App/GeoFeature.h>
 #include <Gui/ActiveObjectList.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
@@ -48,6 +57,7 @@
 #include <Mod/PMI/App/AnnotationSet.h>
 #include <Mod/PMI/App/Api.h>
 #include <Mod/PMI/App/Check.h>
+#include <Mod/PMI/App/Datum.h>
 #include <Mod/PMI/App/Geometry.h>
 #include <Mod/PMI/App/View.h>
 
@@ -66,6 +76,10 @@ struct Pick
     App::DocumentObject* solid = nullptr;
     std::string face;
     PMI::Primitive surface;
+    /// Where the face was picked, and the solid's placement there: what
+    /// takes the point into the solid's own group
+    Base::Vector3d point;
+    Base::Placement solidGlobal;
 };
 
 /// The faces picked, as solid references; empty, with a message shown, if
@@ -97,8 +111,14 @@ std::vector<Pick> pickedFaces(Gui::Command* cmd, const char* what)
         cmd->doCommand(Gui::Command::Doc, "App.ActiveDocument.recompute()");
     }
     for (auto& sel : selection) {
-        for (auto& sub : sel.getSubNames()) {
+        const auto& points = sel.getPickedPoints();
+        const auto& subs = sel.getSubNames();
+        for (std::size_t i = 0; i < subs.size(); ++i) {
+            const std::string& sub = subs[i];
             Pick pick;
+            if (i < points.size()) {
+                pick.point = points[i];
+            }
             if (!PMI::Api::solidReference(sel.getObject(), sub, pick.solid, pick.face, why)) {
                 QMessageBox::warning(Gui::getMainWindow(), QObject::tr("PMI"),
                                      QObject::tr("%1: %2").arg(QString::fromUtf8(what),
@@ -107,6 +127,8 @@ std::vector<Pick> pickedFaces(Gui::Command* cmd, const char* what)
             }
             auto shape = Part::Feature::getTopoShape(pick.solid, pick.face.c_str(), true);
             pick.surface = PMI::Geom::ofFace(shape.getShape());
+            pick.solidGlobal = App::GeoFeature::getGlobalPlacement(pick.solid, sel.getObject(),
+                                                                   sub);
             if (!picks.empty() && picks.front().solid != pick.solid) {
                 QMessageBox::warning(Gui::getMainWindow(), QObject::tr("PMI"),
                                      QObject::tr("%1: pick faces of one solid")
@@ -219,6 +241,133 @@ void CmdPMIDatum::activated(int)
 }
 
 bool CmdPMIDatum::isActive()
+{
+    return haveDocument(this);
+}
+
+// ---- PMI_DatumTarget ----
+
+namespace
+{
+/// Where on the picked face a target goes, in the set's coordinates, z out
+/// of the part: the point picked if it is on the face, else the face's
+/// point nearest its middle
+bool targetOn(const Pick& pick, Base::Placement& out)
+{
+    auto shape = Part::Feature::getTopoShape(pick.solid, pick.face.c_str(), true);
+    if (shape.isNull() || shape.getShape().ShapeType() != TopAbs_FACE) {
+        return false;
+    }
+    const TopoDS_Face face = TopoDS::Face(shape.getShape());
+    Base::Placement own;
+    if (auto geo = freecad_cast<App::GeoFeature*>(pick.solid)) {
+        own = geo->Placement.getValue();
+    }
+    Base::Vector3d local;
+    (own * pick.solidGlobal.inverse()).multVec(pick.point, local);
+    Bnd_Box box;
+    BRepBndLib::Add(face, box);
+    double size = std::sqrt(box.SquareExtent());
+    auto nearest = [&](const gp_Pnt& p, gp_Pnt& on, gp_Vec& n) {
+        BRepExtrema_DistShapeShape dist(BRepBuilderAPI_MakeVertex(p).Vertex(), face);
+        if (!dist.IsDone() || dist.NbSolution() == 0) {
+            return -1.0;
+        }
+        on = dist.PointOnShape2(1);
+        n = gp_Vec();
+        if (dist.SupportTypeShape2(1) == BRepExtrema_IsInFace) {
+            double u, v;
+            dist.ParOnFaceS2(1, u, v);
+            gp_Pnt q;
+            BRepGProp_Face(face).Normal(u, v, q, n);
+        }
+        return dist.Value();
+    };
+    gp_Pnt on;
+    gp_Vec n;
+    double d = nearest(gp_Pnt(local.x, local.y, local.z), on, n);
+    if (d < 0 || d > 1e-3 * std::max(1.0, size) || n.Magnitude() < 1e-12) {
+        double x0, y0, z0, x1, y1, z1;
+        box.Get(x0, y0, z0, x1, y1, z1);
+        if (nearest(gp_Pnt((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), on, n) < 0
+            || n.Magnitude() < 1e-12) {
+            return false;
+        }
+    }
+    n.Normalize();
+    out = Base::Placement(Base::Vector3d(on.X(), on.Y(), on.Z()),
+                          Base::Rotation(Base::Vector3d(0, 0, 1),
+                                         Base::Vector3d(n.X(), n.Y(), n.Z())));
+    return true;
+}
+}  // namespace
+
+DEF_STD_CMD_A(CmdPMIDatumTarget)
+
+CmdPMIDatumTarget::CmdPMIDatumTarget()
+    : Command("PMI_DatumTarget")
+{
+    sAppModule = "PMI";
+    sGroup = QT_TR_NOOP("PMI");
+    sMenuText = QT_TR_NOOP("Datum target");
+    sToolTipText = QT_TR_NOOP("A datum target where the face is picked: of the datum picked "
+                              "with it, else of a new datum with the next free letter");
+    sWhatsThis = "PMI_DatumTarget";
+    sStatusTip = sToolTipText;
+    sPixmap = "PMI_DatumTarget";
+}
+
+void CmdPMIDatumTarget::activated(int)
+{
+    // The datum picked with the face, if any: kept before the face pick
+    // is read, as it is not a face
+    PMI::Datum* datum = nullptr;
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        if (auto d = freecad_cast<PMI::Datum*>(sel.getObject())) {
+            datum = d;
+        }
+    }
+    if (datum) {
+        Gui::Selection().rmvSelection(datum->getDocument()->getName(),
+                                      datum->getNameInDocument());
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "PMI datum target"));
+    auto picks = pickedFaces(this, "Datum target");
+    if (picks.empty()) {
+        abortCommand();
+        return;
+    }
+    Base::Placement at;
+    if (!targetOn(picks[0], at)) {
+        abortCommand();
+        QMessageBox::warning(Gui::getMainWindow(), QObject::tr("PMI"),
+                             QObject::tr("Datum target: no point on the picked face"));
+        return;
+    }
+    makeFeature(this, {picks[0]}, nullptr);
+    addToSet(this, "DatumTarget", "DatumTarget");
+    doCommand(Doc, "_obj.Feature = _feat");
+    Base::Vector3d p = at.getPosition();
+    double q0, q1, q2, q3;
+    at.getRotation().getValue(q0, q1, q2, q3);
+    doCommand(Doc, "_obj.Target = App.Placement(App.Vector(%.17g, %.17g, %.17g), "
+                   "App.Rotation(%.17g, %.17g, %.17g, %.17g))",
+              p.x, p.y, p.z, q0, q1, q2, q3);
+    if (datum) {
+        doCommand(Doc, "_datum = _set.Document.getObject('%s')", datum->getNameInDocument());
+    }
+    else {
+        doCommand(Doc, "_datum = _set.Document.addObject('PMI::Datum', 'Datum')");
+        doCommand(Doc, "_set.addObject(_datum)");
+        doCommand(Doc, "_datum.Letter = PMI.nextDatumLetter(_set, %s)",
+                  pyObject(picks[0].solid).c_str());
+    }
+    doCommand(Doc, "_obj.Number = max([t.Number for t in _datum.Targets] + [0]) + 1");
+    doCommand(Doc, "_datum.Targets = _datum.Targets + [_obj]");
+    finish(this);
+}
+
+bool CmdPMIDatumTarget::isActive()
 {
     return haveDocument(this);
 }
@@ -555,6 +704,7 @@ void CreatePMICommands()
 {
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
     mgr.addCommand(new CmdPMIDatum());
+    mgr.addCommand(new CmdPMIDatumTarget());
     mgr.addCommand(new CmdPMIGeometricTolerance());
     mgr.addCommand(new CmdPMIDimension());
     mgr.addCommand(new CmdPMINote());

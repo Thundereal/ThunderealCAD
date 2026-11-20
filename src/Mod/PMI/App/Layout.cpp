@@ -31,6 +31,7 @@
 #include <BRep_Tool.hxx>
 #include <gp_Trsf.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopLoc_Location.hxx>
 #include <TopoDS.hxx>
 
 #include <Mod/Part/App/TopoShape.h>
@@ -303,6 +304,152 @@ void Datum::layout(Drawing& d, double h) const
 std::u32string Datum::equivalentText() const
 {
     return u32(Letter.getStrValue());
+}
+
+// ---- DatumTarget: the target symbol, the target on the part ----
+
+namespace
+{
+/// The size a target symbol writes above its line: an area's
+std::u32string targetSize(const DatumTarget& t)
+{
+    switch (t.getTargetType()) {
+        case DatumTarget::Circle:
+            return std::u32string(1, DiameterSign) + Callout::number(t.Length.getValue());
+        case DatumTarget::Rectangle:
+            return Callout::number(t.Length.getValue()) + U"X"
+                + Callout::number(t.Width.getValue());
+        default:
+            return {};
+    }
+}
+
+const double Pi = 3.14159265358979323846;
+
+/// A phantom line, long dash and two short ones, in units of \a u
+void phantom(Drawing& d, double x0, double y0, double x1, double y1, double u)
+{
+    double len = std::hypot(x1 - x0, y1 - y0);
+    if (len < 1e-9) {
+        return;
+    }
+    double dx = (x1 - x0) / len, dy = (y1 - y0) / len;
+    const double pattern[] = {4 * u, 0.6 * u, u, 0.6 * u, u, 0.6 * u};
+    double at = 0;
+    for (int i = 0; at < len; i = (i + 1) % 6) {
+        double next = std::min(len, at + pattern[i]);
+        if (i % 2 == 0) {
+            d.line(x0 + dx * at, y0 + dy * at, x0 + dx * next, y0 + dy * next);
+        }
+        at = next;
+    }
+}
+}  // namespace
+
+void DatumTarget::layout(Drawing& d, double h) const
+{
+    // A circle split by a line: the area's size above, the letter and the
+    // number below (ASME Y14.5 fig 7-34, ISO 5459)
+    std::u32string below = u32(label());
+    std::u32string above = targetSize(*this);
+    double tw = std::max(d.textWidth(below, h), d.textWidth(above, h));
+    double r = std::max(2 * h, (tw + 1.5 * h) / 2);
+    d.circle(r, r, r);
+    d.line(0, r, 2 * r, r);
+    d.text(below, h, r - d.textWidth(below, h) / 2, r / 2 - h / 2);
+    if (!above.empty()) {
+        d.text(above, h, r - d.textWidth(above, h) / 2, 1.5 * r - h / 2);
+    }
+}
+
+TopoDS_Shape DatumTarget::mark(double h) const
+{
+    if (UseImported.getValue()) {
+        return {};
+    }
+    // In the target's own plane: x along it, z out of the part
+    Drawing d;
+    double len = Length.getValue(), wid = Width.getValue();
+    double u = std::max(0.25 * h, 1e-3);
+    // Hatching at 45 degrees, \a gap apart, over an extent \a reach either
+    // side of the centre; \a chord gives each line's ends
+    auto hatch = [&](double gap, double reach, auto chord) {
+        const double s = std::sqrt(0.5);
+        int n = int(std::ceil(reach / gap));
+        for (int i = -n; i <= n; ++i) {
+            double c = i * gap;
+            double t0, t1;
+            if (!chord(c, t0, t1)) {
+                continue;
+            }
+            // Along u = (s, s), offset along n = (-s, s)
+            d.line(-c * s + t0 * s, c * s + t0 * s, -c * s + t1 * s, c * s + t1 * s);
+        }
+    };
+    switch (getTargetType()) {
+        case Point: {
+            double a = 0.75 * h;
+            d.line(-a, -a, a, a);
+            d.line(-a, a, a, -a);
+            break;
+        }
+        case Line:
+            if (len > 0) {
+                phantom(d, -len / 2, 0, len / 2, 0, u);
+            }
+            break;
+        case Rectangle:
+            if (len > 0 && wid > 0) {
+                double a = len / 2, b = wid / 2;
+                phantom(d, -a, -b, a, -b, u);
+                phantom(d, a, -b, a, b, u);
+                phantom(d, a, b, -a, b, u);
+                phantom(d, -a, b, -a, -b, u);
+                const double k = std::sqrt(2.0);
+                double gap = std::min(h, std::min(len, wid) / 3);
+                hatch(gap, a + b, [&](double c, double& t0, double& t1) {
+                    t0 = std::max(c - a * k, -c - b * k);
+                    t1 = std::min(c + a * k, -c + b * k);
+                    return t1 - t0 > 1e-9;
+                });
+            }
+            break;
+        case Circle:
+            if (len > 0) {
+                double r = len / 2;
+                // Dashed: long and short arcs
+                double step = std::max(u, 1e-3) / r;
+                double a = 0;
+                for (int i = 0; a < 2 * Pi; ++i) {
+                    double next = std::min(2 * Pi, a + (i % 2 == 0 ? 4 * step : step));
+                    d.arc(0, 0, r, a, next);
+                    a = std::min(2 * Pi, next + 0.6 * step);
+                }
+                hatch(std::min(h, len / 3), r, [&](double c, double& t0, double& t1) {
+                    if (std::fabs(c) >= r) {
+                        return false;
+                    }
+                    t1 = std::sqrt(r * r - c * c);
+                    t0 = -t1;
+                    return true;
+                });
+            }
+            break;
+        case Area:
+            break;
+    }
+    if (d.isEmpty()) {
+        return {};
+    }
+    gp_Trsf trsf;
+    Part::TopoShape::convertTogpTrsf(Target.getValue().toMatrix(), trsf);
+    return d.shape().Moved(TopLoc_Location(trsf));
+}
+
+std::u32string DatumTarget::equivalentText() const
+{
+    std::u32string size = targetSize(*this);
+    return size.empty() ? u32(label()) : size + U" " + u32(label());
 }
 
 // ---- Dimension: its value and tolerance ----

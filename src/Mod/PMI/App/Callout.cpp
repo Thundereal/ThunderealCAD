@@ -42,10 +42,12 @@
 #include <gp_Pln.hxx>
 #include <gp_Pnt2d.hxx>
 #include <gp_Trsf.hxx>
+#include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Compound.hxx>
 
 #include <Base/Console.h>
 #include <Base/Placement.h>
@@ -235,6 +237,16 @@ bool insidePlanarFace(const TopoDS_Face& face, const gp_Pnt& centre, gp_Pnt& tar
 
 }  // namespace
 
+bool Callout::calloutTarget(gp_Pnt& target) const
+{
+    return targetPoint(calloutFeature(), target);
+}
+
+TopoDS_Shape Callout::mark(double) const
+{
+    return {};
+}
+
 bool Callout::targetPoint(const TolerancedFeature* feature, gp_Pnt& target)
 {
     if (!feature) {
@@ -422,12 +434,12 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
             break;
         }
         auto other = freecad_cast<Callout*>(obj);
-        if (!other || !other->AutoPlace.getValue() || !other->calloutFeature()
+        gp_Ax3 ax;
+        gp_Pnt t;
+        if (!other || !other->AutoPlace.getValue() || !other->calloutTarget(t)
             || other->attachedParent()) {
             continue;
         }
-        gp_Ax3 ax;
-        gp_Pnt t;
         double oh = other->TextHeight.getValue() > 0 ? other->TextHeight.getValue() : h;
         if (!other->autoPlane(oh, ax, t)) {
             continue;
@@ -456,9 +468,8 @@ void Callout::updatePresentation()
     if (h <= 0.0) {
         h = 3.5;
     }
-    TolerancedFeature* feat = calloutFeature();
     gp_Pnt target;
-    bool hasTarget = targetPoint(feat, target);
+    bool hasTarget = calloutTarget(target);
 
     Callout* parent = attachedParent();
     if (parent) {
@@ -542,6 +553,9 @@ void Callout::updatePresentation()
                 d.line(sx, sy, bx, by);
                 d.fill({{t.x - uy * w, t.y + ux * w}, {t.x + uy * w, t.y - ux * w}, {bx, by}});
             }
+            else if (leaderStyle() == PlainLeader) {
+                d.line(sx, sy, t.x, t.y);
+            }
             else {
                 d.line(sx, sy, t.x, t.y);
                 d.arrow(t.x, t.y, dx, dy, h);
@@ -552,7 +566,17 @@ void Callout::updatePresentation()
     TopoDS_Shape shape = d.shape();
     gp_Trsf trsf;
     Part::TopoShape::convertTogpTrsf(Plane.getValue().toMatrix(), trsf);
-    Presentation.setValue(shape.Moved(TopLoc_Location(trsf)));
+    shape = shape.Moved(TopLoc_Location(trsf));
+    TopoDS_Shape onPart = mark(h);
+    if (!onPart.IsNull()) {
+        TopoDS_Compound both;
+        BRep_Builder builder;
+        builder.MakeCompound(both);
+        builder.Add(both, shape);
+        builder.Add(both, onPart);
+        shape = both;
+    }
+    Presentation.setValue(shape);
     std::string text = Font::toUtf8(equivalentText());
     if (EquivalentText.getStrValue() != text) {
         EquivalentText.setValue(text);

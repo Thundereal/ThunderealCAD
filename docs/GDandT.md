@@ -155,6 +155,14 @@ before making another (STEP's uniqueness rule, [A7]).
 - `PMI::Datum`: `Name` ('A'), `Feature` (a PMI::TolerancedFeature), `Targets` (optional: point, line,
   circle, rectangle, area, each with position and size, `Movable`), and the simulated datum
   (plane/axis/point) computed into `Shape` for display and for datum-system orientation.
+- `PMI::DatumTarget` (built 2026-11-20, 10.11): each target is its own callout, not an entry of a
+  list -- in STEP each is its own shape aspect with its own presentation, and a drawing gives each
+  its own symbol and leader. `Number`, `TargetType` (point, line, rectangle, circle, area),
+  `Target` (a placement: its centre, z out of the part, x along a line or a rectangle's length),
+  `Length` (a circle's diameter), `Width`, `Movable`, `Feature` (the face it lies on; an area
+  target is that face). The datum lists its targets in `Targets` and gives them their letter; a
+  datum may have targets and no feature. Its `Shape` is then its targets, until the simulation of
+  a datum from targets is built.
 - `PMI::DatumReferenceFrame`: `Compartments`, up to three, each a datum or a common datum with its
   modifiers. Stored as a string list in the frame's own notation -- `["A", "B(M)", "C-D"]` --
   parsed and validated by the object: readable in the file (the save-as-directory/VCS intent),
@@ -256,7 +264,7 @@ Found reading the NIST set (sec 10.9), and fixed on the fork (2026-11-20):
    datum labels 224 had no shapes after 6, 16 after 7.
 
 Still open: `dimensional_size_with_datum_feature` is not an entity the reader knows (STC-07's
-datum features), and datum targets are read but not yet made (item 1 is now ours, sec 10.9).
+datum features). Datum targets are read and made (item 1, sec 10.11).
 
 ## 6. Presentation
 
@@ -633,7 +641,7 @@ The NIST set's ledger, what is not read or is read invalid, all 17 files (2026-1
 
 | What | Count | Why |
 | --- | --- | --- |
-| datum targets | 63, of 8 datums | not made yet (sec 4.3) |
+| datum targets | 63, of 8 datums | read since: 15 targets, 10.11 |
 | datums only cited | 4 (B, C, G, H) | FTC-06's two, STC-07's two (sec 5.3) |
 | references to edges or points | 22 | features are faces only (sec 4.2) |
 | a second feature with no shape | 1 | the file gives none |
@@ -674,8 +682,56 @@ Tests: `TestModel` (a file's graphic until edited; a view membership is no edit,
 `TestStep` (drawn as the file draws, edited not; the notes, none a twin of a callout; the
 view), `tests/gui/pmi-step.py` (the saved view activated: its camera, its callouts drawn).
 
-- Next in P2: datum targets; slots and counterbores as features of size; edge and point
-  references.
+- Next in P2: datum targets (10.11); slots and counterbores as features of size; edge and
+  point references.
+
+### 10.11 P2 progress: datum targets (2026-11-20)
+
+Built, the model of sec 4.3, made by hand and read from STEP:
+
+- **The model**: `PMI::DatumTarget`, a callout of its own; its datum lists it in `Targets` and
+  gives it its letter (a new letter touches its targets). A datum with targets needs no
+  feature; its `Shape` is then the targets' (a point, a centred line of its length, a
+  rectangle, a disk, an area's faces), not yet a datum simulated from them.
+- **Drawn** the ASME way: a circle split across, the label (`A1`) below, the size above
+  (`DIA 85` as the diameter sign, `50.8X31.75`), a plain leader to the target. On the part,
+  the target itself, in its plane: a point an X, a line a phantom line, a rectangle or a circle
+  a phantom outline hatched at 45 deg; an area is its faces, highlighted as any feature.
+- **Placed** in the active view's plane when it has one, beside the target; else in the
+  surface, beside the target and clear of its size. A target has its own point: it is never
+  stacked under a callout of the same face, nor takes one under it (two targets on one face
+  each keep their leader).
+- **The check**: a target is a datum's (listed in its `Targets`), numbered from 1, a line has
+  its length, a circle its diameter, a rectangle both sizes, an area its faces; a datum has a
+  feature or targets.
+- **The GUI**: `PMI_DatumTarget` puts a point target where a face is picked, z out of the part.
+  Picked with a datum selected, it is that datum's next; else a new datum takes the next letter.
+- **Read from STEP**: OCCT gives a label each time a frame cites a target (the set's 63 labels
+  are 15 targets); one target is made per letter and number. The file's axis is no frame to
+  trust -- CTC-02 gives every point (0, 0, 1), FTC-06 its lines along their normal -- so the
+  part gives it: z the outward normal of the face the target lies on (within 1e-3), a line
+  centred on its edge and along it. The shape the file names is often loose geometry beside
+  the part -- CTC-02's points and FTC-06's edges in an empty compound, CTC-02's K1 a disk of
+  its own 20 from the solid -- so the face is looked for on the part's solid first, then on the
+  shape the file gives. A letter only targets establish gets a datum with no feature. Drawn as
+  the file draws them (10.10).
+
+The NIST set: 15 targets in three files, of the 8 datums they establish -- CTC-02's A (three
+points), B (four), C (one), K (a circle, DIA 85); CTC-05's C and D (rectangles 50.8 x 31.75);
+FTC-06's J and K (two lines each, 31.75 long). Each is on a face of the part (K1 on its own
+disk), none invalid; the rest of the ledger of 10.9 is unchanged.
+
+Tests: `TestModel.TestDatumTarget` (a datum from three points, the letter the datum's, an area
+or a rectangle marked within its size, the rules, saved and restored), `TestNistSet`'s
+`test_datum_targets` (each datum's targets by type and number, each on its face),
+`tests/gui/pmi-targets.py` (picked on a face; a new datum, then the selected datum's next; each
+with its own leader; drawn).
+
+Open: a line target on an edge lies on both its faces and takes the first found (the file's z
+runs along the edge, nothing to choose by). A movable target has no symbol of its own yet. A
+datum from targets is their compound, not the plane, axis or point they establish.
+
+- Next in P2: slots and counterbores as features of size; edge and point references.
 
 ## 11. Decisions (made 2026-11-19)
 

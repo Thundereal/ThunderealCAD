@@ -93,6 +93,8 @@ public:
         ArrowLeader,
         /// Ending in a filled triangle on the feature: a datum (ISO 5459)
         TriangleLeader,
+        /// Ending at the target, no terminator: a datum target
+        PlainLeader,
     };
 
     /// The toleranced feature the callout is drawn to, or null
@@ -105,6 +107,11 @@ public:
     {
         return ArrowLeader;
     }
+    /// The point a leader goes to; by default targetPoint() on the feature
+    virtual bool calloutTarget(gp_Pnt& target) const;
+    /// What is drawn on the part rather than in the plane, in the set's
+    /// coordinates (a datum target's X): by default nothing
+    virtual TopoDS_Shape mark(double h) const;
 
     /// Lay the callout out again: Plane (if AutoPlace), Presentation,
     /// EquivalentText

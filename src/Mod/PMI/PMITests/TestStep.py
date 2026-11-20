@@ -17,6 +17,7 @@ import unittest
 
 import FreeCAD as App
 import Import
+import Part
 import PMI  # noqa: F401 -- registers the pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -178,6 +179,22 @@ EXPECTED = {
 }
 
 
+# The datum targets of the NIST set, by file and letter: (type, number)
+TARGETS = {
+    "nist_ctc_02_asme1_ap242-e2.stp": {
+        "A": [("Point", 1), ("Point", 2), ("Point", 3)],
+        "B": [("Point", 1), ("Point", 2), ("Point", 3), ("Point", 4)],
+        "C": [("Point", 1)],
+        "K": [("Circle", 1)],
+    },
+    "nist_ctc_05_asme1_ap242-e1.stp": {"C": [("Rectangle", 1)], "D": [("Rectangle", 1)]},
+    "nist_ftc_06_asme1_ap242-e2.stp": {
+        "J": [("Line", 1), ("Line", 2)],
+        "K": [("Line", 1), ("Line", 2)],
+    },
+}
+
+
 @unittest.skipUnless(os.environ.get("FC_PMI_NIST"), "FC_PMI_NIST names no NIST set")
 class TestNistSet(Base):
     """Every AP242 file: it reads GD&T, every reference resolves. What the
@@ -198,3 +215,24 @@ class TestNistSet(Base):
                 self.assertEqual([b for b in bad if " Broken: " in b], [])
                 for b in bad:
                     print("NIST %s: %s" % (os.path.basename(path), b))
+
+    def test_datum_targets(self):
+        # The datums only targets establish: points (CTC-02's A, B, C), a
+        # circle (its K), rectangles (CTC-05's C, D), lines (FTC-06's J, K)
+        for name, want in TARGETS.items():
+            path = os.path.join(os.environ["FC_PMI_NIST"], name)
+            with self.subTest(name):
+                doc = self.read(path)
+                got = {}
+                for datum in objects(doc, "Datum"):
+                    if datum.Targets:
+                        got[datum.Letter] = [(t.TargetType, t.Number) for t in datum.Targets]
+                        self.assertEqual(datum.Condition, "Ok", datum.ConditionMessage)
+                self.assertEqual(got, want)
+                for t in objects(doc, "DatumTarget"):
+                    self.assertEqual(t.Condition, "Ok", (t.Label, t.ConditionMessage))
+                    # On a face of the part, its centre on it
+                    self.assertTrue(t.Feature, t.Label)
+                    face = t.Feature.Shape
+                    d = face.distToShape(Part.Vertex(t.Target.Base))[0]
+                    self.assertLess(d, 1e-3, t.Label)

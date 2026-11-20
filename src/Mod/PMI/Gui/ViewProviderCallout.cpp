@@ -569,6 +569,9 @@ QIcon ViewProviderCallout::getIcon() const
     else if (obj && obj->isDerivedFrom<PMI::Datum>()) {
         name = "PMI_Datum";
     }
+    else if (obj && obj->isDerivedFrom<PMI::DatumTarget>()) {
+        name = "PMI_DatumTarget";
+    }
     else if (obj && obj->isDerivedFrom<PMI::Dimension>()) {
         name = "PMI_Dimension";
     }

@@ -213,7 +213,7 @@ std::string Api::nextDatumLetter(AnnotationSet* set, App::DocumentObject* solid)
     if (set) {
         for (auto obj : set->Group.getValues()) {
             if (auto datum = freecad_cast<Datum*>(obj)) {
-                if (!solid || AnnotationSet::solidOf(datum->getFeature()) == solid) {
+                if (!solid || datum->solid() == solid) {
                     used.insert(datum->Letter.getStrValue());
                 }
             }
@@ -272,9 +272,10 @@ App::DocumentObject* Api::frame(AnnotationSet* set, const std::vector<std::strin
 
 Callout* Api::stackUnder(const Callout* callout)
 {
+    // Its own lines, or its own point: a linear dimension, a datum target
     auto ownLines = [](const Callout* c) {
         auto dim = freecad_cast<const Dimension*>(c);
-        return dim && !dim->isSize();
+        return (dim && !dim->isSize()) || c->isDerivedFrom<DatumTarget>();
     };
     if (!callout || ownLines(callout)) {
         return nullptr;

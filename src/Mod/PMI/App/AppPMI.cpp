@@ -333,6 +333,7 @@ PyMOD_INIT_FUNC(PMI)
     PMI::Callout             ::init();
     PMI::TolerancedFeature   ::init();
     PMI::Datum               ::init();
+    PMI::DatumTarget         ::init();
     PMI::DatumReferenceFrame ::init();
     PMI::Dimension           ::init();
     PMI::GeometricTolerance  ::init();

@@ -40,6 +40,7 @@ Workbench::~Workbench() = default;
 void Workbench::addTools(Gui::ToolBarItem& toolbar)
 {
     toolbar << "PMI_Datum"
+            << "PMI_DatumTarget"
             << "PMI_GeometricTolerance"
             << "PMI_Dimension"
             << "PMI_Note"
@@ -57,6 +58,7 @@ Gui::MenuItem* Workbench::setupMenuBar() const
     root->insertItem(item, pmi);
     pmi->setCommand("&PMI");
     *pmi << "PMI_Datum"
+         << "PMI_DatumTarget"
          << "PMI_GeometricTolerance"
          << "PMI_Dimension"
          << "PMI_Note"

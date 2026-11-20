@@ -3,6 +3,7 @@
         <file>icons/PMI_Workbench.svg</file>
         <file>icons/PMI_AnnotationSet.svg</file>
         <file>icons/PMI_Datum.svg</file>
+        <file>icons/PMI_DatumTarget.svg</file>
         <file>icons/PMI_GeometricTolerance.svg</file>
         <file>icons/PMI_Dimension.svg</file>
         <file>icons/PMI_Note.svg</file>

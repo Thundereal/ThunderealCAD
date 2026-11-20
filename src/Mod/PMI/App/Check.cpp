@@ -221,6 +221,42 @@ void checkFeature(const TolerancedFeature* feat, std::vector<Issue>& out)
 }
 }  // namespace
 
+namespace
+{
+void checkTarget(const DatumTarget* t, std::vector<Issue>& out)
+{
+    const auto* obj = t;
+    if (!t->getDatum()) {
+        out.push_back({obj, Error, "a datum target is a datum's: list it in its Targets"});
+    }
+    if (t->Number.getValue() < 1) {
+        out.push_back({obj, Error, "a datum target is numbered from 1"});
+    }
+    switch (t->getTargetType()) {
+        case DatumTarget::Line:
+        case DatumTarget::Circle:
+            if (t->Length.getValue() <= 0) {
+                bool line = t->getTargetType() == DatumTarget::Line;
+                out.push_back({obj, Error, line ? "a line target needs its length"
+                                                : "a circle target needs its diameter"});
+            }
+            break;
+        case DatumTarget::Rectangle:
+            if (t->Length.getValue() <= 0 || t->Width.getValue() <= 0) {
+                out.push_back({obj, Error, "a rectangle target needs its length and width"});
+            }
+            break;
+        case DatumTarget::Area:
+            if (!t->calloutFeature()) {
+                out.push_back({obj, Error, "an area target needs its faces"});
+            }
+            break;
+        default:
+            break;
+    }
+}
+}  // namespace
+
 std::vector<Issue> Check::object(const App::DocumentObject* obj)
 {
     std::vector<Issue> out;
@@ -243,9 +279,12 @@ std::vector<Issue> Check::object(const App::DocumentObject* obj)
         if (!Datum::isLegalLetter(datum->Letter.getStrValue(), set && set->isASME(), why)) {
             out.push_back({obj, Error, why});
         }
-        if (!datum->getFeature()) {
-            out.push_back({obj, Error, "a datum needs a datum feature"});
+        if (!datum->getFeature() && datum->getTargets().empty()) {
+            out.push_back({obj, Error, "a datum needs a datum feature or datum targets"});
         }
+    }
+    else if (auto target = freecad_cast<DatumTarget*>(obj)) {
+        checkTarget(target, out);
     }
     else if (auto drf = freecad_cast<DatumReferenceFrame*>(obj)) {
         std::vector<DatumReferenceFrame::Compartment> comps;
@@ -276,7 +315,7 @@ std::vector<Issue> Check::set(const AnnotationSet* set)
         out.insert(out.end(), issues.begin(), issues.end());
         if (auto datum = freecad_cast<Datum*>(obj)) {
             const std::string letter = datum->Letter.getStrValue();
-            Solid solid = AnnotationSet::solidOf(datum->getFeature());
+            Solid solid = datum->solid();
             auto res = letters[solid].emplace(letter, datum);
             ++anywhere[letter];
             if (!res.second) {

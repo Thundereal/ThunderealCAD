@@ -5,6 +5,7 @@ from PMITests.TestModel import (  # noqa: F401
     TestAdvisor,
     TestApi,
     TestCheck,
+    TestDatumTarget,
     TestModel,
     TestPresentation,
     TestQuery,

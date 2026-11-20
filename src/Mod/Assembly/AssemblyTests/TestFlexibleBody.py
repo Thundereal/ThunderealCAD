@@ -241,7 +241,10 @@ class TestFlexibleBody(unittest.TestCase):
     def test_cantilever_deformation(self):
         """The cantilever sags: its end, made of its mode shapes and the
         run's coordinates, where the beam's is, q L^4 / 8 E I; at its hold,
-        nothing"""
+        nothing. Drawn scaled up, its bending is scaled, not the pose of its
+        hold in its floating frame: the hold drawn where it is, the end sagging
+        the scale times the beam's (before, at x20 the hold drawn 2.5 times the
+        sag down off it, the end 2.2 times it: shifted, not bent)"""
         rod, flexible, results = self.cantilever(6)
         # The hold's six, the six modes, the twelve residual modes of the
         # inertia loads
@@ -254,8 +257,12 @@ class TestFlexibleBody(unittest.TestCase):
         import numpy as np
 
         automatic = shape.scale
+        # Its bending's largest, what is drawn scaled: drawn twice as it is,
+        # against drawn as it is
         largest = max(
-            float(np.max(np.linalg.norm(shape.pointsAt(t, 1.0) - shape.rest, axis=1)))
+            float(
+                np.max(np.linalg.norm(shape.pointsAt(t, 2.0) - shape.pointsAt(t, 1.0), axis=1))
+            )
             for t in results["Times"]
         )
         self.assertAlmostEqual(automatic * largest, 10.0, delta=0.01)
@@ -290,6 +297,17 @@ class TestFlexibleBody(unittest.TestCase):
         sag = q * length**4 / (8 * e * side**4 / 12) * 1e3  # mm
         self.assertAlmostEqual(at(100).z, -sag, delta=0.03 * sag)
         self.assertLess(abs(at(0).z), 0.01 * sag)
+        # Drawn x20: the hold where it is, the end 20 sags down
+        points = shape.pointsAt(results["Times"][-1], 20.0)
+        drawn = {}
+        for x in (0, 100):
+            drawn[x] = at(x).z
+        print(
+            "a cantilever drawn x20: its hold %.4g mm, its end %.4g, for the beam's sag %.4g"
+            % (drawn[0], drawn[100], sag)
+        )
+        self.assertAlmostEqual(drawn[100], -20 * sag, delta=0.03 * 20 * sag)
+        self.assertLess(abs(drawn[0]), 0.01 * sag)
 
     def test_cantilever_stress(self):
         """The cantilever's stress, each mode's weighed by the run's

@@ -3853,7 +3853,8 @@ Phase D1 is under way (2026-10-28):
     shown -- between two frames, the coordinates interpolated -- moved by
     the shapes and the coordinates, scaled up for the largest over the run
     to be a tenth of the part's size (or by the body's `BendingScale`,
-    step 12), in place of the component, which
+    step 12; the bending alone scaled, its hold drawn where it is, way 1
+    step 15), in place of the component, which
     hides while it is drawn and shows again when the panel closes. Save
     Animation's frames have it.
   - The panel's Elements lists the flexible bodies.
@@ -6317,6 +6318,35 @@ Phase D1 is under way (2026-10-28):
     (the clamp's side), its other nodes within 1.7% (5 to 95%).
   - Test: TestFlexibleBody.test_flexible_torus_on_ring, each part's
     largest stress over the run under 10 MPa.
+- Built, D4b way 1 step 15 (2026-11-20): a part held by a joint drawn held
+  there, scaled. Bending drawn x200, a flexible block held at its end by a
+  hinge and bent up off a plate by a pressure (way 2 step 4's) was drawn
+  with that end 1.08 mm up off the hinge and the free end 0.52 mm: as it is,
+  0 and 43.5 um.
+  - **The interfaces' pose was scaled with the bending.** The coordinates
+    are each interface's pose in the floating frame, then the modes'; the
+    floating frame is not the hold, so the hold moves in it, and a drawing
+    scaled all of them alike. The cantilever at x20: its hold drawn 2.5
+    times its sag down, its end 2.2 -- shifted, not bent.
+  - **Now** (`FlexibleBodies.rigidOf()`, `Deformation.pointsAt()`): the
+    first interface -- a joint's; contact faces' come after -- held where
+    it is drawn. Its nodes are those its translations' columns move one
+    for one and every other column leaves (the modes are its held, the
+    other interfaces' with it held): the cantilever's 89 of its end face.
+    The field fitted there by a rigid motion, t + r x (p - c), least
+    squares, once, a column each, is drawn as it is; the rest -- the modes,
+    the residual modes, the other interfaces' motion against it -- scaled.
+    Fitted to all the interfaces' columns over all the nodes first: the pad
+    strip's hinge, its pad a second interface, drawn lifted off it. A part
+    no joint holds has none, as before. The automatic scale is the
+    bending's alone: the manual's strips x2664 -> x518, x58 -> x12, x62 ->
+    x12. As it is, x1, the drawing is the same.
+  - Numbers: the cantilever at x20, its hold 5e-12 mm off, its end 19.9
+    sags down; the block at x200, its held end 0, its free end 8.71 mm up
+    (200 x 43.5 um).
+  - Test: TestFlexibleBody.test_cantilever_deformation (drawn x20, the
+    hold within 1% of the sag, the end 20 sags within 3%; before, 2.5 and
+    2.2), the automatic scale from the bending.
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

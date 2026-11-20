@@ -452,12 +452,64 @@ def colorsOf(fractions):
     return stops[i] * (1 - f) + stops[i + 1] * f
 
 
+def rigidOf(rest, psi, boundary):
+    """The columns of a flexible body's rigid motion, held by its first
+    interface: the surface nodes' rest (n x 3) and its mode shapes there (n x
+    3 x columns), of which the first 'boundary' its interfaces' poses in its
+    floating frame. Its first interface's nodes -- those its translations
+    move one for one, a joint's (its interfaces come first, its contact
+    faces' after) -- move rigidly with it; the motion fitted to them, t + r x
+    (p - c), least squares, is drawn as it is and the rest scaled, so that
+    interface is held where it is drawn and the others' motion against it
+    is bending. Where no node is so found, the fit is to all the interfaces'
+    columns over all the nodes; none without interfaces."""
+    import numpy as np
+
+    held = np.zeros_like(psi)
+    if boundary < 6 or len(rest) == 0:
+        return held
+    # The first interface's nodes: its three translations' columns the
+    # identity there, and every column but its six none -- the modes are its
+    # held, the other interfaces' with it held -- each against its largest
+    off = np.max(np.abs(psi[:, :, 0:3] - np.eye(3)[None, :, :]), axis=(1, 2))
+    on = off < 1e-4
+    if psi.shape[2] > 6:
+        others = np.abs(psi[:, :, 6:])
+        largest = np.max(others, axis=(0, 1))
+        largest[largest == 0.0] = 1.0
+        on &= np.max(others / largest[None, None, :], axis=(1, 2)) < 1e-4
+    if np.count_nonzero(on) < 3:
+        on = np.ones(len(rest), dtype=bool)
+        columns = boundary
+    else:
+        columns = psi.shape[2]
+    centre = rest[on].mean(axis=0)
+    arm = rest - centre
+
+    def rowsOf(arms):
+        # Each node's three rows: the translation, then -[arm]x for the turn
+        fit = np.zeros((len(arms), 3, 6))
+        fit[:, 0, 0] = fit[:, 1, 1] = fit[:, 2, 2] = 1.0
+        fit[:, 0, 4], fit[:, 0, 5] = arms[:, 2], -arms[:, 1]
+        fit[:, 1, 3], fit[:, 1, 5] = -arms[:, 2], arms[:, 0]
+        fit[:, 2, 3], fit[:, 2, 4] = arms[:, 1], -arms[:, 0]
+        return fit.reshape(-1, 6)
+
+    moves = np.linalg.lstsq(
+        rowsOf(arm[on]), psi[on][:, :, :columns].reshape(-1, columns), rcond=None
+    )[0]
+    held[:, :, :columns] = (rowsOf(arm) @ moves).reshape(len(rest), 3, columns)
+    return held
+
+
 class Deformation:
     """A flexible body's deformation as its last run had it: its mesh's
     surface moved by its mode shapes and the run's coordinates at a time,
     scaled up to be seen: its largest over the run a tenth of its size --
     as it is where that is a twentieth or more -- unless the flexible body
-    has a BendingScale or show() is given a scale. And its stress there,
+    has a BendingScale or show() is given a scale. What is scaled is its
+    bending, not its interfaces' pose in its floating frame: a part held by
+    a joint is drawn held there, bent about it (rigidOf()). And its stress there,
     each mode's
     (modalStresses()) weighed by the coordinates, coloured over it, the
     largest over the run red."""
@@ -518,9 +570,13 @@ class Deformation:
         if self.coordinates.shape[1] != columns:
             self.valid = False
             return
+        # Drawn as it is, the interfaces' rigid motion; scaled, the rest
+        boundary = len(interfaces[0]) if interfaces else 0
+        self.held = rigidOf(self.rest, self.psi, boundary)
+        self.bending = self.psi - self.held
         largest = 0.0
         for row in self.coordinates:
-            moved = self.psi @ row
+            moved = self.bending @ row
             largest = max(largest, float(np.max(np.linalg.norm(moved, axis=1))))
         size = float(np.max(np.ptp(self.rest, axis=0)))
         self.automatic = 0.1 * size / largest if largest > 0 else 1.0
@@ -599,9 +655,11 @@ class Deformation:
         return given if given > 0 else self.automatic
 
     def pointsAt(self, time, scale=None):
-        """The surface's nodes at a time, in the component's coordinates"""
-        moved = self.psi @ self.coordinatesAt(time)
-        return self.rest + (self.scale if scale is None else scale) * moved
+        """The surface's nodes at a time, in the component's coordinates: its
+        interfaces' rigid motion as it is, its bending scaled"""
+        row = self.coordinatesAt(time)
+        scale = self.scale if scale is None else scale
+        return self.rest + self.held @ row + scale * (self.bending @ row)
 
     def show(self, time, scale=None, peak=None):
         """Drawn at a time, over the component, which hides; coloured by its

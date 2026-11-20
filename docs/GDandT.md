@@ -647,7 +647,7 @@ The NIST set's ledger, what is not read or is read invalid, all 17 files (2026-1
 | a second feature with no shape | 1 | the file gives none |
 | curve lengths | 10 | no dimension type for them |
 | widths on other than two planes | 11 | thickness used for a depth, or a width across several faces |
-| MMR on no feature of size | 3 | slots and counterbores: a feature of planes and cylinders |
+| MMR on no feature of size | 3 | slots and counterbores: read since, 10.12 |
 | graphic-only dimensions | 185 | presentation, not read yet (sec 5.1 step 3); read since, 10.10 |
 
 ### 10.10 P2 progress: the file's graphics, graphic-only PMI, saved views (2026-11-20)
@@ -731,7 +731,35 @@ Open: a line target on an edge lies on both its faces and takes the first found 
 runs along the edge, nothing to choose by). A movable target has no symbol of its own yet. A
 datum from targets is their compound, not the plane, axis or point they establish.
 
-- Next in P2: slots and counterbores as features of size; edge and point references.
+- Next in P2: slots and counterbores as features of size (10.12); edge and point references.
+
+### 10.12 P2 progress: slots, counterbores and patterns of widths as features of size (2026-11-20)
+
+Built: what a feature of size is (ASME Y14.5 1.3.32), decided in `Geom` and shared by the
+feature, the width dimension and the advisor:
+
+- **A width** (`Geom::width`): planes in pairs facing opposite ways, each pair one width apart
+  -- those facing one way, moved the width along their normal, are those facing the other. One
+  pair, or a pattern ("2X"), slots or tabs, side by side or in a row; a **slot** adds its round
+  ends, half cylinders of half the width with axes across the planes' normal.
+- **Holes** (`Geom::holes`): cylinders grouped by axis, every axis with the same radii -- a
+  counterbore's hole and bore -- with the planes across the axes (the bores' floors) and cones on
+  them (a countersink, a drill point); one, or a pattern. The hole, the smallest cylinder,
+  stands for it: its axis is the feature's, whichever face is listed first.
+- A **Width** dimension measures a slot or a pattern of widths; the Dimension command makes one
+  when the faces picked together are a width (a slot's walls and ends), not a distance between
+  the first two. The advisor calls a slot a width and a counterbored hole axial.
+
+Faces facing the same way are a depth, not a width (STC-06's and STC-10's "widths" on a hole's
+cylinders are `thickness` sizes on the shape aspect of a diameter: a hole's depth, still read
+invalid -- a depth has no dimension type yet).
+
+The NIST set: the three "MMR on no feature of size" are read now -- FTC-09's pattern of two
+widths, STC-06's four counterbored holes, STC-09's slot. Tests: `TestModel` (a slot and two
+slots' walls are of size and measure 4; two faces facing the same way are not; one and two
+counterbored holes are, a counterbored hole and a plain one are not; the axis the hole's).
+
+- Next in P2: edge and point references.
 
 ## 11. Decisions (made 2026-11-19)
 

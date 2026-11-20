@@ -458,8 +458,13 @@ void CmdPMIDimension::activated(int)
     }
     else {
         const auto& b = picks[1].surface;
-        bool width = picks.size() == 2 && a.type == PMI::Primitive::Plane
-            && b.type == PMI::Primitive::Plane && a.dir.IsOpposite(b.dir, 1e-9);
+        // Two faces facing apart, a pattern of such pairs, a slot
+        std::vector<PMI::Primitive> all;
+        for (auto& pick : picks) {
+            all.push_back(pick.surface);
+        }
+        double size = 0;
+        bool width = PMI::Geom::width(all, size);
         if (width) {
             makeFeature(this, picks, nullptr);
             addToSet(this, "Dimension", "Dimension");

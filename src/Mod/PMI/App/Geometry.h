@@ -91,6 +91,17 @@ PMIExport bool distance(const Primitive& a, const Primitive& b, double& result, 
 /// their normals, axes and lines by their directions), in [0, pi/2]
 PMIExport bool angle(const Primitive& a, const Primitive& b, double& result, std::string& why);
 
+/// A width (ASME Y14.5 1.3.32): planes in pairs facing opposite ways, each
+/// pair \a width apart -- one, or a pattern of them ("2X"), slots or tabs
+/// alike -- and a slot's round ends, half cylinders of half the width
+PMIExport bool width(const std::vector<Primitive>& faces, double& width);
+
+/// Holes: cylinders grouped by axis, every axis with the same radii (a
+/// counterbore's hole and its bore), with the planes across the axes (the
+/// bores' floors) and the cones on them (a countersink, a drill point) --
+/// a hole, or a pattern of them. \a hole the first of the smallest radius
+PMIExport bool holes(const std::vector<Primitive>& faces, std::size_t& hole);
+
 /// An edge along the line (loc, dir) spanning \a extent's bounding box;
 /// null if the extent is empty
 PMIExport TopoDS_Shape axisEdge(const gp_Pnt& loc, const gp_Dir& dir, const TopoDS_Shape& extent);

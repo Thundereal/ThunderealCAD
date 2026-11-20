@@ -41,6 +41,7 @@
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/TopoShape.h>
 
+#include "Geometry.h"
 #include "TolerancedFeature.h"
 
 FC_LOG_LEVEL_INIT("PMI", true, true)
@@ -134,6 +135,38 @@ bool rolledBack(const App::DocumentObject* obj)
         return false;
     }
     return tip->getValue() != group->getValues().back();
+}
+
+/// Whether \a faces are a feature of size (ASME Y14.5 1.3.32), or a pattern
+/// of them; \a main the face that stands for it
+bool ofSize(const std::vector<Primitive>& faces, std::size_t& main)
+{
+    main = 0;
+    if (faces.empty()) {
+        return false;
+    }
+    const Primitive& first = faces.front();
+    if (first.type == Primitive::Cylinder || first.type == Primitive::Sphere) {
+        // One surface, or a pattern of them: holes of one size on several
+        // axes ("4X"), each a feature of size
+        if (std::all_of(faces.begin(), faces.end(), [&](const Primitive& p) {
+                return p.type == first.type && std::fabs(p.radius - first.radius) < 1e-6;
+            })) {
+            return true;
+        }
+    }
+    // A width, a pattern of widths, a slot
+    double width = 0;
+    if (Geom::width(faces, width)) {
+        return true;
+    }
+    // Holes with bores and sinks, standing for them the smallest
+    std::size_t hole = 0;
+    if (Geom::holes(faces, hole)) {
+        main = hole;
+        return true;
+    }
+    return false;
 }
 }  // namespace
 
@@ -316,36 +349,26 @@ bool TolerancedFeature::derive(const std::vector<TopoDS_Shape>& faces, std::stri
         _faces.push_back(Geom::ofFace(f));
     }
     _primitive = Primitive();
+    std::size_t main = 0;
     TopoDS_Shape shape = Geom::compound(faces);
     bool size = false;
     bool ok = true;
 
     if (!_faces.empty()) {
-        const Primitive& first = _faces.front();
-        _primitive = first;
-        if (first.type == Primitive::Cylinder || first.type == Primitive::Sphere) {
-            // One surface, or a pattern of them: holes of one size on several
-            // axes ("4X"), each a feature of size
-            size = std::all_of(_faces.begin(), _faces.end(), [&](const Primitive& p) {
-                return p.type == first.type && std::fabs(p.radius - first.radius) < 1e-6;
-            });
-        }
-        else if (_faces.size() == 2 && first.type == Primitive::Plane
-                 && _faces[1].type == Primitive::Plane
-                 && first.dir.IsOpposite(_faces[1].dir, 1e-9)) {
-            size = true;
-        }
+        size = ofSize(_faces, main);
+        _primitive = _faces[main];
     }
 
     switch (getKind()) {
         case Axis: {
-            if (_faces.empty() || (_faces[0].type != Primitive::Cylinder
-                                   && _faces[0].type != Primitive::Cone)) {
+            // A counterbored hole's: its hole's
+            if (_faces.empty() || (_faces[main].type != Primitive::Cylinder
+                                   && _faces[main].type != Primitive::Cone)) {
                 why = "an axis needs a cylindrical or conical face";
                 ok = false;
                 break;
             }
-            _primitive = _faces[0].reference();
+            _primitive = _faces[main].reference();
             {
                 TopoDS_Shape edge =
                     Geom::axisEdge(_primitive.loc, _primitive.dir, Geom::compound(faces));

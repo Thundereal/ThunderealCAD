@@ -24,6 +24,7 @@
 
 #include "PreCompiled.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include <Bnd_Box.hxx>
@@ -32,6 +33,7 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <GeomAbs_SurfaceType.hxx>
+#include <gp_Ax1.hxx>
 #include <gp_Cone.hxx>
 #include <gp_Cylinder.hxx>
 #include <gp_Lin.hxx>
@@ -183,6 +185,142 @@ bool Geom::sameSurface(const Primitive& a, const Primitive& b, double tol, doubl
         default:
             return false;
     }
+}
+
+namespace
+{
+constexpr double SizeTol = 1e-6;
+
+/// Planes in pairs facing opposite ways, each pair the same width apart:
+/// those facing one way, moved the width along their normal, are those
+/// facing the other (side by side along it, or in a row across it)
+bool widthPairs(const std::vector<const Primitive*>& planes, double& width)
+{
+    if (planes.empty() || planes.size() % 2 != 0) {
+        return false;
+    }
+    const gp_Dir& n = planes.front()->dir;
+    std::vector<double> one, other;
+    for (auto p : planes) {
+        double at = gp_Vec(p->loc.XYZ()).Dot(gp_Vec(n));
+        if (p->dir.IsEqual(n, 1e-9)) {
+            one.push_back(at);
+        }
+        else if (p->dir.IsOpposite(n, 1e-9)) {
+            other.push_back(at);
+        }
+        else {
+            return false;
+        }
+    }
+    if (one.size() != other.size()) {
+        return false;
+    }
+    std::sort(one.begin(), one.end());
+    std::sort(other.begin(), other.end());
+    double shift = other.front() - one.front();
+    for (std::size_t i = 0; i < one.size(); ++i) {
+        if (std::fabs(other[i] - one[i] - shift) > SizeTol) {
+            return false;
+        }
+    }
+    width = std::fabs(shift);
+    return width > SizeTol;
+}
+}  // namespace
+
+bool Geom::width(const std::vector<Primitive>& faces, double& width)
+{
+    std::vector<const Primitive*> planes;
+    std::vector<const Primitive*> rounds;
+    for (auto& p : faces) {
+        if (p.type == Primitive::Plane) {
+            planes.push_back(&p);
+        }
+        else if (p.type == Primitive::Cylinder) {
+            rounds.push_back(&p);
+        }
+        else {
+            return false;
+        }
+    }
+    if (!widthPairs(planes, width)) {
+        return false;
+    }
+    return std::all_of(rounds.begin(), rounds.end(), [&](const Primitive* c) {
+        return std::fabs(2 * c->radius - width) < SizeTol
+            && c->dir.IsNormal(planes.front()->dir, 1e-9);
+    });
+}
+
+bool Geom::holes(const std::vector<Primitive>& faces, std::size_t& hole)
+{
+    std::vector<gp_Ax1> axes;
+    std::vector<std::vector<double>> radii;
+    auto axisOf = [&](const Primitive& p) -> int {
+        for (std::size_t i = 0; i < axes.size(); ++i) {
+            if (p.dir.IsParallel(axes[i].Direction(), 1e-9)
+                && gp_Lin(axes[i]).Distance(p.loc) < SizeTol) {
+                return int(i);
+            }
+        }
+        return -1;
+    };
+    bool found = false;
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        const Primitive& p = faces[i];
+        if (p.type != Primitive::Cylinder) {
+            continue;
+        }
+        if (!found || p.radius < faces[hole].radius - SizeTol) {
+            hole = i;
+            found = true;
+        }
+        int a = axisOf(p);
+        if (a < 0) {
+            axes.emplace_back(p.loc, p.dir);
+            radii.emplace_back();
+            a = int(axes.size()) - 1;
+        }
+        auto& r = radii[a];
+        if (std::none_of(r.begin(), r.end(), [&](double x) {
+                return std::fabs(x - p.radius) < SizeTol;
+            })) {
+            r.push_back(p.radius);
+        }
+    }
+    if (axes.empty()) {
+        return false;
+    }
+    for (auto& r : radii) {
+        std::sort(r.begin(), r.end());
+        if (r.size() != radii.front().size()) {
+            return false;
+        }
+        for (std::size_t i = 0; i < r.size(); ++i) {
+            if (std::fabs(r[i] - radii.front()[i]) > SizeTol) {
+                return false;
+            }
+        }
+    }
+    for (auto& p : faces) {
+        if (p.type == Primitive::Cylinder) {
+            continue;
+        }
+        bool fits = false;
+        if (p.type == Primitive::Plane) {
+            fits = std::any_of(axes.begin(), axes.end(), [&](const gp_Ax1& ax) {
+                return p.dir.IsParallel(ax.Direction(), 1e-9);
+            });
+        }
+        else if (p.type == Primitive::Cone) {
+            fits = axisOf(p) >= 0;
+        }
+        if (!fits) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool Geom::distance(const Primitive& pa, const Primitive& pb, double& result, std::string& why)

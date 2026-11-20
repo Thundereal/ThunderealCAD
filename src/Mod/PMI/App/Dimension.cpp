@@ -192,12 +192,17 @@ bool Dimension::measure(double& value, std::string& why) const
             value = getType() == SphericalDiameter ? 2 * surface.radius : surface.radius;
             return true;
         case Width:
-            if (faces.size() != 2 || faces[0].type != Primitive::Plane
-                || faces[1].type != Primitive::Plane) {
-                why = "a width needs a feature of two parallel planar faces";
-                return false;
+            if (faces.size() == 2 && faces[0].type == Primitive::Plane
+                && faces[1].type == Primitive::Plane) {
+                return Geom::distance(faces[0], faces[1], value, why);
             }
-            return Geom::distance(faces[0], faces[1], value, why);
+            // A pattern of widths ("2X"), a slot
+            if (Geom::width(faces, value)) {
+                return true;
+            }
+            why = "a width needs a feature of two parallel planar faces, a pattern of them or "
+                  "a slot";
+            return false;
         case AngularSize:
             if (surface.type == Primitive::Cone) {
                 value = 2 * surface.angle * 180.0 / M_PI;

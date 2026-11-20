@@ -61,9 +61,15 @@ Shape shapeOf(const TolerancedFeature* f)
     if (faces.empty()) {
         return Other;
     }
-    switch (faces.front().type) {
+    // A width, a pattern of them, a slot; else what stands for it: a
+    // counterbored hole's hole
+    double width = 0;
+    if (f->IsSize.getValue() && Geom::width(faces, width)) {
+        return Width;
+    }
+    switch (f->primitive().type) {
         case Primitive::Plane:
-            return faces.size() == 2 && f->IsSize.getValue() ? Width : PlaneFace;
+            return PlaneFace;
         case Primitive::Cylinder:
             return Axial;
         case Primitive::Sphere:

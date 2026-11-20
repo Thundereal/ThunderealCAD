@@ -138,6 +138,98 @@ class TestModel(Base):
         self.assertTrue(two.IsSize)
         self.assertFalse(mixed.IsSize)
 
+    def cut(self, kind, name, at, **dims):
+        obj = self.doc.addObject("PartDesign::Subtractive" + kind, name)
+        self.body.addObject(obj)
+        for key, value in dims.items():
+            setattr(obj, key, value)
+        obj.Placement = App.Placement(at, App.Rotation())
+        return obj
+
+    def faces_where(self, test):
+        shape = self.solid.Shape
+        return ["Face%d" % (i + 1) for i, f in enumerate(shape.Faces) if test(f)]
+
+    def slot(self, name, x0, x1):
+        """A slot through, 4 wide across y at y = 10, its ends round"""
+        self.cut("Box", name, V(x0, 8, 0), Length=x1 - x0, Width=4, Height=10)
+        for i, x in enumerate((x0, x1)):
+            self.cut("Cylinder", "%sEnd%d" % (name, i), V(x, 10, 0), Radius=2, Height=10)
+
+    def test_slots_and_widths_in_a_pattern_are_of_size(self):
+        self.slot("Slot", 4, 12)
+        self.slot("Other", 28, 36)
+        self.doc.recompute()
+
+        def within(x0, x1):
+            def test(f):
+                b = f.BoundBox
+                return (b.XMin > x0 - 1e-6 and b.XMax < x1 + 1e-6 and b.YMin > 8 - 1e-6
+                        and b.YMax < 12 + 1e-6 and b.ZLength > 1)
+            return test
+
+        def planar(test):
+            return lambda f: test(f) and f.Surface.TypeId == "Part::GeomPlane"
+
+        one = self.faces_where(within(2, 14))
+        walls = self.faces_where(planar(within(2, 14))) + self.faces_where(planar(within(26, 38)))
+        # Two walls and the round ends (one may be split at its seam)
+        self.assertEqual(len(walls), 4)
+        self.assertGreaterEqual(len(one), 4)
+        back = face_at(self.solid.Shape, BACK)
+        mixed = self.faces_where(planar(within(2, 14)))[:1] + [back]
+
+        feats = {}
+        for name, subs in (("Slot", one), ("Walls", walls), ("Facing", mixed)):
+            feats[name] = self.add("TolerancedFeature", name, References=[(self.solid, subs)])
+        dims = {}
+        for name in ("Slot", "Walls"):
+            dims[name] = self.add("Dimension", name + "Width", Type="Width",
+                                  Features=[feats[name]])
+        self.recompute()
+        # A slot, two slots' walls ("2X"): each a width; two faces facing
+        # the same way are a depth, no size
+        self.assertTrue(feats["Slot"].IsSize)
+        self.assertTrue(feats["Walls"].IsSize)
+        self.assertFalse(feats["Facing"].IsSize)
+        for d in dims.values():
+            self.assertAlmostEqual(d.Nominal, 4, 9)
+
+    def test_counterbored_holes_are_of_size(self):
+        # The hole of the base (radius 3 at (20, 10)) bored to radius 5, 3
+        # deep, and another the same at (8, 10); a third, plain
+        for name, x in (("Bore", 20), ("Hole2", 8), ("Bore2", 8), ("Plain", 32)):
+            if name.startswith("Bore"):
+                self.cut("Cylinder", name, V(x, 10, 7), Radius=5, Height=3)
+            else:
+                self.cut("Cylinder", name, V(x, 10, 0), Radius=3, Height=10)
+        self.doc.recompute()
+
+        def around(x, r=5.5):
+            def test(f):
+                c = f.BoundBox.Center
+                return (f.BoundBox.XLength < 2 * r and abs(c.x - x) < 1e-6
+                        and abs(c.y - 10) < 1e-6)
+            return test
+
+        one = self.faces_where(around(20))
+        both = one + self.faces_where(around(8))
+        mixed = one + self.faces_where(around(32))
+        self.assertEqual((len(one), len(both), len(mixed)), (3, 6, 4))
+        feats = {}
+        for name, subs in (("One", one), ("Both", both), ("Mixed", mixed)):
+            feats[name] = self.add("TolerancedFeature", name, References=[(self.solid, subs)])
+        axis = self.add("TolerancedFeature", "BoreAxis", References=[(self.solid, one)],
+                        Kind="Axis")
+        self.recompute()
+        self.assertTrue(feats["One"].IsSize)
+        self.assertTrue(feats["Both"].IsSize)
+        self.assertFalse(feats["Mixed"].IsSize)
+        # Its axis the hole's, whichever face comes first
+        a, b = axis.Shape.Vertexes[0].Point, axis.Shape.Vertexes[1].Point
+        self.assertAlmostEqual(a.x, 20, 6)
+        self.assertAlmostEqual(b.y, 10, 6)
+
     def test_a_fillet_radius(self):
         cyl = Part.makeCylinder(5, 10)
         top = [e for e in cyl.Edges if e.Curve.TypeId == "Part::GeomCircle"

@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -914,11 +915,13 @@ public:
     /** Take in the strings another process gave from ids this table leased
      * it (docs/WorkerProcess.md sec 15), under those ids: all of `rows`, in
      * id order, or none. Refused, nothing changed, when a row's id is held
-     * with another string; when its string is held here under another id
-     * -- one element name would then be spelled two ways, and names are
-     * compared as text; or when it refers to an id neither held nor in
-     * `rows`. A row held as it is is left alone. `why`, when refused, says
-     * which; `taken`, how many came in.
+     * with another string; when, in a table of counted ids, its string is
+     * held here under another id -- one element name would then be spelled
+     * two ways, and names are compared as text (a table that spells digests
+     * takes the id as another id of the string it holds: aliases()); or
+     * when it refers to an id neither held nor in `rows`. A row held as it
+     * is is left alone. `why`, when refused, says which; `taken`, how many
+     * came in.
      */
     bool takeRows(const std::vector<Row>& rows, std::string* why = nullptr,
                   std::size_t* taken = nullptr);
@@ -928,6 +931,16 @@ public:
      * used. Empty when every content has one id.
      */
     std::vector<std::vector<long>> duplicates() const;
+    /** The other ids of the strings held once, each with the id its string
+     * is held under, which is lower (docs/StringTableContentIds.md sec 15):
+     * in a table that spells digests, a row coming in (insertRows(),
+     * takeRows(), merge()) whose content is held already under another id
+     * adds no entry -- its id reads as the one here (getID(), hasID()),
+     * and is given as a row of its own (rows(), rowsOf()). The entry takes
+     * the lower id of the two. A save writes the entry alone; compact()
+     * lets go the other ids nothing kept uses.
+     */
+    std::map<long, long> aliases() const;
 
     /// The lowest id takeRows() put in below an id held already, since the
     /// last call; 0 for none. What the log, which writes the rows past the
@@ -1065,6 +1078,13 @@ public:
 
 protected:
     StringID* insert(const StringIDRef& sid);
+    /// insert(), or, in a table that spells digests holding the content
+    /// already, the id taken as another id of the entry here (aliases())
+    StringID* insertOrAlias(const StringIDRef& sid);
+    /// `d` as a row under `id`
+    static Row rowOf(const StringID& d, long id);
+    /// Whether `d` is the string `row` gives, the ids it names read here
+    bool isRow(const StringID& d, const Row& row, const std::set<long>* coming = nullptr) const;
     /// The spelling of a new string of `digest` (docs/StringTableContentIds.md sec 3.2)
     std::int64_t spellingOf(const StringID::Digest& digest);
     /// The id a new string gets: the lease's, or the one after the highest
@@ -1136,8 +1156,17 @@ public:
     /// `count`, false when there is none
     std::function<bool(long& first, long& count)> more;
 
+    /// The range in use was let go for being below an id the table took
+    /// in since (drop()): what `more` is asked for then is not for want of
+    /// ids
+    bool stale {false};
+    /// How many ranges were let go so
+    int dropped {0};
+
     /// Use [first, first + count) from now on
     void add(long first, long count);
+    /// Let go what is left of the range in use: the next id is of another
+    void drop();
     /// The next id; throws Base::RuntimeError when none is left to give
     long take();
 };

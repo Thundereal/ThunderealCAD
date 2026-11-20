@@ -53,6 +53,15 @@ The groups of ids whose strings are one content (equal digests), each in
 id order: one element name spelled two ways where both are used.</UserDocu>
             </Documentation>
         </Methode>
+        <Methode Name="aliases" Const="true">
+            <Documentation>
+                <UserDocu>aliases() -> dict of id to id
+
+The other ids of strings held once, each with the id its string is held
+under: what a row of a content held already came in under, in a table that
+spells digests (ContentIds).</UserDocu>
+            </Documentation>
+        </Methode>
         <Methode Name="checkStorageSizes" Const="true">
             <Documentation>
                 <UserDocu>

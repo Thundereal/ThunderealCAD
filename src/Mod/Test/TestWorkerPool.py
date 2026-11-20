@@ -1153,6 +1153,62 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertNotEqual(marked.MadeBy, os.getpid())
         self.assertEqual(marked.Result, 6)
 
+    def testAWorkersLaterStringsAreSavedAndReadBack(self):
+        """A worker gives its strings ids of a range leased it at its first
+        job. Strings made here since have ids above that range; what the
+        worker builds on them at a later job takes ids above them too, of
+        a new range -- a string of an id below what it refers to is one a
+        saved table was not read back with (docs/WorkerProcess.md sec 32)"""
+        import re
+
+        import Part  # noqa: F401
+
+        def fillet(name, size, at):
+            box = self.doc.addObject("Part::Box", name)
+            box.Length = box.Width = size
+            box.Height = 20
+            box.Placement.Base = App.Vector(at, at, -5 if at else 0)
+            made = self.doc.addObject("Part::Fillet", name + "Fillet")
+            made.Base = box
+            made.Edges = [(1, 1.0, 1.0), (5, 1.0, 1.0)]
+            return made
+
+        first = fillet("Box", 10, 0)
+        self.doc.recompute()
+        first.touch()
+        self.assertEqual(self.byWorker()["Applied"], 1)  # the worker has its ids
+        second = fillet("Tool", 4, 3)
+        self.doc.recompute()  # made here: ids above the worker's
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = first
+        cut.Tool = second
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 2, info)
+        self.assertTrue(info["ById"], info)
+        self.assertTrue(cut.Shape.isValid())
+        hasher = self.doc.Hasher
+        table = hasher.Table
+        self.assertGreater(len(table), 60)
+        forward = []
+        for sid in sorted(table):
+            related = [r if isinstance(r, int) else r.Value for r in hasher.getID(sid).Related]
+            if [r for r in related if r > sid]:
+                forward.append((sid, related))
+        self.assertEqual(forward, [])
+        names = dict(cut.Shape.ElementMap)
+        path = os.path.join(tempfile.gettempdir(), "TestWorkerLaterStrings.FCStd")
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.pool = App.workerPool(self.doc)
+        cut = self.doc.getObject("Cut")
+        self.assertEqual(dict(cut.Shape.ElementMap), names)
+        hasher = self.doc.Hasher
+        spelled = set(m for name in names for m in re.findall(r"#([0-9a-f]+)", name))
+        self.assertGreater(len(spelled), 5)
+        self.assertEqual([s for s in spelled if not hasher.getIDBySpelling(int(s, 16))], [])
+
     def testAFailureTheWorkerSawIsSaidOnce(self):
         """The worker's "Failed to recompute" is not said here: the put-in
         says it, as a recompute here does (docs/WorkerProcess.md sec 27)"""

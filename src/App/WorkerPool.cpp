@@ -647,7 +647,7 @@ struct WorkerPool::Private
     bool listen();
     bool takeCopy();
     json setupFor(Proc& proc);
-    bool lease(Proc& proc, json& range);
+    bool lease(Proc& proc, json& range, bool stale = false);
     void pruneCopies();
     void dropReached(const DocumentObject* obj, const std::string& why,
                      const Property* prop = nullptr);
@@ -1101,7 +1101,7 @@ json WorkerPool::Private::setupFor(Proc& proc)
     return setup;
 }
 
-bool WorkerPool::Private::lease(Proc& proc, json& range)
+bool WorkerPool::Private::lease(Proc& proc, json& range, bool stale)
 {
     // Out of this process's own counter (docs/WorkerProcess.md sec 15): a
     // string the worker gives one of these comes back under it, and none
@@ -1113,9 +1113,12 @@ bool WorkerPool::Private::lease(Proc& proc, json& range)
         return false;
     }
     const long first = std::max<long>(16, params()->GetInt("IdBlock", 1L << 14));
-    const long count = proc.leaseCount
-        ? std::max(proc.leaseCount, std::min(proc.leaseCount * 2, 1L << 20))
-        : first;
+    // A range let go for being below ids the worker has read since, not
+    // for want of ids (sec 32): a small one in its place, which doubles
+    // again should the job run out of it
+    const long count = stale ? std::min<long>(first, 1L << 10)
+        : proc.leaseCount ? std::max(proc.leaseCount, std::min(proc.leaseCount * 2, 1L << 20))
+                          : first;
     const long at = hasher->reserveBlock(count);
     if (!at) {
         return false;
@@ -1572,7 +1575,7 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         json answer {{"type", "ids"}, {"first", 0}, {"count", 0}};
         ++leasesAsked;
         json range;
-        if (lease(proc, range)) {
+        if (lease(proc, range, header.value("stale", false))) {
             answer["first"] = range["first"];
             answer["count"] = range["count"];
         }
@@ -2741,7 +2744,7 @@ int WorkerPool::serve()
         // Run out in a job: asked for, and waited for, what else the pool
         // says meanwhile kept for after it
         lease->more = [&](long& next, long& n) {
-            if (!send(socket, json {{"type", "ids"}})) {
+            if (!send(socket, json {{"type", "ids"}, {"stale", lease->stale}})) {
                 return false;
             }
             for (;;) {

@@ -2437,7 +2437,11 @@ TEST_F(StringHasherTest, duplicatesFindsOneContentUnderTwoIds)  // NOLINT
     // Another table's strings taken in under their own ids, where this one
     // holds the same content under others: what a worker's result did
     // (its ids from a block this one does not give, as a worker's lease)
+    // In a table of counted ids: one that spells digests holds the content
+    // once (aContentComingInUnderAnotherIdIsHeldOnce)
     Base::Reference<App::StringHasher> there(new App::StringHasher);
+    there->setContentIds(false);
+    Hasher()->setContentIds(false);
     const long block = there->reserveBlock(1000);
     buildNames(*there, 0);
     buildNames(*Hasher(), 0);
@@ -2606,11 +2610,353 @@ TEST_F(StringHasherTest, rowsOfAContentHeldUnderOtherIdsComeInSpelledAlike)  // 
         const bool taken = here->takeRows(worker->rows(), &why);
         EXPECT_EQ(taken, content) << why;
         if (content) {
+            // The worker's id reads as the string here, held once
             auto face = here->getID(theirs.face.value());
             ASSERT_TRUE(face);
             EXPECT_EQ(face.spelled(), mine.face.spelled());
-            EXPECT_NE(face.value(), mine.face.value());
-            EXPECT_EQ(here->duplicates().size(), worker->size());
+            EXPECT_EQ(face.value(), mine.face.value());
+            EXPECT_TRUE(here->duplicates().empty());
+            EXPECT_EQ(here->aliases().size(), worker->size());
         }
     }
+}
+
+// docs/StringTableContentIds.md sec 15: one content, one entry.
+
+TEST_F(StringHasherTest, aContentComingInUnderAnotherIdIsHeldOnce)  // NOLINT
+{
+    Base::Reference<App::StringHasher> here(new App::StringHasher);
+    Base::Reference<App::StringHasher> worker(new App::StringHasher);
+    here->setContentIds(true);
+    worker->setContentIds(true);
+    const Built mine = buildNames(*here, 0);
+    worker->reserveBlock(1000);
+    const Built theirs = buildNames(*worker, 0);
+    // And one string this table does not have, built on one it has
+    const auto before = worker->size();
+    auto more = worker->getID(Data::MappedName("Face9;:M;CUT"),
+                              QVector<App::StringIDRef> {theirs.face});
+    const auto fresh = worker->size() - before;
+    const auto size = here->size();
+    const auto rows = worker->rows();
+    std::string why;
+    std::size_t taken = 0;
+    ASSERT_TRUE(here->takeRows(rows, &why, &taken)) << why;
+    EXPECT_EQ(taken, rows.size());
+    // The new one alone is an entry, what it is built on the entry here
+    EXPECT_EQ(here->size(), size + fresh);
+    EXPECT_TRUE(here->duplicates().empty());
+    const auto aliases = here->aliases();
+    EXPECT_EQ(aliases.size(), rows.size() - fresh);
+    ASSERT_EQ(aliases.count(theirs.face.value()), 1u);
+    EXPECT_EQ(aliases.at(theirs.face.value()), mine.face.value());
+    auto taken9 = here->getID(more.value());
+    ASSERT_TRUE(taken9);
+    EXPECT_EQ(taken9.value(), more.value());
+    bool onFace = false;
+    for (const auto& ref : taken9.relatedIDs()) {
+        onFace = onFace || ref.value() == mine.face.value();
+    }
+    EXPECT_TRUE(onFace);
+    EXPECT_TRUE(here->hasID(theirs.edge.value()));
+    // An id given once is not given again
+    EXPECT_GT(here->getID("fresh").value(), more.value());
+    // The same rows again change nothing: each id is held as it came
+    ASSERT_TRUE(here->takeRows(rows, &why, &taken)) << why;
+    EXPECT_EQ(taken, 0u);
+    EXPECT_EQ(here->aliases().size(), aliases.size());
+}
+
+TEST_F(StringHasherTest, anEntryTakesTheLowerOfItsIds)  // NOLINT
+{
+    // The lower id is the older string: what names are ordered by, and
+    // what a save writes. A reference held to the entry follows it.
+    Base::Reference<App::StringHasher> here(new App::StringHasher);
+    Base::Reference<App::StringHasher> worker(new App::StringHasher);
+    here->setContentIds(true);
+    worker->setContentIds(true);
+    const Built theirs = buildNames(*worker, 0);
+    here->reserveBlock(1000);
+    const Built mine = buildNames(*here, 0);
+    const long was = mine.face.value();
+    ASSERT_GT(was, theirs.face.value());
+    const auto size = here->size();
+    std::string why;
+    ASSERT_TRUE(here->takeRows(worker->rows(), &why)) << why;
+    EXPECT_EQ(here->size(), size);
+    EXPECT_EQ(mine.face.value(), theirs.face.value());
+    bool onEdge = false;
+    for (const auto& ref : mine.face.relatedIDs()) {
+        onEdge = onEdge || ref.value() == theirs.edge.value();
+    }
+    EXPECT_TRUE(onEdge);
+    auto old = here->getID(was);
+    ASSERT_TRUE(old);
+    EXPECT_EQ(old.value(), theirs.face.value());
+    EXPECT_EQ(here->aliases().at(was), theirs.face.value());
+    EXPECT_EQ(here->getIDBySpelling(mine.face.spelled()).value(), theirs.face.value());
+    // Found by its content as before, not made again
+    EXPECT_EQ(here->getID("abc").value(), theirs.plain.value());
+    EXPECT_EQ(here->size(), size);
+}
+
+TEST_F(StringHasherTest, theOtherIdsOfAStringGoAsRowsAndNotIntoASave)  // NOLINT
+{
+    Base::Reference<App::StringHasher> here(new App::StringHasher);
+    Base::Reference<App::StringHasher> worker(new App::StringHasher);
+    here->setContentIds(true);
+    worker->setContentIds(true);
+    const Built mine = buildNames(*here, 0);
+    worker->reserveBlock(1000);
+    const Built theirs = buildNames(*worker, 0);
+    ASSERT_TRUE(here->takeRows(worker->rows()));
+    const auto aliases = here->aliases();
+    ASSERT_FALSE(aliases.empty());
+
+    // As rows: every id, in id order, and a table filled from them reads
+    // each as this one does
+    const auto rows = here->rows();
+    EXPECT_EQ(rows.size(), here->size() + aliases.size());
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        EXPECT_LT(rows[i - 1].id, rows[i].id);
+    }
+    Base::Reference<App::StringHasher> filled(new App::StringHasher);
+    filled->setContentIds(true);
+    EXPECT_EQ(filled->insertRows(rows), rows.size());
+    EXPECT_EQ(filled->size(), here->size());
+    EXPECT_EQ(filled->aliases(), aliases);
+    EXPECT_EQ(filled->getID(theirs.face.value()).value(), mine.face.value());
+    // The rows a value naming the other id needs come under that id
+    const auto needed = here->rowsOf({theirs.face.value()});
+    ASSERT_FALSE(needed.empty());
+    EXPECT_EQ(needed.back().id, theirs.face.value());
+    EXPECT_EQ(needed.back().data, mine.face.deref().data());
+
+    // A saved table holds each string once, under the id it is held by
+    std::istringstream in(here->saveTable());
+    Base::Reference<App::StringHasher> restored(new App::StringHasher);
+    restored->restoreTable(in);
+    EXPECT_EQ(restored->size(), here->size());
+    EXPECT_TRUE(restored->aliases().empty());
+    EXPECT_TRUE(restored->getID(mine.face.value()));
+    EXPECT_FALSE(restored->getID(theirs.face.value()));
+}
+
+TEST_F(StringHasherTest, aStringBuiltOnOneOfAHigherIdIsSavedAndReadBack)  // NOLINT
+{
+    // A worker's string, its id from a lease given early, built on a string
+    // this table made after: the reference is to a higher id
+    Base::Reference<App::StringHasher> here(new App::StringHasher);
+    here->setContentIds(true);
+    const long block = here->reserveBlock(16);
+    for (int i = 0; i < 40; ++i) {
+        here->getID(("filler" + std::to_string(i)).c_str());
+    }
+    auto later = here->getID("later");
+    ASSERT_GT(later.value(), block + 16);
+    App::StringHasher::Row row;
+    row.id = block + 1;
+    row.flags = 0;
+    row.data = "built";
+    row.sids.emplace_back(later.value(), 0);
+    ASSERT_EQ(here->insertRows({row}), 1u);
+    auto built = here->getID(block + 1);
+    ASSERT_TRUE(built);
+    std::istringstream in(here->saveTable());
+    Base::Reference<App::StringHasher> restored(new App::StringHasher);
+    ASSERT_NO_THROW(restored->restoreTable(in));
+    auto back = restored->getID(block + 1);
+    ASSERT_TRUE(back);
+    ASSERT_EQ(back.relatedIDs().size(), 1);
+    EXPECT_EQ(back.relatedIDs()[0].value(), later.value());
+}
+
+TEST_F(StringHasherTest, aTableSavedInIdOrderWithAReferenceForwardIsRead)  // NOLINT
+{
+    // What a build before the references were written ahead saved: the
+    // rows in id order, one referring to a row after it. Made here by
+    // putting the rows of a saved table, each said in full, back in that
+    // order.
+    const bool relative = App::DocumentParams::getRelativeStringID();
+    App::DocumentParams::setRelativeStringID(false);
+    Base::Reference<App::StringHasher> here(new App::StringHasher);
+    here->setContentIds(true);
+    const long block = here->reserveBlock(16);
+    auto later = here->getID(Data::MappedName(Data::MappedName("Edge1"), ";:M;FUS;:Hb:7,F"),
+                             QVector<App::StringIDRef>());
+    const std::string postfix = ";:G" + later.toString() + ";FUS;:Hb:7,F";
+    App::StringHasher::Row row;
+    row.id = block + 1;
+    row.flags = static_cast<int>(App::StringID::Flag::Postfixed);
+    row.data = "Face2";
+    row.postfix = postfix.c_str();
+    row.sids.emplace_back(later.value(), 0);
+    ASSERT_EQ(here->insertRows({row}), 1u);
+    const std::string saved = here->saveTable();
+    App::DocumentParams::setRelativeStringID(relative);
+
+    std::istringstream lines(saved);
+    std::string header;
+    std::getline(lines, header);
+    std::vector<std::pair<long, std::string>> rows;
+    std::string trailer;
+    for (std::string line; std::getline(lines, line);) {
+        if (line.rfind("StringTable", 0) == 0 || !trailer.empty()) {
+            trailer += line + "\n";
+            continue;
+        }
+        rows.emplace_back(std::strtol(line.c_str(), nullptr, 16), line);
+    }
+    ASSERT_EQ(rows.size(), here->size());
+    // Written ahead of the row that refers to it ...
+    bool ahead = false;
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        ahead = ahead || rows[i].first < rows[i - 1].first;
+    }
+    EXPECT_TRUE(ahead);
+    // ... and as it was before: in id order
+    std::sort(rows.begin(), rows.end());
+    std::string old = header + "\n";
+    for (const auto& r : rows) {
+        old += r.second + "\n";
+    }
+    old += trailer;
+    std::istringstream in(old);
+    Base::Reference<App::StringHasher> restored(new App::StringHasher);
+    ASSERT_NO_THROW(restored->restoreTable(in));
+    EXPECT_EQ(restored->size(), here->size());
+    auto back = restored->getID(block + 1);
+    ASSERT_TRUE(back);
+    EXPECT_EQ(back.deref().postfix(), row.postfix);
+    EXPECT_EQ(back.deref().digestText(), here->getID(block + 1).deref().digestText());
+}
+
+TEST_F(StringHasherTest, rowsReferringToOneFurtherOnComeIn)  // NOLINT
+{
+    // As rows, in id order, the reference forward
+    Base::Reference<App::StringHasher> made(new App::StringHasher);
+    made->setContentIds(true);
+    const long block = made->reserveBlock(16);
+    auto later = made->getID("later");
+    App::StringHasher::Row row;
+    row.id = block + 1;
+    row.data = "built";
+    row.sids.emplace_back(later.value(), 0);
+    ASSERT_EQ(made->insertRows({row}), 1u);
+    const auto rows = made->rows();
+    ASSERT_EQ(rows.size(), 2u);
+    ASSERT_EQ(rows.front().id, block + 1);
+
+    Base::Reference<App::StringHasher> filled(new App::StringHasher);
+    filled->setContentIds(true);
+    std::size_t conflicts = 0;
+    EXPECT_EQ(filled->insertRows(rows, &conflicts), 2u);
+    EXPECT_EQ(conflicts, 0u);
+    ASSERT_TRUE(filled->getID(block + 1));
+    EXPECT_EQ(filled->getID(block + 1).relatedIDs()[0].value(), later.value());
+
+    Base::Reference<App::StringHasher> took(new App::StringHasher);
+    took->setContentIds(true);
+    std::string why;
+    EXPECT_TRUE(took->takeRows(rows, &why)) << why;
+    EXPECT_EQ(took->size(), 2u);
+
+    Base::Reference<App::StringHasher> merged(new App::StringHasher);
+    merged->setContentIds(true);
+    EXPECT_TRUE(merged->merge(*made));
+    EXPECT_EQ(merged->size(), 2u);
+    // One that refers to nothing given is still left out
+    row.id = block + 2;
+    row.data = "orphan";
+    row.sids = {{9999, 0}};
+    EXPECT_EQ(filled->insertRows({row}, &conflicts), 0u);
+    EXPECT_EQ(conflicts, 1u);
+}
+
+TEST_F(StringHasherTest, aLeaseBelowAnIdTakenInSinceIsLetGo)  // NOLINT
+{
+    // A worker's ids come from a range leased it once. Its pool goes on
+    // giving ids above that range, and the worker reads those strings at
+    // its next job: an id of the old range for a string built on one of
+    // them would be below what it refers to, which a table cannot be read
+    // back with. The rest of the range is let go and another asked for.
+    auto worker = workerOf(*Hasher(), 16);
+    auto lease = worker->lease();
+    ASSERT_TRUE(lease);
+    int asked = 0;
+    bool stale = false;
+    lease->more = [&](long& first, long& count) {
+        ++asked;
+        stale = lease->stale;
+        count = 16;
+        first = Hasher()->reserveBlock(count);
+        return first > 0;
+    };
+    auto first = worker->getID("W1");
+    EXPECT_EQ(asked, 0);
+    auto later = Hasher()->getID("later");
+    ASSERT_GT(later.value(), first.value());
+    // Nothing above it read yet: the range goes on
+    auto second = worker->getID("W2");
+    EXPECT_EQ(second.value(), first.value() + 1);
+    EXPECT_EQ(asked, 0);
+    // The pool's strings read, as at a move
+    worker->insertRows(Hasher()->rows());
+    auto built = worker->getID(Data::MappedName("Face1;:M;CUT"),
+                               QVector<App::StringIDRef> {worker->getID("later")});
+    EXPECT_EQ(asked, 1);
+    EXPECT_TRUE(stale);
+    EXPECT_FALSE(lease->stale);
+    EXPECT_EQ(lease->dropped, 1);
+    EXPECT_GT(built.value(), later.value());
+    for (const auto& ref : built.relatedIDs()) {
+        EXPECT_LT(ref.value(), built.value());
+    }
+    // And on from there, nothing asked
+    EXPECT_GT(worker->getID("W3").value(), built.value());
+    EXPECT_EQ(asked, 1);
+}
+
+TEST_F(StringHasherTest, compactLetsGoTheOtherIdsNothingKeptUses)  // NOLINT
+{
+    Base::Reference<App::StringHasher> here(new App::StringHasher);
+    Base::Reference<App::StringHasher> worker(new App::StringHasher);
+    here->setContentIds(true);
+    worker->setContentIds(true);
+    Built mine = buildNames(*here, 0);
+    worker->reserveBlock(1000);
+    const Built theirs = buildNames(*worker, 0);
+    ASSERT_TRUE(here->takeRows(worker->rows()));
+    const long face = mine.face.value();
+    const long edge = mine.edge.value();
+    const long otherFace = theirs.face.value();
+    const long otherEdge = theirs.edge.value();
+    ASSERT_EQ(here->aliases().count(otherFace), 1u);
+
+    // Used by what memory does not hold (a value of the log) under the
+    // other id of the face: that id stays, the others go, their strings
+    // staying while a reference holds them
+    auto dropped = here->compact([otherFace](long id) { return id == otherFace; });
+    EXPECT_EQ(here->aliases().size(), 1u);
+    EXPECT_TRUE(here->hasID(otherFace));
+    EXPECT_FALSE(here->hasID(otherEdge));
+    EXPECT_NE(std::find(dropped.begin(), dropped.end(), otherEdge), dropped.end());
+    EXPECT_EQ(std::find(dropped.begin(), dropped.end(), otherFace), dropped.end());
+    EXPECT_TRUE(here->hasID(face));
+
+    // No reference left: the string stays for its other id's sake, and
+    // what it is built from with it
+    mine = Built();
+    dropped = here->compact([otherFace](long id) { return id == otherFace; });
+    EXPECT_TRUE(here->hasID(face));
+    EXPECT_TRUE(here->hasID(edge));
+    EXPECT_EQ(here->getID(otherFace).value(), face);
+
+    // Nothing uses it: the string and its other id go together
+    dropped = here->compact();
+    EXPECT_FALSE(here->hasID(face));
+    EXPECT_FALSE(here->hasID(otherFace));
+    EXPECT_TRUE(here->aliases().empty());
+    EXPECT_NE(std::find(dropped.begin(), dropped.end(), otherFace), dropped.end());
+    EXPECT_NE(std::find(dropped.begin(), dropped.end(), face), dropped.end());
 }

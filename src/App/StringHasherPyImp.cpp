@@ -106,6 +106,22 @@ PyObject* StringHasherPy::duplicates(PyObject* args) const
     PY_CATCH
 }
 
+PyObject* StringHasherPy::aliases(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        Py::Dict out;
+        for (const auto& v : getStringHasherPtr()->aliases()) {
+            out.setItem(Py::Long(v.first), Py::Long(v.second));
+        }
+        return Py::new_reference_to(out);
+    }
+    PY_CATCH
+}
+
 PyObject* StringHasherPy::getID(PyObject *args)
 {
     long id;

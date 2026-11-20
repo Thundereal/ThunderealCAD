@@ -17,7 +17,10 @@ tip feature: (Body, "Hole.FaceN"). What is checked:
     them hidden;
   - in PartDesign the PMI tool bar is not offered until the set is made
     active (a double-click), and goes when it is let go;
-  - undo takes the last annotation away.
+  - undo takes the last annotation away;
+  - in PartDesign, a fresh Body's first annotation is made from the Part
+    Design menu's PMI submenu: the Body gets its set, made active, and the
+    tool bar comes.
 
   scripts/gui-test.sh tests/gui/pmi-workbench.py /tmp/pmi-workbench
 """
@@ -109,6 +112,18 @@ def toolbar():
 def offered():
     tb = toolbar()
     return tb is not None and tb.isVisible() and tb.toggleViewAction().isVisible()
+
+
+def pmi_submenu():
+    """The commands of the Part Design menu's PMI submenu"""
+    for menu in Gui.getMainWindow().menuBar().findChildren(QtWidgets.QMenu):
+        if menu.title().replace("&", "") != "Part Design":
+            continue
+        for act in menu.actions():
+            sub = act.menu()
+            if sub is not None and act.text().replace("&", "") == "PMI":
+                return [a.objectName() for a in sub.actions()]
+    return []
 
 
 def run():
@@ -262,6 +277,37 @@ def run():
         pump(20)
         after = len([o for o in doc.Objects if o.TypeId == "PMI::Dimension"])
         check("undo takes the last annotation away", after == before - 1, (before, after))
+
+        # A Body's first annotation made in PartDesign: from the Part Design
+        # menu's PMI submenu, which brings the tool bar
+        doc2 = App.newDocument("PMIFirstSet")
+        body2 = doc2.addObject("PartDesign::Body", "Body")
+        box2 = body2.newObjectAt("PartDesign::AdditiveBox", "Box")
+        box2.Length, box2.Width, box2.Height = 30, 20, 10
+        doc2.recompute()
+        pump(30)
+        view2 = Gui.ActiveDocument.ActiveView
+        items = pmi_submenu()
+        check("the Part Design menu has a PMI submenu", items[:4] == [
+            "PMI_Datum", "PMI_GeometricTolerance", "PMI_Dimension", "PMI_Note"], items)
+        check("with no set, the tool bar is not offered", not offered())
+        pick(doc2, body2, box2, V(5, 5, 0))
+        Gui.runCommand("PMI_Datum")
+        pump(30)
+        sets = [o for o in doc2.Objects if o.TypeId == "PMI::AnnotationSet"]
+        datum = newest(doc2, "PMI::Datum")
+        check("a datum from it gives the Body its set", len(sets) == 1 and datum is not None
+              and datum.Letter == "A" and sets[0] in body2.Group, [o.Name for o in sets])
+        check("the set is made active and the tool bar comes",
+              sets and view2.getActiveObject("pmi") == sets[0] and offered(),
+              view2.getActiveObject("pmi"))
+        sets[0].ViewObject.doubleClicked()
+        pump(30)
+        pick(doc2, body2, box2, V(5, 5, 10))
+        Gui.runCommand("PMI_Note")
+        pump(30)
+        check("let go, the next annotation made here makes it active again",
+              view2.getActiveObject("pmi") == sets[0], view2.getActiveObject("pmi"))
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

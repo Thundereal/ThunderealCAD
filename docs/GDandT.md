@@ -91,7 +91,10 @@ module is -- which lives outside PartDesign and still works inside a Body [B4]:
     Surface's tool bars are offered in PartDesign while a surface group is active
     (`Surface/Gui/AppSurfaceGui.cpp:102-111`): the PMI tool bars appear while a Body's
     annotation set is active or a PMI object is in edit, so annotating a Body never means
-    leaving PartDesign.
+    leaving PartDesign. The way in is sheet metal's (docs/SheetMetal.md sec 8.1): the Part
+    Design menu's **PMI** submenu always holds Datum, Geometric tolerance, Dimension and
+    Note. An annotation made in PartDesign with no set active makes its set active, so the
+    first one -- which makes the Body's set -- brings the tool bar.
 
 Names follow the upstream proposal (decision 1): its `PMI_AnnotationSet` is our
 `PMI::AnnotationSet`, and so on; section 12 maps every part of it.
@@ -788,8 +791,9 @@ does, on a part whose features carry placements of their own. It found:
 
 Still open from the same pictures: a planar callout seen from behind reads mirrored (a datum
 on the end the standard isometric hides); FreeCAD's Bottom view turns a bottom face's
-callouts upside down (it flips y). In PartDesign a Body's first PMI set cannot be made: the
-tool bar is offered once a set exists and is active.
+callouts upside down (it flips y). In PartDesign a Body's first PMI set could not be made: the
+tool bar was offered only once a set existed and was active. Closed: the Part Design menu's PMI
+submenu, and an annotation made there making its set active (sec 3; `GuiPMIWorkbench_tests_run`).
 
 ## 11. Decisions (made 2026-11-19)
 

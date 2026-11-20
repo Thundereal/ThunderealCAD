@@ -52,8 +52,11 @@
 #include <Gui/MDIView.h>
 #include <Gui/Selection/Selection.h>
 #include <Gui/Selection/SelectionObject.h>
+#include <Gui/ToolContext.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
+#include <Gui/Workbench.h>
+#include <Gui/WorkbenchManager.h>
 #include <Mod/Part/App/BodyBase.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/PMI/App/Annotation.h>
@@ -201,6 +204,26 @@ void makeFeature(Gui::Command* cmd, const std::vector<Pick>& picks, const char* 
     }
 }
 
+/// Made in a workbench that takes the PMI tool bar as a context
+/// (PartDesign) with no set active in the view: the set, _set, made active,
+/// so the tool bar comes -- the first annotation of a Body made from the
+/// Part Design menu's PMI submenu brings the rest (docs/GDandT.md sec 3)
+void offerTools(Gui::Command* cmd)
+{
+    auto spec = Gui::ToolContext::find("PMI");
+    auto wb = Gui::WorkbenchManager::instance()->active();
+    auto gdoc = cmd->getActiveGuiDocument();
+    auto view = gdoc ? qobject_cast<Gui::View3DInventor*>(gdoc->getActiveView()) : nullptr;
+    if (!spec || !wb || !view
+        || std::find(spec->workbenches.begin(), spec->workbenches.end(), wb->name())
+            == spec->workbenches.end()
+        || view->getActiveObject<App::DocumentObject*>(PMIGui::PMIKEY)) {
+        return;
+    }
+    cmd->doCommand(Gui::Command::Gui, "Gui.ActiveDocument.ActiveView.setActiveObject('%s', _set)",
+                   PMIGui::PMIKEY);
+}
+
 void addToSet(Gui::Command* cmd, const char* type, const char* name)
 {
     cmd->doCommand(Gui::Command::Doc, "_obj = _set.Document.addObject('PMI::%s', '%s')", type,
@@ -222,6 +245,7 @@ void finish(Gui::Command* cmd)
     cmd->doCommand(Gui::Command::Gui, "Gui.Selection.clearSelection()");
     cmd->doCommand(Gui::Command::Gui, "Gui.Selection.addSelection(_obj)");
     cmd->commitCommand();
+    offerTools(cmd);
 }
 
 bool haveDocument(Gui::Command* cmd)

@@ -133,12 +133,17 @@ def run():
     settle(lambda: section.getVisibleEdges() and "Touched" not in section.State, 60)
     settle(seconds=2.0)
     cut = section.CutHatchLines
-    fast = min(redraw(section) for _ in range(3))
+    # Its own: `slow` stays the hatch's trim, what the redraws below of the
+    # view are measured against (a section's trim of its cut faces is a
+    # third of it, which a redraw of the whole view came near)
+    sectionFast = min(redraw(section) for _ in range(3))
     section.HatchScale = section.HatchScale * 0.5   # not recomputed
-    slow = redraw(section)
-    note("  section: cut hatch lines %s, redraw %.3f s stored, %.3f s trimming" % (cut, fast, slow))
+    sectionSlow = redraw(section)
+    note("  section: cut hatch lines %s, redraw %.3f s stored, %.3f s trimming"
+         % (cut, sectionFast, sectionSlow))
     check("a section keeps its cut faces' trimmed lines and draws from them",
-          cut[0] > 0 and cut[1] > 0 and fast < slow, "%s %.3f %.3f" % (cut, fast, slow))
+          cut[0] > 0 and cut[1] > 0 and sectionFast < sectionSlow,
+          "%s %.3f %.3f" % (cut, sectionFast, sectionSlow))
     section.HatchScale = section.HatchScale * 2.0
     doc.recompute()
     settle(lambda: "Touched" not in section.State, 60)
@@ -160,7 +165,8 @@ def run():
     names = touched(doc)
     check("undo puts back the lines of scale 1 with nothing to recompute",
           hatch.TrimmedLines == before and not names, "%s %s" % (hatch.TrimmedLines, names))
-    check("and draws from them", redraw(view) * 5 < slow, "")
+    t = redraw(view)
+    check("and draws from them", t * 5 < slow, "%.3f vs %.3f" % (t, slow))
     doc.redo()
     settle(seconds=0.5)
     names = touched(doc)

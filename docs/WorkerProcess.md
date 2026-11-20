@@ -1826,6 +1826,20 @@ anyway.
   15, Hole004 301 and 300. A worker gives what a recompute here gives at
   the same point. Scanner is a schema 4 file, and the first recompute
   probably still carries names from the old element-map version.
+  **Explained 2026-11-20, not a fault:** each name that goes is a wire's
+  that another object refers to -- Sketch046's Wire1 and Wire2 (the
+  profiles of Pad039 and Pad040), Sketch047's Wire2 (Pocket023), Hole004's
+  Wire3 (Binder033), Binder032's Wire1. A wire is not named when its shape
+  is made: `Part::Feature::getExportElementName()` makes its name from its
+  edges' the first time something asks for it, and keeps it in the map.
+  The first recompute after the open changes the element-map version, so
+  every reference is looked up again (`GeoFeature::updateElementReference`
+  with `reset`), which asks; the next recompute makes the shape again and
+  nothing asks. Asked after it, each wire gives the very name the first
+  pass kept, the objects using them are valid after both, and every
+  "auto change element reference" is the first pass's (95), none the
+  second's. A third recompute is the second. The same on the copy that
+  spells digests, where it is these four objects on its first recompute.
 - Refine and the display mesh: done in sec 20.
 
 Tests: `TestWorkerRecompute.testWhatIsMarkedHereIsMadeThere`. GUI test

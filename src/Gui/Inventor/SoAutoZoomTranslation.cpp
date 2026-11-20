@@ -137,12 +137,16 @@ void SoAutoZoomTranslation::flip(SbMatrix& m, const SbMatrix& v) const
         n.setValue(m[2][0], m[2][1], m[2][2]);
     }
     const float ndotz = n[0]*v[0][2] + n[1]*v[1][2] + n[2]*v[2][2];
-    const bool backfacing = ndotz < 0.f;
-    bool doFlip = backfacing ? (xfactor*yfactor > 0.f) : (xfactor*yfactor < 0.f);
-    if (det < 0.f)
-        doFlip = !doFlip;
-    if (doFlip)
-        xfactor = -xfactor;
+    // Seen edge on, the normal lies in the screen and which side faces the
+    // camera is float noise: the projections alone decide then
+    if (ndotz*ndotz > 1e-6f*n.sqrLength()) {
+        const bool backfacing = ndotz < 0.f;
+        bool doFlip = backfacing ? (xfactor*yfactor > 0.f) : (xfactor*yfactor < 0.f);
+        if (det < 0.f)
+            doFlip = !doFlip;
+        if (doFlip)
+            xfactor = -xfactor;
+    }
     for (int k = 0; k < 3; ++k) {
         if (xfactor < 0.f)
             m[0][k] = -m[0][k];

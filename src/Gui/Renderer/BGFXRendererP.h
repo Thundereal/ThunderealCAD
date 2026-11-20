@@ -4436,13 +4436,18 @@ inline void setDrawTransform(const Render::DrawCall &draw,
                 if (N[0] == 0.f && N[1] == 0.f && N[2] == 0.f)
                     N = m + 8;
                 const float ndotz = N[0]*V[2] + N[1]*V[6] + N[2]*V[10];
-                const bool backfacing = ndotz < 0.f;
-                bool flip = backfacing ? (xfactor*yfactor > 0.f)
-                                       : (xfactor*yfactor < 0.f);
-                if (det < 0.f)
-                    flip = !flip;
-                if (flip)
-                    xfactor = -xfactor;
+                // Seen edge on, the normal lies in the screen and which side
+                // faces the camera is float noise: the projections decide
+                const float nn = N[0]*N[0] + N[1]*N[1] + N[2]*N[2];
+                if (ndotz*ndotz > 1e-6f*nn) {
+                    const bool backfacing = ndotz < 0.f;
+                    bool flip = backfacing ? (xfactor*yfactor > 0.f)
+                                           : (xfactor*yfactor < 0.f);
+                    if (det < 0.f)
+                        flip = !flip;
+                    if (flip)
+                        xfactor = -xfactor;
+                }
                 if (xfactor < 0.f) { m[0] = -m[0]; m[1] = -m[1]; m[2] = -m[2]; }
                 if (yfactor < 0.f) { m[4] = -m[4]; m[5] = -m[5]; m[6] = -m[6]; }
             }

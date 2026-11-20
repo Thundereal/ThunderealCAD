@@ -336,7 +336,9 @@ def run():
 
         # Read upright from every side: a frame, a datum's box, a dimension's
         # value turn as a sketch's datum label does -- mirrored back from
-        # behind, turned the right way up from below
+        # behind, turned the right way up from below. The camera turned at
+        # once: an animated turn under load is still halfway when read
+        view.setAnimationEnabled(False)
         sides = {}
         for side in ("Front", "Rear", "Top", "Bottom", "Left", "Right", "Isometric"):
             getattr(view, "view" + side)()

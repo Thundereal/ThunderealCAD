@@ -4411,45 +4411,31 @@ inline void setDrawTransform(const Render::DrawCall &draw,
                 row[3] = 0.0f;
             }
             if (entry.datumFlip && viewMatrix) {
-                // Keep the glyph in its dimension plane but mirror its local
-                // X/Y so the number reads upright from the current viewpoint —
-                // a per-frame port of SoDatumLabel::GLRender's projected-axis +
-                // backfacing test. Row 0/1 of m are the glyph's local X/Y axes
-                // in world space; project them onto the view axes to see which
-                // way they point on screen (row-vector: dir_view = dir_world*V).
+                // Keep the glyph in its plane but mirror its local X/Y so it
+                // reads upright from the current viewpoint, per frame. Rows 0/1
+                // of m are its local X/Y; dir_view = dir_world*V.
+                // A copy of SoAutoZoomTranslation::datumFlips (the renderer
+                // does not link Gui): the screen decides. X reads to the right,
+                // or upwards on end (from 80 deg below the screen's x to 100
+                // above: the cut off the vertical); Y then lies to its left on
+                // the screen, so the glyph is never mirrored. Edge on, Y just
+                // points up.
                 const float *V = viewMatrix;
-                const float projX = m[0]*V[0] + m[1]*V[4] + m[2]*V[8];   // screen-x of local +X
-                const float projY = m[4]*V[1] + m[5]*V[5] + m[6]*V[9];   // screen-y of local +Y
-                // reflection in the model matrix inverts the decision
-                const float det =
-                    m[0]*(m[5]*m[10] - m[6]*m[9])
-                  - m[1]*(m[4]*m[10] - m[6]*m[8])
-                  + m[2]*(m[4]*m[9]  - m[5]*m[8]);
-                const float margin = det < 0.f ? -1e-3f : 1e-3f;
-                float xfactor = (-2.0f*projX < margin) ? 0.5f : -0.5f;
-                float yfactor = (-2.0f*projY < margin) ? 0.5f : -0.5f;
-                // backfacing: does the plane normal point away from the camera?
-                // camera "toward viewer" world axis = view-matrix z column.
-                // A zero normal: the entry's own local Z (row 2), turned by
-                // the placements above it (SoAutoZoomTranslation::flipNormal)
-                const float *N = entry.normal;
-                if (N[0] == 0.f && N[1] == 0.f && N[2] == 0.f)
-                    N = m + 8;
-                const float ndotz = N[0]*V[2] + N[1]*V[6] + N[2]*V[10];
-                // Seen edge on, the normal lies in the screen and which side
-                // faces the camera is float noise: the projections decide
-                const float nn = N[0]*N[0] + N[1]*N[1] + N[2]*N[2];
-                if (ndotz*ndotz > 1e-6f*nn) {
-                    const bool backfacing = ndotz < 0.f;
-                    bool flip = backfacing ? (xfactor*yfactor > 0.f)
-                                           : (xfactor*yfactor < 0.f);
-                    if (det < 0.f)
-                        flip = !flip;
-                    if (flip)
-                        xfactor = -xfactor;
-                }
-                if (xfactor < 0.f) { m[0] = -m[0]; m[1] = -m[1]; m[2] = -m[2]; }
-                if (yfactor < 0.f) { m[4] = -m[4]; m[5] = -m[5]; m[6] = -m[6]; }
+                const float x0 = m[0]*V[0] + m[1]*V[4] + m[2]*V[8];
+                const float x1 = m[0]*V[1] + m[1]*V[5] + m[2]*V[9];
+                const float y0 = m[4]*V[0] + m[5]*V[4] + m[6]*V[8];
+                const float y1 = m[4]*V[1] + m[5]*V[5] + m[6]*V[9];
+                const float lx = std::sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
+                const float ly = std::sqrt(m[4]*m[4] + m[5]*m[5] + m[6]*m[6]);
+                const float ey = 1e-3f*ly;
+                const bool flipX = x0*0.98480775f + x1*0.17364818f < 0.f;
+                const float sx0 = flipX ? -x0 : x0, sx1 = flipX ? -x1 : x1;
+                const float cross = sx0*y1 - sx1*y0;
+                const bool flipY = std::fabs(cross) > 1e-3f*lx*ly
+                    ? cross < 0.f
+                    : (y1 < -ey || (y1 <= ey && y0 > ey));
+                if (flipX) { m[0] = -m[0]; m[1] = -m[1]; m[2] = -m[2]; }
+                if (flipY) { m[4] = -m[4]; m[5] = -m[5]; m[6] = -m[6]; }
             }
         }
         m[15] = 1.0f;  // the translation row m[12..14] stays

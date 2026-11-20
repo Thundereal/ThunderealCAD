@@ -109,9 +109,10 @@ def blue(path):
 
 def upright_parts(view):
     """For each part of a callout that turns to read upright, as the view
-    draws it now: which way its local X and Y point on the screen. A Coin
-    callback pass through the viewer's scene, its camera and all, runs the
-    turn the way a render and a pick do"""
+    draws it now: which way its local X and Y point on the screen (x and y
+    of each, unit length in the model). A Coin callback pass through the
+    viewer's scene, its camera and all, runs the turn the way a render and a
+    pick do"""
     from pivy import coin
     found = []
 
@@ -125,8 +126,12 @@ def upright_parts(view):
                 == "SoAutoZoomTranslation"):
             m = action.getModelMatrix().getValue()
             v = action.getViewingMatrix().getValue()
-            found.append((sum(m[0][k] * v[k][0] for k in range(3)),
-                          sum(m[1][k] * v[k][1] for k in range(3))))
+
+            def screen(row):
+                n = sum(m[row][k] ** 2 for k in range(3)) ** 0.5 or 1.0
+                return tuple(sum(m[row][k] * v[k][c] for k in range(3)) / n for c in (0, 1))
+
+            found.append(screen(0) + screen(1))
         return coin.SoCallbackAction.CONTINUE
 
     manager = view.getViewer().getSoRenderManager()
@@ -134,6 +139,17 @@ def upright_parts(view):
     action.addPreCallback(coin.SoIndexedLineSet.getClassTypeId(), cb, None)
     action.apply(manager.getSceneGraph())
     return found
+
+
+def reads_wrong(p):
+    """A part, as upright_parts gives it, that reads backwards: its X not to
+    the right nor up (80 deg below the screen's x to 100 above), or its glyphs
+    mirrored, or seen edge on its Y pointing down"""
+    x0, x1, y0, y1 = p
+    if x0 * 0.98480775 + x1 * 0.17364818 < -1e-4:
+        return True
+    cross = x0 * y1 - x1 * y0
+    return cross < -1e-3 if abs(cross) > 1e-3 else y1 < -1e-3
 
 
 def panel():
@@ -344,7 +360,7 @@ def run():
             getattr(view, "view" + side)()
             pump(10)
             parts = upright_parts(view)
-            wrong = [p for p in parts if p[0] < -1e-6 or p[1] < -1e-6]
+            wrong = [p for p in parts if reads_wrong(p)]
             sides[side] = (len(parts), len(wrong))
         check("callouts read upright from every side, from behind and below too",
               all(n > 5 and not w for n, w in sides.values()), sides)
@@ -366,7 +382,7 @@ def run():
             getattr(view, "view" + side)()
             pump(10)
             parts = upright_parts(view)
-            unturned[side] = len([p for p in parts if p[0] < -1e-6 or p[1] < -1e-6])
+            unturned[side] = len([p for p in parts if reads_wrong(p)])
         for t in turns:
             t.getField("datumFlip").set("TRUE")
         check("unturned, from the rear and from below some would read backwards",

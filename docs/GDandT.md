@@ -861,10 +861,13 @@ datum label does, per frame, in its own plane:
 - `datumFlip` is now done by Coin itself (`SoAutoZoomTranslation::doAction`), as bgfx did
   it: a pick, the GL render cache that replays the node and a direct Coin render agree. A
   zero `flipNormal` means the node's own local Z, so a Body's placement turns it too.
-  Seen exactly edge on, the normal lies in the screen and the backfacing test that settles
-  doubtful projections read float noise, undoing a mirror the projections asked for (from
-  the Rear, 6 of 9 callouts on the top face): it applies now only when the normal decides,
-  in Coin and bgfx alike (`84e08497a4`).
+  The decision is now made from the screen alone (`SoAutoZoomTranslation::datumFlips`, a
+  copy in bgfx): X reads to the right, or upwards on end -- anywhere from 80 deg below the
+  screen's x to 100 above, so the cut lies off the vertical where views and text often sit
+  exactly; then Y lies to the left of X on the screen, never mirrored; edge on, Y points up.
+  The old test (projected axes, settled by a backfacing test on the normal) read float noise
+  seen edge on and undid the mirror (from the Rear, 6 of 9 callouts on the top face), and
+  left a vertical value reading downwards from behind.
 - The render cache's box for a draw under such a node (`SoFCRenderCache::drawBoundingBox`)
   is carried through the node's matrix, turned every way it may turn: a fit framed the
   frames' strokes at the origin, where their local frame is.

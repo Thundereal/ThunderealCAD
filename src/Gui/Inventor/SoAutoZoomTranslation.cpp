@@ -22,6 +22,8 @@
 
 #include "PreCompiled.h"
 
+#include <cmath>
+
 #ifndef _PreComp_
 # include <Inventor/actions/SoGetMatrixAction.h>
 # include <Inventor/actions/SoGLRenderAction.h>
@@ -117,42 +119,44 @@ void SoAutoZoomTranslation::doAction(SoAction * action)
 
 void SoAutoZoomTranslation::flip(SbMatrix& m, const SbMatrix& v) const
 {
-    // The backend's per-frame test (BGFXRendererP.h, datumFlip), so Coin, the
-    // GL render cache that replays this node and a pick all agree: project
-    // the local X and Y (rows 0 and 1, row vectors) onto the view's x and y,
-    // and mirror whichever points left or down. Backfacing settles the cases
-    // the projection leaves in doubt, edge on.
-    const float projX = m[0][0]*v[0][0] + m[0][1]*v[1][0] + m[0][2]*v[2][0];
-    const float projY = m[1][0]*v[0][1] + m[1][1]*v[1][1] + m[1][2]*v[2][1];
-    const float det = m[0][0]*(m[1][1]*m[2][2] - m[1][2]*m[2][1])
-                    - m[0][1]*(m[1][0]*m[2][2] - m[1][2]*m[2][0])
-                    + m[0][2]*(m[1][0]*m[2][1] - m[1][1]*m[2][0]);
-    const float margin = det < 0.f ? -1e-3f : 1e-3f;
-    float xfactor = (-2.0f*projX < margin) ? 0.5f : -0.5f;
-    float yfactor = (-2.0f*projY < margin) ? 0.5f : -0.5f;
-    // A zero normal: the node's own local Z, which a placement above it
-    // turns with the rest
-    SbVec3f n = flipNormal.getValue();
-    if (n.sqrLength() == 0.f) {
-        n.setValue(m[2][0], m[2][1], m[2][2]);
+    // What the screen shows decides, as the backend does (BGFXRendererP.h,
+    // datumFlip), so Coin, the GL render cache that replays this node and a
+    // pick all agree. Rows 0 and 1 of m are the local X and Y (row vectors);
+    // their screen directions are their products with the view's columns.
+    float x[2], y[2];
+    for (int c = 0; c < 2; ++c) {
+        x[c] = m[0][0]*v[0][c] + m[0][1]*v[1][c] + m[0][2]*v[2][c];
+        y[c] = m[1][0]*v[0][c] + m[1][1]*v[1][c] + m[1][2]*v[2][c];
     }
-    const float ndotz = n[0]*v[0][2] + n[1]*v[1][2] + n[2]*v[2][2];
-    // Seen edge on, the normal lies in the screen and which side faces the
-    // camera is float noise: the projections alone decide then
-    if (ndotz*ndotz > 1e-6f*n.sqrLength()) {
-        const bool backfacing = ndotz < 0.f;
-        bool doFlip = backfacing ? (xfactor*yfactor > 0.f) : (xfactor*yfactor < 0.f);
-        if (det < 0.f)
-            doFlip = !doFlip;
-        if (doFlip)
-            xfactor = -xfactor;
-    }
+    const SbVec3f lx(m[0][0], m[0][1], m[0][2]);
+    const SbVec3f ly(m[1][0], m[1][1], m[1][2]);
+    bool flipX = false, flipY = false;
+    datumFlips(x, y, lx.length(), ly.length(), flipX, flipY);
     for (int k = 0; k < 3; ++k) {
-        if (xfactor < 0.f)
+        if (flipX)
             m[0][k] = -m[0][k];
-        if (yfactor < 0.f)
+        if (flipY)
             m[1][k] = -m[1][k];
     }
+}
+
+void SoAutoZoomTranslation::datumFlips(const float x[2], const float y[2], float lx, float ly,
+                                       bool& flipX, bool& flipY)
+{
+    // Text reads along X: to the right, or upwards when it stands on end --
+    // X anywhere from 80 deg below the screen's x to 100 deg above it. The
+    // cut lies off the vertical, where views and the text often sit exactly
+    flipX = x[0]*0.98480775f + x[1]*0.17364818f < 0.f;
+    const float sx0 = flipX ? -x[0] : x[0];
+    const float sx1 = flipX ? -x[1] : x[1];
+    // and is not mirrored: Y to the left of X on the screen. Seen edge on X
+    // and Y lie on one line and Y just points up (or left when level)
+    const float cross = sx0*y[1] - sx1*y[0];
+    const float ey = 1e-3f*ly;
+    if (std::fabs(cross) > 1e-3f*lx*ly)
+        flipY = cross < 0.f;
+    else
+        flipY = y[1] < -ey || (y[1] <= ey && y[0] > ey);
 }
 
 // set the auto scale factor.

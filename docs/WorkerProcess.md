@@ -1883,3 +1883,37 @@ written before, read); `TestWorkerRecompute.
 testAWorkersLaterStringsAreSavedAndReadBack` (the fillet, the box made
 here and the cut, saved and reopened: every id the cut's names spell is
 in the table).
+
+## 33. A script that ends with work on the thread pool (2026-11-20)
+
+Seen while measuring sec 32, not the workers': `ThunderealCmd` died at
+exit (signal 11 or 6) when a script ended while TechDraw was still
+finding a drawing's hidden lines or faces. 8 of 10 runs of scanner
+reopened by a script that then ended.
+
+- **Why.** A view's projection, its faces, a section's cut and a detail
+  run on Qt's shared thread pool, and the projection reads the parameters
+  when it is done (`DrawUtil::isCrazy`). `Application::destruct()` let go
+  of the parameters, the console and the interpreter, and the statics'
+  destructors then freed OpenCASCADE's types, with that work still
+  running: the crash was in `ParameterGrp::GetGroup()` on a pool thread,
+  or in `Standard_Type`'s destructor. The GUI was not hit: Qt waits for
+  the pool and deletes it as the `QCoreApplication` goes, which is before
+  `destruct()`. The console has no `QCoreApplication`.
+- **Fix.** `destruct()` first waits for what the pool runs (at most
+  120 s, then a warning), when there is a pool left: in the GUI there is
+  none, and asking for it gave null -- the first version called it and
+  crashed every GUI exit. `App::isShuttingDown()` (App/ShuttingDown.h)
+  is set first: TechDraw's tasks that are queued and not yet begun end at
+  once instead of doing their work for no one. What runs cannot be
+  stopped.
+- **Measured**: the same 10 runs, all exit 0. The GUI tests of TechDraw
+  and the workers exit cleanly. `td-stored-hatch` fails one or two of its
+  claims with and without this, so that is not this change.
+
+Test: `Document.UndoRedoCases.testAScriptEndingWithThreadPoolWorkWaitsForIt`,
+a script that queues a task on the pool which ends after the script does;
+the task finishes and the process exits 0. Without the wait the process
+ended in 0.37 s and the task never finished. A TechDraw script did not make
+the crash happen reliably enough to test with: a console recompute waits
+for a view's hidden lines, and only its faces are left running after it.

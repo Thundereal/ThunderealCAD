@@ -1837,3 +1837,49 @@ execute() takes 1 s.
 - A sketch's distance changed, then its edit left: back in 0.1 s, the
   sketch made here, and the Pad and the feature by the worker.
 - With nothing long after it, OK makes everything here at once.
+
+## 32. A worker's ids stay above what it has read (2026-11-20)
+
+Found while measuring sec 15 of docs/StringTableContentIds.md, and wrong
+since sec 15 here: a file saved after a worker's second job could come
+back with "Invalid string id reference" and its table cut short.
+
+- **Why.** A worker is leased a range of ids once (sec 15), 16,384 of
+  them, and uses it over all its jobs. This process goes on giving ids
+  above that range. At its next job the worker reads those strings (a
+  move), and a string it then builds on one of them gets the next id of
+  its old range: below the id it refers to. A table is saved in id order
+  and read row by row, each reference looked up as it is read
+  (`restoreStreamNew`); `insertRows` and `merge` did the same. A fillet
+  recomputed by a worker, a second filleted box made here, their cut made
+  by the worker: 7 strings of the cut's names referred to a higher id, and
+  the file reopened with the error, 61 of 103 strings read.
+- **The range is let go.** `StringHasher::nextID()`: when the next id of
+  the lease is not above every id the table holds, what is left of the
+  range is dropped (`StringIDLease::drop()`, `stale`) and another asked
+  for. The pool answers a request that says `stale` with a small range
+  (1,024, or `IdBlock` when that is less; the doubling of sec 15 is for a
+  job that ran out), cut from above everything it has given. So a new
+  string's id is above every string it can be built on, in a worker as
+  here. A worker whose table took in nothing higher keeps its range.
+- **What holds a reference forward is still read and written.** For the
+  files and stores written before this:
+  - `restoreStreamNew` takes a row whose reference is not there yet once
+    it is; "Invalid string id reference" is for one that never comes.
+  - `insertRows`, `takeRows` and `merge` likewise: a row waits for the one
+    it refers to when both come together.
+  - `saveStream` writes what a string refers to ahead of it when that id is
+    higher, and such rows with their id and references in full: the table
+    is then one every build reads, older ones too.
+
+The same three objects now: no string referring to a higher id, 2 leases
+(the second the small one), the file reopened whole.
+
+Tests: `StringHasherTest.aLeaseBelowAnIdTakenInSinceIsLetGo`,
+`rowsReferringToOneFurtherOnComeIn`,
+`aStringBuiltOnOneOfAHigherIdIsSavedAndReadBack`,
+`aTableSavedInIdOrderWithAReferenceForwardIsRead` (a table as it was
+written before, read); `TestWorkerRecompute.
+testAWorkersLaterStringsAreSavedAndReadBack` (the fillet, the box made
+here and the cut, saved and reopened: every id the cut's names spell is
+in the table).

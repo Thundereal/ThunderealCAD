@@ -504,3 +504,60 @@ recompute given to a worker: the table keeps its strings and every id the
 cut's and the binder's names spell is in it. Without the fix the table
 went from 8 strings to 3.
 
+
+## 15. One content held once: the other ids of a string (2026-11-20)
+
+Asked 2026-11-20: is the counted id still needed, and can it go. Kept: it
+is the table's key in every saved list and in the log, and it is the age
+names are ordered by (sec 10), which a digest cannot say. What it left
+behind in a table that spells digests was one content under two ids
+(sec 10: "a duplicate that costs memory, not a reference"), and that was
+measured first.
+
+- **Where it happens.** Not in a recompute by a worker: scanner (the copy
+  spelling digests, 21,227 strings), everything recomputed here and then by
+  a worker, eight edits recomputed by a worker, objects made here while a
+  worker ran -- no content under two ids at any point, nor after a save and
+  a reopen. In the Animation, when two workers each make the frames whose
+  topology the version never had: a plate with 64 holes, its height keyed
+  past the tools so the holes go blind, 61 frames by two workers -- each
+  gave the 256 new strings an id of its own lease, and the table held 835
+  strings, 256 of them twice. A save wrote both and a reopen read both.
+- **Now: the second id is another id of the entry.** In a table that
+  spells digests, a row coming in (`insertRows`, so `takeRows` and the
+  log's `loadStrings`; `merge`) whose content is held already adds no
+  entry. `insertOrAlias` finds the entry of the same digest and records
+  the id as another id of it (`aliases()`, Python `aliases()`): `getID(id)`
+  gives the entry, `hasID` says yes, and the id is never given again
+  (`lastID`). The same plate: 579 strings, 256 other ids.
+- **The entry takes the lower id.** The lower id is the older string, and
+  names are ordered by age (`ElementNameOrder`): `getIDBySpelling` gave the
+  lowest of the ids of one content before, and gives the entry's now. When
+  the row coming in has the lower id the entry is moved to it and its old
+  id becomes the other one; a reference held to the entry follows, being
+  the same object.
+- **As rows, every id.** `rows()` gives the other ids as rows of their own,
+  in id order, and `rowsOf()` gives a row under the id asked for: the log's
+  store, and a worker filled from it, read whatever was written under
+  either id. A table filled from those rows comes to the same entries and
+  the same other ids.
+- **A save writes the entry alone.** `saveStream` writes entries, under the
+  id each is held by. `compact()` -- a save's -- lets go the other ids that
+  nothing kept uses (`keep`, what the log's retained values name), and an
+  entry stays while one of its other ids is kept. A frame of the Animation
+  carries its rows and takes them in at every read, so its ids are read
+  again as other ids after that. The plate after a save: 582 strings, no
+  other id; reopened, the same.
+- **A table of counted ids is as it was**: there the id is the spelling,
+  two ids are two names, `takeRows` refuses and `insertRows` takes both.
+- **Whether a row is the string held** (`isRow`) is said by the entries its
+  ids name, not the numbers, and not by whether it is kept for good
+  (`Persistent`): an id may be another id of what the entry refers to.
+
+Tests (`StringHasherTest`, 74): `aContentComingInUnderAnotherIdIsHeldOnce`,
+`anEntryTakesTheLowerOfItsIds`,
+`theOtherIdsOfAStringGoAsRowsAndNotIntoASave`,
+`compactLetsGoTheOtherIdsNothingKeptUses`;
+`rowsOfAContentHeldUnderOtherIdsComeInSpelledAlike` now expects one entry.
+A table whose rows are not in the order their references need is
+docs/WorkerProcess.md sec 32.

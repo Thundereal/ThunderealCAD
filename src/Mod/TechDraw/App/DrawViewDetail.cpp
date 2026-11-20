@@ -56,6 +56,7 @@
 
 #include <App/Application.h>
 #include <App/Document.h>
+#include <App/ShuttingDown.h>
 #include <App/Transactions.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
@@ -323,6 +324,10 @@ void DrawViewDetail::detailExec(const TopoDS_Shape& shape, DrawViewPart* dvp, Dr
         waitingForDetail(true);
         m_detailWatcher->setFuture(QtConcurrent::run(
             [params, failure] {
+                if (App::isShuttingDown()) {
+                    params.progress->setCanceled(true);
+                    return;
+                }
                 try {
                     makeDetailShape(params);
                     return;

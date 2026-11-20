@@ -80,6 +80,7 @@
 #endif
 
 #include <App/Document.h>
+#include <App/ShuttingDown.h>
 #include <App/FileBlobManager.h>
 #include <App/Transactions.h>
 #include <Base/BoundBox.h>
@@ -624,6 +625,10 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
         waitingForCut(true);
         m_cutWatcher->setFuture(QtConcurrent::run(
             [params, failure] {
+                if (App::isShuttingDown()) {
+                    params.progress->setCanceled(true);
+                    return;
+                }
                 try {
                     doSectionCut(params);
                     return;

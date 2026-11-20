@@ -1580,6 +1580,51 @@ class UndoRedoCases(unittest.TestCase):
         self.assertIn(b"before the end", done.stdout)
         self.assertEqual(done.returncode, 0)
 
+    def testAScriptEndingWithThreadPoolWorkWaitsForIt(self):
+        # TechDraw finds a view's hidden lines and faces on the shared thread
+        # pool, and the work reads the parameters when it is done. A script
+        # that ended with such work running had the application let go of
+        # the parameters, the console and the interpreter under it: the
+        # process died in ParameterGrp::GetGroup(), or freeing OpenCASCADE's
+        # types in the statics' destructors (8 of 10 runs of a drawing
+        # reopened by a script that then ended, 2026-11-20). The exit waits
+        # for what the pool runs. A task that ends after the script is the
+        # case: without the wait it was let go of half done.
+        import subprocess
+
+        exe = consoleExe()
+        if not exe:
+            self.skipTest("no FreeCADCmd beside this build")
+        folder = tempfile.mkdtemp(prefix="fc-poolexit-")
+        script = os.path.join(folder, "script.py")
+        done = os.path.join(folder, "done.txt")
+        with open(script, "w") as f:
+            f.write(
+                "import time\n"
+                "import FreeCAD\n"
+                "from PySide import QtCore\n"
+                "class Late(QtCore.QRunnable):\n"
+                "    def run(self):\n"
+                "        time.sleep(1.0)\n"
+                "        group = FreeCAD.ParamGet('User parameter:BaseApp/Preferences/Document')\n"
+                "        group.GetBool('ContentStringIds', True)\n"
+                "        with open(%r, 'w') as out:\n"
+                "            out.write('done')\n"
+                "late = Late()\n"
+                "late.setAutoDelete(False)\n"
+                "QtCore.QThreadPool.globalInstance().start(late)\n"
+                "print('before the end', flush=True)\n" % done
+            )
+        try:
+            ended = subprocess.run([exe, script], capture_output=True, timeout=300)
+            self.assertIn(b"before the end", ended.stdout)
+            self.assertEqual(ended.returncode, 0, ended.stderr[-2000:])
+            self.assertTrue(os.path.exists(done), "the pool's task was not waited for")
+        finally:
+            import shutil
+
+            shutil.rmtree(folder, True)
+
     def tearDown(self):
         # closing doc
         FreeCAD.closeDocument("UndoTest")

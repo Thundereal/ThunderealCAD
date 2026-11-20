@@ -52,6 +52,7 @@
 #include <functional>
 #include <thread>
 
+#include <atomic>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
@@ -59,6 +60,7 @@
 #include <QFileInfo>
 #include <QProcessEnvironment>
 #include <QStandardPaths>
+#include <QThreadPool>
 #include <LibraryVersions.h>
 
 #include <App/ElementAppearancePy.h>
@@ -94,6 +96,7 @@
 
 #include "Annotation.h"
 #include "Application.h"
+#include "ShuttingDown.h"
 #include "BrandText.h"
 #include "ComplexGeoData.h"
 #include "Document.h"
@@ -2179,8 +2182,38 @@ void Application::cleanupUnits()
     }
 }
 
+namespace
+{
+std::atomic<bool> shuttingDown {false};
+}
+
+bool App::isShuttingDown()
+{
+    return shuttingDown.load(std::memory_order_relaxed);
+}
+
 void Application::destruct()
 {
+    // What the shared thread pool still runs -- TechDraw's projections and
+    // cuts, a recovery file being written -- reads the parameters, writes to
+    // the console and may call the interpreter, all let go of below: a
+    // script that ended while a view's hidden lines were being found had
+    // the process die in ParameterGrp::GetGroup(). It is waited for. What
+    // is queued and not begun ends at once (isShuttingDown()); what runs
+    // cannot be stopped, a projection being one call into OpenCASCADE. Not
+    // for ever: a task that waits for this thread would never be done.
+    // With a QCoreApplication -- the GUI -- Qt waited for the pool and
+    // deleted it as that went, and there is none left to ask for: only the
+    // console, which has no QCoreApplication, gets here with work in it.
+    shuttingDown = true;
+    constexpr int mostSeconds = 120;
+    QThreadPool* pool = QThreadPool::globalInstance();
+    if (pool && !pool->waitForDone(mostSeconds * 1000)) {
+        Base::Console().Warning("Application: tasks of the thread pool still ran after %d s "
+                                "at exit, and are not waited for\n",
+                                mostSeconds);
+    }
+
     if (mConfig["RunMode"] != "Cmd") {
         // saving system parameter
         Base::Console().Log("Saving system parameter...\n");

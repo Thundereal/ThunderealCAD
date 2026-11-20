@@ -108,6 +108,7 @@
 #include <sstream>
 
 #include <App/Application.h>
+#include <App/ShuttingDown.h>
 #include <App/MaterialAppearance.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>
@@ -401,6 +402,10 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
         waitingForAlign(true);
         m_alignWatcher->setFuture(QtConcurrent::run(
             [params, failure] {
+                if (App::isShuttingDown()) {
+                    params.progress->setCanceled(true);
+                    return;
+                }
                 try {
                     makeAlignedPieces(params);
                     return;

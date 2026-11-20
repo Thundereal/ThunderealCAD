@@ -74,6 +74,7 @@
 #endif
 
 #include <App/Document.h>
+#include <App/ShuttingDown.h>
 #include <App/Transactions.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>
@@ -455,6 +456,12 @@ void DrawViewPart::buildGeometryObject(const Part::TopoShape& shape, const gp_Ax
         waitingForHlr(true);
         m_hlrWatcher->setFuture(QtConcurrent::run(
             [=] {
+                if (App::isShuttingDown()) {
+                    // queued behind others when the application went: no
+                    // one is left to draw it
+                    progress->setCanceled(true);
+                    return;
+                }
                 try {
                     progress->start(100);
                     go->projectShape(shape, viewAxis);
@@ -539,6 +546,10 @@ void DrawViewPart::onHlrFinished(GeometryObjectPtr geometryObject)
         waitingForFaces(true);
         m_faceWatcher->setFuture(QtConcurrent::run(
             [=]{
+                if (App::isShuttingDown()) {
+                    params.progress->setCanceled(true);
+                    return;
+                }
                 try {
                     extractFaces(params);
                     return;

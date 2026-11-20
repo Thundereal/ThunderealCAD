@@ -647,6 +647,7 @@ SET(Document_HPP_SRCS
     WorkerRecompute.h
     RecomputeHook.h
     LogMoveKeep.h
+    ShuttingDown.h
 )
 SET(Document_SRCS
     ${Document_CPP_SRCS}

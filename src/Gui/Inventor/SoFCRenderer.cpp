@@ -264,7 +264,7 @@ struct DrawEntry {
   DrawEntry(const Material * m, const VertexCacheEntry * v)
     :material(m), ventry(v), skip(0)
   {
-    this->bbox = v->getBoundingBox();
+    this->bbox = SoFCRenderCache::drawBoundingBox(*m, *v);
   }
 };
 

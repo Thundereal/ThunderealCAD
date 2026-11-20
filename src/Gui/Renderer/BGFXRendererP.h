@@ -4430,7 +4430,11 @@ inline void setDrawTransform(const Render::DrawCall &draw,
                 float yfactor = (-2.0f*projY < margin) ? 0.5f : -0.5f;
                 // backfacing: does the plane normal point away from the camera?
                 // camera "toward viewer" world axis = view-matrix z column.
+                // A zero normal: the entry's own local Z (row 2), turned by
+                // the placements above it (SoAutoZoomTranslation::flipNormal)
                 const float *N = entry.normal;
+                if (N[0] == 0.f && N[1] == 0.f && N[2] == 0.f)
+                    N = m + 8;
                 const float ndotz = N[0]*V[2] + N[1]*V[6] + N[2]*V[10];
                 const bool backfacing = ndotz < 0.f;
                 bool flip = backfacing ? (xfactor*yfactor > 0.f)

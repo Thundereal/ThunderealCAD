@@ -448,6 +448,13 @@ public:
     /// of the table above; see ViewerContext::setEditVisibilities.
     bool setEditVisibilities(const std::vector<VisibilityEntry> &entries) override;
     bool canSetEditVisibilities() const override;
+    /** Replace \a owner's transient hides and shows in this view -- a PMI
+     * view's objects while it is active -- beside the edit session's,
+     * which come first. Like those never written into the view's map, so a
+     * save sees none of them; empty takes \a owner's back. False where the
+     * view has no table (render-cache modes 0-2).
+     */
+    bool setVisibilityLayer(const std::string &owner, std::vector<VisibilityEntry> &&entries);
     /// What this view draws by -- the edit hide, then the parsed map --
     /// resolved per draw of the scene \a feed captures (this viewer's
     /// own render-cache manager when null), or null when the table is
@@ -1095,6 +1102,8 @@ private:
     /// Tell what caches this view's visibility answers that its table
     /// changed: the selection root, the backend, the next frame.
     void onVisibilityChanged();
+    /// The edit entries and every owner's layer, as the one transient set
+    void applyTransientVisibilities();
     void drawAxisCross();
     static void drawArrow();
     static void drawSingleBackground(const QColor&);

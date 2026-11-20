@@ -30,6 +30,7 @@
 # include <Inventor/actions/SoGetBoundingBoxAction.h>
 # include <Inventor/actions/SoGetPrimitiveCountAction.h>
 # include <Inventor/elements/SoModelMatrixElement.h>
+# include <Inventor/elements/SoViewingMatrixElement.h>
 # include <Inventor/elements/SoViewportRegionElement.h>
 # include <Inventor/elements/SoViewVolumeElement.h>
 # include <Inventor/nodes/SoCamera.h>
@@ -107,7 +108,47 @@ void SoAutoZoomTranslation::doAction(SoAction * action)
     matrix.multVecMatrix(SbVec3f(0,0,0),t);
     // reset current model scale factor
     matrix.setTransform(t,r,SbVec3f(sf,sf,sf));
+    if (datumFlip.getValue()
+        && state->isElementEnabled(SoViewingMatrixElement::getClassStackIndex())) {
+        flip(matrix, SoViewingMatrixElement::get(state));
+    }
     SoModelMatrixElement::set(state,this,matrix);
+}
+
+void SoAutoZoomTranslation::flip(SbMatrix& m, const SbMatrix& v) const
+{
+    // The backend's per-frame test (BGFXRendererP.h, datumFlip), so Coin, the
+    // GL render cache that replays this node and a pick all agree: project
+    // the local X and Y (rows 0 and 1, row vectors) onto the view's x and y,
+    // and mirror whichever points left or down. Backfacing settles the cases
+    // the projection leaves in doubt, edge on.
+    const float projX = m[0][0]*v[0][0] + m[0][1]*v[1][0] + m[0][2]*v[2][0];
+    const float projY = m[1][0]*v[0][1] + m[1][1]*v[1][1] + m[1][2]*v[2][1];
+    const float det = m[0][0]*(m[1][1]*m[2][2] - m[1][2]*m[2][1])
+                    - m[0][1]*(m[1][0]*m[2][2] - m[1][2]*m[2][0])
+                    + m[0][2]*(m[1][0]*m[2][1] - m[1][1]*m[2][0]);
+    const float margin = det < 0.f ? -1e-3f : 1e-3f;
+    float xfactor = (-2.0f*projX < margin) ? 0.5f : -0.5f;
+    float yfactor = (-2.0f*projY < margin) ? 0.5f : -0.5f;
+    // A zero normal: the node's own local Z, which a placement above it
+    // turns with the rest
+    SbVec3f n = flipNormal.getValue();
+    if (n.sqrLength() == 0.f) {
+        n.setValue(m[2][0], m[2][1], m[2][2]);
+    }
+    const float ndotz = n[0]*v[0][2] + n[1]*v[1][2] + n[2]*v[2][2];
+    const bool backfacing = ndotz < 0.f;
+    bool doFlip = backfacing ? (xfactor*yfactor > 0.f) : (xfactor*yfactor < 0.f);
+    if (det < 0.f)
+        doFlip = !doFlip;
+    if (doFlip)
+        xfactor = -xfactor;
+    for (int k = 0; k < 3; ++k) {
+        if (xfactor < 0.f)
+            m[0][k] = -m[0][k];
+        if (yfactor < 0.f)
+            m[1][k] = -m[1][k];
+    }
 }
 
 // set the auto scale factor.

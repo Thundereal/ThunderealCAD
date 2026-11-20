@@ -635,6 +635,10 @@ struct View3DInventorViewer::Private
     /// from its ObjectVisibilities property. Kept for the viewer's
     /// lifetime for the same reason as styleOverrides.
     ViewVisibility visibility;
+    /// The transient entries, by source: the edit session's first (an edit
+    /// hide beats the rest), then each owner's layer (setVisibilityLayer)
+    std::vector<VisibilityEntry> editEntries;
+    std::map<std::string, std::vector<VisibilityEntry>> layers;
 
     /// The capture's additive-mode interest (docs/CoinRetirement.md
     /// 5.9 "Non-standard modes"): the Coin-side list pushed to the
@@ -3165,9 +3169,31 @@ bool View3DInventorViewer::setEditVisibilities(const std::vector<VisibilityEntry
 {
     if (!canSetEditVisibilities())
         return false;
-    if (_pimpl->visibility.setTransient(std::vector<VisibilityEntry>(entries)))
-        onVisibilityChanged();
+    _pimpl->editEntries = entries;
+    applyTransientVisibilities();
     return true;
+}
+
+bool View3DInventorViewer::setVisibilityLayer(const std::string &owner,
+                                              std::vector<VisibilityEntry> &&entries)
+{
+    if (!canSetEditVisibilities())
+        return false;
+    if (entries.empty())
+        _pimpl->layers.erase(owner);
+    else
+        _pimpl->layers[owner] = std::move(entries);
+    applyTransientVisibilities();
+    return true;
+}
+
+void View3DInventorViewer::applyTransientVisibilities()
+{
+    std::vector<VisibilityEntry> all = _pimpl->editEntries;
+    for (const auto &layer : _pimpl->layers)
+        all.insert(all.end(), layer.second.begin(), layer.second.end());
+    if (_pimpl->visibility.setTransient(std::move(all)))
+        onVisibilityChanged();
 }
 
 void View3DInventorViewer::onVisibilityChanged()

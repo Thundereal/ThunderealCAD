@@ -29,6 +29,8 @@
 #include <Inventor/nodes/SoTransformation.h>
 #include <FCGlobal.h>
 
+class SbMatrix;
+
 
 namespace Gui {
 
@@ -59,7 +61,8 @@ public:
     /// Datum-label auto-flip: keep the glyph in its plane but mirror its local
     /// X/Y per frame so the text always reads upright from the current view
     /// (SoDatumLabel GLRender behaviour). flipNormal is the world-space plane
-    /// normal used for the backfacing test. Default FALSE.
+    /// normal used for the backfacing test; a zero normal means the node's
+    /// own local Z, turned by whatever placement is above it. Default FALSE.
     SoSFBool datumFlip;
     SoSFVec3f flipNormal;
 
@@ -73,6 +76,8 @@ protected:
     void callback(SoCallbackAction * action) override;
     void pick(SoPickAction * action) override;
     float getScaleFactor(SoAction*) const;
+    /// Mirror \a m's local X and Y to read upright in the view \a v
+    void flip(SbMatrix& m, const SbMatrix& v) const;
 
 private:
 

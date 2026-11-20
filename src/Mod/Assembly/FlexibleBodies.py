@@ -462,12 +462,13 @@ def rigidOf(rest, psi, boundary):
     (p - c), least squares, is drawn as it is and the rest scaled, so that
     interface is held where it is drawn and the others' motion against it
     is bending. Where no node is so found, the fit is to all the interfaces'
-    columns over all the nodes; none without interfaces."""
+    columns over all the nodes; none without interfaces. The columns, and
+    the centre of the nodes it is fitted over (None without)."""
     import numpy as np
 
     held = np.zeros_like(psi)
     if boundary < 6 or len(rest) == 0:
-        return held
+        return held, None
     # The first interface's nodes: its three translations' columns the
     # identity there, and every column but its six none -- the modes are its
     # held, the other interfaces' with it held -- each against its largest
@@ -499,17 +500,52 @@ def rigidOf(rest, psi, boundary):
         rowsOf(arm[on]), psi[on][:, :, :columns].reshape(-1, columns), rcond=None
     )[0]
     held[:, :, :columns] = (rowsOf(arm) @ moves).reshape(len(rest), 3, columns)
-    return held
+    return held, centre
+
+
+def heldWherePressed(rest, held, psi, centre, pressed):
+    """The columns of a flexible body's rigid motion (rigidOf()'s, its
+    centre with them, None without a hold), with the nodes it is pressed at
+    over a run held too: a turn about the hold's centre -- without a hold a
+    motion, t + r x (p - c) -- fitted to each column's bending there, least
+    squares, goes with the rigid motion, drawn as it is. So through the
+    whole run, pressed or not, the hold and where it is pressed are drawn
+    where they are, and what is scaled is its bending between them: scaled
+    about its hold alone it is drawn through what it lies on or off it, and
+    held there only while it presses the drawing jumps as it lets go."""
+    import numpy as np
+
+    if not len(pressed):
+        return held
+    fixed = centre is not None
+    middle = centre if fixed else rest[pressed].mean(axis=0)
+
+    def rowsOf(arms):
+        # r x a = -[a]x r, then the translation
+        fit = np.zeros((len(arms), 3, 3 if fixed else 6))
+        fit[:, 0, 1], fit[:, 0, 2] = arms[:, 2], -arms[:, 1]
+        fit[:, 1, 0], fit[:, 1, 2] = -arms[:, 2], arms[:, 0]
+        fit[:, 2, 0], fit[:, 2, 1] = arms[:, 1], -arms[:, 0]
+        if not fixed:
+            fit[:, :, 3:] = np.eye(3)[None, :, :]
+        return fit.reshape(-1, fit.shape[2])
+
+    columns = psi.shape[2]
+    bending = (psi - held)[pressed].reshape(-1, columns)
+    moves = np.linalg.lstsq(rowsOf(rest[pressed] - middle), bending, rcond=None)[0]
+    return held + (rowsOf(rest - middle) @ moves).reshape(len(rest), 3, columns)
 
 
 class Deformation:
     """A flexible body's deformation as its last run had it: its mesh's
     surface moved by its mode shapes and the run's coordinates at a time,
     scaled up to be seen: its largest over the run a tenth of its size --
-    as it is where that is a twentieth or more -- unless the flexible body
+    as it is where that is a twentieth or more, or where the run presses it
+    on something (pressedOf()) -- unless the flexible body
     has a BendingScale or show() is given a scale. What is scaled is its
     bending, not its interfaces' pose in its floating frame: a part held by
-    a joint is drawn held there, bent about it (rigidOf()). And its stress there,
+    a joint is drawn held there, bent about it (rigidOf()), and held too
+    where the run presses it (heldWherePressed()). And its stress there,
     each mode's
     (modalStresses()) weighed by the coordinates, coloured over it, the
     largest over the run red."""
@@ -572,7 +608,10 @@ class Deformation:
             return
         # Drawn as it is, the interfaces' rigid motion; scaled, the rest
         boundary = len(interfaces[0]) if interfaces else 0
-        self.held = rigidOf(self.rest, self.psi, boundary)
+        self.held, self.centre = rigidOf(self.rest, self.psi, boundary)
+        # Held too where it is pressed over the run (heldWherePressed())
+        self.pressed = self.pressedOf(results)
+        self.held = heldWherePressed(self.rest, self.held, self.psi, self.centre, self.pressed)
         self.bending = self.psi - self.held
         largest = 0.0
         for row in self.coordinates:
@@ -580,8 +619,9 @@ class Deformation:
             largest = max(largest, float(np.max(np.linalg.norm(moved, axis=1))))
         size = float(np.max(np.ptp(self.rest, axis=0)))
         self.automatic = 0.1 * size / largest if largest > 0 else 1.0
-        if self.automatic < 2.0:
-            # Seen as it is
+        if self.automatic < 2.0 or self.pressed:
+            # Seen as it is; and one pressed on something, which scaled is
+            # drawn bent as it is not: scaled only as its BendingScale has it
             self.automatic = 1.0
         self.elasticity = elasticityOf(flexible)
 
@@ -654,9 +694,69 @@ class Deformation:
             given = 0.0
         return given if given > 0 else self.automatic
 
+    def placesOf(self, results):
+        """Each frame's points the part presses something at, in the
+        assembly's coordinates: its contact sets' places on it
+        ("PartContactPlaces") with a force, or a run's kept from before the
+        places their one point"""
+        import numpy as np
+
+        mine = self.component.getLinkedObject()
+
+        def on(channel):
+            part = channel.get("On")
+            if isinstance(part, str):
+                return part == self.component.Name
+            return part is not None and part.getLinkedObject() == mine
+
+        channels = [c for c in results.get("Channels", []) if on(c)]
+        places = [[] for _ in self.times]
+        sets = {}
+        for c in channels:
+            sets.setdefault(c.get("Name"), {})[c["Quantity"]] = c
+        for found in sets.values():
+            if "PartContactPlaces" in found:
+                for k, row in enumerate(found["PartContactPlaces"]["Values"][: len(places)]):
+                    for i in range(0, len(row), 10):
+                        if np.linalg.norm(row[i : i + 3]) > 0.0:
+                            places[k].append(tuple(row[i + 3 : i + 6]))
+            elif "PartContactPoint" in found and "PartContactForce" in found:
+                points = found["PartContactPoint"]["Values"]
+                for k, force in enumerate(found["PartContactForce"]["Values"][: len(places)]):
+                    if force is not None and force.Length > 0.0:
+                        places[k].append(tuple(points[k]))
+        return places
+
+    def pressedOf(self, results):
+        """The surface's nodes the part is pressed at over the run: at each
+        frame, the node nearest each of placesOf()'s points, the part where
+        the run has it then"""
+        import numpy as np
+
+        places = self.placesOf(results)
+        if not any(places):
+            return []
+        try:
+            poses = _assemblyOf(self.flexible).getSimulationPlacements(self.component)
+        except Exception:
+            poses = []
+        if len(poses) != len(self.times):
+            return []
+        pressed = set()
+        for k, points in enumerate(places):
+            if not points:
+                continue
+            real = self.rest + self.psi @ self.coordinates[k]
+            toLocal = poses[k].inverse()
+            for p in points:
+                q = np.array(tuple(toLocal.multVec(App.Vector(*p))))
+                pressed.add(int(np.argmin(np.linalg.norm(real - q, axis=1))))
+        return sorted(pressed)
+
     def pointsAt(self, time, scale=None):
         """The surface's nodes at a time, in the component's coordinates: its
-        interfaces' rigid motion as it is, its bending scaled"""
+        rigid motion as it is -- its hold's, and where it is pressed -- its
+        bending scaled"""
         row = self.coordinatesAt(time)
         scale = self.scale if scale is None else scale
         return self.rest + self.held @ row + scale * (self.bending @ row)

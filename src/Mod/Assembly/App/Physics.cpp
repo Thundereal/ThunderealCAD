@@ -1108,7 +1108,9 @@ FlexibleBody::FlexibleBody()
                       App::Prop_None,
                       "How many times its bending is drawn over a run's frames, 1 as it is; "
                       "0: what shows it, its largest a tenth of the part's size, or as it is "
-                      "where that is a twentieth or more");
+                      "where that is a twentieth or more, or where the run presses it on something. "
+                      "Scaled, it is drawn held at its joint and where it is pressed, its "
+                      "bending between them scaled");
     static const App::PropertyFloatConstraint::Constraints drawn = {0.0, 1.0e6, 1.0};
     BendingScale.setConstraints(&drawn);
 

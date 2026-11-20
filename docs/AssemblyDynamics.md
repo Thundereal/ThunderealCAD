@@ -6372,6 +6372,30 @@ Phase D1 is under way (2026-10-28):
   - Test: TestFlexibleBody.test_cantilever_deformation (drawn x20, the
     hold within 1% of the sag, the end 20 sags within 3%; before, 2.5 and
     2.2), the automatic scale from the bending.
+- Built, D4b way 1 step 16 (2026-11-20): a part pressed on something drawn
+  as it is, and scaled, held where it is pressed. The pad strip of step 15,
+  x12 about its hinge, was drawn with its pad off the post it lies on by 12
+  times its sag there: a part held in two places cannot be scaled about one.
+  - **Tried, held there while it presses**: each frame's drawing turned
+    about the hold onto that frame's contact points. The strip on the post,
+    but the drawing jumps as it lets go and comes back, each bounce.
+  - **Now, as it is by default**: the automatic scale is 1 for a flexible
+    body the run presses on anything (`Deformation.pressedOf()`: the nodes
+    nearest its sets' "PartContactPlaces" with a force, the part where
+    `getSimulationPlacements()` has it at the frame). Its stress colours
+    show its bending.
+  - **Scaled by hand** (Bending drawn, BendingScale > 0), it is held where
+    it is pressed too (`heldWherePressed()`): a turn about the hold's
+    centre -- a full rigid motion where no joint holds it -- fitted to each
+    column's bending at the pressed nodes, least squares, once, goes with
+    the rigid motion drawn as it is. Through the whole run, pressed or not,
+    the hinge and the pad are where they are, and the bending between them
+    is scaled; nothing jumps. Pressed at three places apart, the fit leaves
+    a rest, scaled.
+  - Numbers: the strip bent onto the bar drawn x20, 0.45 mm into the bar
+    before, 0.004 mm off it now, where it is 0.002 off as it is.
+  - Test: TestFlexibleBody.test_bent_onto_bar_anywhere (the scale 1 by
+    default; drawn x20 within 0.05 mm of where it is at the bar).
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

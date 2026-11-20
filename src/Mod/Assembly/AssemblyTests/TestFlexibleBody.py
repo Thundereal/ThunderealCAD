@@ -694,6 +694,33 @@ class TestFlexibleBody(unittest.TestCase):
         # On the bar still a millisecond and more after, pressing lightly
         self.assertGreater(sum(1 for f in after if f > 0), len(after) // 2)
         self.assertLess(max(after), 0.1 * blow)
+        # Drawn x20 where it presses, about its hinge and where it presses
+        # both: the strip drawn on the bar as it is on it, not through it
+        # (before, scaled about its hinge alone, 0.45 mm into it)
+        import numpy as np
+
+        shape = FlexibleBodies.Deformation(body, results)
+        self.assertTrue(shape.valid)
+        # Pressed on something, drawn as it is unless given a scale
+        self.assertEqual(shape.scale, 1.0)
+        last = max(k for k, f in enumerate(forces) if f > 0)
+        self.assembly.updateForFrame(last)
+        pose = strip.Placement
+
+        def into(scale):
+            # How far into the bar its surface is drawn, mm: the most, less
+            # than 0 drawn off it
+            points = shape.pointsAt(times[last], scale)
+            most = -np.inf
+            for p in points:
+                q = pose.multVec(App.Vector(*p))
+                if abs(q.x - 130) < 6:
+                    most = max(most, 5.0 - np.hypot(q.x - 130, q.z + 15))
+            return most
+
+        drawn, real = into(20.0), into(1.0)
+        print("bent onto the bar drawn x20: %.4g mm into it, as it is %.4g" % (drawn, real))
+        self.assertLess(abs(drawn - real), 0.05)
 
     def stripOnBars(self, formula, end, step, bars=True, gap=0.05, rise=1.0, lower=False):
         """A strip 200 x 20 x 2 hinged at an end to a grounded mount, its

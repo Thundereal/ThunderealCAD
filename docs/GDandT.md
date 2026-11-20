@@ -761,6 +761,36 @@ counterbored holes are, a counterbored hole and a plain one are not; the axis th
 
 - Next in P2: edge and point references.
 
+### 10.13 Found making the manual's media (2026-11-20)
+
+The manual's PMI pages (thundereal-manual `partdesign/pmi`, a screenshot and a video script
+per command, on a plate with counterbored holes and a slot) drove every command as a user
+does, on a part whose features carry placements of their own. It found:
+
+- **A datum target refused on any placed tip** (`bbf134dc4d`): a click reaches the face
+  through the Body's tip feature, and `getGlobalPlacement(solid, root, sub)` -- the solid
+  body not on that path -- applied the tip's own placement to the picked point, off the face.
+  The path is followed to the solid's group, then the solid's placement applied. The GUI
+  test's box sat at the origin; it now picks through a placed tip.
+- **A target's datum lost when selected through a path** (`b35a1dc5cb`): a datum selected in
+  the tree arrives as itself or as (Body, "PMI.Datum."), which a pick varies; only the first
+  was taken out of the selection, and the face pick read the second.
+- **A slot's tolerance a profile** (`bbf134dc4d`): the command's default looked at the first
+  face only. A slot or a pattern of widths is now a position; a counterbored hole, whichever
+  face comes first, a position of the hole's axis.
+- **Callouts edge on from the top** (`6522ce5b96`, `bccbab4f81`): a slot's frame stood in a
+  wall's plane, a hole's diameter in a plane facing out of the cylinder. Both are read
+  looking down the slot or the hole now, as an axis already was (ASME: a size where it
+  shows as a circle), the leader to the top.
+- **Dimensions over one another** (`bccbab4f81`): a linear dimension went beside the faces it
+  measures, so one between two holes' axes landed inside the part, over the part's length.
+  It goes beside the whole part now, where dimensions landing together are slotted apart.
+
+Still open from the same pictures: a planar callout seen from behind reads mirrored (a datum
+on the end the standard isometric hides); FreeCAD's Bottom view turns a bottom face's
+callouts upside down (it flips y). In PartDesign a Body's first PMI set cannot be made: the
+tool bar is offered once a set exists and is active.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

@@ -5962,11 +5962,36 @@ Phase D1 is under way (2026-10-28):
     found, its deep corners, the far ones beyond collision detection's
     margin: no area, and its force from a disc of the parts' sizes, 12.61 N
     for 12.5 by chance. Its area is the faces' overlap cut where the depth
-    is none, which wants the faces' outlines, not the points.
+    is none, which wants the faces' outlines, not the points (step 5).
   - Test: TestFlexibleBody.test_pressure_tilted (the rigid block and rod
     within a percent, the flexible block within 3% of the beam's; before,
     50.28, 4.707 and 37.84), test_pressure_on_a_cone_and_a_flexible_round
     (the flexible rod within 2% of the beam's 42.14; before, 41.22).
+- Built, D4b way 2 step 5 (2026-11-20): a rigid flat face's patch on the
+  faces' true outlines. Collision detection finds points within its
+  envelope only, 0.02 mm, and on the shapes it grows by it: the block tilted
+  past none had its two deep corners and no area (12.61 N for 12.5; 0.15 mm
+  past, 12.62 for 6.25), and lying level its corners 0.02 mm out (50.25 for
+  k A d = 50).
+  - **The faces' outlines** (`outlineFlatPatches()`, `trueFaceOutline()`,
+    `overlapOf()`): a pressure's patch between two boxes' or hulls' faces,
+    rigid, flat by the curvature patchStiffness() reads, all its points on
+    its two shapes along one normal. Of each shape's features (Bullet's
+    polyhedron, coplanar faces merged) the face facing the other, within
+    2.6 deg; its plane pulled in by the envelope and its polygon cut by the
+    other faces so pulled in (as `reachOver()` takes them): the true face.
+    The two overlapped in the contact plane, Sutherland and Hodgman's; its
+    corners the patch's points, each on both faces along the normal,
+    pressed or not, in place of those found. The depth is linear over a
+    flat face, so the spread (step 4) cut where it is none is exact.
+  - Not for a round, a bent hull, a flexible part, a seat, a profile's or
+    a cam's point, or faces not facing each other: as they were. Hertz's
+    and the other laws' points as they were.
+  - Numbers: the block level 50.25 -> 50.00 N, tilted to none 25.13 ->
+    25.00, past none 12.61 -> 12.50, 0.15 mm past 12.62 -> 6.25 (k b x d /
+    2 over the x of it that is in).
+  - Test: TestFlexibleBody.test_pressure_tilted, the four within a
+    thousandth.
 - Built, D4b way 1 step 6 (2026-11-17): a point on a curved face of no
   round, rigid or flexible. A torus, ring R 10, tube R 3, standing on a
   plate as a wheel 0.05 mm into it, turned about its axis: rigid 32.3 to

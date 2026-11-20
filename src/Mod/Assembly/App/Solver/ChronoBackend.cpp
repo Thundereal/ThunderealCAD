@@ -9929,6 +9929,268 @@ void pressureLaw(const ContactLaw& law,
 // The means, not the tensors': a torus's ring curves across the tube at
 // each point, a different way round the ring, and the tensors averaged over
 // it read it as a round contact of 4 mm.
+// A box's or a hull's flat face, its true outline (D4b way 2 step 5): of
+// its features' faces the one whose outward normal is nearest 'outward',
+// within 2.6 deg, its plane pulled in by the envelope the features are grown
+// by and its polygon cut by the other faces so pulled in (as reachOver()
+// takes them) -- absolute, on its plane normal . x = offset. False where the
+// shape has no features or no such face
+bool trueFaceOutline(const ShapeOn& on,
+                     const ch::ChVector3d& outward,
+                     std::vector<ch::ChVector3d>& polygon,
+                     ch::ChVector3d& normal,
+                     double& offset)
+{
+    polygon.clear();
+    if (!on.features || !on.body) {
+        return false;
+    }
+    const cbtConvexPolyhedron& features = *on.features;
+    const ch::ChFramed where = on.frame >> *on.body;
+    // A face's true plane in the shape's frame: n . x + d = 0
+    auto planeOf = [&](int f, ch::ChVector3d& n, double& d) {
+        const cbtScalar* plane = features.m_faces[f].m_plane;
+        n = ch::ChVector3d(static_cast<double>(plane[0]),
+                           static_cast<double>(plane[1]),
+                           static_cast<double>(plane[2]));
+        d = static_cast<double>(plane[3]) + on.envelope;
+    };
+    int best = -1;
+    double nearest = 0.999;
+    for (int f = 0; f < features.m_faces.size(); ++f) {
+        ch::ChVector3d n;
+        double d = 0.0;
+        planeOf(f, n, d);
+        const double along = ch::Vdot(where.GetRotMat() * n, outward);
+        if (along > nearest) {
+            nearest = along;
+            best = f;
+        }
+    }
+    if (best < 0) {
+        return false;
+    }
+    ch::ChVector3d own;
+    double ownD = 0.0;
+    planeOf(best, own, ownD);
+    std::vector<ch::ChVector3d> loop;
+    const cbtFace& face = features.m_faces[best];
+    for (int k = 0; k < face.m_indices.size(); ++k) {
+        const cbtVector3& v = features.m_vertices[face.m_indices[k]];
+        const ch::ChVector3d x(static_cast<double>(v.x()),
+                               static_cast<double>(v.y()),
+                               static_cast<double>(v.z()));
+        loop.push_back(x - own * (ch::Vdot(own, x) + ownD));
+    }
+    // Cut by each other face's true plane: inside, n . x + d <= 0
+    std::vector<ch::ChVector3d> cut;
+    for (int f = 0; f < features.m_faces.size() && loop.size() >= 3; ++f) {
+        if (f == best) {
+            continue;
+        }
+        ch::ChVector3d n;
+        double d = 0.0;
+        planeOf(f, n, d);
+        cut.clear();
+        for (std::size_t k = 0; k < loop.size(); ++k) {
+            const ch::ChVector3d& from = loop[k];
+            const ch::ChVector3d& to = loop[(k + 1) % loop.size()];
+            const double outFrom = ch::Vdot(n, from) + d;
+            const double outTo = ch::Vdot(n, to) + d;
+            if (outFrom <= 0.0) {
+                cut.push_back(from);
+            }
+            if ((outFrom < 0.0 && outTo > 0.0) || (outFrom > 0.0 && outTo < 0.0)) {
+                cut.push_back(from + (to - from) * (outFrom / (outFrom - outTo)));
+            }
+        }
+        loop.swap(cut);
+    }
+    if (loop.size() < 3) {
+        return false;
+    }
+    normal = where.GetRotMat() * own;
+    for (const auto& x : loop) {
+        polygon.push_back(where.TransformPointLocalToParent(x));
+    }
+    offset = ch::Vdot(normal, polygon.front());
+    return true;
+}
+
+// Two convex polygons' overlap in a plane, Sutherland and Hodgman's: 'a' cut
+// by each edge of 'b', either of them either way round
+std::vector<std::array<double, 2>> overlapOf(std::vector<std::array<double, 2>> a,
+                                             const std::vector<std::array<double, 2>>& b)
+{
+    auto cross = [](const std::array<double, 2>& p,
+                    const std::array<double, 2>& q,
+                    const std::array<double, 2>& x) {
+        return (q[0] - p[0]) * (x[1] - p[1]) - (q[1] - p[1]) * (x[0] - p[0]);
+    };
+    double turn = 0.0;
+    for (std::size_t k = 0; k < b.size(); ++k) {
+        const auto& p = b[k];
+        const auto& q = b[(k + 1) % b.size()];
+        turn += p[0] * q[1] - q[0] * p[1];
+    }
+    const double sign = turn >= 0.0 ? 1.0 : -1.0;
+    std::vector<std::array<double, 2>> cut;
+    for (std::size_t k = 0; k < b.size() && a.size() >= 3; ++k) {
+        const auto& p = b[k];
+        const auto& q = b[(k + 1) % b.size()];
+        cut.clear();
+        for (std::size_t j = 0; j < a.size(); ++j) {
+            const auto& from = a[j];
+            const auto& to = a[(j + 1) % a.size()];
+            const double inFrom = sign * cross(p, q, from);
+            const double inTo = sign * cross(p, q, to);
+            if (inFrom >= 0.0) {
+                cut.push_back(from);
+            }
+            if ((inFrom > 0.0 && inTo < 0.0) || (inFrom < 0.0 && inTo > 0.0)) {
+                const double t = inFrom / (inFrom - inTo);
+                cut.push_back({from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t});
+            }
+        }
+        a.swap(cut);
+    }
+    if (a.size() < 3) {
+        a.clear();
+    }
+    return a;
+}
+
+// A pressure's patch between two flat faces of boxes or hulls, rigid, put on
+// the faces' true outlines (D4b way 2 step 5): collision detection finds
+// points within its envelope only, and on the shapes it grows by it, so a
+// face tilted past none had its deep corners alone, and a face lying level
+// its corners 0.02 mm out -- a block 40 x 10 pressed 0.5% over k A d. The
+// patch's points become the corners of the two faces' overlap in the contact
+// plane, each on both faces along the normal, pressed or not: the depth is
+// linear over a flat face, and the spread over them (PressureSpread) cut
+// where it is none. A patch of a round, a bent hull, a flexible part, of
+// faces that are not flat or not facing each other, as it was.
+void outlineFlatPatches(ContactLoad& load, const ShapesOn& shapes)
+{
+    if (load.flexible || load.flexibleA || load.points.empty() || !load.patches) {
+        return;
+    }
+    const auto bodyA = load.GetBodyA();
+    const auto bodyB = load.GetBodyB();
+    using Point = ContactLoad::Point;
+    std::vector<std::vector<Point>> outlines(load.patches);
+    // Each patch's first point, and whether all its points are on its shapes
+    // facing its way
+    std::vector<int> first(load.patches, -1);
+    std::vector<char> alike(load.patches, 1);
+    for (std::size_t i = 0; i < load.points.size(); ++i) {
+        const Point& point = load.points[i];
+        if (point.patch >= load.patches) {
+            continue;
+        }
+        if (first[point.patch] < 0) {
+            first[point.patch] = static_cast<int>(i);
+            continue;
+        }
+        const Point& lead = load.points[static_cast<std::size_t>(first[point.patch])];
+        if (point.shapeA != lead.shapeA || point.shapeB != lead.shapeB
+            || ch::Vdot(point.normal, lead.normal) < 0.9998) {
+            alike[point.patch] = 0;
+        }
+    }
+    bool any = false;
+    for (std::size_t p = 0; p < load.patches; ++p) {
+        if (first[p] < 0 || !alike[p]) {
+            continue;
+        }
+        const Point& lead = load.points[static_cast<std::size_t>(first[p])];
+        if (lead.roundA || lead.roundB || lead.bentA || lead.bentB || lead.seat
+            || lead.piecesA[0] || lead.piecesB[0] || !lead.shapeA || !lead.shapeB) {
+            continue;
+        }
+        const ShapeOn* onA = shapes.of(lead.shapeA);
+        const ShapeOn* onB = shapes.of(lead.shapeB);
+        if (!onA || !onB) {
+            continue;
+        }
+        ch::ChVector3d n = lead.normal;
+        n.Normalize();
+        // Flat, both: the relative curvature in the contact plane none, as
+        // patchStiffness() reads it
+        const ch::ChMatrix33d both = shapes.curvatureAt(lead.shapeA, *bodyA, lead.onA, n)
+            + shapes.curvatureAt(lead.shapeB, *bodyB, lead.onB, -n);
+        ch::ChVector3d u = ch::Vcross(n, std::abs(n.x()) < 0.9 ? ch::VECT_X : ch::VECT_Y);
+        u.Normalize();
+        const ch::ChVector3d v = ch::Vcross(n, u);
+        {
+            const double a = ch::Vdot(u, both * u);
+            const double b = ch::Vdot(u, both * v);
+            const double c = ch::Vdot(v, both * v);
+            const double k1 = 0.5 * (a + c) + std::sqrt(0.25 * (a - c) * (a - c) + b * b);
+            if (k1 > 1e-3) {
+                continue;
+            }
+        }
+        // A's face faces along the normal, B's against it
+        std::vector<ch::ChVector3d> faceA;
+        std::vector<ch::ChVector3d> faceB;
+        ch::ChVector3d nA;
+        ch::ChVector3d nB;
+        double cA = 0.0;
+        double cB = 0.0;
+        if (!trueFaceOutline(*onA, n, faceA, nA, cA)
+            || !trueFaceOutline(*onB, -n, faceB, nB, cB)) {
+            continue;
+        }
+        const ch::ChVector3d origin = faceA.front();
+        auto flatOf = [&](const std::vector<ch::ChVector3d>& face) {
+            std::vector<std::array<double, 2>> out;
+            for (const auto& x : face) {
+                out.push_back({ch::Vdot(x - origin, u), ch::Vdot(x - origin, v)});
+            }
+            return out;
+        };
+        const auto overlap = overlapOf(flatOf(faceA), flatOf(faceB));
+        if (overlap.empty()) {
+            continue;
+        }
+        const double alongA = ch::Vdot(nA, n);
+        const double alongB = ch::Vdot(nB, n);
+        if (!(alongA > 0.5) || !(alongB < -0.5)) {
+            continue;
+        }
+        for (const auto& corner : overlap) {
+            const ch::ChVector3d q = origin + u * corner[0] + v * corner[1];
+            const ch::ChVector3d pA = q + n * ((cA - ch::Vdot(nA, q)) / alongA);
+            const ch::ChVector3d pB = q + n * ((cB - ch::Vdot(nB, q)) / alongB);
+            Point added = lead;
+            added.onA = bodyA->TransformPointParentToLocal(pA);
+            added.onB = bodyB->TransformPointParentToLocal(pB);
+            added.normal = n;
+            added.bentMemoA.reset();
+            added.bentMemoB.reset();
+            outlines[p].push_back(added);
+        }
+        any = true;
+    }
+    if (!any) {
+        return;
+    }
+    // The patches outlined lose the points found, on the grown shapes
+    std::vector<Point> kept;
+    kept.reserve(load.points.size());
+    for (const Point& point : load.points) {
+        if (point.patch < load.patches && !outlines[point.patch].empty()) {
+            continue;
+        }
+        kept.push_back(point);
+    }
+    for (auto& outline : outlines) {
+        kept.insert(kept.end(), outline.begin(), outline.end());
+    }
+    load.points = std::move(kept);
+}
+
 void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
 {
     // Of the points found now (pressureLaw())
@@ -9974,6 +10236,9 @@ void patchStiffness(ContactLoad& load, const ShapesOn& shapes)
     const bool pressure = law.from == ContactLaw::Stiffness::Pressure;
     if ((law.from != ContactLaw::Stiffness::Materials && !pressure) || load.points.empty()) {
         return;
+    }
+    if (pressure) {
+        outlineFlatPatches(load, shapes);
     }
     const auto& points = load.points;
     const auto bodyA = load.GetBodyA();

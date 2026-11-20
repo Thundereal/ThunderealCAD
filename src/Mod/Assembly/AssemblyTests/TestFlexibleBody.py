@@ -1535,9 +1535,28 @@ class TestFlexibleBody(unittest.TestCase):
         their springs' mean, 50.28 and 4.707. And a flexible block lying
         level 0.05 mm in, held at its end by the hinge: it bends up off the
         plate, a beam on an elastic layer, Euler and Bernoulli's 31.9 N for
-        the 50 of the rigid one; at its points' mean, 37.84"""
+        the 50 of the rigid one; at its points' mean, 37.84. The rigid block's
+        patch on the faces' true outlines (D4b way 2 step 5), within a
+        thousandth: level 50 (before, 50.25, the envelope's corners), tilted
+        to none 25 (25.13), past none by 0.05 mm at its far end 12.5 (12.61),
+        by 0.15 6.25 (12.62, a disc of the parts' sizes)"""
         block = self.tiltTurned("a pressure on a block tilted to none", far=0.0)
-        self.assertLess(abs(block - 25.0), 0.01 * 25.0)
+        self.assertLess(abs(block - 25.0), 0.001 * 25.0)
+        self.renew()
+        # Lying level, k A d, its area the faces' true outline's, not the
+        # envelope's; tilted past none, pressed only where it is in -- its
+        # far corners beyond collision detection's margin, the overlap the
+        # faces' outlines' cut where the depth is none: k b (L x) d / 2 over
+        # the x of L it is in, half its length clear 0.05 mm, three quarters
+        # 0.15
+        level = self.tiltTurned("a pressure on a block lying level", far=0.05)
+        self.assertLess(abs(level - 50.0), 0.001 * 50.0)
+        self.renew()
+        past = self.tiltTurned("a pressure on a block tilted past none", far=-0.05)
+        self.assertLess(abs(past - 12.5), 0.001 * 12.5)
+        self.renew()
+        far = self.tiltTurned("a pressure on a block tilted further past", far=-0.15)
+        self.assertLess(abs(far - 6.25), 0.001 * 6.25)
         self.renew()
         rod = self.tiltTurned("a pressure on a rod tilted to none", rod=True, far=0.0)
         self.assertLess(abs(rod - 1.886), 0.01 * 1.886)

@@ -61,7 +61,12 @@ UndoRedoMenu::~UndoRedoMenu() = default;
  */
 void UndoRedoMenu::onFetchInfo()
 {
+    // The groups' menus of the last fill: clear() lets go of their actions
+    // but not of them, children of this menu, and every drop-down made more
+    const QList<QMenu*> groups = findChildren<QMenu*>(Qt::FindDirectChildrenOnly);
     clear(); // Remove first all items
+    for (QMenu* group : groups)
+        group->deleteLater();
 
     MDIView* mdi =  getMainWindow()->activeWindow();
     if (!mdi)

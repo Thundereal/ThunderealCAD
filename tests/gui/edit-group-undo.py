@@ -7,7 +7,8 @@ A pad edited in its task panel: two values typed, each a step of its own
 Claims:
   - the edit's steps are one group;
   - Std_Undo takes the edit whole, back to before it; Std_Redo brings it back;
-  - the undo button's list shows the edit as one row, a menu of its steps;
+  - the undo button's list shows the edit as one row, a menu of its steps,
+    and filling it again lets go of the last fill's menus;
   - picking a step in it undoes the edit down to that step only, and what is
     left of the edit is still one undo;
   - clicking the edit's row itself takes the whole edit;
@@ -165,6 +166,14 @@ def run():
         check("the undo list shows the edit as one row, a menu of its steps",
               listed and listed[0][1] is not None and len(listed[0][1]) == len(edit_steps),
               listed)
+        # Filled again, as each time it drops down: the last fill's menus go
+        undo_menu()
+        menu = undo_menu()
+        # a later delete, which a nested loop does not run
+        QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+        kept = [c for c in menu.children() if isinstance(c, QtWidgets.QMenu)]
+        check("a fill of the list lets go of the last one's menus", len(kept) == 1,
+              len(kept))
 
         command(v3d, "Std_Undo")
         check("Std_Undo takes the edit whole",
@@ -192,7 +201,11 @@ def run():
 
         # a step of it picked: the edit down to that step only
         menu = undo_menu()
-        group = [a for a in menu.actions() if a.menu()][0].menu()
+        # The row's action held while its menu is used: PySide counts the
+        # menu as the action's, and a wrapper of it outliving the action's
+        # reads as deleted
+        row = [a for a in menu.actions() if a.menu()][0]
+        group = row.menu()
         note("  group menu %s" % ([a.text() for a in group.actions()],))
         # newest first: the step that typed 8, the one that typed 7 -- and
         # above them OK's step, where OK had something to make again (a

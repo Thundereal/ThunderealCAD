@@ -79,6 +79,12 @@ public:
     App::PropertyLinkList Views;
     Part::PropertyPartShape Presentation;
     App::PropertyString EquivalentText;
+    /// The graphic a file drew for it (docs/GDandT.md sec 5.1 step 3), in
+    /// the set's coordinates: what is drawn while UseImported is set
+    Part::PropertyPartShape ImportedGraphic;
+    /// Draw the file's graphic; off once the callout is edited, and laid
+    /// out from its semantics from then on
+    App::PropertyBool UseImported;
 
     enum LeaderStyle
     {
@@ -103,6 +109,9 @@ public:
     /// Lay the callout out again: Plane (if AutoPlace), Presentation,
     /// EquivalentText
     void updatePresentation();
+    /// Whether a change of \a prop is the user editing the callout: what
+    /// it says, where it is, its size
+    bool isEdit(const App::Property* prop) const;
 
     /// The plane the callout takes while AutoPlace is on, before stacking;
     /// by default defaultPlane() on its feature. \a target is where a

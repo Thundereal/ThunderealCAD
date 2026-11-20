@@ -3,8 +3,10 @@ sec 5.1, P2).
 
 NIST's CTC-01 (src/Mod/PMI/PMITests/data) through ImportGui, both ways it
 reads a file -- at once, and progressively -- each giving what the headless
-import gives (PMITests/TestStep.py): the datums, the tolerances and the
-dimensions, none invalid, drawn.
+import gives (PMITests/TestStep.py): the datums, the tolerances, the
+dimensions, the graphic-only notes and the saved views, none invalid, drawn
+as the file draws them; the saved view, activated, shows it as the file
+does.
 
   scripts/gui-test.sh tests/gui/pmi-step.py /tmp/pmi-step
 """
@@ -54,7 +56,7 @@ def blue(path):
 
 
 def counts(doc):
-    kinds = ("Datum", "GeometricTolerance", "Dimension")
+    kinds = ("Datum", "GeometricTolerance", "Dimension", "Note", "View")
     return tuple(len([o for o in doc.Objects if o.TypeId == "PMI::" + k]) for k in kinds)
 
 
@@ -94,6 +96,21 @@ def run():
             view.saveImage(shot, 1000, 750, "#FFFFFF")
             n = blue(shot)
             check("%s: drawn" % name, n > 300, n)
+            callouts = [o for o in doc.Objects if hasattr(o, "UseImported")]
+            check("%s: drawn as the file draws" % name,
+                  callouts and all(o.UseImported for o in callouts))
+            saved = [o for o in doc.Objects if o.TypeId == "PMI::View"][0]
+            view.setActiveObject("pmiview", saved)
+            pump(30)
+            check("%s: the saved view's camera" % name,
+                  view.getCameraOrientation().isSame(saved.Camera.Rotation, 1e-6),
+                  (view.getCameraOrientation(), saved.Camera.Rotation))
+            shot = os.path.join(OUT, "%s-%s.png" % (name, saved.Label))
+            view.saveImage(shot, 1000, 750, "#FFFFFF")
+            n = blue(shot)
+            check("%s: the saved view shows its callouts" % name, n > 300, n)
+            view.setActiveObject("pmiview", None)
+            pump(10)
             App.closeDocument(doc.Name)
             pump(10)
     except Exception:

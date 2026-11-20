@@ -99,6 +99,48 @@ class TestStepImport(Base):
         for o in callouts:
             self.assertFalse(o.Presentation.isNull(), o.Name)
 
+    def test_drawn_as_the_file_draws(self):
+        callouts = [o for o in self.doc.Objects if hasattr(o, "UseImported")]
+        drawn = [o for o in callouts if o.UseImported]
+        self.assertEqual(len(drawn), len(callouts))
+        for o in drawn:
+            self.assertFalse(o.ImportedGraphic.isNull(), o.Name)
+            a, b = o.Presentation.BoundBox, o.ImportedGraphic.BoundBox
+            self.assertAlmostEqual(a.DiagonalLength, b.DiagonalLength, 6)
+        # Edited, drawn from what it says
+        gt = objects(self.doc, "GeometricTolerance")[0]
+        before = gt.Presentation.BoundBox.DiagonalLength
+        gt.Value = gt.Value * 2
+        self.doc.recompute()
+        self.assertFalse(gt.UseImported)
+        self.assertNotAlmostEqual(gt.Presentation.BoundBox.DiagonalLength, before, 3)
+
+    def test_graphic_only_as_notes(self):
+        notes = objects(self.doc, "Note")
+        self.assertEqual(len(notes), EXPECTED["notes"])
+        for n in notes:
+            self.assertEqual(list(n.Text), [])
+            self.assertFalse(n.ImportedGraphic.isNull(), n.Name)
+        # The graphic of what is read, given again on its own, is no note:
+        # CTC-01 gives its three datums' so
+        read = [o for o in self.doc.Objects if hasattr(o, "ImportedGraphic") and o not in notes]
+        for n in notes:
+            b = n.ImportedGraphic.BoundBox
+            for o in read:
+                c = o.ImportedGraphic.BoundBox
+                twin = (b.Center - c.Center).Length < 1e-6 and \
+                    abs(b.DiagonalLength - c.DiagonalLength) < 1e-6
+                self.assertFalse(twin, (n.Label, o.Name))
+
+    def test_saved_views(self):
+        views = objects(self.doc, "View")
+        self.assertEqual(sorted(v.Label for v in views), EXPECTED["views"])
+        shown = set()
+        for v in views:
+            self.assertFalse(v.AnnotationPlane)
+            shown.update(o.Name for o in v.InList if hasattr(o, "Views") and v in o.Views)
+        self.assertTrue(shown)
+
     def test_lettered_as_the_file_letters(self):
         # CTC-01's one-row frames are 24.5 high: twice the text, ASME's way
         heights = set(round(o.TextHeight.Value, 6) for o in self.doc.Objects
@@ -111,6 +153,9 @@ class TestStepImport(Base):
 # gives a value -- the other four, and the graphic-only callouts, are only
 # a presentation (deviations as signed limits, the nominal the model's)
 EXPECTED = {
+    # Two texts and two sizes the file gives only as graphics
+    "notes": 4,
+    "views": ["MBD_0"],
     "datums": ["A", "B", "C"],
     "tolerances": [
         ("Flatness", 0.2, []),

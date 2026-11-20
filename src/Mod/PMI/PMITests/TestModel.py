@@ -562,6 +562,34 @@ class TestPresentation(Base):
             self.assertAlmostEqual(v.Point.z, 10 + 0.05 * h, 6)
         self.assertEqual(gt.EquivalentText, "\u23e5|0.05")
 
+    def test_a_files_graphic_until_edited(self):
+        # An imported callout is drawn as the file drew it (sec 5.1 step 3);
+        # edited, it is drawn from what it says
+        gt = self.add("GeometricTolerance", "GT", Characteristic="Flatness",
+                      Feature=self.feature(TOP), Value=0.05)
+        self.recompute()
+        ours = gt.Presentation.copy()
+        theirs = Part.makeCircle(7, V(0, 0, 30))
+        gt.ImportedGraphic = theirs
+        gt.UseImported = True
+        self.recompute()
+        self.assertTrue(gt.UseImported)
+        box = gt.Presentation.BoundBox
+        self.assertAlmostEqual(box.XLength, 14, 6)
+        self.assertAlmostEqual(box.ZMin, 30, 6)
+        # Moving it into a view, or a recompute, is no edit
+        view = self.add("View", "Top", Standard="Top", AnnotationPlane=False)
+        gt.Views = [view]
+        self.recompute()
+        self.assertTrue(gt.UseImported)
+        # An edit is: drawn from what it says again, as before the import
+        gt.Value = 0.1
+        self.recompute()
+        self.assertFalse(gt.UseImported)
+        gt.Value = 0.05
+        self.recompute()
+        self.assertAlmostEqual(gt.Presentation.BoundBox.XLength, ours.BoundBox.XLength, 6)
+
     def test_the_leader_reaches_the_feature(self):
         top = self.feature(TOP)
         gt = self.add("GeometricTolerance", "GT", Characteristic="Flatness", Feature=top,

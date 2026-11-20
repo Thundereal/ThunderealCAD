@@ -33,6 +33,7 @@
 #include <BRep_Tool.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
+#include <Geom_Line.hxx>
 #include <Poly_Triangulation.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -145,14 +146,38 @@ void ShapeLines::set(const TopoDS_Shape& shape)
     std::vector<SbVec3f> fp;
     std::vector<int32_t> fi;
     if (!shape.IsNull()) {
-        // Strokes: the edges no face holds, each a segment (they are made
-        // so, arcs included)
+        // Strokes: the edges no face holds. Ours are each a segment, arcs
+        // included; a file's graphic may have curves, which are followed
         for (TopExp_Explorer xp(shape, TopAbs_EDGE, TopAbs_FACE); xp.More(); xp.Next()) {
             const TopoDS_Edge& edge = TopoDS::Edge(xp.Current());
             TopoDS_Vertex v1, v2;
             TopExp::Vertices(edge, v1, v2);
-            if (v1.IsNull() || v2.IsNull()) {
+            if (v1.IsNull() || v2.IsNull() || BRep_Tool::Degenerated(edge)) {
                 continue;
+            }
+            double first, last;
+            Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+            if (!curve.IsNull() && !curve->IsKind(STANDARD_TYPE(Geom_Line))) {
+                try {
+                    BRepAdaptor_Curve adapt(edge);
+                    Bnd_Box box;
+                    BRepBndLib::Add(edge, box);
+                    double size = box.IsVoid() ? 0 : std::sqrt(box.SquareExtent());
+                    GCPnts_TangentialDeflection points(adapt, 0.2,
+                                                       std::max(1e-3, size * 0.005));
+                    if (points.NbPoints() > 2) {
+                        for (int k = 1; k <= points.NbPoints(); ++k) {
+                            gp_Pnt p = points.Value(k);
+                            li.push_back(int32_t(lp.size()));
+                            lp.emplace_back(float(p.X()), float(p.Y()), float(p.Z()));
+                        }
+                        li.push_back(-1);
+                        continue;
+                    }
+                }
+                catch (const Standard_Failure&) {
+                    // Drawn as the segment between its ends
+                }
             }
             gp_Pnt a = BRep_Tool::Pnt(v1), b = BRep_Tool::Pnt(v2);
             int32_t n = int32_t(lp.size());

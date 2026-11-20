@@ -26,6 +26,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 #include <Bnd_Box.hxx>
@@ -84,10 +85,35 @@ Callout::Callout()
     ADD_PROPERTY_TYPE(EquivalentText, (""), "Presentation",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Output),
                       "The equivalent unicode string (CAx-IF), for checking");
+    ADD_PROPERTY_TYPE(ImportedGraphic, (TopoDS_Shape()), "Presentation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
+                      "The graphic the file drew");
+    ADD_PROPERTY_TYPE(UseImported, (false), "Presentation", App::Prop_None,
+                      "Draw the file's graphic until the callout is edited");
+}
+
+bool Callout::isEdit(const App::Property* prop) const
+{
+    if (!prop || prop->getContainer() != this) {
+        return false;
+    }
+    if (prop == &Plane || prop == &TextHeight || prop == &AttachedTo) {
+        return true;
+    }
+    // What it says: its own properties, not the outputs
+    const char* group = prop->getGroup();
+    return group && std::strcmp(group, "PMI") == 0
+        && !(prop->getType() & (App::Prop_ReadOnly | App::Prop_Output))
+        && prop->getName() && std::strcmp(prop->getName(), "Condition") != 0
+        && std::strcmp(prop->getName(), "ConditionMessage") != 0;
 }
 
 void Callout::onChanged(const App::Property* prop)
 {
+    // Edited: drawn from what it says from now on
+    if (UseImported.getValue() && !_placing && !isRestoring() && isEdit(prop)) {
+        UseImported.setValue(false);
+    }
     // Moved by the user: from now on where it was put
     if (prop == &Plane && !_placing && !isRestoring() && AutoPlace.getValue()) {
         AutoPlace.setValue(false);
@@ -418,6 +444,14 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
 
 void Callout::updatePresentation()
 {
+    if (UseImported.getValue() && !ImportedGraphic.getShape().isNull()) {
+        Presentation.setValue(ImportedGraphic.getShape().getShape());
+        std::string text = Font::toUtf8(equivalentText());
+        if (EquivalentText.getStrValue() != text) {
+            EquivalentText.setValue(text);
+        }
+        return;
+    }
     double h = TextHeight.getValue();
     if (h <= 0.0) {
         h = 3.5;

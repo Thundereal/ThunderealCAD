@@ -52,9 +52,14 @@ struct Report
     int datums = 0;
     int tolerances = 0;
     int dimensions = 0;
+    int views = 0;
+    /// PMI the file gives only as a graphic, made a note carrying it
+    int notes = 0;
     /// Read twice (a streamed import may) and kept once
     int duplicates = 0;
-    /// Dimensions with no semantics, only a graphic: not read yet
+    /// A graphic given apart from what was read with it as well: kept once
+    int twice = 0;
+    /// Dimensions with no semantics and no graphic either: not read
     int graphicOnly = 0;
     /// Not read, each with why
     std::vector<std::string> skipped;

@@ -24,6 +24,7 @@
 
 #include "PreCompiled.h"
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <set>
 #include <sstream>
@@ -39,7 +40,9 @@
 #include <TCollection_HAsciiString.hxx>
 #include <TDF_Label.hxx>
 #include <TDF_Tool.hxx>
+#include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <XCAFDimTolObjects_DatumObject.hxx>
 #include <XCAFDimTolObjects_DimensionObject.hxx>
@@ -50,6 +53,9 @@
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_GeomTolerance.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <XCAFDoc_View.hxx>
+#include <XCAFDoc_ViewTool.hxx>
+#include <XCAFView_Object.hxx>
 
 #include <App/Document.h>
 #include <Base/Console.h>
@@ -64,9 +70,11 @@
 #include "Datum.h"
 #include "Dimension.h"
 #include "GeometricTolerance.h"
+#include "Note.h"
 #include "Geometry.h"
 #include "StepImport.h"
 #include "TolerancedFeature.h"
+#include "View.h"
 
 FC_LOG_LEVEL_INIT("PMI", true, true)
 
@@ -137,6 +145,8 @@ public:
         for (auto& l : labels) {
             guard(l, "dimension", [&]() { dimension(l); });
         }
+        notes();
+        views();
         return _report;
     }
 
@@ -304,14 +314,24 @@ private:
         return o;
     }
 
-    /// Kept once: a streamed import may read the same item twice
-    bool seen(const std::string& key)
+    /// Kept once: a streamed import may read the same item twice. The
+    /// label read again is the one kept, for the views that show it.
+    bool seen(const std::string& key, const TDF_Label& l)
     {
-        if (!_keys.insert(key).second) {
-            ++_report.duplicates;
-            return true;
+        auto it = _keyed.find(key);
+        if (it == _keyed.end()) {
+            return false;
         }
-        return false;
+        ++_report.duplicates;
+        _byLabel[entry(l)] = it->second;
+        return true;
+    }
+
+    /// The item made of a label, and of the labels read again as it
+    void made(const std::string& key, const TDF_Label& l, Callout* c)
+    {
+        _keyed[key] = c;
+        _byLabel[entry(l)] = c;
     }
 
     static std::string key(const Faces& f)
@@ -346,6 +366,7 @@ private:
         XCAFDoc_DimTolTool::GetRefShapeLabel(l, first, second);
         if (first.IsEmpty()) {
             _cited.insert(letter);
+            _letterOf[entry(l)] = letter;
             return;
         }
         Faces f;
@@ -356,14 +377,21 @@ private:
         _read.insert(letter);
         // Each frame citing a datum whose feature OCCT found has a label
         // with its shapes too: one datum, many labels, not duplicates
-        if (!_datums.insert("datum " + letter + " " + key(f)).second) {
+        std::string k = "datum " + letter + " " + key(f);
+        auto it = _datums.find(k);
+        if (it != _datums.end()) {
+            _byLabel[entry(l)] = it->second;
             return;
         }
         auto d = add<Datum>(f.object, "PMI::Datum", "Datum");
+        _datums[k] = d;
+        _byLabel[entry(l)] = d;
+        _byLetter.emplace(letter, d);
         d->Letter.setValue(letter);
         d->Feature.setValue(feature(f, true));
         place(d, f.object, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
               obj->GetPointTextAttach());
+        graphic(d, f.object, obj->GetPresentation());
         ++_report.datums;
     }
 
@@ -510,7 +538,7 @@ private:
         for (auto& c : comps) {
             k << "|" << c;
         }
-        if (seen(k.str())) {
+        if (seen(k.str(), l)) {
             return;
         }
         // A position, a coaxiality, or a cylindrical zone of a cylinder is
@@ -518,6 +546,7 @@ private:
         bool axis = zone == 1 || ch == GT::Position || ch == GT::Coaxiality
             || ch == GT::Concentricity;
         auto gt = add<GT>(f.object, "PMI::GeometricTolerance", "Tolerance");
+        made(k.str(), l, gt);
         gt->Characteristic.setValue(ch);
         gt->Feature.setValue(feature(f, axis));
         gt->ZoneShape.setValue(zone);
@@ -557,6 +586,7 @@ private:
         }
         place(gt, f.object, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
               obj->GetPointTextAttach(), obj->GetPresentation());
+        graphic(gt, f.object, obj->GetPresentation());
         ++_report.tolerances;
     }
 
@@ -630,7 +660,7 @@ private:
             || obj->GetType() == XCAFDimTolObjects_DimensionType_CommonLabel
             || (obj->GetType() == XCAFDimTolObjects_DimensionType_Location_None
                 && !obj->HasQualifier() && obj->GetValues().IsNull())) {
-            ++_report.graphicOnly;
+            graphicOnly(l, obj);
             return;
         }
         int type = dimensionType(obj->GetType());
@@ -664,10 +694,11 @@ private:
         if (location) {
             k << " " << key(f2);
         }
-        if (seen(k.str())) {
+        if (seen(k.str(), l)) {
             return;
         }
         auto dim = add<Dimension>(f1.object, "PMI::Dimension", "Dimension");
+        made(k.str(), l, dim);
         dim->Type.setValue(type);
         std::vector<App::DocumentObject*> feats {feature(f1, location)};
         if (location) {
@@ -698,8 +729,217 @@ private:
         dim->Modifiers.setValues(mods);
         place(dim, f1.object, obj->HasPlane(), obj->GetPlane(), obj->HasTextPoint(),
               obj->GetPointTextAttach());
+        graphic(dim, f1.object, obj->GetPresentation());
         _values.emplace_back(dim, value);
         ++_report.dimensions;
+    }
+
+    /// The graphic the file drew for \a c, into the set's coordinates:
+    /// drawn once the import has done (UseImported)
+    void graphic(Callout* c, Part::Feature* obj, const TopoDS_Shape& shape)
+    {
+        if (shape.IsNull()) {
+            return;
+        }
+        gp_Trsf trsf;
+        Part::TopoShape::convertTogpTrsf(obj->Placement.getValue().toMatrix(), trsf);
+        _graphics.emplace_back(c, shape.Moved(TopLoc_Location(trsf)));
+        _lastObject = obj;
+    }
+
+    /// PMI with only a graphic: kept until all else is read, as it may be
+    /// the graphic of what is read later
+    void graphicOnly(const TDF_Label& l, const Handle(XCAFDimTolObjects_DimensionObject) & obj)
+    {
+        _pending.push_back({l, obj, _lastObject});
+    }
+
+    struct Pending
+    {
+        TDF_Label label;
+        Handle(XCAFDimTolObjects_DimensionObject) obj;
+        Part::Feature* last;
+    };
+
+    /// What compares two graphics: their edges and their extent
+    struct Extent
+    {
+        int edges = 0;
+        Bnd_Box box;
+    };
+
+    static Extent extent(const TopoDS_Shape& shape)
+    {
+        Extent e;
+        TopTools_IndexedMapOfShape edges;
+        TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+        e.edges = edges.Extent();
+        BRepBndLib::Add(shape, e.box);
+        return e;
+    }
+
+    static bool same(const Extent& a, const Extent& b)
+    {
+        if (a.edges != b.edges || a.box.IsVoid() || b.box.IsVoid()) {
+            return false;
+        }
+        double tol = 1e-6 * std::max(1.0, std::sqrt(a.box.SquareExtent()));
+        return a.box.CornerMin().Distance(b.box.CornerMin()) < tol
+            && a.box.CornerMax().Distance(b.box.CornerMax()) < tol;
+    }
+
+    /// The graphic-only PMI, each a note that carries it (sec 5.1 step 3),
+    /// on its feature if the file names one. One drawn as something read
+    /// with its semantics is that one's graphic given again (CTC-01 gives
+    /// its datums' this way): kept once, the label shows that one.
+    void notes()
+    {
+        std::vector<Extent> read;
+        read.reserve(_graphics.size());
+        for (auto& g : _graphics) {
+            read.push_back(extent(g.second));
+        }
+        for (auto& p : _pending) {
+            guard(p.label, "graphic", [&]() { note(p, read); });
+        }
+    }
+
+    void note(const Pending& p, const std::vector<Extent>& read)
+    {
+        TopoDS_Shape shape = p.obj->GetPresentation();
+        NCollection_Sequence<TDF_Label> first, second;
+        XCAFDoc_DimTolTool::GetRefShapeLabel(p.label, first, second);
+        Faces f;
+        std::string why;
+        bool onFaces = faces(first, f, why);
+        Part::Feature* owner = onFaces ? f.object : p.last;
+        if (shape.IsNull() || !owner) {
+            ++_report.graphicOnly;
+            return;
+        }
+        gp_Trsf trsf;
+        Part::TopoShape::convertTogpTrsf(owner->Placement.getValue().toMatrix(), trsf);
+        Extent e = extent(shape.Moved(TopLoc_Location(trsf)));
+        for (std::size_t i = 0; i < read.size(); ++i) {
+            if (same(e, read[i])) {
+                _byLabel[entry(p.label)] = _graphics[i].first;
+                ++_report.twice;
+                return;
+            }
+        }
+        auto n = add<Note>(owner, "PMI::Note", "Note");
+        _byLabel[entry(p.label)] = n;
+        std::string name = text(p.obj->GetPresentationName());
+        if (!name.empty()) {
+            n->Label.setValue(name);
+        }
+        if (onFaces) {
+            n->Feature.setValue(feature(f, false));
+        }
+        place(n, owner, p.obj->HasPlane(), p.obj->GetPlane(), p.obj->HasTextPoint(),
+              p.obj->GetPointTextAttach());
+        graphic(n, owner, shape);
+        ++_report.notes;
+    }
+
+    /// The file's saved views (sec 5.1 step 4): a PMI::View each, with
+    /// the callouts it shows as its members
+    void views()
+    {
+        TDF_Label main = _info.hDoc->Main();
+        TDF_Label viewsLabel = XCAFDoc_DocumentTool::ViewsLabel(main);
+        Handle(XCAFDoc_ViewTool) tool;
+        if (_made.empty() || !viewsLabel.FindAttribute(XCAFDoc_ViewTool::GetID(), tool)) {
+            return;
+        }
+        NCollection_Sequence<TDF_Label> labels;
+        tool->GetViewLabels(labels);
+        for (auto& l : labels) {
+            guard(l, "view", [&]() { view(tool, l); });
+        }
+    }
+
+    void view(const Handle(XCAFDoc_ViewTool) & tool, const TDF_Label& l)
+    {
+        Handle(XCAFDoc_View) attr;
+        if (!l.FindAttribute(XCAFDoc_View::GetID(), attr) || attr->GetObject().IsNull()) {
+            return;
+        }
+        auto obj = attr->GetObject();
+        if (obj->Type() == XCAFView_ProjectionType_NoCamera) {
+            return skip(l, "view", "it has no camera");
+        }
+        // Its callouts: a datum label only a frame cites shows the datum
+        // of its letter
+        std::vector<Callout*> members;
+        NCollection_Sequence<TDF_Label> gdts;
+        tool->GetRefGDTLabel(l, gdts);
+        for (auto& g : gdts) {
+            std::string e = entry(g);
+            Callout* c = nullptr;
+            auto it = _byLabel.find(e);
+            if (it != _byLabel.end()) {
+                c = it->second;
+            }
+            else if (auto lt = _letterOf.find(e); lt != _letterOf.end()) {
+                auto dt = _byLetter.find(lt->second);
+                c = dt == _byLetter.end() ? nullptr : dt->second;
+            }
+            if (c && std::find(members.begin(), members.end(), c) == members.end()) {
+                members.push_back(c);
+            }
+        }
+        // In the set of what it shows, else the first one made
+        Callout* first = members.empty() ? _made.front() : members.front();
+        AnnotationSet* s = first->getSet();
+        auto part = s ? freecad_cast<App::GeoFeature*>(s->Part.getValue()) : nullptr;
+        if (!s || !part) {
+            return skip(l, "view", "no annotation set for it");
+        }
+        auto v = static_cast<View*>(_info.doc->addObject("PMI::View", "View"));
+        s->addObject(v);
+        std::string name = text(obj->Name());
+        if (!name.empty()) {
+            v->Label.setValue(name);
+        }
+        // The camera looks along -z with y up; its origin the point looked
+        // at, here the one on the line of sight nearest the part
+        gp_Dir look = obj->ViewDirection();
+        gp_Dir up = obj->UpDirection();
+        gp_Dir z = look.Reversed();
+        if (up.IsParallel(z, Precision::Angular())) {
+            return skip(l, "view", "its up direction is its direction of sight");
+        }
+        gp_Dir x = up.Crossed(z);
+        gp_Dir y = z.Crossed(x);
+        gp_Pnt eye = obj->ProjectionPoint();
+        gp_Pnt target = eye;
+        if (auto feat = freecad_cast<Part::Feature*>(part)) {
+            Bnd_Box box;
+            BRepBndLib::Add(feat->Shape.getShape().getShape().Located(TopLoc_Location()), box);
+            if (!box.IsVoid()) {
+                gp_Pnt c = (box.CornerMin().XYZ() + box.CornerMax().XYZ()) / 2;
+                target = eye.Translated(gp_Vec(look) * gp_Vec(eye, c).Dot(gp_Vec(look)));
+            }
+        }
+        auto vec = [](const gp_XYZ& p) { return Base::Vector3d(p.X(), p.Y(), p.Z()); };
+        Base::Placement local(vec(target.XYZ()),
+                              Base::Rotation::makeRotationByAxes(vec(x.XYZ()), vec(y.XYZ()),
+                                                                 vec(z.XYZ()), "ZXY"));
+        v->Standard.setValue(long(View::Custom));
+        // A saved view shows; its callouts keep the planes the file gives them
+        v->AnnotationPlane.setValue(false);
+        v->Camera.setValue(part->Placement.getValue() * local);
+        v->Perspective.setValue(obj->Type() == XCAFView_ProjectionType_Central);
+        if (obj->WindowVerticalSize() > Precision::Confusion()) {
+            v->Height.setValue(obj->WindowVerticalSize());
+        }
+        for (auto c : members) {
+            auto views = c->Views.getValues();
+            views.push_back(v);
+            c->Views.setValues(views);
+        }
+        ++_report.views;
     }
 
 public:
@@ -709,14 +949,20 @@ public:
     /// The smallest frame the file draws: one row, no leader
     double _frameHeight = 0;
     std::vector<Callout*> _made;
+    std::vector<std::pair<Callout*, TopoDS_Shape>> _graphics;
+    Part::Feature* _lastObject = nullptr;
+    std::vector<Pending> _pending;
 
 private:
     const Import::PostImport& _info;
     Handle(XCAFDoc_ShapeTool) _shapes;
     Handle(XCAFDoc_DimTolTool) _tool;
     std::map<Part::Feature*, Part::TopoShape> _bases;
-    std::set<std::string> _keys;
-    std::set<std::string> _cited, _read, _datums;
+    std::map<std::string, Callout*> _keyed, _datums, _byLabel;
+    std::multimap<std::string, Callout*> _byLetter;
+    /// A datum label that only a frame cites: its letter
+    std::map<std::string, std::string> _letterOf;
+    std::set<std::string> _cited, _read;
     std::map<std::string, int> _targets;
     Step::Report _report;
 };
@@ -733,6 +979,12 @@ Step::Report Step::read(const Import::PostImport& info)
         for (auto c : reader._made) {
             c->TextHeight.setValue(reader._frameHeight / 2);
         }
+    }
+    // Drawn as the file draws them, until edited; set last, as any edit
+    // turns it off
+    for (auto& [c, shape] : reader._graphics) {
+        c->ImportedGraphic.setValue(shape);
+        c->UseImported.setValue(true);
     }
     if (report.datums + report.tolerances + report.dimensions == 0) {
         for (auto& s : report.skipped) {
@@ -752,12 +1004,16 @@ Step::Report Step::read(const Import::PostImport& info)
         }
     }
     FC_MSG("PMI: read " << report.datums << " datums, " << report.tolerances << " tolerances, "
-                        << report.dimensions << " dimensions"
+                        << report.dimensions << " dimensions, " << report.notes
+                        << " graphic-only notes, " << report.views << " views"
                         << (report.duplicates ? ", " + std::to_string(report.duplicates)
                                                     + " read twice and kept once"
                                               : std::string())
+                        << (report.twice ? ", " + std::to_string(report.twice)
+                                               + " graphics given twice and kept once"
+                                         : std::string())
                         << (report.graphicOnly ? ", " + std::to_string(report.graphicOnly)
-                                                     + " dimensions only a graphic, not read yet"
+                                                     + " dimensions with no graphic, not read"
                                                : std::string()));
     for (auto& s : report.skipped) {
         FC_WARN("PMI: " << s);

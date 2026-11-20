@@ -212,7 +212,7 @@ pass walks it:
 2. Create the PMI::AnnotationSet, PMI::TolerancedFeatures (sharing per face set), datum features, datum systems,
    dimensions and tolerances from the `XCAFDimTolObjects_*` objects.
 3. Presentation: OCCT gives each item a plane, a text point and a presentation shape. Keep the
-   imported shape as the item's graphic, flagged `Imported`, until the user edits the item;
+   imported shape as the item's graphic, flagged `UseImported`, until the user edits the item;
    then the graphic is regenerated from the semantics (section 6). Graphic-only PMI (AP203/AP214,
    or AP242 without semantics) becomes `PMI::Note`s that carry only the shape.
 4. Saved views (`XCAFDoc_ViewTool`) become PMI::Views.
@@ -640,11 +640,42 @@ The NIST set's ledger, what is not read or is read invalid, all 17 files (2026-1
 | curve lengths | 10 | no dimension type for them |
 | widths on other than two planes | 11 | thickness used for a depth, or a width across several faces |
 | MMR on no feature of size | 3 | slots and counterbores: a feature of planes and cylinders |
-| graphic-only dimensions | 185 | presentation, not read yet (sec 5.1 step 3) |
+| graphic-only dimensions | 185 | presentation, not read yet (sec 5.1 step 3); read since, 10.10 |
 
-- Next in P2: the presentation the file draws (sec 5.1 step 3) and graphic-only PMI as
-  `PMI::Note`s; saved views to PMI::Views (step 4); datum targets; slots and counterbores as
-  features of size.
+### 10.10 P2 progress: the file's graphics, graphic-only PMI, saved views (2026-11-20)
+
+Built, sec 5.1 steps 3 and 4:
+
+- **Drawn as the file draws**: each callout read keeps the file's presentation shape in
+  `ImportedGraphic` (read-only, hidden, moved into the set's coordinates) and `UseImported` on;
+  while it is on, `Presentation` is that shape, not the one made from the semantics. An edit
+  turns it off for good: the plane, the text height, what it is attached to, or any property
+  of the PMI group a user sets. A recompute, a placement by the layout, or joining a view is no
+  edit. The callout's strokes follow curves now (`ShapeLines`: a curve not a line is sampled
+  to 0.5% of the graphic's size), as the files' symbols are arcs and circles.
+- **Graphic-only PMI** (no type and no value, or a "dimension presentation") becomes a
+  `PMI::Note` carrying the graphic, labelled with the presentation's name, on its feature when
+  the file names one. Notes are made after everything else is read: a graphic the same as one
+  read with its semantics (same edges, same extent) is that one's, given again -- CTC-01 gives
+  its three datums', an angle's and a profile's so -- and makes no note; its label shows the one
+  read. The note's `Text` is empty: what it says is in its graphic.
+- **Saved views** become `PMI::View`s: the file's name, `Standard` Custom, the camera looking
+  along the file's direction with its up, centred on the point of the line of sight nearest the
+  part, the window height as `Height`, perspective when central. `AnnotationPlane` is off: the
+  callouts keep the file's planes. The view's members are the callouts its labels resolve to,
+  a datum label only a frame cites through its letter.
+
+CTC-01: 21 callouts, all drawn as the file draws them; 4 notes (two texts, two sizes given only
+as graphics), 5 graphics given twice; one view, `MBD_0`, showing all 21. Its capture matches the
+NIST drawing. The NIST set's 185 graphic-only dimensions: 128 notes, 45 given twice, 12 with no
+graphic (counted, nothing to carry); 59 saved views over the 17 files, none invalid.
+
+Tests: `TestModel` (a file's graphic until edited; a view membership is no edit, a value is),
+`TestStep` (drawn as the file draws, edited not; the notes, none a twin of a callout; the
+view), `tests/gui/pmi-step.py` (the saved view activated: its camera, its callouts drawn).
+
+- Next in P2: datum targets; slots and counterbores as features of size; edge and point
+  references.
 
 ## 11. Decisions (made 2026-11-19)
 
@@ -690,7 +721,7 @@ Issue #29772 and its sub-issues [A8], to this design:
 | 29793 validate | 8 -- P0 |
 | 29794 query a feature's specifications | P1 query tool (10.8) |
 | 29795 TechDraw pages from views | 9 + P4 |
-| 29796 STEP AP242 import | 5.1 -- P2 (semantics read, 10.9) |
+| 29796 STEP AP242 import | 5.1 -- P2 (semantics read 10.9; graphics, notes, views 10.10) |
 | 29797 STEP AP242 export | 5.2 -- P3 |
 | 29798 semantic access for other workbenches | the Python API: every object is a plain document object with typed properties, P0 |
 

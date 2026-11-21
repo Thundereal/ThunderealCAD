@@ -4,6 +4,7 @@
 #include <CXX/Extensions.hxx>
 #include <CXX/Objects.hxx>
 
+#include "Solver/OpenFoamBackend.h"
 #include "Solver/Registry.h"
 
 namespace Fluid
@@ -24,10 +25,26 @@ public:
             "FreeSurface, Inlets, MovingWalls, FreeBodies, Heat, Steady, Repeatable,\n"
             "InProcess; TestData (test data, never chosen for a study by itself)."
         );
+        add_varargs_method(
+            "refreshBackends",
+            &Module::refreshBackends,
+            "refreshBackends() -> None\n\n"
+            "Looks again for the programs the backends run on (OpenFOAM): after one was\n"
+            "installed, or the preference Mod/Fluid/OpenFoamPath changed."
+        );
         initialize("The fluid simulation workbench's application module.");
     }
 
 private:
+    Py::Object refreshBackends(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), "")) {
+            throw Py::Exception();
+        }
+        Solver::OpenFoamBackend::refresh();
+        return Py::None();
+    }
+
     Py::Object getBackends(const Py::Tuple& args)
     {
         if (!PyArg_ParseTuple(args.ptr(), "")) {

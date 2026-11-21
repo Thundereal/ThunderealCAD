@@ -54,11 +54,18 @@ struct Kept: public FrameSink
     {
         frames.push_back(frame);
     }
+    void sample(double time, const std::vector<double>& values) override
+    {
+        times.push_back(time);
+        samples.push_back(values);
+    }
     bool cancelled() const override
     {
         return stopAfter >= 0 && static_cast<int>(frames.size()) >= stopAfter;
     }
     std::vector<Frame> frames;
+    std::vector<double> times;
+    std::vector<std::vector<double>> samples;
     int stopAfter = -1;
 };
 
@@ -234,8 +241,11 @@ TEST(FluidFreeFall, framesHaveTheClosedForm)
             EXPECT_NEAR(now[2], std::max(was[2] - fall, 0.01), 1e-12);
             top = std::max(top, now[2]);
         }
-        ASSERT_EQ(frame.monitors.size(), 1U);
-        EXPECT_NEAR(frame.monitors[0], top + 0.01, 1e-12);
+        // the monitors at each frame's time
+        ASSERT_EQ(kept.samples.size(), kept.frames.size());
+        EXPECT_NEAR(kept.times[k], t, 1e-12);
+        ASSERT_EQ(kept.samples[k].size(), 1U);
+        EXPECT_NEAR(kept.samples[k][0], top + 0.01, 1e-12);
     }
 }
 
@@ -250,7 +260,7 @@ TEST(FluidFreeFall, openSideLetsTheFluidOut)
     ASSERT_EQ(session->run(kept, why), Status::Ok);
     EXPECT_EQ(kept.frames.front().points.size(), 250U);
     EXPECT_TRUE(kept.frames.back().points.empty());
-    EXPECT_EQ(kept.frames.back().monitors[0], 0.0);
+    EXPECT_EQ(kept.samples.back()[0], 0.0);
 }
 
 TEST(FluidFreeFall, emptyAndCancelled)
@@ -290,8 +300,10 @@ TEST(FluidArchive, framesReadBackOneAtATime)
                 frame.points.push_back({0.001 * i, 0.002 * k, 0.5});
             }
             frame.triangles.push_back({0, k, 0});
-            frame.monitors = {0.25 + k, 1000.0 * k};
             writer.frame(frame);
+            // the monitors twice as often as the frames
+            writer.sample(0.1 * k, {0.25 + k, 1000.0 * k});
+            writer.sample(0.1 * k + 0.05, {0.5 + k, std::nan("")});
         }
         EXPECT_EQ(writer.frames(), 3U);
         EXPECT_NEAR(writer.lastTime(), 0.2, 1e-12);
@@ -307,9 +319,14 @@ TEST(FluidArchive, framesReadBackOneAtATime)
         EXPECT_NEAR(read.times[2], 0.2, 1e-12);
         ASSERT_EQ(read.monitors.size(), 2U);
         EXPECT_EQ(read.monitors[1].kind, MonitorKind::Pressure);
-        // Height in mm, pressure in Pa
-        EXPECT_NEAR(read.values[2 * 2 + 0], 2250.0, 1e-9);
-        EXPECT_NEAR(read.values[2 * 2 + 1], 2000.0, 1e-9);
+        ASSERT_EQ(read.samples.size(), 6U);
+        EXPECT_NEAR(read.samples[5], 0.25, 1e-12);
+        ASSERT_EQ(read.values.size(), 12U);
+        // Height in mm, pressure in Pa; a value there was none of stays one
+        EXPECT_NEAR(read.values[4 * 2 + 0], 2250.0, 1e-9);
+        EXPECT_NEAR(read.values[4 * 2 + 1], 2000.0, 1e-9);
+        EXPECT_NEAR(read.values[5 * 2 + 0], 2500.0, 1e-9);
+        EXPECT_TRUE(std::isnan(read.values[5 * 2 + 1]));
         const auto frame = reader.frame(2);
         ASSERT_EQ(frame.points.size(), 9U);
         EXPECT_FLOAT_EQ(frame.points[6], 2.0F);  // mm

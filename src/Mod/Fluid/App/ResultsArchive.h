@@ -15,8 +15,10 @@
 // (docs/FluidSimulation.md sec 11.4): a zip of
 //   index.json                    the schema, the units, the backend, the
 //                                 model's signature, the monitors
-//   times.npy     (frames,)       float64, s
-//   monitors.npy  (frames, n)     float64, each monitor in its unit
+//   times.npy     (frames,)       float64, s: the frames' times
+//   samples.npy   (samples,)      float64, s: the monitors' times, which
+//                                 are their own and far more than the frames
+//   monitors.npy  (samples, n)    float64, each monitor in its unit
 //   frames/000000.points.npy      (points, 3) float32, mm: one per frame
 //   frames/000000.triangles.npy   (triangles, 3) int32: a surface's frames
 // which numpy.load reads as they are. A frame is written as the run makes
@@ -38,8 +40,9 @@ struct ResultsIndex
     Solver::ResultKind kind = Solver::ResultKind::Particles;
     std::uint64_t signature = 0;
     std::vector<ArchivedMonitor> monitors;
-    std::vector<double> times;   // s
-    std::vector<double> values;  // frames x monitors: Height mm, Pressure Pa
+    std::vector<double> times;    // the frames', s
+    std::vector<double> samples;  // the monitors' times, s
+    std::vector<double> values;   // samples x monitors: Height mm, Pressure Pa
 };
 
 // The unit a monitor's values are kept in.
@@ -62,13 +65,15 @@ public:
     ArchiveWriter(const ArchiveWriter&) = delete;
     ArchiveWriter& operator=(const ArchiveWriter&) = delete;
 
-    // A frame in the model's units (m); its time and monitors' values are
-    // kept for close().
+    // A frame in the model's units (m); its time is kept for close().
     void frame(const Solver::Frame& frame);
+    // The monitors at a time, in the model's units, kept for close().
+    void sample(double time, const std::vector<double>& values);
     std::size_t frames() const;
     double lastTime() const;
-    // Writes the times, the monitors' values and the index (its times and
-    // values are taken from the frames written), and closes the file.
+    // Writes the times, the monitors' values and the index (its times,
+    // samples and values are taken from what was written), and closes the
+    // file.
     void close(ResultsIndex index);
 
 private:

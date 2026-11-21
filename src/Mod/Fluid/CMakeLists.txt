@@ -5,6 +5,7 @@ add_subdirectory(App)
 
 set(Fluid_Scripts
     Init.py
+    FluidOpenFoam.py
     FluidPlayback.py
     TestFluidWorkbench.py
 )
@@ -28,6 +29,8 @@ SET(FluidTests_SRCS
     FluidTests/__init__.py
     FluidTests/TestStudy.py
     FluidTests/TestPlayback.py
+    FluidTests/TestOpenFoam.py
+    FluidTests/TestDownload.py
 )
 
 SET(all_files

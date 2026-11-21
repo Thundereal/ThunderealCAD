@@ -10,6 +10,7 @@ include_directories(
     ${PYTHON_INCLUDE_DIRS}
     ${XercesC_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIR}
+    ${QtCore_INCLUDE_DIRS}
     # ResultsArchive's index.json
     ${CMAKE_SOURCE_DIR}/src/3rdParty/json/single_include/nlohmann/
 )
@@ -18,6 +19,8 @@ link_directories(${OCC_LIBRARY_DIR})
 set(Fluid_LIBS
     Part
     FreeCADApp
+    # QProcess: the solvers that are separate programs
+    ${QtCore_LIBRARIES}
 )
 
 generate_from_py(Study)
@@ -39,6 +42,10 @@ SET(Solver_SRCS
     Solver/Backend.h
     Solver/FreeFallBackend.cpp
     Solver/FreeFallBackend.h
+    Solver/OpenFoamBackend.cpp
+    Solver/OpenFoamBackend.h
+    Solver/OpenFoamCase.cpp
+    Solver/OpenFoamCase.h
     Solver/Model.cpp
     Solver/Model.h
     Solver/Registry.cpp

@@ -29,6 +29,8 @@ class Frames:
         self.kind = results["Kind"] if self.valid else ""
         self.backend = results["Backend"] if self.valid else ""
         self.monitors = results["Monitors"] if self.valid else []
+        # the monitors' own times, far more than the frames
+        self.monitorTimes = list(results["MonitorTimes"]) if self.valid else []
 
     def __len__(self):
         return len(self.times)
@@ -66,13 +68,21 @@ class Frames:
             triangles = numpy.frombuffer(frame["Triangles"], dtype=numpy.int32).reshape(-1, 3)
         return points, triangles
 
+    def sampleAt(self, time):
+        """The monitors' last sample at or before a time; -1 without one."""
+        if not self.monitorTimes:
+            return -1
+        return max(bisect.bisect_right(self.monitorTimes, time + 1e-12) - 1, 0)
+
     def monitorsAt(self, index):
-        """Each monitor at a frame: (label, kind, value, unit)."""
+        """Each monitor at a frame's time: (label, kind, value, unit)."""
+        sample = self.sampleAt(self.times[index])
         rows = []
         for monitor in self.monitors:
             obj = monitor["Object"]
             label = obj.Label if obj is not None else monitor["Source"]
-            rows.append((label, monitor["Kind"], monitor["Values"][index], monitor["Unit"]))
+            value = monitor["Values"][sample] if sample >= 0 else float("nan")
+            rows.append((label, monitor["Kind"], value, monitor["Unit"]))
         return rows
 
 
@@ -111,6 +121,9 @@ class FrameView:
         self.root = coin.SoSeparator()
         material = coin.SoMaterial()
         material.diffuseColor = self.color
+        material.ambientColor = tuple(0.4 * c for c in self.color)
+        material.specularColor = (0.3, 0.3, 0.3)
+        material.shininess = 0.6
         self.coords = coin.SoCoordinate3()
         # particles: unlit points
         particles = coin.SoSeparator()
@@ -124,8 +137,11 @@ class FrameView:
         # a surface: seen from both sides
         surface = coin.SoSeparator()
         hints = coin.SoShapeHints()
-        hints.vertexOrdering = coin.SoShapeHints.UNKNOWN_ORDERING
-        hints.creaseAngle = 0.5
+        # an open sheet, lit on both its sides: Coin lights both only when
+        # it is told an ordering and that the shape is no solid
+        hints.vertexOrdering = coin.SoShapeHints.COUNTERCLOCKWISE
+        hints.shapeType = coin.SoShapeHints.UNKNOWN_SHAPE_TYPE
+        hints.creaseAngle = 0.8
         self.faces = coin.SoIndexedFaceSet()
         for node in (hints, self.faces):
             surface.addChild(node)

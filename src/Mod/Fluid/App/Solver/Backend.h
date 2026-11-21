@@ -65,17 +65,21 @@ struct Frame
     std::vector<Vec3> points;
     // Surface only.
     std::vector<std::array<int, 3>> triangles;
-    // One per monitor of the model, in its order.
-    std::vector<double> monitors;
 };
 
-// Where a run's frames go as they are made, and where it asks whether to
-// stop. Called from the run's thread.
+// Where a run's frames and its monitors' values go as they are made, and
+// where it asks whether to stop. Called from the run's thread.
 class FluidExport FrameSink
 {
 public:
     virtual ~FrameSink() = default;
     virtual void frame(const Frame& frame) = 0;
+    // The monitors at a time, one value per monitor of the model in its
+    // order, NaN for one that has none. On a time base of their own, in
+    // increasing time: a solver reports them as often as it steps, which is
+    // far oftener than it makes frames -- an impact's pressure peak lasts
+    // milliseconds.
+    virtual void sample(double time, const std::vector<double>& values) = 0;
     virtual bool cancelled() const
     {
         return false;
@@ -90,7 +94,8 @@ public:
     // the case written and meshed. why says what is wrong when it is not Ok.
     virtual Status prepare(const Model& model, std::string& why) = 0;
     // Runs to the model's end time, a frame at 0 and at each output
-    // interval, until the sink says to stop.
+    // interval and the monitors at least as often, until the sink says to
+    // stop.
     virtual Status run(FrameSink& sink, std::string& why) = 0;
 };
 

@@ -666,6 +666,86 @@ renderer rather than Coin (so the frames reach the browser viewer). The
 manual's page waits for S2: on the test data the water falls through the
 tank's floor, which is nothing to show a user.
 
+### 12.4 S2 as built: OpenFOAM, and the dam break (2026-11-21)
+
+- **The case** (`App/Solver/OpenFoamCase.h`): `makeCase()` writes a model
+  as interFoam's case, text only -- a background mesh of the space's box
+  at the resolution (blockMesh), the walls' STL files and snappyHexMesh's
+  dictionary cutting the mesh around them (no refinement, no layers yet),
+  the fluid's volumes as STL and setFields filling the cells whose
+  centres are inside them, water's properties from the first volume and
+  air at 20 degrees, laminar, the space's open sides a total-pressure
+  patch and the rest walls. The time step is the solver's, held to a
+  Courant number of 0.5.
+- **What is asked of the solver, and no more**: the free surface (the
+  half-full iso-surface) at each output time, and the monitors at every
+  step -- pressure by `probes`, height by `interfaceHeight`. The fields
+  are kept for the last time only. The prototype's 1 s of Lobovsky's tank
+  (144900 cells, 100 frames) left 73 MB in its case, where S0's tutorial
+  left 2.1 GB.
+- **The monitors have a time base of their own** (`FrameSink::sample()`,
+  `samples.npy`, `MonitorTimes`): a solver reports them as often as it
+  steps. Measured first: sampling at the frames (10 ms) or at every step
+  (about 1 ms) gave the same peaks on Lobovsky's wall here, 39.4 against
+  40.6 mbar, so the low peak below is not a sampling matter; the finer
+  base is kept because sensors are compared at that rate.
+- **The backend** (`OpenFoamBackend.h`): each step a process of its own
+  under bash, in a process group that Cancel ends whole (mpirun and the
+  solvers under it), in an environment without this program's library
+  paths. While interFoam runs, the frames it has finished writing and the
+  monitors' new rows are handed on, so the panel's progress moves and a
+  cancelled run stops within the poll. A step that fails keeps its case
+  and says where, with the solver's own error. Above some twenty thousand
+  cells a process, up to 8 and half the cores, the case is decomposed and
+  run under MPI (the preference `Mod/Fluid/Processes` sets it).
+- **Found, never shipped** (ruling 4): the preference
+  `Mod/Fluid/OpenFoamPath` (a folder or an `etc/bashrc`), the
+  environment's `FLUID_OPENFOAM_PATH`, the environment's own PATH, the
+  workbench's download folder, then `/usr/lib/openfoam`, `/opt` and
+  `~/OpenFOAM`. A conda prefix is activated without conda. Only the ESI
+  line (v2012 on) is taken: the Foundation's dictionaries differ. An
+  install whose programs load the serial MPI stand-in is run on one
+  process. Not found, the backend says where it looked, the panel shows
+  it under the solver, and offers **Download OpenFOAM** (`FluidOpenFoam.py`,
+  Linux): conda-forge's package into the workbench's own folder by a
+  conda tool found here, or by micromamba fetched and checked against its
+  published sum; then the package's parallel layer is mended (S0's
+  finding) and the backends looked for again. Run for real here into a
+  fresh profile: found at once, and the dam break test passed on it.
+  Windows (WSL) and macOS (a container) are not driven yet.
+- **`OpenTop`** on the study: the space's side against gravity is open to
+  the air, by default.
+
+Measured through the workbench, the tank a CAD part:
+
+| | here | Lobovsky 2014 |
+|---|---|---|
+| front speed, 10 mm cells, 144900 cells | 1.66 sqrt(g H) | 1.56; others' 1.3 to 1.7 |
+| peak at 3 mm | 40.5 mbar | 91.4 median, 75 to 131 |
+| peak at 15 mm | 42.2 | 57.5 |
+| peak at 30 mm | 41.4 | 43.8 |
+| peak at 80 mm | 18.7 | 30.2 |
+
+1 s of flow in 201 s on 7 processes. On a slice of the tank 20 mm wide
+with 5 mm cells (the prototype's case, sides slipping) the peaks were
+44.6, 58.9 and 45.2 mbar: the sensors at 15 and 30 mm at the experiment's
+medians, the lowest still at half. **Open**: the peak at 3 mm, a cell or
+less from the floor's corner at either size, rose little with the finer
+mesh; whether it is resolution, the incompressible air, or the corner's
+treatment is not known. The water's volume in the mesh is within 1% of
+the solid's (cells are in or out by their centres).
+
+Known limits: a wall thinner than a cell is not resolved; a background
+cell's centre exactly on a wall's face (walls half a cell thick, aligned
+with the space's box) leaves the mesher an even choice; turbulence is
+off; one liquid; no refinement at the walls.
+
+- **Tests**: `Fluid_tests_run` 15 (the case's files, the surface and the
+  tables read back); `TestFluidWorkbench` 30, two of them a dam break and
+  a cancel run on OpenFOAM where there is one (`FLUID_OPENFOAM_PATH` in
+  the gate here), skipped elsewhere.
+- **The manual**: `fluid/study/dam-break`.
+
 ## 13. For the user to rule (2026-11-21)
 
 1. **The first backend (S2).** OpenFOAM: validated, CPU, already this

@@ -42,6 +42,9 @@ public:
     /// The size of what is to be resolved: a particle backend's spacing, a
     /// mesh backend's base cell. 0: a twentieth of the fluid's smallest side
     App::PropertyLength Resolution;
+    /// Whether the space's side against gravity is open to the air: the
+    /// fluid that leaves through it is gone. The other sides are closed.
+    App::PropertyBool OpenTop;
     /// The backend the study runs on, by name; empty: the first that can
     /// run here
     App::PropertyString Backend;

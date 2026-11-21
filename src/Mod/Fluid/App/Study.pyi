@@ -67,8 +67,10 @@ class Study(DocumentObject):
     def getResults(self) -> Any:
         """
         The kept results, or None: Backend, Version, Kind ('Particles',
-        'Surface'), Times (s), Frames (how many) and Monitors, each Object,
-        Kind, Unit and Values (one per frame).
+        'Surface'), Times (the frames', s), Frames (how many), MonitorTimes
+        (the monitors' own times, s: a solver reports them far oftener than
+        it makes frames) and Monitors, each Object, Kind, Unit and Values
+        (one per monitor time).
         """
         ...
 

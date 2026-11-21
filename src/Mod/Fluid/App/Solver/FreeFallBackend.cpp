@@ -69,11 +69,12 @@ public:
                     frame.points.push_back(p);
                 }
             }
+            std::vector<double> values;
             for (const auto& monitor : model.monitors) {
                 const double height = heightAt(frame, monitor.point);
-                frame.monitors.push_back(monitor.kind == MonitorKind::Height ? height
-                                                                              : weight * height);
+                values.push_back(monitor.kind == MonitorKind::Height ? height : weight * height);
             }
+            sink.sample(frame.time, values);
             sink.frame(frame);
         }
         return Status::Ok;

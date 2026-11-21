@@ -9,6 +9,7 @@ from PySide import QtCore, QtGui, QtWidgets
 from PySide.QtCore import QT_TRANSLATE_NOOP
 
 import FluidApp
+import FluidOpenFoam
 import FluidPlayback
 
 translate = App.Qt.translate
@@ -165,16 +166,19 @@ class TaskFluidStudy:
 
         settings = QtWidgets.QFormLayout()
         self.backend = QtWidgets.QComboBox()
-        self.backends = FluidApp.getBackends()
-        self.backend.addItem(translate("Fluid", "The first that can run here"), "")
-        for backend in self.backends:
-            self.backend.addItem(backendLabel(backend), backend["Name"])
-            if not backend["Available"]:
-                self.backend.setItemData(
-                    self.backend.count() - 1, backend["Reason"], QtCore.Qt.ToolTipRole
-                )
-        self.backend.setCurrentIndex(max(self.backend.findData(study.Backend), 0))
+        self.fillBackends(study.Backend)
         settings.addRow(translate("Fluid", "Solver"), self.backend)
+        self.missing = QtWidgets.QLabel("")
+        self.missing.setWordWrap(True)
+        # a folder's path has nowhere to break: the label keeps to the
+        # panel's width and the path is cut, the whole of it selectable
+        self.missing.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+        self.missing.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        self.download = QtWidgets.QPushButton(translate("Fluid", "Download OpenFOAM..."))
+        self.download.clicked.connect(self.onDownload)
+        settings.addRow(self.missing)
+        settings.addRow(self.download)
+        self.backend.currentIndexChanged.connect(self.showMissing)
         self.resolution = QtWidgets.QDoubleSpinBox()
         self.resolution.setRange(0.0, 1.0e6)
         self.resolution.setDecimals(3)
@@ -239,7 +243,53 @@ class TaskFluidStudy:
         self.runPoll.timeout.connect(self.pollRun)
         self.playTimer = QtCore.QTimer(self.form)
         self.playTimer.timeout.connect(self.playStep)
+        self.showMissing()
         self.loadResults()
+
+    # ----------------------------- the solver -----------------------------
+
+    def fillBackends(self, chosen):
+        """The solvers as they are on this machine now, that one chosen."""
+        self.backends = FluidApp.getBackends()
+        self.backend.blockSignals(True)
+        self.backend.clear()
+        self.backend.addItem(translate("Fluid", "The first that can run here"), "")
+        for backend in self.backends:
+            self.backend.addItem(backendLabel(backend), backend["Name"])
+            if not backend["Available"]:
+                self.backend.setItemData(
+                    self.backend.count() - 1, backend["Reason"], QtCore.Qt.ToolTipRole
+                )
+        self.backend.setCurrentIndex(max(self.backend.findData(chosen), 0))
+        self.backend.blockSignals(False)
+
+    def missingBackend(self):
+        """The backend chosen that cannot run here -- or, with none chosen,
+        the first real one when no real one can; None when the choice runs."""
+        name = self.backend.currentData() or ""
+        real = [b for b in self.backends if not b["TestData"]]
+        if name:
+            for backend in self.backends:
+                if backend["Name"] == name and not backend["Available"]:
+                    return backend
+            return None
+        if real and not any(b["Available"] for b in real):
+            return real[0]
+        return None
+
+    def showMissing(self, *_args):
+        missing = self.missingBackend()
+        self.missing.setVisible(missing is not None)
+        self.missing.setText(missing["Reason"] if missing else "")
+        offered = missing is not None and missing["Name"] == "OpenFOAM"
+        self.download.setVisible(offered)
+
+    def onDownload(self):
+        dialog = DownloadOpenFoam(self.form)
+        dialog.exec_()
+        FluidApp.refreshBackends()
+        self.fillBackends(self.backend.currentData() or "")
+        self.showMissing()
 
     # ------------------------------ the run ------------------------------
 
@@ -395,6 +445,99 @@ class TaskFluidStudy:
     def reject(self):
         self.close()
         return True
+
+
+class DownloadOpenFoam(QtWidgets.QDialog):
+    """Says what the download is and makes it when the user starts it,
+    showing what the installer prints (FluidOpenFoam.py)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(translate("Fluid", "Download OpenFOAM"))
+        self.resize(640, 460)
+        layout = QtWidgets.QVBoxLayout(self)
+        text = QtWidgets.QLabel(FluidOpenFoam.explanation())
+        text.setWordWrap(True)
+        text.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        layout.addWidget(text)
+        self.log = QtWidgets.QPlainTextEdit()
+        self.log.setReadOnly(True)
+        layout.addWidget(self.log, 1)
+        self.state = QtWidgets.QLabel("")
+        self.state.setWordWrap(True)
+        layout.addWidget(self.state)
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        self.startButton = QtWidgets.QPushButton(translate("Fluid", "Download"))
+        self.startButton.clicked.connect(self.start)
+        row.addWidget(self.startButton)
+        self.closeButton = QtWidgets.QPushButton(translate("Fluid", "Close"))
+        self.closeButton.clicked.connect(self.reject)
+        row.addWidget(self.closeButton)
+        layout.addLayout(row)
+        self.process = None
+        self.succeeded = False
+        can, why = FluidOpenFoam.supported()
+        if not can:
+            self.startButton.setEnabled(False)
+            self.state.setText(why)
+
+    def start(self):
+        self.startButton.setEnabled(False)
+        self.closeButton.setText(translate("Fluid", "Cancel"))
+        self.state.setText(translate("Fluid", "Downloading..."))
+        self.process = QtCore.QProcess(self)
+        self.process.setProcessChannelMode(QtCore.QProcess.MergedChannels)
+        self.process.readyReadStandardOutput.connect(self.onOutput)
+        self.process.finished.connect(self.onFinished)
+        script = FluidOpenFoam.installScript(tool=FluidOpenFoam.condaTool())
+        self.process.start("bash", ["-c", script])
+
+    def onOutput(self):
+        text = bytes(self.process.readAllStandardOutput()).decode("utf-8", "replace")
+        if "DONE" in text.splitlines():
+            self.succeeded = True
+        # the installer redraws its progress with carriage returns
+        for line in text.replace("\r", "\n").splitlines():
+            if line.strip():
+                self.log.appendPlainText(line.rstrip())
+
+    def onFinished(self, *_args):
+        self.onOutput()
+        self.closeButton.setText(translate("Fluid", "Close"))
+        if self.succeeded:
+            if FluidOpenFoam.fixParallel():
+                self.log.appendPlainText(
+                    translate("Fluid", "Mended the package's parallel layer (lib/sys-mpich).")
+                )
+            FluidApp.refreshBackends()
+            found = [b for b in FluidApp.getBackends() if b["Name"] == "OpenFOAM"]
+            if found and found[0]["Available"]:
+                self.state.setText(
+                    translate("Fluid", "OpenFOAM {} is installed and found.").format(
+                        found[0]["Version"]
+                    )
+                )
+            else:
+                self.state.setText(
+                    translate("Fluid", "Installed, but not found: {}").format(
+                        found[0]["Reason"] if found else ""
+                    )
+                )
+        else:
+            self.state.setText(
+                translate("Fluid", "The download did not finish. What it printed is above.")
+            )
+            self.startButton.setEnabled(True)
+        self.process = None
+
+    def reject(self):
+        if self.process is not None:
+            self.process.finished.disconnect(self.onFinished)
+            self.process.kill()
+            self.process.waitForFinished(3000)
+            self.process = None
+        super().reject()
 
 
 Gui.addCommand("Fluid_CreateStudy", CommandCreateStudy())

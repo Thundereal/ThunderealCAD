@@ -89,6 +89,10 @@ struct Study::Run: public Solver::FrameSink
         count.store(writer->frames());
         time.store(frame.time);
     }
+    void sample(double at, const std::vector<double>& values) override
+    {
+        writer->sample(at, values);
+    }
     bool cancelled() const override
     {
         return cancel.load();
@@ -145,6 +149,10 @@ Study::Study()
     ADD_PROPERTY_TYPE(Resolution, (0.0), "Study", App::Prop_None,
                       "The size of what is to be resolved: the spacing of particles, or the "
                       "base size of cells. 0: a twentieth of the fluid's smallest side");
+    ADD_PROPERTY_TYPE(OpenTop, (true), "Study", App::Prop_None,
+                      "The space is the box around the walls and the fluid. Its side "
+                      "against gravity is open to the air, and what leaves through it is "
+                      "gone; or it is closed like the others");
     ADD_PROPERTY_TYPE(Backend, (""), "Study", App::Prop_None,
                       "The solver the study runs on, by name; empty: the first that can run "
                       "on this machine");
@@ -200,6 +208,13 @@ Solver::Model Study::buildModel() const
     model.gravity = {g.x * 1.0e-3, g.y * 1.0e-3, g.z * 1.0e-3};
     model.timeEnd = TimeEnd.getValue();
     model.outputInterval = OutputInterval.getValue();
+    if (OpenTop.getValue() && g.Length() > 0.0) {
+        // the side gravity points away from most
+        const std::size_t axis = std::abs(g.x) >= std::abs(g.y) && std::abs(g.x) >= std::abs(g.z)
+            ? 0
+            : (std::abs(g.y) >= std::abs(g.z) ? 1 : 2);
+        model.space.open[2 * axis + (model.gravity[axis] < 0.0 ? 1 : 0)] = true;
+    }
 
     // The shapes first: the resolution left to us comes from the fluid's box
     struct Taken

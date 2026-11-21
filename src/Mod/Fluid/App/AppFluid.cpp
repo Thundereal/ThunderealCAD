@@ -5,6 +5,7 @@
 #include <Base/PyObjectBase.h>
 
 #include "Solver/FreeFallBackend.h"
+#include "Solver/OpenFoamBackend.h"
 #include "Solver/Registry.h"
 #include "Study.h"
 
@@ -30,9 +31,10 @@ PyMOD_INIT_FUNC(FluidApp)
     Fluid::InitialFluid::init();
     Fluid::Monitor::init();
 
-    // The backends (docs/FluidSimulation.md sec 11.2). The solvers come with
-    // S2 and S3; until then there is the test data alone, which a study
-    // must name to run on.
+    // The backends (docs/FluidSimulation.md sec 11.2), in the order a study
+    // that names none tries them: OpenFOAM, the reference (S2); then the
+    // test data, which a study must name to run on.
+    Fluid::Solver::Registry::instance().add(std::make_unique<Fluid::Solver::OpenFoamBackend>());
     Fluid::Solver::Registry::instance().add(std::make_unique<Fluid::Solver::FreeFallBackend>());
 
     PyMOD_Return(mod);

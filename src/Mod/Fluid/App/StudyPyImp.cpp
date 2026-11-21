@@ -147,6 +147,7 @@ PyObject* StudyPy::getResults(PyObject* args) const
         }
         const auto& index = results->index();
         const std::size_t frames = index.times.size();
+        const std::size_t samples = index.samples.size();
         const std::size_t width = index.monitors.size();
         Py::Dict ret;
         ret.setItem("Backend", Py::String(index.backend));
@@ -161,6 +162,11 @@ PyObject* StudyPy::getResults(PyObject* args) const
             times.append(Py::Float(t));
         }
         ret.setItem("Times", times);
+        Py::List sampleTimes;
+        for (double t : index.samples) {
+            sampleTimes.append(Py::Float(t));
+        }
+        ret.setItem("MonitorTimes", sampleTimes);
         Py::List monitors;
         for (std::size_t m = 0; m < width; ++m) {
             Py::Dict monitor;
@@ -173,7 +179,7 @@ PyObject* StudyPy::getResults(PyObject* args) const
                                            : "Height"));
             monitor.setItem("Unit", Py::String(unitOf(index.monitors[m].kind)));
             Py::List values;
-            for (std::size_t f = 0; f < frames; ++f) {
+            for (std::size_t f = 0; f < samples; ++f) {
                 values.append(Py::Float(index.values[f * width + m]));
             }
             monitor.setItem("Values", values);

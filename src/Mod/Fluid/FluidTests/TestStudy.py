@@ -60,6 +60,20 @@ class FluidCase(unittest.TestCase):
 
 
 class TestBackends(unittest.TestCase):
+    def test_openfoam_is_listed_first(self):
+        backends = FluidApp.getBackends()
+        self.assertEqual(backends[0]["Name"], "OpenFOAM")
+        foam = backends[0]
+        self.assertFalse(foam["TestData"])
+        self.assertFalse(foam["InProcess"])
+        self.assertEqual(foam["Results"], "Surface")
+        self.assertTrue(foam["FreeSurface"])
+        if foam["Available"]:
+            self.assertTrue(foam["Version"])
+        else:
+            # it says where it looked
+            self.assertIn("OpenFoamPath", foam["Reason"])
+
     def test_free_fall_is_listed_as_test_data(self):
         backends = {b["Name"]: b for b in FluidApp.getBackends()}
         self.assertIn("FreeFall", backends)
@@ -119,10 +133,12 @@ class TestStudy(FluidCase):
         self.assertIn("Sheet", str(caught.exception))
 
     def test_no_backend_named_and_none_to_run(self):
-        # the test data is never chosen by itself
-        self.study.Backend = ""
-        self.assertEqual(self.study.run(), -3)
-        self.assertIn("no solver", self.study.Status)
+        # the test data is never chosen by itself: without a solver on this
+        # machine there is none to run
+        if not any(b["Available"] and not b["TestData"] for b in FluidApp.getBackends()):
+            self.study.Backend = ""
+            self.assertEqual(self.study.run(), -3)
+            self.assertIn("no solver", self.study.Status)
         self.study.Backend = "Nobody"
         self.assertEqual(self.study.run(), -3)
         self.assertIn("Nobody", self.study.Status)
@@ -176,7 +192,10 @@ class TestResults(FluidCase):
 
     def test_monitors(self):
         self.assertEqual(self.study.run(), 0)
-        monitors = self.study.getResults()["Monitors"]
+        results = self.study.getResults()
+        monitors = results["Monitors"]
+        # the test data's monitors are at the frames' times
+        self.assertEqual(results["MonitorTimes"], results["Times"])
         self.assertEqual([m["Kind"] for m in monitors], ["Height", "Pressure"])
         self.assertEqual([m["Unit"] for m in monitors], ["mm", "Pa"])
         self.assertEqual(monitors[0]["Object"], self.height)
@@ -256,12 +275,15 @@ class TestResults(FluidCase):
         with zipfile.ZipFile(self.study.Results) as archive:
             index = json.loads(archive.read("index.json"))
             times = numpy.load(io.BytesIO(archive.read("times.npy")))
+            samples = numpy.load(io.BytesIO(archive.read("samples.npy")))
             monitors = numpy.load(io.BytesIO(archive.read("monitors.npy")))
             points = numpy.load(io.BytesIO(archive.read("frames/000004.points.npy")))
         self.assertEqual(index["format"], "ThunderealCAD fluid results")
         self.assertEqual(index["frames"], 9)
         self.assertEqual(index["units"]["length"], "mm")
         self.assertEqual(times.shape, (9,))
+        self.assertEqual(index["samples"], 9)
+        self.assertEqual(samples.shape, (9,))
         self.assertEqual(monitors.shape, (9, 2))
         self.assertEqual(points.shape, (250, 3))
         self.assertEqual(points.dtype, numpy.float32)

@@ -2,6 +2,7 @@
 
 #include <bit>
 #include <cstdio>
+#include <limits>
 #include <regex>
 #include <sstream>
 
@@ -137,8 +138,10 @@ struct ArchiveWriter::Private
     Base::ofstream out;
     std::unique_ptr<zipios::ZipOutputStream> zip;
     std::vector<double> times;
+    std::vector<double> samples;
     std::vector<double> values;
     std::size_t width = 0;
+    bool sampled = false;
 };
 
 ArchiveWriter::ArchiveWriter(const std::string& path)
@@ -180,12 +183,19 @@ void ArchiveWriter::frame(const Solver::Frame& frame)
                  triangles.data(),
                  triangles.size() * sizeof(std::int32_t));
     }
-    if (at == 0) {
-        d->width = frame.monitors.size();
-    }
     d->times.push_back(frame.time);
+}
+
+void ArchiveWriter::sample(double time, const std::vector<double>& values)
+{
+    if (!d->sampled) {
+        d->width = values.size();
+        d->sampled = true;
+    }
+    d->samples.push_back(time);
     for (std::size_t i = 0; i < d->width; ++i) {
-        d->values.push_back(i < frame.monitors.size() ? frame.monitors[i] : 0.0);
+        d->values.push_back(i < values.size() ? values[i]
+                                              : std::numeric_limits<double>::quiet_NaN());
     }
 }
 
@@ -202,10 +212,11 @@ double ArchiveWriter::lastTime() const
 void ArchiveWriter::close(ResultsIndex index)
 {
     const std::size_t frames = d->times.size();
+    const std::size_t samples = d->samples.size();
     // Height is kept in mm, as the points are
     for (std::size_t m = 0; m < d->width && m < index.monitors.size(); ++m) {
         if (index.monitors[m].kind == Solver::MonitorKind::Height) {
-            for (std::size_t f = 0; f < frames; ++f) {
+            for (std::size_t f = 0; f < samples; ++f) {
                 d->values[f * d->width + m] *= 1000.0;
             }
         }
@@ -219,6 +230,7 @@ void ArchiveWriter::close(ResultsIndex index)
     out["kind"] = kindName(index.kind);
     out["signature"] = std::to_string(index.signature);
     out["frames"] = frames;
+    out["samples"] = samples;
     json monitors = json::array();
     for (const auto& monitor : index.monitors) {
         monitors.push_back({{"source", monitor.source},
@@ -230,8 +242,14 @@ void ArchiveWriter::close(ResultsIndex index)
     d->zip->setLevel(6);
     d->zip->putNextEntry("times.npy");
     writeNpy(*d->zip, "<f8", {frames}, d->times.data(), frames * sizeof(double));
+    d->zip->putNextEntry("samples.npy");
+    writeNpy(*d->zip, "<f8", {samples}, d->samples.data(), samples * sizeof(double));
     d->zip->putNextEntry("monitors.npy");
-    writeNpy(*d->zip, "<f8", {frames, d->width}, d->values.data(), d->values.size() * sizeof(double));
+    writeNpy(*d->zip,
+             "<f8",
+             {samples, d->width},
+             d->values.data(),
+             d->values.size() * sizeof(double));
     d->zip->putNextEntry("index.json");
     *d->zip << out.dump(1);
     d->zip->close();
@@ -284,14 +302,16 @@ ArchiveReader::ArchiveReader(const std::string& path)
         }
         std::vector<std::size_t> shape;
         auto timesIn = entry("times.npy");
+        auto samplesIn = entry("samples.npy");
         auto valuesIn = entry("monitors.npy");
-        if (!timesIn || !valuesIn) {
+        if (!timesIn || !samplesIn || !valuesIn) {
             THROWM(Base::RuntimeError, "the fluid results have no times");
         }
         d->index.times = readNpy<double>(*timesIn, "<f8", shape);
+        d->index.samples = readNpy<double>(*samplesIn, "<f8", shape);
         d->index.values = readNpy<double>(*valuesIn, "<f8", shape);
-        if (d->index.values.size() != d->index.times.size() * d->index.monitors.size()) {
-            THROWM(Base::RuntimeError, "the fluid results' monitors do not match its frames");
+        if (d->index.values.size() != d->index.samples.size() * d->index.monitors.size()) {
+            THROWM(Base::RuntimeError, "the fluid results' monitors do not match its samples");
         }
     }
     catch (const Base::Exception&) {

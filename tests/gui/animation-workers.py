@@ -75,19 +75,31 @@ def shot(view, name):
 
 
 def colours(image):
-    """Pixels of the cache line's three colours: in memory, on disk, being made"""
-    green = blue = amber = 0
+    """Pixels of the cache line's three colours: in memory, on disk, being
+    made. Only in runs of three or more along a row: the line is drawn in
+    pieces a frame wide, and a lone pixel of the colour is text's -- the
+    ruler's labels in ClearType's fringes on Windows"""
+    counts = [0, 0, 0]
     for y in range(image.height()):
-        for x in range(image.width()):
-            c = image.pixelColor(x, y)
-            r, g, b = c.red(), c.green(), c.blue()
-            if abs(r - 0x3C) < 24 and abs(g - 0xA8) < 24 and abs(b - 0x54) < 24:
-                green += 1
-            elif abs(r - 0x40) < 24 and abs(g - 0x80) < 24 and abs(b - 0xD0) < 24:
-                blue += 1
-            elif abs(r - 0xE0) < 24 and abs(g - 0x9A) < 24 and abs(b - 0x20) < 24:
-                amber += 1
-    return green, blue, amber
+        run, length = -1, 0
+        for x in range(image.width() + 1):
+            kind = -1
+            if x < image.width():
+                c = image.pixelColor(x, y)
+                r, g, b = c.red(), c.green(), c.blue()
+                if abs(r - 0x3C) < 24 and abs(g - 0xA8) < 24 and abs(b - 0x54) < 24:
+                    kind = 0
+                elif abs(r - 0x40) < 24 and abs(g - 0x80) < 24 and abs(b - 0xD0) < 24:
+                    kind = 1
+                elif abs(r - 0xE0) < 24 and abs(g - 0x9A) < 24 and abs(b - 0x20) < 24:
+                    kind = 2
+            if kind == run:
+                length += 1
+                continue
+            if run >= 0 and length >= 3:
+                counts[run] += length
+            run, length = kind, 1
+    return counts[0], counts[1], counts[2]
 
 
 def build(doc):

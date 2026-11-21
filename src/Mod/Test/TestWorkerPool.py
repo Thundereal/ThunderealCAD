@@ -47,11 +47,46 @@ def _dieOnce(doc, inputs, out):
     return {"Pid": os.getpid()}
 
 
-def _fault(doc, inputs, out):
-    """Reads memory at 0: a crash in native code, as one in a kernel would be"""
+def _crash():
+    """Reads memory at 0: a crash in native code, as one in a kernel would be.
+    On Windows ctypes runs a call under its own exception handler and raises
+    instead; faulthandler's read is not guarded"""
+    if os.name == "nt":
+        import faulthandler
+
+        faulthandler._read_null()
     import ctypes
 
     ctypes.string_at(0)
+
+
+def _alive(pid):
+    """Whether process `pid` still runs. On Windows os.kill(pid, 0) is not a
+    probe: signal 0 there is CTRL_C_EVENT, sent to the console"""
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.windll.kernel32
+        handle = kernel.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = wintypes.DWORD()
+            return bool(kernel.GetExitCodeProcess(handle, ctypes.byref(code))) and (
+                code.value == 259  # STILL_ACTIVE
+            )
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _fault(doc, inputs, out):
+    _crash()
 
 
 def _read(doc, inputs, out):
@@ -207,6 +242,8 @@ class _Crashing(_Counted):
             if os.getpid() == obj.Home:
                 _executions["crashed here"] = _executions.get("crashed here", 0) + 1
                 raise RuntimeError("a crashing execute() ran in the test's own process")
+            if os.name == "nt":
+                _crash()  # a signal there is TerminateProcess, not a crash
             import signal
 
             os.kill(os.getpid(), signal.SIGSEGV)
@@ -571,11 +608,7 @@ class TestWorkerPool(unittest.TestCase):
         return job
 
     def gone(self, pid):
-        try:
-            os.kill(pid, 0)
-        except OSError:
-            return True
-        return False
+        return not _alive(pid)
 
     def testACancelledLongJobEndsItsWorker(self):
         """A running job cancelled after it ran past EndAfter -- longer than a
@@ -984,9 +1017,7 @@ class TestWorkerPool(unittest.TestCase):
         for pid in pids:
             gone = False
             for _ in range(100):
-                try:
-                    os.kill(pid, 0)
-                except OSError:
+                if not _alive(pid):
                     gone = True
                     break
                 time.sleep(0.02)
@@ -1369,7 +1400,8 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertIn("crashed", info["Reason"])
         self.assertIn("Invalid", crash.State)
         self.assertIn("crashed a worker process", crash.getStatusString())
-        self.assertIn("What was on the worker's stack is in ", crash.getStatusString())
+        if os.name != "nt":  # no crash handler in a Windows worker yet (sec 35)
+            self.assertIn("What was on the worker's stack is in ", crash.getStatusString())
         # Here: what comes before is made, the crashing one is not run, and
         # what reads it is not made from it
         self.doc.recompute()
@@ -1420,6 +1452,12 @@ class TestWorkerRecompute(unittest.TestCase):
         result = self.pool.result(job)
         self.assertEqual(result["Status"], "Failed", result)
         self.assertTrue(result["Died"], result)
+        if sys.platform == "win32":
+            # No crash handler in a worker there yet: the access violation
+            # is told, and nothing of the stack (sec 35)
+            self.assertEqual(result["How"], "crashed (0xc0000005)", result)
+            self.assertEqual(result["Stack"], "", result)
+            return
         self.assertRegex(result["How"], r"^crashed \(signal (11|10): ", result)
         stack = result["Stack"]
         self.assertIn("at address 0x0", stack)
@@ -1700,6 +1738,9 @@ class TestWorkerRecompute(unittest.TestCase):
         principal = security.principalOf(self.doc.Name)
         self.addCleanup(security.revoke, principal, "app.query", "*")
         self.addCleanup(security.clearPending, principal, "app.query", "*")
+        # An answer the profile keeps for this principal -- every new empty
+        # document has the same one -- goes first: the test grants its own
+        security.revoke(principal, "app.query", "*")
         security.grant(principal, "app.query", "*", True, "session")
         self.doc.recompute()
         expected = 2 * len(App.Version())

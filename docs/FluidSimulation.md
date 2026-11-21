@@ -557,3 +557,9 @@ These phases go ahead of F1 to F4; F0's toolchain work is shared.
    with how to install it (as CfdOF does), or OpenFOAM bundled (GPL:
    source offered). Sec 9 has this open already.
 
+
+**Ruled 2026-11-21.** 1, 2 and 3 as proposed: S0 measures all three,
+then OpenFOAM first and SPlisHSPlasH second, Chrono FSI-SPH after; the
+three installs are allowed; the module is `Mod/Fluid`. 4: OpenFOAM is
+never bundled -- the workbench searches for an install and, finding
+none, offers to download one.

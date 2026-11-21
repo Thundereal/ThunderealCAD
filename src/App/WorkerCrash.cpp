@@ -38,6 +38,12 @@
 // Everything in the handler is async-signal-safe, or as near as a crash
 // handler gets: write(), backtrace() (primed at install), dladdr() and
 // Python's own traceback dump, the one faulthandler uses.
+//
+// On Windows (sec 41) the handler is the process's unhandled exception
+// filter, and writes the same lines: the code is the exception's, in hex,
+// the signal the one a POSIX worker would have died of; the frames are
+// unwound from the exception's context by the images' unwind data, each
+// named by its image's export table. Nothing of it allocates either.
 
 #include "PreCompiled.h"
 
@@ -62,7 +68,17 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+// After windows.h, which it needs
+#include <dbghelp.h>
+#include <mutex>
+#include <set>
+#if defined(_MSC_VER)
+#include <eh.h>
+#pragma comment(lib, "dbghelp.lib")
 #endif
+#endif
+
+#include <Python.h>
 
 #include <QProcess>
 #include <QStandardPaths>
@@ -82,8 +98,6 @@ namespace
 constexpr const char* Begin = "--- worker crash ---";
 constexpr const char* End = "--- end of worker crash ---";
 
-#if !defined(FC_OS_WIN32)
-
 // Where it is in the job, for the handler: written by the worker's one
 // thread that makes jobs, read in a crash
 char at[512] = {0};
@@ -91,6 +105,9 @@ char at[512] = {0};
 using DumpThreads = const char* (*)(int, void*, void*);
 DumpThreads dumpThreads = nullptr;
 bool systemReport = false;
+
+#if !defined(FC_OS_WIN32)
+
 volatile sig_atomic_t entered = 0;
 // Its own stack: a crash for want of stack has none left to run on
 constexpr std::size_t AltSize = 256 * 1024;
@@ -109,6 +126,32 @@ void put(const char* text)
         left -= static_cast<std::size_t>(done);
     }
 }
+
+#else  // FC_OS_WIN32
+
+volatile LONG entered = 0;
+// The worker's stderr, its log: taken at install, written with WriteFile
+HANDLE errors = INVALID_HANDLE_VALUE;
+// An image's path, for a frame: not on the heap, which a crash may have broken
+char imagePath[2048];
+
+void put(const char* text)
+{
+    if (errors == INVALID_HANDLE_VALUE || !errors) {
+        return;
+    }
+    DWORD left = static_cast<DWORD>(std::strlen(text));
+    while (left > 0) {
+        DWORD done = 0;
+        if (!::WriteFile(errors, text, left, &done, nullptr) || done == 0) {
+            return;
+        }
+        text += done;
+        left -= done;
+    }
+}
+
+#endif  // FC_OS_WIN32
 
 void putHex(unsigned long long value)
 {
@@ -141,6 +184,8 @@ void putNumber(long long value)
     }
     put(buf + i);
 }
+
+#if !defined(FC_OS_WIN32)
 
 void putFrame(void* address)
 {
@@ -292,7 +337,234 @@ void handler(int sig, siginfo_t* info, void* context)
     _exit(128 + sig);
 }
 
-#endif  // !FC_OS_WIN32
+#else  // FC_OS_WIN32
+
+/** The exported name nearest below `address` in the image `module`, from its
+ * export table, and where that name starts (`start`); nullptr for none. A
+ * function the image does not export is told as the export before it, as
+ * dladdr() does; the lines (resolveLines()) name it from the PDB.
+ */
+const char* exportBelow(HMODULE module, ULONG_PTR address, ULONG_PTR& start)
+{
+    const auto* image = reinterpret_cast<const unsigned char*>(module);
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        return nullptr;
+    }
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(image + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) {
+        return nullptr;
+    }
+    const IMAGE_DATA_DIRECTORY& dir =
+        nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+    if (!dir.VirtualAddress || !dir.Size) {
+        return nullptr;
+    }
+    const auto* exports =
+        reinterpret_cast<const IMAGE_EXPORT_DIRECTORY*>(image + dir.VirtualAddress);
+    const auto* functions = reinterpret_cast<const DWORD*>(image + exports->AddressOfFunctions);
+    const auto* names = reinterpret_cast<const DWORD*>(image + exports->AddressOfNames);
+    const auto* ordinals = reinterpret_cast<const WORD*>(image + exports->AddressOfNameOrdinals);
+    const ULONG_PTR rva = address - reinterpret_cast<ULONG_PTR>(image);
+    DWORD best = 0;
+    const char* name = nullptr;
+    for (DWORD i = 0; i < exports->NumberOfNames; ++i) {
+        const WORD ordinal = ordinals[i];
+        if (ordinal >= exports->NumberOfFunctions) {
+            continue;
+        }
+        const DWORD at = functions[ordinal];
+        // A forwarder names another image's export, not code here
+        if (at >= dir.VirtualAddress && at < dir.VirtualAddress + dir.Size) {
+            continue;
+        }
+        if (at <= rva && at > best) {
+            best = at;
+            name = reinterpret_cast<const char*>(image + names[i]);
+        }
+    }
+    // An image exports few of its functions: the export below may be
+    // megabytes away, and its name would mislead (FreeCADApp.dll's frames
+    // read "PropertyLinkSubList::Save + 0x9c2f9a"). None past a function's
+    // likely size
+    constexpr DWORD Farthest = 0x10000;
+    if (!name || rva - best > Farthest) {
+        return nullptr;
+    }
+    start = reinterpret_cast<ULONG_PTR>(image) + best;
+    return name;
+}
+
+void putFrame(ULONG_PTR address)
+{
+    HMODULE module = nullptr;
+    if (!::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                                  | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                              reinterpret_cast<LPCWSTR>(address),
+                              &module)) {
+        module = nullptr;
+    }
+    ULONG_PTR start = 0;
+    const char* name = module ? exportBelow(module, address, start) : nullptr;
+    const DWORD length = module ? ::GetModuleFileNameA(module, imagePath, sizeof(imagePath)) : 0;
+    put("frame ");
+    putHex(address);
+    put(" ");
+    putHex(reinterpret_cast<ULONG_PTR>(module));
+    put(" ");
+    put(name && *name ? name : "-");
+    put(" ");
+    putHex(name ? address - start : 0);
+    put(" ");
+    put(length > 0 && length < sizeof(imagePath) ? imagePath : "-");
+    put("\n");
+}
+
+/// The frames of the thread that crashed, unwound from where it was (`where`)
+/// by the images' own unwind data: no dbghelp in the crashed process
+void putFrames(const CONTEXT* where)
+{
+#if defined(_M_X64)
+    ULONG_PTR low = 0;
+    ULONG_PTR high = 0;
+    ::GetCurrentThreadStackLimits(&low, &high);
+    CONTEXT c = *where;
+    for (int i = 0; i < 128; ++i) {
+        putFrame(static_cast<ULONG_PTR>(c.Rip));
+        const DWORD64 sp = c.Rsp;
+        DWORD64 imageBase = 0;
+        PRUNTIME_FUNCTION function = ::RtlLookupFunctionEntry(c.Rip, &imageBase, nullptr);
+        if (function) {
+            PVOID data = nullptr;
+            DWORD64 frame = 0;
+            ::RtlVirtualUnwind(UNW_FLAG_NHANDLER,
+                               imageBase,
+                               c.Rip,
+                               function,
+                               &c,
+                               &data,
+                               &frame,
+                               nullptr);
+        }
+        else {
+            // A leaf, or no code at all (a call through a null pointer): the
+            // return address is on top of the stack
+            if (c.Rsp < low || c.Rsp + sizeof(DWORD64) > high) {
+                break;
+            }
+            c.Rip = *reinterpret_cast<const DWORD64*>(c.Rsp);
+            c.Rsp += sizeof(DWORD64);
+        }
+        if (!c.Rip || c.Rsp <= sp || c.Rsp < low || c.Rsp > high) {
+            break;
+        }
+    }
+#else
+    putFrame(0);
+    (void)where;
+#endif
+}
+
+/// The signal a POSIX worker would have died of, for an exception's code
+int signalOf(DWORD code)
+{
+    switch (code) {
+        case EXCEPTION_ILLEGAL_INSTRUCTION:
+        case EXCEPTION_PRIV_INSTRUCTION:
+            return SIGILL;
+        case EXCEPTION_INT_DIVIDE_BY_ZERO:
+        case EXCEPTION_INT_OVERFLOW:
+        case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+        case EXCEPTION_FLT_OVERFLOW:
+        case EXCEPTION_FLT_UNDERFLOW:
+        case EXCEPTION_FLT_INEXACT_RESULT:
+        case EXCEPTION_FLT_INVALID_OPERATION:
+        case EXCEPTION_FLT_DENORMAL_OPERAND:
+        case EXCEPTION_FLT_STACK_CHECK:
+            return SIGFPE;
+        default:  // an access violation, a page not read in, the stack overflowed
+            return SIGSEGV;
+    }
+}
+
+void putReport(int sig, DWORD code, ULONG_PTR address, const CONTEXT* where)
+{
+    put("\n");
+    put(Begin);
+    put("\nsignal ");
+    putNumber(sig);
+    put(" code ");
+    putHex(code);
+    put(" address ");
+    putHex(address);
+    put(" sender 0\nat ");
+    put(at);
+    put("\n");
+    // Python's first: the frames of a broken stack may crash their walk
+    put("python\n");
+    if (dumpThreads) {
+        if (const char* failed = dumpThreads(2, nullptr, nullptr)) {
+            put(failed);
+            put("\n");
+        }
+    }
+    put("end of python\n");
+    if (where) {
+#if defined(_M_X64)
+        put("pc ");
+        putHex(static_cast<unsigned long long>(where->Rip));
+        put("\n");
+#endif
+        putFrames(where);
+    }
+    put(End);
+    put("\n");
+}
+
+/// Every exception nothing caught, in any thread of the worker
+LONG WINAPI unhandled(EXCEPTION_POINTERS* pointers)
+{
+    if (::InterlockedExchange(&entered, 1)) {
+        // A crash in the handler: the system's own handling
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    const EXCEPTION_RECORD* record = pointers ? pointers->ExceptionRecord : nullptr;
+    const DWORD code = record ? record->ExceptionCode : 0;
+    ULONG_PTR address = record ? reinterpret_cast<ULONG_PTR>(record->ExceptionAddress) : 0;
+    // An access violation's second word is the address it was denied
+    if (record && (code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_IN_PAGE_ERROR)
+        && record->NumberParameters >= 2) {
+        address = record->ExceptionInformation[1];
+    }
+    putReport(signalOf(code), code, address, pointers ? pointers->ContextRecord : nullptr);
+    if (systemReport) {
+        // On to Windows Error Reporting, as a process with no handler goes
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    // Ended with the exception's code: QProcess has it as a crash,
+    // "crashed (0xc0000005)", and no system report is made of it
+    ::TerminateProcess(::GetCurrentProcess(), code);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+/// abort(), std::terminate() among its callers: the CRT raises SIGABRT
+void aborted(int sig)
+{
+    if (::InterlockedExchange(&entered, 1)) {
+        return;
+    }
+    CONTEXT here;
+    std::memset(&here, 0, sizeof(here));
+    ::RtlCaptureContext(&here);
+    putReport(sig, 0, 0, &here);
+    if (systemReport) {
+        // The CRT's own end of an abort, its report included
+        return;
+    }
+    ::TerminateProcess(::GetCurrentProcess(), 3);
+}
+
+#endif  // FC_OS_WIN32
 
 }  // namespace
 
@@ -326,12 +598,47 @@ void WorkerCrash::install()
         sigaction(sig, &act, nullptr);
     }
 #else
-    // No handler of its own here yet. But no Windows Error Reporting dialog
-    // either: one would hold the worker's end until someone answered it,
-    // and the pool would wait for a worker that is gone (sec 35)
-    if (!GetApplication()
-             .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
-             ->GetBool("SystemCrashReport", false)) {
+    systemReport = GetApplication()
+                       .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+                       ->GetBool("SystemCrashReport", false);
+    errors = ::GetStdHandle(STD_ERROR_HANDLE);
+    // Python's traceback dump, from the DLL this process has Python in
+    HMODULE python = nullptr;
+    if (::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                                 | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                             reinterpret_cast<LPCWSTR>(&Py_Initialize),
+                             &python)) {
+        for (const char* name : {"PyUnstable_DumpTracebackThreads", "_Py_DumpTracebackThreads"}) {
+            if (FARPROC found = ::GetProcAddress(python, name)) {
+                dumpThreads = reinterpret_cast<DumpThreads>(found);
+                break;
+            }
+        }
+    }
+    // Room for the report when the stack itself overflowed: kept back on the
+    // thread that makes the jobs, this one
+    ULONG reserve = 64 * 1024;
+    ::SetThreadStackGuarantee(&reserve);
+    // Not a vectored handler: that one hears first-chance exceptions too,
+    // which something may yet catch (ctypes does, for one)
+    ::SetUnhandledExceptionFilter(unhandled);
+    // What Application::init put in the way, for the GUI's sake: its SIGSEGV
+    // handler, which the C runtime's frame around main() calls for an access
+    // violation, throws "Illegal storage access!", and its SE translator turns
+    // the exception into a C++ one. Either way a worker's crash came back as
+    // a job that failed, from a worker that went on (measured: the job's
+    // error was that text, Died false). A worker dies of it instead
+    std::signal(SIGSEGV, SIG_DFL);
+    std::signal(SIGILL, SIG_DFL);
+    std::signal(SIGFPE, SIG_DFL);
+    std::signal(SIGABRT, aborted);
+#if defined(_MSC_VER)
+    _set_se_translator(nullptr);
+#endif
+    // No Windows Error Reporting dialog: one would hold the worker's end
+    // until someone answered it, and the pool would wait for a worker that
+    // is gone. Workers/SystemCrashReport has the report made, dialog and all
+    if (!systemReport) {
         ::SetErrorMode(::GetErrorMode() | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 #if defined(_MSC_VER)
         _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
@@ -342,7 +649,6 @@ void WorkerCrash::install()
 
 void WorkerCrash::setAt(const std::string& where)
 {
-#if !defined(FC_OS_WIN32)
     const std::size_t n = std::min(where.size(), sizeof(at) - 1);
     // Emptied first and its first letter put back last: a crash in the
     // middle reads an empty name, not one half the last
@@ -354,9 +660,6 @@ void WorkerCrash::setAt(const std::string& where)
     if (n > 0) {
         at[0] = where[0];
     }
-#else
-    (void)where;
-#endif
 }
 
 std::string WorkerCrash::signalName(int sig)
@@ -367,6 +670,24 @@ std::string WorkerCrash::signalName(int sig)
         // macOS ends it in the number: "Segmentation fault: 11"
         std::string s = name;
         text += ": " + s.substr(0, s.find(':'));
+    }
+#else
+    // No strsignal() here: the ones a worker's report can name
+    switch (sig) {
+        case SIGSEGV:
+            text += ": Segmentation fault";
+            break;
+        case SIGILL:
+            text += ": Illegal instruction";
+            break;
+        case SIGFPE:
+            text += ": Floating point exception";
+            break;
+        case SIGABRT:
+            text += ": Abort";
+            break;
+        default:
+            break;
     }
 #endif
     return text;
@@ -379,6 +700,15 @@ unsigned long long hex(const std::string& s)
 {
     return std::strtoull(s.c_str(), nullptr, 16);
 }
+
+#if defined(FC_OS_WIN32)
+/// dbghelp is not thread safe: every call of it here is made under this
+std::mutex& dbghelpLock()
+{
+    static std::mutex lock;
+    return lock;
+}
+#endif
 
 std::string demangle(const std::string& name)
 {
@@ -397,6 +727,16 @@ std::string demangle(const std::string& name)
             return result;
         }
         std::free(out);
+    }
+#else
+    // An MSVC name, "?serve@WorkerPool@App@@QEAAHXZ": its name only, as the
+    // frame's line has no room for the signature
+    if (!name.empty() && name[0] == '?') {
+        char out[1024];
+        std::lock_guard<std::mutex> lock(dbghelpLock());
+        if (::UnDecorateSymbolName(name.c_str(), out, sizeof(out), UNDNAME_NAME_ONLY) > 0) {
+            return out;
+        }
     }
 #endif
     return name;
@@ -435,6 +775,11 @@ WorkerCrash::Report WorkerCrash::read(const std::string& log)
     bool python = false;
     unsigned long long pc = 0;
     while (std::getline(in, line)) {
+        // Python writes its traceback through the C runtime, which on
+        // Windows ends a line in "\r\n"
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
         if (line == End) {
             report.whole = true;
             break;
@@ -457,7 +802,9 @@ WorkerCrash::Report WorkerCrash::read(const std::string& log)
             words >> report.signal;
             while (words >> key >> value) {
                 if (key == "code") {
-                    report.code = std::atoi(value.c_str());
+                    // si_code in decimal, or a Windows exception's in hex
+                    report.code = static_cast<int>(
+                        static_cast<unsigned int>(std::strtoll(value.c_str(), nullptr, 0)));
                 }
                 else if (key == "address") {
                     report.address = hex(value);
@@ -574,10 +921,81 @@ QString atos()
 #endif
 }
 
+#if defined(FC_OS_WIN32)
+std::string narrow(const wchar_t* text)
+{
+    const int size = ::WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1) {
+        return {};
+    }
+    std::string out(static_cast<std::size_t>(size - 1), '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, text, -1, out.data(), size, nullptr, nullptr);
+    return out;
+}
+
+/** The frames' functions and lines from the images' PDBs, by dbghelp in this
+ * process: each image loaded at the base it had in the worker, on a session
+ * of its own. A frame whose image has no PDB keeps what the worker said.
+ */
+void resolveByPdb(WorkerCrash::Report& report)
+{
+    std::lock_guard<std::mutex> lock(dbghelpLock());
+    // Any value unique to this session, not a process: nothing is read of one
+    static const char tag = 0;
+    const HANDLE session = reinterpret_cast<HANDLE>(const_cast<char*>(&tag));
+    const DWORD options = ::SymGetOptions();
+    ::SymSetOptions(SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_FAIL_CRITICAL_ERRORS
+                    | SYMOPT_NO_PROMPTS);
+    if (!::SymInitializeW(session, nullptr, FALSE)) {
+        ::SymSetOptions(options);
+        return;
+    }
+    std::set<unsigned long long> loaded;
+    for (std::size_t i = 0; i < report.frames.size(); ++i) {
+        WorkerCrash::Frame& f = report.frames[i];
+        if (f.image.empty() || !f.base || !Base::FileInfo(f.image).exists()) {
+            continue;
+        }
+        if (loaded.insert(f.base).second) {
+            const int size = ::MultiByteToWideChar(CP_ACP, 0, f.image.c_str(), -1, nullptr, 0);
+            std::wstring path(static_cast<std::size_t>(std::max(size, 1)), L'\0');
+            ::MultiByteToWideChar(CP_ACP, 0, f.image.c_str(), -1, path.data(), size);
+            ::SymLoadModuleExW(session, nullptr, path.c_str(), nullptr, f.base, 0, nullptr, 0);
+        }
+        // A return address is the instruction after the call: one back is
+        // the call's line
+        const DWORD64 address = f.address - (i ? 1 : 0);
+        alignas(SYMBOL_INFOW) char buffer[sizeof(SYMBOL_INFOW) + 512 * sizeof(wchar_t)];
+        auto* symbol = reinterpret_cast<SYMBOL_INFOW*>(buffer);
+        std::memset(buffer, 0, sizeof(buffer));
+        symbol->SizeOfStruct = sizeof(SYMBOL_INFOW);
+        symbol->MaxNameLen = 512;
+        DWORD64 displacement = 0;
+        if (::SymFromAddrW(session, address, &displacement, symbol)) {
+            f.symbol = narrow(symbol->Name);
+            f.offset = f.address - symbol->Address;
+        }
+        IMAGEHLP_LINEW64 line;
+        std::memset(&line, 0, sizeof(line));
+        line.SizeOfStruct = sizeof(line);
+        DWORD column = 0;
+        if (::SymGetLineFromAddrW64(session, address, &column, &line) && line.FileName) {
+            f.line = baseName(narrow(line.FileName)) + ":" + std::to_string(line.LineNumber);
+        }
+    }
+    ::SymCleanup(session);
+    ::SymSetOptions(options);
+}
+#endif
+
 }  // namespace
 
 void WorkerCrash::resolveLines(Report& report)
 {
+#if defined(FC_OS_WIN32)
+    resolveByPdb(report);
+    return;
+#endif
     const QString tool = atos();
     if (tool.isEmpty()) {
         return;
@@ -630,6 +1048,43 @@ void WorkerCrash::resolveLines(Report& report)
 std::string WorkerCrash::what(const Report& report)
 {
     std::ostringstream ss;
+#if defined(FC_OS_WIN32)
+    // A Windows exception is told by its code, as the system tells it
+    if (report.code) {
+        const auto code = static_cast<unsigned int>(report.code);
+        ss << "exception 0x" << std::hex << code;
+        const char* name = nullptr;
+        switch (code) {
+            case EXCEPTION_ACCESS_VIOLATION:
+                name = "access violation";
+                break;
+            case EXCEPTION_IN_PAGE_ERROR:
+                name = "page not read in";
+                break;
+            case EXCEPTION_STACK_OVERFLOW:
+                name = "stack overflow";
+                break;
+            case EXCEPTION_ILLEGAL_INSTRUCTION:
+                name = "illegal instruction";
+                break;
+            case EXCEPTION_PRIV_INSTRUCTION:
+                name = "privileged instruction";
+                break;
+            case EXCEPTION_INT_DIVIDE_BY_ZERO:
+                name = "integer divide by zero";
+                break;
+            default:
+                break;
+        }
+        if (name) {
+            ss << " (" << name << ")";
+        }
+        if (code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_IN_PAGE_ERROR) {
+            ss << ", at address 0x" << std::hex << report.address;
+        }
+        return ss.str();
+    }
+#endif
     ss << signalName(report.signal);
     if (report.sender > 0) {
         ss << ", sent by process " << report.sender;

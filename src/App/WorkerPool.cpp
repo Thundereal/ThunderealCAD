@@ -1846,6 +1846,14 @@ std::string WorkerPool::Private::crashOf(const Proc& proc, JobId job, std::strin
     }
     // Ended by its handler, not killed by the signal: it says which
     how = "crashed (" + WorkerCrash::signalName(report.signal) + ")";
+#ifdef FC_OS_WIN32
+    // An exception is told by its code there, as endedHow() does (sec 41)
+    if (report.code) {
+        std::ostringstream ss;
+        ss << "crashed (0x" << std::hex << static_cast<unsigned int>(report.code) << ")";
+        how = ss.str();
+    }
+#endif
     std::string kind;
     auto it = jobs.find(job);
     if (it != jobs.end()) {

@@ -62,7 +62,7 @@ struct Report
 {
     bool found = false;
     int signal = 0;
-    int code = 0;  ///< si_code
+    int code = 0;  ///< si_code; on Windows the exception's code, 0 for an abort
     long sender = 0;  ///< the pid that sent it, for one sent (kill)
     unsigned long long address = 0;  ///< si_addr
     std::string at;

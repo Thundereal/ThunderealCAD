@@ -92,17 +92,11 @@ def run():
               crash.getStatusString())
         # What was on the worker's stack, in the crash log the line names
         # (docs/WorkerProcess.md sec 35)
-        if os.name == "nt":
-            # No crash handler in a Windows worker yet: no stack, no log named
-            check("... a real crash, no stack (no handler on Windows)",
-                  lines and "crashed (0xc0000005)" in lines[0]
-                  and "stack is in" not in lines[0], lines[:1])
-        else:
-            log = lines[0].split("What was on the worker's stack is in ")[-1].strip() if lines else ""
-            text = open(log, errors="replace").read() if log and os.path.exists(log) else ""
-            check("... which names the crash log, holding the worker's stack",
-                  "crashed making job" in text and "Python:" in text and "in execute" in text,
-                  (log, text[-400:]))
+        log = lines[0].split("What was on the worker's stack is in ")[-1].strip() if lines else ""
+        text = open(log, errors="replace").read() if log and os.path.exists(log) else ""
+        check("... which names the crash log, holding the worker's stack",
+              "crashed making job" in text and "Python:" in text and "in execute" in text,
+              (log, text[-400:]))
         check("... and nothing ran it here", "crashed here" not in TestWorkerPool._executions,
               TestWorkerPool._executions)
 

@@ -2092,8 +2092,9 @@ them all: `App::FeaturePythonImp::execute()` `FeaturePython.cpp:65`,
 `App::DocumentObject::recompute()`, `App::Document::_recomputeFeature()`
 `Document.cpp:19620`, `makeRecompute()` `WorkerRecompute.cpp:576`.
 
-Not built: Windows. A worker there has the CRT's handler, which writes its
-own crash log in the worker's user directory and throws.
+Not built then: Windows, where a worker had the CRT's handler, which wrote
+its own crash log in the worker's user directory and threw. Built since:
+sec 41.
 
 Tests: `TestWorkerRecompute.testACrashSaysWhatWasOnItsStack` (a job reading
 memory at 0: the result's How and Stack -- the address, Python's
@@ -2462,3 +2463,140 @@ itself, so the tests cannot tell. A worker turns it off at
 `WorkerCrash::install()` (`SetErrorMode(SEM_NOGPFAULTERRORBOX)`, MSVC's
 abort report too), unless `Workers/SystemCrashReport`: the counterpart of
 the macOS report a worker no longer makes.
+
+## 41. A Windows worker's crash says what was on its stack (2026-11-21)
+
+Sec 35 on Windows: a worker that crashes there writes the same report to
+its log, the pool reads it back with the same `WorkerCrash::read()`, and
+the crash log, the result's `Stack`/`CrashLog` and the error and
+quarantine messages name it as on macOS. Built and measured on the
+Windows 10 box (MSVC 14.44, conda RelWithDebInfo).
+
+- **First, a worker did not crash at all.** `Application::init` on MSVC
+  sets `std::signal(SIGSEGV, segmentation_fault_handler)`, which the C
+  runtime's frame around `main()` calls for an access violation, and the
+  handler throws `Base::AccessViolation`; this build (`HAVE_SEH`, not
+  `_DEBUG`) also sets an SE translator on the main thread, the one a
+  worker serves its jobs on. A worker's fault came back as a job that
+  failed -- "Illegal storage access! Please save your work under a new
+  file name and restart the application!", Died false -- and a crash in a
+  feature's execute() as a recompute that went on (the GUI test's object
+  even ended Up-to-date). `WorkerCrash::install()` hands the worker back
+  to the system: SIGSEGV, SIGILL and SIGFPE at `SIG_DFL`, SIGABRT to the
+  worker's own handler, `_set_se_translator(nullptr)`. The main process
+  keeps both, for the GUI's sake.
+- **The handler is the unhandled exception filter**
+  (`SetUnhandledExceptionFilter`), not a vectored one: that one hears
+  first-chance exceptions something may yet catch, as ctypes does around
+  every foreign call. `SetThreadStackGuarantee(64 KB)` on the serving
+  thread leaves room for a report of a stack overflow. It writes, with
+  `WriteFile` to the worker's stderr and nothing that allocates, the lines
+  of sec 35: `signal` the one a POSIX worker would have died of (an access
+  violation, a page not read in, a stack overflow 11; an illegal or
+  privileged instruction SIGILL; the divide and float codes SIGFPE),
+  `code` the exception's in hex, `address` the address denied (the
+  exception's second word) for an access violation and the faulting
+  instruction's otherwise; `at`; Python's dump (`_Py_DumpTracebackThreads`
+  from the DLL that holds `Py_Initialize`, to fd 2); then the frames,
+  unwound from the exception's context by the images' own unwind data
+  (`RtlLookupFunctionEntry`, `RtlVirtualUnwind`; a frame with none, a
+  leaf or a call through a null pointer, takes its return address from
+  the top of the stack). Each frame has its image's base and path and the
+  nearest export below it -- none past 64 KB, since FreeCADApp.dll
+  exports few of its functions and the nearest named one was megabytes
+  away ("PropertyLinkSubList::Save + 0x9c2f9a").
+- **It ends the process with the exception's code**
+  (`TerminateProcess(code)`): QProcess has that as a crash, and no
+  report is made. `Workers/SystemCrashReport` hands the exception on to
+  Windows Error Reporting after the report is written. `abort()` (and
+  `std::terminate()` through it) is reported the same way, from
+  `RtlCaptureContext`, signal 22, code 0.
+- **The pool tells it by its code.** `what()` says "exception
+  0xc0000005 (access violation), at address 0x0"; How is "crashed
+  (0xc0000005)", as `endedHow()` said without a report; the quarantine
+  "crashed a worker process twice (0xc0000005)". POSIX output is as it
+  was, byte for byte. `read()` takes a code in decimal or hex, and lines
+  ending in "\r\n" (Python's dump goes through the C runtime's text mode).
+- **The frames' names and lines from the PDBs**, on the thread pool as
+  atos and addr2line are (sec 35): dbghelp in the main process, on a
+  session of its own, each image loaded at the base it had in the worker
+  (`SymLoadModuleExW`), then `SymFromAddrW` and `SymGetLineFromAddrW64`
+  -- the function's real name, its offset, "File.cpp:line". An image with
+  no PDB keeps what the worker said, so an end user's build without PDBs
+  gives no error. 1 s for a report here, FreeCADApp.pdb loaded. dbghelp
+  is not thread safe: its calls here (and MSVC name demangling) are under
+  one lock.
+
+A report as the crash log has it (the test's job `test.fault`,
+`faulthandler._read_null()` in a worker; the worker's entry, cut):
+
+    ===== 2026-11-21 23:11:04.832  CAUGHT  pid 60944  ...  WorkerRecompute:
+      worker 0 (pid 57472) crashed making job 1 (test.fault) =====
+    exception 0xc0000005 (access violation), at address 0x0
+    the thread that crashed:
+    #0  0x7ffdae200a79  (python312.dll +0x80a79)
+    #1  PyCFunction_GetFlags + 0xc29  (python312.dll +0x161389)
+    ...
+    #9  0x7ffd9885cd60  (FreeCADApp.dll +0xa2cd60)
+    #10  0x7ffd98862b2f  (FreeCADApp.dll +0xa32b2f)
+    ...
+    Python:
+    Current thread 0x0000f300 (most recent call first):
+      File ".../Mod/Test/TestWorkerPool.py", line 57 in _crash
+      File ".../Mod/Test/TestWorkerPool.py", line 89 in _fault
+      File ".../Ext/freecad/worker.py", line 69 in _run
+      File ".../Ext/freecad/worker.py", line 151 in serve
+
+and a second later, "..., the frames with their lines":
+
+    #0  faulthandler_read_null + 0x29  (python312.dll +0x80a79)  faulthandler.c:1004
+    #1  cfunction_vectorcall_NOARGS + 0x109  (python312.dll +0x161389)  methodobject.c:481
+    ...
+    #8  Py::Callable::apply + 0x1b  (FreeCADBase.dll +0x7bbab)  Objects.hxx:3257
+    #9  `anonymous namespace'::runPython + 0x2e0  (FreeCADApp.dll +0xa2cd60)  WorkerPool.cpp:2756
+    #10  App::WorkerPool::serve + 0x277f  (FreeCADApp.dll +0xa32b2f)  WorkerPool.cpp:3177
+    #11  `anonymous namespace'::serveWorkerPy + 0x1f  (FreeCADApp.dll +0xc53c4f)  ApplicationPy.cpp:661
+    ...
+    #23  main + 0x743  (ThunderealCmd.exe +0x29663)  MainCmd.cpp:134
+
+The unwind has every frame down to `RtlUserThreadStart`, the calls
+between the job's Python and the worker's loop included (macOS's walk
+skips them, sec 35). The worker's own names are rough even where an image
+exports much: python312.dll's "#1 PyCFunction_GetFlags + 0xc29" is
+`cfunction_vectorcall_NOARGS`. The lines' entry is the one to read.
+
+Windows Error Reporting, measured with a job reading memory at 16 through
+`ctypes.c_int.from_address(16).value` -- ctypes' own code, outside the
+guard it puts around foreign calls (`kernel32.RaiseException` through
+ctypes is caught: "exception: access violation writing ...", the worker
+goes on) and not `faulthandler`, which turns the reporting dialog off
+itself:
+
+- `Workers/SystemCrashReport` false (the default): the report as above,
+  "crashed (0xc0000005)"; no WerFault.exe ran, no report in
+  ReportArchive or ReportQueue, no dump, no Application event. The job
+  failed in 1.6 s.
+- true: the report as above, then WerFault.exe (three of them for the
+  two workers the job crashed -- a crashed job is given a second worker),
+  two APPCRASH reports in `%ProgramData%\Microsoft\Windows\WER\ReportArchive`,
+  Application events 1000 and 1001 ("Faulting module name: _ctypes.pyd
+  ... Exception code: 0xc0000005"). No dialog was shown, and no dump
+  (LocalDumps is not set on that box). The job took 11.5 s: WER held
+  each dying worker for some seconds.
+
+Not done: a crash in the handler is passed on to the system (the flag
+`entered`); `__fastfail` (the C runtime's invalid-parameter and purecall
+ends) reaches no handler at all; x64 only (a 32-bit or ARM64 worker
+writes the report without frames).
+
+Tests: `testACrashSaysWhatWasOnItsStack` on Windows: How "crashed
+(0xc0000005)", the address, `_fault`, a FreeCADApp.dll frame, the crash
+log named and holding the entry, then, where FreeCADApp.pdb is beside the
+DLL, the lines' entry with `App::WorkerPool::serve` and `WorkerPool.cpp:`;
+no new Windows Error Reporting report or dump (`systemCrashReports()`
+looks there now). `testACrashInAWorkerIsPutDownToItsObject`: the
+quarantine names the crash log, "(0xc0000005" for "(signal 11".
+crash-isolated-by-worker's claim of the crash log is the same on Windows.
+Run there: TestWorkerPool 67/67, Document 363, TestTechDrawApp 25, ctest
+1267/1267, crash-isolated-by-worker 10/10, animation-workers,
+td-recompute-by-worker, td-stored-hatch, td-undo-stored-projection.

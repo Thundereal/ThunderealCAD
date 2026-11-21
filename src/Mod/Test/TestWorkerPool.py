@@ -1444,8 +1444,7 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertIn("crashed", info["Reason"])
         self.assertIn("Invalid", crash.State)
         self.assertIn("crashed a worker process", crash.getStatusString())
-        if os.name != "nt":  # no crash handler in a Windows worker yet (sec 35)
-            self.assertIn("What was on the worker's stack is in ", crash.getStatusString())
+        self.assertIn("What was on the worker's stack is in ", crash.getStatusString())
         # Here: what comes before is made, the crashing one is not run, and
         # what reads it is not made from it
         self.doc.recompute()
@@ -1466,16 +1465,31 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(info["Failed"], 1, info)
         self.assertGreaterEqual(info["Applied"], 1, info)
         self.assertIn("Invalid", crash.State)
-        self.assertIn("crashed a worker process twice (signal 11", crash.getStatusString())
+        self.assertIn("crashed a worker process twice (0xc0000005" if os.name == "nt"
+                      else "crashed a worker process twice (signal 11", crash.getStatusString())
         self.assertEqual(self.pool.info()["Failed"], failed)
         self.assertTrue(pids <= set(self.pool.info()["Pids"]), self.pool.info()["Pids"])
 
     @staticmethod
     def systemCrashReports():
-        """macOS's crash reports of this build's processes"""
+        """The system's crash reports of this build's processes: macOS's, and
+        Windows Error Reporting's reports and dumps (sec 41)"""
         import glob
         import sys
 
+        if sys.platform == "win32":
+            found = set()
+            for root in (os.environ.get("LOCALAPPDATA", ""), os.environ.get("ProgramData", "")):
+                if not root:
+                    continue
+                for where in (
+                    "Microsoft/Windows/WER/ReportArchive",
+                    "Microsoft/Windows/WER/ReportQueue",
+                ):
+                    found.update(glob.glob(os.path.join(root, where, "*Thundereal*")))
+            found.update(glob.glob(os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                                                "CrashDumps", "Thundereal*")))
+            return found
         if sys.platform != "darwin":
             return set()
         return set(glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/Thundereal*")))
@@ -1497,17 +1511,21 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(result["Status"], "Failed", result)
         self.assertTrue(result["Died"], result)
         if sys.platform == "win32":
-            # No crash handler in a worker there yet: the access violation
-            # is told, and nothing of the stack (sec 35)
+            # Told by the exception's code, as Windows tells it (sec 41)
             self.assertEqual(result["How"], "crashed (0xc0000005)", result)
-            self.assertEqual(result["Stack"], "", result)
-            return
-        self.assertRegex(result["How"], r"^crashed \(signal (11|10): ", result)
+        else:
+            self.assertRegex(result["How"], r"^crashed \(signal (11|10): ", result)
         stack = result["Stack"]
         self.assertIn("at address 0x0", stack)
-        # Python's traceback, and the native frames from the fault down
+        # Python's traceback, and the native frames from the fault down. On
+        # Windows the worker names a frame only by an export near it, and
+        # FreeCADApp.dll exports few: its frames are named from the PDB, in
+        # the lines' entry below (sec 41)
         self.assertIn("in _fault", stack)
-        self.assertIn("App::WorkerPool::serve()", stack)
+        if sys.platform == "win32":
+            self.assertIn("(FreeCADApp.dll +0x", stack)
+        else:
+            self.assertIn("App::WorkerPool::serve()", stack)
         log = result["CrashLog"]
         self.assertTrue(log and os.path.exists(log), result)
         self.assertIn(log, result["Error"])
@@ -1518,6 +1536,9 @@ class TestWorkerRecompute(unittest.TestCase):
             tool = any(os.path.exists(p) for p in (
                 "/Library/Developer/CommandLineTools/usr/bin/atos",
                 "/Applications/Xcode.app/Contents/Developer/usr/bin/atos"))
+        elif sys.platform == "win32":
+            # dbghelp, with the PDBs of a build that has them
+            tool = os.path.exists(os.path.join(App.getHomePath(), "bin", "FreeCADApp.pdb"))
         else:
             tool = shutil.which("addr2line") is not None
         if tool:
@@ -1525,7 +1546,8 @@ class TestWorkerRecompute(unittest.TestCase):
                 with open(log, errors="replace") as f:
                     text = f.read()
                 at = text.find(title + ", the frames with their lines")
-                return at >= 0 and "WorkerPool.cpp:" in text[at:]
+                return (at >= 0 and "WorkerPool.cpp:" in text[at:]
+                        and "App::WorkerPool::serve" in text[at:])
             end = time.time() + 60
             while not lines() and time.time() < end:
                 time.sleep(0.2)

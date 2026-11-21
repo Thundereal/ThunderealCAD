@@ -729,16 +729,71 @@ Measured through the workbench, the tank a CAD part:
 1 s of flow in 201 s on 7 processes. On a slice of the tank 20 mm wide
 with 5 mm cells (the prototype's case, sides slipping) the peaks were
 44.6, 58.9 and 45.2 mbar: the sensors at 15 and 30 mm at the experiment's
-medians, the lowest still at half. **Open**: the peak at 3 mm, a cell or
-less from the floor's corner at either size, rose little with the finer
-mesh; whether it is resolution, the incompressible air, or the corner's
-treatment is not known. The water's volume in the mesh is within 1% of
-the solid's (cells are in or out by their centres).
+medians, the lowest still at half. The same slice at 2.5 mm, one cell
+wide (154560 cells, 0.6 s in 4017 s on 4 processes):
+
+| slice's cells | 3 mm | 15 mm | 30 mm | front |
+|---|---|---|---|---|
+| 5 mm | 44.6 mbar | 58.9 | 45.2 | 1.72 sqrt(g H) |
+| 2.5 mm | 54.4 | 64.1 | 45.9 | 1.73 |
+| experiment's median | 91.4 | 57.5 | 43.8 | 1.56 |
+
+The peak at 3 mm rises with the mesh and has not settled: +22% for cells
+half the size, where the sensor at 30 mm moved 2%. It is a matter of
+resolution at the floor's corner, at least in part; at 2.5 mm it is at
+60% of the median and below the experiment's band. Not chased finer: a
+user's case is a part in the flow, which the next test is. **Open**:
+what is left at the corner once the mesh is fine enough (the air is
+incompressible here, and nothing refines the mesh at a wall). The
+water's volume in the mesh is within 1% of the solid's when the solid's
+faces fall on cell faces (cells are in or out by their centres).
+
+**Kleefsman's box** (SPHERIC test 2, the benchmark's own data,
+`test_case_2_exp_data.xls`), through the workbench: the tank and its box
+one CAD part, 20 mm cells (431520), 6 s of flow in 4164 s on 7
+processes. Pressures on the box's face towards the water (P1 to P4,
+lowest first) and on its top (P5 to P8), over the 6 s:
+
+| | arrives (s) | peak (Pa) | impulse (Pa s) | rms (Pa) |
+|---|---|---|---|---|
+| P1 | 0.405 (exp 0.395) | 10644 (exp 11225) | 12701 (exp 13392, -5%) | 512 |
+| P2 | 0.420 (0.415) | 8447 (7886) | 10478 (10958, -4%) | 384 |
+| P3 | 0.440 (0.425) | 4613 (6492) | 8523 (9496, -10%) | 484 |
+| P4 | 0.475 (0.435) | 2940 (7198) | 5199 (7092, -27%) | 779 |
+| P5 | 0.995 (1.095) | 2826 (1984) | 2807 (2804, 0%) | 470 |
+| P6 | 0.995 (1.065) | 2578 (1860) | 2820 (3027, -7%) | 390 |
+| P7 | 1.115 (1.070) | 2497 (2024) | 2696 (3338, -19%) | 438 |
+| P8 | 1.105 (1.065) | 3196 (2082) | 2696 (2933, -8%) | 503 |
+
+Water heights, the rms difference over the 6 s as a share of the
+experiment's peak: 10% behind the box (0.496 m), 8% (0.992 m), 10%
+(1.488 m), 3% in the reservoir (2.638 m). The second wave, back from the
+far wall, reaches the box at 4.8 s here and 4.7 s there.
+
+- The lower half of the face is close in peak and impulse. P4, a cell
+  from the box's top edge (20 mm cells, the sensor 20 mm down), misses
+  the first peak: 2940 Pa for 7198. The top's sensors get the impulse
+  within 19% but arrive early and spike where the experiment rises
+  slowly. Both are what 8 cells across a box would give; not run finer
+  yet.
+- **The data's H1 and H3 columns are the figure's probes the other way
+  round**: its H1 rises at 0.2 s and its H3 at 1 s, and water cannot be
+  behind the box (0.496 m) before it is half a metre from the gate
+  (1.488 m). They are compared that way.
+- **The water started 10 mm high**: 0.55 m is 27.5 cells of 20 mm, and a
+  cell is in or out by its centre, so the column was 0.56 m (2% more
+  water). A fluid whose faces do not fall on cell faces is set to the
+  nearest cell; partly filled cells at the start are not written yet.
+- Heights come back in the document's length unit (mm), pressures in Pa.
+
+Scripts and data: `~/.cache/fluid/kleefsman` (kleefsman.py, compare.py),
+`~/.cache/fluid/proto` for the slices.
 
 Known limits: a wall thinner than a cell is not resolved; a background
 cell's centre exactly on a wall's face (walls half a cell thick, aligned
 with the space's box) leaves the mesher an even choice; turbulence is
-off; one liquid; no refinement at the walls.
+off; one liquid; no refinement at the walls; the water at the start is
+whole cells.
 
 - **Tests**: `Fluid_tests_run` 15 (the case's files, the surface and the
   tables read back); `TestFluidWorkbench` 30, two of them a dam break and

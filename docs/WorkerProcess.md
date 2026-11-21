@@ -2600,3 +2600,93 @@ crash-isolated-by-worker's claim of the crash log is the same on Windows.
 Run there: TestWorkerPool 67/67, Document 363, TestTechDrawApp 25, ctest
 1267/1267, crash-isolated-by-worker 10/10, animation-workers,
 td-recompute-by-worker, td-stored-hatch, td-undo-stored-projection.
+
+## 42. A recompute split over two workers (2026-11-22)
+
+The user, after sec 38: "Two way split. Go".
+
+**Which halves.** At `WorkerRecompute::start()`, `splitOf()` takes what
+the recompute reaches, each object's time as `expectedSeconds()` knows it
+(the last here or by a worker, else the log's records, else 0), and the
+dependency edges among them. It finds the longest chain by those times
+and tries a cut at each of its objects: the first half is the cut, the
+chain after it, everything that depends on them, and what they read in
+the recompute; the second half is all the rest and what it reads. What
+both read -- the chain before the cut among it, a spreadsheet, the
+origins -- is in both, made twice. The cut that saves most wins: the
+whole's time less the larger half's. A cut at the chain's start would
+take everything (all reads the spreadsheet), which is why the cut is
+looked for along the chain and not only at it.
+
+It is split when that saving is at least `Workers/SplitSeconds` (1.0 s;
+0 never splits) and the pool may have two workers. Then two jobs, each
+`objects` its half, the same `touched`, `display`, `numbers` and
+`refused` cut to it; a worker recomputes exactly what it is sent
+(`doc->recompute(objs)`), so the two make their halves of the same
+state at once.
+
+**The pool.** It grew by one worker only when more was queued than there
+were workers: one half running and one queued is not, and the second half
+waited for the first. It now counts the jobs running too
+(`WorkerPool::Private::grow`). The other rules stay -- one at a time, once
+each worker has made a job, and the memory left must hold one more like
+the biggest.
+
+**Putting in.** `State::second` holds the second half's job and result.
+`done()` keeps each half's result; the put-in waits until neither half is
+running (`making()`), then `supplierFor()` reads the first half's file and
+adds the second's (`Supplier::addsOf`, `merge`): only the objects the first
+did not make -- what both made is the first's -- their numbers checked
+and taken for those only (sec 36; what both made counted the same numbers
+from the same start, and the second's would be refused), their strings
+taken by id (by content only for one table: a second half that sent none
+by id is not taken, and its objects are executed here, as any a worker did
+not make). One recompute puts all in. Each worker is told what of it is
+its own (`putIn`, sec 29). Either half failing leaves the other put in.
+Found by its test and fixed: a put-in did not ask the quarantine (sec 34
+asks it only outside a hook), and with one half's worker dead in an object
+that object, having no value from the other half, was executed here -- in
+this process, which it crashes. The supplier now refuses what is
+quarantined. A recompute run here meanwhile claims both jobs.
+
+Info `split`, `splitSaving`, `splitFirst`/`splitSecond` (objects of each
+half), `suppliedSecond`; Python `Split`, `SplitSaving`, `SplitObjects`,
+`SuppliedSecond`.
+
+**Measured, scanner.FCStd, console** (`fcad-probes/worker/splitprobe.py`),
+every object touched, 686 reached, 625 made:
+
+| | from start to put in | worker | supplied (second half) |
+|---|---|---|---|
+| here | 12.84 s | -- | -- |
+| one worker, cold | 16.27 s | 12.78 s | 625 |
+| one worker, warm | 13.44 s | 12.85 s | 625 |
+| split, second worker cold | 11.64 s | 10.93 s | 625 (270) |
+| split, warm | 11.64 s | 10.94 s | 625 (270) |
+
+The halves were 382 and 661 objects, 418 of them in both. Expected to
+save 2.79 s, it saved 1.80 s (13.44 to 11.64): the larger half took 10.93
+s where the times said 10.06 -- presumably two workers and the pattern's
+own threads sharing the eight cores; not chased. A cold second worker cost
+nothing seen: the time is the same cold or warm, its start under the
+first half's.
+What both made, compared object by object (volume, area, faces, edges;
+views' visible and hidden edges): the split's results are the one
+worker's, all 440; both differ from here in the same six, the `Local_CS`
+coordinate systems, whose volume is noise on an infinite plane (1e167).
+
+A `touch()` of the spreadsheet alone reached 6 objects made, not the 284
+of sec 38's table: a touch that changes no value changes nothing that
+reads it. The edits sec 38 counted are real changes of a value; not
+measured here.
+
+Tests: `testARecomputeIsSplitOverTwoWorkers` (two slow branches under
+what both read: split, each made by a worker of its own, at once, put in
+as one, what both read from the first half; three runs),
+`testACrashInOneHalfIsPutDownToItsObject` (the second half's worker dies
+in Right twice: the first half put in, Right quarantined and not run here,
+what reads it not made from it), `testARecomputeThatSavesLittleIsNotSplit`.
+
+Not done: more than two halves; a half's objects made in the other's
+worker when that one is gone; a split of an edit's recompute measured in
+the GUI on a real change.

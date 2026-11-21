@@ -33,6 +33,7 @@
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <memory>
 #include <set>
@@ -859,6 +860,8 @@ std::map<const Document*, Times>& times()
     return map;
 }
 
+bool refuseCrashed(const DocumentObject& obj, std::string& why);
+
 class Supplier: public RecomputeHook
 {
 public:
@@ -1022,6 +1025,38 @@ public:
         return true;
     }
 
+    /// The names `other` made that this one did not: what a second half
+    /// adds (docs/WorkerProcess.md sec 42). What both made -- what both
+    /// halves read -- is this one's
+    std::set<std::string> addsOf(const Supplier& other) const
+    {
+        std::set<std::string> names;
+        for (auto& [name, list] : other.entries) {
+            auto it = entries.find(name);
+            if (!list.empty() && (it == entries.end() || it->second.empty())) {
+                names.insert(name);
+            }
+        }
+        return names;
+    }
+
+    /// Take in a second half's objects, `names` of addsOf(): its strings
+    /// were taken in under their ids (takeRows) before
+    void merge(Supplier& other, const std::set<std::string>& names)
+    {
+        for (auto& name : names) {
+            auto& list = other.entries[name];
+            count += static_cast<long>(list.size());
+            entries[name] = std::move(list);
+            second.insert(name);
+        }
+        for (auto& [key, a] : other.added) {
+            added.emplace(key, a);
+        }
+        bytes += other.bytes;
+        seconds = std::max(seconds, other.seconds);
+    }
+
     void executing(DocumentObject& obj) override
     {
         answered.erase(&obj);  // a new recompute of it takes its next entry
@@ -1058,6 +1093,15 @@ public:
 
     bool supply(DocumentObject& obj, Made& made)
     {
+        // What crashed a worker is not executed here, nor in a put-in: one
+        // half of a split recompute is put in when the other died over it
+        // (sec 34, 42)
+        std::string crash;
+        if (refuseCrashed(obj, crash)) {
+            made.ok = false;
+            made.error = crash;
+            return true;
+        }
         if (madeHere(obj)) {
             ++madeByType;
             return false;  // executed here, as it must be
@@ -1178,7 +1222,9 @@ public:
     /// Made from the worker's values, by name: what the worker holds as
     /// they were put in (docs/WorkerProcess.md sec 29)
     std::set<std::string> fromWorker;
-    long madeByType = 0;  ///< executed here by their type (madeHere())  ///< objects whose touched state was set as the worker left it
+    long madeByType = 0;  ///< executed here by their type (madeHere())
+    /// Objects whose values came from the second half of a split recompute
+    std::set<std::string> second;
 };
 
 struct State
@@ -1210,7 +1256,29 @@ struct State
     std::set<std::string> risky;
     WorkerRecompute::Info info;
     std::vector<fastsignals::scoped_connection> conns;
+    /// The other half of a recompute split over two workers (sec 42): its
+    /// job, and its result come and not put in yet. Put in with the first,
+    /// when both are over
+    struct Part
+    {
+        WorkerPool::JobId job = 0;
+        std::string file;
+        WorkerPool::JobId fileJob = 0;
+        json numbers;
+    } second;
 };
+
+/// A job with the workers, either half
+bool making(const State& s)
+{
+    return s.job != 0 || s.second.job != 0;
+}
+
+/// A result come and not put in yet, either half
+bool hasResult(const State& s)
+{
+    return !s.file.empty() || !s.second.file.empty();
+}
 
 std::map<const Document*, std::unique_ptr<State>>& states()
 {
@@ -1232,7 +1300,7 @@ State* stateByName(const std::string& name)
 
 void changed(State& s)
 {
-    s.info.running = s.job != 0 || !s.file.empty();
+    s.info.running = making(s) || hasResult(s);
     s.info.crashed.clear();
     for (auto& [name, why] : s.crashed) {
         s.info.crashed.push_back(name);
@@ -1242,9 +1310,11 @@ void changed(State& s)
 
 void dropFile(State& s)
 {
-    if (!s.file.empty()) {
-        Base::FileInfo(s.file).deleteFile();
-        s.file.clear();
+    for (std::string* file : {&s.file, &s.second.file}) {
+        if (!file->empty()) {
+            Base::FileInfo(*file).deleteFile();
+            file->clear();
+        }
     }
 }
 
@@ -1294,24 +1364,89 @@ bool supplierFor(State& s, std::unique_ptr<Supplier>& supplier)
 {
     supplier = std::make_unique<Supplier>(s.doc);
     std::string why;
-    const std::string file = s.file;
+    // The first half's result, or the second's alone when the first made
+    // none; the second's then added (docs/WorkerProcess.md sec 42)
+    std::string file = s.file;
+    json numbers = std::move(s.fileNumbers);
+    std::string other = s.second.file;
+    json otherNumbers = std::move(s.second.numbers);
+    bool base = true;  // the base is the first half's
+    if (file.empty()) {
+        std::swap(file, other);
+        std::swap(numbers, otherNumbers);
+        base = false;
+    }
     s.file.clear();
-    const json numbers = std::move(s.fileNumbers);
     s.fileNumbers = json();
+    s.second.file.clear();
+    s.second.numbers = json();
     bool ok = supplier->read(file, s.tables, why) && takeNumbers(s.doc, numbers, why)
         && supplier->takeStrings(why);
     Base::FileInfo(file).deleteFile();
     if (!ok) {
+        if (!other.empty()) {
+            Base::FileInfo(other).deleteFile();
+        }
         supplier.reset();
         s.info.reason = "a worker's recompute not put in: " + why;
         ++s.info.failed;
         FC_WARN(s.doc.getName() << ": " << s.info.reason);
+        return false;
     }
-    return ok;
+    if (!base) {
+        for (auto& [name, list] : supplier->entries) {
+            supplier->second.insert(name);
+        }
+    }
+    if (!other.empty()) {
+        // What the second half made that the first did not: its numbers
+        // for those only -- what both made counted the same numbers from
+        // the same start -- and its strings under their ids. Not taken,
+        // its objects are executed here, as any the worker did not make
+        Supplier half(s.doc);
+        std::string why2;
+        bool taken = half.read(other, s.tables, why2);
+        std::set<std::string> adds;
+        if (taken) {
+            adds = supplier->addsOf(half);
+            json mine = json::array();
+            if (otherNumbers.is_array()) {
+                for (auto& n : otherNumbers) {
+                    if (n.is_array() && !n.empty() && n[0].is_string()
+                        && adds.count(n[0].get<std::string>())) {
+                        mine.push_back(n);
+                    }
+                }
+            }
+            // Its strings by id only: one string table read by content is
+            // the first half's (Supplier::takeStrings)
+            auto hasher = s.doc.getStringHasher();
+            if (!half.byId || !hasher) {
+                why2 = "the second half sent no strings by id";
+                taken = false;
+            }
+            else {
+                taken = takeNumbers(s.doc, mine, why2) && hasher->takeRows(half.rows, &why2);
+            }
+        }
+        Base::FileInfo(other).deleteFile();
+        if (taken) {
+            supplier->merge(half, adds);
+        }
+        else {
+            FC_WARN(s.doc.getName() << ": the second half of a split recompute not put in: "
+                                    << why2);
+        }
+    }
+    return true;
 }
 
 void noteSupplied(State& s, const Supplier& supplier)
 {
+    s.info.suppliedSecond = 0;
+    for (auto& name : supplier.fromWorker) {
+        s.info.suppliedSecond += supplier.second.count(name) ? 1 : 0;
+    }
     s.info.objects = static_cast<long>(s.names.size());
     s.info.supplied = supplier.supplied;
     s.info.executedHere = supplier.executedHere;
@@ -1335,7 +1470,8 @@ void schedule(State& s);
 /// Put in the result that came, as a recompute of what it recomputed
 void apply(State& s)
 {
-    if (s.file.empty() || s.applying) {
+    // Both halves of a split one over first (sec 42)
+    if (!hasResult(s) || s.applying || making(s)) {
         return;
     }
     if (!safeNow(s.doc)) {
@@ -1371,10 +1507,21 @@ void apply(State& s)
     // when it next moves across the rows (docs/WorkerProcess.md sec 29)
     if (log && log->lastSeq() > before && !supplier->fromWorker.empty()) {
         if (auto pool = WorkerPool::of(s.doc, false)) {
-            pool->putIn(s.fileJob, before + 1, log->lastSeq(),
-                        {supplier->fromWorker.begin(), supplier->fromWorker.end()});
+            // Each half's worker told what is its own
+            std::vector<std::string> first;
+            std::vector<std::string> second;
+            for (auto& name : supplier->fromWorker) {
+                (supplier->second.count(name) ? second : first).push_back(name);
+            }
+            if (!first.empty() && s.fileJob) {
+                pool->putIn(s.fileJob, before + 1, log->lastSeq(), first);
+            }
+            if (!second.empty() && s.second.fileJob) {
+                pool->putIn(s.second.fileJob, before + 1, log->lastSeq(), second);
+            }
         }
     }
+    s.second.fileJob = 0;
     noteSupplied(s, *supplier);
     ++s.info.applied;
     s.info.reason.clear();
@@ -1463,10 +1610,18 @@ bool refuseCrashed(const DocumentObject& obj, std::string& why)
 void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
 {
     State* s = stateByName(name);
-    if (!s || s->job != id) {
+    if (!s || !id || (s->job != id && s->second.job != id)) {
         return;
     }
-    s->job = 0;
+    // Which half (sec 42): the second's result is kept apart, and put in
+    // with the first's when both are over
+    const bool second = s->second.job == id;
+    if (second) {
+        s->second.job = 0;
+    }
+    else {
+        s->job = 0;
+    }
     switch (r.status) {
         case WorkerPool::Result::Status::Done:
             // An object it failed to recompute is said to have failed here
@@ -1484,15 +1639,22 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
                 s->info.reason = "the worker wrote nothing";
                 break;
             }
-            s->file = r.file;
-            s->fileJob = id;
             {
                 json output = json::parse(r.output, nullptr, false);
-                s->fileNumbers = output.is_object() ? output.value("numbers", json::array())
-                                                    : json::array();
+                json numbers = output.is_object() ? output.value("numbers", json::array())
+                                                  : json::array();
+                if (second) {
+                    s->second.file = r.file;
+                    s->second.fileJob = id;
+                    s->second.numbers = std::move(numbers);
+                }
+                else {
+                    s->file = r.file;
+                    s->fileJob = id;
+                    s->fileNumbers = std::move(numbers);
+                }
             }
             r.file.clear();  // ours now, in the pool's directory until put in
-            schedule(*s);
             break;
         case WorkerPool::Result::Status::Failed:
             ++s->info.failed;
@@ -1510,6 +1672,9 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
             s->info.reason = r.error;
             break;
     }
+    if (!making(*s) && hasResult(*s)) {
+        schedule(*s);
+    }
     changed(*s);
 }
 
@@ -1524,7 +1689,7 @@ std::set<DocumentObject*> reachOf(const Document& doc, const std::vector<Documen
 bool handOverRisky(Document& doc, const std::vector<DocumentObject*>& objs)
 {
     State* s = stateOf(doc);
-    if (!s || s->risky.empty() || s->applying || s->job || !s->file.empty()) {
+    if (!s || s->risky.empty() || s->applying || making(*s) || hasResult(*s)) {
         return false;
     }
     if (!GetApplication()
@@ -1581,20 +1746,23 @@ State& stateFor(Document& doc)
             return;
         }
         s.borrowed.reset();
-        if (s.job) {
+        for (WorkerPool::JobId* job : {&s.job, &s.second.job}) {
+            if (!*job) {
+                continue;
+            }
             if (auto pool = WorkerPool::of(s.doc, false)) {
-                const WorkerPool::JobId id = s.job;
-                if (pool->claim(id) != WorkerPool::Claim::Done && s.job == id) {
-                    s.job = 0;
+                const WorkerPool::JobId id = *job;
+                if (pool->claim(id) != WorkerPool::Claim::Done && *job == id) {
+                    *job = 0;
                     ++s.info.cancelled;
                     s.info.reason = "recomputed here";
                 }
             }
             else {
-                s.job = 0;
+                *job = 0;
             }
         }
-        if (!s.file.empty() && supplierFor(s, s.borrowed)) {
+        if (hasResult(s) && supplierFor(s, s.borrowed)) {
             ++s.info.borrowed;
         }
         changed(s);
@@ -1652,7 +1820,7 @@ State& stateFor(Document& doc)
         }));
     s.conns.emplace_back(doc.signalChangedObject.connect(
         [&s, reaches](const DocumentObject& obj, const Property& prop) {
-            if (s.file.empty() || s.applying || s.doc.testStatus(Document::Recomputing)
+            if (!hasResult(s) || s.applying || s.doc.testStatus(Document::Recomputing)
                 || (WriteScope::causes() & WriteCause::Animation)
                 || !(s.doc.writeEffects(prop) & WriteEffect::Dirty)) {
                 return;
@@ -1673,7 +1841,7 @@ State& stateFor(Document& doc)
         }
     }));
     auto object = [&s](const DocumentObject&) {
-        if (!s.file.empty() && !s.applying) {
+        if (hasResult(s) && !s.applying) {
             dropFile(s);
             ++s.info.cancelled;
             s.info.reason = "the design changed";
@@ -1721,6 +1889,146 @@ std::set<DocumentObject*> reachOf(const Document& doc, const std::vector<Documen
         }
     }
     return all;
+}
+
+/** Two halves of the recompute of `all` for two workers, and the seconds
+ * they are expected to save against one, by what each object took last
+ * (expectedSeconds). The longest chain of `all` by those times is cut at
+ * one of its objects: `first` is that object, the chain after it, all that
+ * depends on them, and what they read in `all`; `second` the rest and what
+ * it reads -- what both read, the chain before the cut among it, is in
+ * both, made twice. The cut that saves most. 0, the halves empty, where
+ * none leaves a second half (docs/WorkerProcess.md sec 42).
+ */
+double splitOf(const Document& doc, const std::set<DocumentObject*>& all,
+               std::set<DocumentObject*>& first, std::set<DocumentObject*>& second)
+{
+    Times& slot = times()[&doc];
+    if (!slot.read) {
+        readRecorded(doc, slot);
+    }
+    std::map<DocumentObject*, double> cost;
+    double total = 0;
+    for (auto obj : all) {
+        double c = 0;
+        auto t = slot.seconds.find(obj->getID());
+        if (t != slot.seconds.end()) {
+            c = t->second;
+        }
+        else if (auto r = slot.recorded.find(obj->getID()); r != slot.recorded.end()) {
+            c = r->second;
+        }
+        cost[obj] = c;
+        total += c;
+    }
+    // What each reads in `all`, and what reads it
+    std::map<DocumentObject*, std::vector<DocumentObject*>> reads;
+    std::map<DocumentObject*, std::vector<DocumentObject*>> users;
+    for (auto obj : all) {
+        for (auto dep : obj->getOutList()) {
+            if (dep != obj && all.count(dep)) {
+                reads[obj].push_back(dep);
+                users[dep].push_back(obj);
+            }
+        }
+    }
+    // The longest chain ending at each object, by cost. A cycle would have
+    // stopped the recompute; one is cut where it closes
+    std::map<DocumentObject*, double> upto;
+    std::map<DocumentObject*, DocumentObject*> via;
+    std::set<DocumentObject*> visiting;
+    std::function<double(DocumentObject*)> longest = [&](DocumentObject* obj) -> double {
+        auto it = upto.find(obj);
+        if (it != upto.end()) {
+            return it->second;
+        }
+        if (!visiting.insert(obj).second) {
+            return 0;
+        }
+        double best = 0;
+        DocumentObject* from = nullptr;
+        for (auto dep : reads[obj]) {
+            const double d = longest(dep);
+            if (d > best) {
+                best = d;
+                from = dep;
+            }
+        }
+        visiting.erase(obj);
+        via[obj] = from;
+        return upto[obj] = best + cost[obj];
+    };
+    DocumentObject* end = nullptr;
+    double most = 0;
+    for (auto obj : all) {
+        const double d = longest(obj);
+        if (d > most) {
+            most = d;
+            end = obj;
+        }
+    }
+    if (!end) {
+        return 0;
+    }
+    std::vector<DocumentObject*> chain;  // from the end back to its start
+    for (auto obj = end; obj; obj = via[obj]) {
+        chain.push_back(obj);
+    }
+    auto sum = [&](const std::set<DocumentObject*>& part) {
+        double c = 0;
+        for (auto obj : part) {
+            c += cost[obj];
+        }
+        return c;
+    };
+    // `part` and what it reads in `all`
+    auto withReads = [&](std::set<DocumentObject*> part) {
+        std::vector<DocumentObject*> stack(part.begin(), part.end());
+        while (!stack.empty()) {
+            auto obj = stack.back();
+            stack.pop_back();
+            for (auto dep : reads[obj]) {
+                if (part.insert(dep).second) {
+                    stack.push_back(dep);
+                }
+            }
+        }
+        return part;
+    };
+    double best = 0;
+    std::set<DocumentObject*> after;  // the chain from the cut on, and what uses it
+    for (auto cut : chain) {
+        // Cut one earlier: `cut` and what uses it join what comes after
+        std::vector<DocumentObject*> stack {cut};
+        after.insert(cut);
+        while (!stack.empty()) {
+            auto obj = stack.back();
+            stack.pop_back();
+            for (auto user : users[obj]) {
+                if (after.insert(user).second) {
+                    stack.push_back(user);
+                }
+            }
+        }
+        std::set<DocumentObject*> rest;
+        for (auto obj : all) {
+            if (!after.count(obj)) {
+                rest.insert(obj);
+            }
+        }
+        if (rest.empty()) {
+            break;  // earlier cuts take more still
+        }
+        std::set<DocumentObject*> a = withReads(after);
+        std::set<DocumentObject*> b = withReads(rest);
+        const double saves = total - std::max(sum(a), sum(b));
+        if (saves > best) {
+            best = saves;
+            first = std::move(a);
+            second = std::move(b);
+        }
+    }
+    return best;
 }
 
 }  // namespace
@@ -1840,7 +2148,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     if (doc.testStatus(Document::Recomputing) || doc.isPerformingTransaction()) {
         return refuse("the document is busy");
     }
-    if (s.job || !s.file.empty()) {
+    if (making(s) || hasResult(s)) {
         return refuse("a recompute is with the workers already");
     }
     // What a recompute would reach: what is touched, or asked for, and
@@ -1858,61 +2166,110 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     if (!Base::FileInfo(s.tables).createDirectories()) {
         return refuse("cannot make " + s.tables);
     }
-    std::vector<std::string> names;
-    std::vector<std::string> touchedHere;
-    json display = json::object();
-    // What each gave so far, for the worker to count on from (sec 36)
-    json numbers = json::object();
-    for (auto obj : all) {
-        names.emplace_back(obj->getNameInDocument());
-        auto given = doc.givenNumbers(*obj);
-        if (!given.empty()) {
-            json counts = json::array();
-            for (auto& [kind, last] : given) {
-                counts.push_back(json::array({kind, last}));
-            }
-            numbers[obj->getNameInDocument()] = std::move(counts);
-        }
-        if (obj->mustRecompute()) {
-            touchedHere.emplace_back(obj->getNameInDocument());
-        }
-        // How the view here meshes it, for the worker to mesh it so
-        if (Animation::displayHint) {
-            std::string hint = Animation::displayHint(*obj);
-            if (!hint.empty()) {
-                display[obj->getNameInDocument()] = hint;
-            }
-        }
-    }
     const bool meshes = GetApplication()
                             .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
                             ->GetBool("RecomputeMeshes", true);
-    WorkerPool::Job job;
-    job.kind = RecomputeKind;
-    job.tag = s.tag;
-    job.reads = names;
     // What this process does not execute is not executed there either: left
     // in the same error, not tried again on what crashed it (sec 34)
     json refused = json::object();
     for (auto& [crashed, why] : s.crashed) {
         refused[crashed] = why;
     }
-    job.inputs = json {{"objects", names},
-                       {"touched", touchedHere},
-                       {"display", meshes ? display : json::object()},
-                       {"tables", s.tables},
-                       {"refused", refused},
-                       {"numbers", numbers}}
-                     .dump();
     const std::string name = doc.getName();
-    auto slot = std::make_shared<WorkerPool::JobId>(0);
-    job.done = [name, slot](WorkerPool::Result& r) { done(name, *slot, r); };
-    const WorkerPool::JobId id = pool->submit(std::move(job));
-    if (!id) {
-        return refuse(pool->reason().empty() ? std::string("not taken") : pool->reason());
+    // One job of `part`: what it recomputes, what of it is touched here,
+    // how the view meshes it, the numbers each gave so far (sec 36)
+    auto jobOf = [&](const std::set<DocumentObject*>& part, std::vector<std::string>& names,
+                     std::shared_ptr<WorkerPool::JobId> slot) {
+        std::vector<std::string> touchedHere;
+        json display = json::object();
+        json numbers = json::object();
+        for (auto obj : part) {
+            names.emplace_back(obj->getNameInDocument());
+            auto given = doc.givenNumbers(*obj);
+            if (!given.empty()) {
+                json counts = json::array();
+                for (auto& [kind, last] : given) {
+                    counts.push_back(json::array({kind, last}));
+                }
+                numbers[obj->getNameInDocument()] = std::move(counts);
+            }
+            if (obj->mustRecompute()) {
+                touchedHere.emplace_back(obj->getNameInDocument());
+            }
+            // How the view here meshes it, for the worker to mesh it so
+            if (Animation::displayHint) {
+                std::string hint = Animation::displayHint(*obj);
+                if (!hint.empty()) {
+                    display[obj->getNameInDocument()] = hint;
+                }
+            }
+        }
+        WorkerPool::Job job;
+        job.kind = RecomputeKind;
+        job.tag = s.tag;
+        job.reads = names;
+        job.inputs = json {{"objects", names},
+                           {"touched", touchedHere},
+                           {"display", meshes ? display : json::object()},
+                           {"tables", s.tables},
+                           {"refused", refused},
+                           {"numbers", numbers}}
+                         .dump();
+        job.done = [name, slot](WorkerPool::Result& r) { done(name, *slot, r); };
+        return job;
+    };
+    // Two halves where two workers save enough (sec 42): one, the longest
+    // chain of what it reaches and all after it; the other, the rest
+    std::set<DocumentObject*> first;
+    std::set<DocumentObject*> second;
+    double saving = 0;
+    if (pool->info().limit >= 2) {
+        saving = splitOf(doc, all, first, second);
     }
-    *slot = id;
+    const double least = GetApplication()
+                             .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+                             ->GetFloat("SplitSeconds", 1.0);
+    const bool split = least > 0 && saving >= least && !second.empty();
+    std::vector<std::string> names;
+    auto slot = std::make_shared<WorkerPool::JobId>(0);
+    WorkerPool::JobId id = 0;
+    WorkerPool::JobId otherId = 0;
+    if (split) {
+        std::vector<std::string> firstNames;
+        std::vector<std::string> secondNames;
+        auto otherSlot = std::make_shared<WorkerPool::JobId>(0);
+        id = pool->submit(jobOf(first, firstNames, slot));
+        if (id) {
+            *slot = id;
+            otherId = pool->submit(jobOf(second, secondNames, otherSlot));
+            *otherSlot = otherId;
+        }
+        if (!id || !otherId) {
+            if (id) {
+                pool->cancel([&](const std::string& t) { return t == s.tag; });
+            }
+            return refuse(pool->reason().empty() ? std::string("not taken") : pool->reason());
+        }
+        for (auto obj : all) {
+            names.emplace_back(obj->getNameInDocument());
+        }
+        ++s.info.split;
+        s.info.splitSaving = saving;
+        s.info.splitFirst = static_cast<long>(firstNames.size());
+        s.info.splitSecond = static_cast<long>(secondNames.size());
+        FC_LOG(doc.getName() << ": a recompute split over two workers, " << firstNames.size()
+                             << " and " << secondNames.size() << " objects, expected to save "
+                             << saving << " s");
+    }
+    else {
+        id = pool->submit(jobOf(all, names, slot));
+        if (!id) {
+            return refuse(pool->reason().empty() ? std::string("not taken") : pool->reason());
+        }
+        *slot = id;
+    }
     s.job = id;
+    s.second.job = otherId;
     s.names = std::move(names);
     s.info.reason.clear();
     ++s.info.started;
@@ -1923,7 +2280,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
 bool WorkerRecompute::running(const Document& doc)
 {
     auto s = stateOf(doc);
-    return s && (s->job || !s->file.empty());
+    return s && (making(*s) || hasResult(*s));
 }
 
 bool WorkerRecompute::wait(Document& doc, double seconds)
@@ -1934,16 +2291,17 @@ bool WorkerRecompute::wait(Document& doc, double seconds)
         if (!s) {
             return true;
         }
-        if (!s->file.empty() && safeNow(doc)) {
+        if (hasResult(*s) && !making(*s) && safeNow(doc)) {
             apply(*s);
             continue;
         }
-        if (!s->job) {
-            return s->file.empty();
+        if (!making(*s)) {
+            return !hasResult(*s);
         }
         WorkerPool* pool = WorkerPool::of(doc, false);
         if (!pool) {
             s->job = 0;
+            s->second.job = 0;
             changed(*s);
             return true;
         }
@@ -1957,15 +2315,16 @@ bool WorkerRecompute::wait(Document& doc, double seconds)
 void WorkerRecompute::cancel(Document& doc, const std::string& why)
 {
     State* s = stateOf(doc);
-    if (!s || (!s->job && s->file.empty())) {
+    if (!s || (!making(*s) && !hasResult(*s))) {
         return;
     }
-    if (s->job) {
+    if (making(*s)) {
         if (auto pool = WorkerPool::of(doc, false)) {
             const std::string tag = s->tag;
             pool->cancel([&tag](const std::string& t) { return t == tag; });
         }
         s->job = 0;
+        s->second.job = 0;
     }
     dropFile(*s);
     ++s->info.cancelled;

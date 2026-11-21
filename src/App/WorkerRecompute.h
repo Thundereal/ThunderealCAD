@@ -83,6 +83,15 @@ public:
         /// Recomputes asked of this process that a worker made first, for
         /// reaching an object that crashed one before (sec 37)
         long handedOver = 0;
+        /// Recomputes split over two workers (sec 42); of the last one
+        /// split, the seconds it was expected to save and the objects of
+        /// each half (what both read is in both)
+        long split = 0;
+        double splitSaving = 0;
+        long splitFirst = 0;
+        long splitSecond = 0;
+        /// Of the last one put in: objects made from the second half's values
+        long suppliedSecond = 0;
     };
 
     /** Hand the recompute of `objs` -- with none, of what is touched -- and

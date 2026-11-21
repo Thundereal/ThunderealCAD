@@ -2191,9 +2191,14 @@ void WorkerPool::Private::grow()
     }
     // With a client taking the results as they come, another worker only
     // when it had to wait for one or do one itself; with none, when there
-    // is more queued than workers
+    // are more jobs, running and queued, than workers -- a recompute split
+    // in two has one running and one waiting (docs/WorkerProcess.md sec 42)
     const bool consuming = now() - lastClaim < 2.0;
-    if (consuming ? !starved : queue.size() <= procs.size()) {
+    std::size_t running = 0;
+    for (auto& proc : procs) {
+        running += proc->job ? 1 : 0;
+    }
+    if (consuming ? !starved : queue.size() + running <= procs.size()) {
         return;
     }
     const std::size_t total = totalMemory();
@@ -3648,6 +3653,10 @@ public:
         }
         dict.setItem("Crashed", crashed);
         dict.setItem("HandedOver", Py::Long(i.handedOver));
+        dict.setItem("Split", Py::Long(i.split));
+        dict.setItem("SplitSaving", Py::Float(i.splitSaving));
+        dict.setItem("SplitObjects", Py::TupleN(Py::Long(i.splitFirst), Py::Long(i.splitSecond)));
+        dict.setItem("SuppliedSecond", Py::Long(i.suppliedSecond));
         return dict;
     }
 

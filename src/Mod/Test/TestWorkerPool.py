@@ -1057,6 +1057,90 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertFalse(self.pool.recomputing())
         return self.pool.recomputeInfo()
 
+    def splitChains(self):
+        """Base read by two slow branches, Left (2.0 s) and Right (1.5 s, a
+        _Crashing not set to crash),
+        each read by a tail: made once here, its times known; two workers
+        allowed (this class allows one)"""
+        App.ParamGet("User parameter:BaseApp/Preferences/Workers").SetInt("Workers", 2)
+        self.pool.expectedRecompute()  # notes what each takes from now
+        base = self.counted("Base", Input=1)
+        left = self.counted("Left", Sleep=2.0)
+        left.setExpression("Input", "Base.Result")
+        right = self.doc.addObject("App::FeaturePython", "Right")
+        _Crashing(right)
+        right.Crash = False
+        right.Sleep = 1.5
+        right.setExpression("Input", "Base.Result")
+        tails = []
+        for name, reads in (("LeftTail", "Left"), ("RightTail", "Right")):
+            tail = self.counted(name)
+            tail.setExpression("Input", reads + ".Result")
+            tails.append(tail)
+        warm = self.counted("Warm")
+        self.doc.recompute()
+        # A worker that has made a job: the pool grows by one that has
+        warm.Input = 1
+        self.byWorker()
+        return base, left, right, tails
+
+    def testARecomputeIsSplitOverTwoWorkers(self):
+        """Two branches that take long, under what both read: split over two
+        workers, each half made at once by its own, put in as one recompute
+        -- what both read made by both, taken from the first
+        (docs/WorkerProcess.md sec 42)"""
+        base, left, right, tails = self.splitChains()
+        base.Input = 2
+        began = time.time()
+        info = self.byWorker()
+        took = time.time() - began
+        self.assertEqual(info["Split"], 1, info)
+        self.assertGreaterEqual(info["SplitSaving"], 1.4, info)
+        self.assertEqual(info["Applied"], 2, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertGreater(info["SuppliedSecond"], 0, info)
+        self.assertEqual(self.touched(), [])
+        self.assertEqual((left.Result, right.Result), (8, 8))
+        self.assertEqual([t.Result for t in tails], [16, 16])
+        # Each slow branch by a worker of its own, neither here
+        self.assertNotIn(os.getpid(), (left.MadeBy, right.MadeBy))
+        self.assertNotEqual(left.MadeBy, right.MadeBy)
+        self.assertEqual(base.MadeBy, left.MadeBy)  # the first half's
+        # Side by side: the worker's time the longer half's, and the whole
+        # less than both one after the other
+        self.assertLess(info["WorkerSeconds"], 2.0 + 1.0, info)
+        self.assertLess(took, 2.0 + 1.5, info)
+
+    def testACrashInOneHalfIsPutDownToItsObject(self):
+        """The worker of the second half dies in Right, twice: the first half
+        is put in, Right is left in its error and not run here, what reads
+        it is not made from it (sec 34, 42)"""
+        base, left, right, tails = self.splitChains()
+        right.Crash = True
+        base.Input = 2
+        _executions.pop("crashed here", None)
+        info = self.byWorker()
+        self.assertEqual(info["Split"], 1, info)
+        self.assertEqual(info["Crashed"], ["Right"], info)
+        self.assertEqual(info["Applied"], 2, info)
+        self.assertEqual((left.Result, tails[0].Result), (8, 16))
+        self.assertNotEqual(left.MadeBy, os.getpid())
+        self.assertNotIn("crashed here", _executions)
+        self.assertIn("Invalid", right.State)
+        self.assertNotEqual(tails[1].Result, 16)
+
+    def testARecomputeThatSavesLittleIsNotSplit(self):
+        """Below Workers/SplitSeconds, or with it 0: one worker"""
+        base, left, right, tails = self.splitChains()
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetFloat("SplitSeconds", 2.0)
+        self.addCleanup(group.RemFloat, "SplitSeconds")
+        base.Input = 3
+        info = self.byWorker()
+        self.assertEqual(info["Split"], 0, info)
+        self.assertEqual(left.MadeBy, right.MadeBy)
+        self.assertEqual((left.Result, right.Result), (12, 12))
+
     def testATechDrawViewIsMadeByAWorker(self):
         """A TechDraw view is made by a worker -- inline, a console process --
         and put in from its stored projection: the same edges as made here,

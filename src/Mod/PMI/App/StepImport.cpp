@@ -38,6 +38,7 @@
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <Bnd_Box.hxx>
 #include <gp_Ax3.hxx>
+#include <gp_Pln.hxx>
 #include <gp_Trsf.hxx>
 #include <NCollection_Sequence.hxx>
 #include <Standard_Failure.hxx>
@@ -53,6 +54,7 @@
 #include <XCAFDimTolObjects_DatumObject.hxx>
 #include <XCAFDimTolObjects_DimensionObject.hxx>
 #include <XCAFDimTolObjects_GeomToleranceObject.hxx>
+#include <XCAFDoc_ClippingPlaneTool.hxx>
 #include <XCAFDoc_Datum.hxx>
 #include <XCAFDoc_DimTolTool.hxx>
 #include <XCAFDoc_Dimension.hxx>
@@ -1220,6 +1222,34 @@ private:
         v->Perspective.setValue(obj->Type() == XCAFView_ProjectionType_Central);
         if (obj->WindowVerticalSize() > Precision::Confusion()) {
             v->Height.setValue(obj->WindowVerticalSize());
+        }
+        // Its clipping plane: the normal toward the viewer, what lies in
+        // front cut away (FTC-11's section view). One plane is what a view
+        // has; a file's others are said to be left out
+        NCollection_Sequence<TDF_Label> planes;
+        Handle(XCAFDoc_ClippingPlaneTool) clipping =
+            XCAFDoc_DocumentTool::ClippingPlaneTool(_info.hDoc->Main());
+        if (!clipping.IsNull() && tool->GetRefClippingPlaneLabel(l, planes)
+            && !planes.IsEmpty()) {
+            gp_Pln pln;
+            Handle(TCollection_HAsciiString) planeName;
+            bool capping = false;
+            if (clipping->GetClippingPlane(planes.First(), pln, planeName, capping)) {
+                const gp_Ax3& a = pln.Position();
+                gp_Dir cz = a.Direction();
+                gp_Dir cx = a.XDirection();
+                gp_Dir cy = cz.Crossed(cx);
+                Base::Placement cut(vec(a.Location().XYZ()),
+                                    Base::Rotation::makeRotationByAxes(vec(cx.XYZ()),
+                                                                       vec(cy.XYZ()),
+                                                                       vec(cz.XYZ()),
+                                                                       "ZXY"));
+                v->ClipPlane.setValue(part->Placement.getValue() * cut);
+                v->Clip.setValue(true);
+            }
+            if (planes.Length() > 1) {
+                skip(l, "view", "its clipping planes after the first");
+            }
         }
         // The shapes it shows (sec 6.3, Objects): the objects made of them
         NCollection_Sequence<TDF_Label> shapes;

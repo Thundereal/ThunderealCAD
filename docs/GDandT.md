@@ -279,6 +279,17 @@ Found writing (sec 10.17), and fixed on the fork (2026-11-21):
    annotation plane: `writeDGTsAP242` passed `HasPlane()` as "has semantics" and `false` as "has
    a plane".
 
+Found closing P5 (sec 10.19), and fixed on the fork (2026-11-21):
+
+9. A saved view whose `draughting_model` is also a tessellated shape representation -- the
+   complex `(draughting_model representation shape_representation
+   tessellated_shape_representation)`, characterized or not -- was an entity the reader did not
+   know, and `ReadViews` gave up on the file at the first camera with no draughting model: six of
+   the 17 AP242 files read no view (69 of 130). Both forms read as the characterized draughting
+   model; a camera in none is skipped, not the file's rest.
+10. Clipping planes read but never written: a view with planes is written as a
+    `camera_model_d3_multi_clipping`, its planes all cutting.
+
 Worked around, not fixed: `GenerateTessellatedCurveSet` writes a curve that is not a line as
 its B-spline's poles -- the control polygon, not the curve -- and reads an edge's curve without
 its location. The exporter hands OCCT polylines and meshes instead (sec 10.17).
@@ -1071,7 +1082,7 @@ Written after every set, so a view may show callouts of another set (FTC-09's vi
 The import gained one rule: a view naming every solid the file has shows all, and keeps
 `Objects` empty -- which is what a view showing all is written as, so it reads back the same.
 
-**Not written:** a view's clipping plane (reported, not yet written); `AnnotationPlane`, which
+**Not written:** `AnnotationPlane`, which
 STEP has no place for -- a file's views are read with it off. A callout that draws nothing (an
 invalid one, with no graphic) is in no view in the file: a view lists presentations.
 
@@ -1085,6 +1096,33 @@ Tests: `TestStepExport.test_views_written_and_read_back`; `Base.assertSameViews`
 `TestStepRoundTrip.test_ctc01` and `TestNistSet.test_every_ap242_file_round_trips`.
 
 - Next: SFA on the output (sec 5.2 step 5) -- it needs Windows and Excel; then P4, TechDraw.
+
+### 10.19 P5 closed: a view's clipping, written and read; every saved view read (2026-11-21)
+
+**The clipping plane.** A view clipped (`Clip`) is written with its `ClipPlane` as the plane of
+a `camera_model_d3_multi_clipping` (sec 5.3 item 10), in the file's coordinates as the camera
+is, and read back the same: z, the plane's normal, toward the viewer; what lies in front cut
+away. That is what a STEP clipping plane's normal says -- NIST FTC-11's section view MBD_B looks
+along -x from the +x side, cut by x = 0 with its normal +x. A file's view with more than one
+plane is read with the first, and the rest reported.
+
+**Every saved view read.** Reading FTC-11 for its clipping found it read no view at all: its
+views' draughting models are also tessellated shape representations, a complex entity the
+reader did not know, and one camera with no model ended the reading of all (sec 5.3 item 9).
+Six files of the set lost every view -- CTC-04, FTC-07, FTC-08, FTC-10, FTC-11, STC-06 --
+69 of the 130. Every camera of the set is a view now; the round trip of each file keeps all.
+
+**Measured.** The test part's turned view clipped by a tilted plane, written and read back
+with the placement kept and not: the normal the same to 1e-9, the plane through the same point
+to 1e-6; the file has one clipping camera and one plain one. FTC-11: MBD_B alone clipped, its
+plane x = 0, its normal along the camera's z. Every AP242 file: as many views as cameras, and
+the same views -- clipping included -- read, written and read again.
+
+Tests: `TestStepExport.test_views_written_and_read_back`, `TestNistSet.test_a_clipped_view`,
+`TestNistSet.test_every_ap242_file` (a view per camera), `Base.assertSameViews` (the clipping).
+
+- Next: SFA on the output (sec 5.2 step 5), asked of a Windows machine with Excel; P4,
+  TechDraw.
 
 ## 11. Decisions (made 2026-11-19)
 

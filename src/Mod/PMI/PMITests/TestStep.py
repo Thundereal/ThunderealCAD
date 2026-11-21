@@ -14,6 +14,7 @@ file imports, and nothing it makes is invalid.
 
 import glob
 import os
+import re
 import tempfile
 import unittest
 
@@ -91,6 +92,12 @@ class Base(unittest.TestCase):
             self.assertAlmostEqual(x.Height.Value, y.Height.Value, delta=1e-6, msg=name)
             self.assertEqual(x.Perspective, y.Perspective, name)
             self.assertEqual(sx, sy, name)
+            self.assertEqual(x.Clip, y.Clip, name)
+            if x.Clip:
+                n = x.ClipPlane.Rotation.multVec(V(0, 0, 1))
+                self.assertLess((y.ClipPlane.Rotation.multVec(V(0, 0, 1)) - n).Length, 1e-9,
+                                name)
+                self.assertLess(abs((y.ClipPlane.Base - x.ClipPlane.Base).dot(n)), 1e-6, name)
 
     def write_and_read(self, doc):
         parts = []
@@ -288,6 +295,11 @@ class TestNistSet(Base):
                 self.assertEqual([b for b in bad if " Broken: " in b], [])
                 for b in bad:
                     print("NIST %s: %s" % (os.path.basename(path), b))
+                # Every camera a view: a draughting model that is also a
+                # tessellated shape representation (FTC-07, -10, -11) too
+                with open(path, errors="replace") as f:
+                    cameras = len(re.findall(r"=\s*CAMERA_MODEL_D3(_MULTI_CLIPPING)?\(", f.read()))
+                self.assertEqual(len(objects(doc, "View")), cameras)
                 # A saved view's objects, when the file names them, include
                 # the part's solid: never construction curves alone
                 for v in objects(doc, "View"):
@@ -305,6 +317,22 @@ class TestNistSet(Base):
                 self.assertSameGdt(doc, again)
                 self.assertSameViews(doc, again)
                 self.assertEqual(len([b for b in self.sound(again) if " Broken: " in b]), 0)
+
+    def test_a_clipped_view(self):
+        # FTC-11's MBD_B is a section: cut by the plane x = 0, its normal
+        # toward the eye, which looks along -x from the +x side
+        doc = self.read(os.path.join(os.environ["FC_PMI_NIST"],
+                                     "nist_ftc_11_asme1_ap242-e2.stp"))
+        views = {v.Label: v for v in objects(doc, "View")}
+        clipped = sorted(k for k, v in views.items() if v.Clip)
+        self.assertEqual(clipped, ["MBD_B"])
+        v = views["MBD_B"]
+        n = v.ClipPlane.Rotation.multVec(V(0, 0, 1))
+        self.assertLess((n - v.Camera.Rotation.multVec(V(0, 0, 1))).Length, 1e-9)
+        sets = objects(doc, "AnnotationSet")
+        to_part = sets[0].Part.Placement.inverse()
+        self.assertLess((to_part.Rotation.multVec(n) - V(1, 0, 0)).Length, 1e-9)
+        self.assertLess(abs(to_part.multVec(v.ClipPlane.Base).x), 1e-6)
 
     def test_datum_targets(self):
         # The datums only targets establish: points (CTC-02's A, B, C), a
@@ -394,6 +422,9 @@ class TestStepExport(unittest.TestCase):
         top.Camera = App.Placement(V(110, 60, 15), top.Camera.Rotation)
         turned = add("View", "Turned", Perspective=True,
                      Camera=App.Placement(V(105, 52, 8), App.Rotation(20, 35, 50)))
+        # The turned one cut by a plane, tilted, through the hole
+        turned.Clip = True
+        turned.ClipPlane = App.Placement(V(110, 58, 7), App.Rotation(V(1, 1, 0), 40))
         for name, views in (("DatumA", [top]), ("Flatness", [top]), ("Position", [turned]),
                             ("Dia", [turned]), ("Note", [top, turned])):
             doc.getObject(name).Views = views
@@ -457,7 +488,9 @@ class TestStepExport(unittest.TestCase):
                 path, back = self.export(keep)
                 with open(path) as f:
                     text = f.read()
-                self.assertEqual(text.count("CAMERA_MODEL_D3("), 2)
+                # The clipped one a camera clipping, the other a plain one
+                self.assertEqual(text.count("CAMERA_MODEL_D3("), 1)
+                self.assertEqual(text.count("CAMERA_MODEL_D3_MULTI_CLIPPING("), 1)
                 views = {v.Label: v for v in objects(back, "View")}
                 self.assertEqual(sorted(views), sorted(origs))
                 # A camera is the document's: kept placed, the part is where
@@ -477,6 +510,14 @@ class TestStepExport(unittest.TestCase):
                     self.assertEqual(v.Perspective, orig.Perspective, name)
                     self.assertEqual(v.Objects, [], name)
                     self.assertEqual(shown(v, back), shown(orig, self.doc), name)
+                    # The same clipping: the plane the same, facing the same way
+                    self.assertEqual(v.Clip, orig.Clip, name)
+                    if orig.Clip:
+                        cut = to_back.multiply(orig.ClipPlane)
+                        n = cut.Rotation.multVec(V(0, 0, 1))
+                        self.assertLess((v.ClipPlane.Rotation.multVec(V(0, 0, 1)) - n).Length,
+                                        1e-9, name)
+                        self.assertLess(abs((v.ClipPlane.Base - cut.Base).dot(n)), 1e-6, name)
                 # A height kept; fitting all, the window the part fills
                 self.assertAlmostEqual(views["Top"].Height.Value, 60, places=9)
                 self.assertGreater(views["Turned"].Height.Value, 20)

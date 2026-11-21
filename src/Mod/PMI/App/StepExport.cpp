@@ -64,10 +64,14 @@
 #include <XCAFDoc_GeomTolerance.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
 #include <XCAFDoc_View.hxx>
+#include <XCAFDoc_ClippingPlaneTool.hxx>
 #include <XCAFDoc_ViewTool.hxx>
 #include <XCAFView_Object.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Pln.hxx>
 #include <gp_Trsf.hxx>
+#include <TCollection_ExtendedString.hxx>
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
@@ -1024,8 +1028,16 @@ private:
         obj->SetZoomFactor(distance);
         obj->SetWindowHorizontalSize(height);
         obj->SetWindowVerticalSize(height);
+        // Its clipping plane, the document's as the camera is: z toward
+        // the viewer, what lies in front cut away -- as a STEP clipping
+        // plane's normal says (NIST FTC-11's section view)
+        NCollection_Sequence<TDF_Label> planes;
         if (v->Clip.getValue()) {
-            partly(v, "its clipping plane is not written yet");
+            gp_Ax2 cut = ax2Of(ex.placedToLabel * trsfOf(v->ClipPlane.getValue()));
+            Handle(XCAFDoc_ClippingPlaneTool) clipping =
+                XCAFDoc_DocumentTool::ClippingPlaneTool(_info.hDoc->Main());
+            planes.Append(clipping->AddClippingPlane(gp_Pln(gp_Ax3(cut)),
+                                                     TCollection_ExtendedString()));
         }
         // The shapes it shows: its objects that were exported, else the part
         NCollection_Sequence<TDF_Label> shapes;
@@ -1048,7 +1060,6 @@ private:
         Handle(XCAFDoc_ViewTool) tool = XCAFDoc_DocumentTool::ViewTool(_info.hDoc->Main());
         TDF_Label l = tool->AddView();
         XCAFDoc_View::Set(l)->SetObject(obj);
-        NCollection_Sequence<TDF_Label> planes;
         tool->SetView(shapes, gdts, planes, l);
         ++_report.views;
     }

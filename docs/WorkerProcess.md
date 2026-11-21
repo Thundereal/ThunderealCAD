@@ -2338,3 +2338,51 @@ with the preference off and on; TestTechDrawApp 25 OK.
 Not yet: TechDraw views still made here when a worker recomputes
 (`RecomputeHereTypes`), and their time in threads is not counted where an
 edit's recompute decides to go to a worker.
+
+## 40. The Windows run (2026-11-21)
+
+Worker at 85eb204c7a built and run on Windows 10 (MSVC 14.44, conda
+RelWithDebInfo) by the remote session on that box. Two compile errors came
+first: `SIGBUS` in `WorkerCrash::what()`, which Windows does not have
+(eb7800cda0), and the timeline's lambda named `near`, a macro of the
+Windows headers -- main's fix ba6567b985, which Worker lacked, picked
+(85eb204c7a). Then: ctest 1267/1267; Document 363, TestSketcherApp 182,
+TestAnimation 78 OK; TestPartDesignApp 1072/1073, the one
+`TestSheetMetalConvert.testSolidOutside`, failing on main there since
+2026-11-16; TestWorkerPool 63/66; the worker GUI tests all pass but two
+claims. Every failure was the tests' own, made on POSIX:
+
+- `os.kill(pid, 0)` probes nothing on Windows -- signal 0 is
+  `CTRL_C_EVENT`, sent to the console -- so a gone worker never looked
+  gone. Tests now ask `_alive(pid)`: `OpenProcess` and
+  `GetExitCodeProcess` there.
+- `os.kill(os.getpid(), signal.SIGSEGV)` is `TerminateProcess` there: an
+  exit with code 11, not a crash. And `ctypes.string_at(0)` does not crash
+  either: ctypes runs a foreign call under its own exception handler and
+  raises `OSError`. `_crash()` reads at 0 through `faulthandler._read_null()`
+  on Windows, which is unguarded.
+- A real crash in a Windows worker is told as `crashed (0xc0000005)` with
+  no stack and no crash log: the worker has no handler there yet (sec 35).
+  The tests say that is so, rather than leaving it out.
+- animation-workers counted the ruler labels' ClearType fringes as the
+  amber "being made" mark. Colours now count only in runs of three or
+  more pixels along a row, which the cache line's frame-wide pieces are
+  and a fringe is not.
+- The permission test failed in the user's own profile (and passed in a
+  clean one): it now revokes what the profile keeps for its principal --
+  the same for every new empty document -- before it grants.
+
+Found beside, and fixed: `Base::FileInfo::renameFile()` used `_wrename`,
+which on Windows refuses a target that exists where POSIX `rename`
+replaces it ("Permission denied (13)"), and `GrantStore::save` used
+`std::rename`, the same: on Windows a `grants.json` that existed was never
+updated. `renameFile()` is `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` there
+now, and the store renames through it.
+
+A Windows Error Reporting dialog would hold a crashed worker's end until
+someone answered it. None was seen, but no worker had really crashed
+there (above), and `faulthandler._read_null()` turns the dialog off
+itself, so the tests cannot tell. A worker turns it off at
+`WorkerCrash::install()` (`SetErrorMode(SEM_NOGPFAULTERRORBOX)`, MSVC's
+abort report too), unless `Workers/SystemCrashReport`: the counterpart of
+the macOS report a worker no longer makes.

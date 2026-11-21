@@ -57,6 +57,11 @@
 #include <pthread.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
+#else
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 
 #include <QProcess>
@@ -319,6 +324,18 @@ void WorkerCrash::install()
     sigemptyset(&act.sa_mask);
     for (int sig : Signals) {
         sigaction(sig, &act, nullptr);
+    }
+#else
+    // No handler of its own here yet. But no Windows Error Reporting dialog
+    // either: one would hold the worker's end until someone answered it,
+    // and the pool would wait for a worker that is gone (sec 35)
+    if (!GetApplication()
+             .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+             ->GetBool("SystemCrashReport", false)) {
+        ::SetErrorMode(::GetErrorMode() | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+#if defined(_MSC_VER)
+        _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
     }
 #endif
 }

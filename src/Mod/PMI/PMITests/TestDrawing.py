@@ -283,6 +283,117 @@ class TestImportModelAnnotations(unittest.TestCase):
         self.assertEqual(len([o for o in self.doc.Objects
                               if o.isDerivedFrom("TechDraw::DrawViewDimension")]), 2)
 
+    def test_a_page_from_pmi_views(self):
+        """Two PMI views, the top and the front, each showing its own: a page
+        with a part view for each, looking as its camera does, named after
+        it, at a standard scale on the sheet, with what it shows imported --
+        whatever its plane -- and nothing it does not"""
+        pset = self.doc.getObject("PMI")
+
+        def pmi_view(name, standard):
+            v = self.doc.addObject("PMI::View", name)
+            pset.addObject(v)
+            v.Standard = standard
+            return v
+
+        top, front = pmi_view("TopView", "Top"), pmi_view("FrontView", "Front")
+        for name in ("Flatness", "Position", "HoleSize"):
+            self.doc.getObject(name).Views = [top]
+        # The datum on the bottom, seen edge-on from the front
+        self.doc.getObject("DatumA").Views = [front]
+        self.doc.recompute()
+        page, views = TechDrawPMI.pageFromViews([top, front])
+        self.assertIsNot(page, self.page)
+        self.assertEqual([v.Label for v in views], ["TopView view", "FrontView view"])
+        self.assertEqual([v.Caption for v in views], ["TopView", "FrontView"])
+        self.assertEqual([v.PMIView for v in views], [top, front])
+        dt, df = views
+        self.assertTrue(dt.Direction.isEqual(V(0, 0, 1), 1e-9), dt.Direction)
+        self.assertTrue(df.Direction.isEqual(V(0, -1, 0), 1e-9), df.Direction)
+        self.assertTrue(df.XDirection.isEqual(V(1, 0, 0), 1e-9), df.XDirection)
+        # One standard scale, the views apart and on the sheet
+        scale = page.Scale
+        self.assertTrue(any(abs(scale - k * 10.0**e) < 1e-12
+                            for e in range(-4, 4) for k in (1, 2, 5)), scale)
+        self.assertEqual({v.getScale() for v in views}, {scale})
+        width, height = page.Template.Width.Value, page.Template.Height.Value
+        boxes = []
+        for v in views:
+            w, h = 40 * scale, 20 * scale  # the box from either side, or less
+            box = (v.X.Value - w / 2, v.Y.Value - h / 2, v.X.Value + w / 2, v.Y.Value + h / 2)
+            self.assertTrue(0 <= box[0] and box[2] <= width and 0 <= box[1]
+                            and box[3] <= height, box)
+            boxes.append(box)
+        self.assertFalse(TechDrawPMI._overlap(boxes[0], boxes[1]), (boxes, scale, width, height))
+        # Each with what it shows, the datum though its plane is not the view's
+        on = {v.Name: sorted(c.Source.Name for c in self.doc.Objects
+                             if c.isDerivedFrom("TechDraw::DrawPMICallout")
+                             and c.SourceView == v)
+              for v in views}
+        self.assertEqual(on, {dt.Name: ["Flatness", "Position"], df.Name: ["DatumA"]})
+        # The datum on the bottom, its leader to the bottom line: y up below
+        # the middle (the top view, the part symmetric in it, cannot tell)
+        datum = [c for c in self.doc.Objects if c.isDerivedFrom("TechDraw::DrawPMICallout")
+                 and c.SourceView == df][0]
+        self.assertAlmostEqual(datum.OriginY.Value, -5.0, places=6)
+        # Every frame on the sheet, clear of the title block and of the
+        # other view
+        for v in views:
+            bounds, others = TechDrawPMI._sheet(v)
+            for c in self.doc.Objects:
+                if not (c.isDerivedFrom("TechDraw::DrawPMICallout") and c.SourceView == v):
+                    continue
+                b = TechDrawPMI._box(c, scale)
+                self.assertTrue(bounds[0] <= b[0] and b[2] <= bounds[2] and bounds[1] <= b[1]
+                                and b[3] <= bounds[3], (c.Label, b, bounds))
+                self.assertEqual([o for o in others if TechDrawPMI._overlap(b, o)], [],
+                                 c.Label)
+        dims = [d for d in self.doc.Objects if d.isDerivedFrom("TechDraw::DrawViewDimension")]
+        self.assertEqual([(d.Source.Name, d.References2D[0][0]) for d in dims],
+                         [("HoleSize", dt)])
+        # Again: the same, nothing more -- the note is not the view's
+        made, _updated, _removed = TechDrawPMI.importAnnotations(dt)
+        self.assertEqual(made, [])
+
+    def test_a_clipped_view_is_a_section(self):
+        """A PMI view from the top clipped at half height: a section view cut
+        there, the top taken away, on a base view from the front seeing the
+        cut edge-on; on it what the view shows of the hole, not the flatness
+        of the top it no longer has"""
+        pset = self.doc.getObject("PMI")
+        cut = self.doc.addObject("PMI::View", "CutView")
+        pset.addObject(cut)
+        cut.Standard = "Top"
+        cut.Clip = True
+        cut.ClipPlane = App.Placement(V(20, 10, 5), App.Rotation())  # the set's frame
+        for name in ("Flatness", "Position", "HoleSize"):
+            self.doc.getObject(name).Views = [cut]
+        self.doc.recompute()
+        page, views = TechDrawPMI.pageFromViews([cut])
+        self.assertEqual(len(views), 1)
+        sec = views[0]
+        self.assertTrue(sec.isDerivedFrom("TechDraw::DrawViewSection"), sec.TypeId)
+        base = sec.BaseView
+        self.assertEqual(base.Label, "CutView base")
+        self.assertTrue(base.Direction.isEqual(V(0, -1, 0), 1e-9), base.Direction)
+        self.assertTrue(sec.SectionNormal.isEqual(V(0, 0, 1), 1e-9), sec.SectionNormal)
+        # The Body is at z 5: the cut at 10, the part below it kept
+        self.assertAlmostEqual(sec.SectionOrigin.z, 10.0, places=9)
+        box = sec.getCutPieces().BoundBox
+        self.assertAlmostEqual(box.ZMin, 5.0, places=6)
+        self.assertAlmostEqual(box.ZMax, 10.0, places=6)
+        self.assertEqual(sorted(o.Label for o in page.Views
+                                if o.isDerivedFrom("TechDraw::DrawViewPart")),
+                         ["CutView base", "CutView view"])
+        on = sorted(c.Source.Name for c in self.doc.Objects
+                    if c.isDerivedFrom("TechDraw::DrawPMICallout") and c.SourceView == sec)
+        self.assertEqual(on, ["Position"])
+        dims = [d for d in self.doc.Objects if d.isDerivedFrom("TechDraw::DrawViewDimension")]
+        self.assertEqual([(d.Source.Name, d.References2D[0][0]) for d in dims],
+                         [("HoleSize", sec)])
+        self.doc.recompute()
+        self.assertAlmostEqual(dims[0].getRawValue(), 6.0, places=6)
+
     def test_a_view_not_projected_imports_nothing(self):
         view = self.doc.addObject("TechDraw::DrawViewPart", "Unseen")
         self.page.addView(view)

@@ -35,8 +35,8 @@ class CommandImportModelAnnotations:
                     "TechDraw_ImportModelAnnotations",
                     "The 3D model's GD&T in the selected views: each feature control frame, "
                     "datum, datum target and note whose plane faces the view and whose "
-                    "feature it shows, linked to it. Again, it follows the model and keeps "
-                    "what you moved")}
+                    "feature it shows, and each dimension it shows true, linked to it. "
+                    "Again, it follows the model and keeps what you moved")}
 
     def IsActive(self):
         return bool(_views())

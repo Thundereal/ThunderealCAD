@@ -2775,6 +2775,11 @@ fc_add_gui_test(GuiPMIWorkbench_tests_run pmi-workbench.py --timeout 300)
 # by the vg renderer; the 3D value changed, the drawing follows.
 fc_add_gui_test(GuiPMITechDrawCallouts_tests_run pmi-techdraw-callouts.py --timeout 240)
 
+# A TechDraw page from PMI views (docs/GDandT.md sec 9 item 6): the command
+# makes a view per PMI view, a section for a clipped one; once projected,
+# each gets what its PMI view shows.
+fc_add_gui_test(GuiPMITechDrawPageFromViews_tests_run pmi-techdraw-page-from-views.py --timeout 240)
+
 # PMI views (docs/GDandT.md sec 6.3): activated, a view sets the camera, shows
 # only its members and clips; an annotation made in it joins it, in its plane;
 # let go, the camera and clipping come back; the command makes one.

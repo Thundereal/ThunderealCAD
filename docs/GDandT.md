@@ -417,6 +417,8 @@ The 3D items are the master; TechDraw shows them (decision 4).
    projected into the view; editing the tolerance in the drawing writes to the source, so there
    is one value.
 5. A drawing's general-tolerance note can read the PMI::AnnotationSet's `GeneralTolerance`.
+6. **A page from PMI views**: one TechDraw view per chosen PMI::View -- its camera's direction,
+   the objects it shows, its clipping as a section -- with what it shows imported (10.22).
 
 ## 10. Phases
 
@@ -1198,7 +1200,7 @@ Found on the way:
   source has been deleted"). `DrawViewPart` now projects and finds faces in place when there
   is no `QCoreApplication`, as its coarse view always did; a script needs nothing.
 
-Open: leaders may cross the view's lines; a page from PMI views.
+Open: leaders may cross the view's lines; a page from PMI views (since, 10.22).
 
 Tests: `PMITests.TestDrawing` (headless), `tests/gui/pmi-techdraw-callouts.py`.
 
@@ -1245,7 +1247,82 @@ Upper and clears the fit, `TheoreticalExact` sets Basic; run again, none made tw
 moved one stays; the width's 3D dimension removed, its drawing dimension stays, unlinked. On
 the page, both drawn (vg render).
 
-- Next in P4: pages from PMI views.
+### 10.22 P4 progress: a page from PMI views (2026-11-22)
+
+Sec 9 item 6. **TechDraw > Page > Page From PMI Views** (`TechDraw_PageFromPMIViews`, with PMI
+views selected; `TechDrawPMI.pageFromViews` in a script) makes a page from the TechDraw
+template preference. For each PMI view it adds a part view:
+- looking as the view's camera does (`Direction` and `XDirection` from `Camera`, in the set's
+  frame turned into the document's);
+- at the objects the view shows (`Objects`, else the set's part);
+- its label "<name> view", its caption the name;
+- linked to the PMI view by a `PMIView` property (`App::PropertyLinkGlobal`).
+
+A view **clipped** square to its camera becomes a `DrawViewSection`:
+- cut at the clipping plane, the material in front of it taken away, as the 3D view clips;
+- its base a part view seeing the cut edge-on -- the front, the top or the right, whichever
+  is square to the cut -- which carries the section line.
+
+A view clipped askew is drawn whole, with a warning.
+
+The views go in a grid above the title block at one standard scale (1, 2 or 5 times a power
+of ten) at which each takes no more than 65% of its cell. The rest of the cell is left for
+the annotations.
+
+Each view then imports what its PMI view shows -- the callouts and dimensions whose `Views`
+name it -- whatever their plane, and nothing else. A run of Import Model Annotations on the
+view later does the same. Headless this happens at once. In the GUI the projections come
+back on their threads, so the command imports each view once its edges are in.
+
+Frames and dimension texts are now placed:
+- **on the sheet**, inside its border;
+- **clear of the title block** (ISO 7200's, 180 wide, bottom right);
+- **clear of the page's other views** and their frames.
+
+A diameter's or radius's text stands level with its centre, to the right of it, moved only
+sideways. TechDraw turns an aslant one along its line, and the box it was cleared for no
+longer holds it.
+
+Of a feature's edges equally long, the leader ends on the one nearest the frame.
+
+Found on the way:
+
+- **The importer drew every leader upside down off a symmetric part.**
+  `DrawViewPart.getEdgeByIndex` returns its edge unscaled and **y up**. Its own comment said
+  y down, and the importer flipped y. The test part's top view is symmetric about its middle,
+  so nothing showed it; the front view's datum on the bottom face got its triangle on the
+  top line. The flips are gone; the comment (four functions) says what is returned; the page
+  test checks the datum's end is below the middle.
+- **A section view was never cut headless.** Its cut runs on a worker whose end a queued
+  signal delivers, as the projection did (10.20). `DrawViewSection::makeSectionCut` now cuts
+  in place with no `QCoreApplication`. Detail views and complex sections still wait for an
+  event loop (open).
+- `DrawPage.addView` puts a view at the middle of the page: a view's place is set after.
+- A document keeps labels unique, so a drawing view named as its PMI view became "Top001".
+- A section's `getCutPieces()` is in the document's coordinates and its edges are the
+  projection's sources, edge for edge: the importer reads a section through it.
+
+**Measured.** The test part with the top and the front as PMI views:
+- a page at scale 2, the two views apart and on the sheet;
+- the top with its flatness, its position and the hole's diameter (not the note: not its
+  view's);
+- the front with datum A, its triangle on the bottom line.
+
+The top clipped at half height:
+- a section on a front base view, keeping the part below the cut (z 5 to 10);
+- on it the position and the hole's diameter (6, measured on the cut), not the flatness of
+  the top it has lost.
+
+In the GUI (`tests/gui/pmi-techdraw-page-from-views.py`), the command's page with the four
+views gets every view's annotations 0.5 s after the command, and the vg render draws them.
+
+Open:
+- the page does not follow a PMI view's camera changed later;
+- leaders may cross lines;
+- detail and complex sections headless.
+
+- P4 slices done: callouts, placement, linked dimensions, pages from views.
+- Next: the P4 manual page.
 
 ## 11. Decisions (made 2026-11-19)
 

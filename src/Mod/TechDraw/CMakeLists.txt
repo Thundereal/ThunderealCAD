@@ -27,6 +27,7 @@ set(TechDraw_ToolsScripts
     TechDrawTools/CommandVertexCreations.py
     TechDrawTools/CommandHoleShaftFit.py
     TechDrawTools/CommandImportModelAnnotations.py
+    TechDrawTools/CommandPageFromPMIViews.py
     TechDrawTools/TaskMoveView.py
     TechDrawTools/TaskShareView.py
     TechDrawTools/TaskFillTemplateFields.py

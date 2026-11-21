@@ -582,9 +582,7 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
         // on this thread (docs/TechDrawErrors.md 3.1)
         auto failure = std::make_shared<std::string>();
         auto failedSolids = std::make_shared<int>(0);
-        m_cutWatcher.reset(new QFutureWatcher<void>());
-        QObject::connect(m_cutWatcher.get(), &QFutureWatcherBase::finished, m_cutWatcher.get(),
-            [=] {
+        auto done = [this, cutPieces, failure, failedSolids] {
                 if (m_progress && !m_progress->wasCanceled()) {
                     onSectionCutFinished(cutPieces);
                     // the rest is drawn: a warning (docs/TechDrawErrors.md 3 b)
@@ -602,7 +600,7 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
                         "TechDraw", "The section cut failed: %1")
                         .arg(QString::fromStdString(*failure)).toStdString());
                 }
-            });
+            };
 
         SectionParams params;
         params.progress = progress;
@@ -621,9 +619,7 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
         params.trimAfterCut = TrimAfterCut.getValue();
         params.failedSolids = failedSolids;
 
-        waitingForCut(true);
-        m_cutWatcher->setFuture(QtConcurrent::run(
-            [params, failure] {
+        auto work = [params, failure] {
                 try {
                     doSectionCut(params);
                     return;
@@ -641,7 +637,20 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
                     }
                 }
                 params.progress->setCanceled(true);
-            }));
+            };
+
+        waitingForCut(true);
+        if (!QCoreApplication::instance()) {
+            // No event loop to deliver the watcher's end (FreeCADCmd, a
+            // script): cut here, as a part view projects here
+            work();
+            done();
+            return;
+        }
+        m_cutWatcher.reset(new QFutureWatcher<void>());
+        QObject::connect(m_cutWatcher.get(), &QFutureWatcherBase::finished, m_cutWatcher.get(),
+                         done);
+        m_cutWatcher->setFuture(QtConcurrent::run(work));
     }
     // The cutting tool is made here, on this thread, and what it threw says
     // why -- a complex section's profile that gives no wire, for one; a

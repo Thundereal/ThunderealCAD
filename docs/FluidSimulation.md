@@ -536,6 +536,58 @@ These phases go ahead of F1 to F4; F0's toolchain work is shared.
 - **S5. Inlets**: a jet from a face onto a part, the force against the
   momentum's closed form, rho Q v.
 
+### 12.1 S0 measured (2026-11-21)
+
+All three candidates installed and ran a dam break of their own on this
+box (i7-12700, 20 threads, RTX A2000 12 GB, WSL2), none needing sudo.
+Everything is under `~/.cache/fluid`; no FreeCAD code. The cases differ
+(each solver's own example), so the times say what a run costs, not which
+solver is faster. Other sessions were running; these are not benchmarks.
+
+| Backend | Install | Case | Size | Flow time | Wall time |
+|---|---|---|---|---|---|
+| OpenFOAM v2412, interFoam | conda-forge, own env, 1.1 GB | 2D damBreak tutorial | 2268 cells | 1 s | 2.9 s, 1 core |
+| | | 3D, box in the flow, fixed mesh | 258048 cells | 1 s | 246 s, 8 processes |
+| SPlisHSPlasH 2.19.1, DFSPH | PyPI wheel, 5.5 MB | DamBreakModel | 6859 particles | 2 s | about 3 s, 8 threads |
+| | | the same, radius halved | 59319 particles | 2 s | 42 s, 8 threads |
+| Chrono FSI-SPH (10.0.0) | conda CUDA 12.6 toolkit, 2.4 GB, then built from our submodule | demo_FSI-SPH_DamBreak | 16731 fluid + 13596 wall particles | 2 s | 70 s, GPU |
+
+What went wrong on the way, each of which the workbench has to handle:
+
+- **OpenFOAM's conda package runs serial only as installed.** Its
+  libraries carry an RPATH of `sys-mpich`, the package ships the MPI
+  layer in `lib/mpich-3.3`, so the dummy one loads and a parallel run
+  stops with "The dummy Pstream library cannot be used in parallel
+  mode". An RPATH beats `LD_LIBRARY_PATH`; a link `lib/sys-mpich ->
+  mpich-3.3` fixes it. The download we offer must make that link (or
+  preload the library), and the search must test a parallel run, not
+  only find `interFoam`.
+- **OpenFOAM writes a lot**: 2.1 GB for 50 frames of that 3D run with
+  every field from 8 processes. The session must ask for the fields the
+  study's results need and no more.
+- **The 3D tutorial refines its mesh as it runs** (to about 180000
+  cells from 32768) and took over 16 minutes of one core for 0.4 s of
+  flow before it was stopped. Refinement stays off until asked for.
+- **SPlisHSPlasH's wheel crashes on import here**: it bundles its own
+  libGLX, libGLdispatch and libOpenGL beside the system's libGL, and the
+  two dispatch libraries in one process jump through a null pointer.
+  Pointing the bundled three at the system's made it run. In FreeCAD's
+  process we would meet the same clash, so we build the library from
+  source without its GUI rather than load the wheel.
+- **SPlisHSPlasH on every thread is far slower than on a few**: the
+  6859-particle run took 164 s on 20 threads with the box busy, and
+  about 3 s on 8. The session sets the thread count; it never takes the
+  default.
+- **A resolution set after the scene is read gives nonsense** in
+  SPlisHSPlasH (`--param particleRadius`: particles inside the walls, no
+  end). The scene is written whole at the resolution wanted.
+- **Chrono FSI-SPH built and ran first try**, CUDA found from the conda
+  env by `-DCUDAToolkit_ROOT`; its demo steps at a fixed 1e-4 s, which is
+  the 70 s.
+
+The order of sec 13 stands. PyPI has SPlisHSPlasH wheels for Linux,
+Windows and macOS arm64, which bears out "every machine".
+
 ## 13. For the user to rule (2026-11-21)
 
 1. **The first backend (S2).** OpenFOAM: validated, CPU, already this

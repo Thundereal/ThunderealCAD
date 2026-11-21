@@ -2287,3 +2287,54 @@ spreadsheet of parameters, an origin plane, the body's first sketches --
 and each is a recompute of 8 to 10 s, of which the pattern is 6.5. An
 edit inside one branch saves what runs beside it in that branch, a few
 tenths at most here.
+
+## 39. TechDraw made inline: in a console process, and on a switch (2026-11-21)
+
+The user: TechDraw makes most of its recompute in threads; a switch to make
+it inline, and a worker to make it where the time says so.
+
+What was there. A view's execute() starts its projection (hidden lines),
+then its faces, a section's cut, a detail's piece, a complex section's
+aligned pieces, each on Qt's global thread pool, and returns; the rest of
+the view is made in the watcher's `finished()`, which the event loop
+delivers. The result ends in `ProjectedGeometry`
+(docs/TechDrawStoredGeometry.md), written as the last thread ends. Which is
+why workers left TechDraw alone (`RecomputeHereTypes`, sec 19): a worker
+is a console process, and a console process runs no event loop -- the pool
+makes a `QCoreApplication` for its sockets, and nothing dispatches its
+events -- so `finished()` never came.
+
+Measured before the change, scanner.FCStd (35 views that project):
+
+- Console, every view touched, `doc.recompute()`: the recompute returned
+  after 10.35 s, and no view was ever made -- 0 of 35, Qt events pumped
+  for 300 s after. A script or a console that recomputes a drawing gets
+  none.
+- GUI, the same: the recompute returned after 14.53 s, the threads of 34
+  views ended by 14.87 s -- each within about a second of its execute(),
+  overlapping the recompute. (`SectionView003` never ends there; the
+  three views not recomputed wrote their stored projection once, early,
+  at 1.6 s.)
+
+Built. `TechDraw::startMaking(watcher, work, finished)` (`StartMaking.h`)
+is the one place the five sites start a thread: `work` on the pool and
+`finished` from the watcher as before, or -- where
+`DrawView::makesInline()` -- both at once, on the recomputing thread, so
+the view is made when its execute() returns. `makesInline()` is always
+true without a `QGuiApplication` (a console, a worker), and in the GUI it
+is `Preferences::makeInline()`, `Mod/TechDraw/General/MakeInline`
+(default false). A failure is told as from a thread, by the progress the
+work cancels; one reported while the view is in its own recompute is its
+return (`DrawView::m_heldError`, already there).
+
+Measured after, console: the recompute returns after 12.78 s with 31 of
+the 35 views made (the four left: `SectionView003`, and the three not
+recomputed). The 2.4 s is what the drawings cost made inline, one after
+another, where the GUI's threads overlap them with the rest. Tests: the
+TechDraw GUI tests td-edit-two-pages 30, td-model-interleave 40,
+td-stored-hatch 9, td-undo-stored-projection 13 pass every claim both
+with the preference off and on; TestTechDrawApp 25 OK.
+
+Not yet: TechDraw views still made here when a worker recomputes
+(`RecomputeHereTypes`), and their time in threads is not counted where an
+edit's recompute decides to go to a worker.

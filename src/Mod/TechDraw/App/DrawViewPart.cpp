@@ -95,6 +95,7 @@
 #include "DrawViewDetail.h"
 #include "DrawViewDimension.h"
 #include "DrawViewPart.h"
+#include "StartMaking.h"
 #include "DrawViewPartPy.h"// generated from DrawViewPartPy.xml
 #include "DrawViewSection.h"
 #include "EdgeWalker.h"
@@ -432,9 +433,7 @@ void DrawViewPart::buildGeometryObject(const Part::TopoShape& shape, const gp_Ax
         // what the worker says when it fails: the view's recompute error,
         // given once it is back on this thread (docs/TechDrawErrors.md 3.1)
         auto failure = std::make_shared<std::string>();
-        m_hlrWatcher.reset(new QFutureWatcher<void>());
-        QObject::connect(m_hlrWatcher.get(), &QFutureWatcherBase::finished, m_hlrWatcher.get(),
-            [=] {
+        auto finished = [=] {
                 if (m_progress && !m_progress->wasCanceled()) {
                     onHlrFinished(go);
                     return;
@@ -445,7 +444,7 @@ void DrawViewPart::buildGeometryObject(const Part::TopoShape& shape, const gp_Ax
                         "TechDraw", "The hidden line projection failed: %1")
                         .arg(QString::fromStdString(*failure)).toStdString());
                 }
-            });
+            };
 
         std::string message(Label.getValue());
         message += QT_TRANSLATE_NOOP("TechDraw", " finding hidden lines...");
@@ -453,9 +452,7 @@ void DrawViewPart::buildGeometryObject(const Part::TopoShape& shape, const gp_Ax
         m_progress = progress;
         std::string featureName = getFullName();
 
-        waitingForHlr(true);
-        m_hlrWatcher->setFuture(QtConcurrent::run(
-            [=] {
+        auto work = [=] {
                 if (App::isShuttingDown()) {
                     // queued behind others when the application went: no
                     // one is left to draw it
@@ -484,7 +481,9 @@ void DrawViewPart::buildGeometryObject(const Part::TopoShape& shape, const gp_Ax
                 // and its finished() -- where the failure is reported and the
                 // rest is let go of, on the GUI thread -- never came
                 progress->setCanceled(true);
-            }));
+            };
+        waitingForHlr(true);
+        startMaking(m_hlrWatcher, work, finished);
     }
 }
 
@@ -519,9 +518,7 @@ void DrawViewPart::onHlrFinished(GeometryObjectPtr geometryObject)
         // faces failed: the edges are drawn, so a warning, not an error
         // (docs/TechDrawErrors.md 3 b)
         auto failure = std::make_shared<std::string>();
-        m_faceWatcher.reset(new QFutureWatcher<void>());
-        QObject::connect(m_faceWatcher.get(), &QFutureWatcherBase::finished, m_faceWatcher.get(),
-            [=] {
+        auto finished = [=] {
                 if (m_progress && !m_progress->wasCanceled()) {
                     onFacesFinished(faces);
                     return;
@@ -533,7 +530,7 @@ void DrawViewPart::onHlrFinished(GeometryObjectPtr geometryObject)
                                     "do not work in this view: %1")
                         .arg(QString::fromStdString(*failure)).toStdString());
                 }
-            });
+            };
 
         ExtractFaceParams params;
         params.featureName = getFullName();
@@ -543,9 +540,7 @@ void DrawViewPart::onHlrFinished(GeometryObjectPtr geometryObject)
         params.faces = faces;
         params.wireJoiner = UseWireJoiner.getValue();
 
-        waitingForFaces(true);
-        m_faceWatcher->setFuture(QtConcurrent::run(
-            [=]{
+        auto work = [=]{
                 if (App::isShuttingDown()) {
                     params.progress->setCanceled(true);
                     return;
@@ -567,7 +562,9 @@ void DrawViewPart::onHlrFinished(GeometryObjectPtr geometryObject)
                     }
                 }
                 params.progress->setCanceled(true);
-            }));
+            };
+        waitingForFaces(true);
+        startMaking(m_faceWatcher, work, finished);
     }
     else {
         //no faces are coming, so the geometry is complete here

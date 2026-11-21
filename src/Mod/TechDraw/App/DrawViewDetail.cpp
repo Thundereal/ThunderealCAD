@@ -68,6 +68,7 @@
 #include "DrawComplexSection.h"
 #include "DrawUtil.h"
 #include "DrawViewDetail.h"
+#include "StartMaking.h"
 #include "DrawViewSection.h"
 #include "GeometryObject.h"
 #include "Preferences.h"
@@ -240,7 +241,6 @@ void DrawViewDetail::detailExec(const TopoDS_Shape& shape, DrawViewPart* dvp, Dr
     abortMakeDetail();
 
     try {
-        m_detailWatcher.reset(new QFutureWatcher<void>());
         std::shared_ptr<Output> output(new Output());
 
         std::string message(Label.getValue());
@@ -251,9 +251,7 @@ void DrawViewDetail::detailExec(const TopoDS_Shape& shape, DrawViewPart* dvp, Dr
         // the worker's failure, the view's recompute error once it is back
         // on this thread (docs/TechDrawErrors.md 3.1)
         auto failure = std::make_shared<std::string>();
-        m_detailWatcher.reset(new QFutureWatcher<void>());
-        QObject::connect(m_detailWatcher.get(), &QFutureWatcherBase::finished, m_detailWatcher.get(),
-            [=] {
+        auto finished = [=] {
                 if (m_progress && !m_progress->wasCanceled()) {
                     onMakeDetailFinished(output);
                     return;
@@ -264,7 +262,7 @@ void DrawViewDetail::detailExec(const TopoDS_Shape& shape, DrawViewPart* dvp, Dr
                         "TechDraw", "The detail could not be made: %1")
                         .arg(QString::fromStdString(*failure)).toStdString());
                 }
-            });
+            };
 
         m_saveShape = BRepBuilderAPI_Copy(shape).Shape();
         m_saveDvp = dvp;
@@ -321,9 +319,7 @@ void DrawViewDetail::detailExec(const TopoDS_Shape& shape, DrawViewPart* dvp, Dr
         m_pendingScaledFrame =
             m_pendingDetailFrame.Multiplied(unanchor.Multiplied(unscale.Multiplied(unrotate)));
 
-        waitingForDetail(true);
-        m_detailWatcher->setFuture(QtConcurrent::run(
-            [params, failure] {
+        auto work = [params, failure] {
                 if (App::isShuttingDown()) {
                     params.progress->setCanceled(true);
                     return;
@@ -345,7 +341,9 @@ void DrawViewDetail::detailExec(const TopoDS_Shape& shape, DrawViewPart* dvp, Dr
                     }
                 }
                 params.progress->setCanceled(true);
-            }));
+            };
+        waitingForDetail(true);
+        startMaking(m_detailWatcher, work, finished);
     }
     catch (...) {
         Base::Console().Error("DVS::detailExec - failed to make detail shape");

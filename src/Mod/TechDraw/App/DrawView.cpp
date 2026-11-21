@@ -31,6 +31,8 @@
 # include <Precision.hxx>
 #endif
 
+#include <QCoreApplication>
+
 #include <App/Application.h>
 #include <App/Document.h>
 #include <Base/Reader.h>
@@ -156,6 +158,17 @@ App::DocumentObjectExecReturn* DrawView::recompute()
         return new App::DocumentObjectExecReturn(m_heldError, this);
     }
     return ret;
+}
+
+bool DrawView::makesInline()
+{
+    // A console program has no QGuiApplication; one with sockets has a
+    // QCoreApplication (App::WorkerPool) whose events nothing dispatches
+    QCoreApplication* app = QCoreApplication::instance();
+    if (!app || !app->inherits("QGuiApplication")) {
+        return true;
+    }
+    return Preferences::makeInline();
 }
 
 void DrawView::reportLateError(const std::string& why)

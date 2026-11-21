@@ -103,6 +103,7 @@
 #include "Preferences.h"
 
 #include "DrawViewSection.h"
+#include "StartMaking.h"
 // inclusion of the generated files (generated out of DrawViewSectionPy.xml)
 #include <Mod/TechDraw/App/DrawViewSectionPy.h>
 
@@ -571,7 +572,6 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
     abortSectionCut();
 
     try {
-        m_cutWatcher.reset(new QFutureWatcher<void>());
         std::shared_ptr<TopoDS_Shape> cutPieces(new TopoDS_Shape());
 
         std::string message(Label.getValue());
@@ -583,9 +583,7 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
         // on this thread (docs/TechDrawErrors.md 3.1)
         auto failure = std::make_shared<std::string>();
         auto failedSolids = std::make_shared<int>(0);
-        m_cutWatcher.reset(new QFutureWatcher<void>());
-        QObject::connect(m_cutWatcher.get(), &QFutureWatcherBase::finished, m_cutWatcher.get(),
-            [=] {
+        auto finished = [=] {
                 if (m_progress && !m_progress->wasCanceled()) {
                     onSectionCutFinished(cutPieces);
                     // the rest is drawn: a warning (docs/TechDrawErrors.md 3 b)
@@ -603,7 +601,7 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
                         "TechDraw", "The section cut failed: %1")
                         .arg(QString::fromStdString(*failure)).toStdString());
                 }
-            });
+            };
 
         SectionParams params;
         params.progress = progress;
@@ -622,9 +620,7 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
         params.trimAfterCut = TrimAfterCut.getValue();
         params.failedSolids = failedSolids;
 
-        waitingForCut(true);
-        m_cutWatcher->setFuture(QtConcurrent::run(
-            [params, failure] {
+        auto work = [params, failure] {
                 if (App::isShuttingDown()) {
                     params.progress->setCanceled(true);
                     return;
@@ -646,7 +642,9 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
                     }
                 }
                 params.progress->setCanceled(true);
-            }));
+            };
+        waitingForCut(true);
+        startMaking(m_cutWatcher, work, finished);
     }
     // The cutting tool is made here, on this thread, and what it threw says
     // why -- a complex section's profile that gives no wire, for one; a

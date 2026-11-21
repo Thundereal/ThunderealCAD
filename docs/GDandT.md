@@ -937,6 +937,15 @@ before the first ask and `{"cmd":"camera","restore":true}` takes it back
 that shows it; 0 fits what the client shows. A browser's view does not clip (a section is not
 streamed). "In a new 3D view" is the desktop's alone and is not offered to a browser.
 
+Tests: `pmi-views.py` (two 3D views side by side, the new one, the preference),
+`serve-pmi-view.py` (the wire, on a view-only connection), and the browser leg
+`serve-pmi-view-browser.py` with `scripts/pmiview-drive.js` (not registered: node, puppeteer-core
+and a Chrome). In headless Chrome the page's picture changes by 67% when the view is made active
+-- top down on the plate, the datum gone -- and is the same to the pixel once it is let go. A
+menu asked for from a script needs its ray to start at the page's eye: the server reads a ray as
+the pixel of the client's camera it passes through. Under `.conda/limited.sh` Chrome needs
+`LIMITED_MEM_GB=256`: it reserves far more address space than 24 GB, and dies at launch.
+
 - Next: P3, STEP export (sec 10).
 
 ## 11. Decisions (made 2026-11-19)

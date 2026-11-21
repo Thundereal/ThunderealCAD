@@ -2778,6 +2778,8 @@ fc_add_gui_test(GuiPMIViews_tests_run pmi-views.py --timeout 300)
 # A PMI view made active in a browser's own view, from a callout's menu: its
 # hides in that client's visibility, the client asked to take its camera and
 # to restore it, on a view-only connection, no 3D view opened on the host.
+# The browser leg (serve-pmi-view-browser.py: the page's camera turned and
+# put back) is not registered: it needs node, puppeteer-core and a Chrome.
 fc_add_gui_test(GuiServePMIView_tests_run serve-pmi-view.py --timeout 200)
 
 # What applies to a face (sec 6.5): a callout selected outlines its faces, a face

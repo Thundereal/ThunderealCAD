@@ -82,6 +82,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include <boost/regex.hpp>
 #include <algorithm>
 #include <filesystem>
+#include <limits>
 #include <random>
 #include <unordered_map>
 #include <unordered_set>
@@ -20881,26 +20882,83 @@ Document::CompactEstimate Document::_noteDroppedRows(const std::set<long>& named
 
 long Document::nextGeoId(const DocumentObject& obj, long floor) const
 {
-    RecomputeHook::noteMinted();
-    if (obj.getID() <= 0)
+    if (obj.getID() <= 0) {
+        RecomputeHook::noteMinted(obj, -1, floor, floor + 1);
         return floor + 1;
-    if (d->history)
-        return d->history->nextGeoId(obj.getID(), floor);
-    long& last = d->lastGeoIds[obj.getID()];
-    last = std::max(last, floor) + 1;
-    return last;
+    }
+    long next = 0;
+    if (d->history) {
+        next = d->history->nextGeoId(obj.getID(), floor);
+    }
+    else {
+        long& last = d->lastGeoIds[obj.getID()];
+        last = std::max(last, floor) + 1;
+        next = last;
+    }
+    RecomputeHook::noteMinted(obj, -1, next - 1, next);
+    return next;
 }
 
 long Document::nextObjectCount(const DocumentObject& obj, int kind, long floor) const
 {
-    RecomputeHook::noteMinted();
-    if (obj.getID() <= 0)
+    if (obj.getID() <= 0) {
+        RecomputeHook::noteMinted(obj, kind, floor, floor + 1);
         return floor + 1;
-    if (d->history)
-        return d->history->nextObjectCount(obj.getID(), kind, floor);
-    long& last = d->objectCounts[std::make_pair(obj.getID(), kind)];
-    last = std::max(last, floor) + 1;
-    return last;
+    }
+    long next = 0;
+    if (d->history) {
+        next = d->history->nextObjectCount(obj.getID(), kind, floor);
+    }
+    else {
+        long& last = d->objectCounts[std::make_pair(obj.getID(), kind)];
+        last = std::max(last, floor) + 1;
+        next = last;
+    }
+    RecomputeHook::noteMinted(obj, kind, next - 1, next);
+    return next;
+}
+
+std::vector<std::pair<int, long>> Document::givenNumbers(const DocumentObject& obj) const
+{
+    std::vector<std::pair<int, long>> numbers;
+    const long id = obj.getID();
+    if (id <= 0)
+        return numbers;
+    if (d->history) {
+        const auto& geo = d->history->lastGeoIds();
+        auto it = geo.find(id);
+        if (it != geo.end())
+            numbers.emplace_back(-1, it->second);
+        const auto& counts = d->history->objectCounts();
+        for (auto c = counts.lower_bound(std::make_pair(id, std::numeric_limits<int>::min()));
+             c != counts.end() && c->first.first == id; ++c)
+            numbers.emplace_back(c->first.second, c->second);
+    }
+    else {
+        auto it = d->lastGeoIds.find(id);
+        if (it != d->lastGeoIds.end())
+            numbers.emplace_back(-1, it->second);
+        for (const auto& c : d->objectCounts)
+            if (c.first.first == id)
+                numbers.emplace_back(c.first.second, c.second);
+    }
+    return numbers;
+}
+
+void Document::noteGivenNumber(const DocumentObject& obj, int kind, long last) const
+{
+    const long id = obj.getID();
+    if (id <= 0)
+        return;
+    if (d->history) {
+        if (kind < 0)
+            d->history->noteGeoId(id, last);
+        else
+            d->history->noteObjectCount(id, kind, last);
+        return;
+    }
+    long& mine = kind < 0 ? d->lastGeoIds[id] : d->objectCounts[std::make_pair(id, kind)];
+    mine = std::max(mine, last);
 }
 
 std::string Document::getStandardObjectName(const char *Name, int d) const

@@ -23,7 +23,9 @@
 #ifndef APP_RECOMPUTE_HOOK_H
 #define APP_RECOMPUTE_HOOK_H
 
+#include <map>
 #include <string>
+#include <utility>
 
 #include <FCGlobal.h>
 
@@ -89,10 +91,35 @@ public:
     static bool refuses(const DocumentObject& obj, std::string& why);
 
     /// How many numbers objects were given on this thread so far
-    /// (Document::nextGeoId, nextObjectCount): a recompute in a worker that
-    /// gave one cannot be taken in by another process as it is
+    /// (Document::nextGeoId, nextObjectCount)
     static unsigned long minted();
-    static void noteMinted();
+    /// A number given: the count `kind` of `obj` (-1 its geometry ids) went
+    /// from `before` to `after`
+    static void noteMinted(const DocumentObject& obj, int kind, long before, long after);
+
+    /** While one lives on this thread, the numbers given are noted in it: a
+     * worker's recompute says which it gave, for the other process to take
+     * them as they are when it has given none of its own since
+     * (docs/WorkerProcess.md sec 36).
+     */
+    class AppExport Minting
+    {
+    public:
+        struct Count
+        {
+            long from = 0;  ///< what it went from, the first time
+            long to = 0;    ///< what it went to, the last
+        };
+        Minting();
+        ~Minting();
+        Minting(const Minting&) = delete;
+        Minting& operator=(const Minting&) = delete;
+        /// By the object and the kind
+        std::map<std::pair<const DocumentObject*, int>, Count> counts;
+
+    private:
+        Minting* _outer;
+    };
 
     /** While one lives on this thread, the values restored are another
      * process's results put in, checked where they were made: what a

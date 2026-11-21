@@ -37,6 +37,7 @@
 #include <memory>
 #include <set>
 #include <sstream>
+#include <tuple>
 #include <unordered_map>
 
 #include <QTimer>
@@ -74,6 +75,7 @@ namespace
 {
 thread_local RecomputeHook* innermost = nullptr;
 thread_local unsigned long mintedCount = 0;
+thread_local RecomputeHook::Minting* minting = nullptr;
 thread_local int puttingInDepth = 0;
 thread_local LogMoveKeep* innermostKeep = nullptr;
 
@@ -181,9 +183,30 @@ unsigned long RecomputeHook::minted()
     return mintedCount;
 }
 
-void RecomputeHook::noteMinted()
+void RecomputeHook::noteMinted(const DocumentObject& obj, int kind, long before, long after)
 {
     ++mintedCount;
+    if (minting) {
+        auto key = std::make_pair(&obj, kind);
+        auto it = minting->counts.find(key);
+        if (it == minting->counts.end()) {
+            minting->counts[key] = {before, after};
+        }
+        else {
+            it->second.to = std::max(it->second.to, after);
+        }
+    }
+}
+
+RecomputeHook::Minting::Minting()
+    : _outer(minting)
+{
+    minting = this;
+}
+
+RecomputeHook::Minting::~Minting()
+{
+    minting = _outer;
 }
 
 RecomputeHook::PuttingIn::PuttingIn()
@@ -562,7 +585,23 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             ++touched;
         }
     }
-    const unsigned long minted = RecomputeHook::minted();
+    // What the other process gave so far: counted on from here as it would
+    // count on, the numbers given told back (docs/WorkerProcess.md sec 36)
+    auto given = inputs.find("numbers");
+    if (given != inputs.end() && given->is_object()) {
+        for (auto& [name, counts] : given->items()) {
+            auto obj = doc->getObject(name.c_str());
+            if (!obj || !counts.is_array()) {
+                continue;
+            }
+            for (auto& c : counts) {
+                if (c.is_array() && c.size() == 2) {
+                    doc->noteGivenNumber(*obj, c[0].get<int>(), c[1].get<long>());
+                }
+            }
+        }
+    }
+    RecomputeHook::Minting minting;
     const double began = now();
     Recorder recorder(*doc, request.at);
     auto refusedIn = inputs.find("refused");
@@ -578,15 +617,25 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
     if (auto why = recorder.why(); !why.empty()) {
         return unfit(why);
     }
-    // A number an object gave a thing here is a number the other process
-    // may give another (docs/WorkerProcess.md sec 5): not taken in as it is
-    if (RecomputeHook::minted() != minted) {
-        return unfit("the recompute gave things new numbers");
-    }
     // What the other process makes itself is not sent
     recorder.entries.erase(std::remove_if(recorder.entries.begin(), recorder.entries.end(),
                                           [](const Recorder::Entry& e) { return e.here; }),
                            recorder.entries.end());
+    // The numbers objects gave things here, each from what the other
+    // process had given: taken there as they are if it gave none since
+    // (sec 36). Only those of an object whose values go back -- one made
+    // there gives its own
+    json numbers = json::array();
+    for (auto& [key, count] : minting.counts) {
+        const DocumentObject* obj = key.first;
+        const bool sent = std::any_of(recorder.entries.begin(), recorder.entries.end(),
+                                      [obj](const Recorder::Entry& e) { return e.obj == obj; });
+        if (!sent || !obj->isAttachedToDocument()) {
+            return unfit("the recompute gave things new numbers in "
+                         + std::string(obj->getFullName()) + ", which is not sent");
+        }
+        numbers.push_back(json::array({obj->getNameInDocument(), key.second, count.from, count.to}));
+    }
     for (auto& entry : recorder.entries) {
         if (entry.res < 0) {
             reply.ok = false;
@@ -711,7 +760,8 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
                          {"left", recorder.left},
                          {"added", added.size()},
                          {"table", hash},
-                         {"byId", byId}}
+                         {"byId", byId},
+                         {"numbers", numbers}}
                        .dump();
     return reply;
 }
@@ -1127,6 +1177,9 @@ struct State
     std::vector<std::string> names;  ///< what it recomputes
     std::string file;  ///< its result, come and not put in yet
     WorkerPool::JobId fileJob = 0;  ///< the job it is of
+    /// The numbers its objects gave things there, [name, kind, from, to]
+    /// (sec 36)
+    json fileNumbers;
     std::string tables;
     bool applying = false;
     bool timer = false;
@@ -1178,6 +1231,46 @@ void dropFile(State& s)
     }
 }
 
+/** The numbers a worker's objects gave things, taken as this process's:
+ * false, `why` said, when one of those objects gave numbers here since the
+ * worker was told what it had given -- the two may be the same numbers for
+ * different things (docs/WorkerProcess.md sec 36).
+ */
+bool takeNumbers(Document& doc, const json& numbers, std::string& why)
+{
+    if (!numbers.is_array()) {
+        return true;
+    }
+    std::vector<std::tuple<DocumentObject*, int, long>> take;
+    for (auto& n : numbers) {
+        if (!n.is_array() || n.size() != 4) {
+            why = "its numbers do not read";
+            return false;
+        }
+        auto obj = doc.getObject(n[0].get<std::string>().c_str());
+        if (!obj) {
+            why = n[0].get<std::string>() + " is gone";
+            return false;
+        }
+        const int kind = n[1].get<int>();
+        long here = 0;
+        for (auto& [k, last] : doc.givenNumbers(*obj)) {
+            if (k == kind) {
+                here = last;
+            }
+        }
+        if (here > n[2].get<long>()) {
+            why = std::string(obj->getFullName()) + " gave numbers here since";
+            return false;
+        }
+        take.emplace_back(obj, kind, n[3].get<long>());
+    }
+    for (auto& [obj, kind, last] : take) {
+        doc.noteGivenNumber(*obj, kind, last);
+    }
+    return true;
+}
+
 /// Fill a supplier from the result that came; false, the reason noted and
 /// the result dropped, when it does not read
 bool supplierFor(State& s, std::unique_ptr<Supplier>& supplier)
@@ -1186,7 +1279,10 @@ bool supplierFor(State& s, std::unique_ptr<Supplier>& supplier)
     std::string why;
     const std::string file = s.file;
     s.file.clear();
-    bool ok = supplier->read(file, s.tables, why) && supplier->takeStrings(why);
+    const json numbers = std::move(s.fileNumbers);
+    s.fileNumbers = json();
+    bool ok = supplier->read(file, s.tables, why) && takeNumbers(s.doc, numbers, why)
+        && supplier->takeStrings(why);
     Base::FileInfo(file).deleteFile();
     if (!ok) {
         supplier.reset();
@@ -1373,6 +1469,11 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
             }
             s->file = r.file;
             s->fileJob = id;
+            {
+                json output = json::parse(r.output, nullptr, false);
+                s->fileNumbers = output.is_object() ? output.value("numbers", json::array())
+                                                    : json::array();
+            }
             r.file.clear();  // ours now, in the pool's directory until put in
             schedule(*s);
             break;
@@ -1687,8 +1788,18 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     std::vector<std::string> names;
     std::vector<std::string> touchedHere;
     json display = json::object();
+    // What each gave so far, for the worker to count on from (sec 36)
+    json numbers = json::object();
     for (auto obj : all) {
         names.emplace_back(obj->getNameInDocument());
+        auto given = doc.givenNumbers(*obj);
+        if (!given.empty()) {
+            json counts = json::array();
+            for (auto& [kind, last] : given) {
+                counts.push_back(json::array({kind, last}));
+            }
+            numbers[obj->getNameInDocument()] = std::move(counts);
+        }
         if (obj->mustRecompute()) {
             touchedHere.emplace_back(obj->getNameInDocument());
         }
@@ -1717,7 +1828,8 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
                        {"touched", touchedHere},
                        {"display", meshes ? display : json::object()},
                        {"tables", s.tables},
-                       {"refused", refused}}
+                       {"refused", refused},
+                       {"numbers", numbers}}
                      .dump();
     const std::string name = doc.getName();
     auto slot = std::make_shared<WorkerPool::JobId>(0);

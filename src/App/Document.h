@@ -1761,6 +1761,15 @@ public:
      * and bends (docs/SheetMetal.md sec 12).
      */
     long nextObjectCount(const DocumentObject& obj, int kind, long floor) const;
+    /** The numbers `obj` gave so far, which nextGeoId() and
+     * nextObjectCount() count on from: its last geometry id as kind -1, and
+     * the last of each kind it counts. A worker's recompute is given them, to
+     * give the numbers this process would, and this process takes the ones it
+     * gave (docs/WorkerProcess.md sec 36).
+     */
+    std::vector<std::pair<int, long>> givenNumbers(const DocumentObject& obj) const;
+    /// The count `kind` of `obj` (-1 its geometry ids) raised to `last`; none goes down
+    void noteGivenNumber(const DocumentObject& obj, int kind, long last) const;
     /// Returns a name of the form prefix_number. d specifies the number of digits.
     std::string getStandardObjectName(const char *Name, int d) const;
     /// Returns a list of document's objects including the dependencies

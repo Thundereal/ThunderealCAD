@@ -156,6 +156,39 @@ class _Counted:
         return None
 
 
+class _Polygon:
+    """A Part Python feature: a face of Sides sides"""
+
+    def __init__(self, obj):
+        obj.addProperty("App::PropertyInteger", "Sides")
+        obj.addProperty("App::PropertyInteger", "MadeBy")
+        obj.Sides = 4
+        obj.Proxy = self
+
+    def execute(self, obj):
+        import math
+
+        import Part
+
+        n = obj.Sides
+        points = [App.Vector(10 * math.cos(2 * math.pi * i / n),
+                             10 * math.sin(2 * math.pi * i / n), 0) for i in range(n)]
+        obj.Shape = Part.Face(Part.makePolygon(points + points[:1]))
+        obj.MadeBy = os.getpid()
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+    def __getstate__(self):
+        return None
+
+    def __setstate__(self, state):
+        return None
+
+
 class _Crashing(_Counted):
     """A _Counted that takes its process down when its Crash is set and it
     runs in any process but the one it was made in (Home): a feature whose
@@ -992,6 +1025,76 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
         self.assertFalse(self.pool.recomputing())
         return self.pool.recomputeInfo()
+
+    def polygonSketch(self):
+        """A sketch projecting the face of a _Polygon, made here"""
+        import Sketcher  # noqa: F401
+
+        poly = self.doc.addObject("Part::FeaturePython", "Poly")
+        _Polygon(poly)
+        self.doc.recompute()
+        sketch = self.doc.addObject("Sketcher::SketchObject", "Sketch")
+        sketch.addExternal("Poly", "Face1")
+        self.doc.recompute()
+        return poly, sketch
+
+    @staticmethod
+    def externalIds(sketch):
+        import Sketcher
+
+        return [Sketcher.ExternalGeometryFacade(g).Id for g in sketch.ExternalGeo[2:]]
+
+    def testASketchsNewGeometryIdsAreTakenFromAWorker(self):
+        """A sketch whose projection comes out in more pieces gives the new
+        ones new ids: a worker gives them from what this process had given,
+        and this process takes them, and counts on from them
+        (docs/WorkerProcess.md sec 36)"""
+        import Part
+
+        poly, sketch = self.polygonSketch()
+        before = self.externalIds(sketch)
+        self.assertEqual(len(before), 4, before)
+        poly.Sides = 6
+        info = self.byWorker()
+        self.assertEqual(info["Unfit"], 0, info)
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertNotEqual(poly.MadeBy, os.getpid())
+        after = self.externalIds(sketch)
+        self.assertEqual(len(after), 6, after)
+        self.assertEqual(len(set(after)), 6, after)
+        given = sorted(set(after) - set(before))
+        self.assertEqual(len(given), 2, (before, after))
+        self.assertGreater(min(given), max(before), (before, after))
+        self.assertNotIn("Touched", sketch.State)
+        # This process counts on from what the worker gave
+        sketch.addGeometry(Part.LineSegment(App.Vector(0, 0, 0), App.Vector(1, 1, 0)))
+        self.assertGreater(sketch.getGeometryId(0), max(after), (sketch.getGeometryId(0), after))
+
+    def testAWorkerCountsOnFromIdsGivenHereAndUndone(self):
+        """A worker gives no id this process gave, even to pieces since
+        undone, which a document saved before does not know of: it counts on
+        from what this process tells it (sec 36)"""
+        self.doc.UndoMode = 1
+        poly, sketch = self.polygonSketch()
+        held = self.externalIds(sketch)
+        self.doc.openTransaction("here")
+        poly.Sides = 6
+        self.doc.recompute()
+        here = self.externalIds(sketch)
+        self.doc.commitTransaction()
+        self.assertEqual(len(here), 6, here)
+        self.doc.undo()
+        self.doc.recompute()
+        self.assertEqual(self.externalIds(sketch), held)
+        poly.Sides = 6
+        info = self.byWorker()
+        self.assertEqual(info["Unfit"], 0, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertNotEqual(poly.MadeBy, os.getpid())
+        there = self.externalIds(sketch)
+        self.assertEqual(len(there), 6, there)
+        self.assertGreater(min(set(there) - set(held)), max(here), (held, here, there))
 
     def testAPartChainMadeByAWorker(self):
         import Part  # noqa: F401

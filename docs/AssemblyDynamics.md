@@ -5768,6 +5768,8 @@ Phase D1 is under way (2026-10-28):
   - Not yet: a point contact on a face of no round (a torus, a barrel)
     still takes its face's farthest on the six-node face; the rounds'
     lines keep `roundAt()`'s fit, which the true surface could replace.
+    Since (2026-11-21): the point on such a face is step 6's and after;
+    the rounds' own code stays, the quick path (ruled).
 - Measured, D4b way 1 step 4 (2026-11-16): two flat faces, an area's
   corners -- nothing to fix. A flexible block 40 x 10 x 4 lying on a plate
   0.05 mm into it, turned one revolution about a vertical hinge at its end:
@@ -5823,7 +5825,9 @@ Phase D1 is under way (2026-10-28):
     ~/.cache/flexcontact/harness/.
   - Not yet: the triangle nearest is found among all the hull's, each
     point at each update -- 4 s for the cone, where it took 1; a grid or
-    the last one's neighbours would do.
+    the last one's neighbours would do. Since, measured 2026-11-21: the
+    search takes those near the last triangle first; the cone's test runs
+    in 0.6 s. Nothing left.
 - Built, D4b way 2 step 1 (2026-11-16): a pressure over the area, opt-in.
   A contact set's Stiffness from gains Pressure: its Stiffness a pressure
   per depth^e, N/mm^(e + 2) (a Winkler layer, the elastic foundation's;
@@ -5876,6 +5880,11 @@ Phase D1 is under way (2026-10-28):
     its corners -- summed finer than the faces on the surfaces themselves;
     a line's depth along it taken as its ends' share, exact where they
     press alike (the depth along a line or over an area: step 4).
+    Since, measured 2026-11-21: the bore is step 2's, the depth along a
+    line step 4's, the flat area step 5's; a rigid rod's line past a
+    plate's end, 25 N/mm^3, 35.35 N for 35.30 past one end and 23.58 for
+    23.54 past both (probe ~/.cache/flexcontact/pressureedge.py). Nothing
+    left.
 - Ruled (2026-11-16): Pressure stays opt-in. Against the Value law at
   1000 N/mm, Pressure set at 26.52 N/mm^3 so the rigid rod presses the same
   50 N, over the turn: the flexible rod 44.77 -> 43.60 N, past a plate's
@@ -6084,6 +6093,10 @@ Phase D1 is under way (2026-10-28):
     not a face's edge. A rigid torus on a flexible roller, 180 N, 0 to
     599: the roller's points go to their farthest along the torus's facet's
     normal, turning with the torus (place(), Point::face) -- step 7b.
+    Since, measured 2026-11-21: no dip left, the flexible torus on the
+    rigid roller 49.88 to 50.03 N under it and 49.91 to 50.03 round it by
+    20 deg, none of 350 frames under 49 (step 13's walk from within the
+    face); the rigid torus on the flexible roller 49.32 to 49.35.
   - Tests: TestFlexibleBody.test_torus_on_roller and
     test_rigid_round_on_rigid_roller, within two and one thousandth;
     roundTurned() takes `rollerAt=`, and its roller under a torus. Probe

@@ -2184,3 +2184,65 @@ Test: `TestWorkerRecompute.testAScriptsRecomputeOfWhatCrashedIsAWorkersFirst`
 crashing, it is, the worker dies twice and the object is refused again,
 nothing ran it here; fixed, the script's recompute is a worker's, and what
 reads it is made; with the option off, made here).
+
+The recompute of one object, later the same day: `Document::recomputeFeature(obj)`
+-- what a task dialog's preview calls on each change of a parameter, and
+a script's `obj.recompute()` -- executed it here. It is offered too, unless
+the document is recomputing (asked from another object's execute(), whose
+recompute was offered already). `handOver()` now says whether a worker made
+it: a result put in, or a death again (the object refused here). Made and
+up to date, the call returns; otherwise it goes on as before, and a
+refused object is left in its error, not executed. A worker's recompute
+of one object also makes what it reads that is touched, as any
+recompute of the document asked for that object does. Test
+`testOneObjectsRecomputeOfWhatCrashedIsAWorkersFirst` (quarantined, not
+handed over; changed but still crashing, handed over, the worker dies, it
+is refused again; fixed, made by a worker; option off, made here). A
+control build without the `Document.cpp` change fails it: nothing is
+handed over and the object runs here.
+
+## 38. Splitting one recompute over workers: measured, not built (2026-11-21)
+
+The question: one recompute made by several workers at once, each taking a
+part of what it reaches. Measured on scanner.FCStd (686 objects, the one
+large real model here) before building anything, by a console probe
+(`critical.py`): a recompute here, each object timed by the gap between
+recomputed signals, then over the dependency graph of what was recomputed
+the critical path -- the longest chain by cost, which no split beats --
+and a list schedule over k workers (ready objects by longest path left),
+with 0.3 s charged where an object reads one made on another worker.
+
+| recompute            | objects | here    | critical path      | bound | 2/3/4/8 workers |
+|----------------------|---------|---------|--------------------|-------|-----------------|
+| as opened            | 466     | 10.30 s | 6.48 s, 9 objects  | 1.59x | 6.48 s each     |
+| every object touched | 625     | 10.49 s | 6.58 s, 10 objects | 1.59x | 6.88 s with hops |
+
+One feature is the path: `PolarPattern003`, 1024 copies of a pad around an
+axis (5129 faces), 6.46 s of the 10.30. Everything else -- 3.8 s, 37% --
+could run beside it, and two workers already reach the bound; more add
+nothing. The earlier grouping by connected parts (2026-11-17) found 1.0x,
+which was too strict: 520 of the 527 reached objects are connected, but
+not in one chain.
+
+What the 1.59x would cost, measured the same day:
+
+- Memory: a worker recomputing scanner peaks at 963 MB resident, this
+  process at 425 MB. A second worker is about another gigabyte on the 8 GB
+  mini.
+- Cores: the pattern alone is 6.58 s wall and 13.66 s CPU -- OCCT's
+  parallel boolean already uses two cores on average of the 8. The rest
+  would run on the cores left, so the bound is not taken from the pattern.
+- The result: two workers' results are one recompute here. Each put-in is
+  today one file into one recompute (sec 19), its numbers checked against
+  one worker's (sec 36), its ids from one lease (sec 32); a split puts in
+  two, or waits for both.
+- Its use: a recompute by a worker does not hold the application already
+  (sec 19, 28); a split brings only the result closer -- here 10.3 s to
+  about 6.5 s plus the second put-in.
+
+Not built. The gain is bounded by the costliest single object, on the one
+model measured by one feature, and a split cannot cut an object. For that
+feature the other way was measured too: with `ParallelTransform` off its
+1024 copies are fused one at a time -- 394 s wall, 565 s CPU -- so the
+model already takes the fast way; what is left in it is OCCT's fuse of
+1024 solids.

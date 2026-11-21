@@ -617,7 +617,11 @@ std::string WorkerCrash::what(const Report& report)
     if (report.sender > 0) {
         ss << ", sent by process " << report.sender;
     }
+#if defined(SIGBUS)  // not on Windows
     else if (report.signal == SIGSEGV || report.signal == SIGBUS) {
+#else
+    else if (report.signal == SIGSEGV) {
+#endif
         ss << ", at address 0x" << std::hex << report.address;
     }
     return ss.str();

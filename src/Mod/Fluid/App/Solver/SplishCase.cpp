@@ -283,9 +283,9 @@ void sheetOf(const std::vector<Vec3>& points,
         // the edge: asked a hair inside the triangle, a radius in front
         const auto faced = [&](const Triangle& t, const Vec3& q) {
             Vec3 in = t.middle - q;
-            const double far = length(in);
-            if (far > 0.0) {
-                in = in * (std::min(1e-3 * sizes.radius, 0.5 * far) / far);
+            const double away = length(in);
+            if (away > 0.0) {
+                in = in * (std::min(1e-3 * sizes.radius, 0.5 * away) / away);
             }
             return fluidAt(q + in + t.normal * sizes.radius);
         };
@@ -432,11 +432,11 @@ std::vector<Part> partsOf(const Model& model)
 bool insideAPart(const std::vector<Part>& parts, const Vec3& p)
 {
     for (const Part& part : parts) {
-        bool near = true;
-        for (std::size_t k = 0; k < 3 && near; ++k) {
-            near = p[k] >= part.min[k] && p[k] <= part.max[k];
+        bool within = true;
+        for (std::size_t k = 0; k < 3 && within; ++k) {
+            within = p[k] >= part.min[k] && p[k] <= part.max[k];
         }
-        if (near && inside(*part.surface, p)) {
+        if (within && inside(*part.surface, p)) {
             return true;
         }
     }

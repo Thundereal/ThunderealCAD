@@ -9,6 +9,8 @@ import os
 
 import FreeCAD as App
 
+import FluidApp  # noqa: F401 -- the study's object types are its
+
 translate = App.Qt.translate
 
 WATER = (0.20, 0.50, 0.90)

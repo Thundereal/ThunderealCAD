@@ -175,6 +175,11 @@ macro(InitializeFreeCADBuildOptions)
     option(BUILD_ASSEMBLY_CHRONO "Build the Assembly's Chrono solver backend (Project Chrono core)" OFF)
     # The fluid simulation workbench (docs/FluidSimulation.md).
     option(BUILD_FLUID "Build the FreeCAD Fluid module" ON)
+    # FluidSplish, the program the Fluid module runs SPlisHSPlasH by: needs
+    # the solver built from source, FLUID_SPLISHSPLASH_SOURCE its tree and
+    # FLUID_SPLISHSPLASH_BUILD where it was built (docs/FluidSimulation.md
+    # sec 12 S3). The module builds and runs without it.
+    option(BUILD_FLUID_SPLISHSPLASH "Build FluidSplish, the Fluid module's SPlisHSPlasH runner" OFF)
     option(BUILD_PLOT "Build the FreeCAD plot module" ON)
     option(BUILD_POINTS "Build the FreeCAD points module" ON)
     option(BUILD_REVERSEENGINEERING "Build the FreeCAD reverse engineering module" ON)

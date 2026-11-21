@@ -5,6 +5,7 @@
 #include <CXX/Objects.hxx>
 
 #include "Solver/OpenFoamBackend.h"
+#include "Solver/SplishBackend.h"
 #include "Solver/Registry.h"
 
 namespace Fluid
@@ -29,8 +30,9 @@ public:
             "refreshBackends",
             &Module::refreshBackends,
             "refreshBackends() -> None\n\n"
-            "Looks again for the programs the backends run on (OpenFOAM): after one was\n"
-            "installed, or the preference Mod/Fluid/OpenFoamPath changed."
+            "Looks again for the programs the backends run on (OpenFOAM, FluidSplish):\n"
+            "after one was installed, or the preference Mod/Fluid/OpenFoamPath or\n"
+            "Mod/Fluid/SplishPath changed."
         );
         initialize("The fluid simulation workbench's application module.");
     }
@@ -42,6 +44,7 @@ private:
             throw Py::Exception();
         }
         Solver::OpenFoamBackend::refresh();
+        Solver::SplishBackend::refresh();
         return Py::None();
     }
 

@@ -801,6 +801,158 @@ whole cells.
   the gate here), skipped elsewhere.
 - **The manual**: `fluid/study/dam-break`.
 
+### 12.5 S3 as built: SPlisHSPlasH, the second backend (2026-11-21)
+
+The same study on particles, and the same tests asked of it.
+
+- **A program of ours runs it, not this process.** Sec 11.3 had
+  SPlisHSPlasH stepped in process. It is built as C++11 against its own
+  bundled Eigen 3.4, with its own definitions and vector instructions;
+  FreeCAD's Eigen here is 5 and needs C++14, the solver's parts do not
+  compile as C++17, and its simulation is one object a process. So
+  `FluidSplish` (`src/Mod/Fluid/Runner/SplishRunner.cpp`) is compiled as
+  the solver is and linked with it, and the backend runs it over a
+  folder: `case.txt`, the particles as raw points, lines on its output
+  for frames, monitors and errors (`SplishCase.h`). A run that dies takes
+  no document with it, and nothing of the solver's is in FreeCAD's
+  process. It needs no shell: Windows is not shut out by how it is run.
+- **Driven with no scene file**: the fluid's particles, the walls'
+  particles, DFSPH, the standard viscosity at the liquid's own value,
+  gravity; the solver's step limit from the speeds, and a longest step
+  of our own (below).
+- **The walls are particles the workbench lays** (`Splish::boundaryOf`),
+  one sheet behind every face the fluid can reach, of the parts and of
+  the space's closed sides: a grid of 1.5 radii in each face's plane, a
+  row along each crease. Two rules decide what stays: a particle is deep
+  enough (no fluid at it nor within the distance of it in its plane),
+  and fluid can rest against the wall in front of it or within the
+  distance of there. So a sheet stops short of an edge the fluid goes
+  round, and runs on past an edge where the face ends against another
+  part.
+- **The distance behind the face is 1.2 radii, measured**: with the
+  sheet there the layer of still water against the wall has the rest
+  density at the start (999.0 for 998.2); at 1.0 it is 12% over, and the
+  first step throws the water off the wall at 2.6 m/s.
+- **Parts that only touch**: a tank of five plates lost two thirds of a
+  dam break's water in 1.5 s along its corners, where no part has a
+  corner for a sheet to turn. With the second rule the plates' sheets
+  meet behind the corner the parts make together, and it loses none.
+- **The longest step follows the resolution**: no longer than gravity
+  takes to move a particle a hundredth of the spacing. At the solver's
+  own 5 ms a tank of still water at 5 mm flew apart (16000 particles,
+  201 left): the solver's limit from the speeds says nothing of water at
+  rest.
+- **A frame is the first step at or past its time**, and says its time.
+  Cutting a step short to meet the time exactly made pressure spikes of
+  1e6 Pa: the solver's pressure is what undoes a step's compression,
+  over the step's square.
+- **Monitors.** A height is the particles in a column over the point, as
+  a depth, the column without an edge (with one, the depth was 4% out by
+  where the line stood among the particles). A pressure on a wall is the
+  fluid's push on the wall's particles around the point, along the
+  wall's normal, over their area -- the workbench finds the nearest face
+  within the resolution and hands its normal over. The solver's own
+  pressure at the particles against a wall read half as much again as
+  the water's weight at a floor; the push reads the weight. A pressure
+  in the open fluid is the solver's own, weighted by the kernel.
+- **A particle that leaves the space is gone**: parked far off and held,
+  since the solver cannot take one out.
+- **Found, or said missing**: the preference `Mod/Fluid/SplishPath`, the
+  environment's `FLUID_SPLISH_PATH`, then `bin/FluidSplish` beside
+  FreeCAD. `Mod/Fluid/Threads` sets the threads (8 at most by default,
+  S0's finding).
+- **Built behind `BUILD_FLUID_SPLISHSPLASH`** (off by default), the
+  solver found one of two ways. The package of `splishsplash-feedstock`,
+  in the environment or named by `SPlisHSPlasH_DIR`: its CMake package
+  carries the solver's definitions, its bundled Eigen and the vector
+  instructions it was compiled with. Or a tree it was built in by hand:
+  `FLUID_SPLISHSPLASH_SOURCE`, `FLUID_SPLISHSPLASH_BUILD`
+  (`-DSPH_LIBS_ONLY=ON -DUSE_PYTHON_BINDINGS=OFF
+  -DEIGEN3_INCLUDE_DIR=<source>/extern/eigen`, then `ninja SPlisHSPlasH`).
+- **The feedstock** (ruled 2026-11-21: one of our own; none exists, on
+  conda-forge or elsewhere) answers the two things that stood between
+  the solver and a package. Its build fetches Discregrid, CompactNSearch
+  and GenericParameters from GitHub as it builds: the recipe pins the
+  three as sources and builds them first. It compiles with
+  `-march=native`: the recipe sets `CI_BUILD` and asks for x86-64 with
+  AVX2 and FMA. The recipe's build script was run by hand into a prefix
+  of its own, the runner built against that package, and the workbench's
+  35 tests pass with it. Not yet done: a run through `rattler-build`,
+  Windows and macOS, a repository and a channel upload.
+
+Still water, a tank 200 x 100 with 100 mm of it, through the workbench;
+the mean over 0.2 to 0.5 s as a share of the water's weight above:
+
+| spacing | depth | floor | wall, 80 mm down | in the water, 50 mm down |
+|---|---|---|---|---|
+| 10 mm (2000 particles) | 100% | 99% | 100% | 100% |
+| 5 mm (16000) | 101% | 100% | 99% | 100% |
+| 2.5 mm (128000, 179 s) | 101% | 100% | 100% | 100% |
+
+Lobovsky's tank (sec 12.4's set-up), 1 s of flow:
+
+| | SPlisHSPlasH 10 mm | OpenFOAM 10 mm | experiment |
+|---|---|---|---|
+| time taken | 28 s, 8 threads | 201 s, 7 processes | |
+| front speed | 1.76 sqrt(g H) | 1.66 | 1.56; others' 1.3 to 1.7 |
+| peak at 3 mm | 47.0 mbar | 40.5 | 91.4 median |
+| peak at 15 mm | 56.5 | 42.2 | 57.5 |
+| peak at 30 mm | 47.5 | 41.4 | 43.8 |
+| peak at 80 mm | 15.8 | 18.7 | 30.2 |
+
+At 5 mm (216000 particles; 832 s with two other runs on the box): front
+1.76, peaks 74.8, 77.0, 45.6 and 16.5 mbar. The peak at 3 mm rises with
+the resolution as OpenFOAM's does and is nearer the experiment at 5 mm
+than OpenFOAM's slice at 2.5 (54.4); the one at 15 mm goes over the
+median (the experiment's band was not looked up for it). The front is
+fast on both solvers. The peaks are of one run each: a second run of a
+smaller case moved its peak by 4%.
+
+Kleefsman's box (sec 12.4's set-up), 20 mm, 6 s of flow in 591 s on 8
+threads with two other runs on the box (OpenFOAM: 4164 s):
+
+| | arrives (s) | peak (Pa) | impulse (Pa s) |
+|---|---|---|---|
+| P1 | 0.415 (exp 0.395) | 11274 (exp 11225) | 11476 (exp 13392, -14%) |
+| P2 | 0.435 (0.415) | 7813 (7886) | 9900 (10958, -10%) |
+| P3 | 0.455 (0.425) | 3943 (6492) | 7510 (9496, -21%) |
+| P4 | 0.500 (0.435) | 1637 (7198) | 3114 (7092, -56%) |
+| P5 | 1.480 (1.095) | 1351 (1984) | 1167 (2804, -58%) |
+| P6 | 1.460 (1.065) | 2046 (1860) | 2286 (3027, -24%) |
+| P7 | 1.480 (1.070) | 2571 (2024) | 2256 (3338, -32%) |
+| P8 | 1.480 (1.065) | 2474 (2082) | 1801 (2933, -39%) |
+
+Water heights, rms over the 6 s as a share of the experiment's peak: 9%,
+7%, 8% and 5% (OpenFOAM: 10%, 8%, 10%, 3%). The face's lower half is as
+good as OpenFOAM's in its peaks and lower in its impulse; the top of the
+face and the box's top are worse: the water is on the top 0.4 s late and
+a third to a half short in impulse. The box is 8 particles high.
+
+Known limits, measured:
+
+- **A wall is soft by about half the spacing.** A particle pressed on a
+  wall rests with its middle near the wall's face (a quarter radius from
+  it in still water, up to 0.12 of the spacing past it in a strike), not
+  a radius from it.
+- **Still water takes a quarter second to settle** at 10 mm, its surface
+  moving 4 mm meanwhile (one particle 8.5).
+- A wall thinner than 1.2 radii gets no particles; the walls' particles
+  are found by asking, for each, whether places near it are inside a
+  part -- every part's every triangle: slow for parts of many triangles.
+- One liquid; no air; no moving walls yet; the pressure's peaks are of
+  one run (the solver is not repeatable bit for bit across threads).
+- The solver's own boundaries from a distance field (its default) are
+  not used; they may hold a wall's place better and are untried.
+
+- **Tests**: `Fluid_tests_run` 23 (was 15): the walls' particles of a
+  closed space and of plates that touch with no hole anywhere, the
+  fluid's particles, the case's files, the runner's lines.
+  `TestFluidWorkbench` 35 (was 30). The dam break and the still water
+  are one test each for every backend (`FluidTests/DamBreak.py`,
+  `StillWater.py`): the backend's name and what its frames are is all a
+  test class says. Plus the plates on SPlisHSPlasH.
+- **The manual**: `fluid/study/particles`.
+
 ## 13. For the user to rule (2026-11-21)
 
 1. **The first backend (S2).** OpenFOAM: validated, CPU, already this

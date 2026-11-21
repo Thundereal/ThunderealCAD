@@ -2,6 +2,9 @@
 
 # The fluid simulation workbench (docs/FluidSimulation.md).
 add_subdirectory(App)
+if(BUILD_FLUID_SPLISHSPLASH)
+    add_subdirectory(Runner)
+endif()
 
 set(Fluid_Scripts
     Init.py
@@ -29,7 +32,10 @@ SET(FluidTests_SRCS
     FluidTests/__init__.py
     FluidTests/TestStudy.py
     FluidTests/TestPlayback.py
+    FluidTests/DamBreak.py
+    FluidTests/StillWater.py
     FluidTests/TestOpenFoam.py
+    FluidTests/TestSplish.py
     FluidTests/TestDownload.py
 )
 

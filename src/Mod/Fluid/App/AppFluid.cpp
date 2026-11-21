@@ -6,6 +6,7 @@
 
 #include "Solver/FreeFallBackend.h"
 #include "Solver/OpenFoamBackend.h"
+#include "Solver/SplishBackend.h"
 #include "Solver/Registry.h"
 #include "Study.h"
 
@@ -35,6 +36,7 @@ PyMOD_INIT_FUNC(FluidApp)
     // that names none tries them: OpenFOAM, the reference (S2); then the
     // test data, which a study must name to run on.
     Fluid::Solver::Registry::instance().add(std::make_unique<Fluid::Solver::OpenFoamBackend>());
+    Fluid::Solver::Registry::instance().add(std::make_unique<Fluid::Solver::SplishBackend>());
     Fluid::Solver::Registry::instance().add(std::make_unique<Fluid::Solver::FreeFallBackend>());
 
     PyMOD_Return(mod);

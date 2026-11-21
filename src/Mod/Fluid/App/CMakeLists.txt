@@ -46,6 +46,10 @@ SET(Solver_SRCS
     Solver/OpenFoamBackend.h
     Solver/OpenFoamCase.cpp
     Solver/OpenFoamCase.h
+    Solver/SplishBackend.cpp
+    Solver/SplishBackend.h
+    Solver/SplishCase.cpp
+    Solver/SplishCase.h
     Solver/Model.cpp
     Solver/Model.h
     Solver/Registry.cpp

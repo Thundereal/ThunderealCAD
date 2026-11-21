@@ -375,6 +375,26 @@ class TestImportModelAnnotations(unittest.TestCase):
         datum = [c for c in self.doc.Objects if c.isDerivedFrom("TechDraw::DrawPMICallout")
                  and c.SourceView == df][0]
         self.assertAlmostEqual(datum.OriginY.Value, -5.0, places=6)
+        # Square to it, its triangle flat on the line: the leader straight
+        # down from the middle of the frame's side nearer it
+        b = TechDrawPMI._box(datum, scale)
+        tip = (datum.OriginX.Value * scale, datum.OriginY.Value * scale)
+        seg = TechDrawPMI._leader(((b[0] + b[2]) / 2, (b[1] + b[3]) / 2),
+                                  (b[2] - b[0], b[3] - b[1]), tip)
+        self.assertIsNotNone(seg)
+        self.assertAlmostEqual(seg[0][0], seg[1][0], places=6)
+        # Moved, it stays, and its leader square to the line from there
+        datum.X = datum.X.Value + 3.0
+        self.doc.recompute()
+        TechDrawPMI.importAnnotations(df)
+        b = TechDrawPMI._box(datum, scale)
+        tip = (datum.OriginX.Value * scale, datum.OriginY.Value * scale)
+        seg = TechDrawPMI._leader(((b[0] + b[2]) / 2, (b[1] + b[3]) / 2),
+                                  (b[2] - b[0], b[3] - b[1]), tip)
+        self.assertAlmostEqual(seg[0][0], seg[1][0], places=6)
+        at = (datum.X.Value, datum.OriginX.Value)
+        TechDrawPMI.importAnnotations(df)
+        self.assertEqual((datum.X.Value, datum.OriginX.Value), at)
         # Every frame on the sheet, clear of the title block and of the
         # other view
         for v in views:

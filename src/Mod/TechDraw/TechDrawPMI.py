@@ -120,12 +120,55 @@ def _overlap(r, s):
     return r[0] < s[2] and s[0] < r[2] and r[1] < s[3] and s[1] < r[3]
 
 
-def _end(edge, mid, toward):
+def _foot(edge, toward, half):
+    """On a line \a edge, where a leader square to it from the middle of
+    the side nearer it of a frame \a half wide at \a toward meets it: as far
+    along it as the line goes, and where it would were the line longer; or
+    None when \a edge is not a line"""
+    if not isinstance(edge.Curve, (Part.Line, Part.LineSegment)) or len(edge.Vertexes) != 2:
+        return None
+    a, b = edge.Vertexes[0].Point, edge.Vertexes[1].Point
+    d = b - a
+    n = d.Length
+    if n < 1e-9:
+        return None
+    d = d * (1.0 / n)
+
+    def foot(x, y):
+        t = (x - a.x) * d.x + (y - a.y) * d.y
+        # Not on its very end, where it meets the next line
+        c = min(max(t, 0.05 * n), 0.95 * n)
+        return (a.x + d.x * c, a.y + d.y * c), (a.x + d.x * t, a.y + d.y * t)
+
+    # The side as the drawing picks it: nearer the end
+    f, _u = foot(toward[0], toward[1])
+    x = toward[0] + (half if toward[0] < f[0] else -half)
+    return foot(x, toward[1])
+
+
+def _square(edge, at, half):
+    """The place nearest \a at for a frame \a half wide whose leader to the
+    line \a edge is square to it: moved along it, as far as it must for the
+    leader to meet the line"""
+    got = _foot(edge, at, half)
+    if got is None:
+        return at
+    f, u = got
+    return (at[0] + f[0] - u[0], at[1] + f[1] - u[1])
+
+
+def _end(edge, mid, toward, half=None):
     """Where a leader to \a edge ends, unscaled and y up as the view's
     edges: \a mid, its middle; on a circle, where the line from its centre
     to \a toward, the frame, meets it -- pointed at the centre, as a hole's
-    is, from the near side -- if that is on the edge"""
+    is, from the near side -- if that is on the edge.
+    Given \a half, the frame's half width -- a datum's, its triangle flat on
+    the feature -- on a line, square to it (_foot)"""
     curve = edge.Curve
+    if half is not None:
+        got = _foot(edge, toward, half)
+        if got is not None:
+            return got[0]
     if not isinstance(curve, Part.Circle):
         return mid
     cx, cy = curve.Center.x, curve.Center.y
@@ -161,7 +204,7 @@ def _crosses(a, b, c, d):
     return d1 * d2 < 0 and d3 * d4 < 0
 
 
-def _place(wanted, size, boxes, segments, bounds=None, level=False, tip=None):
+def _place(wanted, size, boxes, segments, bounds=None, level=False, tip=None, square=None):
     """The place nearest \a wanted, (x, y) on paper, where a frame of \a size
     is clear of \a boxes and of the lines \a segments, and within \a bounds
     if given -- and, given its leader's \a tip (or a function of the place
@@ -169,16 +212,20 @@ def _place(wanted, size, boxes, segments, bounds=None, level=False, tip=None):
     of the lines nor of the boxes; failing that, none of the lines; failing
     that, where it crosses some; failing that, clear
     of the boxes; failing that, \a wanted.
-    With \a level, only left or right of it"""
+    With \a level, only left or right of it. Given \a square, a function of
+    a place giving the nearest where the leader is square to its line,
+    first where it is, of those clear in every way"""
     w, h = size[0] / 2 + GAP, size[1] / 2 + GAP
     # Just clear, not touching: a place on the edge of what it clears is
     # in the way of it again
     e = 1e-6
     # Its leader clear of the lines and the boxes; of the lines; then not
-    passes = [(segments, None), ([], None)]
+    passes = [(segments, None, False), ([], None, False)]
     if tip is not None:
-        passes[:0] = [(segments, "all"), (segments, "lines")]
-    for lines, leader in passes:
+        passes[:0] = [(segments, "all", False), (segments, "lines", False)]
+        if square is not None:
+            passes[:0] = [(segments, "all", True)]
+    for lines, leader, squared in passes:
         heap = [(0.0, wanted)]
         seen = set()
         while heap and len(seen) < TRIES:
@@ -211,6 +258,13 @@ def _place(wanted, size, boxes, segments, bounds=None, level=False, tip=None):
                     # Nor across a frame
                     if leader == "all":
                         hit += [b for b in boxes if _clip(b, seg[0], seg[1])]
+            if not hit and squared:
+                to = square(x, y)
+                if math.hypot(to[0] - x, to[1] - y) > 1e-6:
+                    # Along its line to where its leader is square
+                    heapq.heappush(heap, (math.hypot(to[0] - wanted[0], to[1] - wanted[1]),
+                                          to))
+                    continue
             if not hit:
                 return x, y
             # Just clear of each in the way: left, right, below, above
@@ -713,7 +767,25 @@ def importAnnotations(view, every=False):
             # Its leader to the feature as it is now, the frame where it was
             # against it
             dx, dy = c.X.Value - c.OriginX.Value, c.Y.Value - c.OriginY.Value
-            tip = _end(edge2d, tip, (tip[0] + dx, tip[1] + dy))
+            half = None
+            if callout.TypeId == "PMI::Datum":
+                half = _size(callout, _height(c))[0] / 2 / scale
+            got = _foot(edge2d, (c.X.Value, c.Y.Value), half) if half else None
+            if got is not None:
+                # Square to its line from where the frame is, the frame
+                # moved only as the line has across itself: where it was
+                # while the line stays
+                f = got[0]
+                a, b = edge2d.Vertexes[0].Point, edge2d.Vertexes[1].Point
+                n = App.Vector(a.y - b.y, b.x - a.x, 0).normalize()
+                across = (f[0] - c.OriginX.Value) * n.x + (f[1] - c.OriginY.Value) * n.y
+                tip = f
+                dx, dy = c.X.Value + across * n.x - f[0], c.Y.Value + across * n.y - f[1]
+                # Its end slides with it along the line: placed by the user,
+                # which no offset from it would tell any more
+                c.ImportOffset = []
+            else:
+                tip = _end(edge2d, tip, (tip[0] + dx, tip[1] + dy))
             c.OriginX, c.OriginY = tip
             c.X, c.Y = tip[0] + dx, tip[1] + dy
             updated.append(c)
@@ -782,20 +854,27 @@ def importAnnotations(view, every=False):
         if moved:
             continue
         size = _size(callout, _height(c))
+        half = size[0] / 2 / scale if callout.TypeId == "PMI::Datum" else None
 
-        def end(x, y, edge2d=edge2d, mid=tip):
+        def end(x, y, edge2d=edge2d, mid=tip, half=half):
             """Its leader's end on paper for the frame at (x, y)"""
-            t = _end(edge2d, mid, (x / scale, y / scale))
+            t = _end(edge2d, mid, (x / scale, y / scale), half)
             return (t[0] * scale, t[1] * scale)
 
+        squared = None
+        if half is not None:
+            def squared(x, y, edge2d=edge2d, half=half):
+                p = _square(edge2d, (x / scale, y / scale), half)
+                return (p[0] * scale, p[1] * scale)
+
         x, y = _place(((tip[0] + stand[0]) * scale, (tip[1] + stand[1]) * scale), size,
-                      boxes, segments + dimlines + leaders, bounds, tip=end)
+                      boxes, segments + dimlines + leaders, bounds, tip=end, square=squared)
         boxes.append((x - size[0] / 2, y - size[1] / 2, x + size[0] / 2, y + size[1] / 2))
         # Its leader, for the next frames to keep off
         seg = _leader((x, y), size, end(x, y))
         if seg is not None:
             leaders.append(seg)
-        tip = _end(edge2d, tip, (x / scale, y / scale))
+        tip = _end(edge2d, tip, (x / scale, y / scale), half)
         stand = (x / scale - tip[0], y / scale - tip[1])
         if c is not None:
             c.OriginX, c.OriginY = tip

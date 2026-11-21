@@ -1372,8 +1372,23 @@ a caption or a dimension.
 
 Open:
 - a leader from a frame that has no clear way to its end still crosses (the import shot's
-  slot position, over the holes' frame): the frames are placed one at a time;
-- a datum's triangle follows its leader, aslant when the leader is.
+  slot position, over the holes' frame): the frames are placed one at a time.
+
+**Datums square to their line** (later the same day). TechDraw turns a balloon's end
+symbol along its leader, so a datum's triangle sat flat on the feature only when the
+leader happened to be square to it. A datum's leader on a line now ends at the foot of the
+perpendicular from where it leaves the frame -- the middle of the side nearer the line --
+anywhere along the line but its last twentieth at either end. Placing the frame, a first
+pass asks for that too: a place clear in every way whose leader would meet the line past its
+end is moved along the line until it does not. On the plate's front view A, B and C now
+each stand square on their line, the triangle flat. A datum on a circle keeps the radial
+leader, square to it already.
+
+A datum moved by the user keeps its frame where it was; its leader's end slides square to
+the line from there, and the frame moves only as far as the line itself has moved across
+itself. As the end slides with the frame, the offset between them no longer tells a moved
+frame from an imported one: the import clears `ImportOffset` for it, which marks it placed
+by the user for good (`DrawPMICallout::isMoved`).
 
 ## 11. Decisions (made 2026-11-19)
 

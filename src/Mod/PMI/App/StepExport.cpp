@@ -63,6 +63,9 @@
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_GeomTolerance.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <XCAFDoc_View.hxx>
+#include <XCAFDoc_ViewTool.hxx>
+#include <XCAFView_Object.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Trsf.hxx>
 
@@ -83,6 +86,7 @@
 #include "Note.h"
 #include "StepExport.h"
 #include "TolerancedFeature.h"
+#include "View.h"
 
 
 using namespace PMI;
@@ -136,6 +140,9 @@ struct Exported
     Part::TopoShape placed;
     /// The set's coordinates to the placed shape's
     gp_Trsf setToPlaced;
+    /// The placed shape's -- the document's, where a view's camera is -- to
+    /// the label's
+    gp_Trsf placedToLabel;
 
     /// The label's element of index \a i of the placed shape's \a type
     TopoDS_Shape at(TopAbs_ShapeEnum type, int i) const
@@ -204,6 +211,9 @@ public:
                 write(set, *ex);
             }
         }
+        for (auto& [v, ex] : _views) {
+            guard(v, [&, v = v, ex = ex]() { view(v, *ex); });
+        }
         return _report;
     }
 
@@ -264,6 +274,7 @@ private:
         }
         ex.toLocal = placedToLabel * setToPlaced;
         ex.setToPlaced = setToPlaced;
+        ex.placedToLabel = placedToLabel;
         ex.placed = placed;
         ex.label = proto;
         ex.shape = shape;
@@ -471,6 +482,7 @@ private:
         std::vector<GeometricTolerance*> tolerances;
         std::vector<Dimension*> dims;
         std::vector<Note*> notes;
+        std::vector<View*> views;
         for (auto o : set->Group.getValues()) {
             if (auto d = freecad_cast<Datum*>(o)) {
                 datums.push_back(d);
@@ -486,6 +498,9 @@ private:
             }
             else if (auto n = freecad_cast<Note*>(o)) {
                 notes.push_back(n);
+            }
+            else if (auto v = freecad_cast<View*>(o)) {
+                views.push_back(v);
             }
         }
         // The datums first: OCCT's writer writes the first label of a letter
@@ -504,6 +519,11 @@ private:
         }
         for (auto n : notes) {
             guard(n, [&]() { note(n, ex); });
+        }
+        // Last, once every set is written: a view lists what is written of
+        // what it shows, which may be in another set
+        for (auto v : views) {
+            _views.emplace_back(v, &ex);
         }
     }
 
@@ -544,6 +564,7 @@ private:
             return skip(d, why);
         }
         TDF_Label l = _tool->AddDatum();
+        _labels[d] = l;
         Handle(XCAFDoc_Datum) attr;
         l.FindAttribute(XCAFDoc_Datum::GetID(), attr);
         Handle(XCAFDimTolObjects_DatumObject) obj = new XCAFDimTolObjects_DatumObject();
@@ -596,6 +617,7 @@ private:
             }
         }
         TDF_Label l = _tool->AddDatum();
+        _labels[t] = l;
         Handle(XCAFDoc_Datum) attr;
         l.FindAttribute(XCAFDoc_Datum::GetID(), attr);
         Handle(XCAFDimTolObjects_DatumObject) obj = new XCAFDimTolObjects_DatumObject();
@@ -721,6 +743,7 @@ private:
         }
 
         TDF_Label l = _tool->AddGeomTolerance();
+        _labels[gt] = l;
         Handle(XCAFDoc_GeomTolerance) attr;
         l.FindAttribute(XCAFDoc_GeomTolerance::GetID(), attr);
         Handle(XCAFDimTolObjects_GeomToleranceObject) obj =
@@ -873,6 +896,7 @@ private:
             return skip(dim, "its second feature: " + why);
         }
         TDF_Label l = _tool->AddDimension();
+        _labels[dim] = l;
         Handle(XCAFDoc_Dimension) attr;
         l.FindAttribute(XCAFDoc_Dimension::GetID(), attr);
         Handle(XCAFDimTolObjects_DimensionObject) obj = new XCAFDimTolObjects_DimensionObject();
@@ -929,6 +953,7 @@ private:
             return skip(n, why);
         }
         TDF_Label l = _tool->AddDimension();
+        _labels[n] = l;
         Handle(XCAFDoc_Dimension) attr;
         l.FindAttribute(XCAFDoc_Dimension::GetID(), attr);
         Handle(XCAFDimTolObjects_DimensionObject) obj = new XCAFDimTolObjects_DimensionObject();
@@ -960,7 +985,79 @@ private:
     const Import::PostExport& _info;
     Handle(XCAFDoc_ShapeTool) _shapes;
     Handle(XCAFDoc_DimTolTool) _tool;
+    /// A saved view (sec 5.2, P5): its camera, the callouts it shows and the
+    /// shapes. The camera is the document's; a STEP camera is an eye, a line
+    /// of sight and a window, so the eye is put out of the part, on the line
+    /// through the point looked at, and a view fitting all gets the window
+    /// the part's extent fills.
+    void view(View* v, Exported& ex)
+    {
+        gp_Trsf cam = ex.placedToLabel * trsfOf(v->Camera.getValue());
+        gp_Ax2 frame = ax2Of(cam);
+        gp_Pnt at = frame.Location();
+        gp_Dir z = frame.Direction();
+        gp_Dir y = frame.YDirection();
+        gp_Dir x = frame.XDirection();
+        Bnd_Box box;
+        BRepBndLib::Add(ex.shape, box);
+        double nearest = 0, half = 0, diag = 1;
+        if (!box.IsVoid()) {
+            diag = std::sqrt(box.SquareExtent());
+            double x0, y0, z0, x1, y1, z1;
+            box.Get(x0, y0, z0, x1, y1, z1);
+            for (int i = 0; i < 8; ++i) {
+                gp_Vec d(at, gp_Pnt(i & 1 ? x1 : x0, i & 2 ? y1 : y0, i & 4 ? z1 : z0));
+                nearest = std::max(nearest, d.Dot(gp_Vec(z)));
+                half = std::max({half, std::abs(d.Dot(gp_Vec(x))), std::abs(d.Dot(gp_Vec(y)))});
+            }
+        }
+        double distance = nearest + diag;
+        double height = v->Height.getValue() > Precision::Confusion() ? v->Height.getValue()
+                                                                      : 2 * half * 1.05;
+        Handle(XCAFView_Object) obj = new XCAFView_Object();
+        obj->SetName(ascii(v->Label.getValue()));
+        obj->SetType(v->Perspective.getValue() ? XCAFView_ProjectionType_Central
+                                               : XCAFView_ProjectionType_Parallel);
+        obj->SetProjectionPoint(at.Translated(gp_Vec(z) * distance));
+        obj->SetViewDirection(z.Reversed());
+        obj->SetUpDirection(y);
+        obj->SetZoomFactor(distance);
+        obj->SetWindowHorizontalSize(height);
+        obj->SetWindowVerticalSize(height);
+        if (v->Clip.getValue()) {
+            partly(v, "its clipping plane is not written yet");
+        }
+        // The shapes it shows: its objects that were exported, else the part
+        NCollection_Sequence<TDF_Label> shapes;
+        for (auto o : v->Objects.getValues()) {
+            TDF_Label l = _info.labelOf(o);
+            if (!l.IsNull()) {
+                shapes.Append(l);
+            }
+        }
+        if (shapes.IsEmpty()) {
+            shapes.Append(ex.label);
+        }
+        NCollection_Sequence<TDF_Label> gdts;
+        for (auto m : v->members()) {
+            auto it = _labels.find(m);
+            if (it != _labels.end()) {
+                gdts.Append(it->second);
+            }
+        }
+        Handle(XCAFDoc_ViewTool) tool = XCAFDoc_DocumentTool::ViewTool(_info.hDoc->Main());
+        TDF_Label l = tool->AddView();
+        XCAFDoc_View::Set(l)->SetObject(obj);
+        NCollection_Sequence<TDF_Label> planes;
+        tool->SetView(shapes, gdts, planes, l);
+        ++_report.views;
+    }
+
     std::map<App::DocumentObject*, Exported> _parts;
+    /// The views of the sets written, each with its set's part
+    std::vector<std::pair<View*, Exported*>> _views;
+    /// The label each callout was written as: what a view lists
+    std::map<const App::DocumentObject*, TDF_Label> _labels;
     Step::WriteReport _report;
 };
 
@@ -971,13 +1068,13 @@ Step::WriteReport Step::write(const Import::PostExport& info)
     Writer writer(info);
     WriteReport report = writer.run();
     int any = report.datums + report.targets + report.tolerances + report.dimensions
-        + report.notes;
+        + report.notes + report.views;
     if (any || !report.skipped.empty()) {
         // The user's, not a log's: no source location in front
         Base::Console().message("PMI written: %d datums, %d datum targets, %d tolerances, "
-                                "%d dimensions, %d notes\n",
+                                "%d dimensions, %d notes, %d views\n",
                                 report.datums, report.targets, report.tolerances,
-                                report.dimensions, report.notes);
+                                report.dimensions, report.notes, report.views);
     }
     for (auto& s : report.skipped) {
         Base::Console().warning("PMI not written: %s\n", s.c_str());

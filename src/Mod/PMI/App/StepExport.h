@@ -48,6 +48,7 @@ struct WriteReport
     int tolerances = 0;
     int dimensions = 0;
     int notes = 0;
+    int views = 0;
     /// Not written, each with why
     std::vector<std::string> skipped;
     /// Written without something STEP, or OCCT, has no place for
@@ -58,8 +59,8 @@ struct WriteReport
  * (docs/GDandT.md sec 5.2, P3): every annotation set whose part was exported
  * -- its datums and datum targets, tolerances with their datum systems,
  * dimensions and notes, on the exported faces, each with its plane, its text
- * point and its graphic, tessellated. A writer then writes them; STEP's
- * writes them AP242 (Import::WriterStep).
+ * point and its graphic, tessellated; and its saved views (P5). A writer
+ * then writes them; STEP's writes them AP242 (Import::WriterStep).
  */
 PMIExport WriteReport write(const Import::PostExport& info);
 

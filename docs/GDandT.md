@@ -255,7 +255,8 @@ The survey found five gaps [B2], in the order the phases need them:
 2. The streamed-import duplicate risk (fork code: our root-range transfer).
 3. Composite frames (`geometric_tolerance_relationship`) neither read nor written, no field in
    `XCAFDimTolObjects_GeomToleranceObject`.
-4. Saved views not written to STEP (`model_geometric_view` + `camera_model_d3`).
+4. Saved views not written to STEP (`model_geometric_view` + `camera_model_d3`). Written on
+   the fork (2026-11-21, sec 10.18).
 5. The presentation curve colour hard-coded white; `writeDGTsAP242` ignoring its label list.
    The colour is settable on the fork (`SetGDTPresentationColor`, 2026-11-21, sec 10.17); the
    label list is not needed while an export's XCAF document holds only what it exports.
@@ -986,7 +987,7 @@ letter for the feature. A note is a graphic named by its text: a `DimensionPrese
 feature, a `CommonLabel` without one -- what the import reads back as a note. Not written, and
 reported as such: a basic dimension (OCCT has no theoretically exact dimension), a fit (H7: not
 yet), a modifier with no STEP equivalent (`UF`, `OZ`); a composite frame's lower segment is
-written as a frame of its own. Saved views (PMI::View) are P5's (sec 5.3.4).
+written as a frame of its own. Saved views (PMI::View) are written too (sec 10.18).
 
 **Which face is which.** The annotations refer to a solid body's faces (sec 3), and a Body's
 shape, its solids' and its tip's are copies of one another: no TShape in common. An element is
@@ -1034,7 +1035,56 @@ Tests: `PMITests/TestStep.py` -- `TestStepExport` (the values, the placements bo
 schema left alone without PMI), `TestStepRoundTrip` (CTC-01), and
 `TestNistSet.test_every_ap242_file_round_trips` when `FC_PMI_NIST` names the set.
 
-- Next: SFA on the output (sec 5.2 step 5); views written (P5, OCCT 5.3.4); then P4, TechDraw.
+- Next: views written (sec 10.18); SFA on the output (sec 5.2 step 5); then P4, TechDraw.
+
+### 10.18 P5: saved views, written (2026-11-21)
+
+Each `PMI::View` of a set written becomes a saved view of the file, as the CAx-IF practice and
+the NIST files have one: a `draughting_model` named for it, holding a `camera_model_d3`, the
+presentations of the callouts it shows, and the shape it shows as a `mapped_item` of the
+part's representation through the camera; a `mechanical_design_and_draughting_relationship`
+ties it to the model of all the presentations. OCCT reads saved views but wrote none: the fork's
+writer now does (`STEPCAFControl_Writer::writeViews`, sec 5.3 item 4), from the XCAF views our
+exporter makes (`StepExport.cpp`, `view()`).
+
+**The camera.** A `PMI::View` keeps the point looked at, the turn (z toward the viewer, y up)
+and the height of what shows, in the document's coordinates. A STEP camera is an eye, a line of
+sight and a window: the eye goes on the line through the point looked at, a part's diagonal
+out from the nearest point of it; the view plane through the point looked at; the window square,
+the view's height, or for a view fitting all the extent the part fills. The camera's x is the
+window's left, as the NIST files have it (their `ref_direction` points left on the screen), so
+that z ^ x is up. Its objects are the shapes it shows; a view showing all names the part.
+Written after every set, so a view may show callouts of another set (FTC-09's views do).
+
+**Fixed reading, on the fork:**
+
+- The eye. `projection_point` is in the view reference system's coordinates (ISO 10303-46),
+  (0, 0, 0) in every file; the reader took it for a model point, the origin, so every saved view
+  was centred on a line through the model's origin -- CTC-01's 55 mm off what its author framed.
+  The eye is the view reference system's origin plus that point now.
+- The view volume's lengths -- its distances and window -- are in the file's unit, scaled to the
+  document's as the points are; they were not (no difference in mm).
+- A composite datum feature (a datum on two half cylinders: CTC-01's B and C) was bound to its
+  datum only through its components, and a presentation's association names the composite: a
+  view listing that datum's presentation found no datum for it.
+
+The import gained one rule: a view naming every solid the file has shows all, and keeps
+`Objects` empty -- which is what a view showing all is written as, so it reads back the same.
+
+**Not written:** a view's clipping plane (reported, not yet written); `AnnotationPlane`, which
+STEP has no place for -- a file's views are read with it off. A callout that draws nothing (an
+invalid one, with no graphic) is in no view in the file: a view lists presentations.
+
+**Measured.** The test part's two views -- one from the top with its height, one turned in
+perspective fitting all -- written and read back, the placement kept and not: turned the same to
+1e-9, looking along the same line to 1e-6, the height kept, the same callouts. Every AP242 file
+of the NIST set, read, written and read again: the same views, cameras, heights and the callouts
+each shows (those drawing something).
+
+Tests: `TestStepExport.test_views_written_and_read_back`; `Base.assertSameViews` in
+`TestStepRoundTrip.test_ctc01` and `TestNistSet.test_every_ap242_file_round_trips`.
+
+- Next: SFA on the output (sec 5.2 step 5) -- it needs Windows and Excel; then P4, TechDraw.
 
 ## 11. Decisions (made 2026-11-19)
 

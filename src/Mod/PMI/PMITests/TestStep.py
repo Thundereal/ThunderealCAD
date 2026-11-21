@@ -63,6 +63,35 @@ class Base(unittest.TestCase):
         self.assertEqual(ga[3], gb[3])
         self.assertEqual(ga[4], gb[4])
 
+    def assertSameViews(self, a, b):
+        """Two documents' saved views are the same: named the same, the
+        camera turned the same and looking along the same line, the same
+        height, and showing the same kinds of callout"""
+
+        def views(d):
+            # A view lists presentations: a callout drawing nothing (an
+            # invalid one) is in none in the file
+            out = []
+            for v in objects(d, "View"):
+                shown = sorted(o.TypeId for o in d.Objects
+                               if hasattr(o, "Views") and v in o.Views
+                               and not o.Presentation.isNull())
+                out.append((v.Label, v, shown))
+            return sorted(out, key=lambda x: x[0])
+
+        va, vb = views(a), views(b)
+        self.assertEqual([x[0] for x in va], [x[0] for x in vb])
+        for (name, x, sx), (_, y, sy) in zip(va, vb):
+            for axis in (V(1, 0, 0), V(0, 1, 0), V(0, 0, 1)):
+                self.assertLess((x.Camera.Rotation.multVec(axis)
+                                 - y.Camera.Rotation.multVec(axis)).Length, 1e-9, name)
+            z = x.Camera.Rotation.multVec(V(0, 0, 1))
+            off = y.Camera.Base - x.Camera.Base
+            self.assertLess((off - z * off.dot(z)).Length, 1e-6, name)
+            self.assertAlmostEqual(x.Height.Value, y.Height.Value, delta=1e-6, msg=name)
+            self.assertEqual(x.Perspective, y.Perspective, name)
+            self.assertEqual(sx, sy, name)
+
     def write_and_read(self, doc):
         parts = []
         for s in objects(doc, "AnnotationSet"):
@@ -274,6 +303,7 @@ class TestNistSet(Base):
                 doc = self.read(path)
                 again = self.write_and_read(doc)
                 self.assertSameGdt(doc, again)
+                self.assertSameViews(doc, again)
                 self.assertEqual(len([b for b in self.sound(again) if " Broken: " in b]), 0)
 
     def test_datum_targets(self):
@@ -358,6 +388,15 @@ class TestStepExport(unittest.TestCase):
             Lower=-0.02)
         add("Dimension", "Length", Type="Distance", Features=[feat(LEFT), feat(RIGHT)])
         add("Note", "Note", Text=["BREAK EDGES"], Feature=feat(V(35, 15, 10)))
+        # Saved views (P5): their cameras are the document's. One from the
+        # top, its height given; one turned, in perspective, fitting all
+        top = add("View", "Top", Standard="Top", Height=60)
+        top.Camera = App.Placement(V(110, 60, 15), top.Camera.Rotation)
+        turned = add("View", "Turned", Perspective=True,
+                     Camera=App.Placement(V(105, 52, 8), App.Rotation(20, 35, 50)))
+        for name, views in (("DatumA", [top]), ("Flatness", [top]), ("Position", [turned]),
+                            ("Dia", [turned]), ("Note", [top, turned])):
+            doc.getObject(name).Views = views
         doc.recompute()
         bad = [o.Name for o in doc.Objects if getattr(o, "Condition", "Ok") != "Ok"]
         self.assertEqual(bad, [])
@@ -406,6 +445,42 @@ class TestStepExport(unittest.TestCase):
         bad = [o.Name for o in back.Objects if getattr(o, "Condition", "Ok") != "Ok"]
         self.assertEqual(bad, [])
 
+    def test_views_written_and_read_back(self):
+        origs = {v.Label: v for v in objects(self.doc, "View")}
+
+        def shown(view, doc):
+            return sorted(self.key(o) for o in doc.Objects
+                          if hasattr(o, "Views") and view in o.Views)
+
+        for keep in (False, True):
+            with self.subTest(keepPlacement=keep):
+                path, back = self.export(keep)
+                with open(path) as f:
+                    text = f.read()
+                self.assertEqual(text.count("CAMERA_MODEL_D3("), 2)
+                views = {v.Label: v for v in objects(back, "View")}
+                self.assertEqual(sorted(views), sorted(origs))
+                # A camera is the document's: kept placed, the part is where
+                # it was; not, it is at the origin, and the camera with it
+                to_back = App.Placement() if keep else self.body.Placement.inverse()
+                for name, orig in origs.items():
+                    v = views[name]
+                    want = to_back.multiply(orig.Camera)
+                    # The same camera: turned the same, looking along the
+                    # same line (where on it is the file's eye, not ours)
+                    for axis in (V(1, 0, 0), V(0, 1, 0), V(0, 0, 1)):
+                        self.assertLess((want.Rotation.multVec(axis)
+                                         - v.Camera.Rotation.multVec(axis)).Length, 1e-9, name)
+                    z = want.Rotation.multVec(V(0, 0, 1))
+                    off = v.Camera.Base - want.Base
+                    self.assertLess((off - z * off.dot(z)).Length, 1e-6, name)
+                    self.assertEqual(v.Perspective, orig.Perspective, name)
+                    self.assertEqual(v.Objects, [], name)
+                    self.assertEqual(shown(v, back), shown(orig, self.doc), name)
+                # A height kept; fitting all, the window the part fills
+                self.assertAlmostEqual(views["Top"].Height.Value, 60, places=9)
+                self.assertGreater(views["Turned"].Height.Value, 20)
+
     def test_placed_and_drawn_where_they_were(self):
         origs = {self.key(o): o for o in self.doc.Objects
                  if hasattr(o, "Plane") and o.TypeId != "PMI::View"}
@@ -450,4 +525,5 @@ class TestStepRoundTrip(Base):
         doc = self.read(CTC01)
         again = self.write_and_read(doc)
         self.assertSameGdt(doc, again)
+        self.assertSameViews(doc, again)
         self.assertEqual(self.sound(again), [])

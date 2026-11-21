@@ -551,6 +551,15 @@ private:
     /// The first object made with a solid: what a target with no shape is on
     Part::Feature* solidObject()
     {
+        auto all = solidObjects(true);
+        return all.empty() ? nullptr : all.front();
+    }
+
+    /// The objects made with a solid, from the file's free shapes down
+    /// (only the first with \a first)
+    std::vector<Part::Feature*> solidObjects(bool first = false)
+    {
+        std::vector<Part::Feature*> res;
         NCollection_Sequence<TDF_Label> free;
         _shapes->GetFreeShapes(free);
         std::vector<TDF_Label> todo;
@@ -561,7 +570,12 @@ private:
             TDF_Label l = todo.back();
             todo.pop_back();
             if (auto feat = objectOf(l); feat && hasSolid(feat)) {
-                return feat;
+                if (std::find(res.begin(), res.end(), feat) == res.end()) {
+                    res.push_back(feat);
+                }
+                if (first) {
+                    return res;
+                }
             }
             NCollection_Sequence<TDF_Label> comps;
             if (XCAFDoc_ShapeTool::IsAssembly(l) && XCAFDoc_ShapeTool::GetComponents(l, comps)) {
@@ -571,7 +585,7 @@ private:
                 }
             }
         }
-        return nullptr;
+        return res;
     }
 
     /// The face of \a obj a target at \a ax lies on: within reach of its
@@ -1219,8 +1233,14 @@ private:
             }
         }
         // Only a list naming a solid: one naming construction curves alone
-        // (STC-09's) would hide the part itself
-        if (std::any_of(shown.begin(), shown.end(), [this](App::DocumentObject* o) {
+        // (STC-09's) would hide the part itself. A list naming every solid
+        // the file has shows all there is: left empty, which says so
+        auto solids = solidObjects();
+        bool all = !solids.empty()
+            && std::all_of(solids.begin(), solids.end(), [&shown](Part::Feature* f) {
+                   return std::find(shown.begin(), shown.end(), f) != shown.end();
+               });
+        if (!all && std::any_of(shown.begin(), shown.end(), [this](App::DocumentObject* o) {
                 return hasSolid(static_cast<Part::Feature*>(o));
             })) {
             v->Objects.setValues(shown);

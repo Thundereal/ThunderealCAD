@@ -173,6 +173,8 @@ macro(InitializeFreeCADBuildOptions)
     # The Assembly's Chrono solver backend and Project Chrono's core library
     # (submodule src/3rdParty/chrono); the module builds and runs without it.
     option(BUILD_ASSEMBLY_CHRONO "Build the Assembly's Chrono solver backend (Project Chrono core)" OFF)
+    # The fluid simulation workbench (docs/FluidSimulation.md).
+    option(BUILD_FLUID "Build the FreeCAD Fluid module" ON)
     option(BUILD_PLOT "Build the FreeCAD plot module" ON)
     option(BUILD_POINTS "Build the FreeCAD points module" ON)
     option(BUILD_REVERSEENGINEERING "Build the FreeCAD reverse engineering module" ON)

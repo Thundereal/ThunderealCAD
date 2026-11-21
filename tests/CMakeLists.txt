@@ -88,6 +88,9 @@ set(TestExecutables
 if(BUILD_ASSEMBLY)
     list(APPEND TestExecutables Assembly_tests_run)
 endif()
+if(BUILD_FLUID)
+    list(APPEND TestExecutables Fluid_tests_run)
+endif()
 
 # -------------------------
 

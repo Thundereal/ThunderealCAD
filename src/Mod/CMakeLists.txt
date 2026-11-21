@@ -22,6 +22,10 @@ if(BUILD_DRAWING)
   add_subdirectory(Drawing)
 endif(BUILD_DRAWING)
 
+if(BUILD_FLUID)
+    add_subdirectory(Fluid)
+endif(BUILD_FLUID)
+
 if(BUILD_FEM)
     add_subdirectory(Fem)
 endif(BUILD_FEM)

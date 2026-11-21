@@ -588,6 +588,52 @@ What went wrong on the way, each of which the workbench has to handle:
 The order of sec 13 stands. PyPI has SPlisHSPlasH wheels for Linux,
 Windows and macOS arm64, which bears out "every machine".
 
+### 12.2 S1 as built, step 1: the App side (2026-11-21)
+
+`src/Mod/Fluid` (`BUILD_FLUID`, on by default), no Gui yet.
+
+- **The model** (`App/Solver/Model.h`): sec 11.1 as plain structs in SI --
+  walls and fluid volumes as triangulations, the space's box and its open
+  sides, gravity, the times, one resolution, the monitors. `signature()`
+  is a hash of all of it; `sampled()` gives the grid points inside a
+  closed surface (crossings counted along z, so a cavity is left out) for
+  the particle backends to start from.
+- **The backend interface** (`Backend.h`, `Registry.h`): `Capabilities`
+  (what the frames are -- particles, surface, fields -- and what it can
+  do), `Availability` (can it run on this machine, why not, which
+  version), a `Session` with `prepare()` and `run()` into a `FrameSink`
+  that takes each frame as it is made and is asked whether to stop.
+  `Registry::select()` gives the backend a study names, or for no name
+  the first that is no test data and can run here -- never another in
+  the place of one that is missing.
+- **The backend of test data**, `FreeFall`: the fluid sampled at the
+  resolution, every particle in free fall to the space's floor. Each
+  frame has a closed form. Never chosen unless named.
+- **The objects** (`Study.h`): `Fluid::Study` (a group: `Walls`,
+  `TimeEnd`, `OutputInterval`, `Gravity`, `Resolution` -- 0 is a
+  twentieth of the fluid's smallest side --, `Backend`, `Results`,
+  `Status`), `Fluid::InitialFluid` (`Volume`, `Density`, `Viscosity`;
+  water at 20 degrees by default) and `Fluid::Monitor` (`Kind`: Height or
+  Pressure, `Point`). A wall or a volume is taken as the shape it shows
+  where it stands, so a Link is a wall as its copy.
+- **The run** is in a thread of its own: `start()`, `getProgress()`,
+  `cancel()`, `finish()`; `run()` is the first and the last. A run that
+  fails or is cancelled keeps nothing and leaves the results before.
+- **Kept results** (`ResultsArchive.h`): a zip in the study's `Results`
+  (a blob of the document), `index.json`, `times.npy`, `monitors.npy` and
+  one `frames/NNNNNN.points.npy` per frame (float32, mm; a surface's
+  frames also `.triangles.npy`), which numpy reads as they are. Unlike
+  the Assembly's, a frame is written as the run makes it and read only
+  when asked for (`getFrame(i)`): a run's frames do not fit in memory
+  together. `isStale()` compares the kept signature with the study's
+  model now. Objects are named without the document, so a file saved
+  under another name finds its monitors.
+- **Tests**: `Fluid_tests_run` (9) and `TestFluidWorkbench` (15), all
+  against closed forms on `FreeFall`.
+
+Next in S1: the workbench and its panel, and playback of the kept frames
+in the 3D view.
+
 ## 13. For the user to rule (2026-11-21)
 
 1. **The first backend (S2).** OpenFOAM: validated, CPU, already this

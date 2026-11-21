@@ -1124,6 +1124,61 @@ Tests: `TestStepExport.test_views_written_and_read_back`, `TestNistSet.test_a_cl
 - Next: SFA on the output (sec 5.2 step 5), asked of a Windows machine with Excel; P4,
   TechDraw.
 
+### 10.20 P4 progress: the model's callouts on a page, linked (2026-11-21)
+
+Sec 9 items 1-3, as one object rather than two: **`TechDraw::DrawPMICallout`**, a balloon
+whose `Source` is the PMI callout it shows -- a feature control frame, a datum, a datum
+target, a note -- drawn as the 3D view lays it out. A balloon in all else (the view it is of,
+where its leader ends, where it stands, dragging, the page's and the view's claims), which is
+also what puts it in every place TechDraw handles balloons without a line of its own there.
+Unlinked frames (a drawing with no model) are not built: a frame needs a PMI object to say
+what it says.
+
+**Drawn from the layout.** `QGIPMICallout` (TechDrawGui, linked to PMI when `BUILD_PMI`)
+calls the callout's `layout()` at the balloon's lettering height into a `PMI::Drawing`, the
+3D view's own, and turns its loose edges into one stroked path and its faces into one
+even-odd filled path -- children of the balloon's label, so they move and pick with it. Path
+items only: the vg page renderer captures a page from its items and drops anything a custom
+`paint()` draws, and the SVG and PDF exports print the same items. `QGIViewBalloon` gained
+one hook, `drawSymbol()`, its leader leaving the symbol's side.
+
+**Import Model Annotations** (`TechDraw_ImportModelAnnotations`, the logic headless in
+`TechDrawPMI.py`): for each callout of a set whose part is the view's source, whose plane
+faces the view (1 deg) -- or all, asked -- and whose feature the view shows, a linked callout:
+its leader on the middle of the feature's longest visible projected edge, found by geometry
+(a projected edge's `sourceIndex` is its 3D edge in the source shape; that edge lies on the
+feature's face), and standing off it as the frame stands in 3D, projected. Again, it follows
+the model: a callout the user moved keeps its place, one whose feature is no longer shown or
+whose 3D object is gone goes, nothing is made twice. A view not yet projected imports nothing.
+
+Found on the way:
+
+- A Body's solid is placed by the Body: `Part.getShape(..., transform=True)` of a solid
+  inside one gives it unplaced; the importer places every shape by `getGlobalPlacement()`.
+- A view's projected edges (`getEdgeByIndex`) are unscaled, y down; a balloon's numbers
+  unscaled, y up.
+- A balloon added to the page before it names its view gets no parent item, and stands at
+  the page's corner on the Qt page (the vg page placed it right): the importer names the
+  view first.
+- `MDIViewPage::refreshSelectedFrames` ran its deferred redraw after the page's document had
+  closed, on items whose objects were gone (SIGSEGV in `drawCaption`); it checks the document
+  first now.
+
+**Measured.** The test part from the top at scale 2: the flatness, the position and the note
+come in, datum A (on the hidden bottom) does not, nor B (its plane edge-on) unless all are
+asked for; the leaders' ends as far apart as in the model (the position's on the hole's rim,
+3 from its axis, to 1e-6); frames as far apart as in 3D; moved, kept; the note deleted, its
+callout goes. On the page: the SVG gains 15 paths, the vg render draws them, the flatness's
+value changed in 3D changes the drawing.
+
+Open: frames placed from the 3D layout can overlap on paper (the view's scale spreads the
+model's gaps, not the frames); linked dimensions (sec 9 item 4); a page from PMI views.
+
+Tests: `PMITests.TestDrawing` (headless; FreeCADCmd gets a Qt core application for the
+projection's thread), `tests/gui/pmi-techdraw-callouts.py`.
+
+- Next in P4: placing without overlap, linked dimensions, pages from PMI views.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

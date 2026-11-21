@@ -54,6 +54,7 @@
 #include <Mod/TechDraw/App/DrawTemplate.h>
 #include <Mod/TechDraw/App/DrawUtil.h>
 #include <Mod/TechDraw/App/DrawViewAnnotation.h>
+#include <Mod/TechDraw/App/DrawPMICallout.h>
 #include <Mod/TechDraw/App/DrawViewBalloon.h>
 #include <Mod/TechDraw/App/DrawViewClip.h>
 #include <Mod/TechDraw/App/DrawViewCollection.h>
@@ -73,6 +74,7 @@
 #include "QGISVGTemplate.h"
 #include "QGITemplate.h"
 #include "QGIViewAnnotation.h"
+#include "QGIPMICallout.h"
 #include "QGIViewBalloon.h"
 #include "QGIViewClip.h"
 #include "QGIViewCollection.h"
@@ -577,7 +579,10 @@ QGIView* QGSPage::addDrawViewImage(TechDraw::DrawViewImage* imageFeat)
 QGIView* QGSPage::addViewBalloon(TechDraw::DrawViewBalloon* balloonFeat)
 {
     //    Base::Console().Message("QGSP::addViewBalloon(%s)\n", balloonFeat->getNameInDocument());
-    auto vBalloon(new QGIViewBalloon);
+    // A PMI callout draws its frame or symbol instead of a bubble
+    QGIViewBalloon* vBalloon = balloonFeat->isDerivedFrom<TechDraw::DrawPMICallout>()
+        ? new QGIPMICallout
+        : new QGIViewBalloon;
 
     addItem(vBalloon);
 

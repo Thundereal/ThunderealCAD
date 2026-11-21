@@ -18,6 +18,7 @@ set(PMI_TestScripts
     PMITests/__init__.py
     PMITests/TestModel.py
     PMITests/TestStep.py
+    PMITests/TestDrawing.py
     PMITests/data/nist_ctc_01_asme1_ap242-e1.stp
 )
 
@@ -45,6 +46,6 @@ fc_target_copy_resource(PMIScripts
 install(FILES ${PMI_Fonts} DESTINATION ${CMAKE_INSTALL_DATADIR}/Mod/PMI/Resources/fonts)
 
 install(FILES ${PMI_Scripts} DESTINATION Mod/PMI)
-install(FILES PMITests/__init__.py PMITests/TestModel.py PMITests/TestStep.py
+install(FILES PMITests/__init__.py PMITests/TestModel.py PMITests/TestStep.py PMITests/TestDrawing.py
         DESTINATION Mod/PMI/PMITests)
 install(FILES PMITests/data/nist_ctc_01_asme1_ap242-e1.stp DESTINATION Mod/PMI/PMITests/data)

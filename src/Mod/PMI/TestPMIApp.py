@@ -14,6 +14,7 @@ from PMITests.TestModel import (  # noqa: F401
     TestView,
     TestViewObjects,
 )
+from PMITests.TestDrawing import TestImportModelAnnotations  # noqa: F401
 from PMITests.TestStep import (  # noqa: F401
     TestNistSet,
     TestStepExport,

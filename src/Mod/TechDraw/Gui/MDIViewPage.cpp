@@ -774,7 +774,9 @@ void MDIViewPage::refreshSelectedFrames()
             return;
         }
         self->m_frameRefreshPending = false;
-        if (!self->m_scene || self->m_vpPage->getFrameState()) {
+        // Its document closed since (the page view is deleted later): the
+        // items' objects are gone, and the view provider with them
+        if (!self->getGuiDocument() || !self->m_scene || self->m_vpPage->getFrameState()) {
             return;
         }
         for (QGIView* view : self->m_scene->getViews()) {

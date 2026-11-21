@@ -2770,6 +2770,11 @@ fc_add_gui_test(GuiAnimationTimeline_tests_run animation-timeline.py --timeout 2
 # offers the PMI tool bar while the set is active, undo takes one away.
 fc_add_gui_test(GuiPMIWorkbench_tests_run pmi-workbench.py --timeout 300)
 
+# The 3D model's PMI on a TechDraw page (docs/GDandT.md sec 9, P4): Import
+# Model Annotations makes linked callouts, drawn on the page, in its SVG and
+# by the vg renderer; the 3D value changed, the drawing follows.
+fc_add_gui_test(GuiPMITechDrawCallouts_tests_run pmi-techdraw-callouts.py --timeout 240)
+
 # PMI views (docs/GDandT.md sec 6.3): activated, a view sets the camera, shows
 # only its members and clips; an annotation made in it joins it, in its plane;
 # let go, the camera and clipping come back; the command makes one.

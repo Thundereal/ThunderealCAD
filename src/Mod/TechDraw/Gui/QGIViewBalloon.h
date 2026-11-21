@@ -227,6 +227,16 @@ protected:
     virtual void setPens();
     QString getPrecision();
     void parentViewMousePressed(QGIView* view, QPointF pos);
+    /** A symbol of its own instead of a bubble and text (a PMI callout's
+     * frame): drawn as children of the label, about its centre, and its
+     * half width and height given, for the leader to leave its side.
+     * False draws the balloon's own shape. */
+    virtual bool drawSymbol(double& halfWidth, double& halfHeight)
+    {
+        (void)halfWidth;
+        (void)halfHeight;
+        return false;
+    }
     TechDraw::DrawView* getSourceView() const;
 
 private:

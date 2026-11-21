@@ -8,6 +8,7 @@ endif(BUILD_GUI)
 
 set(TechDraw_Scripts
     Init.py
+    TechDrawPMI.py
     TestTechDrawApp.py
     TestTechDrawGui.py
 )
@@ -25,6 +26,7 @@ set(TechDraw_ToolsScripts
     TechDrawTools/CommandFillTemplateFields.py
     TechDrawTools/CommandVertexCreations.py
     TechDrawTools/CommandHoleShaftFit.py
+    TechDrawTools/CommandImportModelAnnotations.py
     TechDrawTools/TaskMoveView.py
     TechDrawTools/TaskShareView.py
     TechDrawTools/TaskFillTemplateFields.py

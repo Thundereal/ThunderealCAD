@@ -120,6 +120,8 @@ SET(Draw_SRCS
     DrawViewBalloon.h
     DrawEdgeLabel.cpp
     DrawEdgeLabel.h
+    DrawPMICallout.cpp
+    DrawPMICallout.h
     DrawViewSection.cpp
     DrawViewSection.h
     DrawHatch.cpp

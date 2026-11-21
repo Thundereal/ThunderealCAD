@@ -47,7 +47,8 @@ namespace PMIGui
 {
 
 /** Draws what Coin needs from a shape: its free edges as lines, its faces
- * filled -- a callout's strokes and fills (docs/GDandT.md sec 6.5)
+ * filled and rimmed by a hairline -- a callout's strokes and fills
+ * (docs/GDandT.md sec 6.5)
  */
 class PMIGuiExport ShapeLines
 {
@@ -76,6 +77,8 @@ private:
     SoIndexedLineSet* _lines;
     SoCoordinate3* _faceCoords;
     SoIndexedFaceSet* _faces;
+    SoCoordinate3* _rimCoords;
+    SoIndexedLineSet* _rims;
 };
 
 /** A tolerance, a datum, a dimension, a note: its Presentation, on top of

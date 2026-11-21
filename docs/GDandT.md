@@ -344,7 +344,11 @@ the frame and its faces (cross-highlighting is what makes PMI checkable by eye).
 it: broken red, remapped amber, check failures with a mark. Visibility follows the PMI::View
 active in the 3D view drawing it, or all. The served scene carries the layout's strokes like edges. A frame, a
 datum's box, a dimension's value turn per frame to read upright from wherever they are seen,
-as a sketch's datum label does; leaders and extension lines stay (10.15).
+as a sketch's datum label does; leaders and extension lines stay (10.15). Each fill is rimmed
+by a one-pixel line (2026-11-21): a glyph's strokes, a third of a millimetre at a 3.5 mm
+height, are thinner than a pixel once the view is out a little, and a fill that thin is
+rasterized in dots -- the lettering was unreadable in every screenshot of a whole part, where
+a STEP file's graphic, all lines, read fine. `pmi-workbench.py` checks every fill has its rim.
 
 ## 7. Surviving edits
 

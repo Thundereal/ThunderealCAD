@@ -390,6 +390,36 @@ def run():
         view.viewIsometric()
         pump(10)
 
+        # Every fill rimmed by a line: a glyph's strokes thinner than a
+        # pixel are rasterized in dots, its rim stays whole
+        search = coin.SoSearchAction()
+        search.setType(coin.SoIndexedFaceSet.getClassTypeId())
+        search.setInterest(coin.SoSearchAction.ALL)
+        fills = rimless = 0
+        for o in doc.Objects:
+            if not hasattr(o, "UprightAt"):
+                continue
+            search.apply(o.ViewObject.RootNode)
+            paths = search.getPaths()
+            for i in range(paths.getLength()):
+                path = paths[i]
+                faces = path.getTail()
+                if faces.coordIndex.getNum() == 0:
+                    continue
+                fills += 1
+                parent = path.getNodeFromTail(1)
+                at = parent.findChild(faces)
+                rim = parent.getChild(at + 1) if at + 1 < parent.getNumChildren() else None
+                lines = None
+                if rim is not None and rim.isOfType(coin.SoGroup.getClassTypeId()):
+                    for k in range(rim.getNumChildren()):
+                        if rim.getChild(k).isOfType(coin.SoIndexedLineSet.getClassTypeId()):
+                            lines = rim.getChild(k)
+                if lines is None or lines.coordIndex.getNum() == 0:
+                    rimless += 1
+        check("every callout's fills are rimmed by a line", fills and not rimless,
+              (fills, rimless))
+
         # The tool bar in PartDesign
         Gui.activateWorkbench("PartDesignWorkbench")
         pump(40)

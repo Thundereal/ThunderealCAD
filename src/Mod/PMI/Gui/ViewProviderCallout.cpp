@@ -119,6 +119,19 @@ ShapeLines::ShapeLines()
     _root->addChild(_faceCoords);
     _faces = new SoIndexedFaceSet;
     _root->addChild(_faces);
+    // The fills' rims, a pixel wide and never dashed: a glyph's strokes are
+    // thinner than a pixel once the view is out a little, and a fill that
+    // thin is rasterized in dots -- the lettering unreadable, where a line
+    // stays whole (the graphic a STEP file brings, all lines, reads fine)
+    auto rims = new SoSeparator;
+    auto rimStyle = new SoDrawStyle;
+    rimStyle->lineWidth = 1.0f;
+    rims->addChild(rimStyle);
+    _rimCoords = new SoCoordinate3;
+    rims->addChild(_rimCoords);
+    _rims = new SoIndexedLineSet;
+    rims->addChild(_rims);
+    _root->addChild(rims);
     setColor(0.1f, 0.25f, 0.6f);
 }
 
@@ -153,53 +166,62 @@ void ShapeLines::setDashed(bool dashed)
     _style->linePattern = dashed ? 0xf0f0 : 0xffff;
 }
 
+namespace
+{
+/// \a edge as a polyline: a segment for a line, a curve followed
+void strokeEdge(const TopoDS_Edge& edge, std::vector<SbVec3f>& lp, std::vector<int32_t>& li)
+{
+    TopoDS_Vertex v1, v2;
+    TopExp::Vertices(edge, v1, v2);
+    if (v1.IsNull() || v2.IsNull() || BRep_Tool::Degenerated(edge)) {
+        return;
+    }
+    double first, last;
+    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+    if (!curve.IsNull() && !curve->IsKind(STANDARD_TYPE(Geom_Line))) {
+        try {
+            BRepAdaptor_Curve adapt(edge);
+            Bnd_Box box;
+            BRepBndLib::Add(edge, box);
+            double size = box.IsVoid() ? 0 : std::sqrt(box.SquareExtent());
+            GCPnts_TangentialDeflection points(adapt, 0.2, std::max(1e-3, size * 0.005));
+            if (points.NbPoints() > 2) {
+                for (int k = 1; k <= points.NbPoints(); ++k) {
+                    gp_Pnt p = points.Value(k);
+                    li.push_back(int32_t(lp.size()));
+                    lp.emplace_back(float(p.X()), float(p.Y()), float(p.Z()));
+                }
+                li.push_back(-1);
+                return;
+            }
+        }
+        catch (const Standard_Failure&) {
+            // Drawn as the segment between its ends
+        }
+    }
+    gp_Pnt a = BRep_Tool::Pnt(v1), b = BRep_Tool::Pnt(v2);
+    int32_t n = int32_t(lp.size());
+    lp.emplace_back(float(a.X()), float(a.Y()), float(a.Z()));
+    lp.emplace_back(float(b.X()), float(b.Y()), float(b.Z()));
+    li.push_back(n);
+    li.push_back(n + 1);
+    li.push_back(-1);
+}
+}  // namespace
+
 void ShapeLines::set(const TopoDS_Shape& shape)
 {
     std::vector<SbVec3f> lp;
     std::vector<int32_t> li;
     std::vector<SbVec3f> fp;
     std::vector<int32_t> fi;
+    std::vector<SbVec3f> rp;
+    std::vector<int32_t> ri;
     if (!shape.IsNull()) {
         // Strokes: the edges no face holds. Ours are each a segment, arcs
         // included; a file's graphic may have curves, which are followed
         for (TopExp_Explorer xp(shape, TopAbs_EDGE, TopAbs_FACE); xp.More(); xp.Next()) {
-            const TopoDS_Edge& edge = TopoDS::Edge(xp.Current());
-            TopoDS_Vertex v1, v2;
-            TopExp::Vertices(edge, v1, v2);
-            if (v1.IsNull() || v2.IsNull() || BRep_Tool::Degenerated(edge)) {
-                continue;
-            }
-            double first, last;
-            Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
-            if (!curve.IsNull() && !curve->IsKind(STANDARD_TYPE(Geom_Line))) {
-                try {
-                    BRepAdaptor_Curve adapt(edge);
-                    Bnd_Box box;
-                    BRepBndLib::Add(edge, box);
-                    double size = box.IsVoid() ? 0 : std::sqrt(box.SquareExtent());
-                    GCPnts_TangentialDeflection points(adapt, 0.2,
-                                                       std::max(1e-3, size * 0.005));
-                    if (points.NbPoints() > 2) {
-                        for (int k = 1; k <= points.NbPoints(); ++k) {
-                            gp_Pnt p = points.Value(k);
-                            li.push_back(int32_t(lp.size()));
-                            lp.emplace_back(float(p.X()), float(p.Y()), float(p.Z()));
-                        }
-                        li.push_back(-1);
-                        continue;
-                    }
-                }
-                catch (const Standard_Failure&) {
-                    // Drawn as the segment between its ends
-                }
-            }
-            gp_Pnt a = BRep_Tool::Pnt(v1), b = BRep_Tool::Pnt(v2);
-            int32_t n = int32_t(lp.size());
-            lp.emplace_back(float(a.X()), float(a.Y()), float(a.Z()));
-            lp.emplace_back(float(b.X()), float(b.Y()), float(b.Z()));
-            li.push_back(n);
-            li.push_back(n + 1);
-            li.push_back(-1);
+            strokeEdge(TopoDS::Edge(xp.Current()), lp, li);
         }
         // Fills: planar polygons, meshed exactly; a glyph's faces are shared
         // between its copies and meshed once
@@ -225,6 +247,9 @@ void ShapeLines::set(const TopoDS_Shape& shape)
                 fi.push_back(base + c - 1);
                 fi.push_back(-1);
             }
+            for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
+                strokeEdge(TopoDS::Edge(ex.Current()), rp, ri);
+            }
         }
     }
     _lineCoords->point.setValues(0, int(lp.size()), lp.data());
@@ -235,6 +260,10 @@ void ShapeLines::set(const TopoDS_Shape& shape)
     _faceCoords->point.setNum(int(fp.size()));
     _faces->coordIndex.setValues(0, int(fi.size()), fi.data());
     _faces->coordIndex.setNum(int(fi.size()));
+    _rimCoords->point.setValues(0, int(rp.size()), rp.data());
+    _rimCoords->point.setNum(int(rp.size()));
+    _rims->coordIndex.setValues(0, int(ri.size()), ri.data());
+    _rims->coordIndex.setNum(int(ri.size()));
 }
 
 void ShapeLines::setOutline(const TopoDS_Shape& shape, double deflection)
@@ -270,6 +299,8 @@ void ShapeLines::setOutline(const TopoDS_Shape& shape, double deflection)
     _lines->coordIndex.setNum(int(li.size()));
     _faceCoords->point.setNum(0);
     _faces->coordIndex.setNum(0);
+    _rimCoords->point.setNum(0);
+    _rims->coordIndex.setNum(0);
 }
 
 namespace

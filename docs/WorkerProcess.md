@@ -2372,6 +2372,33 @@ put-in (three writes in one moment: the property reads back in parts,
 makes. A control build without the noted time fails the first claim: the
 view is expected to take 0.004 s.
 
+What all of scanner's TechDraw costs, measured again when the user asked
+"for all the pages?": the numbers above timed only the 35 views that
+project, to their projection's write. The file has 10 pages and 229
+TechDraw objects -- 147 dimensions, 23 projection-group items in 9 groups,
+10 sections, 10 images, 7 balloons, a detail, a part view. GUI probe
+(`tdpages_gui.py`): every TechDraw object touched, the time until no
+projection is written and the main thread (a 10 ms heartbeat) has been
+free for 3 s:
+
+| | recompute returned | quiet | main thread blocked |
+|---|---|---|---|
+| pages closed (the model's own pending recompute in it) | 12.68 s | 13.19 s | 12.80 s |
+| the 10 pages opened | -- | 1.93 s | 0.62 s |
+| pages open, TechDraw only | 0.95 s | 1.20 s | 1.09 s |
+| pages open, every object | 13.04 s | 13.29 s | 13.06 s |
+
+With the pages open, the TechDraw recompute is 0.95 s on the main thread
+-- 242 dimension recomputes 0.31 s, 20 projection-group items 0.46 s (the
+start of their projections), 15 group recomputes 0.12 s -- and its threads
+and the pages' drawing end 0.25 s later. 31 projections are written; not
+the three on Page009, whose source `Fillet011` stays touched with its
+schema migration pending, so they are never recomputed and draw what they
+stored, nor `SectionView003`, whose cut fails. So on this model all of
+its drawings cost about a second, eight cores sharing the threads; one
+model, of mid-sized bodies -- a drawing of a large assembly is another
+matter, not measured here.
+
 On scanner.FCStd, every object touched, a worker's recompute (console,
 14.86 s): Applied, nothing made here, 622 objects supplied; of the 35
 views, 34 have edges, and visible and hidden edge counts are those this

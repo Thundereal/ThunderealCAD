@@ -422,6 +422,10 @@ std::string DimensionFormatter::getDefaultFormatSpec(bool isToleranceFormat) con
     }
 
     if (isToleranceFormat) {
+        // A tolerance is signed and carries no type symbol (diameter, R): +0.1
+        if (!qPrefix.isEmpty() && formatSpec.startsWith(qPrefix)) {
+            formatSpec.remove(0, qPrefix.size());
+        }
         formatSpec.replace(QString::fromUtf8("%"), QString::fromUtf8("%+"));
     }
 

@@ -10,6 +10,8 @@ strokes and filled lettering -- with its leader.
 Claims:
   - the command makes a callout per PMI object that faces the view and whose
     feature it shows (the flatness, the position, the note), linked to it;
+  - and a dimension per PMI dimension it shows (the hole's diameter, the
+    width), on the edges it measures, linked to it: one value;
   - the page draws them: its SVG export gains paths, and the page's pixels
     darken where they stand;
   - the vg page renderer draws them too (they are captured from their
@@ -52,6 +54,11 @@ def step(delay_ms):
 
 def callouts(doc):
     return [o for o in doc.Objects if o.isDerivedFrom("TechDraw::DrawPMICallout")]
+
+
+def dimensions(doc):
+    return [o for o in doc.Objects
+            if o.isDerivedFrom("TechDraw::DrawViewDimension") and o.Source]
 
 
 def export(tag):
@@ -127,6 +134,9 @@ def run_command():
     got = sorted(c.Source.Name for c in callouts(STATE["doc"]) if c.Source)
     check("the command makes the callouts that face the view and show",
           got == ["Flatness", "Note", "Position"], got)
+    got = sorted((d.Source.Name, d.Type) for d in dimensions(STATE["doc"]))
+    check("and the dimensions, linked", got == [("HoleSize", "Diameter"), ("Width", "DistanceX")],
+          got)
 
 
 @step(3000)
@@ -168,6 +178,7 @@ def again():
     FreeCADGui.Selection.clearSelection()
     check("run again, nothing is made twice", len(callouts(STATE["doc"])) == 3,
           len(callouts(STATE["doc"])))
+    check("nor a dimension", len(dimensions(STATE["doc"])) == 2, len(dimensions(STATE["doc"])))
 
 
 def finish():

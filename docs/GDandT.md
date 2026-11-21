@@ -1198,12 +1198,54 @@ Found on the way:
   source has been deleted"). `DrawViewPart` now projects and finds faces in place when there
   is no `QCoreApplication`, as its coarse view always did; a script needs nothing.
 
-Open: leaders may cross the view's lines; linked dimensions (sec 9 item 4); a page from PMI
-views.
+Open: leaders may cross the view's lines; a page from PMI views.
 
 Tests: `PMITests.TestDrawing` (headless), `tests/gui/pmi-techdraw-callouts.py`.
 
-- Next in P4: linked dimensions, pages from PMI views.
+### 10.21 P4 progress: dimensions linked, one value (2026-11-22)
+
+Sec 9 item 4. Import Model Annotations now brings the model's PMI dimensions too, as
+`DrawViewDimension`s on the view's own edges, measuring them:
+
+- a **diameter** or **radius** where the view sees its hole end-on: a circle among the
+  visible edges, on the feature's faces, its axis along the view direction;
+- a **width** (two faces of one feature) or a **distance** (two features) where the view sees
+  both faces edge-on (planar, square to the view within 1 deg): the longest straight visible
+  edge on each, parallel to each other. Up the page it is a `DistanceX`, its text above the
+  view; across, a `DistanceY`, to its right; askew, a `Distance`.
+
+Anything else (an angle, a face seen at a slant) the view does not show true, and is left
+out. The text's place is chosen clear on paper as a frame's is.
+
+`DrawViewDimension` has `Source` (a PMI::Dimension, global link scope). Linked, at every
+recompute it takes the source's `Basic` (as `TheoreticalExact`), `Upper`/`Lower` (as the
+tolerances; equal and opposite as `EqualTolerance`), `DecimalPlaces` (the set's when -1, into
+the format specs' precision) and `Fit` (after the value, with no tolerance). The other way, a
+tolerance typed on the drawing writes `Upper`/`Lower` and clears the fit, `TheoreticalExact`
+writes `Basic` -- not while syncing, restoring or undoing. One value, whichever side edits it.
+Run again, a linked dimension keeps where the user put it and follows the edges it measures;
+one whose 3D dimension is no longer shown is removed, one whose 3D dimension is gone stays a
+plain dimension.
+
+Found on the way:
+
+- A dimension's tolerance spec defaulted to its value's, prefix and all: a diameter's tolerance
+  read `(diameter)+0.1`. It never showed, because the default is taken at construction, before
+  `Type` says diameter; a spec recomputed later does. `getDefaultFormatSpec(true)` drops the
+  type's symbol now.
+- The default spec is `%.Nw` (shortest form), not `%.Nf`: the precision is set in whatever
+  conversion the spec has.
+- `DrawViewDimension.cpp/.h` are CRLF; an edit that writes LF turns the diff into the whole
+  file.
+
+**Measured.** The test part from the top: the hole's 6 +0.1/0 (one place) on its circle, the
+40 +-0.2 width between the left and right sides as a `DistanceX`; `getRawValue` 6 and 40. In
+3D, Upper 0.05 changes the drawing; Fit H7 ends the spec with it; on the drawing, 0.08 writes
+Upper and clears the fit, `TheoreticalExact` sets Basic; run again, none made twice and the
+moved one stays; the width's 3D dimension removed, its drawing dimension stays, unlinked. On
+the page, both drawn (vg render).
+
+- Next in P4: pages from PMI views.
 
 ## 11. Decisions (made 2026-11-19)
 

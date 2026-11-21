@@ -14,12 +14,15 @@
 Annotations. For a part view, each PMI callout of its source -- a feature
 control frame, a datum, a datum target, a note -- whose plane faces the view
 and whose feature the view shows becomes a TechDraw::DrawPMICallout linked to
-it: its leader ends on the feature's longest visible edge, and it stands where
-the 3D view shows it -- or, where that is on another frame or on the view's
-lines on paper, the nearest place clear of them. Run again, it follows the
-model: a callout the user moved stays where they put it, one whose feature
-the view no longer shows, or whose 3D object is gone, goes. Headless: no GUI
-needed."""
+it: its leader ends on the feature's longest visible edge, and it stands
+where the 3D view shows it -- or, where that is on another frame or on the
+view's lines on paper, the nearest place clear of them. Each PMI dimension
+whose features the view shows true -- a hole end-on, two faces edge-on --
+becomes a TechDraw dimension on those edges, linked: its tolerance, basic
+flag and decimals are the 3D one's. Run again, it follows the model: a
+callout the user moved stays where they put it, one whose feature the view
+no longer shows, or whose 3D object is gone, goes; a dimension keeps where
+the user put it. Headless: no GUI needed."""
 
 import heapq
 import math
@@ -193,11 +196,8 @@ def _global(obj, sub=""):
     return shape
 
 
-def _feature_faces(callout):
-    """Its feature's faces, in the document's coordinates"""
-    feat = getattr(callout, "Feature", None)
-    if feat is None:
-        return []
+def _faces_of(feat):
+    """A toleranced feature's faces, in the document's coordinates"""
     faces = []
     for obj, subs in feat.References:
         for sub in subs:
@@ -207,6 +207,140 @@ def _feature_faces(callout):
                 except Exception:
                     pass
     return faces
+
+
+def _feature_faces(callout):
+    """Its feature's faces, in the document's coordinates"""
+    feat = getattr(callout, "Feature", None)
+    return _faces_of(feat) if feat is not None else []
+
+
+def _on(faces, edge):
+    """Whether a 3D edge lies on one of \a faces: its ends and its middle"""
+    t0, t1 = edge.FirstParameter, edge.LastParameter
+    pts = [Part.Vertex(edge.valueAt(t)) for t in (t0, (t0 + t1) / 2, t1)]
+    return any(all(f.distToShape(p)[0] <= 1e-6 for p in pts) for f in faces)
+
+
+def _visible(names):
+    """(i, n): the view's visible edge i, projected from its source's Edge n"""
+    return [(i, index) for i, (name, _source, index) in enumerate(names)
+            if index > 0 and ";HLR:V" in name]
+
+
+def _paper(view, scale, p):
+    return (p.x * scale, -p.y * scale)
+
+
+def _end_on(view, names, shape, faces, direction):
+    """The view's longest circle of \a faces whose axis is the view's: a
+    cylinder seen end-on -- (i, its 2D edge) or None"""
+    best = None
+    for i, index in _visible(names):
+        e = shape.Edges[index - 1]
+        if not isinstance(e.Curve, Part.Circle):
+            continue
+        if abs(App.Vector(e.Curve.Axis).normalize().dot(direction)) < PARALLEL:
+            continue
+        if not _on(faces, e):
+            continue
+        e2 = view.getEdgeByIndex(i)
+        if best is None or e2.Length > best[1].Length:
+            best = (i, e2)
+    return best
+
+
+def _edge_on(view, names, shape, faces, direction):
+    """The view's longest straight edge of a plane of \a faces seen edge-on:
+    (i, its 2D edge) or None"""
+    flat = [f for f in faces if isinstance(f.Surface, Part.Plane)
+            and abs(f.Surface.Axis.dot(direction)) <= math.sqrt(1 - PARALLEL * PARALLEL)]
+    best = None
+    for i, index in _visible(names):
+        e = shape.Edges[index - 1]
+        if not isinstance(e.Curve, Part.Line) or not _on(flat, e):
+            continue
+        e2 = view.getEdgeByIndex(i)
+        if e2.Length > 1e-6 and (best is None or e2.Length > best[1].Length):
+            best = (i, e2)
+    return best
+
+
+def _dimension(view, names, shape, dim, direction, scale, extent):
+    """How a PMI dimension is drawn in the view, measured from what the view
+    shows: (TechDraw Type, [the view's edges], where its text wants to stand
+    on paper), or None when the view does not show it true"""
+    if dim.Type in ("Diameter", "Radius"):
+        faces = [f for feat in dim.Features for f in _faces_of(feat)]
+        found = _end_on(view, names, shape, faces, direction)
+        if found is None:
+            return None
+        i, e2 = found
+        cx, cy = _paper(view, scale, e2.Curve.Center)
+        out = e2.Curve.Radius * scale + 10.0
+        return dim.Type, ["Edge%d" % i], (cx + out * 0.7071, cy + out * 0.7071)
+    if dim.Type == "Width":
+        faces = _faces_of(dim.Features[0]) if dim.Features else []
+        sides = [[f] for f in faces]
+    elif dim.Type == "Distance":
+        sides = [_faces_of(f) for f in dim.Features]
+    else:
+        return None
+    if len(sides) != 2:
+        return None
+    found = [_edge_on(view, names, shape, side, direction) for side in sides]
+    if None in found:
+        return None
+    (i0, a), (i1, b) = found
+    da, db = a.Curve.Direction, b.Curve.Direction
+    if abs(abs(da.dot(db)) - 1) > 1e-9:
+        return None
+    ma = _paper(view, scale, a.valueAt((a.FirstParameter + a.LastParameter) / 2))
+    mb = _paper(view, scale, b.valueAt((b.FirstParameter + b.LastParameter) / 2))
+    mid = ((ma[0] + mb[0]) / 2, (ma[1] + mb[1]) / 2)
+    x0, y0, x1, y1 = extent
+    if abs(da.x) < 1e-9:
+        # Up the page: measured across, the text above the view
+        return "DistanceX", ["Edge%d" % i0, "Edge%d" % i1], (mid[0], y1 + 10.0)
+    if abs(da.y) < 1e-9:
+        return "DistanceY", ["Edge%d" % i0, "Edge%d" % i1], (x1 + 10.0, mid[1])
+    # Askew: off the middle, square to the edges
+    n = (-da.y, -da.x)
+    return "Distance", ["Edge%d" % i0, "Edge%d" % i1], (mid[0] + 10 * n[0], mid[1] + 10 * n[1])
+
+
+def _dimensions(sources):
+    """The PMI dimensions of the sets whose part is one of the view's sources"""
+    out = []
+    for s in sources:
+        for o in s.Document.Objects:
+            if o.TypeId != "PMI::AnnotationSet" or not o.Part:
+                continue
+            part = o.Part
+            if part is s or s in part.InListRecursive or part in s.OutListRecursive:
+                out += [c for c in o.Group if c.TypeId == "PMI::Dimension" and c not in out]
+    return out
+
+
+def _old_dimensions(view):
+    """The dimensions of the view linked to a PMI dimension, by it. One whose
+    3D dimension is gone has no link left: it stays, a plain dimension that
+    still measures the drawing"""
+    out = {}
+    for o in view.Document.Objects:
+        if not o.isDerivedFrom("TechDraw::DrawViewDimension") or o.Source is None:
+            continue
+        refs = o.References2D
+        if refs and refs[0][0] == view:
+            out.setdefault(o.Source.Name, []).append(o)
+    return out
+
+
+def _subs(d):
+    out = []
+    for obj, sub in d.References2D:
+        out += list(sub) if isinstance(sub, (list, tuple)) else [sub]
+    return out
 
 
 def _old(view):
@@ -227,10 +361,10 @@ def _moved(c):
 
 
 def importAnnotations(view, every=False):
-    """Import or refresh the PMI callouts of \\a view's source; with \\a every,
-    those whose plane is not the view's too. Returns (made, updated, removed),
-    or None when the view has no projection yet (nothing changes then: run it
-    once the view is computed)"""
+    """Import or refresh the PMI callouts and dimensions of \\a view's source;
+    with \\a every, those whose plane is not the view's too. Returns (made,
+    updated, removed), or None when the view has no projection yet (nothing
+    changes then: run it once the view is computed)"""
     names = view.getEdgeNames()
     if not names:
         return None
@@ -339,7 +473,59 @@ def importAnnotations(view, every=False):
             page.addView(c)
         made.append(c)
         keep.add(c.Name)
+    # The dimensions: where the view shows what they measure true, linked
+    # TechDraw dimensions on those edges, the text clear of the frames
+    xs = [p[0] for seg in segments for p in seg] or [0.0]
+    ys = [p[1] for seg in segments for p in seg] or [0.0]
+    extent = (min(xs), min(ys), max(xs), max(ys))
+    olddims = _old_dimensions(view)
+    keepdims = set()
+    height = _height()
+    for dim in _dimensions(sources):
+        pset = _set_of(dim)
+        if pset is None:
+            continue
+        to_doc = pset.Part.getGlobalPlacement() if pset.Part else App.Placement()
+        normal = to_doc.Rotation.multVec(dim.Plane.Rotation.multVec(App.Vector(0, 0, 1)))
+        if abs(normal.dot(direction)) < PARALLEL and not every:
+            continue
+        plan = _dimension(view, names, shape, dim, direction, scale, extent)
+        if plan is None:
+            continue
+        kind, subs, wanted = plan
+        ds = olddims.get(dim.Name, [])
+        d = ds[0] if ds else None
+        for extra in ds[1:]:
+            view.Document.removeObject(extra.Name)
+        if d is not None:
+            # Where the user has it; on what the view shows now
+            if d.Type != kind:
+                d.Type = kind
+            if _subs(d) != subs:
+                d.References2D = [(view, sub) for sub in subs]
+            updated.append(d)
+        else:
+            size = (0.6 * height * (len(dim.EquivalentText) + 2), height)
+            x, y = _place(wanted, size, boxes, segments)
+            boxes.append((x - size[0] / 2, y - size[1] / 2, x + size[0] / 2, y + size[1] / 2))
+            d = view.Document.addObject("TechDraw::DrawViewDimension", "Dimension")
+            d.Type = kind
+            d.MeasureType = "Projected"
+            d.References2D = [(view, sub) for sub in subs]
+            d.Source = dim
+            d.Label = dim.Label
+            d.X, d.Y = x, y
+            if page is not None:
+                page.addView(d)
+            made.append(d)
+        keepdims.add(d.Name)
     removed = []
+    for olds in olddims.values():
+        for d in olds:
+            if d.Name not in keepdims:
+                # What it measures not shown true in the view any more
+                removed.append(d.Label)
+                view.Document.removeObject(d.Name)
     for source, olds in old.items():
         for c in olds:
             if c.Name in keep:

@@ -57,8 +57,11 @@
 #endif
 
 #include <QCoreApplication>
+#include <regex>
 
 #include <App/Application.h>
+#include <App/Document.h>
+#include <App/PropertyUnits.h>
 #include <Base/Console.h>
 #include <Base/Parameter.h>
 #include <Base/Quantity.h>
@@ -242,6 +245,11 @@ DrawViewDimension::DrawViewDimension()
     ADD_PROPERTY_TYPE(SavedNames, () ,"References",(App::PropertyType)(App::Prop_None),
                       "Names of the projected elements the 2D references point at");
     SavedNames.setStatus(App::Property::Hidden, true);
+    ADD_PROPERTY_TYPE(Source, (nullptr), "PMI", App::Prop_None,
+                      "The PMI dimension of the 3D model shown: its tolerance, basic flag and "
+                      "decimals are the 3D one's, edited here or there");
+    // On the page, of an object inside the part's Body
+    Source.setScope(App::LinkScope::Global);
 
     // hide the DrawView properties that don't apply to Dimensions
     ScaleType.setStatus(App::Property::ReadOnly, true);
@@ -317,6 +325,13 @@ void DrawViewDimension::onChanged(const App::Property* prop)
     if (isRestoring()) {
         DrawView::onChanged(prop);
         return;
+    }
+
+    if (prop == &OverTolerance || prop == &UnderTolerance || prop == &TheoreticalExact) {
+        writeToSource(prop);
+    }
+    else if (prop == &Source) {
+        syncFromSource();
     }
 
     if (prop == &References2D) {
@@ -420,6 +435,119 @@ void DrawViewDimension::onChanged(const App::Property* prop)
     DrawView::onChanged(prop);
 }
 
+namespace
+{
+// The precision of a printf-style spec ("%.2f", "R%.3w", "%+.2f") set to n places
+std::string withPlaces(const std::string& spec, int n)
+{
+    static const std::regex re("%([+]?)(\\.[0-9]+)?([a-zA-Z])");
+    return std::regex_replace(spec, re, "%$1." + std::to_string(n) + "$3");
+}
+
+template<class P>
+P* sourceProperty(App::DocumentObject* src, const char* name)
+{
+    return src ? freecad_cast<P*>(src->getPropertyByName(name)) : nullptr;
+}
+}  // namespace
+
+void DrawViewDimension::syncFromSource()
+{
+    App::DocumentObject* src = Source.getValue();
+    auto basic = sourceProperty<App::PropertyBool>(src, "Basic");
+    auto upper = sourceProperty<App::PropertyQuantity>(src, "Upper");
+    auto lower = sourceProperty<App::PropertyQuantity>(src, "Lower");
+    if (!basic || !upper || !lower) {
+        return;  // none, or not a PMI dimension
+    }
+    Base::StateLocker guard(m_syncing);
+    auto fitProp = sourceProperty<App::PropertyString>(src, "Fit");
+    std::string fit = fitProp ? fitProp->getValue() : "";
+    auto placesProp = sourceProperty<App::PropertyInteger>(src, "DecimalPlaces");
+    int places = placesProp ? placesProp->getValue() : -1;
+    if (places < 0) {
+        // The set's
+        for (App::DocumentObject* in : src->getInList()) {
+            if (in->getTypeId().getName() == std::string("PMI::AnnotationSet")) {
+                if (auto p = sourceProperty<App::PropertyInteger>(in, "DecimalPlaces")) {
+                    places = p->getValue();
+                }
+                break;
+            }
+        }
+    }
+
+    bool isBasic = basic->getValue();
+    if (TheoreticalExact.getValue() != isBasic) {
+        TheoreticalExact.setValue(isBasic);
+    }
+    // A basic dimension has no tolerance, one with a fit shows the fit
+    double over = (isBasic || !fit.empty()) ? 0.0 : upper->getValue();
+    double under = (isBasic || !fit.empty()) ? 0.0 : lower->getValue();
+    bool equal = over > 0.0 && std::abs(over + under) < 1e-12;
+    if (EqualTolerance.getValue() != equal) {
+        EqualTolerance.setValue(equal);
+    }
+    if (OverTolerance.getValue() != over) {
+        OverTolerance.setValue(over);
+    }
+    if (!equal && UnderTolerance.getValue() != under) {
+        UnderTolerance.setValue(under);
+    }
+
+    std::string spec = getDefaultFormatSpec();
+    std::string tolSpec = getDefaultFormatSpec(true);
+    if (places >= 0) {
+        spec = withPlaces(spec, places);
+        tolSpec = withPlaces(tolSpec, places);
+    }
+    if (!fit.empty()) {
+        spec += " " + fit;
+    }
+    if (spec != FormatSpec.getValue()) {
+        FormatSpec.setValue(spec);
+    }
+    if (!ArbitraryTolerances.getValue() && tolSpec != FormatSpecOverTolerance.getValue()) {
+        FormatSpecOverTolerance.setValue(tolSpec);
+        FormatSpecUnderTolerance.setValue(tolSpec);
+    }
+}
+
+void DrawViewDimension::writeToSource(const App::Property* prop)
+{
+    App::DocumentObject* src = Source.getValue();
+    if (!src || m_syncing || isRestoring() || src->isRestoring()
+        || (getDocument() && getDocument()->isPerformingTransaction())) {
+        return;
+    }
+    auto basic = sourceProperty<App::PropertyBool>(src, "Basic");
+    auto upper = sourceProperty<App::PropertyQuantity>(src, "Upper");
+    auto lower = sourceProperty<App::PropertyQuantity>(src, "Lower");
+    if (!basic || !upper || !lower) {
+        return;
+    }
+    if (prop == &TheoreticalExact) {
+        if (basic->getValue() != TheoreticalExact.getValue()) {
+            basic->setValue(TheoreticalExact.getValue());
+        }
+        return;
+    }
+    if (TheoreticalExact.getValue()) {
+        return;  // its zeroed tolerance is not the 3D one's
+    }
+    // A tolerance typed in replaces a fit
+    auto fit = sourceProperty<App::PropertyString>(src, "Fit");
+    if (fit && *fit->getValue()) {
+        fit->setValue("");
+    }
+    if (prop == &OverTolerance && upper->getValue() != OverTolerance.getValue()) {
+        upper->setValue(OverTolerance.getValue());
+    }
+    else if (prop == &UnderTolerance && lower->getValue() != UnderTolerance.getValue()) {
+        lower->setValue(UnderTolerance.getValue());
+    }
+}
+
 void DrawViewDimension::Restore(Base::XMLReader& reader)
 // Old drawings did not have the equal tolerance options.
 // We cannot just introduce it as being set to true because that would e.g. destroy tolerances like +1-2
@@ -488,6 +616,7 @@ short DrawViewDimension::mustExecute() const
 App::DocumentObjectExecReturn* DrawViewDimension::execute()
 {
 //    Base::Console().Message("DVD::execute() - %s\n", getNameInDocument());
+    syncFromSource();
     if (!okToProceed()) {
         // A view done projecting with nothing drawn will not recompute this:
         // the dimension would keep the points of what it measured before

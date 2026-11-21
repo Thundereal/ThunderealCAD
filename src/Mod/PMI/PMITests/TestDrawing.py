@@ -23,7 +23,7 @@ try:
 except ImportError:
     TechDrawPMI = None
 
-from PMITests.TestModel import BOTTOM, HOLE, LEFT, TOP, face_at
+from PMITests.TestModel import BOTTOM, HOLE, LEFT, RIGHT, TOP, face_at
 
 V = App.Vector
 
@@ -85,6 +85,12 @@ class TestImportModelAnnotations(unittest.TestCase):
             Plane=App.Placement(V(28, 14, 10), up))
         add("Note", "Note", Text=["BREAK EDGES"], Feature=feat(V(35, 15, 10)),
             Plane=App.Placement(V(30, -8, 10), up))
+        add("Dimension", "HoleSize", Type="Diameter", Features=[feat(HOLE)], Upper=0.1,
+            Lower=0.0, DecimalPlaces=1, Plane=App.Placement(V(26, 4, 10), up))
+        sides = [face_at(solid.Shape, LEFT), face_at(solid.Shape, RIGHT)]
+        add("Dimension", "Width", Type="Width", Upper=0.2, Lower=-0.2,
+            Features=[add("TolerancedFeature", "Feature", References=[(solid, sides)])],
+            Plane=App.Placement(V(20, 24, 10), up))
         doc.recompute()
         self.page = doc.addObject("TechDraw::DrawPage", "Page")
         template = doc.addObject("TechDraw::DrawSVGTemplate", "Template")
@@ -105,13 +111,17 @@ class TestImportModelAnnotations(unittest.TestCase):
         return {o.Source.Name: o for o in self.doc.Objects
                 if o.isDerivedFrom("TechDraw::DrawPMICallout") and o.Source}
 
+    def dimensions(self):
+        return {o.Source.Name: o for o in self.doc.Objects
+                if o.isDerivedFrom("TechDraw::DrawViewDimension") and o.Source}
+
     def test_what_faces_the_view_and_shows(self):
         made, updated, removed = TechDrawPMI.importAnnotations(self.view)
         got = self.imported()
         # A on the bottom is hidden from the top; B on the left does not
         # face the view
         self.assertEqual(sorted(got), ["Flatness", "Note", "Position"])
-        self.assertEqual((len(made), updated, removed), (3, [], []))
+        self.assertEqual((len(made), updated, removed), (5, [], []))
         for c in got.values():
             self.assertEqual(c.SourceView, self.view)
             self.assertIn(c, self.page.Views)
@@ -194,7 +204,7 @@ class TestImportModelAnnotations(unittest.TestCase):
         offset = (moved.X.Value - moved.OriginX.Value, moved.Y.Value - moved.OriginY.Value)
         before = {n: (c.X.Value, c.Y.Value) for n, c in got.items()}
         made, updated, removed = TechDrawPMI.importAnnotations(self.view)
-        self.assertEqual((made, len(updated), removed), ([], 3, []))
+        self.assertEqual((made, len(updated), removed), ([], 5, []))
         got = self.imported()
         self.assertEqual(sorted(got), ["Flatness", "Note", "Position"])
         # The moved one where the user put it; the others where they were
@@ -211,6 +221,67 @@ class TestImportModelAnnotations(unittest.TestCase):
         self.assertEqual(sorted(self.imported()), ["Flatness", "Position"])
         self.assertEqual([o for o in self.doc.Objects
                           if o.isDerivedFrom("TechDraw::DrawPMICallout") and not o.Source], [])
+
+    def test_dimensions_linked_one_value(self):
+        """The hole's diameter seen end-on and the width between the left and
+        right faces seen edge-on come in as TechDraw dimensions on those
+        edges, measuring them, their tolerance the 3D one's either way"""
+        TechDrawPMI.importAnnotations(self.view)
+        got = self.dimensions()
+        self.assertEqual(sorted(got), ["HoleSize", "Width"])
+        hole, width = got["HoleSize"], got["Width"]
+        self.assertEqual(hole.Type, "Diameter")
+        self.assertEqual(width.Type, "DistanceX")
+        self.assertEqual((len(TechDrawPMI._subs(hole)), len(TechDrawPMI._subs(width))), (1, 2))
+        self.doc.recompute()
+        self.assertAlmostEqual(hole.getRawValue(), 6.0, places=6)
+        self.assertAlmostEqual(width.getRawValue(), 40.0, places=6)
+        # Its tolerance and decimals the 3D one's
+        self.assertAlmostEqual(hole.OverTolerance.Value, 0.1, places=9)
+        self.assertAlmostEqual(hole.UnderTolerance.Value, 0.0, places=9)
+        self.assertFalse(hole.EqualTolerance)
+        self.assertRegex(hole.FormatSpec, r"%\.1[a-zA-Z]")
+        # +0.1 under the diameter's value, not a second diameter sign
+        self.assertTrue(hole.FormatSpecOverTolerance.startswith("%+.1"),
+                        hole.FormatSpecOverTolerance)
+        self.assertTrue(width.EqualTolerance)
+        self.assertAlmostEqual(width.OverTolerance.Value, 0.2, places=9)
+        # Changed in 3D, the drawing follows
+        src = hole.Source
+        src.Upper = 0.05
+        self.doc.recompute()
+        self.assertAlmostEqual(hole.OverTolerance.Value, 0.05, places=9)
+        src.Fit = "H7"
+        self.doc.recompute()
+        self.assertTrue(hole.FormatSpec.endswith(" H7"), hole.FormatSpec)
+        self.assertEqual(hole.OverTolerance.Value, 0.0)
+        # Edited in the drawing, the 3D one changes: one value; a tolerance
+        # typed in replaces the fit
+        hole.OverTolerance = 0.08
+        self.assertAlmostEqual(src.Upper.Value, 0.08, places=9)
+        self.assertEqual(src.Fit, "")
+        hole.TheoreticalExact = True
+        self.assertTrue(src.Basic)
+        self.doc.recompute()
+        self.assertEqual(hole.OverTolerance.Value, 0.0)
+        src.Basic = False
+        self.doc.recompute()
+        self.assertFalse(hole.TheoreticalExact)
+        self.assertAlmostEqual(hole.OverTolerance.Value, 0.08, places=9)
+        # Again: none made twice, the user's place kept
+        width.X = width.X.Value + 5
+        x = width.X.Value
+        made, updated, removed = TechDrawPMI.importAnnotations(self.view)
+        self.assertEqual(sorted(self.dimensions()), ["HoleSize", "Width"])
+        self.assertEqual(made, [])
+        self.assertEqual(self.dimensions()["Width"].X.Value, x)
+        # Its 3D one gone: it stays, a plain dimension
+        self.doc.removeObject("Width")
+        self.doc.recompute()
+        TechDrawPMI.importAnnotations(self.view)
+        self.assertEqual(sorted(self.dimensions()), ["HoleSize"])
+        self.assertEqual(len([o for o in self.doc.Objects
+                              if o.isDerivedFrom("TechDraw::DrawViewDimension")]), 2)
 
     def test_a_view_not_projected_imports_nothing(self):
         view = self.doc.addObject("TechDraw::DrawViewPart", "Unseen")

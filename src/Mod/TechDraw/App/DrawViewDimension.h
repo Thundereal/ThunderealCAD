@@ -96,6 +96,11 @@ enum DimensionType {
     //! 3D reference, and empty in a document written before names existed.
     App::PropertyStringList         SavedNames;
 
+    //! The PMI::Dimension of the 3D model it shows (docs/GDandT.md sec 9 item
+    //! 4): linked, its tolerance, basic flag and decimals are the 3D one's,
+    //! and a tolerance edited here is written there -- one value
+    App::PropertyLink               Source;
+
     enum RefType{
             invalidRef,
             oneEdge,
@@ -172,6 +177,10 @@ protected:
     void Restore(Base::XMLReader& reader) override;
     void onChanged(const App::Property* prop) override;
     void onDocumentRestored() override;
+    //! Take the tolerance, basic flag and decimals from Source
+    void syncFromSource();
+    //! A tolerance or the basic flag edited here: written to Source
+    void writeToSource(const App::Property* prop);
     std::string getPrefixForDimType() const;
     std::string getDefaultFormatSpec(bool isToleranceFormat = false) const;
     virtual pointPair getPointsOneEdge(ReferenceVector references);
@@ -259,6 +268,8 @@ private:
     mutable unsigned long m_measuredAgainst {0};
     mutable bool m_measureValid {false};
     mutable bool m_measuring {false};
+    //! Set while Source's values are being taken, so they are not written back
+    bool m_syncing {false};
     //! saved geometry is only checked for the pre-rotation-independent
     //! frame once per session, on the first execute after a restore
     bool m_savedGeometryFrameChecked {false};

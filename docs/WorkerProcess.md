@@ -2254,3 +2254,36 @@ feature the other way was measured too: with `ParallelTransform` off its
 1024 copies are fused one at a time -- 394 s wall, 565 s CPU -- so the
 model already takes the fast way; what is left in it is OCCT's fuse of
 1024 solids.
+
+Seconds saved, not the ratio (the user, the same day): a split is worth
+what it takes off a recompute someone waits for, and that is mostly an
+edit's. The probe again, every object touched (10.47 s here over 625
+objects), then each of the 625 taken as an edit: what it reaches (it and
+what uses it) made here, against that reach's critical path. No cost for a
+second worker's job or put-in is counted.
+
+| saved by a split | edits |
+|------------------|-------|
+| >= 0.25 s        | 22 (4%) |
+| >= 0.5 s         | 13 (2%) |
+| >= 1 s           | 4 (1%)  |
+| >= 2 s           | 3       |
+| >= 3 s           | 2       |
+
+Of the 27 edits whose recompute takes 1 s or more here, the median saves
+0.33 s. The most:
+
+| edited             | reach | here   | split  | saved  |
+|--------------------|-------|--------|--------|--------|
+| XY_Plane007        | 294   | 9.63 s | 6.57 s | 3.06 s |
+| Spreadsheet        | 284   | 9.61 s | 6.57 s | 3.03 s |
+| Z_Axis007          | 138   | 8.95 s | 6.56 s | 2.39 s |
+| Sketch033          | 130   | 8.24 s | 6.57 s | 1.67 s |
+| Pad018             | 92    | 7.22 s | 6.57 s | 0.65 s |
+| Sketch039          | 119   | 1.34 s | 0.81 s | 0.53 s |
+
+The edits that save seconds are the ones above everything: the
+spreadsheet of parameters, an origin plane, the body's first sketches --
+and each is a recompute of 8 to 10 s, of which the pattern is 6.5. An
+edit inside one branch saves what runs beside it in that branch, a few
+tenths at most here.

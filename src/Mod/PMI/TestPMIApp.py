@@ -14,4 +14,9 @@ from PMITests.TestModel import (  # noqa: F401
     TestView,
     TestViewObjects,
 )
-from PMITests.TestStep import TestNistSet, TestStepImport  # noqa: F401
+from PMITests.TestStep import (  # noqa: F401
+    TestNistSet,
+    TestStepExport,
+    TestStepImport,
+    TestStepRoundTrip,
+)

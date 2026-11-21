@@ -51,6 +51,23 @@ class TopoShape;
 namespace Import
 {
 
+/** What an export pass is given (ExportOCAF2::addPostExport): the XCAF
+ * document as exportObjects() has filled it, before a writer writes it, and
+ * the label each object exported went to. The PMI module adds its GD&T here
+ * (docs/GDandT.md sec 5.2), as it reads a file's after an import
+ * (PostImport).
+ */
+struct ImportExport PostExport
+{
+    Handle(TDocStd_Document) hDoc;
+    /// The objects exported, every one with a label: the containers' and
+    /// what they hold, and what links stand for
+    std::vector<App::DocumentObject*> objects;
+    /// The label \a obj went to -- an assembly component, or the shape --
+    /// or a null label
+    std::function<TDF_Label(App::DocumentObject*)> labelOf;
+};
+
 struct ImportExport ExportOCAFOptions
 {
     ExportOCAFOptions();
@@ -130,6 +147,13 @@ public:
     void exportObjects(std::vector<App::DocumentObject*>& objs, const char* name = nullptr);
     bool canFallback(std::vector<App::DocumentObject*> objs);
 
+    /** Run \a pass at the end of every exportObjects(), replacing the one
+     * of that name: it adds to the document what a module of its own
+     * makes of the objects exported (the PMI module, their GD&T)
+     */
+    static void addPostExport(const std::string& name,
+                              std::function<void(const PostExport&)> pass);
+
 private:
     TDF_Label exportObject(App::DocumentObject* obj,
                            const char* sub,
@@ -144,6 +168,8 @@ private:
     void setName(TDF_Label label, App::DocumentObject* obj, const char* name = nullptr);
     void setInvisible(TDF_Label label);
     TDF_Label findComponent(const char* subname, TDF_Label label, TDF_LabelSequence& labels);
+    /// Run the passes added by addPostExport()
+    void runPostExport();
 
 private:
     Handle(TDocStd_Document) pDoc;

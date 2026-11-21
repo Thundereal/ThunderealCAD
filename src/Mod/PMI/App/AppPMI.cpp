@@ -40,6 +40,7 @@
 #include "Dimension.h"
 #include "GeometricTolerance.h"
 #include "Note.h"
+#include "StepExport.h"
 #include "StepImport.h"
 #include "TolerancedFeature.h"
 #include "View.h"
@@ -344,6 +345,8 @@ PyMOD_INIT_FUNC(PMI)
 
     // The GD&T of a STEP file, read after its shapes (docs/GDandT.md sec 5.1)
     PMI::Step::registerImport();
+    // ... and written into one exported, AP242 (sec 5.2)
+    PMI::Step::registerExport();
 
     // In a PartDesign Body, as its Elements group is: never solid, never its
     // tip. A body holding a set gives even a lone solid a solid body, which

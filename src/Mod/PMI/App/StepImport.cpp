@@ -1082,7 +1082,10 @@ private:
         Faces f;
         std::string why;
         bool onFaces = faces(first, f, why);
-        Part::Feature* owner = onFaces ? f.object : p.last;
+        // On its feature; else beside what was read last; else -- a file of
+        // graphics alone, on a part whose faces it cannot name (a tessellated
+        // one) -- beside the part
+        Part::Feature* owner = onFaces ? f.object : p.last ? p.last : solidObject();
         if (shape.IsNull() || !owner) {
             ++_report.graphicOnly;
             return;

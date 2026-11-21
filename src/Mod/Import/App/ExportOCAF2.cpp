@@ -91,6 +91,49 @@ ExportOCAF2::ExportOCAF2(Handle(TDocStd_Document) h, GetShapeColorsFunc func)
     Part::Interface::writeStepAssembly(Part::Interface::Assembly::Auto);
 }
 
+namespace
+{
+std::map<std::string, std::function<void(const PostExport&)>>& postExports()
+{
+    static std::map<std::string, std::function<void(const PostExport&)>> passes;
+    return passes;
+}
+}  // namespace
+
+void ExportOCAF2::addPostExport(const std::string& name,
+                                std::function<void(const PostExport&)> pass)
+{
+    postExports()[name] = std::move(pass);
+}
+
+void ExportOCAF2::runPostExport()
+{
+    if (postExports().empty()) {
+        return;
+    }
+    PostExport info;
+    info.hDoc = pDoc;
+    info.objects.reserve(myObjects.size());
+    for (auto& [obj, label] : myObjects) {
+        info.objects.push_back(obj);
+    }
+    info.labelOf = [this](App::DocumentObject* obj) {
+        auto it = myObjects.find(obj);
+        return it == myObjects.end() ? TDF_Label() : it->second;
+    };
+    for (auto& [name, pass] : postExports()) {
+        try {
+            pass(info);
+        }
+        catch (const Base::Exception& e) {
+            FC_ERR("Export pass '" << name << "' failed: " << e.what());
+        }
+        catch (const Standard_Failure& e) {
+            FC_ERR("Export pass '" << name << "' failed: " << e.GetMessageString());
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 
 /*!
@@ -626,6 +669,9 @@ void ExportOCAF2::exportObjects(std::vector<App::DocumentObject*>& objs, const c
     if (!exported) {
         FC_THROWM(Base::RuntimeError, "Nothing to export: every object has an empty shape");
     }
+
+    // What other modules add of the objects exported: their GD&T
+    runPostExport();
 
     if (FC_LOG_INSTANCE.isEnabled(FC_LOGLEVEL_LOG)) {
         Tools::dumpLabels(pDoc->Main(), aShapeTool, aColorTool);

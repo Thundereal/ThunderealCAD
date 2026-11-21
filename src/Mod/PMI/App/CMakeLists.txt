@@ -55,6 +55,8 @@ set(PMI_SRCS
   Layout.cpp
   Note.cpp
   Note.h
+  StepExport.cpp
+  StepExport.h
   StepImport.cpp
   StepImport.h
   View.cpp

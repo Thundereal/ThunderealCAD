@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-"""The GD&T of a STEP file, read (docs/GDandT.md sec 5.1, P2).
+"""The GD&T of a STEP file, read (docs/GDandT.md sec 5.1, P2) and written
+(sec 5.2, P3).
 
 NIST's CTC-01 (AP242 edition 1, from the NIST MBE PMI Validation and
 Conformance Testing project, used without restriction) imported: its
@@ -13,6 +14,7 @@ file imports, and nothing it makes is invalid.
 
 import glob
 import os
+import tempfile
 import unittest
 
 import FreeCAD as App
@@ -20,6 +22,7 @@ import Import
 import Part
 import PMI  # noqa: F401 -- registers the pass
 
+V = App.Vector
 HERE = os.path.dirname(os.path.abspath(__file__))
 CTC01 = os.path.join(HERE, "data", "nist_ctc_01_asme1_ap242-e1.stp")
 
@@ -35,6 +38,39 @@ class Base(unittest.TestCase):
         Import.insert(path, doc.Name)
         doc.recompute()
         return doc
+
+    def assertSameGdt(self, a, b):
+        """What two documents read of GD&T is the same: the datums, the
+        tolerances with their frames, the dimensions (a nominal measured on
+        the model again, to 1e-3), the datum targets and the notes"""
+
+        def gdt(d):
+            letters = sorted(x.Letter for x in objects(d, "Datum"))
+            tols = sorted((gt.Characteristic, round(gt.Value, 6),
+                           list(gt.DatumSystem.Compartments) if gt.DatumSystem else [])
+                          for gt in objects(d, "GeometricTolerance"))
+            dims = sorted((x.Type, round(x.Upper, 6), round(x.Lower, 6), x.Nominal.Value)
+                          for x in objects(d, "Dimension"))
+            targets = sorted((t.TargetType, t.Number) for t in objects(d, "DatumTarget"))
+            return letters, tols, dims, targets, len(objects(d, "Note"))
+
+        ga, gb = gdt(a), gdt(b)
+        self.assertEqual(ga[0], gb[0])
+        self.assertEqual(ga[1], gb[1])
+        self.assertEqual([x[:3] for x in ga[2]], [x[:3] for x in gb[2]])
+        for x, y in zip(ga[2], gb[2]):
+            self.assertAlmostEqual(x[3], y[3], delta=1e-3)
+        self.assertEqual(ga[3], gb[3])
+        self.assertEqual(ga[4], gb[4])
+
+    def write_and_read(self, doc):
+        parts = []
+        for s in objects(doc, "AnnotationSet"):
+            if s.Part and s.Part not in parts:
+                parts.append(s.Part)
+        path = os.path.join(tempfile.mkdtemp(prefix="pmi-roundtrip-"), "again.step")
+        Import.export(parts, path)
+        return self.read(path)
 
     def sound(self, doc):
         """What is wrong with what the import made: invalid or broken"""
@@ -229,6 +265,17 @@ class TestNistSet(Base):
                     if v.Objects:
                         self.assertTrue(any(o.Shape.Solids for o in v.Objects), v.Label)
 
+    def test_every_ap242_file_round_trips(self):
+        """Read, written and read again, each file reads the same: graphics
+        alone on a tessellated part (-tg) too"""
+        files = sorted(glob.glob(os.path.join(os.environ["FC_PMI_NIST"], "*ap242*.stp")))
+        for path in files:
+            with self.subTest(os.path.basename(path)):
+                doc = self.read(path)
+                again = self.write_and_read(doc)
+                self.assertSameGdt(doc, again)
+                self.assertEqual(len([b for b in self.sound(again) if " Broken: " in b]), 0)
+
     def test_datum_targets(self):
         # The datums only targets establish: points (CTC-02's A, B, C), a
         # circle (its K), rectangles (CTC-05's C, D), lines (FTC-06's J, K)
@@ -249,3 +296,158 @@ class TestNistSet(Base):
                     face = t.Feature.Shape
                     d = face.distToShape(Part.Vertex(t.Target.Base))[0]
                     self.assertLess(d, 1e-3, t.Label)
+
+
+def schema_of(path):
+    """The file's FILE_SCHEMA statement, over however many lines it takes"""
+    with open(path, errors="replace") as f:
+        text = f.read(20000)
+    start = text.find("FILE_SCHEMA")
+    return text[start:text.find(";", start)] if start >= 0 else ""
+
+
+class TestStepExport(unittest.TestCase):
+    """The GD&T of a part, written (docs/GDandT.md sec 5.2, P3): AP242, its
+    semantics on the faces exported, each with its plane and its graphic,
+    and read back as it was -- with the part's placement kept in the file
+    and without"""
+
+    def setUp(self):
+        from PMITests.TestModel import BOTTOM, FRONT, HOLE, LEFT, RIGHT, TOP, face_at
+
+        self.dir = tempfile.mkdtemp(prefix="pmi-export-")
+        doc = self.doc = App.newDocument("PMIExport")
+        self.addCleanup(App.closeDocument, doc.Name)
+        body = self.body = doc.addObject("PartDesign::Body", "Body")
+        box = doc.addObject("PartDesign::AdditiveBox", "Box")
+        body.addObject(box)
+        box.Length, box.Width, box.Height = 40, 20, 10
+        hole = doc.addObject("PartDesign::SubtractiveCylinder", "Hole")
+        body.addObject(hole)
+        hole.Radius, hole.Height = 3, 10
+        hole.Placement = App.Placement(V(20, 10, 0), App.Rotation())
+        # Placed off the origin and turned: the annotations are in the
+        # Body's coordinates, the file's part in its own or the document's
+        body.Placement = App.Placement(V(100, 50, 5), App.Rotation(V(0, 0, 1), 30))
+        pset = doc.addObject("PMI::AnnotationSet", "PMI")
+        body.addObject(pset)
+        doc.recompute()
+        solid = body.SolidBodies[0]
+
+        def add(kind, name, **props):
+            o = doc.addObject("PMI::" + kind, name)
+            pset.addObject(o)
+            for k, v in props.items():
+                setattr(o, k, v)
+            return o
+
+        def feat(*points):
+            return add("TolerancedFeature", "Feature",
+                       References=[(solid, [face_at(solid.Shape, p) for p in points])])
+
+        for letter, p in (("A", BOTTOM), ("B", LEFT), ("C", FRONT)):
+            add("Datum", "Datum" + letter, Letter=letter, Feature=feat(p))
+        add("GeometricTolerance", "Flatness", Characteristic="Flatness", Value=0.05,
+            Feature=feat(TOP))
+        drf = add("DatumReferenceFrame", "DRF", Compartments=["A", "B", "C(M)"])
+        hole_feature = feat(HOLE)
+        add("GeometricTolerance", "Position", Characteristic="Position", Value=0.1,
+            ZoneShape="Diameter", MaterialCondition="Maximum", Feature=hole_feature,
+            DatumSystem=drf)
+        add("Dimension", "Dia", Type="Diameter", Features=[hole_feature], Upper=0.05,
+            Lower=-0.02)
+        add("Dimension", "Length", Type="Distance", Features=[feat(LEFT), feat(RIGHT)])
+        add("Note", "Note", Text=["BREAK EDGES"], Feature=feat(V(35, 15, 10)))
+        doc.recompute()
+        bad = [o.Name for o in doc.Objects if getattr(o, "Condition", "Ok") != "Ok"]
+        self.assertEqual(bad, [])
+
+    def export(self, keep, objs=None):
+        path = os.path.join(self.dir, "part-%d.step" % keep)
+        Import.export(objs or [self.body], path, keepPlacement=keep)
+        back = App.newDocument("PMIExportBack")
+        self.addCleanup(App.closeDocument, back.Name)
+        Import.insert(path, back.Name)
+        back.recompute()
+        return path, back
+
+    @staticmethod
+    def key(o):
+        for prop in ("Letter", "Characteristic", "Type"):
+            if hasattr(o, prop):
+                return (o.TypeId, str(getattr(o, prop)))
+        return (o.TypeId, "")
+
+    def test_it_writes_ap242_and_reads_back_the_same(self):
+        path, back = self.export(False)
+        self.assertIn("AP242", schema_of(path))
+        with open(path) as f:
+            text = f.read()
+        # The graphics in the callouts' blue, not OCCT's white
+        self.assertIn("TESSELLATED_ANNOTATION_OCCURRENCE", text)
+        self.assertNotIn("COLOUR_RGB('',1.,1.,1.)", text)
+        self.assertEqual(sorted(d.Letter for d in objects(back, "Datum")), ["A", "B", "C"])
+        tols = []
+        for gt in objects(back, "GeometricTolerance"):
+            frame = list(gt.DatumSystem.Compartments) if gt.DatumSystem else []
+            tols.append((gt.Characteristic, round(gt.Value, 6), gt.ZoneShape,
+                         gt.MaterialCondition, frame))
+        self.assertEqual(sorted(tols), [
+            ("Flatness", 0.05, "None", "None", []),
+            ("Position", 0.1, "Diameter", "Maximum", ["A", "B", "C(M)"]),
+        ])
+        dims = [(d.Type, round(d.Nominal, 4), round(d.Upper, 6), round(d.Lower, 6))
+                for d in objects(back, "Dimension")]
+        self.assertEqual(sorted(dims), [("Diameter", 6.0, 0.05, -0.02),
+                                        ("Distance", 40.0, 0.0, 0.0)])
+        notes = objects(back, "Note")
+        self.assertEqual([n.Label for n in notes], ["BREAK EDGES"])
+        self.assertTrue(notes[0].Feature)
+        bad = [o.Name for o in back.Objects if getattr(o, "Condition", "Ok") != "Ok"]
+        self.assertEqual(bad, [])
+
+    def test_placed_and_drawn_where_they_were(self):
+        origs = {self.key(o): o for o in self.doc.Objects
+                 if hasattr(o, "Plane") and o.TypeId != "PMI::View"}
+        for keep in (False, True):
+            with self.subTest(keepPlacement=keep):
+                _, back = self.export(keep)
+                # The part's own coordinates, or the document's
+                frame = self.body.Placement if keep else App.Placement()
+                seen = 0
+                for o in back.Objects:
+                    if not hasattr(o, "Plane") or o.TypeId == "PMI::View":
+                        continue
+                    orig = origs[self.key(o)]
+                    seen += 1
+                    want = frame.multiply(orig.Plane)
+                    self.assertLess((want.Base - o.Plane.Base).Length, 1e-6, o.Label)
+                    z = V(0, 0, 1)
+                    self.assertLess((want.Rotation.multVec(z)
+                                     - o.Plane.Rotation.multVec(z)).Length, 1e-9, o.Label)
+                    drawn = orig.Presentation.copy()
+                    drawn.transformShape(frame.toMatrix())
+                    a, b = drawn.BoundBox, o.ImportedGraphic.BoundBox
+                    for x, y in ((a.XMin, b.XMin), (a.YMin, b.YMin), (a.ZMin, b.ZMin),
+                                 (a.XMax, b.XMax), (a.YMax, b.YMax), (a.ZMax, b.ZMax)):
+                        self.assertAlmostEqual(x, y, 6, o.Label)
+                self.assertEqual(seen, len(origs))
+
+    def test_without_pmi_the_schema_is_left_alone(self):
+        path, _ = self.export(False)
+        self.assertIn("AP242", schema_of(path))
+        plain = self.doc.addObject("Part::Box", "Plain")
+        self.doc.recompute()
+        other = os.path.join(self.dir, "plain.step")
+        Import.export([plain], other)
+        self.assertNotIn("AP242", schema_of(other))
+
+
+class TestStepRoundTrip(Base):
+    """CTC-01 read, written and read again: what it reads the same"""
+
+    def test_ctc01(self):
+        doc = self.read(CTC01)
+        again = self.write_and_read(doc)
+        self.assertSameGdt(doc, again)
+        self.assertEqual(self.sound(again), [])

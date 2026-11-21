@@ -2161,25 +2161,6 @@ std::map<std::string, std::function<void(const PostImport&)>>& postImports()
     static std::map<std::string, std::function<void(const PostImport&)>> passes;
     return passes;
 }
-
-bool hasGDT(const Handle(TDocStd_Document) & hDoc)
-{
-    if (hDoc.IsNull() || !XCAFDoc_DocumentTool::IsXCAFDocument(hDoc)) {
-        return false;
-    }
-    TDF_Label main = hDoc->Main();
-    TDF_Label dimTol = XCAFDoc_DocumentTool::DGTsLabel(main);
-    // Present only if the reader made it: asking the tool would make one
-    Handle(XCAFDoc_DimTolTool) tool;
-    if (!dimTol.FindAttribute(XCAFDoc_DimTolTool::GetID(), tool)) {
-        return false;
-    }
-    NCollection_Sequence<TDF_Label> dims, tols, datums;
-    tool->GetDimensionLabels(dims);
-    tool->GetGeomToleranceLabels(tols);
-    tool->GetDatumLabels(datums);
-    return !dims.IsEmpty() || !tols.IsEmpty() || !datums.IsEmpty();
-}
 }  // namespace
 
 void ImportOCAF2::addPostImport(const std::string& name,
@@ -2190,7 +2171,7 @@ void ImportOCAF2::addPostImport(const std::string& name,
 
 void ImportOCAF2::runPostImport(bool progressive)
 {
-    if (!hasGDT(pDoc)) {
+    if (!Tools::hasGDT(pDoc)) {
         return;
     }
     if (postImports().empty()) {

@@ -257,6 +257,8 @@ The survey found five gaps [B2], in the order the phases need them:
    `XCAFDimTolObjects_GeomToleranceObject`.
 4. Saved views not written to STEP (`model_geometric_view` + `camera_model_d3`).
 5. The presentation curve colour hard-coded white; `writeDGTsAP242` ignoring its label list.
+   The colour is settable on the fork (`SetGDTPresentationColor`, 2026-11-21, sec 10.17); the
+   label list is not needed while an export's XCAF document holds only what it exports.
 
 Found reading the NIST set (sec 10.9), and fixed on the fork (2026-11-20):
 
@@ -269,6 +271,16 @@ Found reading the NIST set (sec 10.9), and fixed on the fork (2026-11-20):
 
 Still open: `dimensional_size_with_datum_feature` is not an entity the reader knows (STC-07's
 datum features). Datum targets are read and made (item 1, sec 10.11).
+
+Found writing (sec 10.17), and fixed on the fork (2026-11-21):
+
+8. A graphic-only item -- a `CommonLabel` or a `DimensionPresentation` -- written without its
+   annotation plane: `writeDGTsAP242` passed `HasPlane()` as "has semantics" and `false` as "has
+   a plane".
+
+Worked around, not fixed: `GenerateTessellatedCurveSet` writes a curve that is not a line as
+its B-spline's poles -- the control polygon, not the curve -- and reads an edge's curve without
+its location. The exporter hands OCCT polylines and meshes instead (sec 10.17).
 
 ## 6. Presentation
 
@@ -937,7 +949,7 @@ before the first ask and `{"cmd":"camera","restore":true}` takes it back
 that shows it; 0 fits what the client shows. A browser's view does not clip (a section is not
 streamed). "In a new 3D view" is the desktop's alone and is not offered to a browser.
 
-Tests: `pmi-views.py` (two 3D views side by side, the new one, the preference),
+Tests (10.16): `pmi-views.py` (two 3D views side by side, the new one, the preference),
 `serve-pmi-view.py` (the wire, on a view-only connection), and the browser leg
 `serve-pmi-view-browser.py` with `scripts/pmiview-drive.js` (not registered: node, puppeteer-core
 and a Chrome). In headless Chrome the page's picture changes by 67% when the view is made active
@@ -946,7 +958,78 @@ menu asked for from a script needs its ray to start at the page's eye: the serve
 the pixel of the client's camera it passes through. Under `.conda/limited.sh` Chrome needs
 `LIMITED_MEM_GB=256`: it reserves far more address space than 24 GB, and dies at launch.
 
-- Next: P3, STEP export (sec 10).
+- Next: P3, STEP export (10.17).
+
+### 10.17 P3: the GD&T of a part, written (2026-11-21)
+
+**The pass.** `Import::ExportOCAF2::addPostExport` is the export's twin of `addPostImport`: at
+the end of `exportObjects()` every pass gets the XCAF document and the label each exported
+object went to (`PostExport`). The PMI module's (`PMI::Step::write`, `StepExport.cpp`) writes,
+for every annotation set whose part was exported, its datums, datum targets, tolerances,
+dimensions and notes into the DimTolTool, on sub-shape labels of the exported shape
+(`AddSubShape`, as per-face colours are), each with its plane, its text point and its graphic.
+`Import::WriterStep` then writes AP242 whenever the document has GD&T (`Tools::hasGDT`), whatever
+the preferred schema, says so in the report view, and puts the preference back (decision 3).
+
+**What maps to what.** The import's tables, inverted: a characteristic to its
+`XCAFDimTolObjects_GeomToleranceType`, a zone shape to its type of value, MMR/LMR to the
+material requirement, `P` and `U` to the zone modifiers with their values, the rest of the
+modifiers to OCCT's; a dimension's type, its deviations (the lower one a magnitude, as OCCT
+keeps it), its decimal places and modifiers. A frame's compartments become datum labels of
+their own, each at its position with its modifiers, bound to the tolerance, as OCCT reads them
+(sec 10.9); the datum features are written first, as OCCT's writer takes the first label of a
+letter for the feature. A note is a graphic named by its text: a `DimensionPresentation` on its
+feature, a `CommonLabel` without one -- what the import reads back as a note. Not written, and
+reported as such: a basic dimension (OCCT has no theoretically exact dimension), a fit (H7: not
+yet), a modifier with no STEP equivalent (`UF`, `OZ`); a composite frame's lower segment is
+written as a frame of its own. Saved views (PMI::View) are P5's (sec 5.3.4).
+
+**Which face is which.** The annotations refer to a solid body's faces (sec 3), and a Body's
+shape, its solids' and its tip's are copies of one another: no TShape in common. An element is
+found in the exported shape by its TShape, else by its element map name in the part's shape
+(the names survive the copies), else by its place and size (centre and area, length, point) --
+unique, or not at all. The export either keeps the part's placement in the file (the shape in
+its own coordinates, a location on it) or bakes it into a copy (ExportKeepPlacement): both are
+covered, the copy's elements found by their index in the part's placed shape.
+
+**Where.** The annotations are in the set's coordinates -- the Body's own for a set in a Body,
+else those the part is placed in -- and the file's in the exported shape's: the move from one
+to the other is read off a face found in both. A graphic goes to OCCT as polylines and meshes:
+its writer takes a curve that is not a line for its B-spline's control polygon and ignores an
+edge's location (sec 5.3); a fill is a face of its triangles alone, so its edges are not written
+twice. The graphics are in the callouts' blue (`Mod/PMI/ExportColor`), not OCCT's white.
+
+**OCCT, fixed on the fork** (sec 5.3 items 5 and 8, and three found here):
+
+- `SetGDTPresentationColor` on `STEPCAFControl_Writer`; white unless set.
+- A graphic-only item written with its annotation plane (the two flags were swapped).
+- `GetTessellation` put a null item in the set for a graphic with no curves (a note of fills
+  alone) and for a face with no triangles: a model that cannot be written. Only the items made
+  go in now.
+- A graphic-only item on a part whose faces have no entity (a tessellated part, the NIST
+  `-tg` file) wrote a draughting model item association of a null shape aspect, and the
+  draughting model got no context: both "Null Reference" at write time. The item is the
+  product's then, as a common label's is, and the model takes the product's context.
+- `writeShapeAspect` returns nothing rather than a usage of a null item.
+
+`WriterStep` now says what the writer's checks say when a write fails ("Null Reference"),
+not "Cannot open file", which it said of every failure.
+
+The import gained one thing: a graphic-only item with no feature and nothing read before it
+goes beside the file's part (the `-tg` file's 56 notes were read as nothing).
+
+**Measured.** A Body placed at (100, 50, 5) and turned 30 deg, with three datums, a flatness, a
+position at MMC to A|B|C(M), a toleranced diameter, a distance and a note: written AP242 and
+read back, the same objects and values, every plane within 4.7e-13 (the placement kept out) or
+8.7e-12 (kept in), every graphic's extent within 9.2e-12. Every AP242 file of the NIST set, read,
+written and read again, reads the same -- datums, tolerances with their frames, dimensions (the
+nominal measured again, to 1e-3), datum targets, notes -- the `-tg` file's 56 notes included.
+
+Tests: `PMITests/TestStep.py` -- `TestStepExport` (the values, the placements both ways, the
+schema left alone without PMI), `TestStepRoundTrip` (CTC-01), and
+`TestNistSet.test_every_ap242_file_round_trips` when `FC_PMI_NIST` names the set.
+
+- Next: SFA on the output (sec 5.2 step 5); views written (P5, OCCT 5.3.4); then P4, TechDraw.
 
 ## 11. Decisions (made 2026-11-19)
 

@@ -631,8 +631,40 @@ Windows and macOS arm64, which bears out "every machine".
 - **Tests**: `Fluid_tests_run` (9) and `TestFluidWorkbench` (15), all
   against closed forms on `FreeFall`.
 
-Next in S1: the workbench and its panel, and playback of the kept frames
-in the 3D view.
+### 12.3 S1 as built, step 2: the workbench (2026-11-21)
+
+In Python, with no Gui library of its own yet.
+
+- **The workbench** (`InitGui.py`, `FluidCommands.py`): Create Study (the
+  solids selected are its walls), Fluid at the Start (the solids selected
+  are full of fluid; shown seen through), Height Monitor and Pressure
+  Monitor (at the point picked), Run and Play Back (the study's panel).
+  The study worked on is the one selected, a selected child's, or the
+  document's only one -- never a guess between two.
+- **The panel** (`TaskFluidStudy`): the solver -- every registered
+  backend, one that cannot run here marked and its reason as the tool
+  tip, and "the first that can run here" --, the resolution (0 shown as
+  Automatic), the end time and the frame interval; Run, which becomes
+  Cancel, with the frames and the time made so far; then the kept
+  results: how many frames, from which backend, whether they are of the
+  study as it was before a change; Play and the timeline; each monitor's
+  value at the frame shown.
+- **A frame in the view** (`FluidPlayback.py`): `Frames` reads a kept
+  frame when it is shown; `FrameView` draws it by its kind -- particles
+  as points of a size on the screen, a surface as triangles seen from
+  both sides -- in one Coin node under the view's scene graph, replaced
+  frame by frame. While frames show, the solids the fluid started in are
+  hidden; closing the panel brings them back.
+- **Tests**: `TestFluidWorkbench` 23 (was 15): the frames by time, the
+  monitors' rows, the study chosen, and the drawn node's points and
+  triangles; the workbench driven in the GUI by a script (commands,
+  panel, run, play) under `~/.cache/fluid/gui`.
+
+Not yet: particles drawn as spheres or as a surface made from them, a
+plot of the monitors, saving the playback as a video, and drawing by the
+renderer rather than Coin (so the frames reach the browser viewer). The
+manual's page waits for S2: on the test data the water falls through the
+tank's floor, which is nothing to show a user.
 
 ## 13. For the user to rule (2026-11-21)
 

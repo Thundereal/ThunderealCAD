@@ -2227,8 +2227,16 @@ not in one chain.
 What the 1.59x would cost, measured the same day:
 
 - Memory: a worker recomputing scanner peaks at 963 MB resident, this
-  process at 425 MB. A second worker is about another gigabyte on the 8 GB
-  mini.
+  process at 425 MB. Resident is not what the worker costs: it counts
+  shared library pages and memory malloc has freed but kept
+  (reclaimable). Its footprint (`footprint -p`, dirty and compressed
+  memory it owns -- what macOS charges it), probe `wfoot.py`: sampled
+  every half second or so during the recompute, at most 459 MB (resident
+  694 MB then; resident peaked at 910 MB in that run); idle after, kept
+  for the next job, 257 MB against 878 MB resident, of which 507 MB was
+  reclaimable malloc memory. This process: 207 MB after the open, 239 MB
+  after the put-in. A second worker is then a quarter to a half gigabyte,
+  not one; the sampling may miss the top of the peak.
 - Cores: the pattern alone is 6.58 s wall and 13.66 s CPU -- OCCT's
   parallel boolean already uses two cores on average of the 8. The rest
   would run on the cores left, so the bound is not taken from the pattern.

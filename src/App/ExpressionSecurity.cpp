@@ -33,6 +33,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <Base/FileInfo.h>
+
 #include "ExpressionSecurity.h"
 
 using json = nlohmann::json;
@@ -651,7 +653,9 @@ bool GrantStore::save(const std::string &path, std::string *errMsg) const
             return false;
         }
     }
-    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+    // FileInfo's rename replaces the file there on Windows too, where
+    // std::rename() refuses to: grants.json was never updated there
+    if (!Base::FileInfo(tmp).renameFile(path.c_str())) {
         if (errMsg)
             *errMsg = "cannot rename " + tmp + " over " + path;
         std::remove(tmp.c_str());

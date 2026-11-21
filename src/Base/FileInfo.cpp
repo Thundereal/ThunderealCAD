@@ -610,7 +610,14 @@ bool FileInfo::renameFile(const char* NewName)
 #if defined(FC_OS_WIN32)
     std::wstring oldname = toStdWString();
     std::wstring newname = toLongPath(ConvertToWideString(NewName));
-    res = ::_wrename(oldname.c_str(), newname.c_str()) == 0;
+    // As rename() does elsewhere: a file there already is replaced, where
+    // _wrename() refuses it (errno 13), and what was renamed over a file
+    // -- a store written whole beside itself -- was never updated
+    res = ::MoveFileExW(oldname.c_str(), newname.c_str(),
+                        MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED) != 0;
+    if (!res) {
+        errno = ::GetLastError() == ERROR_ACCESS_DENIED ? EACCES : EIO;
+    }
 #elif defined(FC_OS_LINUX) || defined(FC_OS_CYGWIN) || defined(FC_OS_MACOSX) || defined(FC_OS_BSD)
     res = ::rename(FileName.c_str(), NewName) == 0;
 #else

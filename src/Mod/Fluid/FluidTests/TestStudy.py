@@ -6,6 +6,7 @@
 
 import array
 import os
+import shutil
 import tempfile
 import time
 import unittest
@@ -251,7 +252,9 @@ class TestResults(FluidCase):
     def test_kept_in_the_document(self):
         self.assertEqual(self.study.run(), 0)
         before = pointsOf(self.study.getFrame(4))
-        path = os.path.join(tempfile.mkdtemp(), "FluidKept.FCStd")
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "FluidKept.FCStd")
         self.doc.saveAs(path)
         App.closeDocument(self.doc.Name)
         self.doc = App.openDocument(path)

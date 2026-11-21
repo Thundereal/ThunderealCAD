@@ -5,6 +5,7 @@
 # Nothing is fetched here.
 
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -52,6 +53,7 @@ class TestDownload(unittest.TestCase):
 
     def test_parallel_layer_mended(self):
         folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
         lib = os.path.join(folder, "lib")
         os.makedirs(os.path.join(lib, "dummy"))
         # nothing shipped: nothing to mend

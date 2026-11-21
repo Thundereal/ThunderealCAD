@@ -4,6 +4,15 @@ Status (2026-11-03): a design only. No code stands behind it. Work starts
 after the assembly simulation work (`docs/AssemblyDynamics.md`) is done;
 until then this document is the plan to start from.
 
+Status (2026-11-21): the assembly simulation work is done (D4b closed,
+16cead244a) and this starts. Still a design, revised on the user's
+direction the same day: **several solver backends behind one interface**
+(sec 10 surveys them, sec 11 is the design for it), and **the first
+result a dam break in CAD parts** (sec 12), which moves the free surface
+from F5 to the front. Secs 1 to 9 stand as written except where secs 10
+to 13 say otherwise; sec 13 lists what the user has to rule on before
+anything is installed or built.
+
 ## 1. What this is
 
 Fluid flow and heat transfer through and around the parts of a model, set
@@ -290,6 +299,9 @@ them) and its video in the manual.
 
 ## 8. Second backends, later
 
+Superseded 2026-11-21 by secs 10 and 11: several backends are designed
+for from the start. As written on 2026-11-03:
+
 Not planned, noted so the interface does not close them off:
 - SU2 (LGPL-2.1): a finite volume solver that could be linked in process.
 - A GPU lattice Boltzmann preview: seconds, not hours, for a first look
@@ -317,3 +329,231 @@ Not planned, noted so the interface does not close them off:
   add.
 - Whether the FEM workbench's VTK pipeline objects are worth sharing for
   results, or the renderer path makes them redundant.
+
+## 10. The solvers surveyed (2026-11-21)
+
+Read from the projects' own pages that day, and from the vendored Chrono's
+source. "Checked" is read on the page or in the source; "summary" is seen
+in a search result only; "unchecked" is said so. Nothing here is measured
+on this box yet.
+
+### 10.1 What each is
+
+- **OpenFOAM, interFoam** (finite volume, volume of fluid). The free
+  surface as a field on a mesh; pressures and forces on walls are what it
+  is validated for (Kleefsman's case among them, summary). CPU, MPI. A
+  separate program, GPL-3 (sec 3.1). ESI v2606 (2026-06) and the
+  Foundation's 14 (2026-07), summary. Linux natively; Windows by WSL,
+  Docker or ESI's MinGW build; macOS only in a VM or Docker (summary). On
+  conda-forge for linux-64 only, OpenFOAM 2412 (summary). Needs a volume
+  mesh of the fluid's space (sec 5.4). Bodies moved by the fluid: its own
+  rigid-body mesh motion (small motions, no contact), or coupled to
+  another program through preCICE.
+- **Chrono FSI-SPH** (weakly compressible SPH, particles). In the vendored
+  Chrono 10, not built. **CUDA only**: checked in
+  `chrono_fsi/sph/CMakeLists.txt` ("requires CUDA") and on its install
+  page (CUDA 12.8 or newer, an NVIDIA card, "cannot be built for MacOS").
+  An AMD route (HIP) is in Chrono's development branch, not in 10.0. BSD-3,
+  in process. Coupled to Chrono's bodies and finite elements as it comes:
+  boundary markers from each body's collision shape, forces back each
+  step. Periodic and inlet/outlet sides (summary). Validated on dam break
+  and sloshing in its authors' papers (summary), none found against
+  Lobovsky or Kleefsman.
+- **Chrono FSI-TDPF** (potential flow, Cummins' equation). Floating bodies
+  in waves from coefficients computed beforehand by a boundary element
+  program. No free surface is resolved: no dam break, sloshing, jet or
+  filling. CPU; needs HDF5 (checked in its CMakeLists). Out of this plan.
+- **SPlisHSPlasH** (SPH: DFSPH, IISPH, PBF, WCSPH and others). MIT; a C++
+  library with a Python package; CPU with OpenMP and AVX (its GPU part is
+  the neighbour search alone, CUDA); Windows and Linux tested, macOS
+  wheels seen (summary). Static and moving rigid boundaries, emitters,
+  viscosity, surface tension. Its moving bodies are its authors' own
+  library's; feeding it another solver's bodies is glue to write. Made
+  for computer graphics: fast and robust, no engineering validation of
+  its pressures found.
+- **DualSPHysics** (weakly compressible SPH). LGPL-2.1; CPU (OpenMP) and
+  CUDA builds; Windows and Linux, no macOS; v5.4 (2025-03). The best
+  validated particle code found: dam break on an obstacle, sloshing,
+  wave makers, open boundaries. A pipeline of programs over case files
+  (GenCase, the solver, post tools). Its coupling with Chrono is to a
+  patched Chrono 9 of its own, not ours.
+- **preCICE** (a coupling library, LGPL-3). Official adapter for OpenFOAM;
+  none for Chrono in its list, but Chrono's development branch has a
+  `Chrono::PRECICE` module with an OpenFOAM demo -- after 10.0, not in a
+  release (checked in Chrono's changelog).
+- **Lattice Boltzmann**: FluidX3D's licence forbids commercial use --
+  out. Palabos (AGPL or GPL, reports differ) and waLBerla (GPL-3) are
+  frameworks cases are compiled against: separate programs, heavy to
+  package; not pursued.
+- **PySPH, Taichi, Warp**: research and demonstration frameworks; none a
+  backend to ship.
+
+### 10.2 Side by side
+
+| | method | runs on | macOS | licence | how it is run | bodies moved by the fluid |
+|---|---|---|---|---|---|---|
+| OpenFOAM interFoam | VOF on a mesh | CPU, MPI | VM only | GPL-3 | separate program, case files | its own mesh motion, or preCICE |
+| Chrono FSI-SPH | SPH | NVIDIA GPU only | no | BSD-3 | in process | Chrono's, as it comes |
+| SPlisHSPlasH | SPH (DFSPH...) | CPU | likely | MIT | in process (library) | glue to write |
+| DualSPHysics | SPH | CPU or NVIDIA GPU | no | LGPL-2.1 | separate programs, case files | its own Chrono 9 |
+
+What follows from it:
+- No one solver runs everywhere, is validated for pressure, and moves our
+  Chrono bodies. The interface has to take both kinds: a library stepped
+  in process and a program run over files.
+- The only solver that runs on every machine we ship to is SPlisHSPlasH,
+  and it is the one without engineering validation -- so it has to be
+  validated here, against the same cases as the others.
+- OpenFOAM is the reference for pressures and forces, and what secs 1 to
+  7 already plan for the rest of CFD.
+- Chrono FSI-SPH is the shortest way to parts and fluid pushing each
+  other, for those with the card.
+
+### 10.3 What to test a dam break against
+
+- **Martin and Moyce (1952)**: the front's position against time, both
+  scaled by the column's base. The table's numbers were not readable from
+  the scan found; they are to be taken from the paper before a test is
+  written, not from memory.
+- **Lobovsky et al. (2014)** (arXiv 1308.0115, checked): tank 1610 x 600 x
+  150 mm, gate 600 mm from the end wall, water 300 or 600 mm deep, 100
+  runs each. The front's speed over sqrt(g H): 1.56 at 300 mm (others'
+  experiments 1.3 to 1.7; Ritter's ideal 2). Pressures on the far wall at
+  3, 15, 30 and 80 mm up: at 300 mm the median peaks 91.4, 57.5, 43.8 and
+  30.2 mbar, with their 2.5% and 97.5% bands (the lowest sensor's 75 to
+  131). The peak scatters run to run: a test holds the band and the
+  impulse, not one peak.
+- **Kleefsman et al. (2005), SPHERIC test 2**: tank 3.22 x 1 x 1 m, column
+  1.228 m long and 0.55 high, a box 0.161 x 0.403 x 0.161 in its way;
+  water heights at four probes and pressures at eight sensors on the box,
+  the data published with the benchmark. A dam break on a part, which is
+  the user's case.
+
+## 11. Several backends behind one interface
+
+Sec 5.3 has one interface with OpenFOAM first. This is what it takes for
+the solvers of sec 10 to sit behind it.
+
+### 11.1 The neutral model says what, never how
+
+The study builds one plain-data model, SI, for every backend:
+- the **walls**: each part as a closed triangulation with a patch id per
+  triangle, and whether it is fixed, moved as given (a kept Assembly run)
+  or moved by the fluid;
+- the **fluid at the start**: closed volumes filled with it (a block of
+  water is a solid the user picks or draws), and its material;
+- the **space**: the box nothing leaves, or its open sides;
+- **inlets and outlets** on faces (later; not for the dam break);
+- gravity, the end time, the output interval;
+- a **resolution**: one length, the size of what is to be resolved. A
+  particle backend takes it as its spacing, a mesh backend as its base
+  cell; nothing in the model names particles or cells;
+- the **monitors** (sec 5.2): force on faces, a height at a line, a
+  pressure at a point.
+
+A backend that needs a volume mesh makes it from the walls itself (sec
+5.4); one that needs boundary particles samples them itself.
+
+### 11.2 Capabilities, asked not assumed
+
+As Assembly's `Capabilities`: each backend says what it can do --
+free surface, inlets, moving walls, bodies moved by the fluid, heat,
+steady runs, bitwise repeatable -- and what it needs to run (a program
+found on this machine and its version, a GPU of a kind). The panel lists
+the backends that can run the study as set up and says why the others
+cannot. A study keeps the backend and version its results came from.
+
+### 11.3 Two ways to run, one session
+
+- **In process**: a library stepped by us (Chrono FSI-SPH, SPlisHSPlasH).
+- **A program**: a case written, processes run, logs and files read (sec
+  5.5: OpenFOAM, DualSPHysics).
+
+Both behind the same session calls -- `prepare()`, `run()` with progress,
+`cancel()`, `results()` -- every argument and result plain data, so the
+session itself can be served from another process (sec 5.8). A GPL
+program is only ever on the far side of files and a process (sec 3.1).
+
+### 11.4 Results: three kinds, each drawn one way
+
+A backend returns what it has; the view draws by kind, not by backend:
+- **particles** per frame (positions, optionally velocity and pressure):
+  drawn as instanced spheres, or as a surface made from them;
+- **a surface** per frame (the free surface as triangles; a VOF backend's
+  half-full iso-surface, or a particle backend's own surface
+  reconstruction);
+- **fields on a mesh** (secs 5.6): faces, cut planes, streamlines.
+
+And for every backend alike, the **monitors' series** -- which is what
+the tests compare, so one validation test runs against every backend
+that can run its case. Frames are kept as content-addressed blobs, read
+lazily, as Assembly's results are; the renderer plays them back, and the
+browser tier reads the same frames (Simulator.md stages 4 and 5).
+
+### 11.5 Bodies moved by the fluid
+
+The seam is already in the vendored Chrono and builds without CUDA: the
+generic `Chrono_fsi` library (`ChFsiSystem`, `ChFsiInterfaceGeneric`,
+depending on Chrono's core alone, checked in its CMakeLists). A fluid
+solver is anything that implements `ChFsiFluidSystem`: it is handed the
+bodies' states (`LoadSolidStates`), steps, and hands back the force and
+torque on each (`StoreSolidForces`). So:
+- Chrono FSI-SPH is one such, as it comes;
+- an in-process backend of ours (SPlisHSPlasH) becomes one by a wrapper:
+  poses in, forces out;
+- a program (OpenFOAM) becomes one by a wrapper that exchanges the same
+  two things each step over preCICE or files -- last, as sec 5.7 says.
+
+The Assembly's Chrono backend owns the bodies in every case; a fluid
+backend never owns a mechanism. One-way cases (walls fixed, or moved as a
+kept run has them) need none of this, and come first.
+
+## 12. The free-surface track, first
+
+Ruled 2026-11-21: the first working result is a dam break in CAD parts.
+These phases go ahead of F1 to F4; F0's toolchain work is shared.
+
+- **S0. The toolchain, measured.** Each candidate backend run on its own
+  dam break example on this box, outside FreeCAD: does it install here,
+  how long a run takes at what resolution, what comes out. Decides the
+  order of S2. No FreeCAD code.
+- **S1. The frame of it.** `Mod/Fluid`: Study, the fluid at the start,
+  the walls from the assembly's parts (Links and sub-assemblies as their
+  shapes), a height and a pressure monitor; the neutral model (sec 11.1);
+  the backend interface (secs 11.2 to 11.4); kept results; playback of
+  particles or a surface in the 3D view on the Simulation panel's
+  timeline. Tested with a backend of test data.
+- **S2. The first backend, and the dam break.** A tank and a block of
+  water made of parts; released; played back. Validation: the front's
+  speed against Lobovsky's 1.56 sqrt(g H) and the others' range; the wall
+  pressures' impulse and peaks within Lobovsky's bands; then Kleefsman's
+  box (heights and pressures against the published data).
+- **S3. The second backend**, on the same tests unchanged -- the proof
+  that the interface is one.
+- **S4. Parts moved by the fluid** (sec 11.5): a floating block at rest
+  at its draught (Archimedes), then one dropped in; first on the backend
+  where it is cheapest.
+- **S5. Inlets**: a jet from a face onto a part, the force against the
+  momentum's closed form, rho Q v.
+
+## 13. For the user to rule (2026-11-21)
+
+1. **The first backend (S2).** OpenFOAM: validated, CPU, already this
+   document's plan, but a separate GPL program users install, no native
+   macOS, and a mesh to make. SPlisHSPlasH: MIT, in process, every
+   machine, but to be validated by us. Chrono FSI-SPH: nearest to the
+   Assembly's dynamics, NVIDIA only. Proposed: S0 measures all three
+   here, then OpenFOAM first (the reference the others are held to) and
+   SPlisHSPlasH second (what every user can run).
+2. **Installs S0 needs on this box**, none made yet: OpenFOAM (the
+   conda-forge package into a separate env through the tunnel, or apt in
+   WSL with sudo); the CUDA toolkit for Chrono FSI-SPH (several GB);
+   SPlisHSPlasH from PyPI into a scratch env.
+3. **A module of its own, `Mod/Fluid`** (sec 5.1), or the free-surface
+   study as another kind of Assembly simulation, sharing its panel,
+   timeline and results store. Proposed: `Mod/Fluid`, using Assembly's
+   playback and results code where it can be shared.
+4. **What users without OpenFOAM see**: the backend listed as not found,
+   with how to install it (as CfdOF does), or OpenFOAM bundled (GPL:
+   source offered). Sec 9 has this open already.
+

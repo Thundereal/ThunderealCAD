@@ -1324,6 +1324,57 @@ Open:
 - P4 slices done: callouts, placement, linked dimensions, pages from views.
 - Next: the P4 manual page.
 
+### 10.23 P4 progress: a page that reads (2026-11-22)
+
+The manual's plate (80 x 50, datums A B C, three positions at MMC, a flatness, the length and
+width) on a page from three PMI views showed what the test part had not: the views at 1:2 on
+an empty sheet, frames on the dimension lines, a datum's leader through the part. Now:
+
+**Layout.** The grid fills down the columns -- the view from above over the one from the
+front, as third angle has them; a section over its base -- each row as tall as its tallest
+view, each column as wide as its widest. What is left is shared evenly between the views and
+the sheet's edges, not split inside each cell. The plate's views: 1:1 (was 1:2, every row
+as tall as the tallest view on the page).
+
+**Dimensions follow the 3D view.** A dimension whose plane faces the view takes its text
+where the 3D view has it (`projectPoint`, offset to the view's centred lines by a visible
+edge whose ends agree), as the frames do. One that does not face it, and a diameter (level
+with its centre), stand where they did.
+
+**Frames and dimensions keep off each other**, the frames having the user's places:
+- dimensions are planned before the frames, and the frames keep clear of their extension
+  lines -- out to where each is meant to stand and 12 mm past -- but not of their dimension
+  lines, which move instead;
+- each dimension is then moved out from what it measures until its text and lines clear
+  the frames; failing that, on the other side; failing that, where it was meant to;
+- a dimension's line is drawn 1.45 heights of its text under the text's middle (0.77 to
+  the right for a DistanceY: QGIViewDimension puts it half the label's height and a line
+  spacing off, the label taller than its lettering), measured on the page;
+- planned the same on a second import, so a frame not moved stays where it was.
+
+**Leaders.** A frame's place is now also one from which its leader crosses none of the
+view's lines and no frame; failing that, none of the lines; failing that, as before. The
+leader is taken as TechDraw draws it from a symbol: from the middle of the frame's side
+nearer its end (QGIViewBalloon), to just short of the end. A later frame keeps off the
+earlier leaders. So datum A on the plate's bottom face goes under the front view, not
+above it with its leader through the part.
+
+A leader to a **circle** ends where the line from its centre to the frame meets it --
+pointed at the centre from the near side, as a hole's is -- not at the middle of the edge,
+which is as often on the far side: the test part's position leader crossed its own hole.
+
+**The sheet.** Each view's caption is in the way (TechDraw writes it centred under the
+view's lines, in the label font), and so is all of each dimension of the other views.
+
+Measured on the plate: 1:1; the 80 +-0.1 above the slot's frame, the 50 left of the top
+view (both where the 3D view has them); datum A under the front view; no frame on a line,
+a caption or a dimension.
+
+Open:
+- a leader from a frame that has no clear way to its end still crosses (the import shot's
+  slot position, over the holes' frame): the frames are placed one at a time;
+- a datum's triangle follows its leader, aslant when the leader is.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

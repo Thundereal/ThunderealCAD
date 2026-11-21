@@ -16,6 +16,7 @@ import time
 import unittest
 
 import FreeCAD as App
+import Part
 
 try:
     import TechDraw  # noqa: F401
@@ -134,18 +135,24 @@ class TestImportModelAnnotations(unittest.TestCase):
 
     def test_on_the_feature_where_the_3d_view_shows_it(self):
         TechDrawPMI.importAnnotations(self.view)
-        mids = []
-        for i, (name, _source, _index) in enumerate(self.view.getEdgeNames()):
-            if ";HLR:V" in name:
-                e = self.view.getEdgeByIndex(i)
-                m = e.valueAt((e.FirstParameter + e.LastParameter) / 2)
-                mids.append((m.x, -m.y))
+        edges = [self.view.getEdgeByIndex(i)
+                 for i, (name, _source, _index) in enumerate(self.view.getEdgeNames())
+                 if ";HLR:V" in name]
         got = self.imported()
         for name, c in got.items():
-            # The leader ends in the middle of a visible edge of the view
-            tip = (c.OriginX.Value, c.OriginY.Value)
-            self.assertLess(min(abs(tip[0] - x) + abs(tip[1] - y) for x, y in mids), 1e-6,
-                            name)
+            # The leader ends on a visible edge of the view: in its middle; on
+            # a circle, pointed at its centre from the frame's side
+            tip = V(c.OriginX.Value, c.OriginY.Value, 0)
+            e = min(edges, key=lambda e: e.distToShape(Part.Vertex(tip))[0])
+            self.assertLess(e.distToShape(Part.Vertex(tip))[0], 1e-6, name)
+            if isinstance(e.Curve, Part.Circle):
+                out = tip - e.Curve.Center
+                frame = V(c.X.Value, c.Y.Value, 0) - e.Curve.Center
+                self.assertLess(out.cross(frame).Length, 1e-6 * frame.Length, name)
+                self.assertGreater(out.dot(frame), 0, name)
+            else:
+                m = e.valueAt((e.FirstParameter + e.LastParameter) / 2)
+                self.assertLess((m - tip).Length, 1e-6, name)
             self.assertEqual(list(c.ImportOffset),
                              [c.X.Value - c.OriginX.Value, c.Y.Value - c.OriginY.Value])
         # Seen from the top, x right and y up, in the model's lengths: the
@@ -166,6 +173,38 @@ class TestImportModelAnnotations(unittest.TestCase):
         dy = p.OriginY.Value - f.OriginY.Value
         self.assertLess(abs(dx), 3.0 + 1e-6)
         self.assertAlmostEqual(math.hypot(dx, abs(dy) - 10.0), 3.0, places=6)
+
+    def test_leaders_and_dimensions_clear(self):
+        """No leader crosses a line of the view -- a hole's from the near side,
+        pointed at its centre; each from the middle of its frame's side nearer
+        its end, as TechDraw draws it -- nor a frame; no dimension's lines, from what
+        it measures out to its text, cross a frame"""
+        TechDrawPMI.importAnnotations(self.view)
+        scale = self.view.getScale()
+        lines = TechDrawPMI._lines(self.view, self.view.getEdgeNames(), scale)
+        got = self.imported()
+        boxes = {n: TechDrawPMI._box(c, scale) for n, c in got.items()}
+        for name, c in got.items():
+            # From the middle of the frame's side nearer its end
+            b = boxes[name]
+            tip = (c.OriginX.Value * scale, c.OriginY.Value * scale)
+            seg = TechDrawPMI._leader(((b[0] + b[2]) / 2, (b[1] + b[3]) / 2),
+                                      (b[2] - b[0], b[3] - b[1]), tip)
+            self.assertIsNotNone(seg, name)
+            self.assertFalse([s for s in lines if TechDrawPMI._crosses(*seg, *s)], name)
+            self.assertFalse([o for o, ob in boxes.items()
+                              if o != name and TechDrawPMI._clip(ob, *seg)], name)
+        dims = [d for d in self.doc.Objects
+                if d.isDerivedFrom("TechDraw::DrawViewDimension") and d.Source]
+        self.assertEqual(sorted(d.Source.Name for d in dims), ["HoleSize", "Width"])
+        for d in dims:
+            size = TechDrawPMI._text_size(d.Source, d.Type)
+            segs = TechDrawPMI._dimension_lines(self.view, list(d.References2D[0][1]), d.Type,
+                                                (d.X.Value, d.Y.Value), size, scale)
+            self.assertTrue(segs, d.Source.Name)
+            self.assertFalse([o for o, b in boxes.items()
+                              if any(TechDrawPMI._clip(b, p, q) for p, q in segs)],
+                             d.Source.Name)
 
     def test_clear_of_each_other_and_of_the_lines(self):
         """On paper the frames keep the 3D view's places where those are clear;

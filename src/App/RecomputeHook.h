@@ -26,6 +26,7 @@
 #include <map>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <FCGlobal.h>
 
@@ -89,6 +90,18 @@ public:
     using Refusal = bool (*)(const DocumentObject& obj, std::string& why);
     static void setRefusal(Refusal refusal);
     static bool refuses(const DocumentObject& obj, std::string& why);
+
+    /** What a recompute asked of this process is offered first, before it
+     * runs: a recompute that reaches an object which crashed a worker
+     * before -- one changed since, tried again -- is made by a worker and
+     * waited for, so that a crash again costs the worker, whoever asked for
+     * the recompute: a script, the console (docs/WorkerProcess.md sec 37).
+     * What is left is made here as ever. Set by WorkerRecompute; not asked
+     * while a hook is installed for the document.
+     */
+    using Handover = void (*)(Document& doc, const std::vector<DocumentObject*>& objs);
+    static void setHandover(Handover handover);
+    static void handOver(Document& doc, const std::vector<DocumentObject*>& objs);
 
     /// How many numbers objects were given on this thread so far
     /// (Document::nextGeoId, nextObjectCount)

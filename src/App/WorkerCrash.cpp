@@ -27,10 +27,12 @@
 //   --- worker crash ---
 //   signal 11 code 1 address 0x10 sender 0
 //   at Pad
-//   frame 0x0000000104b1a80 0x0000000104a00000 _ZN3App3FooEv 0x40 /path/libX.dylib
-//   ...
 //   python
 //   <the tracebacks, as faulthandler says them>
+//   end of python
+//   pc 0x0000000104b1a80                (not on macOS, whose walk starts there)
+//   frame 0x0000000104b1a80 0x0000000104a00000 _ZN3App3FooEv 0x40 /path/libX.dylib
+//   ...
 //   --- end of worker crash ---
 //
 // Everything in the handler is async-signal-safe, or as near as a crash
@@ -247,7 +249,20 @@ void handler(int sig, siginfo_t* info, void* context)
 #if defined(FC_OS_MACOSX)
     putFrames(context);
 #else
-    (void)context;
+    // Where it was, for the pool to leave out the frames above it: the
+    // handler's and the signal's trampoline, whose names dladdr() may not
+    // know
+    if (auto uc = static_cast<ucontext_t*>(context)) {
+#if defined(__x86_64__)
+        put("pc ");
+        putHex(static_cast<unsigned long long>(uc->uc_mcontext.gregs[REG_RIP]));
+        put("\n");
+#elif defined(__aarch64__)
+        put("pc ");
+        putHex(static_cast<unsigned long long>(uc->uc_mcontext.pc));
+        put("\n");
+#endif
+    }
     void* frames[128];
     const int count = backtrace(frames, 128);
     for (int i = 0; i < count; ++i) {
@@ -401,6 +416,7 @@ WorkerCrash::Report WorkerCrash::read(const std::string& log)
     std::istringstream in(log.substr(begin + std::strlen(Begin)));
     std::string line;
     bool python = false;
+    unsigned long long pc = 0;
     while (std::getline(in, line)) {
         if (line == End) {
             report.whole = true;
@@ -459,8 +475,22 @@ WorkerCrash::Report WorkerCrash::read(const std::string& log)
         else if (word == "python") {
             python = true;
         }
+        else if (word == "pc") {
+            std::string value;
+            words >> value;
+            pc = hex(value);
+        }
     }
-    const std::size_t first = firstOfTheCrash(report.frames);
+    std::size_t first = firstOfTheCrash(report.frames);
+    // The frame of where it was, when the handler said: above it are the
+    // handler's own
+    for (std::size_t i = 0; pc && i < report.frames.size() && i < 8; ++i) {
+        const auto a = report.frames[i].address;
+        if (a + 1 >= pc && a <= pc + 1) {
+            first = i;
+            break;
+        }
+    }
     report.frames.erase(report.frames.begin(),
                         report.frames.begin() + static_cast<std::ptrdiff_t>(first));
     return report;
@@ -490,20 +520,18 @@ std::string runTool(const QString& program, const QStringList& args)
 /// "Document.cpp:18989" out of what atos or addr2line say of a frame
 std::string lineOf(const std::string& said)
 {
-    // atos: "fn (in lib) (File.cpp:12)"; addr2line: "/path/File.cpp:12"
-    const auto close = said.rfind(')');
-    const auto open = said.rfind('(');
-    std::string where;
-    if (close != std::string::npos && open != std::string::npos && open < close
-        && close == said.size() - 1) {
-        where = said.substr(open + 1, close - open - 1);
-    }
-    else {
-        where = said;
-    }
+    // atos: "fn (in lib) (File.cpp:12)"; addr2line: "/path/File.cpp:12",
+    // or "/path/File.cpp:12 (discriminator 3)"
+    std::string where = said;
     const auto discriminator = where.find(" (discriminator");
     if (discriminator != std::string::npos) {
         where.erase(discriminator);
+    }
+    if (!where.empty() && where.back() == ')') {
+        const auto open = where.rfind('(');
+        if (open != std::string::npos) {
+            where = where.substr(open + 1, where.size() - open - 2);
+        }
     }
     if (where.find(':') == std::string::npos || where.rfind("??", 0) == 0
         || where.find(" (in ") != std::string::npos) {

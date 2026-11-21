@@ -1012,7 +1012,9 @@ comes, while this process carries on.
 - **What a worker cannot hand over** -- answered unfit, the document left
   touched for a recompute here: an execute that makes or removes an
   object or removes a property; one that gives things new numbers (a
-  sketch's geometry ids, `Document::nextGeoId`, counted by the hook). A
+  sketch's geometry ids, `Document::nextGeoId`, counted by the hook --
+  handed over since, sec 36, when they are the numbers this process would
+  give). A
   property an execute adds is handed over: its type, group, doc and
   attributes go with the result, and it is added here as the execute did
   (`Helix._BaseShape1`). What no save writes is each process's own and
@@ -1786,8 +1788,8 @@ feature it made and keeps the dialog open if it failed, and
 follows the edited object -- the rest of the body, what reads it -- is
 the part that can be long. The edited object itself is not a worker's to
 make. The dialog has to know at once whether it came out. A sketch's
-execute may give geometry new ids, which makes a worker's job unfit (sec
-19).
+execute may give geometry new ids, which made a worker's job unfit (sec
+19; taken in since, sec 36).
 
 `Gui::makeEditedFirst(edited)` sums what uses the object
 (`expectedSeconds` over its InList, sec 28). Below RecomputeEditSeconds
@@ -1977,13 +1979,14 @@ stopped the pool -- ran the object that crashed in the application itself.
   (`editRecomputeIsLong`, `makeEditedFirst`, which then makes nothing
   here), so a second crash again costs only a worker. The Recompute
   command gives a recompute to a worker already. In the console nothing
-  hands it over: a lifted object runs here.
+  handed it over: a lifted object ran here (handed over since, sec 37).
 - `WorkerRecompute::Info::crashed` (Python `recomputeInfo()["Crashed"]`),
   `WorkerRecompute::crashed(obj)`.
 
 Not built: a sketch's execute gives geometry new ids, which no worker may
 (sec 19), so a crashing sketch handed over comes back unfit and is made
 here. The macOS crash reporter writes a report for each worker that dies.
+Both done since: sec 36 and sec 35.
 
 Tests: `TestWorkerRecompute.testACrashInAWorkerIsPutDownToItsObject` (a
 chain Before -> Crash -> After, Crash a Python feature that sends itself
@@ -1997,3 +2000,187 @@ outside once: made by the next). GUI test
 the Recompute command -- the application goes on, the error shown in the
 Report view and on the object, Recompute again kills no worker, the crash
 fixed and Recompute made by a worker.
+
+## 35. A worker's crash says what was on its stack (2026-11-21)
+
+The user, 2026-11-21: "can we capture crash call stack for diagnostics for
+both developer and end user". Before, the pool knew where in a job a worker
+died (sec 34) and by which signal, and nothing of what the process was
+doing; on macOS no crash handler was installed at all, in the worker or the
+application, and the system's crash reporter wrote a report for every
+worker that died.
+
+- **The worker writes it, as it goes.** `WorkerCrash::install()`, first
+  thing in `WorkerPool::serve()`: a handler of SIGSEGV, SIGBUS, SIGILL,
+  SIGFPE, SIGABRT and SIGTRAP, run on a stack of its own (a crash for want
+  of stack has none left). With nothing that allocates -- `write()`,
+  `dladdr()`, Python's own traceback dump (`_Py_DumpTracebackThreads`, what
+  faulthandler calls; `PyUnstable_DumpTracebackThreads` from 3.14) -- it
+  writes to the worker's stderr, which is its log in the pool's directory:
+  the signal, its code, the address, the sender for one sent; where in the
+  job it was (`WorkerCrash::setAt()`, from `Request::at`); every Python
+  thread's traceback; the frames of the thread that crashed, each with its
+  image, the image's base and the nearest symbol. On macOS the frames are
+  walked from the crash context (pc, lr, then the frame records, each
+  checked to lie in the thread's stack): `backtrace()` run on the
+  handler's stack, which is not the thread's, stops at once and gave no
+  frame at all. Elsewhere `backtrace()`, primed at install.
+- **It ends the process rather than die of the signal.** `_exit(128 +
+  signal)`: a process killed by the signal is what makes macOS's
+  ReportCrash write a report, eight of them for one test run before.
+  `Workers/SystemCrashReport` (false) dies of the signal instead, for the
+  system's report and a core where they are on.
+- **The pool reads it back.** When a worker goes in the middle of a job
+  (`crashOf()`), the last report in its log: how it ended is said from it
+  ("crashed (signal 11: Segmentation fault)", where the exit code alone
+  would say 139), the names demangled, the handler's own frames left out,
+  and the text goes into the application's crash log (`Base::CrashLog`,
+  `<UserAppData>/crash-<time>.log`, an entry "<doc>: worker N (pid P)
+  crashed making job J (kind)"), into the result (`Result::stack`,
+  `crashLog`; Python `Stack`, `CrashLog`) and, at log level, the Report
+  view. The error says where: "its worker died over it (crashed (signal
+  11: Segmentation fault)), at Crash; what was on its stack is in
+  .../crash-2026_11_21-09_53_57_073.log", and so does a quarantined
+  object's (sec 34): "... What was on the worker's stack is in ...". An end
+  user has a file to send; a developer has the frames.
+- **What it said last is read first.** A worker its handler ends is
+  reaped at once, and the pool heard of the process's end before it had
+  read the socket: its last `at` was still with the system, and the GUI
+  test lost "at Crash" (8 claims of 10 failed). `finished()` now reads
+  what is left on the socket before anything else.
+- **The frames' lines, away from the main thread.** On the global thread
+  pool (waited for at the exit, sec 33): `atos -o <image> -l <base>` for
+  each image on macOS -- only where the developer tools are, since
+  `/usr/bin/atos` without them asks the user to install them -- and
+  `addr2line -e <image>` elsewhere; a return address one back, for the
+  call's line. A second entry, "..., the frames with their lines": 0.3 s
+  for an image here, `WorkerRecompute.cpp:576`, `Document.cpp:19620`.
+  `Workers/CrashLines` (true).
+- **The application's own crash, on macOS too.** `Application::init`
+  installs `segmentation_fault_handler` on macOS as on Linux (SIGBUS
+  added on both): the raw frames to stderr, then the crash log, then death
+  by the signal -- the system's report and the dialog a user knows, as
+  before. A worker replaces it with its own.
+
+A report as the crash log has it, its lines found (the test's job
+`test.fault`, `ctypes.string_at(0)` in a worker; cut):
+
+    ===== 2026-11-21 10:20:46.015  CAUGHT  pid 32350  ...  WorkerRecompute:
+      worker 0 (pid 32457) crashed making job 1 (test.fault), the frames
+      with their lines =====
+    signal 11: Segmentation fault, at address 0x0
+    the thread that crashed:
+    #0  _platform_strlen + 0x4  (libsystem_platform.dylib +0xe64)
+    #1  string_at + 0x70  (_ctypes.cpython-312-darwin.so +0x98b0)
+    ...
+    #6  _PyEval_EvalFrameDefault + 0x31fe0  (libpython3.12.dylib +0x1e2590)
+    #7  App::WorkerPool::serve() + 0x1ad8  (libFreeCADApp.dylib +0x4cc9d8)  WorkerPool.cpp:3162
+    #8  (anonymous namespace)::serveWorkerPy(_object*, _object*) + 0x2c  (libFreeCADApp.dylib +0x63fb5c)  ApplicationPy.cpp:661
+    ...
+    #17  main + 0x498  (ThunderealCmd +0x3598)  MainCmd.cpp:134
+    Python:
+    Current thread 0x00000001ebb21e00 (most recent call first):
+      File ".../python3.12/ctypes/__init__.py", line 525 in string_at
+      File ".../Mod/Test/TestWorkerPool.py", line 54 in _fault
+      File ".../Ext/freecad/worker.py", line 69 in _run
+      File ".../Ext/freecad/worker.py", line 151 in serve
+
+The walk follows the frame records: a function that keeps none, or was
+reached by a tail call, is not there (#6 to #7 above skips the calls
+between the job's Python and the worker's loop; not chased). A recompute's crash, in a Python feature's execute(), has
+them all: `App::FeaturePythonImp::execute()` `FeaturePython.cpp:65`,
+`App::DocumentObject::recompute()`, `App::Document::_recomputeFeature()`
+`Document.cpp:19620`, `makeRecompute()` `WorkerRecompute.cpp:576`.
+
+Not built: Windows. A worker there has the CRT's handler, which writes its
+own crash log in the worker's user directory and throws.
+
+Tests: `TestWorkerRecompute.testACrashSaysWhatWasOnItsStack` (a job reading
+memory at 0: the result's How and Stack -- the address, Python's
+`_fault`, the native frames down to `App::WorkerPool::serve()` -- the
+crash log named in the error and holding the entry, then its lines entry
+with `WorkerPool.cpp:` where a tool is, and no new system report).
+`testACrashInAWorkerIsPutDownToItsObject` also checks the quarantine names
+the file. By hand: `ThunderealCmd -c "os.kill(os.getpid(), SIGSEGV)"`
+writes the crash log, exits 139, and macOS's report is made.
+
+## 36. A worker's recompute that gives new geometry ids is taken in (2026-11-21)
+
+The user, 2026-11-21: "Sketcher rebuild external geometry is a separate
+step from constraint solving. check if it is possible to split the task or
+find a way to sync geo id from worker, because their id counter is local
+scope only".
+
+What gives the numbers. A sketch's execute() is `rebuildExternalGeometry()`
+then the solve. The solve gives none: geometry keeps its ids. The rebuild
+gives a new id only to a piece of a projection no old piece stands for --
+a projected face come out in more edges than before, a reference added; a
+piece takes the id of the old one named after the same element, then of
+the unnamed ones in order. The counter (`Document::nextGeoId`) is the
+object's own and file wide (`FileHistory::_lastGeoIds`, kept above every id
+the object held in any version or branch), as is `nextObjectCount`, a
+body's sheet metal walls and bends. A worker's copy reads them from the
+store as of the last save: past them in memory here -- ids given to pieces
+since undone -- it would give an id this process gave. Before, any number
+given made the job unfit ("the recompute gave things new numbers"), and the
+whole recompute was made here.
+
+Splitting the task -- the rebuild here, the solve there -- would make every
+sketch two steps in two processes, with the solve waiting on what the
+projection reads, and keep the problem for anything else that numbers. The
+counters are synced instead:
+
+- **The worker counts on from what this process gave.** The job's inputs
+  carry, for each object the recompute reaches, what it gave so far
+  (`Document::givenNumbers()`: kind -1 the last geometry id, 0, 1, ... its
+  counts). The worker raises its own to them (`noteGivenNumber()`, which
+  never lowers one) before it recomputes.
+- **It says what it gave.** `RecomputeHook::noteMinted(obj, kind, before,
+  after)`, from `nextGeoId` and `nextObjectCount`; a
+  `RecomputeHook::Minting` living on the thread notes, per object and
+  kind, the count it went from first and to last. The result's output says
+  them: `numbers`, [name, kind, from, to]. An object made here that gave
+  numbers there (`madeHere`, TechDraw) still makes the job unfit: it gives
+  its own here.
+- **This process takes them if it gave none since.** Before the result is
+  put in (`takeNumbers()`, beside the strings): each object's count here
+  must be at most `from` -- else it gave numbers since the job was sent,
+  which may be the same numbers for other things, and the result is not
+  put in ("Sketch gave numbers here since"). Then each count is raised to
+  `to`: what this process gives next comes after the worker's.
+
+Tests: `TestWorkerRecompute.testASketchsNewGeometryIdsAreTakenFromAWorker`
+(a sketch projecting a Python feature's face, 4 sides, then 6: a worker
+makes it, nothing unfit or made here; 6 distinct ids, the 4 kept, the 2
+new above them; a line added here then gets an id above the worker's),
+`testAWorkerCountsOnFromIdsGivenHereAndUndone` (6 sides made here and
+undone: the worker's new ids are above the undone ones). The second, with
+the counts not sent, fails: the worker gives the undone ids again, the
+result is refused, and the recompute is made here.
+
+## 37. A script's recompute of what crashed is a worker's first (2026-11-21)
+
+The other limit of sec 34: an object taken out of its quarantine by a
+change is risky, and the GUI hands an edit's recompute that reaches it to a
+worker; a `doc.recompute()` -- the console, a script, a macro, a command
+that recomputes at once -- ran it here, where a crash again is the
+application's.
+
+`Document::recompute()` offers the recompute first
+(`RecomputeHook::handOver()`, before it marks the document recomputing;
+not while a hook is installed, so not a result being put in nor a worker's
+own). `WorkerRecompute`'s `handOverRisky()`: when what it reaches holds an
+object that crashed a worker before and is not refused now, the recompute
+is started with a worker and waited for (`WorkerRecompute::start`, `wait`,
+the pool polled); the result is put in; what is left is made here, as
+ever. A crash again quarantines the object again, and the recompute here
+leaves it in its error. One still refused needs no worker -- it is not
+executed anywhere -- and a recompute that cannot be started (no workers,
+the pool stopped) is made here. `Info::handedOver`, Python
+`recomputeInfo()["HandedOver"]`; `Workers/HandOverRisky` (true).
+
+Test: `TestWorkerRecompute.testAScriptsRecomputeOfWhatCrashedIsAWorkersFirst`
+(quarantined, a `doc.recompute()` is not handed over; changed but still
+crashing, it is, the worker dies twice and the object is refused again,
+nothing ran it here; fixed, the script's recompute is a worker's, and what
+reads it is made; with the option off, made here).

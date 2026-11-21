@@ -1890,6 +1890,13 @@ void WorkerPool::Private::finished(Proc& proc)
     if (proc.over) {
         return;
     }
+    // The process reaped before its socket was read: what it said last is
+    // still with the system. A worker its crash handler ends goes at once,
+    // and its last `at` came after the process's end (sec 35)
+    if (proc.socket && proc.socket->state() == QLocalSocket::ConnectedState) {
+        for (int i = 0; i < 100 && proc.socket->waitForReadyRead(10); ++i) {
+        }
+    }
     // What it said before it went
     read(proc);
     proc.over = true;
@@ -3632,6 +3639,7 @@ public:
             crashed.append(Py::String(n));
         }
         dict.setItem("Crashed", crashed);
+        dict.setItem("HandedOver", Py::Long(i.handedOver));
         return dict;
     }
 

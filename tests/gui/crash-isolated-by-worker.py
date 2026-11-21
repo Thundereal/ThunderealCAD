@@ -9,7 +9,8 @@ Claims, through the Recompute command:
     goes on;
   - Crash is left in an error that says it crashed a worker and is not
     recomputed here, shown in the Report view and on the object, and
-    nothing ran it here;
+    nothing ran it here; the line names the crash log, which holds the
+    worker's stack (sec 35);
   - Recompute again: Crash is not run here nor in a worker (no worker
     dies), Before is made;
   - Crash changed (its crash fixed): Recompute makes it, in a worker, and
@@ -89,6 +90,13 @@ def run():
               lines[:2])
         check("... and on the object", "crashed a worker process" in crash.getStatusString(),
               crash.getStatusString())
+        # What was on the worker's stack, in the crash log the line names
+        # (docs/WorkerProcess.md sec 35)
+        log = lines[0].split("What was on the worker's stack is in ")[-1].strip() if lines else ""
+        text = open(log, errors="replace").read() if log and os.path.exists(log) else ""
+        check("... which names the crash log, holding the worker's stack",
+              "crashed making job" in text and "Python:" in text and "in execute" in text,
+              (log, text[-400:]))
         check("... and nothing ran it here", "crashed here" not in TestWorkerPool._executions,
               TestWorkerPool._executions)
 

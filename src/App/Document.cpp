@@ -19026,6 +19026,9 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
         signalSkipRecompute(*this,objs);
         return 0;
     }
+    // What crashed a worker before, tried again: a worker first, so that a
+    // crash again is not this process's (docs/WorkerProcess.md sec 37)
+    RecomputeHook::handOver(*this, objs);
 
     // the recompute log keeps the messages of the objects still in error
     // (entry 205); what this recompute adds says whether it failed

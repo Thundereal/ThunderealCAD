@@ -80,6 +80,9 @@ public:
         /// Objects whose recompute crashed a worker on what they read now:
         /// not executed in this process (docs/WorkerProcess.md sec 34)
         std::vector<std::string> crashed;
+        /// Recomputes asked of this process that a worker made first, for
+        /// reaching an object that crashed one before (sec 37)
+        long handedOver = 0;
     };
 
     /** Hand the recompute of `objs` -- with none, of what is touched -- and

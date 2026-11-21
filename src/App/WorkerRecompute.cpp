@@ -76,6 +76,7 @@ namespace
 thread_local RecomputeHook* innermost = nullptr;
 thread_local unsigned long mintedCount = 0;
 thread_local RecomputeHook::Minting* minting = nullptr;
+RecomputeHook::Handover handover = nullptr;
 thread_local int puttingInDepth = 0;
 thread_local LogMoveKeep* innermostKeep = nullptr;
 
@@ -176,6 +177,18 @@ bool RecomputeHook::refuses(const DocumentObject& obj, std::string& why)
 {
     auto doc = obj.getDocument();
     return refusal && doc && !of(*doc) && refusal(obj, why);
+}
+
+void RecomputeHook::setHandover(Handover h)
+{
+    handover = h;
+}
+
+void RecomputeHook::handOver(Document& doc, const std::vector<DocumentObject*>& objs)
+{
+    if (handover && !of(doc)) {
+        handover(doc, objs);
+    }
 }
 
 unsigned long RecomputeHook::minted()
@@ -1496,6 +1509,48 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
     changed(*s);
 }
 
+std::set<DocumentObject*> reachOf(const Document& doc, const std::vector<DocumentObject*>& objs);
+
+/** A recompute asked here that reaches an object which crashed a worker
+ * before: made by a worker first, waited for (docs/WorkerProcess.md sec 37).
+ * The GUI hands such a recompute to a worker itself; this is for the rest --
+ * a script's doc.recompute(), the console -- and for the GUI's own calls
+ * that recompute at once.
+ */
+void handOverRisky(Document& doc, const std::vector<DocumentObject*>& objs)
+{
+    State* s = stateOf(doc);
+    if (!s || s->risky.empty() || s->applying || s->job || !s->file.empty()) {
+        return;
+    }
+    if (!GetApplication()
+             .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+             ->GetBool("HandOverRisky", true)) {
+        return;
+    }
+    // One tried again since its crash: one still refused is not executed,
+    // here or there, and needs no worker
+    bool reaches = false;
+    for (auto obj : reachOf(doc, objs)) {
+        const char* name = obj->getNameInDocument();
+        if (name && s->risky.count(name) && !s->crashed.count(name)) {
+            reaches = true;
+            break;
+        }
+    }
+    if (!reaches) {
+        return;
+    }
+    std::string why;
+    if (!WorkerRecompute::start(doc, objs, &why)) {
+        FC_LOG(doc.getName() << ": a recompute reaching what crashed a worker made here: " << why);
+        return;
+    }
+    FC_LOG(doc.getName() << ": a recompute reaching what crashed a worker, made by one");
+    ++s->info.handedOver;
+    WorkerRecompute::wait(doc);
+}
+
 State& stateFor(Document& doc)
 {
     auto& slot = states()[&doc];
@@ -1505,6 +1560,7 @@ State& stateFor(Document& doc)
     slot = std::make_unique<State>(doc);
     State& s = *slot;
     RecomputeHook::setRefusal(&refuseCrashed);
+    RecomputeHook::setHandover(&handOverRisky);
     static fastsignals::scoped_connection gone =
         GetApplication().signalDeleteDocument.connect([](const Document& d) {
             states().erase(&d);

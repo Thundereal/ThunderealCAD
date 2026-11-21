@@ -1322,6 +1322,9 @@ void quarantine(State& s, const WorkerPool::Result& r)
     }
     why += ". It is not recomputed in this process, which it would crash too: change it, or what "
            "it uses, to have it tried again";
+    if (!r.crashLog.empty()) {
+        why += ". What was on the worker's stack is in " + r.crashLog;
+    }
     s.crashed[name] = why;
     s.risky.insert(name);
     s.doc.setErrorDescription(obj, why.c_str());

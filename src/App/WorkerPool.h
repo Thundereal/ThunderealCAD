@@ -107,6 +107,13 @@ public:
         /// How the last of them ended: "crashed (signal 11)", "exited
         /// with code 3", ...
         std::string how;
+        /// For a crash, what the last of them said of it (sec 35): the
+        /// signal, the frames of the thread that crashed, Python's
+        /// tracebacks; empty for a death that said nothing
+        std::string stack;
+        /// The crash log it is in, with the frames' lines where they could
+        /// be found (Base::CrashLog), empty for none
+        std::string crashLog;
         /// What its worker said while it made it (sec 27): said here after
         /// `done` for one Done or Failed, unless the client takes them --
         /// clears this, or what it says itself -- inside `done`. Those of

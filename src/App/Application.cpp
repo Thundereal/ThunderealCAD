@@ -2444,7 +2444,7 @@ void printBacktrace(size_t skip=0, const char* reason=nullptr, bool fault=false)
 #endif
 }
 
-#if defined(FC_OS_LINUX) && defined(HAVE_BACKTRACE_SYMBOLS)
+#if (defined(FC_OS_LINUX) || defined(FC_OS_MACOSX)) && defined(HAVE_BACKTRACE_SYMBOLS)
 // The frames, first and with nothing that allocates: write(), backtrace()
 // (primed at install, its one allocation done) and backtrace_symbols_fd().
 // printBacktrace() builds a log entry, fopen()s the file, demangles and
@@ -2476,7 +2476,7 @@ void writeRawBacktrace(const char* what)
 
 void segmentation_fault_handler(int sig)
 {
-#if defined(FC_OS_LINUX)
+#if defined(FC_OS_LINUX) || defined(FC_OS_MACOSX)
     // Default the disposition first: this handler ends in abort(), which
     // raises SIGABRT, and a handler still installed for it would recurse
     // instead of dumping.
@@ -2485,6 +2485,9 @@ void segmentation_fault_handler(int sig)
     switch (sig) {
         case SIGABRT:
             what = "Program received signal SIGABRT, Abnormal termination.";
+            break;
+        case SIGBUS:
+            what = "Program received signal SIGBUS, Bus error.";
             break;
         case SIGTRAP:
             // What a failed assertion in a vendored engine looks like:
@@ -2500,7 +2503,12 @@ void segmentation_fault_handler(int sig)
     writeRawBacktrace(what);
 #endif
     printBacktrace(2, what);
-#if defined(FC_DEBUG)
+#if defined(FC_OS_MACOSX)
+    // Dies of the signal, at its default now: the system's crash report,
+    // and the dialog a user knows, as before this handler was installed
+    // here (docs/WorkerProcess.md sec 35)
+    raise(sig);
+#elif defined(FC_DEBUG)
     abort();
 #else
     _exit(1);
@@ -2548,7 +2556,7 @@ void segmentation_fault_handler(int sig)
             printBacktrace(2, "Unknown error occurred...");
             break;
     }
-#endif // FC_OS_LINUX
+#endif // FC_OS_LINUX || FC_OS_MACOSX
 }
 
 void unhandled_exception_handler()
@@ -2616,8 +2624,9 @@ void Application::init(int argc, char ** argv)
         std::signal(SIGABRT,segmentation_fault_handler);
         std::set_terminate(unhandled_exception_handler);
            ::set_unexpected(unexpection_error_handler);
-#elif defined(FC_OS_LINUX)
+#elif defined(FC_OS_LINUX) || defined(FC_OS_MACOSX)
         std::signal(SIGSEGV,segmentation_fault_handler);
+        std::signal(SIGBUS,segmentation_fault_handler);
         // Not just SIGSEGV: an assertion inside a vendored engine ends the
         // process without touching memory it may not. bgfx traps
         // (bx::debugBreak) and the C library's assert() aborts, and neither

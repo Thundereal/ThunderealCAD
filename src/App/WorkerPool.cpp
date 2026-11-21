@@ -65,6 +65,7 @@
 #include <QProcessEnvironment>
 #include <QStringList>
 #include <QThread>
+#include <QThreadPool>
 #include <QTimer>
 
 #include <mutex>
@@ -84,6 +85,7 @@
 #include <CXX/Extensions.hxx>
 
 #include <Base/Console.h>
+#include <Base/CrashLog.h>
 #include <Base/FileInfo.h>
 #include <Base/Stream.h>
 #include <Base/Interpreter.h>
@@ -100,6 +102,8 @@
 #include "FileBlobManager.h"
 #include "FileHistory.h"
 #include "PropertyPythonObject.h"
+#include "ShuttingDown.h"
+#include "WorkerCrash.h"
 #include "WorkerRecompute.h"
 #include "StringHasher.h"
 #include "LogMoveKeep.h"
@@ -544,6 +548,9 @@ struct WorkerPool::Private
         std::string at;
         std::vector<std::string> diedAt;
         std::string how;
+        /// What the last worker to crash over it said of it (sec 35)
+        std::string stack;
+        std::string crashLog;
     };
     /// A copy the design moved past that a pinned job is still made on: its
     /// version stays held until no job is on it (Job::pinned)
@@ -668,6 +675,9 @@ struct WorkerPool::Private
     void finished(Proc& proc);
     /// How `proc`'s process ended, once it has
     static std::string endedHow(const Proc& proc);
+    /// What a worker that went said of its crash in its log (sec 35), put in
+    /// the crash log: the report's text, empty for none
+    std::string crashOf(const Proc& proc, JobId job, std::string& how, std::string& crashLog);
     void dispatch(Proc& proc);
     /// Hand job `id` to `proc`, which has none
     void sendJob(Proc& proc, JobId id);
@@ -1816,6 +1826,65 @@ std::string WorkerPool::Private::endedHow(const Proc& proc)
     return "exited with code " + std::to_string(code);
 }
 
+std::string WorkerPool::Private::crashOf(const Proc& proc, JobId job, std::string& how,
+                                        std::string& crashLog)
+{
+    const std::string path = root + "/worker" + std::to_string(proc.number) + ".log";
+    std::string log;
+    {
+        Base::ifstream in(Base::FileInfo(path), std::ios::in | std::ios::binary);
+        if (!in) {
+            return {};
+        }
+        std::ostringstream all;
+        all << in.rdbuf();
+        log = all.str();
+    }
+    WorkerCrash::Report report = WorkerCrash::read(log);
+    if (!report.found) {
+        return {};
+    }
+    // Ended by its handler, not killed by the signal: it says which
+    how = "crashed (" + WorkerCrash::signalName(report.signal) + ")";
+    std::string kind;
+    auto it = jobs.find(job);
+    if (it != jobs.end()) {
+        kind = it->second.job.kind;
+    }
+    std::ostringstream title;
+    title << doc.getName() << ": worker " << proc.number << " (pid " << proc.pid
+          << ") crashed making job " << job << " (" << kind << ")";
+    const std::string stack = WorkerCrash::text(report);
+    {
+        Base::CrashLog::Entry entry(Base::CrashLog::Severity::Caught, title.str());
+        entry.line(stack);
+    }
+    crashLog = Base::CrashLog::fileName();
+    FC_LOG(title.str() << "\n" << stack);
+    // The frames' lines take the tools seconds: found away from here, and
+    // put in the log when they are
+    if (params()->GetBool("CrashLines", true)) {
+        if (QThreadPool* threads = QThreadPool::globalInstance()) {
+            std::string again = title.str() + ", the frames with their lines";
+            threads->start([report, again]() mutable {
+                if (App::isShuttingDown()) {
+                    return;
+                }
+                WorkerCrash::resolveLines(report);
+                bool any = false;
+                for (auto& f : report.frames) {
+                    any = any || !f.line.empty();
+                }
+                if (any && !App::isShuttingDown()) {
+                    Base::CrashLog::Entry entry(Base::CrashLog::Severity::Caught, again);
+                    entry.line(WorkerCrash::text(report));
+                }
+            });
+        }
+    }
+    return stack;
+}
+
 void WorkerPool::Private::finished(Proc& proc)
 {
     if (proc.over) {
@@ -1849,6 +1918,11 @@ void WorkerPool::Private::finished(Proc& proc)
         }
         how = endedHow(proc);
     }
+    std::string stack;
+    std::string crashLog;
+    if (lost && !proc.killed) {
+        stack = crashOf(proc, lost, how, crashLog);
+    }
     for (auto it = procs.begin(); it != procs.end(); ++it) {
         if (it->get() == &proc) {
             gone.push_back(std::move(*it));  // not deleted inside its own signal
@@ -1865,6 +1939,8 @@ void WorkerPool::Private::finished(Proc& proc)
             it->second.diedAt.push_back(it->second.at);
             it->second.at.clear();
             it->second.how = how;
+            it->second.stack = stack;
+            it->second.crashLog = crashLog;
             if (it->second.dropped) {
                 jobs.erase(it);
             }
@@ -1888,10 +1964,15 @@ void WorkerPool::Private::finished(Proc& proc)
                 if (!it->second.diedAt.back().empty()) {
                     result.error += ", at " + it->second.diedAt.back();
                 }
+                if (!crashLog.empty()) {
+                    result.error += "; what was on its stack is in " + crashLog;
+                }
                 takeMessages(it->second, result);
                 result.died = true;
                 result.diedAt = it->second.diedAt;
                 result.how = how;
+                result.stack = stack;
+                result.crashLog = crashLog;
                 deliver(lost, result);
             }
         }
@@ -2707,6 +2788,8 @@ std::string unfitFor(Document& doc, const json& proxies)
 int WorkerPool::serve()
 {
     ensureCore();
+    // A crash says where it was, what was on the stack, to the pool (sec 35)
+    WorkerCrash::install();
     const QByteArray name = qgetenv(ServerVariable);
     const QByteArray token = qgetenv(TokenVariable);
     if (name.isEmpty()) {
@@ -3053,11 +3136,13 @@ int WorkerPool::serve()
         // said it (sec 34)
         const JobId jobId = header.value("job", JobId(0));
         std::string lastAt;
+        WorkerCrash::setAt(std::string());
         request.at = [&](const std::string& where) {
             if (where == lastAt) {
                 return;
             }
             lastAt = where;
+            WorkerCrash::setAt(where);
             send(socket, json {{"type", "at"}, {"job", jobId}, {"what", where}});
         };
         const double began = now();
@@ -3085,6 +3170,7 @@ int WorkerPool::serve()
             reply.ok = false;
             reply.error = e.what();
         }
+        WorkerCrash::setAt(std::string());
         // A permission refused here is asked for, and the work done, by the
         // pool's process: it records the refusal and puts the question to
         // the user, where an answer the worker gave would be an error put
@@ -3354,6 +3440,8 @@ public:
         }
         dict.setItem("DiedAt", diedAt);
         dict.setItem("How", Py::String(r.how));
+        dict.setItem("Stack", Py::String(r.stack));
+        dict.setItem("CrashLog", Py::String(r.crashLog));
         Py::List messages;
         for (auto& m : r.messages) {
             Py::Dict item;

@@ -551,6 +551,7 @@ SET(Document_CPP_SRCS
     Animation.cpp
     AnimationPyImp.cpp
     AnimationWorkers.cpp
+    WorkerCrash.cpp
     WorkerPool.cpp
     WorkerRecompute.cpp
     License.h
@@ -643,6 +644,7 @@ SET(Document_HPP_SRCS
     SavedView.h
     Animation.h
     AnimationWorkers.h
+    WorkerCrash.h
     WorkerPool.h
     WorkerRecompute.h
     RecomputeHook.h

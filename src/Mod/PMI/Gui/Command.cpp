@@ -797,6 +797,49 @@ bool CmdPMIView::isActive()
     return haveDocument(this);
 }
 
+DEF_STD_CMD_A(CmdPMIViewNewWindow)
+
+CmdPMIViewNewWindow::CmdPMIViewNewWindow()
+    : Command("PMI_ViewNewWindow")
+{
+    sAppModule = "PMI";
+    sGroup = QT_TR_NOOP("PMI");
+    sMenuText = QT_TR_NOOP("Show in new 3D view");
+    sToolTipText = QT_TR_NOOP("Make the selected PMI view active in a new 3D view of the "
+                              "document, beside the views there are: each 3D view shows a PMI "
+                              "view of its own");
+    sWhatsThis = "PMI_ViewNewWindow";
+    sStatusTip = sToolTipText;
+    sPixmap = "PMI_View";
+}
+
+namespace
+{
+PMIGui::ViewProviderView* selectedView()
+{
+    for (auto& sel : Gui::Selection().getSelectionEx()) {
+        auto obj = sel.getObject();
+        if (obj && obj->isDerivedFrom<PMI::View>()) {
+            return freecad_cast<PMIGui::ViewProviderView*>(
+                Gui::Application::Instance->getViewProvider(obj));
+        }
+    }
+    return nullptr;
+}
+}  // namespace
+
+void CmdPMIViewNewWindow::activated(int)
+{
+    if (auto vp = selectedView()) {
+        vp->showInNewView();
+    }
+}
+
+bool CmdPMIViewNewWindow::isActive()
+{
+    return selectedView() != nullptr;
+}
+
 void CreatePMICommands()
 {
     Gui::CommandManager& mgr = Gui::Application::Instance->commandManager();
@@ -806,6 +849,7 @@ void CreatePMICommands()
     mgr.addCommand(new CmdPMIDimension());
     mgr.addCommand(new CmdPMINote());
     mgr.addCommand(new CmdPMIView());
+    mgr.addCommand(new CmdPMIViewNewWindow());
     mgr.addCommand(new CmdPMICheck());
     mgr.addCommand(new CmdPMIQuery());
 }

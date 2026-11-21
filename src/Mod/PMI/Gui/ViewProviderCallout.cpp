@@ -56,6 +56,7 @@
 #include <Inventor/nodes/SoMaterial.h>
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoShapeHints.h>
+#include <Inventor/nodes/SoGroup.h>
 #include <Inventor/nodes/SoSwitch.h>
 #include <Inventor/nodes/SoTransform.h>
 
@@ -442,12 +443,13 @@ void ViewProviderCallout::attach(App::DocumentObject* obj)
     // above). 1, as the on-view labels are.
     auto top = new Gui::So3DAnnotation;
     top->priority = 1;
-    _filter = new SoSwitch;
-    _filter->addChild(_drawing.root());
+    // Hidden in a view whose active PMI view does not show it by that
+    // view's own visibility, never here: each view hides its own (sec 6.3)
+    _body = new SoGroup;
+    _body->addChild(_drawing.root());
     _turning = new SoSeparator;
-    _filter->addChild(_turning);
-    _filter->whichChild = SO_SWITCH_ALL;
-    top->addChild(_filter);
+    _body->addChild(_turning);
+    top->addChild(_body);
     // Its faces, outlined while it is picked: shown through the model
     _cross = new SoSwitch;
     _cross->addChild(_outline.root());
@@ -503,16 +505,15 @@ void ViewProviderCallout::setLit(bool lit)
 
 void ViewProviderCallout::refilter()
 {
-    auto callout = freecad_cast<PMI::Callout*>(getObject());
-    if (!callout || !_filter) {
-        return;
+    if (auto obj = getObject()) {
+        ViewProviderView::relayerAll(obj->getDocument());
     }
-    const PMI::View* view = ViewProviderView::active(callout->getDocument());
-    bool shown = !view || callout->inView(view);
-    int want = shown ? SO_SWITCH_ALL : SO_SWITCH_NONE;
-    if (_filter->whichChild.getValue() != want) {
-        _filter->whichChild = want;
-    }
+}
+
+void ViewProviderCallout::setupContextMenu(QMenu* menu, QObject* receiver, const char* member)
+{
+    ViewProviderView::addViewsMenu(menu, freecad_cast<PMI::Callout*>(getObject()));
+    ViewProviderDocumentObject::setupContextMenu(menu, receiver, member);
 }
 
 std::vector<std::string> ViewProviderCallout::getDisplayModes() const

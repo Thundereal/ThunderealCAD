@@ -31,6 +31,9 @@
 #include <Gui/ToolContext.h>
 #include <Mod/Part/App/BodyBase.h>
 
+#include <Gui/WidgetFactory.h>
+
+#include "DlgSettingsPMI.h"
 #include "ViewProviderCallout.h"
 #include "ViewProviderView.h"
 #include "Workbench.h"
@@ -77,6 +80,8 @@ PyMOD_INIT_FUNC(PMIGui)
 
     loadPMIResource();
     CreatePMICommands();
+    (void)new Gui::PrefPageProducer<PMIGui::DlgSettingsPMI>(
+        QT_TRANSLATE_NOOP("QObject", "Part/Part Design"));
 
     // clang-format off
     PMIGui::Workbench                 ::init();

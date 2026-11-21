@@ -38,7 +38,9 @@ class SoIndexedFaceSet;
 class SoIndexedLineSet;
 class SoMaterial;
 class SoSeparator;
+class SoGroup;
 class SoSwitch;
+class QMenu;
 class TopoDS_Shape;
 
 namespace PMIGui
@@ -105,8 +107,11 @@ public:
     bool setEdit(int ModNum) override;
     void unsetEdit(int ModNum) override;
 
-    /// Shown unless a PMI view is active that does not show it (sec 6.3)
+    /// Taken into or out of a PMI view, or made: what each view a PMI view
+    /// is active in hides is made again (sec 6.3)
     void refilter();
+    /// With the PMI views it is in, each to be made active from here
+    void setupContextMenu(QMenu* menu, QObject* receiver, const char* member) override;
 
     /// Cross-highlighting (sec 6.5): its faces outlined, while it is
     /// selected or preselected
@@ -128,7 +133,7 @@ private:
     SoSeparator* _turning = nullptr;
     std::vector<std::unique_ptr<ShapeLines>> _uprights;
     ShapeLines _outline;
-    SoSwitch* _filter = nullptr;
+    SoGroup* _body = nullptr;
     SoSwitch* _cross = nullptr;
     bool _lit = false;
 };

@@ -14,7 +14,13 @@ checked:
     3D view only (the others' Visibility untouched), and they all come back
     when it is let go;
   - the PMI view command makes a view from the camera as it is, and makes
-    it active.
+    it active;
+  - Show in new 3D view opens one with the PMI view active in it, showing
+    only that view's annotations and objects while the first 3D view is
+    untouched; another PMI view made active in the first, each keeps its
+    own; the new one closed, the first keeps its PMI view;
+  - with the DoubleClickNewView preference a double click opens a new 3D
+    view, and again brings that one up rather than opening another.
 
   scripts/gui-test.sh tests/gui/pmi-views.py /tmp/pmi-views
 """
@@ -209,6 +215,87 @@ def run():
               and view.getActiveObject("pmiview") == made, (made.Name, z))
         view.setActiveObject("pmiview", None)
         pump(10)
+
+        # Side by side: a PMI view in a new 3D view, the first untouched,
+        # each 3D view showing a PMI view of its own
+        gdoc = Gui.getDocument(doc.Name)
+
+        def views3d():
+            return gdoc.mdiViewsOfType("Gui::View3DInventor")
+
+        # From the isometric, where the front view's callouts are not edge
+        # on, nothing selected (a selected set draws them green)
+        Gui.Selection.clearSelection()
+        view.viewIsometric()
+        Gui.SendMsgToActiveView("ViewFit")
+        pump(30)
+        before = len(views3d())
+        all_callouts = blue(view, "side-first-all.png")
+        Gui.Selection.addSelection(bodies)
+        Gui.runCommand("PMI_ViewNewWindow")
+        Gui.Selection.clearSelection()
+        pump(40)
+        fresh = [v for v in views3d() if v != view]
+        nv = fresh[-1] if fresh else None
+        check("Show in new 3D view opens one, the PMI view active in it",
+              len(views3d()) == before + 1 and nv is not None
+              and nv.getActiveObject("pmiview") == bodies
+              and view.getActiveObject("pmiview") is None,
+              (before, len(views3d())))
+        if nv is not None:
+            nv_blue, nv_red = blue(nv, "side-new-blue.png"), red(nv, "side-new-red.png")
+            first_blue, first_red = (blue(view, "side-first-blue.png"),
+                                     red(view, "side-first-red.png"))
+            check("in the new one only its objects and annotations: none of its own, "
+                  "the other box hidden",
+                  nv_blue < 20 and nv_red < 5, "blue %d, red %d" % (nv_blue, nv_red))
+            check("the first 3D view untouched: every callout, the other box",
+                  all_callouts > 100 and first_blue >= all_callouts - 20 and first_red > 100,
+                  "blue %d of %d, red %d" % (first_blue, all_callouts, first_red))
+            view.setActiveObject("pmiview", front)
+            pump(30)
+            first_front = blue(view, "side-first-front.png")
+            nv_still = blue(nv, "side-new-still.png"), red(nv, "side-new-still-red.png")
+            check("another PMI view active in the first: each keeps its own",
+                  first_front > 100 and nv_still[0] < 20 and nv_still[1] < 5
+                  and nv.getActiveObject("pmiview") == bodies,
+                  "first %d of %d, new %s" % (first_front, all_callouts, nv_still))
+            nv.close()
+            pump(40)
+            check("the new one closed, the first keeps its PMI view",
+                  len(views3d()) == before and view.getActiveObject("pmiview") == front
+                  and same(view.getCameraOrientation(), front.Camera.Rotation))
+            view.setActiveObject("pmiview", None)
+            pump(30)
+            check("and lets it go as before", blue(view, "side-first-back.png")
+                  >= all_callouts - 20)
+
+        # The preference: a double click opens a new 3D view, or brings up
+        # the one the PMI view is active in
+        grp = App.ParamGet("User parameter:BaseApp/Preferences/Mod/PMI")
+        grp.SetBool("DoubleClickNewView", True)
+        Gui.getMainWindow().setActiveWindow(view)
+        pump(10)
+        bodies.ViewObject.doubleClicked()
+        pump(40)
+        opened = [v for v in views3d() if v != view]
+        check("with the preference on, a double click opens a new 3D view",
+              len(views3d()) == before + 1 and opened
+              and opened[-1].getActiveObject("pmiview") == bodies
+              and view.getActiveObject("pmiview") is None, len(views3d()))
+        Gui.getMainWindow().setActiveWindow(view)
+        pump(10)
+        bodies.ViewObject.doubleClicked()
+        pump(30)
+        check("double-clicked again, the one it is active in comes up, no other opened",
+              len(views3d()) == before + 1
+              and gdoc.ActiveView.getActiveObject("pmiview") == bodies,
+              len(views3d()))
+        grp.SetBool("DoubleClickNewView", False)
+        for v in views3d():
+            if v != view:
+                v.close()
+        pump(30)
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()

@@ -64,6 +64,7 @@ Gui::MenuItem* Workbench::setupMenuBar() const
          << "PMI_Note"
          << "Separator"
          << "PMI_View"
+         << "PMI_ViewNewWindow"
          << "PMI_Query"
          << "PMI_Check";
     return root;

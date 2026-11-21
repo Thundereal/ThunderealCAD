@@ -312,6 +312,12 @@ plane by default. Deactivating (or leaving the workbench) restores the camera an
 annotations stay visible, with a global toggle in the View menu. With no view active everything
 shows and new annotations take the default plane of 6.2.
 
+A view is active in one 3D view, not in the document: each 3D view keeps its own, so two show two
+PMI views side by side, and **Show in new 3D view** (the view's context menu, `PMI_ViewNewWindow`,
+or a double click with the `DoubleClickNewView` preference) opens one beside the others. A
+browser's view of a served document is a view too: a callout's **PMI views** submenu makes one
+active there, changing nothing of the document, so any connection may (10.16).
+
 ### 6.4 Several annotations on one feature
 
 A size dimension, its position tolerance and a datum on one hole are one stack, not three
@@ -323,8 +329,8 @@ with the parent's leader, and moved with it.
 A view provider per item draws the layout through a `So3DAnnotation`-style node (screen-facing
 size option, depth-tested or always on top), with pre-selection and selection highlighting both
 the frame and its faces (cross-highlighting is what makes PMI checkable by eye). States colour
-it: broken red, remapped amber, check failures with a mark. Visibility follows the active
-PMI::View, or all. The served scene carries the layout's strokes like edges. A frame, a
+it: broken red, remapped amber, check failures with a mark. Visibility follows the PMI::View
+active in the 3D view drawing it, or all. The served scene carries the layout's strokes like edges. A frame, a
 datum's box, a dimension's value turn per frame to read upright from wherever they are seen,
 as a sketch's datum label does; leaders and extension lines stay (10.15).
 
@@ -892,6 +898,44 @@ its Visibility untouched, back when let go and hidden again at once when made ac
 `TestModel.TestPresentation` (what turns: a frame whole, a dimension's value only, a file's
 graphic nothing), `TestViewObjects` (a view naming the Body it is in: no loop, saved and
 reopened), `TestNistSet` (a saved view's objects include a solid).
+
+- Next: a PMI view per 3D view (10.16), then P3.
+
+### 10.16 A PMI view per 3D view, in a new one, and in a browser's (2026-11-21)
+
+Until now a PMI view was active per DOCUMENT: one at a time, its callouts filtered by a switch
+node every 3D view shared, while its camera, clipping and objects reached only the 3D view it was
+made active in. A second 3D view saw the callouts filtered and the objects not.
+
+**Per view.** What is active is held per view (`ViewProviderView`'s list of `Active`, keyed by
+the `Gui::ViewerContext` and expiring with its `lifetime()`): a desktop 3D view, or a served
+client's `MirrorViewer`. Everything a PMI view hides -- the callouts it does not show, and what
+its `Objects` leave out -- is one layer of that view's transient visibility
+(`ViewerContext::setVisibilityLayer`, now on the base, the desktop's and the mirror's alike), so
+nothing is filtered in a view the PMI view is not active in, and a save sees none of it. The
+callout's switch is gone. A callout made, or taken into or out of a view, remakes the layers.
+On the desktop the 3D view's active object (`pmiview`) still says what is active, the tree
+highlighting it; which 3D view changed is read from their active objects, not from which window
+has focus.
+
+**A new 3D view.** `PMI_ViewNewWindow` (also the view's context menu, "Show in new 3D view")
+opens a 3D view of the document -- placed as an additional view is, a split by default --
+titled after the PMI view, with the view active in it. Preferences, Part/Part Design, PMI:
+"Double-click opens a PMI view in a new 3D view" (`Mod/PMI/DoubleClickNewView`, off); on, a
+double click opens one, or brings up the 3D view the PMI view is already active in.
+
+**A browser's view.** A browser has no tree: a callout's context menu has a **PMI views**
+submenu, each view it is in made active or let go in the view the menu was opened in, plus "Show
+all annotations". These entries carry `ViewProviderDocumentObject::ViewerEntryProperty`, a new
+kind for `SceneContextMenu` (`viewer`): it changes only the view it runs in and nothing of the
+document, so a view-only connection may run it, as it may turn its own camera (the rule is what
+an entry changes). The client's camera is its own, so it is ASKED: the host sends
+`{"cmd":"camera","q":[x,y,z,w],"at":[x,y,z],"height":h}` (`ViewerContext::turnClientCamera`,
+`MirrorViewer` through the serving source's control channel); the browser keeps the camera from
+before the first ask and `{"cmd":"camera","restore":true}` takes it back
+(`restoreClientCamera`). Its camera has a fixed field of view, so a height becomes the distance
+that shows it; 0 fits what the client shows. A browser's view does not clip (a section is not
+streamed). "In a new 3D view" is the desktop's alone and is not offered to a browser.
 
 - Next: P3, STEP export (sec 10).
 

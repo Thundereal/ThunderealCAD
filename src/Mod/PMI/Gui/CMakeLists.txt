@@ -24,6 +24,8 @@ set(PMIGui_SRCS
     ${PMIGui_QRC_SRCS}
     AppPMIGui.cpp
     Command.cpp
+    DlgSettingsPMI.cpp
+    DlgSettingsPMI.h
     PreCompiled.cpp
     PreCompiled.h
     TaskGeometricTolerance.cpp

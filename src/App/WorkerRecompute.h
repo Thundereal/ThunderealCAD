@@ -114,6 +114,9 @@ public:
     /// Note from now what each object's recompute here takes, for
     /// expectedSeconds(); once is enough
     static void trackTimes();
+    /// What `obj` took, all of it, where it is made on after its recompute
+    /// returned -- a TechDraw view's threads (sec 39): its time from then
+    static void noteSeconds(const DocumentObject& obj, double seconds);
 
     /** Whether the recompute of `objs` -- with none, of what is touched --
      * reaches an object whose recompute crashed a worker (Info::crashed),

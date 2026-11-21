@@ -262,19 +262,25 @@ bool notSaved(const Property& prop)
 const char RecomputeMagic[8] = {'F', 'C', 'W', 'R', 'C', 'P', '0', '1'};
 
 /** Made here, never from a worker's values: an object whose result is not
- * all in its properties. A TechDraw view keeps its geometry in members
- * and finds its hidden lines in threads that end after its execute(): a
- * worker's values would put in a view with nothing to draw. By type name,
- * each a prefix (RecomputeHereTypes of Preferences/Workers, words
- * separated by spaces)
+ * all in its properties (DocumentObject::resultInProperties), which values
+ * put in would leave with nothing to draw -- the rule an undo goes by. A
+ * TechDraw view is one where its projection is not stored, or while it is
+ * still being made; a worker, a console process, makes it inline and
+ * stores it, and the view installs it as it is put in (docs/WorkerProcess.md
+ * sec 39; until then every TechDraw type was made here). And any by type
+ * name, each a prefix (RecomputeHereTypes of Preferences/Workers, words
+ * separated by spaces; none by default -- "TechDraw::" for as before)
  */
 bool madeHere(const DocumentObject& obj)
 {
+    if (!obj.resultInProperties()) {
+        return true;
+    }
     static std::string kept;
     static std::vector<std::string> prefixes;
     std::string list = GetApplication()
                            .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
-                           ->GetASCII("RecomputeHereTypes", "TechDraw::");
+                           ->GetASCII("RecomputeHereTypes", "");
     if (list != kept) {
         kept = list;
         prefixes.clear();
@@ -1776,6 +1782,14 @@ bool WorkerRecompute::crashed(const DocumentObject& obj)
 {
     std::string why;
     return refuseCrashed(obj, why);
+}
+
+void WorkerRecompute::noteSeconds(const DocumentObject& obj, double seconds)
+{
+    auto doc = obj.getDocument();
+    if (doc && !RecomputeHook::of(*doc)) {
+        times()[doc].seconds[obj.getID()] = seconds;
+    }
 }
 
 double WorkerRecompute::expectedSeconds(const Document& doc,

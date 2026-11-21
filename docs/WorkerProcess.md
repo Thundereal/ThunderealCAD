@@ -2288,7 +2288,7 @@ and each is a recompute of 8 to 10 s, of which the pattern is 6.5. An
 edit inside one branch saves what runs beside it in that branch, a few
 tenths at most here.
 
-## 39. TechDraw made inline: in a console process, and on a switch (2026-11-21)
+## 39. TechDraw made inline, and by a worker (2026-11-21)
 
 The user: TechDraw makes most of its recompute in threads; a switch to make
 it inline, and a worker to make it where the time says so.
@@ -2335,9 +2335,47 @@ TechDraw GUI tests td-edit-two-pages 30, td-model-interleave 40,
 td-stored-hatch 9, td-undo-stored-projection 13 pass every claim both
 with the preference off and on; TestTechDrawApp 25 OK.
 
-Not yet: TechDraw views still made here when a worker recomputes
-(`RecomputeHereTypes`), and their time in threads is not counted where an
-edit's recompute decides to go to a worker.
+A worker makes the views, the same day. What is made here is no longer
+every `TechDraw::` type but what `DocumentObject::resultInProperties()`
+says is not all in its properties -- the rule an undo already goes by
+(docs/MultiViewEdit.md sec 12.10): a TechDraw view whose projection is not
+stored (`StoreProjectedGeometry` off), or one still being made.
+`RecomputeHereTypes` stays, now empty by default (`TechDraw::` for as
+before). In the worker the view is made inline (above) and its projection
+stored; here its values are put in, and the view installs them as after an
+undo: `DrawViewPart::onChanged` notes `ProjectedGeometry` written under
+`RecomputeHook::puttingIn()`, and its `recompute()` override, once the
+put-in is over, runs `installStored()` -- the threads of another state
+dropped, the stored projection restored (a section's cut, a detail's piece
+beside it, docs/TechDrawStoredGeometry.md sec 8), the view and its
+dimensions and balloons repainted. Nothing is projected here.
+
+And the time. Here, in the GUI, a view's recompute returns after it starts
+its threads, so the gaps between recomputed signals counted only that
+start. `WorkerRecompute::noteSeconds(obj, seconds)` sets an object's time
+where its making runs on after its recompute; the view notes the time
+from its recompute's start to its last thread's end (`noteMade()`, at the
+two places its geometry is complete). An edit that reaches a slow drawing
+is then expected to take what it does, and goes to a worker by the same
+threshold as the rest (sec 28).
+
+Tests: `testATechDrawViewIsMadeByAWorker` (a box's view made by a worker:
+Applied, nothing made here, the edges this process makes; with the store
+off, made here); a control run with `RecomputeHereTypes` = `TechDraw::`
+fails it (the page and the view made here). GUI
+`tests/gui/td-recompute-by-worker.py`, 6 claims, three runs: a plate with
+144 holes, its view's threads 0.163 s after its recompute returned and the
+expected time 0.168 s; the Recompute command after an edit goes to a
+worker, nothing is made here, the projection is written only at the
+put-in (three writes in one moment: the property reads back in parts,
+`Restore` and `RestoreDocFile`), 441 edges, the same as this process
+makes. A control build without the noted time fails the first claim: the
+view is expected to take 0.004 s.
+
+On scanner.FCStd, every object touched, a worker's recompute (console,
+14.86 s): Applied, nothing made here, 622 objects supplied; of the 35
+views, 34 have edges, and visible and hidden edge counts are those this
+process makes of each, all 35 (`SectionView003` none, as here).
 
 ## 40. The Windows run (2026-11-21)
 

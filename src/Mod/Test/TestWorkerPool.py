@@ -1057,6 +1057,50 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertFalse(self.pool.recomputing())
         return self.pool.recomputeInfo()
 
+    def testATechDrawViewIsMadeByAWorker(self):
+        """A TechDraw view is made by a worker -- inline, a console process --
+        and put in from its stored projection: the same edges as made here,
+        and not executed here (docs/WorkerProcess.md sec 39)"""
+        import TechDraw  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        page = self.doc.addObject("TechDraw::DrawPage", "Page")
+        template = self.doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        template.Template = os.path.join(
+            App.getHomePath(), "Mod", "TechDraw", "TDTest", "TestTemplate.svg")
+        page.Template = template
+        view = self.doc.addObject("TechDraw::DrawViewPart", "View")
+        page.addView(view)
+        view.Source = [box]
+        view.Direction = App.Vector(1, 1, 1)
+        self.doc.recompute()
+
+        def edges():
+            return sorted(round(e.Length, 6) for e in view.getVisibleEdges())
+
+        # Made here, inline: a console recompute makes a view at once
+        self.assertEqual(len(edges()), 9, edges())
+        box.Length = 25
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(info["MadeHere"], 0, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertEqual(self.touched(), [])
+        made = edges()
+        self.assertEqual(len(made), 9, made)
+        # The same as this process makes of it
+        view.touch()
+        self.doc.recompute()
+        self.assertEqual(edges(), made)
+        # Not stored, it cannot come in values: made here
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Mod/TechDraw/General")
+        group.SetBool("StoreProjectedGeometry", False)
+        self.addCleanup(group.RemBool, "StoreProjectedGeometry")
+        box.Length = 30
+        info = self.byWorker()
+        self.assertEqual(info["MadeHere"], 1, info)
+        self.assertEqual(len(edges()), 9)
+
     def polygonSketch(self):
         """A sketch projecting the face of a _Polygon, made here"""
         import Sketcher  # noqa: F401

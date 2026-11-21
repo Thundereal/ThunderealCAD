@@ -73,7 +73,11 @@
 #include <sstream>
 #endif
 
+#include <chrono>
+
 #include <App/Document.h>
+#include <App/RecomputeHook.h>
+#include <App/WorkerRecompute.h>
 #include <App/ShuttingDown.h>
 #include <App/Transactions.h>
 #include <Base/BoundBox.h>
@@ -342,6 +346,11 @@ void DrawViewPart::onChanged(const App::Property* prop)
     if (prop == &UseWireJoiner && isRestoring()) {
         wireJoinerRestored = true;
     }
+    if (prop == &ProjectedGeometry && App::RecomputeHook::puttingIn()) {
+        // a worker's result put in for this view's execute(): installed
+        // once the put-in is over (recompute)
+        m_resultPutIn = true;
+    }
     if (prop == &ProjectedGeometry && !isRestoring()) {
         // an undo or a redo putting back the projection of the state it
         // leaves: drawn once the transaction is done (onUndoRedoFinished)
@@ -569,6 +578,19 @@ void DrawViewPart::onHlrFinished(GeometryObjectPtr geometryObject)
     else {
         //no faces are coming, so the geometry is complete here
         captureGeometry();
+        noteMade();
+    }
+}
+
+//! the view complete: made in threads, all it took counts where the next
+//! edit's recompute decides to go to a worker (docs/WorkerProcess.md sec 39);
+//! made inline, the recompute's own time is all of it
+void DrawViewPart::noteMade()
+{
+    if (!makesInline()) {
+        App::WorkerRecompute::noteSeconds(
+            *this, std::chrono::duration<double>(std::chrono::steady_clock::now() - m_madeSince)
+                       .count());
     }
 }
 
@@ -647,22 +669,49 @@ bool DrawViewPart::resultInProperties() const
 //! stored (resultInProperties; the view is then left to recompute).
 void DrawViewPart::onUndoRedoFinished()
 {
-    abortMaking();
-    if (restoreStoredGeometry()) {
-        requestPaint();
-        // what is drawn on the view reads its geometry when drawn
-        for (auto dim : getDimensions()) {
-            dim->requestPaint();
-        }
-        for (auto balloon : getBalloons()) {
-            balloon->requestPaint();
-        }
-    }
-    else {
+    if (!installStored()) {
         // nothing stored to put back: only a recompute can make it again
         touch();
     }
     DrawView::onUndoRedoFinished();
+}
+
+//! what is running here is of another state: dropped, and the stored
+//! projection drawn
+bool DrawViewPart::installStored()
+{
+    abortMaking();
+    if (!restoreStoredGeometry()) {
+        return false;
+    }
+    requestPaint();
+    // what is drawn on the view reads its geometry when drawn
+    for (auto dim : getDimensions()) {
+        dim->requestPaint();
+    }
+    for (auto balloon : getBalloons()) {
+        balloon->requestPaint();
+    }
+    return true;
+}
+
+//! A worker made this view -- inline, a console process (makesInline) --
+//! and its values were put in in place of execute(): the projection is in
+//! ProjectedGeometry, a section's cut and a detail's piece beside it, and is
+//! installed as after an undo (docs/WorkerProcess.md sec 39)
+App::DocumentObjectExecReturn* DrawViewPart::recompute()
+{
+    m_resultPutIn = false;
+    m_madeSince = std::chrono::steady_clock::now();
+    App::DocumentObjectExecReturn* ret = DrawView::recompute();
+    if (m_resultPutIn) {
+        m_resultPutIn = false;
+        if (!installStored()) {
+            Base::Console().Warning("%s: the projection a worker made did not read back\n",
+                                    Label.getValue());
+        }
+    }
+    return ret;
 }
 
 void DrawViewPart::onDocumentRestored()
@@ -1158,6 +1207,7 @@ void DrawViewPart::onFacesFinished(std::shared_ptr<std::vector<FacePtr>> faces)
     // the geometry is complete here -- HLR, the cosmetics postHlrTasks
     // added, the faces and the centerlines that needed them
     captureGeometry();
+    noteMade();
 
     abortMakeGeometry();
 

@@ -257,6 +257,13 @@ public:
     QString hint() const override;
     /// Told when the hint changes, so the connection can state it.
     void setHintCallback(std::function<void()> callback);
+    /// Ask the client to turn its camera, or to restore it (see
+    /// ViewerContext::turnClientCamera): \a send carries the message, the
+    /// serving source's control channel to this client
+    bool turnClientCamera(const SbRotation& orientation, const SbVec3f& target,
+                          float height) override;
+    bool restoreClientCamera() override;
+    void setCameraSender(std::function<void(const std::string&)> send);
     SoFCRenderCacheManager* getRenderCacheManager() const override;
     Render::Renderer* getExternalRenderer() const override;
     const SoFCVisibilityElement::Table* visibilityElementTable() const override;
@@ -278,6 +285,11 @@ public:
     /// the callback below.
     bool setEditVisibilities(const std::vector<VisibilityEntry>& entries) override;
     bool canSetEditVisibilities() const override;
+    /// A layer of transient hides and shows beside the edit session's (see
+    /// ViewerContext::setVisibilityLayer): this client's alone, told to it
+    /// through the callback below as the session's are.
+    bool setVisibilityLayer(const std::string& owner,
+                            std::vector<VisibilityEntry>&& entries) override;
     /// Told when setEditVisibilities -- or a structure change resolving the
     /// entries again -- changes the table, so the serving source
     /// republishes and tells the client what it draws by.

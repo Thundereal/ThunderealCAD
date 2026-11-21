@@ -120,6 +120,8 @@ const char* kindName(SceneContextMenu::Kind kind)
             return "pick";
         case SceneContextMenu::Kind::OnView:
             return "onView";
+        case SceneContextMenu::Kind::Viewer:
+            return "viewer";
         default:
             return "action";
     }
@@ -489,6 +491,10 @@ QJsonObject SceneContextMenu::describeEntry(QAction* action, int id, Render::Cli
             }
         }
     }
+    else if (action->property(ViewProviderDocumentObject::ViewerEntryProperty).toBool()) {
+        // The client's own view and nothing else: run here, in its scope
+        entry.kind = Kind::Viewer;
+    }
     else if (action->property(ViewProviderDocumentObject::EditEntryProperty).toBool()) {
         // An entry that says all it does is enter its edit mode
         entry.kind = Kind::Edit;
@@ -533,8 +539,10 @@ bool SceneContextMenu::allowed(Kind kind,
             *reason = why;
         return false;
     };
-    // The browser's own camera: nothing runs here
-    if (kind == Kind::Local)
+    // The browser's own camera: nothing runs here. And what changes only the
+    // client's own view, which a view-only connection may change as it
+    // turns its camera
+    if (kind == Kind::Local || kind == Kind::Viewer)
         return true;
     // The desktop's owner, who takes the modal risk as at the machine
     // (docs/ShareAccess.md sec 2.2)
@@ -878,8 +886,11 @@ void Gui::installSceneContextMenuOps()
         return reply;
     });
 
-    // An entry chosen: run as the desktop runs it, judged again here
-    registerSceneControlOp(QStringLiteral("contextMenu.trigger"), true,
+    // An entry chosen: run as the desktop runs it, judged again here. Not
+    // a mutating op as a whole: trigger() judges the ENTRY for the
+    // connection (allowed()), and a view-only one may run the browser's
+    // camera entries and those that change only its own view
+    registerSceneControlOp(QStringLiteral("contextMenu.trigger"), false,
                            [](const QJsonObject& req, const std::string&, uint64_t client) {
         const QJsonValue id = req.value(QLatin1String("id"));
         const int token = req.value(QLatin1String("menu")).toInt(0);

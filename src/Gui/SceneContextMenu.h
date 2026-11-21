@@ -85,6 +85,11 @@ public:
         /// it modal; a settings widget's is set to the value the client
         /// sends, and the menu stays open
         OnView,
+        /// An entry that changes only the view it runs in -- the client's --
+        /// and nothing of the document
+        /// (ViewProviderDocumentObject::ViewerEntryProperty): any
+        /// connection may run it, as it may turn its own camera
+        Viewer,
         /// Anything else, code the host runs as it is -- possibly modal
         Action,
     };

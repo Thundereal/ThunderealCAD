@@ -37,6 +37,7 @@
 #include "AnnotationSet.h"
 #include "Check.h"
 #include "Datum.h"
+#include "Drawing.h"
 #include "Dimension.h"
 #include "GeometricTolerance.h"
 #include "Note.h"
@@ -86,6 +87,10 @@ public:
                            "advise(feature, characteristic=None) -> {'characteristics': [...], "
                            "and with a characteristic 'zoneShapes': [...], 'materialCondition': "
                            "bool, 'datums': 1 needed / 0 optional / -1 none}");
+        add_varargs_method("extent", &Module::extent,
+                           "extent(callout, height) -> (xmin, ymin, xmax, ymax) of its frame "
+                           "or symbol laid out at lettering height, in its own plane; None "
+                           "when it draws nothing");
         initialize("PMI: product and manufacturing information -- GD&T on a part");
     }
 
@@ -223,6 +228,29 @@ private:
             return Py::None();
         }
         return Py::asObject(drf->getPyObject());
+    }
+
+    Py::Object extent(const Py::Tuple& args)
+    {
+        PyObject* pyobj;
+        double height;
+        if (!PyArg_ParseTuple(args.ptr(), "Od", &pyobj, &height)) {
+            throw Py::Exception();
+        }
+        auto callout = freecad_cast<Callout*>(toObject(pyobj));
+        if (!callout) {
+            throw Py::TypeError("a PMI callout is wanted");
+        }
+        if (!(height > 0.0)) {
+            throw Py::ValueError("the lettering height must be positive");
+        }
+        Drawing d;
+        callout->layout(d, height);
+        if (d.isEmpty()) {
+            return Py::None();
+        }
+        return Py::TupleN(Py::Float(d.xmin), Py::Float(d.ymin), Py::Float(d.xmax),
+                          Py::Float(d.ymax));
     }
 
     Py::Object stackUnder(const Py::Tuple& args)

@@ -1171,13 +1171,39 @@ asked for; the leaders' ends as far apart as in the model (the position's on the
 callout goes. On the page: the SVG gains 15 paths, the vg render draws them, the flatness's
 value changed in 3D changes the drawing.
 
-Open: frames placed from the 3D layout can overlap on paper (the view's scale spreads the
-model's gaps, not the frames); linked dimensions (sec 9 item 4); a page from PMI views.
+**Placed clear on paper.** The view's scale spreads the model's gaps, not the frames, which
+are drawn at the page's lettering height: placed from the 3D layout alone they stood on each
+other and on the view's lines. Now each frame wants the place the 3D view gives it -- the
+middle of its laid-out frame (`PMI.extent(callout, height)`, the layout's box in its plane) at
+its own `TextHeight`, projected -- and takes the nearest place on paper clear, by 1 mm, of the
+frames placed before it, of those the user moved (fixed, placed first) and of the view's
+visible lines; failing within 200 tries, clear of the frames only. The search is best-first
+from the wanted place over the positions just clear of whatever is in the way (left, right,
+below, above each). Sizes on paper come from the same layout at the callout's `Fontsize` (the
+TechDraw dimension font-size preference headless).
 
-Tests: `PMITests.TestDrawing` (headless; FreeCADCmd gets a Qt core application for the
-projection's thread), `tests/gui/pmi-techdraw-callouts.py`.
+Found on the way:
 
-- Next in P4: placing without overlap, linked dimensions, pages from PMI views.
+- `UprightAt[0]` is the point a frame turns about to read upright, not its middle; the frame's
+  middle is its layout's.
+- A view's `Scale` is not the scale it is drawn at: with `ScaleType` Page it is the page's.
+  `DrawView.getScale()` is now in Python and the importer uses it.
+- A place found just clear of a line touches it, and a closed crossing test calls that in the
+  way again: the search loops on one candidate. Places are taken 1e-6 beyond.
+- **Headless TechDraw projected nothing.** The projection and face finding run in worker
+  threads whose end a queued signal delivers; FreeCADCmd has no Qt application, so no event
+  loop, and a view never got its edges. The test made one -- and, kept, a later CAM test took
+  it for a GUI and aborted in `QFontDatabase`; destroyed, by `shutdown()` or by dropping it,
+  PySide invalidated every QObject Python had made before (CAM's `Notification`: "Signal
+  source has been deleted"). `DrawViewPart` now projects and finds faces in place when there
+  is no `QCoreApplication`, as its coarse view always did; a script needs nothing.
+
+Open: leaders may cross the view's lines; linked dimensions (sec 9 item 4); a page from PMI
+views.
+
+Tests: `PMITests.TestDrawing` (headless), `tests/gui/pmi-techdraw-callouts.py`.
+
+- Next in P4: linked dimensions, pages from PMI views.
 
 ## 11. Decisions (made 2026-11-19)
 

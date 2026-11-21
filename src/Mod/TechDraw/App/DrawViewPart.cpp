@@ -427,6 +427,19 @@ void DrawViewPart::buildGeometryObject(const Part::TopoShape& shape, const gp_Ax
         go->projectShapeWithPolygonAlgo(shape, viewAxis);
         onHlrFinished(go);
     }
+    else if (!QCoreApplication::instance()) {
+        // Headless, with no Qt application: no event loop would deliver a
+        // worker's end, and the view would never be drawn -- projected here
+        try {
+            go->projectShape(shape, viewAxis);
+        }
+        catch (Standard_Failure& e) {
+            FC_THROWM(Base::CADKernelError, "The hidden line projection failed: "
+                          << (e.GetMessageString() ? e.GetMessageString()
+                                                   : "an OpenCASCADE failure with no message"));
+        }
+        onHlrFinished(go);
+    }
     else {
         // what the worker says when it fails: the view's recompute error,
         // given once it is back on this thread (docs/TechDrawErrors.md 3.1)
@@ -536,6 +549,29 @@ void DrawViewPart::onHlrFinished(GeometryObjectPtr geometryObject)
         params.faces = faces;
         params.wireJoiner = UseWireJoiner.getValue();
 
+        if (!QCoreApplication::instance()) {
+            // Headless, as the projection above: found here
+            try {
+                extractFaces(params);
+            }
+            catch (Base::Exception& e) {
+                *failure = e.what();
+            }
+            catch (Standard_Failure& e) {
+                *failure = e.GetMessageString() ? e.GetMessageString()
+                                                : "an OpenCASCADE failure with no message";
+            }
+            if (failure->empty()) {
+                onFacesFinished(faces);
+            }
+            else {
+                abortMakeGeometry();
+                Base::Console().Warning("%s: no faces were found, so hatches and face "
+                                        "references do not work in this view: %s\n",
+                                        Label.getValue(), failure->c_str());
+            }
+            return;
+        }
         waitingForFaces(true);
         m_faceWatcher->setFuture(QtConcurrent::run(
             [=]{

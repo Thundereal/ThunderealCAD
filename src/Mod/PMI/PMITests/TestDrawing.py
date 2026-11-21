@@ -26,32 +26,11 @@ except ImportError:
 from PMITests.TestModel import BOTTOM, HOLE, LEFT, TOP, face_at
 
 V = App.Vector
-_app = None
-
-
-def qt_events():
-    """A view's projection runs in a thread whose end Qt's event loop
-    delivers; FreeCADCmd has no application for one: made before the view is
-    computed, for the tests' time only -- left behind, a later test would take
-    it for a GUI and draw with fonts it has not got"""
-    import sys
-
-    from PySide import QtCore
-
-    global _app
-    if QtCore.QCoreApplication.instance() is None:
-        _app = QtCore.QCoreApplication(sys.argv[:1])
-
-
-def qt_events_done():
-    global _app
-    if _app is not None:
-        _app.shutdown()
-        _app = None
 
 
 def wait_for(view, seconds=20.0):
-    """The view's projection: done when it names its edges"""
+    """The view's projection: done when it names its edges -- at once headless,
+    where it runs in place; in the GUI once its thread's end is delivered"""
     from PySide import QtCore
 
     end = time.time() + seconds
@@ -66,16 +45,7 @@ def wait_for(view, seconds=20.0):
 
 @unittest.skipIf(TechDrawPMI is None, "TechDraw is not built")
 class TestImportModelAnnotations(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        qt_events()
-
-    @classmethod
-    def tearDownClass(cls):
-        qt_events_done()
-
     def setUp(self):
-        qt_events()
         doc = self.doc = App.newDocument("PMIDrawing")
         self.addCleanup(App.closeDocument, doc.Name)
         body = self.body = doc.addObject("PartDesign::Body", "Body")
@@ -126,6 +96,7 @@ class TestImportModelAnnotations(unittest.TestCase):
         view.Source = [body]
         view.Direction = V(0, 0, 1)
         view.XDirection = V(1, 0, 0)
+        view.ScaleType = "Custom"
         view.Scale = 2.0
         doc.recompute()
         self.assertTrue(wait_for(view), "the view never projected")
@@ -159,9 +130,7 @@ class TestImportModelAnnotations(unittest.TestCase):
                 e = self.view.getEdgeByIndex(i)
                 m = e.valueAt((e.FirstParameter + e.LastParameter) / 2)
                 mids.append((m.x, -m.y))
-        to_doc = self.body.getGlobalPlacement()
         got = self.imported()
-        frames = {}
         for name, c in got.items():
             # The leader ends in the middle of a visible edge of the view
             tip = (c.OriginX.Value, c.OriginY.Value)
@@ -169,14 +138,16 @@ class TestImportModelAnnotations(unittest.TestCase):
                             name)
             self.assertEqual(list(c.ImportOffset),
                              [c.X.Value - c.OriginX.Value, c.Y.Value - c.OriginY.Value])
-            src = c.Source
-            frames[name] = to_doc.multVec(src.Plane.multVec(src.UprightAt[0]))
         # Seen from the top, x right and y up, in the model's lengths: the
-        # frames as far apart on the page as in the model
-        a, b = got["Flatness"], got["Note"]
-        d = frames["Flatness"] - frames["Note"]
-        self.assertAlmostEqual(a.X.Value - b.X.Value, d.x, places=6)
-        self.assertAlmostEqual(a.Y.Value - b.Y.Value, d.y, places=6)
+        # flatness, clear of all on paper, stands against its leader's end as
+        # its 3D frame against the middle of the long top edge it ends on, at
+        # (20, 0) or (20, 20) in the Body
+        f = got["Flatness"]
+        at = f.Source.Plane.multVec(TechDrawPMI._centre3d(f.Source))
+        stands = (f.X.Value - f.OriginX.Value, f.Y.Value - f.OriginY.Value)
+        self.assertTrue(any(abs(stands[0] - (at.x - 20)) < 1e-6
+                            and abs(stands[1] - (at.y - y)) < 1e-6 for y in (0, 20)),
+                        (stands, at))
         # The leaders' ends as far apart as in the model: the flatness's in
         # the middle of a long top edge (x 20, y 0 or 20), the position's on
         # the hole's rim, 3 from its axis at (20, 10)
@@ -185,6 +156,35 @@ class TestImportModelAnnotations(unittest.TestCase):
         dy = p.OriginY.Value - f.OriginY.Value
         self.assertLess(abs(dx), 3.0 + 1e-6)
         self.assertAlmostEqual(math.hypot(dx, abs(dy) - 10.0), 3.0, places=6)
+
+    def test_clear_of_each_other_and_of_the_lines(self):
+        """On paper the frames keep the 3D view's places where those are clear;
+        where one would stand on another or on the view's lines it goes to the
+        nearest place that is not"""
+        import PMI
+
+        TechDrawPMI.importAnnotations(self.view)
+        scale = self.view.getScale()
+        height = TechDrawPMI._height()
+        lines = []
+        for i, (name, _source, _index) in enumerate(self.view.getEdgeNames()):
+            if ";HLR:V" in name:
+                pts = [(p.x * scale, -p.y * scale)
+                       for p in self.view.getEdgeByIndex(i).discretize(Deflection=0.05)]
+                lines += list(zip(pts, pts[1:]))
+        boxes = {}
+        for name, c in self.imported().items():
+            x0, y0, x1, y1 = PMI.extent(c.Source, height)
+            x, y = c.X.Value * scale, c.Y.Value * scale
+            boxes[name] = (x - (x1 - x0) / 2, y - (y1 - y0) / 2,
+                           x + (x1 - x0) / 2, y + (y1 - y0) / 2)
+        self.assertEqual(len(boxes), 3)
+        names = sorted(boxes)
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                self.assertFalse(TechDrawPMI._overlap(boxes[a], boxes[b]), (a, b))
+            for seg in lines:
+                self.assertFalse(TechDrawPMI._clip(boxes[a], *seg), (a, seg))
 
     def test_again_it_follows_the_model_and_keeps_moves(self):
         TechDrawPMI.importAnnotations(self.view)

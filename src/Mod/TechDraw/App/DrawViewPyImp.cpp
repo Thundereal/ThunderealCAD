@@ -79,6 +79,14 @@ PyObject* DrawViewPy::translateLabel(PyObject *args)
 }
 
 
+PyObject* DrawViewPy::getScale(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    return PyFloat_FromDouble(getDrawViewPtr()->getScale());
+}
+
 PyObject *DrawViewPy::getCustomAttributes(const char* /*attr*/) const
 {
     return nullptr;

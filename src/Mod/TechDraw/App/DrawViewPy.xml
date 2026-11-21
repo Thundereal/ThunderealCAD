@@ -20,6 +20,13 @@
         </UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="getScale" Const="true">
+      <Documentation>
+        <UserDocu>getScale() -> float. The scale the view is drawn at: its Scale, or the
+         page's when its ScaleType is Page.
+        </UserDocu>
+      </Documentation>
+    </Methode>
    <CustomAttributes />
   </PythonExport>
 </GenerateModel>

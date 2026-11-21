@@ -84,7 +84,6 @@
 #include "StepExport.h"
 #include "TolerancedFeature.h"
 
-FC_LOG_LEVEL_INIT("PMI", true, true)
 
 using namespace PMI;
 
@@ -974,16 +973,17 @@ Step::WriteReport Step::write(const Import::PostExport& info)
     int any = report.datums + report.targets + report.tolerances + report.dimensions
         + report.notes;
     if (any || !report.skipped.empty()) {
-        FC_MSG("PMI written: " << report.datums << " datums, " << report.targets
-                               << " datum targets, " << report.tolerances << " tolerances, "
-                               << report.dimensions << " dimensions, " << report.notes
-                               << " notes");
+        // The user's, not a log's: no source location in front
+        Base::Console().message("PMI written: %d datums, %d datum targets, %d tolerances, "
+                                "%d dimensions, %d notes\n",
+                                report.datums, report.targets, report.tolerances,
+                                report.dimensions, report.notes);
     }
     for (auto& s : report.skipped) {
-        FC_WARN("PMI not written: " << s);
+        Base::Console().warning("PMI not written: %s\n", s.c_str());
     }
     for (auto& s : report.partly) {
-        FC_WARN("PMI: " << s);
+        Base::Console().warning("PMI: %s\n", s.c_str());
     }
     return report;
 }

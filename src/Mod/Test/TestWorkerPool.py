@@ -1778,7 +1778,10 @@ class TestWorkerRecompute(unittest.TestCase):
         user is asked."""
         security = App.ExpressionSecurity
         counted = self.counted("Asker")
-        counted.setExpression("Input", "_app.Version().__len__()")
+        # An app.query call both engines have: the native one, and the
+        # sandbox's image where a runtime is installed, whose FreeCAD has
+        # no Version(). A worker's copy has the document's name
+        counted.setExpression("Input", "_app.getDocument(<<%s>>).Name.__len__()" % self.doc.Name)
         principal = security.principalOf(self.doc.Name)
         self.addCleanup(security.revoke, principal, "app.query", "*")
         self.addCleanup(security.clearPending, principal, "app.query", "*")
@@ -1787,7 +1790,7 @@ class TestWorkerRecompute(unittest.TestCase):
         security.revoke(principal, "app.query", "*")
         security.grant(principal, "app.query", "*", True, "session")
         self.doc.recompute()
-        expected = 2 * len(App.Version())
+        expected = 2 * len(self.doc.Name)
         self.assertEqual(counted.Result, expected)
 
         # A write the expression overrides: evaluated again there (a touch

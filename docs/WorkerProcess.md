@@ -2444,6 +2444,17 @@ replaces it ("Permission denied (13)"), and `GrantStore::save` used
 updated. `renameFile()` is `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` there
 now, and the store renames through it.
 
+The permission test failed again in the user's own profile with the
+revoke in, and the remote session bisected it to the profile's Pyodide
+install: with a runtime there, expressions are evaluated in the sandbox's
+image, whose `FreeCAD` facade has `listDocuments`, `getDocument` and the
+rest of its app.query calls but no `Version()` -- "No attribute named
+'Version'". Reproduced here with `FREECAD_USER_HOME` the Pyodide home. The
+test now reads `_app.getDocument(<<name>>).Name`, gated by app.query in
+both engines, and passes in both homes, refused after the revoke by each
+engine where it should be. The image's missing `Version()` is a gap
+between the two engines, not the worker's; left for the sandbox work.
+
 A Windows Error Reporting dialog would hold a crashed worker's end until
 someone answered it. None was seen, but no worker had really crashed
 there (above), and `faulthandler._read_null()` turns the dialog off

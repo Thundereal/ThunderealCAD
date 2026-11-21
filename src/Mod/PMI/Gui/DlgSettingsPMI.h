@@ -30,12 +30,14 @@
 namespace Gui
 {
 class PrefCheckBox;
+class PrefColorButton;
 }
 
 namespace PMIGui
 {
 
-/// Preferences, PMI (Part/Part Design): how a PMI view is shown
+/// Preferences, PMI (Part/Part Design): how a PMI view is shown, and the
+/// colour a STEP file's PMI graphics are written in
 class DlgSettingsPMI: public Gui::Dialog::PreferencePage
 {
     Q_OBJECT
@@ -54,6 +56,7 @@ private:
     void retranslateUi();
 
     Gui::PrefCheckBox* _newView = nullptr;
+    Gui::PrefColorButton* _exportColor = nullptr;
 };
 
 }  // namespace PMIGui

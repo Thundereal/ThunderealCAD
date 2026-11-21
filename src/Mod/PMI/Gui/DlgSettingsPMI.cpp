@@ -26,6 +26,8 @@
 
 #include <QEvent>
 #include <QGroupBox>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QVBoxLayout>
 
 #include <Gui/PrefWidgets.h>
@@ -49,6 +51,22 @@ DlgSettingsPMI::DlgSettingsPMI(QWidget* parent)
     _newView->setChecked(false);
     inner->addWidget(_newView);
     layout->addWidget(group);
+
+    // Read by Import::WriterStep, with the same default
+    auto step = new QGroupBox(this);
+    step->setObjectName(QStringLiteral("step"));
+    auto row = new QHBoxLayout(step);
+    auto label = new QLabel(step);
+    label->setObjectName(QStringLiteral("exportColorLabel"));
+    row->addWidget(label);
+    _exportColor = new Gui::PrefColorButton(step);
+    _exportColor->setObjectName(QStringLiteral("ExportColor"));
+    _exportColor->setEntryName("ExportColor");
+    _exportColor->setParamGrpPath("Mod/PMI");
+    _exportColor->setColor(QColor(26, 64, 153));
+    row->addWidget(_exportColor);
+    row->addStretch();
+    layout->addWidget(step);
     layout->addStretch();
     retranslateUi();
 }
@@ -67,16 +85,27 @@ void DlgSettingsPMI::retranslateUi()
            "document, placed beside the others, rather than in the active one; a view "
            "already active in one brings that one up. Each 3D view shows a PMI view of its "
            "own."));
+    if (auto group = findChild<QGroupBox*>(QStringLiteral("step"))) {
+        group->setTitle(tr("STEP export"));
+    }
+    if (auto label = findChild<QLabel*>(QStringLiteral("exportColorLabel"))) {
+        label->setText(tr("PMI graphics written in"));
+    }
+    _exportColor->setToolTip(
+        tr("The colour of the annotations' graphics in a STEP file written with PMI (AP242): "
+           "what another program draws them in. The 3D view's own colour is the default."));
 }
 
 void DlgSettingsPMI::saveSettings()
 {
     _newView->onSave();
+    _exportColor->onSave();
 }
 
 void DlgSettingsPMI::loadSettings()
 {
     _newView->onRestore();
+    _exportColor->onRestore();
 }
 
 void DlgSettingsPMI::changeEvent(QEvent* event)

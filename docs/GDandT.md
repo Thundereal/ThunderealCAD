@@ -1001,7 +1001,8 @@ else those the part is placed in -- and the file's in the exported shape's: the 
 to the other is read off a face found in both. A graphic goes to OCCT as polylines and meshes:
 its writer takes a curve that is not a line for its B-spline's control polygon and ignores an
 edge's location (sec 5.3); a fill is a face of its triangles alone, so its edges are not written
-twice. The graphics are in the callouts' blue (`Mod/PMI/ExportColor`), not OCCT's white.
+twice. The graphics are in the callouts' blue, not OCCT's white; `Mod/PMI/ExportColor`,
+Preferences, Part/Part Design, PMI, STEP export, names another.
 
 **OCCT, fixed on the fork** (sec 5.3 items 5 and 8, and three found here):
 

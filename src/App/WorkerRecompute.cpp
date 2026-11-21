@@ -184,11 +184,9 @@ void RecomputeHook::setHandover(Handover h)
     handover = h;
 }
 
-void RecomputeHook::handOver(Document& doc, const std::vector<DocumentObject*>& objs)
+bool RecomputeHook::handOver(Document& doc, const std::vector<DocumentObject*>& objs)
 {
-    if (handover && !of(doc)) {
-        handover(doc, objs);
-    }
+    return handover && !of(doc) && handover(doc, objs);
 }
 
 unsigned long RecomputeHook::minted()
@@ -1517,16 +1515,16 @@ std::set<DocumentObject*> reachOf(const Document& doc, const std::vector<Documen
  * a script's doc.recompute(), the console -- and for the GUI's own calls
  * that recompute at once.
  */
-void handOverRisky(Document& doc, const std::vector<DocumentObject*>& objs)
+bool handOverRisky(Document& doc, const std::vector<DocumentObject*>& objs)
 {
     State* s = stateOf(doc);
     if (!s || s->risky.empty() || s->applying || s->job || !s->file.empty()) {
-        return;
+        return false;
     }
     if (!GetApplication()
              .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
              ->GetBool("HandOverRisky", true)) {
-        return;
+        return false;
     }
     // One tried again since its crash: one still refused is not executed,
     // here or there, and needs no worker
@@ -1539,16 +1537,21 @@ void handOverRisky(Document& doc, const std::vector<DocumentObject*>& objs)
         }
     }
     if (!reaches) {
-        return;
+        return false;
     }
     std::string why;
     if (!WorkerRecompute::start(doc, objs, &why)) {
         FC_LOG(doc.getName() << ": a recompute reaching what crashed a worker made here: " << why);
-        return;
+        return false;
     }
     FC_LOG(doc.getName() << ": a recompute reaching what crashed a worker, made by one");
     ++s->info.handedOver;
+    const long failed = s->info.failed;
+    const long applied = s->info.applied;
+    // Put in as it comes (wait() applies it), or the worker died again:
+    // what crashed is then refused here (quarantine)
     WorkerRecompute::wait(doc);
+    return stateOf(doc) == s && (s->info.applied > applied || s->info.failed > failed);
 }
 
 State& stateFor(Document& doc)

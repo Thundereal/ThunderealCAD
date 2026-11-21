@@ -1520,6 +1520,43 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(self.pool.recomputeInfo()["HandedOver"], handed + 2)
         self.assertEqual(crash.MadeBy, os.getpid())
 
+    def testOneObjectsRecomputeOfWhatCrashedIsAWorkersFirst(self):
+        """The recompute of one object -- a task dialog's preview, a script's
+        obj.recompute() -- of one that crashed a worker and was changed since
+        is made by a worker first too; one still refused is not run anywhere
+        (docs/WorkerProcess.md sec 37)"""
+        before, crash, after = self.crashingChain()
+        self.byWorker()
+        handed = self.pool.recomputeInfo()["HandedOver"]
+        self.assertFalse(crash.recompute())
+        self.assertEqual(self.pool.recomputeInfo()["HandedOver"], handed)
+        self.assertNotIn("crashed here", _executions)
+        # Changed, not fixed: a worker dies in it, it is refused again
+        crash.Sleep = 0.01
+        failed = self.pool.info()["Failed"]
+        self.assertFalse(crash.recompute())
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["HandedOver"], handed + 1, info)
+        self.assertEqual(info["Crashed"], ["Crash"], info)
+        self.assertEqual(self.pool.info()["Failed"], failed + 1, self.pool.info())
+        self.assertNotIn("crashed here", _executions)
+        # Fixed: made by a worker
+        crash.Crash = False
+        self.assertTrue(crash.recompute())
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["HandedOver"], handed + 2, info)
+        self.assertEqual(crash.Result, 8)
+        self.assertNotEqual(crash.MadeBy, os.getpid())
+        self.assertNotIn("crashed here", _executions)
+        # Off: made here
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("HandOverRisky", False)
+        self.addCleanup(group.RemBool, "HandOverRisky")
+        crash.Sleep = 0.02
+        self.assertTrue(crash.recompute())
+        self.assertEqual(self.pool.recomputeInfo()["HandedOver"], handed + 2)
+        self.assertEqual(crash.MadeBy, os.getpid())
+
     def testACrashAgainAfterAChangeIsRefusedAgain(self):
         """Tried again on a change that does not fix it: it crashes the
         worker again, and is refused here again"""

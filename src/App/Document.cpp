@@ -19709,6 +19709,15 @@ bool Document::recomputeFeature(DocumentObject* Feat, bool recursive)
         } else {
             if (testStatus(FrozenVersion))
                 return Feat->isValid();
+            // One that crashed a worker before, tried again from a task
+            // dialog's preview: a worker first, as a recompute of the
+            // document does (docs/WorkerProcess.md sec 37). Not one asked
+            // from an execute(): that recompute was offered already
+            if (!testStatus(Recomputing) && RecomputeHook::handOver(*this, {Feat})
+                && !Feat->isTouched() && !Feat->mustExecute()) {
+                // Put in by a recompute here, which said it was recomputed
+                return Feat->isValid();
+            }
             // One object recomputed from another's execute(): noted by a
             // worker as its own, made from the worker's values where the
             // result is taken in (docs/WorkerProcess.md sec 19, 20)

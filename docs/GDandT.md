@@ -1373,6 +1373,15 @@ a caption or a dimension.
 Open:
 - a leader from a frame that has no clear way to its end still crosses (the import shot's
   slot position, over the holes' frame): the frames are placed one at a time.
+  Tried and reverted the same day: placing a crossed frame again, or the crossing one
+  first; a pass for a leader through no frame but across lines; and, as the step search
+  (each place just clear of what was in the way) runs out of places near a frame among
+  many lines, a grid of places around it. On the plate every straight leader from above to
+  the slot runs through the band the holes' frame stands in, so the only clear places are
+  some 60 mm off -- the page then read worse (a frame under the top view, the section's
+  inside its hatching). The passes rank clear before near; a cost weighing the distance
+  moved against each crossing is what it needs, and on these two pictures it keeps the
+  places as they are. Left as is.
 
 **Datums square to their line** (later the same day). TechDraw turns a balloon's end
 symbol along its leader, so a datum's triangle sat flat on the feature only when the

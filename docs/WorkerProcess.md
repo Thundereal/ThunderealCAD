@@ -2880,6 +2880,10 @@ Of the 4.1 s between the worker's 9.15 s and the 13.25 s result, 1.4 s
 is the put-in; the rest (the copy's new version, the job's start, the
 worker moving to it) is not broken down here.
 
-Still different from here after the fixes, in the GUI only: `SectionView007`
-(19 visible edges here, 20 from a worker) and `Dimension014` (48.5 here,
-90.0 from a worker), the TechDraw kind of sec 43. Open.
+Again in the GUI with the fixes (0a2435110b): no link group differs any
+more. Each run of a worker, split or not, differs from here in
+`SectionView007` (19 visible edges here, 20 from a worker) and
+`Dimension014` (48.5 here, 90.0 from a worker), the TechDraw kind of sec
+43, open. And in one object's last place of four, not the same object
+each run (`Part012`'s area 24940.2409 against .2408, `Helix`'s volume),
+4e-9 relative.

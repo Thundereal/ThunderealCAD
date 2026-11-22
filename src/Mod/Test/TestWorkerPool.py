@@ -331,6 +331,40 @@ class TestWorkerPool(unittest.TestCase):
         self.assertTrue(self.pool.wait(120))
         self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
 
+    def testAKilledWorkerLeavesNothingInTheCache(self):
+        """A worker's copy of the document and its reader of this process's
+        store each have a transient directory, named after its pid. Ended
+        by the pool -- stopped, or its document closed -- it is killed, and
+        removes neither: the pool does once it is gone (docs/WorkerProcess.md
+        sec 48)"""
+        cache = App.getUserCachePath()
+
+        def left(pids):
+            return sorted(
+                n for n in os.listdir(cache) for pid in pids
+                if n.endswith("_%d" % pid) and ("_Doc_" in n or "_Reader_" in n))
+
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
+        self.assertTrue(self.pool.info()["ReadStore"])
+        pids = list(self.pool.info()["Pids"])
+        self.assertTrue(pids)
+        # what they made: the copy's directory and the reader's
+        self.assertTrue(left(pids))
+        self.pool.stop("the test is over")
+        self.assertEqual(left(pids), [])
+        # and by a close of the document
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        pids = list(self.pool.info()["Pids"])
+        self.assertTrue(left(pids))
+        App.closeDocument(self.doc.Name)
+        self.doc = App.newDocument("WorkerPool")
+        self.assertEqual(left(pids), [])
+
     def testAFirstSaveEndsTheWorkersReadingTheStore(self):
         """A first save renames the transient directory, which Windows will
         not do while a worker has the store in it open: the workers reading

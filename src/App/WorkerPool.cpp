@@ -486,6 +486,31 @@ std::string randomToken()
     return text;
 }
 
+/** What an ended worker leaves in the user cache: the transient directory of
+ * its copy of the document and the one of its reader of this process's
+ * store (FileHistory::openReader), each named after its pid. A worker that
+ * quits removes them as it closes; one killed -- every worker as its
+ * document closes, or the pool stops -- does not, and they were never
+ * removed (docs/WorkerProcess.md sec 48)
+ */
+void removeLeftovers(long pid)
+{
+    if (pid <= 0) {
+        return;
+    }
+    const std::string cache = Application::getUserCachePath();
+    const std::string exe = Application::getExecutableName();
+    const std::string tail = "_" + std::to_string(pid);
+    for (auto& entry : Base::FileInfo(cache).getDirectoryContent()) {
+        const std::string name = entry.fileName();
+        const bool ours = name.rfind(exe + "_Doc_", 0) == 0 || name.rfind(exe + "_Reader_", 0) == 0;
+        if (ours && name.size() > tail.size()
+            && name.compare(name.size() - tail.size(), tail.size(), tail) == 0 && entry.isDir()) {
+            entry.deleteDirectoryRecursive();
+        }
+    }
+}
+
 }  // namespace
 
 // --------------------------------------------------------------------------
@@ -1938,6 +1963,9 @@ void WorkerPool::Private::finished(Proc& proc)
     if (lost && !proc.killed) {
         stack = crashOf(proc, lost, how, crashLog);
     }
+    if (!proc.process || proc.process->state() == QProcess::NotRunning) {
+        removeLeftovers(proc.pid);
+    }
     for (auto it = procs.begin(); it != procs.end(); ++it) {
         if (it->get() == &proc) {
             gone.push_back(std::move(*it));  // not deleted inside its own signal
@@ -2244,6 +2272,9 @@ WorkerPool::~WorkerPool()
                 proc->process->kill();
                 proc->process->waitForFinished(2000);
             }
+            if (proc->process->state() == QProcess::NotRunning) {
+                removeLeftovers(proc->pid);
+            }
         }
     }
     d->procs.clear();
@@ -2540,6 +2571,9 @@ void WorkerPool::stop(const std::string& why)
             if (proc->process->state() != QProcess::NotRunning) {
                 proc->process->kill();
                 proc->process->waitForFinished(2000);
+            }
+            if (proc->process->state() == QProcess::NotRunning) {
+                removeLeftovers(proc->pid);
             }
         }
         d->gone.push_back(std::move(proc));

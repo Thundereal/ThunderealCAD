@@ -3140,3 +3140,30 @@ Tests (`tests/src/Base/FileRetry.cpp`): the test hook
 `theWaitGrowsWithTheLongestHold` (1 s, then four times a 0.3 s hold,
 then capped by the limit), `aDeleteIsWaitedOutToo`. They run on macOS;
 the Windows branch is not compiled here.
+
+**dwin's retest (070e9a8a96).** It builds on Windows. FileRetryTest 6/6;
+TestWorkerPool 75 OK with Log on and no "still refused" (r5 and r6 had 7);
+FileBlobs 97 OK, Document 363 OK. One rename went through after 7 tries,
+197 ms: the first save in `testAViewsDimensionsComeBackWithIt`, as in r6.
+
+## 48. A killed worker's folders are removed (2026-11-22)
+
+dwin's test homes kept 96 `Thundereal_Doc_*` and 90 `Thundereal_Reader_*`
+folders over three runs, never deleted. This box's cache had 8089 and
+4770, 2.4 GB, of which 2799 and 1411 were not empty. A worker's copy of
+the document and its reader of this process's store (sec 3) each have a
+transient folder in the user cache, named after the worker's pid. A
+worker that quits removes them as it closes. The pool kills its workers
+when it stops or its document closes, so they were left.
+
+Now the pool removes `<exe>_Doc_*_<pid>` and `<exe>_Reader_*_<pid>` of
+each worker once its process has ended: in `finished()`, in `stop()` and
+in the destructor, each after the process is reaped. Test
+`testAKilledWorkerLeavesNothingInTheCache` (stopped, and by a close)
+fails without it. A whole TestWorkerPool run now leaves one empty
+document folder in the cache, not of a worker.
+
+Not done: the folders other processes left, killed or crashed, the bulk
+of this box's 2.4 GB. A document's folder may hold the transaction log a
+recovery reads (`Application::recoverDocument`), so removing those is a
+decision about recovery, not a cleanup. Asked of the user.

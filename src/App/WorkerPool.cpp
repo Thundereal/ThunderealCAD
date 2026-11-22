@@ -3326,9 +3326,10 @@ public:
         add_varargs_method("recomputeInfo", &WorkerPoolPy::recomputeInfo,
                            "recomputeInfo() -> dict");
         add_varargs_method("expectedRecompute", &WorkerPoolPy::expectedRecompute,
-                           "expectedRecompute() -> (seconds, unknown): what the recompute of "
-                           "what is touched would take here, by what its objects took when "
-                           "last made; the first call starts noting it");
+                           "expectedRecompute([objects]) -> (seconds, unknown): what the "
+                           "recompute of what is touched -- or of `objects` and what depends "
+                           "on them -- would take here, by what its objects took when last "
+                           "made; the first call starts noting it");
     }
 
     explicit WorkerPoolPy(const std::string& name)
@@ -3612,11 +3613,23 @@ public:
         return Py::None();
     }
 
-    Py::Object expectedRecompute(const Py::Tuple&)
+    Py::Object expectedRecompute(const Py::Tuple& args)
     {
         WorkerRecompute::trackTimes();
+        // Of what is touched, or of the objects given and what depends on them
+        std::vector<DocumentObject*> objs;
+        if (args.size() > 0) {
+            Py::Sequence list(args[0]);
+            for (Py_ssize_t k = 0; k < list.size(); ++k) {
+                Py::Object item = list[k];
+                if (!PyObject_TypeCheck(item.ptr(), &DocumentObjectPy::Type)) {
+                    throw Py::TypeError("expectedRecompute takes a list of document objects");
+                }
+                objs.push_back(static_cast<DocumentObjectPy*>(item.ptr())->getDocumentObjectPtr());
+            }
+        }
         long unknown = 0;
-        const double seconds = WorkerRecompute::expectedSeconds(document(), {}, &unknown);
+        const double seconds = WorkerRecompute::expectedSeconds(document(), objs, &unknown);
         return Py::TupleN(Py::Float(seconds), Py::Long(unknown));
     }
 
@@ -3655,7 +3668,11 @@ public:
         dict.setItem("HandedOver", Py::Long(i.handedOver));
         dict.setItem("Split", Py::Long(i.split));
         dict.setItem("SplitSaving", Py::Float(i.splitSaving));
-        dict.setItem("SplitObjects", Py::TupleN(Py::Long(i.splitFirst), Py::Long(i.splitSecond)));
+        Py::Tuple parts(i.splitObjects.size());
+        for (std::size_t k = 0; k < i.splitObjects.size(); ++k) {
+            parts.setItem(k, Py::Long(i.splitObjects[k]));
+        }
+        dict.setItem("SplitObjects", parts);
         dict.setItem("SuppliedSecond", Py::Long(i.suppliedSecond));
         return dict;
     }

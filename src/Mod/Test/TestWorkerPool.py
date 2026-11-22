@@ -1062,7 +1062,11 @@ class TestWorkerRecompute(unittest.TestCase):
         _Crashing not set to crash),
         each read by a tail: made once here, its times known; two workers
         allowed (this class allows one)"""
-        App.ParamGet("User parameter:BaseApp/Preferences/Workers").SetInt("Workers", 2)
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetInt("Workers", 2)
+        # The default (5 s) is past what these take: the tests' own
+        group.SetFloat("SplitSeconds", 1.0)
+        self.addCleanup(group.RemFloat, "SplitSeconds")
         self.pool.expectedRecompute()  # notes what each takes from now
         base = self.counted("Base", Input=1)
         left = self.counted("Left", Sleep=2.0)
@@ -1129,17 +1133,108 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertIn("Invalid", right.State)
         self.assertNotEqual(tails[1].Result, 16)
 
+    def testAnEditOfASpreadsheetIsMadeFromByAWorker(self):
+        """A spreadsheet's values are not saved, so a worker's result has
+        none: the worker makes the sheet for what reads it, and this process
+        makes it again as the result is put in. Before, what read it was
+        made from the value before the edit, one edit behind
+        (docs/WorkerProcess.md sec 44)"""
+        sheet = self.doc.addObject("Spreadsheet::Sheet", "Spreadsheet")
+        sheet.set("C9", "=5.5 mm")
+        sheet.set("B9", "=.C9")
+        sheet.setAlias("B9", "radius")
+        reader = self.counted("Reader")
+        reader.setExpression("Input", "Spreadsheet.radius * 10 / 1 mm")
+        self.doc.recompute()
+        self.assertEqual(reader.Result, 110)
+        for value in (5.6, 5.7):
+            sheet.set("C9", "=%g mm" % value)
+            info = self.byWorker()
+            self.assertEqual(info["ExecutedHere"], 0, info)
+            self.assertEqual(sheet.get("radius").Value, value)
+            self.assertEqual(reader.Result, 2 * round(value * 10), value)
+            self.assertNotEqual(reader.MadeBy, os.getpid())
+            self.assertEqual(self.touched(), [])
+        # and after a recompute here, the next edit a worker's again
+        sheet.set("C9", "=5.8 mm")
+        self.doc.recompute()
+        sheet.set("C9", "=5.9 mm")
+        self.byWorker()
+        self.assertEqual(reader.Result, 118)
+
+    def testALinkGroupsShapeFollowsAWorkersResult(self):
+        """A link group's shape is made of its members' and kept: a worker's
+        result put in makes the group again, so the shape kept goes. Before,
+        the group kept the shape of the edit before (docs/WorkerProcess.md
+        sec 44)"""
+        import Part
+
+        box = self.doc.addObject("Part::Box", "Box")
+        group = self.doc.addObject("App::LinkGroup", "Group")
+        group.ElementList = [box]
+        self.doc.recompute()
+        self.assertAlmostEqual(Part.getShape(group).Volume, 1000.0)
+        for length in (20.0, 30.0):
+            box.Length = length
+            self.byWorker()
+            self.assertAlmostEqual(box.Shape.Volume, 100.0 * length)
+            self.assertAlmostEqual(Part.getShape(group).Volume, 100.0 * length, msg=length)
+
+    def testARecomputeIsSplitOverThreeWorkers(self):
+        """Three branches of 2 s each under what all read, three workers
+        allowed: three parts, each branch by a worker of its own, put in as
+        one recompute (docs/WorkerProcess.md sec 44). The first such
+        recompute grows the pool; the second is timed"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetInt("Workers", 3)
+        group.SetFloat("SplitSeconds", 1.0)
+        self.addCleanup(group.RemFloat, "SplitSeconds")
+        self.pool.expectedRecompute()
+        base = self.counted("Base", Input=1)
+        branches = []
+        for name in ("Left", "Middle", "Right"):
+            branch = self.counted(name, Sleep=2.0)
+            branch.setExpression("Input", "Base.Result")
+            branches.append(branch)
+        warm = self.counted("Warm")
+        self.doc.recompute()
+        warm.Input = 1
+        self.byWorker()
+        base.Input = 2
+        info = self.byWorker()
+        self.assertEqual(info["Split"], 1, info)
+        self.assertEqual(len(info["SplitObjects"]), 3, info)
+        base.Input = 3
+        began = time.time()
+        info = self.byWorker()
+        took = time.time() - began
+        self.assertEqual(info["Split"], 2, info)
+        self.assertEqual(len(info["SplitObjects"]), 3, info)
+        self.assertGreaterEqual(info["SplitSaving"], 3.5, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertEqual(self.touched(), [])
+        self.assertEqual([b.Result for b in branches], [12, 12, 12])
+        made = [b.MadeBy for b in branches]
+        self.assertNotIn(os.getpid(), made)
+        self.assertEqual(len(set(made)), 3, made)
+        # Side by side: less than two of them one after the other
+        self.assertLess(took, 2 * 2.0, info)
+
     def testARecomputeThatSavesLittleIsNotSplit(self):
-        """Below Workers/SplitSeconds, or with it 0: one worker"""
+        """Below Workers/SplitSeconds -- its default, 5 s, or one set -- or
+        with it 0: one worker"""
         base, left, right, tails = self.splitChains()
         group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
-        group.SetFloat("SplitSeconds", 2.0)
-        self.addCleanup(group.RemFloat, "SplitSeconds")
-        base.Input = 3
-        info = self.byWorker()
-        self.assertEqual(info["Split"], 0, info)
-        self.assertEqual(left.MadeBy, right.MadeBy)
-        self.assertEqual((left.Result, right.Result), (12, 12))
+        for value in (None, 2.0, 0.0):
+            if value is None:
+                group.RemFloat("SplitSeconds")  # the default: 5 s
+            else:
+                group.SetFloat("SplitSeconds", value)
+            base.Input += 1
+            info = self.byWorker()
+            self.assertEqual(info["Split"], 0, (value, info))
+            self.assertEqual(left.MadeBy, right.MadeBy, value)
+            self.assertEqual((left.Result, right.Result), (4 * base.Input,) * 2, value)
 
     def testATechDrawViewIsMadeByAWorker(self):
         """A TechDraw view is made by a worker -- inline, a console process --

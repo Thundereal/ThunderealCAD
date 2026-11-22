@@ -2618,8 +2618,8 @@ whole's time less the larger half's. A cut at the chain's start would
 take everything (all reads the spreadsheet), which is why the cut is
 looked for along the chain and not only at it.
 
-It is split when that saving is at least `Workers/SplitSeconds` (1.0 s;
-0 never splits) and the pool may have two workers. Then two jobs, each
+It is split when that saving is at least `Workers/SplitSeconds` (1.0 s
+then, 5.0 s since 2026-11-22 at the user's word; 0 never splits) and the pool may have two workers. Then two jobs, each
 `objects` its half, the same `touched`, `display`, `numbers` and
 `refused` cut to it; a worker recomputes exactly what it is sent
 (`doc->recompute(objs)`), so the two make their halves of the same
@@ -2771,3 +2771,115 @@ alike, and that is two more problems, open:
   (`fixByName`, `fixExactMatch`, `handleNoExactMatch`); whether the
   worker's put-in leaves that write out, or the worker finds them again
   otherwise, is not yet known.
+
+## 44. A split into more parts; a spreadsheet's edit made one behind (2026-11-22)
+
+**More than two parts.** `splitParts()` begins with one part, everything
+the recompute reaches, and splits the costliest part in two (`splitOf`,
+sec 42) while that brings the costliest of all the parts down by at least
+`Workers/SplitSeconds`, and while there are fewer parts than the pool may
+have workers. Only the costliest part decides when the result comes, so
+splitting any other gains nothing. Splitting the part that holds the
+longest chain gives nothing either: a chain cut in two still makes all of
+it in one part, since that part reads what comes before the cut. So in
+practice it is the rest that splits further. Each part is a job of its own (`State::parts`);
+all are put in as one recompute when all are over: the first part with a
+result is the base, each other one added as the second was (`addsOf`,
+`merge`, its numbers only for what it adds, its strings by id). Each
+part's worker is told what is its own (`putIn`). `SplitObjects` in
+`recomputeInfo()` gives each part's size; `SuppliedSecond` counts the
+objects made from any part but the first.
+
+**`Workers/SplitSeconds` defaults to 5 s** (the user, 2026-11-22; it was
+1 s): a split costs a second worker's memory and a second put-in, and is
+worth it where it takes seconds off a wait. The tests set 1 s for what
+they split.
+
+Test `testARecomputeIsSplitOverThreeWorkers`: three branches of 2 s each
+under what all read, three workers allowed. The first such recompute
+grows the pool, and the second, timed, is split in three, expected to
+save 4 s. Each branch is made by a worker of its own, in under two
+branches' time. `testARecomputeThatSavesLittleIsNotSplit` now checks
+three settings: the 5 s default, 2 s and 0.
+
+**A spreadsheet's edit, made by a worker, was one edit behind.** Found by
+the GUI measurement below, which edited a cell of scanner's spreadsheet
+and compared every result with a recompute here: each worker's result was
+the previous value's, 43 objects off. A sheet's values, one per cell, are
+dynamic properties marked `Prop_NoPersist`, and a worker's recorder
+leaves out what is not saved. The put-in carried the sheet's `cells`, its
+contents, but not its values. Here the values stayed as they were, so
+nothing reading them was touched, and the worker's results for those
+objects went unused (`Unused` in the info). The next recompute here then
+made the sheet, and the next worker job read that value. Fixed two ways:
+
+- `Spreadsheet::Sheet::resultInProperties()` is false: its result is not
+  all in saved properties. A put-in makes it here (`madeHere`), and an
+  undo of its cells leaves it touched.
+- A worker no longer skips an object made here when another object in the
+  document reads it (`Recorder::make`). It makes the object for its
+  readers and does not send its values. Before, the worker left the sheet
+  as it was, and everything reading it was made from the old value.
+
+Test `testAnEditOfASpreadsheetIsMadeFromByAWorker`: an aliased cell read
+by an expression, edited twice and recomputed by a worker, then once more
+after a recompute here. It fails without the change (`5.5 != 5.6`).
+Seen in the code on the way, not run: `PropertySheet::Restore` marks no
+cell dirty, and `Sheet::execute()` evaluates only dirty cells and those
+in error. So a sheet whose cells are read back live, as an undo past the
+hot window reads them, would keep the values of its old contents until
+a cell is set. A worker no longer depends on it (the change above).
+Whether an undo shows it is not checked.
+
+**A link group kept the shape of the edit before.** The same GUI
+measurement, once the sheet was fixed, still found `LinkGroup` and
+`LinkGroup001` a value behind after a worker's result. A link group's
+shape is made of its members' and kept in its shape cache
+(`PropertyShapeCache`). The cache is cleared when the group's own
+`_LinkTouched` changes, which its `execute()` touches. A put-in executes
+nothing here, and `_LinkTouched` is not a saved value, so the cache stood.
+Now Part clears an object's shape cache whenever the object is recomputed
+(`signalRecomputedObject`, AppPart.cpp); a put-in reports each object so.
+Test `testALinkGroupsShapeFollowsAWorkersResult` (a box in a link group,
+edited twice) fails without it, `999.99 != 2000.0`.
+
+`pool.expectedRecompute([objects])` now takes the objects whose recompute
+is asked about; with none, what is touched, as before. Without it, each
+reading was of the whole touched set, which misled this section's first
+look at the times.
+
+**The split on a real edit (item 1 of the user's list).** Scanner in the
+GUI (`~/works/sw/fcad-probes/worker/editsplit_gui.py`): the cell behind
+`hole_radius`, the alias whose reach includes `PolarPattern003`, edited
+from 5.5 to 5.511 mm and back. It reaches 179 objects, and 398 are
+recomputed. Each run from the Recompute command to the result in, the
+main thread's blocked time by a 10 ms heartbeat; two workers allowed,
+warm:
+
+| | result | main thread blocked |
+|---|---|---|
+| here | 10.1 s | 10.2 s |
+| one worker | 13.25 s | 2.1 s (1.4 s of it the put-in) |
+
+It is not split, not even with the threshold at 1 s. The worker's time is 9.15 s and the
+expected 9.3 s, so the times are right. What stops it, as I read the
+code and the model, not measured cut by cut, is the model's shape. The part holding the longest chain, the pattern's, takes
+everything that uses the cut and everything those read. In scanner the
+assemblies (`LinkGroup001`, the `App::Part`s above the bodies) use the
+pattern's body and read every other part as well, so that part is the
+whole reach, and no cut saves anything. An edit above the bodies always
+reaches the assembly, so this is likely the usual case, not scanner's
+accident. Why sec 42's recompute of every object did split is not
+checked. A way through: leave
+an object that reads from both parts, when it is cheap (an assembly
+gathering shapes), to be made here as the result is put in, and split
+what it gathers. Not built; it puts that object's time on the main
+thread.
+
+Of the 4.1 s between the worker's 9.15 s and the 13.25 s result, 1.4 s
+is the put-in; the rest (the copy's new version, the job's start, the
+worker moving to it) is not broken down here.
+
+Still different from here after the fixes, in the GUI only: `SectionView007`
+(19 visible edges here, 20 from a worker) and `Dimension014` (48.5 here,
+90.0 from a worker), the TechDraw kind of sec 43. Open.

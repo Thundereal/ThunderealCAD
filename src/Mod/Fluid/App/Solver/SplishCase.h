@@ -40,6 +40,10 @@ FluidExport std::vector<Vec3> particlesOf(const Model& model);
 struct CaseOptions
 {
     int threads = 1;
+    // The pull between the fluid's particles that holds thrown water
+    // together in sheets and drops (Akinci et al. 2013): the solver's
+    // coefficient, no unit of the model's. 0, none: the validated runs.
+    double cohesion = 0.0;
 };
 
 struct Case

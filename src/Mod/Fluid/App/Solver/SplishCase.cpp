@@ -662,7 +662,11 @@ bool Splish::makeCase(const Model& model, const CaseOptions& options, Case& made
          << "interval " << num(model.outputInterval) << "\n"
          << "density " << num(liquid.density) << "\n"
          << "viscosity " << num(liquid.viscosity / liquid.density) << "\n"
-         << "threads " << std::max(options.threads, 1) << "\n"
+         << "threads " << std::max(options.threads, 1) << "\n";
+    if (options.cohesion > 0.0) {
+        text << "cohesion " << num(options.cohesion) << "\n";
+    }
+    text
          << "space " << vec(model.space.min) << " " << vec(model.space.max) << "\n"
          << "boundary " << boundary.size() << "\n"
          << "fluid " << particles.size() << "\n";

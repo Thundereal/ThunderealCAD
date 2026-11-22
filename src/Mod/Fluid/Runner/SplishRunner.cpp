@@ -36,6 +36,7 @@
 #include "SPlisHSPlasH/StaticRigidBody.h"
 #include "SPlisHSPlasH/TimeManager.h"
 #include "SPlisHSPlasH/TimeStep.h"
+#include "SPlisHSPlasH/SurfaceTension/SurfaceTension_Akinci2013.h"
 #include "SPlisHSPlasH/Viscosity/Viscosity_Standard.h"
 #include "Utilities/Counting.h"
 #include "Utilities/Logger.h"
@@ -50,6 +51,70 @@ using namespace SPH;
 
 namespace
 {
+
+// The pull between the fluid's particles of Akinci et al. 2013, as the
+// solver has it, less its pull towards the walls. The solver's own cannot
+// be used with that part at nothing: it still works out the wall's kernel,
+// a fourth root that is of a number a rounding below zero when a particle
+// is at the kernel's edge, and nothing times that is not a number -- a
+// run was all such from that step on, one run in four.
+class Cohesion: public SurfaceTension_Akinci2013
+{
+public:
+    static constexpr const char* Name = "FluidSplish cohesion";
+
+    explicit Cohesion(FluidModel* model)
+        : SurfaceTension_Akinci2013(model)
+    {}
+    static NonPressureForceBase* creator(FluidModel* model)
+    {
+        return new Cohesion(model);
+    }
+    std::string getMethodName() override
+    {
+        return Name;
+    }
+    void setStrength(Real strength)
+    {
+        m_surfaceTension = strength;
+        m_surfaceTensionBoundary = 0;
+    }
+
+    void step() override
+    {
+        Simulation* sim = Simulation::getCurrent();
+        FluidModel* model = m_model;
+        const Real density0 = model->getDensity0();
+        const Real k = m_surfaceTension;
+        const int count = (int)model->numActiveParticles();
+        const unsigned int fluidModelIndex = model->getPointSetIndex();
+
+        computeNormals();
+
+        #pragma omp parallel for schedule(static) default(shared)
+        for (int i = 0; i < count; i++) {
+            const Vector3r& xi = model->getPosition(i);
+            const Vector3r& ni = getNormal(i);
+            const Real rhoi = model->getDensity(i);
+            Vector3r& ai = model->getAcceleration(i);
+            forall_fluid_neighbors_in_same_phase(
+                const Real rhoj = model->getDensity(neighborIndex);
+                Vector3r accel = Vector3r::Zero();
+                // towards each other
+                Vector3r between = xi - xj;
+                const Real length2 = between.squaredNorm();
+                if (length2 > (Real)1.0e-9) {
+                    between *= (Real)1.0 / std::sqrt(length2);
+                    accel -= k * model->getMass(neighborIndex) * between
+                        * CohesionKernel::W(xi - xj);
+                }
+                // and towards a flatter surface
+                accel -= k * (ni - getNormal(neighborIndex));
+                ai += (Real)2.0 * density0 / (rhoi + rhoj) * accel;
+            )
+        }
+    }
+};
 
 struct Monitor
 {
@@ -68,6 +133,7 @@ struct Case
     double interval = 0.01;
     double density = 1000.0;
     double viscosity = 1e-6;
+    double cohesion = 0.0;
     int threads = 1;
     Vector3r spaceMin = Vector3r::Zero();
     Vector3r spaceMax = Vector3r::Zero();
@@ -121,6 +187,9 @@ Case readCase(const std::string& folder)
         }
         else if (key == "viscosity" && std::sscanf(rest, "%lf", &a[0]) == 1) {
             made.viscosity = a[0];
+        }
+        else if (key == "cohesion" && std::sscanf(rest, "%lf", &a[0]) == 1) {
+            made.cohesion = a[0];
         }
         else if (key == "threads") {
             made.threads = std::max(1, std::atoi(rest));
@@ -408,6 +477,8 @@ int main(int argc, char** argv)
 
     std::vector<Vector3r> v(x.size(), Vector3r::Zero());
     std::vector<unsigned int> ids(x.size(), 0);
+    // before the fluid is made: it lists the methods there are then
+    sim->addSurfaceTensionMethod(Cohesion::Name, Cohesion::creator);
     sim->addFluidModel("Fluid", (unsigned int)x.size(), x.data(), v.data(), ids.data(), 0);
     FluidModel* fluid = sim->getFluidModel(0);
     run.fluid = fluid;
@@ -416,6 +487,18 @@ int main(int argc, char** argv)
     if (fluid->getViscosityBase()) {
         fluid->getViscosityBase()->setValue<Real>(Viscosity_Standard::VISCOSITY_COEFFICIENT,
                                                  (Real)made.viscosity);
+    }
+    // Cohesion between the fluid's particles, when the case asks for it:
+    // none towards the walls, which stay as the validated runs have them.
+    if (made.cohesion > 0.0) {
+        fluid->setSurfaceTensionMethod(Cohesion::Name);
+        if (auto* cohesion = dynamic_cast<Cohesion*>(fluid->getSurfaceTensionBase())) {
+            cohesion->setStrength((Real)made.cohesion);
+        }
+        else {
+            std::printf("error the solver has no cohesion\n");
+            return 1;
+        }
     }
 
     Vector3r g = made.gravity;
@@ -488,6 +571,15 @@ int main(int argc, char** argv)
         sim->getTimeStep()->step();
         const Real step = tm->getTimeStepSize();
         time += step;
+        // a run that has come apart says so and stops: every step after is
+        // of nothing, and it was an hour of them once
+        const unsigned int active = fluid->numActiveParticles();
+        for (unsigned int i = 0; i < active; i++) {
+            if (!fluid->getPosition(i).allFinite()) {
+                std::printf("error the solver lost the fluid at %.9g s\n", time);
+                return 1;
+            }
+        }
         parkTheGone(run);
         writeSample(run, time, step);
         const double next = std::min(index * made.interval, made.end);

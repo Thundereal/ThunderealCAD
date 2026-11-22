@@ -119,6 +119,8 @@ public:
         }
         Splish::CaseOptions options;
         options.threads = threads();
+        // 0 unless asked for: it moves what the monitors read
+        options.cohesion = std::max(preferences()->GetFloat("Cohesion", 0.0), 0.0);
         Splish::Case made;
         if (!Splish::makeCase(given, options, made, why)) {
             return given.fluids.empty() ? Status::Empty : Status::Unsupported;

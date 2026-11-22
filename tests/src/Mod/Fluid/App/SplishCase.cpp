@@ -249,6 +249,14 @@ TEST(SplishCase, filesOfACase)
     std::memcpy(first, made.files.at("fluid.points").data(), sizeof(first));
     EXPECT_FLOAT_EQ(first[0], 0.01F);
     const std::string& text = made.files.at("case.txt");
+    // cohesion is asked for, or the case does not speak of it
+    EXPECT_EQ(text.find("cohesion"), std::string::npos);
+    Splish::CaseOptions held = options;
+    held.cohesion = 0.05;
+    Splish::Case holding;
+    ASSERT_TRUE(Splish::makeCase(model, held, holding, why)) << why;
+    EXPECT_NE(holding.files.at("case.txt").find("threads 4\ncohesion 0.05\nspace "),
+              std::string::npos);
     for (const char* line : {"fluidsplish 1\n",
                              "radius 0.01\n",
                              "gravity 0 0 -9.80665\n",

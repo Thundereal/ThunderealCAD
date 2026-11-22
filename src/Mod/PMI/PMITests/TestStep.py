@@ -480,10 +480,11 @@ class TestStepExport(unittest.TestCase):
     def test_written_as_the_schema_has_it(self):
         """What a checker of the file (NIST's SFA) asks of it: a tolerance's
         bounds typed; a perpendicularity to a datum the entity alone, not a
-        complex; a common datum's list a list; a zone defined as runout or
-        projected only when it is, a projected one with its length; each
-        graphic named -- and read back the same"""
-        from PMITests.TestModel import HOLE, LEFT, face_at
+        complex; a common datum's list a list, its members' modifiers typed;
+        a zone defined as runout or projected only when it is, a projected one
+        with its length; an angle in degrees, its bounds typed; each graphic
+        named -- and read back the same"""
+        from PMITests.TestModel import BOTTOM, HOLE, LEFT, face_at
 
         doc, pset = self.doc, self.doc.getObject("PMI")
         solid = self.body.SolidBodies[0]
@@ -505,7 +506,9 @@ class TestStepExport(unittest.TestCase):
         add("GeometricTolerance", "Projected", Characteristic="Position", Value=0.05,
             ZoneShape="Diameter", Modifiers=["P"], ProjectedLength=12.5,
             Feature=feat(HOLE), DatumSystem=add("DatumReferenceFrame", "Common",
-                                                Compartments=["A-B"]))
+                                                Compartments=["A-B(M)"]))
+        add("Dimension", "Corner", Type="Angle", Features=[feat(LEFT), feat(BOTTOM)],
+            Upper=0.5, Lower=-0.5)
         doc.recompute()
         bad = [o.Name for o in doc.Objects if getattr(o, "Condition", "Ok") != "Ok"]
         self.assertEqual(bad, [])
@@ -517,6 +520,14 @@ class TestStepExport(unittest.TestCase):
         self.assertIn("=PERPENDICULARITY_TOLERANCE(", text)
         self.assertNotIn("PERPENDICULARITY_TOLERANCE()", text)
         self.assertRegex(text, r"COMMON_DATUM_LIST\(\(#\d+(,#\d+)+\)\)")
+        # A modifier is a member of a SELECT: typed, not the bare enumeration
+        self.assertIn("(SIMPLE_DATUM_REFERENCE_MODIFIER(.MAXIMUM_MATERIAL_REQUIREMENT.))", text)
+        self.assertNotRegex(text, r"DATUM_REFERENCE_ELEMENT\([^;]*,\(\.[A-Z_]+\.")
+        # The angle in degrees, the unit says so: not 90 radians
+        unit = re.search(r"POSITIVE_PLANE_ANGLE_MEASURE\(90\.0*\),(#\d+)", text)
+        self.assertTrue(unit)
+        self.assertRegex(text, re.escape(unit.group(1)) + r"=\(CONVERSION_BASED_UNIT\('DEGREE',")
+        self.assertIn("=PLANE_ANGLE_MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(0.5),", text)
         self.assertNotIn("RUNOUT_ZONE_DEFINITION", text)
         self.assertRegex(text, r"PROJECTED_ZONE_DEFINITION\(#\d+,\(\),#\d+,#\d+\)")
         self.assertNotIn("TESSELLATED_ANNOTATION_OCCURRENCE(''", text)
@@ -524,23 +535,28 @@ class TestStepExport(unittest.TestCase):
         # the recommended practice (8.4), by which a checker tells it
         sets = set(re.findall(r"TESSELLATED_GEOMETRIC_SET\('([^']*)'", text))
         self.assertEqual(sets, {"datum", "flatness", "position", "perpendicularity",
-                                "diameterdimension", "lineardimension", "note"})
+                                "diameterdimension", "lineardimension", "angulardimension",
+                                "note"})
         # Each occurrence named, uniquely
         occs = re.findall(r"TESSELLATED_ANNOTATION_OCCURRENCE\('([^']*)'", text)
         self.assertEqual(len(occs), len(set(occs)))
         # Each but the note also associated with what it is about: the
-        # semantic link, and one per shape aspect (the length's two faces)
+        # semantic link, and one per shape aspect (the length's two faces,
+        # the angle's)
         links = re.findall(r"DRAUGHTING_MODEL_ITEM_ASSOCIATION\('([^']*)'", text)
         semantic = links.count("PMIrepresentationtopresentationlink")
         self.assertEqual(semantic, len(occs) - 1)
-        self.assertEqual(len(links) - semantic, len(occs) - 1 + 1 + 1)
+        self.assertEqual(len(links) - semantic, len(occs) - 1 + 1 + 1 + 1)
         got = {gt.Characteristic: gt for gt in objects(back, "GeometricTolerance")}
         projected = [gt for gt in objects(back, "GeometricTolerance")
                      if gt.ProjectedLength.Value > 0]
         self.assertEqual([round(gt.ProjectedLength.Value, 6) for gt in projected], [12.5])
-        self.assertEqual(list(projected[0].DatumSystem.Compartments), ["A-B"])
+        self.assertEqual(list(projected[0].DatumSystem.Compartments), ["A-B(M)"])
         self.assertEqual(round(got["Perpendicularity"].Value, 6), 0.02)
         self.assertEqual(list(got["Perpendicularity"].DatumSystem.Compartments), ["A"])
+        angle = [d for d in objects(back, "Dimension") if d.Type == "Angle"]
+        self.assertEqual([(round(d.Nominal.Value, 6), round(d.Upper, 6),
+                           round(d.Lower, 6)) for d in angle], [(90, 0.5, -0.5)])
 
     def test_views_written_and_read_back(self):
         origs = {v.Label: v for v in objects(self.doc, "View")}

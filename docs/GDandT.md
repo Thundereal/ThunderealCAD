@@ -1431,6 +1431,26 @@ open from the same report: what the import loses (CTC-04, FTC-10, STC-07 read no
 projected zone; STC-07 22 tolerances read as 10; datum features, datum systems shared
 by tolerances written one each), per-annotation colour, and views: FTC-07 and FTC-09 gain four empty views each, some views lose annotations.
 
+The rerun (same session, same day): syntax errors gone in 15 of 19, A to D and the
+association warning gone; Expected PMI up from 0% (CTC-01 36%, CTC-02 13%, CTC-04 22%,
+FTC-11 18%). Two more of the writer's, fixed (OCCT 3eaf94dbec):
+
+- a datum reference element's modifier written as the bare enumeration,
+  `(.MAXIMUM_MATERIAL_REQUIREMENT.)` -- a member of a SELECT, which must be typed,
+  `SIMPLE_DATUM_REFERENCE_MODIFIER(...)`, as a compartment's already was. SFA died on it
+  in the four left (FTC-08, FTC-10, STC-08, STC-10), every common datum at MMC;
+- angles: XCAF holds degrees, the writer gave them the context's radian -- CTC-01's 60 deg
+  written as 60 rad. Now a `CONVERSION_BASED_UNIT('DEGREE')` from that radian, as NIST
+  writes it; and a dimension's bounds typed, `PLANE_ANGLE_`/`LENGTH_MEASURE_WITH_UNIT`.
+  OCCT's reader took the old file's 60 as degrees too, so the round trip never showed it.
+
+Still open from the rerun, not the writer's bugs: the inch files (CTC-03, CTC-05, FTC-06
+to -09, STC-06 to -09) written in mm, so SFA matches them only as "possible"; a value
+range written as plus/minus; CTC-03's thickness written with a nominal of 0; FTC-11's
+reference dimension lost; a NIST 'label' read and written as a 'note'; some dimensions'
+graphics typed as another kind; a graphic-only file's types (FTC-08-e4: all 'note');
+'Associated Geometry not found' still in CTC-02 and CTC-05.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

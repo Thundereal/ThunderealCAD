@@ -2421,6 +2421,49 @@ TEST_F(ExpressionImageAcceptanceTest, appModuleHasNoDocumentGraph)
     EXPECT_NE(res.message.find("app.query"), std::string::npos) << res.message;
 }
 
+TEST_F(ExpressionImageAcceptanceTest, appVersionIsTheHosts)
+{
+    // _app.Version() as the native engine has it: app.query, a prompt
+    // for a document principal until answered, and then the HOST's
+    // version list -- the build a script asks about is the host's, not
+    // the image's (FcxWire OpAppVersion)
+    using App::ExpressionSecurity::Permission;
+    using App::ExpressionSecurity::Runtime;
+
+    auto denied = ImageHost::instance().evalExpression(obj, "_app.Version()");
+    ASSERT_FALSE(denied.ok);
+    EXPECT_EQ(denied.excType, "PermissionError") << denied.excType << ": " << denied.message;
+    EXPECT_NE(denied.message.find("app.query"), std::string::npos) << denied.message;
+
+    std::string principal = Runtime::instance().documentPrincipal(doc);
+    Runtime::instance().grant(principal, Permission::AppQuery, "*", true, "session");
+    auto granted = ImageHost::instance().evalExpression(obj, "_app.Version()");
+    Runtime::instance().revoke(principal, Permission::AppQuery, "*");
+    Runtime::instance().clearPending(principal, Permission::AppQuery, "*");
+    ASSERT_TRUE(granted.ok) << granted.excType << ": " << granted.message;
+
+    const auto& cfg = App::Application::Config();
+    auto value = [&](const char* key) {
+        auto it = cfg.find(key);
+        return it != cfg.end() ? it->second : std::string();
+    };
+    std::vector<std::string> expected {value("BuildVersionMajor"),
+                                       value("BuildVersionMinor"),
+                                       value("BuildVersionPoint"),
+                                       value("BuildRevision"),
+                                       value("BuildRepositoryURL"),
+                                       value("BuildRevisionDate")};
+    for (const char* key : {"BuildRevisionBranch", "BuildRevisionHash"})
+        if (cfg.count(key))
+            expected.push_back(value(key));
+    auto got = FcxWire::fromCbor(granted.value);
+    ASSERT_TRUE(got.is_array()) << got.dump();
+    std::vector<std::string> list;
+    for (const auto& v : got)
+        list.push_back(v.is_string() ? v.get<std::string>() : v.dump());
+    EXPECT_EQ(list, expected);
+}
+
 TEST_F(ExpressionImageAcceptanceTest, selfDrilldownDenied)
 {
     // _self maps to unsafe.getattr (the frozen v1 catalog), DENY for a

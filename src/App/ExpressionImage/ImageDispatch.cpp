@@ -374,6 +374,10 @@ int initEvalGlobals()
             "def getDocument(name):\n"
             "    import _fcx\n"
             "    return _fcx.op('app.doc', 0, str(name))\n"
+            // FreeCAD.Version(): the host's, asked each time (app.query)
+            "def Version():\n"
+            "    import _fcx\n"
+            "    return _fcx.op('app.version', 0)\n"
             // FreeCAD.isRestoring (BimViews' update reads it before it
             // refills its trees): a session's code never runs inside the
             // host's restore; a document guest's hooks can, and read

@@ -1884,9 +1884,9 @@ class TestWorkerRecompute(unittest.TestCase):
         user is asked."""
         security = App.ExpressionSecurity
         counted = self.counted("Asker")
-        # An app.query call both engines have: the native one, and the
-        # sandbox's image where a runtime is installed, whose FreeCAD has
-        # no Version(). A worker's copy has the document's name
+        # An app.query call both engines answer alike: the native one, and
+        # the sandbox's image where a runtime is installed. A worker's copy
+        # has the document's name
         counted.setExpression("Input", "_app.getDocument(<<%s>>).Name.__len__()" % self.doc.Name)
         principal = security.principalOf(self.doc.Name)
         self.addCleanup(security.revoke, principal, "app.query", "*")

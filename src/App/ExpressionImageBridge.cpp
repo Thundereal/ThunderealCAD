@@ -1375,6 +1375,17 @@ static json applicationOp(HandleTable& table, const std::string& op, const json&
             ExpressionSecurity::checkPermission(ExpressionSecurity::Permission::DocForeign);
         return encodeResult(table, doc->getPyObject());
     }
+    if (op == FcxWire::OpAppVersion) {
+        ExpressionSecurity::checkPermission(ExpressionSecurity::Permission::AppQuery);
+        PyObject* fn = freecadAttr("Version");
+        if (!fn)
+            return pyErrorReply();
+        PyObject* r = PyObject_CallNoArgs(fn);
+        Py_DECREF(fn);
+        if (!r)
+            return pyErrorReply();
+        return encodeResult(table, r);
+    }
     ExpressionSecurity::checkPermission(ExpressionSecurity::Permission::AppWrite);
     if (op == FcxWire::OpAppNewDoc) {
         PyObject* fn = freecadAttr("newDocument");
@@ -1679,8 +1690,9 @@ json dispatchHostOp(HandleTable& table, const json& req)
             v["libs"] = std::move(libs);
             return okReply(v);
         }
-        if (op == FcxWire::OpAppDocs || op == FcxWire::OpAppDoc || op == FcxWire::OpAppNewDoc
-            || op == FcxWire::OpAppCloseDoc || op == FcxWire::OpAppSetActiveDoc)
+        if (op == FcxWire::OpAppDocs || op == FcxWire::OpAppDoc || op == FcxWire::OpAppVersion
+            || op == FcxWire::OpAppNewDoc || op == FcxWire::OpAppCloseDoc
+            || op == FcxWire::OpAppSetActiveDoc)
             return applicationOp(table, op, req);
 
         if (op == FcxWire::OpModCall || op == FcxWire::OpModGet) {

@@ -94,6 +94,10 @@ inline const char* const OpAppDoc = "app.doc";
 inline const char* const OpAppNewDoc = "app.new_doc";
 inline const char* const OpAppCloseDoc = "app.close_doc";
 inline const char* const OpAppSetActiveDoc = "app.set_active_doc";
+// {op:"app.version"} -> the host's FreeCAD.Version(), its list of strings,
+// under app.query as the native `_app.Version()` is: the build a script
+// asks about is the host's, which the image need not match.
+inline const char* const OpAppVersion = "app.version";
 // release: "h" one id, or "a" an array of ids.  In practice releases
 // never cross as an op: a proxy's __del__ queues its id and the queue
 // rides as "r" (an array of ids) on the next guest->host request or on

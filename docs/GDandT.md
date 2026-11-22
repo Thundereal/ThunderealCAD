@@ -1399,6 +1399,31 @@ itself. As the end slides with the frame, the offset between them no longer tell
 frame from an imported one: the import clears `ImportOffset` for it, which marks it placed
 by the user for good (`DrawPMICallout::isMoved`).
 
+### 10.24 P3: SFA on the output (2026-11-22)
+
+NIST's STEP File Analyzer (SFA 5.54, Windows; run by a second session there) on the 19
+files written from the NIST set and the plate, beside the 17 originals. The originals:
+17/17 syntax-clean. Ours: 18/19 with errors, Expected PMI (SFA against NIST's drawing) 0%
+against 13-55%, and SFA's analysis died on four. All in OCCT's STEP writer; fixed in the
+fork (`LinkVibe-801`, fb5fe575f9):
+
+- a tolerance's bounds untyped, `MEASURE_WITH_UNIT(0.5,#u)`: stripping "POSITIVE_" kept
+  the underscore -- every toleranced dimension's tolerance lost to a checker (the 0%);
+- a `RUNOUT_ZONE_DEFINITION` for every tolerance zone, two of its three attributes; a
+  projected zone never written. Now each as its modifier is, a projected one with its
+  length (`ProjectedLength`, now compared by the round trip: FTC-07's four, STC-09's four);
+- `COMMON_DATUM_LIST(#a,#b)` for `((#a,#b))` -- where SFA died;
+- a perpendicularity (and the seven other types that are a tolerance with datum
+  reference themselves) written as a complex with its own supertype;
+- graphics unnamed: an occurrence and its set now carry the callout's name.
+
+`TestStepExport.test_written_as_the_schema_has_it` holds each. Not the writer's, still
+open from the same report: what the import loses (CTC-04, FTC-10, STC-07 read no
+projected zone; STC-07 22 tolerances read as 10; datum features, datum systems shared
+by tolerances written one each), the names a checker classifies a graphic by (ours are
+the objects' labels, `Dimension001`; NIST's "Linear Size.1"), per-annotation colour,
+and views: FTC-07 and FTC-09 gain four empty views each, some views lose annotations.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

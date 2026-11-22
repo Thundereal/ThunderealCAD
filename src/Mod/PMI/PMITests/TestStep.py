@@ -48,7 +48,8 @@ class Base(unittest.TestCase):
         def gdt(d):
             letters = sorted(x.Letter for x in objects(d, "Datum"))
             tols = sorted((gt.Characteristic, round(gt.Value, 6),
-                           list(gt.DatumSystem.Compartments) if gt.DatumSystem else [])
+                           list(gt.DatumSystem.Compartments) if gt.DatumSystem else [],
+                           round(gt.ProjectedLength.Value, 6))
                           for gt in objects(d, "GeometricTolerance"))
             dims = sorted((x.Type, round(x.Upper, 6), round(x.Lower, 6), x.Nominal.Value)
                           for x in objects(d, "Dimension"))
@@ -475,6 +476,58 @@ class TestStepExport(unittest.TestCase):
         self.assertTrue(notes[0].Feature)
         bad = [o.Name for o in back.Objects if getattr(o, "Condition", "Ok") != "Ok"]
         self.assertEqual(bad, [])
+
+    def test_written_as_the_schema_has_it(self):
+        """What a checker of the file (NIST's SFA) asks of it: a tolerance's
+        bounds typed; a perpendicularity to a datum the entity alone, not a
+        complex; a common datum's list a list; a zone defined as runout or
+        projected only when it is, a projected one with its length; each
+        graphic named -- and read back the same"""
+        from PMITests.TestModel import HOLE, LEFT, face_at
+
+        doc, pset = self.doc, self.doc.getObject("PMI")
+        solid = self.body.SolidBodies[0]
+
+        def add(kind, name, **props):
+            o = doc.addObject("PMI::" + kind, name)
+            pset.addObject(o)
+            for k, v in props.items():
+                setattr(o, k, v)
+            return o
+
+        def feat(p):
+            return add("TolerancedFeature", "Feature",
+                       References=[(solid, [face_at(solid.Shape, p)])])
+
+        add("GeometricTolerance", "Square", Characteristic="Perpendicularity", Value=0.02,
+            Feature=feat(LEFT), DatumSystem=add("DatumReferenceFrame", "ToA",
+                                                Compartments=["A"]))
+        add("GeometricTolerance", "Projected", Characteristic="Position", Value=0.05,
+            ZoneShape="Diameter", Modifiers=["P"], ProjectedLength=12.5,
+            Feature=feat(HOLE), DatumSystem=add("DatumReferenceFrame", "Common",
+                                                Compartments=["A-B"]))
+        doc.recompute()
+        bad = [o.Name for o in doc.Objects if getattr(o, "Condition", "Ok") != "Ok"]
+        self.assertEqual(bad, [])
+        path, back = self.export(False)
+        with open(path) as f:
+            text = re.sub(r"\s+", "", f.read())
+        # Typed bounds: LENGTH_MEASURE(0.05), not a bare number
+        self.assertFalse(re.findall(r"=MEASURE_WITH_UNIT\([-0-9.E+]+,", text))
+        self.assertIn("=PERPENDICULARITY_TOLERANCE(", text)
+        self.assertNotIn("PERPENDICULARITY_TOLERANCE()", text)
+        self.assertRegex(text, r"COMMON_DATUM_LIST\(\(#\d+(,#\d+)+\)\)")
+        self.assertNotIn("RUNOUT_ZONE_DEFINITION", text)
+        self.assertRegex(text, r"PROJECTED_ZONE_DEFINITION\(#\d+,\(\),#\d+,#\d+\)")
+        self.assertNotIn("TESSELLATED_ANNOTATION_OCCURRENCE(''", text)
+        self.assertNotIn("TESSELLATED_GEOMETRIC_SET(''", text)
+        got = {gt.Characteristic: gt for gt in objects(back, "GeometricTolerance")}
+        projected = [gt for gt in objects(back, "GeometricTolerance")
+                     if gt.ProjectedLength.Value > 0]
+        self.assertEqual([round(gt.ProjectedLength.Value, 6) for gt in projected], [12.5])
+        self.assertEqual(list(projected[0].DatumSystem.Compartments), ["A-B"])
+        self.assertEqual(round(got["Perpendicularity"].Value, 6), 0.02)
+        self.assertEqual(list(got["Perpendicularity"].DatumSystem.Compartments), ["A"])
 
     def test_views_written_and_read_back(self):
         origs = {v.Label: v for v in objects(self.doc, "View")}

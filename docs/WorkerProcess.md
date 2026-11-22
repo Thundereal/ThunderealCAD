@@ -3113,6 +3113,26 @@ file open) waits the whole budget before it fails. On Windows the Restart
 Manager could name such a holder, but it does not see a filter driver,
 and a named holder is the rarer case.
 
+**dwin's retest (947618049e).** It builds on Windows. FileRetryTest passes
+6/6, TestWorkerPool 75 OK, TestTechDrawApp 31 OK, sheet metal as before.
+One rename went through after 7 tries, 185 ms. But in 7 worker tests a
+blob segment's delete was still refused after the full 1 s (error 32, a
+sharing violation). dwin's trace at the give-up:
+- one holder each time, a worker (a child ThunderealCmd of this process);
+- the file not delete-pending, a few kB, gone 2 s later;
+- this process holding only `history/log.db` and its `-wal`/`-shm`.
+
+So it was a lasting hold of ours, not a monitor's. The store's
+maintenance rewrites a segment as a newer generation and deletes the old
+one, which a worker reading the version still has open. `BlobArchive` read
+through a C++ stream, and MSVC's opens without `FILE_SHARE_DELETE`, so
+the delete waited until the worker let go. POSIX lets the delete through,
+and the worker reads on from the unlinked file. A segment is now read
+through `SharedReadFile`. On Windows it is `CreateFileW` with read, write
+and delete sharing, read at offsets with `ReadFile`. On POSIX it is
+`open` and `pread`. A delete or a rename of a segment no longer waits on
+its readers. Not run on Windows yet.
+
 Tests (`tests/src/Base/FileRetry.cpp`): the test hook
 `FileInfo::setRetryFault` refuses attempts as each case needs.
 `aMomentaryHoldIsWaitedOut`, `anotherRefusalFailsAtOnce` (under 50 ms),

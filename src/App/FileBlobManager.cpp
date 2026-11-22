@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cstring>
 #include <limits>
 #include <numeric>
@@ -107,6 +108,111 @@ struct BlobRawMember
  * the transient directory -- Windows refuses either while a file inside is
  * open -- and opened again by the next read.
  */
+/** A file read at offsets, opened so that it does not stand in the way of
+ * its deletion or its renaming: what another process reads -- a worker, a
+ * segment of this process's store (docs/WorkerProcess.md sec 3) -- the store
+ * may rewrite as a newer generation and delete. POSIX lets it; on Windows a
+ * file opened without FILE_SHARE_DELETE refuses both until it is closed,
+ * which a C++ stream there never shares (docs/WorkerProcess.md sec 47).
+ */
+class SharedReadFile
+{
+public:
+    SharedReadFile() = default;
+    ~SharedReadFile()
+    {
+        close();
+    }
+    SharedReadFile(const SharedReadFile&) = delete;
+    SharedReadFile& operator=(const SharedReadFile&) = delete;
+
+    bool open(const std::string& path)
+    {
+        close();
+#ifdef _WIN32
+        _handle = ::CreateFileW(Base::FileInfo(path).toStdWString().c_str(), GENERIC_READ,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        return _handle != INVALID_HANDLE_VALUE;
+#else
+        _fd = ::open(path.c_str(), O_RDONLY);
+        return _fd >= 0;
+#endif
+    }
+
+    bool isOpen() const
+    {
+#ifdef _WIN32
+        return _handle != INVALID_HANDLE_VALUE;
+#else
+        return _fd >= 0;
+#endif
+    }
+
+    void close()
+    {
+#ifdef _WIN32
+        if (_handle != INVALID_HANDLE_VALUE) {
+            ::CloseHandle(_handle);
+            _handle = INVALID_HANDLE_VALUE;
+        }
+#else
+        if (_fd >= 0) {
+            ::close(_fd);
+            _fd = -1;
+        }
+#endif
+    }
+
+    /// Its size, -1 when it cannot be told
+    int64_t size() const
+    {
+#ifdef _WIN32
+        LARGE_INTEGER n;
+        return ::GetFileSizeEx(_handle, &n) ? static_cast<int64_t>(n.QuadPart) : -1;
+#else
+        const off_t end = ::lseek(_fd, 0, SEEK_END);
+        return end < 0 ? -1 : static_cast<int64_t>(end);
+#endif
+    }
+
+    /// All of `size` bytes at `offset`, or false
+    bool readAt(uint64_t offset, char* data, std::size_t size) const
+    {
+        while (size > 0) {
+#ifdef _WIN32
+            OVERLAPPED at {};
+            at.Offset = static_cast<DWORD>(offset & 0xFFFFFFFFu);
+            at.OffsetHigh = static_cast<DWORD>(offset >> 32);
+            DWORD got = 0;
+            const DWORD want = static_cast<DWORD>(std::min<std::size_t>(size, 1u << 30));
+            if (!::ReadFile(_handle, data, want, &got, &at) || got == 0) {
+                return false;
+            }
+#else
+            const ssize_t got = ::pread(_fd, data, size, static_cast<off_t>(offset));
+            if (got <= 0) {
+                if (got < 0 && errno == EINTR) {
+                    continue;
+                }
+                return false;
+            }
+#endif
+            data += got;
+            offset += static_cast<uint64_t>(got);
+            size -= static_cast<std::size_t>(got);
+        }
+        return true;
+    }
+
+private:
+#ifdef _WIN32
+    HANDLE _handle {INVALID_HANDLE_VALUE};
+#else
+    int _fd {-1};
+#endif
+};
+
 class BlobArchive
 {
 public:
@@ -149,7 +255,7 @@ private:
     mutable std::mutex _mutex;
     std::string _path;
     std::vector<Entry> _entries;
-    Base::ifstream _file;
+    SharedReadFile _file;
     bool _owned {true};
 };
 
@@ -482,9 +588,11 @@ void BlobArchive::index()
     // Read here rather than through zipios: all this needs is where each entry
     // is and how it is stored, and zipios' ZipFile does not read zip64, which
     // an archive past 4 GB has to be.
-    _file.clear();
-    _file.seekg(0, std::ios::end);
-    const uint64_t fileSize = static_cast<uint64_t>(_file.tellg());
+    const int64_t size = _file.size();
+    if (size < 0) {
+        THROWM(Base::FileException, "Cannot tell the size of archive", _path.c_str());
+    }
+    const uint64_t fileSize = static_cast<uint64_t>(size);
     const uint64_t tail = std::min<uint64_t>(fileSize, 22u + 65535u);
     if (tail < 22) {
         THROWM(Base::FileException, "Not a zip archive", _path.c_str());
@@ -595,25 +703,19 @@ void BlobArchive::close()
 {
     std::lock_guard<std::mutex> guard(_mutex);
     _file.close();
-    _file.clear();
 }
 
 bool BlobArchive::open()
 {
-    if (_file.is_open()) {
+    if (_file.isOpen()) {
         return true;
     }
-    _file.clear();
-    _file.open(Base::FileInfo(_path), std::ios::in | std::ios::binary);
-    return _file.is_open();
+    return _file.open(_path);
 }
 
 bool BlobArchive::readAt(uint64_t offset, char* data, std::size_t size)
 {
-    _file.clear();
-    _file.seekg(static_cast<std::streamoff>(offset));
-    _file.read(data, static_cast<std::streamsize>(size));
-    return !_file.fail() && static_cast<std::size_t>(_file.gcount()) == size;
+    return _file.readAt(offset, data, size);
 }
 
 bool BlobArchive::readRaw(std::size_t index, BlobRawMember& member)

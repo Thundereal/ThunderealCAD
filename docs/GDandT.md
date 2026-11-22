@@ -1571,6 +1571,12 @@ Then, in that order:
     keeps its `\X2\`, which SFA reads. Both checked in `assertWrittenClean`.
   - The round trip's temporary files are removed: left behind they filled /tmp (3.7 GB),
     where the writer then could not open its file.
+- **SFA p8 (dwin, 2026-11-23)**: the annotation planes took in all 11 files, the counts as
+  p7's. The names did not on Windows: `std::isalnum` follows the locale, cp1252 there, where
+  a UTF-8 byte of the counterbore sign (E2 8C B4) is a letter. The export and import test
+  ASCII themselves (`Step::isAsciiAlnum` and kin), whatever the locale.
+  `test_names_whatever_the_locale` runs where a Latin-1 locale is installed (Windows; not
+  this box).
 
 ## 11. Decisions (made 2026-11-19)
 

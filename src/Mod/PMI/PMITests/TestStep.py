@@ -479,6 +479,27 @@ class TestNistSet(Base):
             written = re.sub(r"\s+", "", f.read())
         self.assertIn("SPECIFIED):\\X2\\000A", written)
 
+    def test_names_whatever_the_locale(self):
+        """A graphic's name is ASCII under a locale whose letters include
+        the bytes of UTF-8 (Windows' cp1252, dwin, SFA p8): CTC-04's label
+        of a counterbore sign alone named 'Text.13', not '\\X2\\2334\\X0\\'.
+        Skipped where no such locale is installed"""
+        import locale
+
+        before = locale.setlocale(locale.LC_CTYPE)
+        for name in (".1252", "en_US.ISO-8859-1", "en_US.iso88591", "de_DE.ISO-8859-1"):
+            try:
+                locale.setlocale(locale.LC_CTYPE, name)
+                break
+            except locale.Error:
+                continue
+        else:
+            self.skipTest("no Latin-1 locale")
+        self.addCleanup(locale.setlocale, locale.LC_CTYPE, before)
+        doc = self.read(os.path.join(os.environ["FC_PMI_NIST"], "nist_ctc_04_asme1_ap242-e1.stp"))
+        self.write_and_read(doc)
+        self.assertWrittenClean("nist_ctc_04_asme1_ap242-e1.stp")
+
     def test_a_graphic_by_its_placeholder(self):
         """A graphic linked to what it presents by an association with a
         placeholder (AP242 ed2), its only semantic link in FTC-06 and STC-08:

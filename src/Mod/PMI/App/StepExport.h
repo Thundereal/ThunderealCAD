@@ -40,6 +40,34 @@ namespace PMI
 namespace Step
 {
 
+// ASCII letters and digits, whatever the locale: std::isalnum and its kin
+// follow it, and under Windows' cp1252 a UTF-8 byte of a counterbore sign
+// (E2 8C B4) is a letter (dwin, SFA p8)
+inline bool isAsciiDigit(char c)
+{
+    return c >= '0' && c <= '9';
+}
+inline bool isAsciiUpper(char c)
+{
+    return c >= 'A' && c <= 'Z';
+}
+inline bool isAsciiLower(char c)
+{
+    return c >= 'a' && c <= 'z';
+}
+inline bool isAsciiAlnum(char c)
+{
+    return isAsciiDigit(c) || isAsciiUpper(c) || isAsciiLower(c);
+}
+inline char asciiUpper(char c)
+{
+    return isAsciiLower(c) ? char(c - 'a' + 'A') : c;
+}
+inline char asciiLower(char c)
+{
+    return isAsciiUpper(c) ? char(c - 'A' + 'a') : c;
+}
+
 /** What an export wrote of the annotations of the parts exported */
 struct WriteReport
 {

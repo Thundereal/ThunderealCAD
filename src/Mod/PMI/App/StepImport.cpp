@@ -24,7 +24,6 @@
 
 #include "PreCompiled.h"
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <map>
 #include <set>
@@ -1060,7 +1059,7 @@ private:
             std::string fit = Step::FitVariances[int(variance)];
             if (!hole) {
                 for (auto& c : fit) {
-                    c = char(std::tolower(static_cast<unsigned char>(c)));
+                    c = Step::asciiLower(c);
                 }
             }
             dim->Fit.setValue(fit + Step::FitGrades[int(grade)]);

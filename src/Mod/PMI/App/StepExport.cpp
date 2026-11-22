@@ -24,7 +24,6 @@
 
 #include "PreCompiled.h"
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -161,7 +160,7 @@ Handle(TCollection_HAsciiString) nameOf(const App::DocumentObject* obj)
 {
     std::string label = obj->Label.getValue();
     for (char c : label) {
-        if (std::isalnum(static_cast<unsigned char>(c))) {
+        if (Step::isAsciiAlnum(c)) {
             return ascii(label);
         }
     }
@@ -933,9 +932,9 @@ private:
         }
         std::string variance = f.substr(0, cut);
         std::string grade = f.substr(cut);
-        bool hole = std::isupper(static_cast<unsigned char>(variance[0])) != 0;
+        bool hole = Step::isAsciiUpper(variance[0]);
         for (auto& c : variance) {
-            c = char(std::toupper(static_cast<unsigned char>(c)));
+            c = Step::asciiUpper(c);
         }
         int v = 0, g = -1;
         for (int i = 1; i < 29; ++i) {
@@ -1109,7 +1108,7 @@ private:
         }
         bool plain = false;
         for (char c : text) {
-            plain = plain || std::isalnum(static_cast<unsigned char>(c));
+            plain = plain || Step::isAsciiAlnum(c);
         }
         TopoDS_Shape g = obj->GetPresentation();
         if (g.IsNull()) {

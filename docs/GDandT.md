@@ -1433,7 +1433,7 @@ by tolerances written one each), per-annotation colour, and views: FTC-07 and FT
 
 The rerun (same session, same day): syntax errors gone in 15 of 19, A to D and the
 association warning gone; Expected PMI up from 0% (CTC-01 36%, CTC-02 13%, CTC-04 22%,
-FTC-11 18%). Two more of the writer's, fixed (OCCT 3eaf94dbec):
+FTC-11 18%). Two more of the writer's, fixed (OCCT e1372a48a4):
 
 - a datum reference element's modifier written as the bare enumeration,
   `(.MAXIMUM_MATERIAL_REQUIREMENT.)` -- a member of a SELECT, which must be typed,

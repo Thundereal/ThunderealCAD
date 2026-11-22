@@ -393,8 +393,17 @@ bool Geom::holes(const std::vector<Primitive>& faces, std::size_t& hole)
 
 bool Geom::distance(const Primitive& pa, const Primitive& pb, double& result, std::string& why)
 {
-    Primitive a = pa.reference();
-    Primitive b = pb.reference();
+    // A circle a plane is square to: the plane it lies in, a hole's rim
+    auto lies = [](const Primitive& c, const Primitive& p) {
+        Primitive res = c.reference();
+        if (c.type == Primitive::Circle && p.type == Primitive::Plane
+            && parallel(c.dir, p.dir, 1e-9)) {
+            res.type = Primitive::Plane;
+        }
+        return res;
+    };
+    Primitive a = lies(pa, pb);
+    Primitive b = lies(pb, pa);
     if (a.type == Primitive::None || b.type == Primitive::None) {
         why = "a distance needs planes, axes or points";
         return false;

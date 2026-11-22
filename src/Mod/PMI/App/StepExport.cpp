@@ -271,7 +271,7 @@ private:
         // The set's coordinates: a Body's own when it is in one (the part
         // is that Body), else those the part is placed in
         gp_Trsf setToPlaced;
-        if (Part::BodyBase::findBodyOf(set) == part) {
+        if (set && Part::BodyBase::findBodyOf(set) == part) {
             if (auto geo = freecad_cast<App::GeoFeature*>(part)) {
                 setToPlaced = trsfOf(geo->Placement.getValue());
             }
@@ -380,14 +380,25 @@ private:
                     why = "its element " + sub + " is missing";
                     return false;
                 }
+                Exported* on = &ex;
                 TopoDS_Shape mine = locate(ex, obj, sub, el.getShape());
+                // Else on its own object, exported beside the part: the
+                // part's supplemental geometry (NIST CTC-04's thread curves).
+                // Not a Body: its set's coordinates are its own, and cached.
+                if (mine.IsNull() && !obj->isDerivedFrom<Part::BodyBase>()) {
+                    Exported* own = exported(obj, nullptr);
+                    if (own && own != &ex) {
+                        mine = locate(*own, obj, sub, el.getShape());
+                        on = own;
+                    }
+                }
                 if (mine.IsNull()) {
                     why = "its element " + sub + " is not in the shape exported";
                     return false;
                 }
                 TDF_Label l;
-                if (!_shapes->FindSubShape(ex.label, mine, l)) {
-                    l = _shapes->AddSubShape(ex.label, mine);
+                if (!_shapes->FindSubShape(on->label, mine, l)) {
+                    l = _shapes->AddSubShape(on->label, mine);
                 }
                 if (l.IsNull()) {
                     why = "its element " + sub + " could not be labelled";

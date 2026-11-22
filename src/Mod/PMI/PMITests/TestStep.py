@@ -106,6 +106,11 @@ class Base(unittest.TestCase):
         for s in objects(doc, "AnnotationSet"):
             if s.Part and s.Part not in parts:
                 parts.append(s.Part)
+        # And what their features are on beside them: supplemental geometry
+        for f in objects(doc, "TolerancedFeature"):
+            for o, _ in f.References:
+                if o not in parts:
+                    parts.append(o)
         path = self.written = os.path.join(tempfile.mkdtemp(prefix="pmi-roundtrip-"),
                                            "again.step")
         Import.export(parts, path)
@@ -418,6 +423,41 @@ class TestNistSet(Base):
         self.assertEqual(general[0][-1], "6. UNITS: INCHES")
         self.assertEqual(texts(self.write_and_read(doc)), texts(doc))
 
+    def test_on_supplemental_geometry(self):
+        """GD&T on supplemental geometry -- a thread's cylinder drawn as its
+        circles, its upper plane as its outline, curves of a constructive
+        geometry representation: CTC-04's thread, 12 across and 25 from a
+        face, with its position; FTC-10's three threads -- read, in the
+        solid's set, and measured"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def supplemental(doc):
+            """What is on curves, not the solid: (kind, value), each Ok and in
+            the solid's set"""
+            got = []
+            for o in objects(doc, "Dimension") + objects(doc, "GeometricTolerance"):
+                feats = o.Features if hasattr(o, "Features") else [o.Feature]
+                objs = [r[0] for f in feats if f for r in f.References]
+                if all(x.Shape.Solids for x in objs):
+                    continue
+                self.assertEqual(o.Condition, "Ok", (o.Label, o.ConditionMessage))
+                sets = [s for s in o.InList if s.TypeId == "PMI::AnnotationSet"]
+                self.assertTrue(sets and sets[0].Part.Shape.Solids, o.Label)
+                value = o.Nominal if hasattr(o, "Nominal") else o.Value
+                got.append((getattr(o, "Type", None) or o.Characteristic,
+                            round(value.Value, 6)))
+            return sorted(got)
+
+        doc = self.read(os.path.join(nist, "nist_ctc_04_asme1_ap242-e1.stp"))
+        self.assertEqual(supplemental(doc),
+                         [("Diameter", 12.0), ("Distance", 25.0), ("Position", 0.75),
+                          ("ProfileOfSurface", 0.5)])
+        self.assertEqual(supplemental(self.write_and_read(doc)), supplemental(doc))
+        doc = self.read(os.path.join(nist, "nist_ftc_10_asme1_ap242-e2.stp"))
+        self.assertEqual(supplemental(doc), [("Diameter", 3.0)] * 3 + [("Diameter", 5.5)] * 2
+                         + [("Position", 0.8)] * 3)
+        self.assertEqual(supplemental(self.write_and_read(doc)), supplemental(doc))
+
     def test_what_the_drawing_says(self):
         """What SFA, against NIST's drawings, found lost: CTC-01's diameters
         given as their limits (34.8-35.2), CTC-03's thickness the file's
@@ -719,6 +759,9 @@ class TestStepExport(Base):
         with open(path) as f:
             text = re.sub(r"\s+", "", f.read())
         self.assertIn("CONVERSION_BASED_UNIT('INCH'", text)
+        # The inch's 25.4 typed, as the schema has a measure's value: SFA
+        # cannot tell an untyped one's select, LENGTH_UNIT(25.4) or bare 25.4
+        self.assertIn("LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(25.4),", text)
         # The values, not a curve style's line width (0.1, as NIST's files have it)
         values = [float(v) for v in re.findall(r"LENGTH_MEASURE\(([-0-9.E+]+)\)",
                                                re.sub(r"CURVE_STYLE\([^;]*;", "", text))]

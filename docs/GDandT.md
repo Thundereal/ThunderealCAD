@@ -1497,10 +1497,27 @@ Then, in that order:
   graphic given twice, so kept only as the dimension; NIST's placeholders
   (`DRAUGHTING_MODEL_ITEM_ASSOCIATION_WITH_PLACEHOLDER`, CTC-02, FTC-06, STC-06, -08, -10)
   OCCT does not read.
-- **K, next: dimensions on supplemental geometry.** CTC-04's thread diameter (12) and its
-  location to the thread's upper plane (25) are on curve sets of a constructive geometry
-  representation, which OCCT does not transfer (it makes planes of its axis placements only):
-  no shape, no dimension. FTC-10 has the same.
+- **K, supplemental geometry.** CTC-04's thread diameter (12), its location 25 from a face and
+  its position (0.75) are on curve sets of a constructive geometry representation -- the
+  threads' rims -- which OCCT did not transfer (it made planes of its axis placements only):
+  no shape, no dimension. FTC-10's three threads (3.0, position 0.8) the same. OCCT now
+  transfers a constructive geometry representation's geometric sets as curves, always, its
+  axis placements planes as before only when asked (`STEPControl_ActorRead`). FreeCAD
+  imports them beside the solid, in its App::Part; an object with no solid, there beside one
+  solid, has its PMI in that solid's set (`partOf`), so a location between the two is one
+  part's. Circles a plane is square to are where they lie, not an axis: the 25 is plane to
+  plane. Written, an element on another object exported beside the set's part is labelled on
+  that object's shape: the round trip keeps them, and the Shell's profile that CTC-04 already
+  read, now in the solid's set. `test_on_supplemental_geometry`. Written as ordinary shapes,
+  not again as constructive geometry.
+- **A unit's value typed (dwin's SFA, 2026-11-23).** Written in inches, every file's
+  `CONVERSION_BASED_UNIT('INCH')` gave its 25.4 untyped -- OCCT named the value
+  'LENGTH_UNIT', which its measure member does not know -- and SFA stopped on it ("Could not
+  determine type of select value", and no part geometry). Now `LENGTH_MEASURE(25.4)`, as
+  NIST's files have it; foot, mil and the others the same.
+  `test_in_the_files_length_unit`.
+- **Next, from SFA on CTC-04:** a reference dimension's brackets ("[75]", "[dia10]"), and a
+  pattern's count ("4X", "30X") written so SFA sees them.
 
 ## 11. Decisions (made 2026-11-19)
 

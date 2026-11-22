@@ -66,6 +66,7 @@
 #include <XCAFView_Object.hxx>
 
 #include <App/Document.h>
+#include <App/GeoFeatureGroupExtension.h>
 #include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Base/Tools.h>
@@ -110,6 +111,8 @@ struct Faces
     std::vector<std::string> names;
     /// The first element's surface or curve: what decides an axis
     Primitive::Type type = Primitive::None;
+    /// And its normal or axis
+    gp_Dir dir;
 };
 
 class Reader
@@ -242,7 +245,9 @@ private:
                         out.names.push_back(name);
                     }
                     if (!any && out.names.size() == 1) {
-                        out.type = Geom::ofElement(xp.Current()).type;
+                        Primitive first = Geom::ofElement(xp.Current());
+                        out.type = first.type;
+                        out.dir = first.dir;
                     }
                     any = true;
                 }
@@ -285,7 +290,34 @@ private:
     {
         bool axial = f.type == Primitive::Cylinder || f.type == Primitive::Cone
             || f.type == Primitive::Circle;
-        return Api::feature(set(f.object), f.object, f.names, axis && axial ? "Axis" : nullptr);
+        return Api::feature(set(partOf(f.object)), f.object, f.names,
+                            axis && axial ? "Axis" : nullptr);
+    }
+
+    /// The part an object's PMI is of: its own, or -- supplemental geometry
+    /// beside a solid in one App::Part, a thread's cylinder drawn as its
+    /// circles (NIST CTC-04) -- that solid's, the one there
+    Part::Feature* partOf(Part::Feature* obj)
+    {
+        if (!obj || hasSolid(obj)) {
+            return obj;
+        }
+        auto group = App::GeoFeatureGroupExtension::getGroupOfObject(obj);
+        if (!group) {
+            return obj;
+        }
+        Part::Feature* solid = nullptr;
+        auto ext = group->getExtensionByType<App::GeoFeatureGroupExtension>();
+        for (auto o : ext->Group.getValues()) {
+            auto feat = freecad_cast<Part::Feature*>(o);
+            if (feat && feat != obj && hasSolid(feat)) {
+                if (solid) {
+                    return obj;
+                }
+                solid = feat;
+            }
+        }
+        return solid ? solid : obj;
     }
 
     /// The file's plane and text point, in the object's placement
@@ -325,7 +357,7 @@ private:
     template<typename T>
     T* add(Part::Feature* obj, const char* type, const char* name)
     {
-        auto s = set(obj);
+        auto s = set(partOf(obj));
         auto o = static_cast<T*>(_info.doc->addObject(type, name));
         s->addObject(o);
         _made.push_back(o);
@@ -646,7 +678,9 @@ private:
         out = Faces();
         out.object = obj;
         out.names.push_back("Face" + std::to_string(base.findShape(faces(best))));
-        out.type = Geom::ofFace(faces(best)).type;
+        Primitive first = Geom::ofFace(faces(best));
+        out.type = first.type;
+        out.dir = first.dir;
         return true;
     }
 
@@ -973,7 +1007,9 @@ private:
         if (location && !faces(second, f2, why)) {
             return skip(l, "dimension", "its second feature: " + why);
         }
-        if (location && f2.object != f1.object) {
+        // Between two objects of one part: a solid and its supplemental
+        // geometry (CTC-04's location to a thread's upper plane)
+        if (location && partOf(f2.object) != partOf(f1.object)) {
             return skip(l, "dimension", "it measures between two objects");
         }
         std::ostringstream k;
@@ -987,9 +1023,15 @@ private:
         auto dim = add<Dimension>(f1.object, "PMI::Dimension", "Dimension");
         made(k.str(), l, dim);
         dim->Type.setValue(type);
-        std::vector<App::DocumentObject*> feats {feature(f1, location)};
+        // Circles a plane is square to are where they lie, not an axis: a
+        // thread's upper plane drawn as its rims, 25 from a face (CTC-04)
+        auto rims = [](const Faces& c, const Faces& p) {
+            return c.type == Primitive::Circle && p.type == Primitive::Plane
+                && c.dir.IsParallel(p.dir, 1e-9);
+        };
+        std::vector<App::DocumentObject*> feats {feature(f1, location && !rims(f1, f2))};
         if (location) {
-            feats.push_back(feature(f2, true));
+            feats.push_back(feature(f2, !rims(f2, f1)));
         }
         dim->Features.setValues(feats);
         double value = obj->GetValue();

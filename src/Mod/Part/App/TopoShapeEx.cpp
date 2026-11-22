@@ -1198,7 +1198,7 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                             }
                             // the curve written otherwise, between the same
                             // vertices (sameEdgeByPoints)
-                            auto near = [&](const TopoDS_Vertex &p, const TopoDS_Vertex &q) {
+                            auto isNear = [&](const TopoDS_Vertex &p, const TopoDS_Vertex &q) {
                                 return BRep_Tool::Pnt(p).SquareDistance(BRep_Tool::Pnt(q)) <= tol2;
                             };
                             const auto &edge = TopoDS::Edge(e);
@@ -1206,7 +1206,7 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                             TopoDS_Vertex a1 = TopExp::FirstVertex(edge), a2 = TopExp::LastVertex(edge);
                             TopoDS_Vertex b1 = TopExp::FirstVertex(edge1), b2 = TopExp::LastVertex(edge1);
                             if (!a1.IsNull() && !a2.IsNull() && !b1.IsNull() && !b2.IsNull()
-                                    && ((near(a1, b1) && near(a2, b2)) || (near(a1, b2) && near(a2, b1)))
+                                    && ((isNear(a1, b1) && isNear(a2, b2)) || (isNear(a1, b2) && isNear(a2, b1)))
                                     && sameEdgeByPoints(e, e1, tol)) {
                                 found = true;
                                 break;

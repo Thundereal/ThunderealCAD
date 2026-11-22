@@ -32,7 +32,9 @@
 
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepAdaptor_Curve.hxx>
 #include <BRep_Tool.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 
@@ -53,6 +55,7 @@ const char* Dimension::TypeEnums[] = {"Diameter",
                                       "AngularSize",
                                       "Distance",
                                       "Angle",
+                                      "CurveLength",
                                       nullptr};
 
 PROPERTY_SOURCE(PMI::Dimension, PMI::Callout)
@@ -60,13 +63,14 @@ PROPERTY_SOURCE(PMI::Dimension, PMI::Callout)
 Dimension::Dimension()
 {
     ADD_PROPERTY_TYPE(Type, (0L), "PMI", App::Prop_None,
-                      "A size (Diameter ... AngularSize) of one feature, or a location "
-                      "(Distance, Angle) between two");
+                      "A size (Diameter ... AngularSize, CurveLength) of one feature, or a "
+                      "location (Distance, Angle) between two");
     Type.setEnums(TypeEnums);
     ADD_PROPERTY_TYPE(Features, (nullptr), "PMI", App::Prop_None,
                       "The toleranced features: one for a size, two for a location");
     ADD_PROPERTY_TYPE(Nominal, (0.0), "PMI", App::Prop_ReadOnly,
-                      "Measured from the features on every recompute");
+                      "Measured from the features on every recompute; as given (read from a "
+                      "file) where the model cannot be measured");
     ADD_PROPERTY_TYPE(Upper, (0.0), "PMI", App::Prop_None, "The upper deviation");
     ADD_PROPERTY_TYPE(Lower, (0.0), "PMI", App::Prop_None, "The lower deviation");
     ADD_PROPERTY_TYPE(Fit, (""), "PMI", App::Prop_None,
@@ -76,6 +80,10 @@ Dimension::Dimension()
     ADD_PROPERTY_TYPE(Modifiers, (), "PMI", App::Prop_None, "ISO 14405 size modifiers");
     ADD_PROPERTY_TYPE(DecimalPlaces, (-1), "PMI", App::Prop_None,
                       "Decimal places shown; -1 for the set's");
+    ADD_PROPERTY_TYPE(Limits, (false), "PMI", App::Prop_None,
+                      "The tolerance shown as its limits, 34.8-35.2, not as deviations");
+    ADD_PROPERTY_TYPE(Reference, (false), "PMI", App::Prop_None,
+                      "A reference dimension, for information: in parentheses, no tolerance");
     setUnits();
 }
 
@@ -231,6 +239,21 @@ bool Dimension::measure(double& value, std::string& why) const
                 return true;
             }
             return false;
+        case CurveLength: {
+            // The edges' length; along faces (a file's curve on them) it is
+            // not measured: the value stays as given
+            TopoDS_Shape shape = feats[0]->Shape.getValue();
+            if (shape.IsNull() || TopExp_Explorer(shape, TopAbs_FACE).More()
+                || !TopExp_Explorer(shape, TopAbs_EDGE).More()) {
+                value = Nominal.getValue();
+                return true;
+            }
+            value = 0;
+            for (TopExp_Explorer e(shape, TopAbs_EDGE); e.More(); e.Next()) {
+                value += GCPnts_AbscissaPoint::Length(BRepAdaptor_Curve(TopoDS::Edge(e.Current())));
+            }
+            return true;
+        }
     }
     return false;
 }

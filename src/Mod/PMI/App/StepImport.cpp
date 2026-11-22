@@ -888,6 +888,7 @@ private:
             case XCAFDimTolObjects_DimensionType_Size_SphericalRadius: return D::SphericalRadius;
             case XCAFDimTolObjects_DimensionType_Size_Thickness: return D::Width;
             case XCAFDimTolObjects_DimensionType_Size_Angular: return D::AngularSize;
+            case XCAFDimTolObjects_DimensionType_Size_CurveLength: return D::CurveLength;
             case XCAFDimTolObjects_DimensionType_Location_Angular: return D::Angle;
             case XCAFDimTolObjects_DimensionType_Location_LinearDistance:
             case XCAFDimTolObjects_DimensionType_Location_LinearDistance_FromCenterToOuter:
@@ -992,6 +993,9 @@ private:
         }
         dim->Features.setValues(feats);
         double value = obj->GetValue();
+        // The file's, until the model is measured: kept where it cannot be
+        // (a curve length along faces, a width of what is not two planes)
+        dim->Nominal.setValue(value);
         if (obj->IsDimWithPlusMinusTolerance()) {
             dim->Upper.setValue(obj->GetUpperTolValue());
             // OCCT keeps the lower deviation as a magnitude: its writer negates it
@@ -1000,6 +1004,15 @@ private:
         else if (obj->IsDimWithRange()) {
             dim->Upper.setValue(obj->GetUpperBound() - value);
             dim->Lower.setValue(obj->GetLowerBound() - value);
+            // Given as its limits, shown and written so again
+            dim->Limits.setValue(true);
+        }
+        // A reference dimension: a 'dimensional note' that is 'auxiliary'
+        for (int i = 0; i < obj->NbDescriptions(); ++i) {
+            auto text = obj->GetDescription(i);
+            if (!text.IsNull() && text->String().IsEqual("auxiliary")) {
+                dim->Reference.setValue(true);
+            }
         }
         int left = 0, right = 0;
         obj->GetNbOfDecimalPlaces(left, right);

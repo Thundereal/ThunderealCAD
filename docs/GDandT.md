@@ -1451,6 +1451,25 @@ reference dimension lost; a NIST 'label' read and written as a 'note'; some dime
 graphics typed as another kind; a graphic-only file's types (FTC-08-e4: all 'note');
 'Associated Geometry not found' still in CTC-02 and CTC-05.
 
+The second rerun (OCCT e1372a48a4): all 19 syntax-clean, the four finished, the angles
+right (CTC-01 36 -> 43 of 53, CTC-04 22 -> 27 of 45; FTC-10 23 of 32, STC-10 22 of 32).
+Then, in that order:
+
+- **G, the inch files.** Not only SFA's: written in inches (Preferences, STEP, Unit), the
+  shapes were in inches and every GD&T length in mm against the same unit -- 0.127 mm
+  written 0.127, read back 0.127 inch. The GD&T writer's factors carried a length factor
+  of 1; now the shape writer's, and every length it writes divided by it, the graphics'
+  coordinates too (OCCT 469a45b0d3). `test_in_the_files_length_unit` holds it: the inch
+  file read back the same as the mm one, values, graphics and views. NIST's ten inch files
+  are written in inches for SFA (the export script follows the source's unit).
+- **H, what the drawing says.** A dimension given as its limits (CTC-01's 34.8-35.2) keeps
+  them: `Limits`, read from a range, drawn and written as one. A dimension the model cannot
+  measure (CTC-03's thickness, not two planes) keeps the file's nominal, not 0. A reference
+  dimension (`Reference`: STEP's 'dimensional note' that is 'auxiliary') is drawn in
+  parentheses, with no tolerance; FTC-11's is a curve's length, a type of its own now
+  (`CurveLength`, after the others so saved values stay). `test_what_the_drawing_says`;
+  the round trip compares `Limits` and `Reference`.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

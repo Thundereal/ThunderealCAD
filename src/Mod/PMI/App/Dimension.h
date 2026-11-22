@@ -67,6 +67,12 @@ public:
     App::PropertyStringList Modifiers;
     /// -1: the set's
     App::PropertyInteger DecimalPlaces;
+    /// The tolerance given as the limits it allows, 34.8-35.2, not as the
+    /// deviations, 35 +-0.2 (ASME Y14.5 limit dimensioning; STEP's range)
+    App::PropertyBool Limits;
+    /// A reference dimension, for information only: in parentheses, no
+    /// tolerance (STEP: a 'dimensional note' that is 'auxiliary')
+    App::PropertyBool Reference;
 
     enum TypeValue
     {
@@ -78,6 +84,9 @@ public:
         AngularSize,
         Distance,
         Angle,
+        /// The length along a curve: a size, after the locations to keep
+        /// the values saved before it
+        CurveLength,
     };
     TypeValue getType() const
     {
@@ -85,7 +94,7 @@ public:
     }
     bool isSize() const
     {
-        return getType() < Distance;
+        return getType() < Distance || getType() == CurveLength;
     }
     bool isAngular() const
     {

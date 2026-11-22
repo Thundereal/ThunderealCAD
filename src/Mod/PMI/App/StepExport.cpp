@@ -842,6 +842,9 @@ private:
                 out = XCAFDimTolObjects_DimensionType_Location_LinearDistance;
                 break;
             case Dimension::Angle: out = XCAFDimTolObjects_DimensionType_Location_Angular; break;
+            case Dimension::CurveLength:
+                out = XCAFDimTolObjects_DimensionType_Size_CurveLength;
+                break;
             default: return false;
         }
         return true;
@@ -909,7 +912,18 @@ private:
         obj->SetValue(value);
         double upper = dim->Upper.getValue();
         double lower = dim->Lower.getValue();
-        if (upper != 0.0 || lower != 0.0) {
+        if (dim->Reference.getValue()) {
+            // For information, no tolerance: a 'dimensional note' that is
+            // 'auxiliary', as AP242 has a reference dimension
+            obj->AddDescription(new TCollection_HAsciiString("auxiliary"),
+                                new TCollection_HAsciiString("dimensional note"));
+        }
+        else if (dim->Limits.getValue() && (upper != 0.0 || lower != 0.0)) {
+            // Its limits, a range: lower and upper limit, as it was given
+            obj->SetLowerBound(value + lower);
+            obj->SetUpperBound(value + upper);
+        }
+        else if (upper != 0.0 || lower != 0.0) {
             obj->SetUpperTolValue(upper);
             // A magnitude, as OCCT keeps it: its writer negates it
             obj->SetLowerTolValue(-lower);

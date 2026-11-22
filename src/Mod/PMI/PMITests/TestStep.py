@@ -51,17 +51,17 @@ class Base(unittest.TestCase):
                            list(gt.DatumSystem.Compartments) if gt.DatumSystem else [],
                            round(gt.ProjectedLength.Value, 6))
                           for gt in objects(d, "GeometricTolerance"))
-            dims = sorted((x.Type, round(x.Upper, 6), round(x.Lower, 6), x.Nominal.Value)
-                          for x in objects(d, "Dimension"))
+            dims = sorted((x.Type, round(x.Upper, 6), round(x.Lower, 6), x.Limits, x.Reference,
+                           x.Nominal.Value) for x in objects(d, "Dimension"))
             targets = sorted((t.TargetType, t.Number) for t in objects(d, "DatumTarget"))
             return letters, tols, dims, targets, len(objects(d, "Note"))
 
         ga, gb = gdt(a), gdt(b)
         self.assertEqual(ga[0], gb[0])
         self.assertEqual(ga[1], gb[1])
-        self.assertEqual([x[:3] for x in ga[2]], [x[:3] for x in gb[2]])
+        self.assertEqual([x[:5] for x in ga[2]], [x[:5] for x in gb[2]])
         for x, y in zip(ga[2], gb[2]):
-            self.assertAlmostEqual(x[3], y[3], delta=1e-3)
+            self.assertAlmostEqual(x[5], y[5], delta=1e-3)
         self.assertEqual(ga[3], gb[3])
         self.assertEqual(ga[4], gb[4])
 
@@ -319,6 +319,30 @@ class TestNistSet(Base):
                 self.assertSameViews(doc, again)
                 self.assertEqual(len([b for b in self.sound(again) if " Broken: " in b]), 0)
 
+    def test_what_the_drawing_says(self):
+        """What SFA, against NIST's drawings, found lost: CTC-01's diameters
+        given as their limits (34.8-35.2), CTC-03's thickness the file's
+        though the model cannot measure it, FTC-11's reference dimension of a
+        curve's length, (197.9)"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def dims(name):
+            return objects(self.read(os.path.join(nist, name)), "Dimension")
+
+        limits = [d for d in dims("nist_ctc_01_asme1_ap242-e1.stp") if d.Limits]
+        self.assertEqual(sorted((round(d.Nominal.Value + d.Lower.Value, 6),
+                                 round(d.Nominal.Value + d.Upper.Value, 6)) for d in limits),
+                         [(34.8, 35.2), (34.8, 35.2)])
+        # Drawn so, to the set's decimal places
+        self.assertEqual([d.Label for d in limits
+                          if not re.search(r"34\.80?-35\.20?$", d.EquivalentText)], [])
+        thick = [d for d in dims("nist_ctc_03_asme1_ap242-e2.stp") if d.Type == "Width"]
+        self.assertEqual([round(d.Nominal.Value, 4) for d in thick], [20.828])
+        ref = [d for d in dims("nist_ftc_11_asme1_ap242-e2.stp") if d.Reference]
+        self.assertEqual([(d.Type, round(d.Nominal.Value, 1)) for d in ref],
+                         [("CurveLength", 197.9)])
+        self.assertRegex(ref[0].EquivalentText, r"^\(197\.92?\)$")
+
     def test_a_clipped_view(self):
         # FTC-11's MBD_B is a section: cut by the plane x = 0, its normal
         # toward the eye, which looks along -x from the +x side
@@ -365,7 +389,7 @@ def schema_of(path):
     return text[start:text.find(";", start)] if start >= 0 else ""
 
 
-class TestStepExport(unittest.TestCase):
+class TestStepExport(Base):
     """The GD&T of a part, written (docs/GDandT.md sec 5.2, P3): AP242, its
     semantics on the faces exported, each with its plane and its graphic,
     and read back as it was -- with the part's placement kept in the file
@@ -557,6 +581,45 @@ class TestStepExport(unittest.TestCase):
         angle = [d for d in objects(back, "Dimension") if d.Type == "Angle"]
         self.assertEqual([(round(d.Nominal.Value, 6), round(d.Upper, 6),
                            round(d.Lower, 6)) for d in angle], [(90, 0.5, -0.5)])
+
+    def test_in_the_files_length_unit(self):
+        """Written in inches (Preferences, STEP, Unit: the writer's unit), the
+        GD&T is in inches as the shapes are: the position's 0.1 mm a value of
+        0.1/25.4, not 0.1 inch -- and read back the same as written in mm:
+        the values, the graphics where they were, the views"""
+        unit = Part.exportUnits()["write.step.unit"]
+        self.addCleanup(Part.exportUnits, unit)
+        Part.exportUnits("MM")
+        _, mm = self.export(False)
+        Part.exportUnits("INCH")
+        path = os.path.join(self.dir, "part-inch.step")
+        Import.export([self.body], path, keepPlacement=False)
+        inch = App.newDocument("PMIExportInch")
+        self.addCleanup(App.closeDocument, inch.Name)
+        Import.insert(path, inch.Name)
+        inch.recompute()
+        with open(path) as f:
+            text = re.sub(r"\s+", "", f.read())
+        self.assertIn("CONVERSION_BASED_UNIT('INCH'", text)
+        # The values, not a curve style's line width (0.1, as NIST's files have it)
+        values = [float(v) for v in re.findall(r"LENGTH_MEASURE\(([-0-9.E+]+)\)",
+                                               re.sub(r"CURVE_STYLE\([^;]*;", "", text))]
+        self.assertTrue([v for v in values if abs(v - 0.1 / 25.4) < 1e-9], values)
+        self.assertFalse([v for v in values if abs(v - 0.1) < 1e-9], values)
+        self.assertSameGdt(mm, inch)
+        self.assertSameViews(mm, inch)
+
+        def graphics(d):
+            return sorted((o.Label, o.ImportedGraphic.BoundBox) for o in d.Objects
+                          if hasattr(o, "ImportedGraphic") and not o.ImportedGraphic.isNull())
+
+        ga, gb = graphics(mm), graphics(inch)
+        self.assertEqual([x[0] for x in ga], [x[0] for x in gb])
+        self.assertTrue(ga)
+        for (name, a), (_, b) in zip(ga, gb):
+            for x, y in ((a.XMin, b.XMin), (a.YMax, b.YMax), (a.ZMax, b.ZMax),
+                         (a.DiagonalLength, b.DiagonalLength)):
+                self.assertAlmostEqual(x, y, delta=1e-6, msg=name)
 
     def test_views_written_and_read_back(self):
         origs = {v.Label: v for v in objects(self.doc, "View")}

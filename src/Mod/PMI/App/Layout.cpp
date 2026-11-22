@@ -477,10 +477,20 @@ std::u32string dimensionText(const Dimension& dim)
             break;
     }
     int dec = decimalsOf(dim);
-    s += Callout::number(dim.Nominal.getValue(), dec);
-    if (dim.isAngular()) {
-        s += Degree;
+    std::u32string unit = dim.isAngular() ? std::u32string(1, Degree) : std::u32string();
+    double up = dim.Upper.getValue(), lo = dim.Lower.getValue();
+    if (dim.Reference.getValue()) {
+        // For information: in parentheses, no tolerance
+        return U"(" + s + Callout::number(dim.Nominal.getValue(), dec) + unit + U")";
     }
+    if (dim.Limits.getValue() && !dim.Basic.getValue() && dim.Fit.getStrValue().empty()
+        && (up != 0.0 || lo != 0.0)) {
+        // The limits, the lower first on one line: 34.8-35.2
+        double n = dim.Nominal.getValue();
+        return s + Callout::number(n + lo, dec) + unit + U"-" + Callout::number(n + up, dec) + unit;
+    }
+    s += Callout::number(dim.Nominal.getValue(), dec);
+    s += unit;
     if (dim.Basic.getValue()) {
         return s;
     }
@@ -488,7 +498,6 @@ std::u32string dimensionText(const Dimension& dim)
         s += U" " + u32(dim.Fit.getStrValue());
     }
     else {
-        double up = dim.Upper.getValue(), lo = dim.Lower.getValue();
         if (up != 0.0 || lo != 0.0) {
             if (std::fabs(up + lo) < 1e-12) {
                 s += U" ";

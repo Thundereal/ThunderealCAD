@@ -1545,6 +1545,18 @@ Then, in that order:
     and NIST's rows agree. FTC-08-e4-tg (not in this box's NIST set) crashes SFA's viewer
     converter; to see in p7. Every round trip is checked for the first four
     (`assertWrittenClean`).
+- **SFA p7 (dwin, 2026-11-23)**: CTC-04, FTC-10 and STC-10 now equal NIST's original
+  (45, 32, 32 exact, none partial); CTC-05 5 -> 19 of 27, FTC-06 24 -> 27 of 34; the
+  empty semantic text, CTC-05's missing geometry and FTC-08-e4-tg's converter crash gone.
+  Two left, fixed:
+  - *A callout in no annotation plane* (11 files): a graphic written alone (p6) returned
+    before its plane. Now only its associations are skipped (OCCT).
+  - *A name all `\X2\`*: SFA reads `'\X2\2334\X0\'` as no name. A graphic is named in
+    ASCII: a note by its words, as before, or by its label when they have no letter or
+    digit ('Text.12', as NIST names it), else by the object's name. The semantic text
+    keeps its `\X2\`, which SFA reads. Both checked in `assertWrittenClean`.
+  - The round trip's temporary files are removed: left behind they filled /tmp (3.7 GB),
+    where the writer then could not open its file.
 
 ## 11. Decisions (made 2026-11-19)
 

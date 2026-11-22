@@ -153,6 +153,21 @@ Handle(TCollection_HAsciiString) ascii(const std::string& s)
     return new TCollection_HAsciiString(out.c_str());
 }
 
+/// A graphic's name: its label, as NIST names its graphics ('Text.12'), or
+/// the object's own name when the label has no letter or digit of ASCII --
+/// SFA reads a name all in \X2\ (a counterbore sign alone) as none, which
+/// its checker reports missing (CTC-04, FTC-07)
+Handle(TCollection_HAsciiString) nameOf(const App::DocumentObject* obj)
+{
+    std::string label = obj->Label.getValue();
+    for (char c : label) {
+        if (std::isalnum(static_cast<unsigned char>(c))) {
+            return ascii(label);
+        }
+    }
+    return new TCollection_HAsciiString(obj->getNameInDocument());
+}
+
 gp_Trsf trsfOf(const Base::Placement& pla)
 {
     gp_Trsf t;
@@ -529,7 +544,7 @@ private:
         obj->SetPointTextAttach(plane.Location());
         TopoDS_Shape g = graphic(c, ex.toLocal);
         if (!g.IsNull()) {
-            obj->SetPresentation(g, ascii(c->Label.getValue()));
+            obj->SetPresentation(g, nameOf(c));
         }
         // The file's graphic, written again: the kind the file named it
         if (c->UseImported.getValue() && *c->ImportedGraphicType.getValue()) {
@@ -1084,21 +1099,24 @@ private:
         }
         if (!lines.empty()) {
             obj->AddDescription(new TCollection_HAsciiString(words.c_str()),
-                                ascii(n->Label.getValue()));
+                                nameOf(n));
         }
+        // Its graphic named by its words, read back as its label; by the label
+        // when they have no letter or digit of ASCII (a counterbore sign)
         std::string text;
         for (auto& line : n->Text.getValues()) {
             text += (text.empty() ? "" : " ") + line;
         }
-        if (text.empty()) {
-            text = n->Label.getValue();
+        bool plain = false;
+        for (char c : text) {
+            plain = plain || std::isalnum(static_cast<unsigned char>(c));
         }
         TopoDS_Shape g = obj->GetPresentation();
         if (g.IsNull()) {
             attr->SetObject(obj);
             return skip(n, "it has no graphic");
         }
-        obj->SetPresentation(g, ascii(text));
+        obj->SetPresentation(g, plain ? ascii(text) : nameOf(n));
         attr->SetObject(obj);
         if (!shapes.IsEmpty()) {
             NCollection_Sequence<TDF_Label> none;

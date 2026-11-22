@@ -16,6 +16,7 @@ import collections
 import glob
 import os
 import re
+import shutil
 import tempfile
 import unittest
 
@@ -114,8 +115,11 @@ class Base(unittest.TestCase):
                     part = group
             if part and part not in parts:
                 parts.append(part)
-        path = self.written = os.path.join(tempfile.mkdtemp(prefix="pmi-roundtrip-"),
-                                           "again.step")
+        # Gone when the test is: 11 MB a NIST file, 3.7 GB of /tmp in two days
+        # left behind, when it filled the writer could not open the file
+        folder = tempfile.mkdtemp(prefix="pmi-roundtrip-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = self.written = os.path.join(folder, "again.step")
         Import.export(parts, path)
         return self.read(path)
 
@@ -334,14 +338,29 @@ class TestNistSet(Base):
         """What SFA reported of the file written (dwin, p6): no occurrence
         without its name (a label of a counterbore sign, CTC-04), no empty
         semantic text (a note's empty line, STC-07); a graphic on nothing
-        associated with nothing, as NIST's CTC-05 has its two regions"""
+        associated with nothing, as NIST's CTC-05 has its two regions. And
+        (p7) no occurrence named in \\X2\\ alone, which SFA reads as no name,
+        nor a callout in no annotation plane"""
         with open(self.written, errors="replace") as f:
             text = re.sub(r"\s+", "", f.read())
         self.assertNotIn("TESSELLATED_ANNOTATION_OCCURRENCE('',", text)
         self.assertEqual(re.findall(r"DESCRIPTIVE_REPRESENTATION_ITEM\('[^']*',''\)", text), [])
+        names = re.findall(r"TESSELLATED_ANNOTATION_OCCURRENCE\('([^']*)'", text)
+        self.assertEqual(
+            [n for n in names if not re.search(r"[A-Za-z0-9]", re.sub(r"\\X2\\.*?\\X0\\", "", n))],
+            [],
+        )
+        ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+        planed = set()
+        for v in ents.values():
+            if v.startswith("ANNOTATION_PLANE("):
+                planed.update(re.findall(r"#(\d+)", v))
+        self.assertEqual(
+            [k for k, v in ents.items() if v.startswith("DRAUGHTING_CALLOUT(") and k not in planed],
+            [],
+        )
         if "ctc_05" not in name:
             return
-        ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
         used = collections.Counter()
         for k, v in ents.items():
             if not v.startswith("DRAUGHTING_MODEL_ITEM_ASSOCIATION"):

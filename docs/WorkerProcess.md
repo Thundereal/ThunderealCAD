@@ -2933,3 +2933,137 @@ retried up to 10 times, 25 ms apart; each failure still prints its
 
 The fourth case, TechDraw's `testOutOfRangeEnumerationIsPutBack`, did
 not fail in dwin's run.
+
+## 46. TechDraw's dimensions after the migration, here and from a worker (2026-11-22)
+
+Sec 43 left two problems with scanner's dimensions: made here, some
+measured another element after the migration; made by a worker, most
+came back with other values. Both are fixed. Probes are
+`~/works/sw/fcad-probes/td/alldims.py` (every dimension, as opened against
+a recompute, here or with `WORKER=1` by a worker) and `views.py` (every
+view and every dimension, all objects touched, here against a worker).
+
+**Here.** When a view is made again, a dimension finds its references
+again, in rungs: by the name each projected element carries
+(`fixByName`), then by the geometry saved with the dimension
+(`compareSavedGeometry`, `fixExactMatch`). Three faults:
+
+- **A reference found by name saved the other references' stale
+  geometry.** Repointing one reference changes `References2D`, and that
+  change saves every reference's geometry and name as it then stands
+  (`onChanged`, `updateSavedGeometry`). Dimension264 measures a vertex and
+  an edge. Its edge was found by name and moved from `Edge4` to `Edge5`.
+  The vertex's `Vertex5` now named another point, which was saved as
+  what the vertex meant, so the next comparison passed and the dimension
+  measured 4.4245, not 15.9821. Now `repointReferences` repoints all
+  found references in one change, then puts back the saved geometry and
+  name of each reference it did not repoint, so the geometry rung still
+  looks for them. Dimensions 264 to 267 and 274.
+- **A reversed edge was another edge.** `GeometryMatcher` compared a
+  line, and an arc's ends, in order. OCCT 8's projection runs some edges
+  the other way round from 7.7's (Dimension198). Now either way matches.
+  An arc must also have the same middle point, since the two halves of a
+  circle have each other's ends, reversed.
+- **A line written as a B-spline was another edge.** OCCT 8 writes as a
+  B-spline some edges 7.7 wrote as lines (Dimension197's edge). TechDraw's
+  `isLine` measures the B-spline's whole pole polygon, and a projected
+  edge is often a trimmed piece of a longer B-spline, so it said no. Now a
+  B-spline against a line, a circle or an ellipse, and a B-spline against
+  a B-spline, match when the ends match either way and points a quarter,
+  half and three quarters along each lie on the other.
+
+Every scanner dimension recomputed here now keeps the value it had in the
+file (145 of 147). The two that do not:
+
+- `Dimension012`: invalid, a distance on an edge that is a B-spline now
+  (sec 43).
+- `Dimension075`: its saved geometry was stale in the file itself. The
+  file's value, 7.2427, is the distance between the vertices the view has
+  now, (17.5, 5.757) and (11.049, 13.0). Its saved points are (17.5,
+  7.307) and (11.049, 13.75), which are not in the view, and its saved
+  names carry ids from before the migration. Nothing in the file finds
+  those two vertices again.
+
+**From a worker.** Three faults stopped what the worker made from coming
+back:
+
+- **Saved geometry restored null.** A version of the document, which a
+  worker reads, names each file of a property by its content as well:
+  `Dimension264.SavedGeometry.0.4ae0069a9881.brp`.
+  `PropertyTopoShapeList::RestoreDocFile` read the entry's index from the
+  last part before `.brp`, so `atoi("4ae0069a9881")` gave 4, out of
+  range, and the entry stayed null. Most scanner dimensions came into the
+  worker with nothing saved to find their references by. Now each file is
+  the entry `Restore` registered it for, looked up by its base name (a
+  directory project hands the reader the folder too).
+- **A null entry threw.** A transaction copies the list before a change,
+  and `PropertyTopoShapeList::Copy` ran `BRepBuilderAPI_Copy` on a null
+  shape, which throws `Standard_NullObject`. A worker has a transaction
+  open, so its dimensions failed there with an exception whose message
+  was empty: `exception in scanner#Dimension264 thrown:`. A null entry
+  is now copied as null. The dimension's ladder also catches OCCT
+  failures now and reports them with their type
+  (`... (Vertex5, Edge5): Standard_NullObject`), instead of letting them
+  out of `execute()`.
+- **What a view's execute recomputed itself never came back.** A
+  projection group's execute recomputes its views, and a view's execute
+  recomputes its dimensions (`postFaceExtractionTasks`). The worker
+  records each of those as an entry of its own (sec 19). Here the group
+  and the views are put in, not executed, and scanner's dimensions are
+  not touched, so this process's recompute never reached them ("Skip
+  recomputing"): `Unused: 104` entries in the put-in report. Now the
+  worker writes, for each entry, the entry whose execute ran it (format
+  `FCWRCP02`). When that outer object is put in, each inner one is
+  recomputed in turn, with `enforceRecompute()` as the view asks for it,
+  and is filled from its own entry. `recomputeInfo()` counts them in
+  `Inner`. Entries for objects this process makes itself are dropped
+  before the file is written (a spreadsheet the model reads, sec 44), and
+  the outer places are renumbered for what is left. Without that the
+  file did not read: "its objects do not read".
+
+With the three, a worker's recompute of scanner (16 s) matches a
+recompute here: the same dimensions differ from the file, 012 and 075.
+With every object touched, every view (35) and every dimension (147) is
+the same from a worker as made here, with 835 objects supplied, none
+executed here and none unused, in the console. Sec 44's two differences
+(SectionView007, Dimension014) were seen in the GUI, which was not run
+again for this; in the console neither differs any more.
+
+Tests:
+
+- `TDTest.DimensionReferenceTest` (TestTechDrawApp), each case built by
+  hand on a box's view. Each fails without its fix:
+  - `testAReversedEdgeIsFoundAgain` and `testALineSavedAsABSplineIsFoundAgain`
+    fail without the matcher.
+  - `testAReferenceFoundByNameKeepsTheOthersSaved` fails without
+    `repointReferences` keeping the others.
+  - `testTheHalvesOfACircleAreToldApart` fails without the middle-point
+    check.
+  - `testSavedGeometryWithANullEntryIsCopied` fails without the null copy.
+  - `testSavedGeometryInFilesNamedByContentIsRead` fails without the
+    restore by file. It renames a saved project's files to
+    `<index>.<hash>` names that parse wrong.
+- `TestWorkerRecompute.testAViewsDimensionsComeBackWithIt`: a projection
+  group's view swaps its two sources, so the projection numbers the same
+  outline otherwise, and the dimension comes back from the worker on its
+  elements' new numbers. It fails without renumbering the outer places
+  (its spreadsheet's entry is dropped). It **passes without the replay of
+  inner objects**: in this small document the dimension is touched and
+  recomputed in the normal order. What leaves scanner's dimensions
+  untouched was not found, so scanner (`Unused` 104 before, 0 after, and
+  the values above) is the evidence for the replay.
+
+Also fixed on the way: `DrawStoredGeometryTest.testASilhouetteIsNamedFromItsFaceAndSurvivesAReload`
+(TestTechDrawGui) looked for a source named `Face1`. A cylinder's side has
+been named `Lateral` since a022ec951f (2026-10-09), and the test had
+failed since then.
+
+Open:
+
+- A dimension made in the same recompute as its view saves its references
+  before the view has drawn anything, so it saves null geometry. Nothing
+  fills those entries in later, so its geometry rung can never find them;
+  each recompute says "no exact match". In the GUI a dimension is made
+  after its view is drawn.
+- `handleNoExactMatch` accepts a reference that was not found as it stands,
+  so a dimension like Dimension075 measures another element with no error.

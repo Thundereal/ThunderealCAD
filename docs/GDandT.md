@@ -1469,6 +1469,16 @@ Then, in that order:
   parentheses, with no tolerance; FTC-11's is a curve's length, a type of its own now
   (`CurveLength`, after the others so saved values stay). `test_what_the_drawing_says`;
   the round trip compares `Limits` and `Reference`.
+- **The angle details, with J (Associated Geometry).** An angle's dimension is named
+  'angle', as the recommended practice names it (it was ''). A nominal measured again that
+  agrees with the one it has to 1e-9 is left as it is: CTC-04's 90 stays the file's 90, not
+  90.000000000292. 'Associated Geometry not found' was the files with datum targets: a
+  target's graphic was associated with the target, which has no geometry; now with its
+  feature's shape aspects, the faces' (OCCT 96ff61f16b), and a target's relationship to its
+  datum described 'datum target', as NIST's files have it. `test_a_target_on_its_geometry`.
+  Not changed: a graphic alone (CTC-05's two rectangular regions, read as notes on nothing)
+  is still associated with an empty shape aspect, where NIST's CTC-05 writes no association
+  and its CTC-02 and FTC-06 one to an empty aspect, as ours. SFA's word decides it.
 
 ## 11. Decisions (made 2026-11-19)
 

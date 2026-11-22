@@ -267,7 +267,9 @@ App::DocumentObjectExecReturn* Dimension::execute()
         setState(Invalid, why);
         return App::DocumentObject::StdReturn;
     }
-    if (std::fabs(Nominal.getValue() - value) > 1e-12) {
+    // Measured again: a value that agrees with the one it has (a file's 90 as
+    // 90.000000000292) leaves it as it is
+    if (std::fabs(Nominal.getValue() - value) > 1e-9 * std::max(1.0, std::fabs(value))) {
         Nominal.setValue(value);
     }
     updatePresentation();

@@ -12,6 +12,7 @@ The rest of the NIST set is read too when FC_PMI_NIST names its directory
 file imports, and nothing it makes is invalid.
 """
 
+import collections
 import glob
 import os
 import re
@@ -105,7 +106,8 @@ class Base(unittest.TestCase):
         for s in objects(doc, "AnnotationSet"):
             if s.Part and s.Part not in parts:
                 parts.append(s.Part)
-        path = os.path.join(tempfile.mkdtemp(prefix="pmi-roundtrip-"), "again.step")
+        path = self.written = os.path.join(tempfile.mkdtemp(prefix="pmi-roundtrip-"),
+                                           "again.step")
         Import.export(parts, path)
         return self.read(path)
 
@@ -319,11 +321,55 @@ class TestNistSet(Base):
                 self.assertSameViews(doc, again)
                 self.assertEqual(len([b for b in self.sound(again) if " Broken: " in b]), 0)
 
+    def test_a_target_on_its_geometry(self):
+        """Written, a datum target's graphic is associated with the faces it
+        is on -- its feature's shape aspects, which have geometry, not the
+        target, which has none -- and the target described as one, as NIST's
+        files have it: what SFA asks for its Associated Geometry"""
+        for name in TARGETS:
+            with self.subTest(name):
+                doc = self.read(os.path.join(os.environ["FC_PMI_NIST"], name))
+                self.write_and_read(doc)
+                with open(self.written, errors="replace") as f:
+                    ents = entities(f.read())
+                # The faces' shape aspects, and what has them: a composite
+                # its components, a target its feature
+                used, parts = set(), collections.defaultdict(list)
+                for v in ents.values():
+                    m = re.match(r"GEOMETRIC_ITEM_SPECIFIC_USAGE\('[^']*',[^,]*,#(\d+),", v)
+                    if m:
+                        used.add(m.group(1))
+                    m = re.search(r"SHAPE_ASPECT_RELATIONSHIP\('[^']*',('[^']*'|\$),"
+                                  r"#(\d+),#(\d+)\)", v)
+                    if m:
+                        parts[m.group(2)].append(m.group(3))
+
+                def has_geometry(n, seen=()):
+                    return n in used or any(has_geometry(c, seen + (n,)) for c in parts[n]
+                                            if c not in seen)
+
+                links = []
+                for v in ents.values():
+                    m = re.match(r"DRAUGHTING_MODEL_ITEM_ASSOCIATION\('([^']*)',[^,]*,#(\d+),#\d+,"
+                                 r"#(\d+)\)", v)
+                    if m:
+                        links.append(m.groups())
+                link = "PMI representation to presentation link"
+                semantic = {c for n, _, c in links if n == link}
+                # Of what has semantics: a graphic alone (a note on nothing) is
+                # associated with nothing
+                lost = [ents[d].split("(")[0] for n, d, c in links
+                        if c in semantic and n != link and not has_geometry(d)]
+                self.assertEqual(lost, [])
+                described = [v for v in ents.values()
+                             if v.startswith("SHAPE_ASPECT_RELATIONSHIP('','datum target',")]
+                self.assertEqual(len(described), len(objects(doc, "DatumTarget")))
+
     def test_what_the_drawing_says(self):
         """What SFA, against NIST's drawings, found lost: CTC-01's diameters
         given as their limits (34.8-35.2), CTC-03's thickness the file's
         though the model cannot measure it, FTC-11's reference dimension of a
-        curve's length, (197.9)"""
+        curve's length, (197.9); CTC-04's angle the file's 90, exactly"""
         nist = os.environ["FC_PMI_NIST"]
 
         def dims(name):
@@ -342,6 +388,11 @@ class TestNistSet(Base):
         self.assertEqual([(d.Type, round(d.Nominal.Value, 1)) for d in ref],
                          [("CurveLength", 197.9)])
         self.assertRegex(ref[0].EquivalentText, r"^\(197\.92?\)$")
+        # The file's 90, not the model's 90.000000000292: measured again, a
+        # value that agrees is left as the file gives it
+        angles = [d for d in dims("nist_ctc_04_asme1_ap242-e1.stp")
+                  if d.Type in ("Angle", "AngularSize")]
+        self.assertEqual([d.Nominal.Value for d in angles], [90.0])
 
     def test_a_clipped_view(self):
         # FTC-11's MBD_B is a section: cut by the plane x = 0, its normal
@@ -379,6 +430,16 @@ class TestNistSet(Base):
                     face = t.Feature.Shape
                     d = face.distToShape(Part.Vertex(t.Target.Base))[0]
                     self.assertLess(d, 1e-3, t.Label)
+
+
+def entities(text):
+    """A STEP file's entities by number, each on one line, its blanks after
+    an opening bracket gone"""
+    out = {}
+    text = text.replace("\r", "")
+    for m in re.finditer(r"#(\d+)\s*=\s*(.*?);\s*(?=#\d+\s*=|ENDSEC)", text, re.S):
+        out[m.group(1)] = re.sub(r"\(\s+", "(", re.sub(r"\s+", " ", m.group(2)))
+    return out
 
 
 def schema_of(path):
@@ -552,6 +613,8 @@ class TestStepExport(Base):
         self.assertTrue(unit)
         self.assertRegex(text, re.escape(unit.group(1)) + r"=\(CONVERSION_BASED_UNIT\('DEGREE',")
         self.assertIn("=PLANE_ANGLE_MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(0.5),", text)
+        # Named as the recommended practice names it
+        self.assertIn("=ANGULAR_LOCATION('angle',", text)
         self.assertNotIn("RUNOUT_ZONE_DEFINITION", text)
         self.assertRegex(text, r"PROJECTED_ZONE_DEFINITION\(#\d+,\(\),#\d+,#\d+\)")
         self.assertNotIn("TESSELLATED_ANNOTATION_OCCURRENCE(''", text)

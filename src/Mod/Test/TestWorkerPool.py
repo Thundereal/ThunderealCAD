@@ -331,6 +331,39 @@ class TestWorkerPool(unittest.TestCase):
         self.assertTrue(self.pool.wait(120))
         self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
 
+    def testAFirstSaveEndsTheWorkersReadingTheStore(self):
+        """A first save renames the transient directory, which Windows will
+        not do while a worker has the store in it open: the workers reading
+        it are ended first, and the next job's copy is read from where the
+        store went (docs/WorkerProcess.md sec 45)"""
+        import shutil
+
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertEqual(self.pool.result(job)["Output"]["Value"], 42)
+        info = self.pool.info()
+        self.assertTrue(info["ReadStore"], info)
+        before = set(info["Pids"])
+        self.assertTrue(before, info)
+        was = self.doc.TransientDir
+        folder = tempfile.mkdtemp(prefix="fc-firstsave-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        self.doc.saveAs(os.path.join(folder, "first.FCStd"))
+        self.assertNotEqual(self.doc.TransientDir, was)
+        self.assertFalse(os.path.exists(was))
+        info = self.pool.info()
+        self.assertFalse(before & set(info["Pids"]), info)
+        self.assertTrue(info["Stale"], info)
+        self.obj.Integer = 43
+        self.doc.recompute()
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Done", result)
+        self.assertEqual(result["Output"]["Value"], 43)
+        self.assertTrue(self.pool.info()["ReadStore"])
+
     def testTheCopyIsAVersionNothingChangedSince(self):
         """The newest version of the branch that nothing since changed the
         document from -- a save's here, an open's mostly -- is the copy:

@@ -2887,3 +2887,49 @@ more. Each run of a worker, split or not, differs from here in
 43, open. And in one object's last place of four, not the same object
 each run (`Part012`'s area 24940.2409 against .2408, `Helix`'s volume),
 4e-9 relative.
+
+## 45. A first save while workers read the store (Windows) (2026-11-22)
+
+On Windows (session dwin), three TestWorkerPool tests failed to rename a
+file: `testMeshAndPartFilesAreTheOnesMadeHere` (the ExportModules setup),
+`testTheFileIsTheOneMadeHere` and
+`testAWorkersLaterStringsAreSavedAndReadBack`. dwin's trace in
+`FileInfo::renameFile` found the same thing in each. The rename that
+fails is the document's transient directory, renamed by a first save
+from `Thundereal_Doc_<uid>_da39a3_<pid>` (da39a3, the hash of no file
+name) to its file's hash (Document.cpp, the `Uid` branch of
+`onChanged`). `MoveFileExW` gives error 5. The Restart Manager names one
+holder of `history/log.db` with its `-shm` and `-wal`, and of
+`blobs/seg-1.2`: a worker, the one that read the version from this
+process's store (sec 3, `ReadStore`). The parent holds nothing there, and
+nothing is read-only. Retried every 10 ms, it still failed after 2 s:
+the worker keeps them open while it holds its copy. Windows renames no
+directory a file under which is open; macOS and Linux do, which is why
+only Windows failed.
+
+Now the pool lets go first. `WorkerPool::releaseDirectory(dir)`, called
+before the rename, ends each worker whose copy is read from a store
+under `dir`: told to quit, and one with no job waited for, up to 5 s. A
+worker making a job is told too and ends after it; it is not waited for
+inside the document's change, so a save in the middle of a job still
+fails to rename on Windows, as before. The copy is marked stale, so the
+next job's copy is read from where the store went. Ending the workers
+costs a start on the next job, but the copy would have been opened whole
+anyway at the new path, and the rename happens only on a document's
+first save or a save under another name.
+
+Test `testAFirstSaveEndsTheWorkersReadingTheStore`: a job read from the
+store, `saveAs`, then the worker that read it is gone, the copy is stale,
+and the next job reads the value edited after the save. Without the call
+it fails on macOS too: the worker is still there.
+
+dwin saw a second kind, with no worker: five PartDesign sheet-metal save
+tests failed the same rename in one run, one of them in the next, and nothing held
+a file by the time the trace looked. With retries, the one that hit it
+succeeded on the first retry, after 31 ms: an opener from outside, most
+likely the laptop's file monitoring. On Windows the rename is now
+retried up to 10 times, 25 ms apart; each failure still prints its
+`Error in renameFile` line. Not run on Windows yet.
+
+The fourth case, TechDraw's `testOutOfRangeEnumerationIsPutBack`, did
+not fail in dwin's run.

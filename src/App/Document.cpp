@@ -84,6 +84,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include <filesystem>
 #include <limits>
 #include <random>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -150,6 +151,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include "PropertyPythonObject.h"
 #include "RecomputeHook.h"
 #include "TransactionLog.h"
+#include "WorkerPool.h"
 
 #include <nlohmann/json.hpp>
 
@@ -3314,6 +3316,11 @@ void Document::onChanged(const Property* prop)
         // this directory should not exist
         if (!TransDirNew.exists()) {
             if (TransDirOld.exists()) {
+                // A worker reads the store in it, which Windows will not let
+                // the directory move from under (docs/WorkerProcess.md sec
+                // 45): the workers reading it are ended first
+                if (auto pool = WorkerPool::of(*this, false))
+                    pool->releaseDirectory(old_dir);
                 // The transaction log's database lives in the directory
                 // and is open there already on the restore path: closed
                 // across the move, reopened at the new path below.
@@ -3330,7 +3337,15 @@ void Document::onChanged(const Property* prop)
                     blobWrites = blobs->holdWrites();
                     blobs->closeArchives();
                 }
-                const bool renamed = TransDirOld.renameFile(new_dir.c_str());
+                bool renamed = TransDirOld.renameFile(new_dir.c_str());
+#ifdef FC_OS_WIN32
+                // An opener from outside -- a file monitor -- has held a file
+                // in it for a moment (docs/WorkerProcess.md sec 45)
+                for (int i = 0; !renamed && i < 10; ++i) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+                    renamed = TransDirOld.renameFile(new_dir.c_str());
+                }
+#endif
                 if (renamed)
                     this->TransientDir.setValue(new_dir);
                 // Before the log reopens, which may wait on its worker.

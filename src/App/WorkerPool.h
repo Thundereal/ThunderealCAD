@@ -252,6 +252,14 @@ public:
      */
     void putIn(JobId job, long long fromSeq, long long toSeq,
                const std::vector<std::string>& objects);
+    /** The document's transient directory `dir` is about to be renamed
+     * (docs/WorkerProcess.md sec 45): the workers reading the store in it
+     * are ended -- Windows renames no directory a file under which is open
+     * -- those with nothing to make waited for, up to `ms`; one making a job
+     * ends after it. The copy is stale, and the next one is read from where
+     * the store went. The number still running
+     */
+    std::size_t releaseDirectory(const std::string& dir, int ms = 5000);
     /// Take in what came, and with `ms` > 0 what comes for as long
     void poll(int ms = 0);
     /// Poll until no job is queued or running, or `seconds` pass (< 0:

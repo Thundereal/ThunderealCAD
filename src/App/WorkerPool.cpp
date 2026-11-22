@@ -2576,6 +2576,68 @@ void WorkerPool::stop(const std::string& why)
     d->changedNotice();
 }
 
+std::size_t WorkerPool::releaseDirectory(const std::string& dir, int ms)
+{
+    Private::Depth guard(*d, true);
+    if (dir.empty()) {
+        return 0;
+    }
+    auto under = [&dir](const std::string& path) {
+        return path.size() > dir.size() && path.compare(0, dir.size(), dir) == 0
+            && (path[dir.size()] == '/' || path[dir.size()] == '\\');
+    };
+    // The next job's copy is read from where the store goes, and a worker
+    // set up on it opens it whole: the old path is no more
+    if (under(d->store)) {
+        d->stale = true;
+    }
+    std::vector<Private::Proc*> waited;
+    std::size_t left = 0;
+    for (auto& proc : d->procs) {
+        if (proc->over || !under(proc->store)) {
+            continue;
+        }
+        if (!proc->quitting) {
+            proc->quitting = true;
+            if (!proc->socket || !send(*proc->socket, json {{"type", "quit"}})) {
+                d->kill(*proc);
+                continue;
+            }
+        }
+        if (proc->job) {
+            // Read after its job, whose result comes as ever: not waited for
+            // here, inside the document's change
+            ++left;
+        }
+        else {
+            waited.push_back(proc.get());
+        }
+    }
+    QElapsedTimer timer;
+    timer.start();
+    for (auto proc : waited) {
+        // Its end runs finished() through the process's signal; `gone` keeps
+        // it until the next call in
+        if (!proc->over && proc->process) {
+            const int rest = std::max(0, ms - static_cast<int>(timer.elapsed()));
+            if (!proc->process->waitForFinished(rest)) {
+                if (!proc->over) {
+                    ++left;
+                }
+            }
+            else if (!proc->over) {
+                d->finished(*proc);
+            }
+        }
+    }
+    if (!waited.empty() || left) {
+        FC_LOG(d->doc.getName() << ": " << waited.size() << " worker(s) ended for the move of "
+                                << dir << (left ? ", some still running" : ""));
+        d->changedNotice();
+    }
+    return left;
+}
+
 void WorkerPool::designChanged(const DocumentObject* obj)
 {
     Private::Depth guard(*d, true);

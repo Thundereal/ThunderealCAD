@@ -342,9 +342,14 @@ class TestNistSet(Base):
         (p7) no occurrence named in \\X2\\ alone, which SFA reads as no name,
         nor a callout in no annotation plane"""
         with open(self.written, errors="replace") as f:
-            text = re.sub(r"\s+", "", f.read())
+            raw = f.read()
+        text = re.sub(r"\s+", "", raw)
         self.assertNotIn("TESSELLATED_ANNOTATION_OCCURRENCE('',", text)
-        self.assertEqual(re.findall(r"DESCRIPTIVE_REPRESENTATION_ITEM\('[^']*',''\)", text), [])
+        # On the file as written: a text of a space (FTC-06's Text.8, as NIST
+        # gives it) is not empty
+        self.assertEqual(
+            re.findall(r"DESCRIPTIVE_REPRESENTATION_ITEM\(\s*'[^']*'\s*,\s*''\s*\)", raw), []
+        )
         names = re.findall(r"TESSELLATED_ANNOTATION_OCCURRENCE\('([^']*)'", text)
         self.assertEqual(
             [n for n in names if not re.search(r"[A-Za-z0-9]", re.sub(r"\\X2\\.*?\\X0\\", "", n))],
@@ -473,6 +478,23 @@ class TestNistSet(Base):
         with open(self.written, errors="replace") as f:
             written = re.sub(r"\s+", "", f.read())
         self.assertIn("SPECIFIED):\\X2\\000A", written)
+
+    def test_a_graphic_by_its_placeholder(self):
+        """A graphic linked to what it presents by an association with a
+        placeholder (AP242 ed2), its only semantic link in FTC-06 and STC-08:
+        each dimension has its graphic, not a note of its own beside it. And
+        where a named association gives the graphic, the placeholder's (a
+        callout of the placeholder alone) does not take its place: STC-06"""
+        nist = os.environ["FC_PMI_NIST"]
+        for name, notes in (("nist_ftc_06_asme1_ap242-e2.stp", 7),
+                            ("nist_stc_06_asme1_ap242-e3.stp", 2),
+                            ("nist_stc_08_asme1_ap242-e3.stp", 3)):
+            with self.subTest(name):
+                doc = self.read(os.path.join(nist, name))
+                dims = objects(doc, "Dimension")
+                self.assertTrue(dims)
+                self.assertEqual([d.Label for d in dims if d.ImportedGraphic.isNull()], [])
+                self.assertEqual(len(objects(doc, "Note")), notes)
 
     def test_on_supplemental_geometry(self):
         """GD&T on supplemental geometry -- a thread's cylinder drawn as its

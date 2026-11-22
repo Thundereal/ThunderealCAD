@@ -290,6 +290,20 @@ Found closing P5 (sec 10.19), and fixed on the fork (2026-11-21):
 10. Clipping planes read but never written: a view with planes is written as a
     `camera_model_d3_multi_clipping`, its planes all cutting.
 
+Found reading FTC-06's graphics (sec 10.24), and fixed on the fork (2026-11-23):
+
+11. `draughting_model_item_association_with_placeholder` (AP242 ed2) was an entity the reader
+    did not know -- the link from a graphic to what it presents, in seven of the NIST files,
+    and in FTC-06, STC-06 and STC-08 the only one (their plain associations go to geometry).
+    FTC-06 read 23 graphics as notes, its dimensions bare. Read now
+    (`StepAP242_DraughtingModelItemAssociationWithPlaceholder`, type 827), a semantic link
+    whatever its name (STC-07's 'PPH - ...', CTC-02's ''): FTC-06 7 notes, every dimension
+    with its graphic. A PMI's graphic is still the one named the link when there is one: in
+    STC-06 and STC-07 the placeholder's callout holds the placeholder alone (taken first, STC-06
+    read no graphic). The placeholder itself (an `annotation_placeholder_occurrence`, where a
+    reader writes the PMI's text) is kept as read, not modelled.
+    `test_a_graphic_by_its_placeholder`.
+
 Worked around, not fixed: `GenerateTessellatedCurveSet` writes a curve that is not a line as
 its B-spline's poles -- the control polygon, not the curve -- and reads an edge's curve without
 its location. The exporter hands OCCT polylines and meshes instead (sec 10.17).

@@ -24,6 +24,7 @@
 
 #include "PreCompiled.h"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <map>
 #include <set>
@@ -81,6 +82,7 @@
 #include "GeometricTolerance.h"
 #include "Note.h"
 #include "Geometry.h"
+#include "StepExport.h"
 #include "StepImport.h"
 #include "TolerancedFeature.h"
 #include "View.h"
@@ -1049,11 +1051,29 @@ private:
             // Given as its limits, shown and written so again
             dim->Limits.setValue(true);
         }
-        // A reference dimension: a 'dimensional note' that is 'auxiliary'
+        // A fit, its class of tolerance: "G6", a hole's; "g6", a shaft's (FTC-10)
+        bool hole = false;
+        XCAFDimTolObjects_DimensionFormVariance variance;
+        XCAFDimTolObjects_DimensionGrade grade;
+        if (obj->IsDimWithClassOfTolerance() && obj->GetClassOfTolerance(hole, variance, grade)
+            && int(variance) > 0 && int(variance) < 29 && int(grade) >= 0 && int(grade) < 20) {
+            std::string fit = Step::FitVariances[int(variance)];
+            if (!hole) {
+                for (auto& c : fit) {
+                    c = char(std::tolower(static_cast<unsigned char>(c)));
+                }
+            }
+            dim->Fit.setValue(fit + Step::FitGrades[int(grade)]);
+        }
+        // A reference dimension: a 'dimensional note' that is 'auxiliary';
+        // a basic one, 'theoretical'
         for (int i = 0; i < obj->NbDescriptions(); ++i) {
             auto text = obj->GetDescription(i);
             if (!text.IsNull() && text->String().IsEqual("auxiliary")) {
                 dim->Reference.setValue(true);
+            }
+            if (!text.IsNull() && text->String().IsEqual("theoretical")) {
+                dim->Basic.setValue(true);
             }
         }
         int left = 0, right = 0;

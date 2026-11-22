@@ -44,6 +44,9 @@ AnnotationSet::AnnotationSet()
 {
     ADD_PROPERTY_TYPE(Part, (nullptr), "PMI", App::Prop_None,
                       "What it annotates: the Body it is in, or the shape it sits beside");
+    // It refers, and owns nothing: else, headless, an App::Part takes the
+    // solid for the set's, and exports the set without it
+    Part.setReferOnly(true);
     ADD_PROPERTY_TYPE(Standard, (0L), "PMI", App::Prop_None,
                       "The standard the annotations follow: ISO GPS (independency principle) "
                       "or ASME Y14.5 (envelope principle)");

@@ -64,6 +64,8 @@ TolerancedFeature::TolerancedFeature()
 {
     ADD_PROPERTY_TYPE(References, (nullptr), "PMI", App::Prop_None,
                       "The faces of the part this feature is");
+    // Refers, as the set's Part does: claims nothing
+    References.setReferOnly(true);
     ADD_PROPERTY_TYPE(Kind, (0L), "PMI", App::Prop_None,
                       "Integral: the faces; Axis, CentrePlane, CentrePoint, Apex: the exact "
                       "element derived from them; Group: several faces as one; AllAround, "

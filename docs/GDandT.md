@@ -1516,8 +1516,35 @@ Then, in that order:
   determine type of select value", and no part geometry). Now `LENGTH_MEASURE(25.4)`, as
   NIST's files have it; foot, mil and the others the same.
   `test_in_the_files_length_unit`.
-- **Next, from SFA on CTC-04:** a reference dimension's brackets ("[75]", "[dia10]"), and a
-  pattern's count ("4X", "30X") written so SFA sees them.
+- **SFA p6 (dwin, 2026-11-23), and what it found:**
+  - *FTC-06 lost four dimensions*, its reference (1.106) and (dia1.000): they are on a curve
+    compound beside the solid, which since K has no set of its own, and the SFA script
+    exported the sets' parts only. Exporting the imported App::Part -- what a user does --
+    then wrote no solid at all: headless, a group takes what a child links to for what it
+    claims (`GeoFeatureGroupExtension::buildExport`), and the set's Part and the features'
+    faces claimed the solid. A link can now say it only refers, `LinkReferOnly`
+    (`PropertyLinkBase::setReferOnly`): the set's Part, a feature's References, a view's
+    Objects. Their scope stays: the set's Part is Hidden, no dependency, which a Body
+    needs (a Global link made the Body depend on its set). The tests' round trip exports
+    the App::Part, as the script now does.
+  - *An occurrence without a name*: a label whose words are a counterbore sign alone,
+    stripped to ASCII, was ''. Names now give what is not ASCII as `\X2\`.
+  - *CTC-05's regions with no geometry*: named 'linear dimension' as NIST names them (I),
+    and associated with an empty shape aspect, where NIST associates them with nothing. A
+    graphic on nothing, with no words, is now written alone, and read back into its views
+    by the callout itself (OCCT).
+  - *An empty semantic text*: a note's words were written a text a line, its empty line an
+    empty text. Now one text, its lines broken as NIST's are (`\X2\000A\X0\`).
+  - *FTC-10's fit lost* ("dia3.50 G6"): its class of tolerance is `LIMITS_AND_FITS('G6',
+    'hole','','')`, the grade in the variance, which OCCT read as no variance and IT01;
+    and OCCT wrote IT6 as grade 8. Both fixed; `Dimension.Fit` is read and written.
+    `test_a_fit_as_the_file_gives_it`.
+  - *CTC-04's [75] and [dia10]*: basic dimensions, a 'dimensional note' that is
+    'theoretical'. Read into `Basic`, written so. `test_basic_as_the_file_gives_it`.
+  - Not ours: SFA's nX is its own count of a size dimension's cylinder faces, and ours
+    and NIST's rows agree. FTC-08-e4-tg (not in this box's NIST set) crashes SFA's viewer
+    converter; to see in p7. Every round trip is checked for the first four
+    (`assertWrittenClean`).
 
 ## 11. Decisions (made 2026-11-19)
 

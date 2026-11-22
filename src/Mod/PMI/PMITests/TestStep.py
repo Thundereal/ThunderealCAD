@@ -53,16 +53,16 @@ class Base(unittest.TestCase):
                            round(gt.ProjectedLength.Value, 6))
                           for gt in objects(d, "GeometricTolerance"))
             dims = sorted((x.Type, round(x.Upper, 6), round(x.Lower, 6), x.Limits, x.Reference,
-                           x.Nominal.Value) for x in objects(d, "Dimension"))
+                           x.Basic, x.Fit, x.Nominal.Value) for x in objects(d, "Dimension"))
             targets = sorted((t.TargetType, t.Number) for t in objects(d, "DatumTarget"))
             return letters, tols, dims, targets, len(objects(d, "Note"))
 
         ga, gb = gdt(a), gdt(b)
         self.assertEqual(ga[0], gb[0])
         self.assertEqual(ga[1], gb[1])
-        self.assertEqual([x[:5] for x in ga[2]], [x[:5] for x in gb[2]])
+        self.assertEqual([x[:7] for x in ga[2]], [x[:7] for x in gb[2]])
         for x, y in zip(ga[2], gb[2]):
-            self.assertAlmostEqual(x[5], y[5], delta=1e-3)
+            self.assertAlmostEqual(x[7], y[7], delta=1e-3)
         self.assertEqual(ga[3], gb[3])
         self.assertEqual(ga[4], gb[4])
 
@@ -102,15 +102,18 @@ class Base(unittest.TestCase):
                 self.assertLess(abs((y.ClipPlane.Base - x.ClipPlane.Base).dot(n)), 1e-6, name)
 
     def write_and_read(self, doc):
+        """Exported as a user does, and read back: an imported file's App::Part,
+        its solid and what is beside it (supplemental geometry) -- else the
+        sets' parts"""
         parts = []
         for s in objects(doc, "AnnotationSet"):
-            if s.Part and s.Part not in parts:
-                parts.append(s.Part)
-        # And what their features are on beside them: supplemental geometry
-        for f in objects(doc, "TolerancedFeature"):
-            for o, _ in f.References:
-                if o not in parts:
-                    parts.append(o)
+            part = s.Part
+            if part:
+                group = part.getParentGeoFeatureGroup()
+                if group and group.TypeId == "App::Part":
+                    part = group
+            if part and part not in parts:
+                parts.append(part)
         path = self.written = os.path.join(tempfile.mkdtemp(prefix="pmi-roundtrip-"),
                                            "again.step")
         Import.export(parts, path)
@@ -325,6 +328,31 @@ class TestNistSet(Base):
                 self.assertSameGdt(doc, again)
                 self.assertSameViews(doc, again)
                 self.assertEqual(len([b for b in self.sound(again) if " Broken: " in b]), 0)
+                self.assertWrittenClean(os.path.basename(path))
+
+    def assertWrittenClean(self, name):
+        """What SFA reported of the file written (dwin, p6): no occurrence
+        without its name (a label of a counterbore sign, CTC-04), no empty
+        semantic text (a note's empty line, STC-07); a graphic on nothing
+        associated with nothing, as NIST's CTC-05 has its two regions"""
+        with open(self.written, errors="replace") as f:
+            text = re.sub(r"\s+", "", f.read())
+        self.assertNotIn("TESSELLATED_ANNOTATION_OCCURRENCE('',", text)
+        self.assertEqual(re.findall(r"DESCRIPTIVE_REPRESENTATION_ITEM\('[^']*',''\)", text), [])
+        if "ctc_05" not in name:
+            return
+        ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+        used = collections.Counter()
+        for k, v in ents.items():
+            if not v.startswith("DRAUGHTING_MODEL_ITEM_ASSOCIATION"):
+                used.update(set(re.findall(r"#(\d+)", v)))
+        empty = []
+        for k, v in ents.items():
+            m = re.match(r"DRAUGHTING_MODEL_ITEM_ASSOCIATION\('[^']*','[^']*',#(\d+),", v)
+            if m and ents.get(m.group(1), "").startswith("SHAPE_ASPECT(") \
+                    and not used[m.group(1)]:
+                empty.append(k)
+        self.assertEqual(empty, [])
 
     def test_a_target_on_its_geometry(self):
         """Written, a datum target's graphic is associated with the faces it
@@ -422,6 +450,10 @@ class TestNistSet(Base):
         self.assertEqual(general[0][0], "NOTES (UNLESS OTHERWISE SPECIFIED):")
         self.assertEqual(general[0][-1], "6. UNITS: INCHES")
         self.assertEqual(texts(self.write_and_read(doc)), texts(doc))
+        # One text, as the file has it: its lines broken as the file breaks them
+        with open(self.written, errors="replace") as f:
+            written = re.sub(r"\s+", "", f.read())
+        self.assertIn("SPECIFIED):\\X2\\000A", written)
 
     def test_on_supplemental_geometry(self):
         """GD&T on supplemental geometry -- a thread's cylinder drawn as its
@@ -457,6 +489,40 @@ class TestNistSet(Base):
         self.assertEqual(supplemental(doc), [("Diameter", 3.0)] * 3 + [("Diameter", 5.5)] * 2
                          + [("Position", 0.8)] * 3)
         self.assertEqual(supplemental(self.write_and_read(doc)), supplemental(doc))
+
+    def test_basic_as_the_file_gives_it(self):
+        """CTC-04's 75 and 10 are basic -- a 'dimensional note' that is
+        'theoretical' -- read so and written so (SFA's [75], [dia10])"""
+        nist = os.environ["FC_PMI_NIST"]
+        doc = self.read(os.path.join(nist, "nist_ctc_04_asme1_ap242-e1.stp"))
+
+        def basic(d):
+            return sorted(round(x.Nominal.Value, 6) for x in objects(d, "Dimension") if x.Basic)
+
+        self.assertEqual(basic(doc), [10.0, 75.0])
+        self.assertEqual(basic(self.write_and_read(doc)), basic(doc))
+        with open(self.written, errors="replace") as f:
+            written = re.sub(r"\s+", "", f.read())
+        self.assertEqual(
+            written.count("DESCRIPTIVE_REPRESENTATION_ITEM('dimensionalnote','theoretical')"), 2)
+
+    def test_a_fit_as_the_file_gives_it(self):
+        """FTC-10's three holes, 3.50 G6: the fit read -- its grade given
+        with its variance, 'G6', none of its own -- and written as STEP has a
+        class of tolerance, its grade apart, IT6 as 6, read back the same"""
+        nist = os.environ["FC_PMI_NIST"]
+        doc = self.read(os.path.join(nist, "nist_ftc_10_asme1_ap242-e2.stp"))
+
+        def fits(d):
+            return sorted((round(x.Nominal.Value, 6), x.Fit) for x in objects(d, "Dimension")
+                          if x.Fit)
+
+        self.assertEqual(fits(doc), [(3.5, "G6")] * 3)
+        again = self.write_and_read(doc)
+        self.assertEqual(fits(again), fits(doc))
+        with open(self.written, errors="replace") as f:
+            written = re.sub(r"\s+", "", f.read())
+        self.assertEqual(written.count("LIMITS_AND_FITS('G','hole','6',"), 3)
 
     def test_what_the_drawing_says(self):
         """What SFA, against NIST's drawings, found lost: CTC-01's diameters

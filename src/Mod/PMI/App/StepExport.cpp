@@ -24,11 +24,14 @@
 
 #include "PreCompiled.h"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <set>
 #include <sstream>
+#include <string>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBndLib.hxx>
@@ -100,13 +103,53 @@ namespace
 
 Handle(TCollection_HAsciiString) ascii(const std::string& s)
 {
-    // STEP's strings are ASCII here: what is not is dropped
+    // STEP's strings are ASCII: what is not, in UTF-16 between \X2\ and
+    // \X0\ (ISO 10303-21 6.4.3.3), which the writer passes as it is -- a
+    // label of a counterbore sign alone is no empty name (SFA, CTC-04)
     std::string out;
-    for (char c : s) {
-        if (static_cast<unsigned char>(c) < 128) {
-            out += c;
+    std::u16string wide;
+    auto flush = [&]() {
+        if (wide.empty()) {
+            return;
+        }
+        out += "\\X2\\";
+        char hex[8];
+        for (char16_t u : wide) {
+            std::snprintf(hex, sizeof(hex), "%04X", unsigned(u));
+            out += hex;
+        }
+        out += "\\X0\\";
+        wide.clear();
+    };
+    for (std::size_t i = 0; i < s.size();) {
+        auto c = static_cast<unsigned char>(s[i]);
+        if (c < 128) {
+            flush();
+            out += char(c);
+            ++i;
+            continue;
+        }
+        int n = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : 0;
+        char32_t cp = n == 3 ? c & 0x07 : n == 2 ? c & 0x0F : c & 0x1F;
+        if (n == 0 || i + n >= s.size()) {
+            // Not UTF-8: dropped
+            ++i;
+            continue;
+        }
+        for (int k = 1; k <= n; ++k) {
+            cp = (cp << 6) | (static_cast<unsigned char>(s[i + k]) & 0x3F);
+        }
+        i += n + 1;
+        if (cp >= 0x10000) {
+            cp -= 0x10000;
+            wide += char16_t(0xD800 + (cp >> 10));
+            wide += char16_t(0xDC00 + (cp & 0x3FF));
+        }
+        else {
+            wide += char16_t(cp);
         }
     }
+    flush();
     return new TCollection_HAsciiString(out.c_str());
 }
 
@@ -865,6 +908,39 @@ private:
         return true;
     }
 
+    /// A fit (ISO 286, "H7", "g6"): its class of tolerance -- a hole's in
+    /// upper case, a shaft's in lower
+    static bool fit(const std::string& f, const Handle(XCAFDimTolObjects_DimensionObject)& obj)
+    {
+        std::size_t cut = f.find_first_of("0123456789");
+        if (cut == 0 || cut == std::string::npos) {
+            return false;
+        }
+        std::string variance = f.substr(0, cut);
+        std::string grade = f.substr(cut);
+        bool hole = std::isupper(static_cast<unsigned char>(variance[0])) != 0;
+        for (auto& c : variance) {
+            c = char(std::toupper(static_cast<unsigned char>(c)));
+        }
+        int v = 0, g = -1;
+        for (int i = 1; i < 29; ++i) {
+            if (variance == Step::FitVariances[i]) {
+                v = i;
+            }
+        }
+        for (int i = 0; i < 20; ++i) {
+            if (grade == Step::FitGrades[i]) {
+                g = i;
+            }
+        }
+        if (!v || g < 0) {
+            return false;
+        }
+        obj->SetClassOfTolerance(hole, XCAFDimTolObjects_DimensionFormVariance(v),
+                                 XCAFDimTolObjects_DimensionGrade(g));
+        return true;
+    }
+
     static bool modifier(const std::string& m, XCAFDimTolObjects_DimensionModif& out)
     {
         static const std::map<std::string, XCAFDimTolObjects_DimensionModif> map = {
@@ -927,7 +1003,14 @@ private:
         obj->SetValue(value);
         double upper = dim->Upper.getValue();
         double lower = dim->Lower.getValue();
-        if (dim->Reference.getValue()) {
+        if (dim->Basic.getValue()) {
+            // Theoretically exact, its tolerance a frame's: a 'dimensional
+            // note' that is 'theoretical', as AP242 has a basic dimension
+            // (NIST CTC-04's 75 and 10, SFA's [75])
+            obj->AddDescription(new TCollection_HAsciiString("theoretical"),
+                                new TCollection_HAsciiString("dimensional note"));
+        }
+        else if (dim->Reference.getValue()) {
             // For information, no tolerance: a 'dimensional note' that is
             // 'auxiliary', as AP242 has a reference dimension
             obj->AddDescription(new TCollection_HAsciiString("auxiliary"),
@@ -957,11 +1040,8 @@ private:
                 partly(dim, "modifier " + m + " has no place in STEP's dimension");
             }
         }
-        if (dim->Basic.getValue()) {
-            partly(dim, "basic: OCCT writes no theoretically exact dimension");
-        }
-        if (strlen(dim->Fit.getValue()) > 0) {
-            partly(dim, std::string("its fit ") + dim->Fit.getValue() + " is not written yet");
+        if (strlen(dim->Fit.getValue()) > 0 && !fit(dim->Fit.getValue(), obj)) {
+            partly(dim, std::string("its fit ") + dim->Fit.getValue() + " is no ISO 286 fit");
         }
         present(dim, ex, obj);
         attr->SetObject(obj);
@@ -994,9 +1074,16 @@ private:
                                       : XCAFDimTolObjects_DimensionType_DimensionPresentation);
         present(n, ex, obj);
         // Its words, written as a semantic text (AP242's recommended
-        // practice): a line each, as they are, signs and all
-        for (auto& line : n->Text.getValues()) {
-            obj->AddDescription(new TCollection_HAsciiString(line.c_str()),
+        // practice): one text, its lines as they are, signs and all, as
+        // NIST's files give a note -- a line each left an empty line an
+        // empty text, which SFA reports (STC-07's general note)
+        std::string words;
+        const auto& lines = n->Text.getValues();
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            words += (i ? "\n" : "") + lines[i];
+        }
+        if (!lines.empty()) {
+            obj->AddDescription(new TCollection_HAsciiString(words.c_str()),
                                 ascii(n->Label.getValue()));
         }
         std::string text;
@@ -1130,6 +1217,13 @@ Step::WriteReport Step::write(const Import::PostExport& info)
     }
     return report;
 }
+
+const char* const Step::FitVariances[29] = {
+    "",  "A", "B", "C",  "CD", "D", "E", "EF", "F", "FG", "G",  "H",  "JS", "J", "K",
+    "M", "N", "P", "R", "S", "T", "U", "V",  "X", "Y",  "Z", "ZA", "ZB", "ZC"};
+const char* const Step::FitGrades[20] = {"01", "0",  "1",  "2",  "3",  "4",  "5",
+                                         "6",  "7",  "8",  "9",  "10", "11", "12",
+                                         "13", "14", "15", "16", "17", "18"};
 
 void Step::registerExport()
 {

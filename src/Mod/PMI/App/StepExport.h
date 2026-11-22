@@ -67,6 +67,12 @@ PMIExport WriteReport write(const Import::PostExport& info);
 /// Run write() at the end of every export (ExportOCAF2::addPostExport)
 PMIExport void registerExport();
 
+/// A fit's fundamental deviations, in the order of OCCT's
+/// XCAFDimTolObjects_DimensionFormVariance (its first, None, ""); a hole's,
+/// a shaft's in lower case. Its grades IT01, IT0, IT1 .. IT18 are FitGrades.
+extern const char* const FitVariances[29];
+extern const char* const FitGrades[20];
+
 }  // namespace Step
 }  // namespace PMI
 

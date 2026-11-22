@@ -55,6 +55,8 @@ View::View()
                       "The clipping plane, its z toward the viewer");
     ADD_PROPERTY_TYPE(Objects, (), "View", App::Prop_None,
                       "The objects that show while the view is active; empty shows all");
+    // Refers, as the set's Part does: claims nothing
+    Objects.setReferOnly(true);
 }
 
 Base::Rotation View::standardRotation(StandardValue which)

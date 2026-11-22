@@ -520,7 +520,20 @@ class TestStepExport(unittest.TestCase):
         self.assertNotIn("RUNOUT_ZONE_DEFINITION", text)
         self.assertRegex(text, r"PROJECTED_ZONE_DEFINITION\(#\d+,\(\),#\d+,#\d+\)")
         self.assertNotIn("TESSELLATED_ANNOTATION_OCCURRENCE(''", text)
-        self.assertNotIn("TESSELLATED_GEOMETRIC_SET(''", text)
+        # Each graphic's set named by what it presents, one of the names of
+        # the recommended practice (8.4), by which a checker tells it
+        sets = set(re.findall(r"TESSELLATED_GEOMETRIC_SET\('([^']*)'", text))
+        self.assertEqual(sets, {"datum", "flatness", "position", "perpendicularity",
+                                "diameterdimension", "lineardimension", "note"})
+        # Each occurrence named, uniquely
+        occs = re.findall(r"TESSELLATED_ANNOTATION_OCCURRENCE\('([^']*)'", text)
+        self.assertEqual(len(occs), len(set(occs)))
+        # Each but the note also associated with what it is about: the
+        # semantic link, and one per shape aspect (the length's two faces)
+        links = re.findall(r"DRAUGHTING_MODEL_ITEM_ASSOCIATION\('([^']*)'", text)
+        semantic = links.count("PMIrepresentationtopresentationlink")
+        self.assertEqual(semantic, len(occs) - 1)
+        self.assertEqual(len(links) - semantic, len(occs) - 1 + 1 + 1)
         got = {gt.Characteristic: gt for gt in objects(back, "GeometricTolerance")}
         projected = [gt for gt in objects(back, "GeometricTolerance")
                      if gt.ProjectedLength.Value > 0]

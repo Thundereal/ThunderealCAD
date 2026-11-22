@@ -1417,12 +1417,19 @@ fork (`LinkVibe-801`, fb5fe575f9):
   reference themselves) written as a complex with its own supertype;
 - graphics unnamed: an occurrence and its set now carry the callout's name.
 
+Then, from SFA's source (found by the session there, and tried on a hand-edited file), what
+it reads of a graphic: its kind from the name of the occurrence's tessellated geometric set
+-- one of the names of the recommended practice 8.4, whole ("datum", "position", "diameter
+dimension"; "datum.1" and "flatness tolerance" are rejected) -- never from the occurrence's
+name, which must only be unique (SFA counts one per type and occurrence name); and the
+geometry it presents only from a draughting model item association defined by a shape
+aspect, beside the semantic link. Both written now (OCCT fbb2ba150c): the set named from
+the tolerance's or dimension's type, an association per shape aspect of the faces.
+
 `TestStepExport.test_written_as_the_schema_has_it` holds each. Not the writer's, still
 open from the same report: what the import loses (CTC-04, FTC-10, STC-07 read no
 projected zone; STC-07 22 tolerances read as 10; datum features, datum systems shared
-by tolerances written one each), the names a checker classifies a graphic by (ours are
-the objects' labels, `Dimension001`; NIST's "Linear Size.1"), per-annotation colour,
-and views: FTC-07 and FTC-09 gain four empty views each, some views lose annotations.
+by tolerances written one each), per-annotation colour, and views: FTC-07 and FTC-09 gain four empty views each, some views lose annotations.
 
 ## 11. Decisions (made 2026-11-19)
 

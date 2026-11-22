@@ -410,7 +410,7 @@ private:
         d->Feature.setValue(feature(f, true));
         place(d, f.object, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
               obj->GetPointTextAttach());
-        graphic(d, f.object, obj->GetPresentation());
+        graphic(d, f.object, obj);
         ++_report.datums;
     }
 
@@ -539,7 +539,7 @@ private:
         }
         place(t, owner, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
               obj->GetPointTextAttach());
-        graphic(t, owner, obj->GetPresentation());
+        graphic(t, owner, obj);
         ++_report.targets;
     }
 
@@ -872,7 +872,7 @@ private:
         }
         place(gt, f.object, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
               obj->GetPointTextAttach(), obj->GetPresentation());
-        graphic(gt, f.object, obj->GetPresentation());
+        graphic(gt, f.object, obj);
         ++_report.tolerances;
     }
 
@@ -1028,21 +1028,25 @@ private:
         dim->Modifiers.setValues(mods);
         place(dim, f1.object, obj->HasPlane(), obj->GetPlane(), obj->HasTextPoint(),
               obj->GetPointTextAttach());
-        graphic(dim, f1.object, obj->GetPresentation());
+        graphic(dim, f1.object, obj);
         _values.emplace_back(dim, value);
         ++_report.dimensions;
     }
 
     /// The graphic the file drew for \a c, into the set's coordinates:
     /// drawn once the import has done (UseImported)
-    void graphic(Callout* c, Part::Feature* obj, const TopoDS_Shape& shape)
+    /// with the kind the file named it
+    template<typename T>
+    void graphic(Callout* c, Part::Feature* obj, const Handle(T) & x)
     {
+        TopoDS_Shape shape = x->GetPresentation();
         if (shape.IsNull()) {
             return;
         }
         gp_Trsf trsf;
         Part::TopoShape::convertTogpTrsf(obj->Placement.getValue().toMatrix(), trsf);
         _graphics.emplace_back(c, shape.Moved(TopLoc_Location(trsf)));
+        _graphicTypes[c] = text(x->GetPresentationType());
         _lastObject = obj;
     }
 
@@ -1135,12 +1139,27 @@ private:
         if (!name.empty()) {
             n->Label.setValue(name);
         }
+        // Its words, when the file gives them (a semantic text): a line
+        // each, and each of its lines
+        std::vector<std::string> lines;
+        for (int i = 0; i < p.obj->NbDescriptions(); ++i) {
+            std::istringstream words(text(p.obj->GetDescription(i)));
+            for (std::string line; std::getline(words, line);) {
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+                lines.push_back(line);
+            }
+        }
+        if (!lines.empty()) {
+            n->Text.setValues(lines);
+        }
         if (onFaces) {
             n->Feature.setValue(feature(f, false));
         }
         place(n, owner, p.obj->HasPlane(), p.obj->GetPlane(), p.obj->HasTextPoint(),
               p.obj->GetPointTextAttach());
-        graphic(n, owner, shape);
+        graphic(n, owner, p.obj);
         ++_report.notes;
     }
 
@@ -1304,6 +1323,7 @@ public:
     double _frameHeight = 0;
     std::vector<Callout*> _made;
     std::vector<std::pair<Callout*, TopoDS_Shape>> _graphics;
+    std::map<Callout*, std::string> _graphicTypes;
     Part::Feature* _lastObject = nullptr;
     std::vector<Pending> _pending;
 
@@ -1341,6 +1361,7 @@ Step::Report Step::read(const Import::PostImport& info)
     // turns it off
     for (auto& [c, shape] : reader._graphics) {
         c->ImportedGraphic.setValue(shape);
+        c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
         c->UseImported.setValue(true);
     }
     if (report.datums + report.tolerances + report.dimensions == 0) {

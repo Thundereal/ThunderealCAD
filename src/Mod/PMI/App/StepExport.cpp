@@ -477,6 +477,10 @@ private:
         if (!g.IsNull()) {
             obj->SetPresentation(g, ascii(c->Label.getValue()));
         }
+        // The file's graphic, written again: the kind the file named it
+        if (c->UseImported.getValue() && *c->ImportedGraphicType.getValue()) {
+            obj->SetPresentationType(ascii(c->ImportedGraphicType.getValue()));
+        }
     }
 
     void write(AnnotationSet* set, Exported& ex)
@@ -978,6 +982,12 @@ private:
         obj->SetType(shapes.IsEmpty() ? XCAFDimTolObjects_DimensionType_CommonLabel
                                       : XCAFDimTolObjects_DimensionType_DimensionPresentation);
         present(n, ex, obj);
+        // Its words, written as a semantic text (AP242's recommended
+        // practice): a line each, as they are, signs and all
+        for (auto& line : n->Text.getValues()) {
+            obj->AddDescription(new TCollection_HAsciiString(line.c_str()),
+                                ascii(n->Label.getValue()));
+        }
         std::string text;
         for (auto& line : n->Text.getValues()) {
             text += (text.empty() ? "" : " ") + line;

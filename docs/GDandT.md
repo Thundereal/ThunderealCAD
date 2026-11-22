@@ -1479,6 +1479,28 @@ Then, in that order:
   Not changed: a graphic alone (CTC-05's two rectangular regions, read as notes on nothing)
   is still associated with an empty shape aspect, where NIST's CTC-05 writes no association
   and its CTC-02 and FTC-06 one to an empty aspect, as ours. SFA's word decides it.
+- **I, a graphic's kind.** A file's graphic is written again as the kind the file named it --
+  its set's name: NIST's 'label' was written 'note', STC-09's curve lengths 'curve dimension'
+  where NIST draws them as 'linear dimension', and the graphic-only FTC-08-e1-tg all 'note'.
+  OCCT keeps the name (`SetPresentationType` on the three XCAF objects, a child of the
+  presentation's label), FreeCAD as `ImportedGraphicType`, written while the file's graphic is
+  (`UseImported`): an edited one is drawn, and named, from its semantics.
+  `test_graphics_typed_as_the_file_types_them`.
+- **I2, a note's words.** Every NIST AP242 file gives a note's or label's words as a 'semantic
+  text': a property of what it is on (a datum feature, a dimension's feature, the product), its
+  words a representation's descriptive items, the graphic its presentation. Neither side read
+  or wrote it: the notes came in empty. Read now into the note's `Text`, a line each, on the
+  faces of what it is of; written for every note with words, the semantic link to the text, the
+  geometry link to its faces; non-ASCII in `\X2\` (the counterbore sign, a statistical
+  tolerance's). `test_notes_say_what_the_file_says`. Not yet: a semantic text on a dimension's
+  feature presented by the dimension's own graphic (FTC-07's '.30 +-.02') is read as that
+  graphic given twice, so kept only as the dimension; NIST's placeholders
+  (`DRAUGHTING_MODEL_ITEM_ASSOCIATION_WITH_PLACEHOLDER`, CTC-02, FTC-06, STC-06, -08, -10)
+  OCCT does not read.
+- **K, next: dimensions on supplemental geometry.** CTC-04's thread diameter (12) and its
+  location to the thread's upper plane (25) are on curve sets of a constructive geometry
+  representation, which OCCT does not transfer (it makes planes of its axis placements only):
+  no shape, no dimension. FTC-10 has the same.
 
 ## 11. Decisions (made 2026-11-19)
 

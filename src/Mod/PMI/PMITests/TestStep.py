@@ -365,6 +365,59 @@ class TestNistSet(Base):
                              if v.startswith("SHAPE_ASPECT_RELATIONSHIP('','datum target',")]
                 self.assertEqual(len(described), len(objects(doc, "DatumTarget")))
 
+    def test_graphics_typed_as_the_file_types_them(self):
+        """Written again, a file's graphic is the kind the file named it --
+        a 'label', a 'linear dimension' for a curve's length (STC-09) --
+        and a file of graphics alone (FTC-08-e1-tg) is not all notes"""
+
+        def kinds(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", " ", f.read())
+            return collections.Counter(
+                k.lower().replace(" ", "")
+                for k in re.findall(r"TESSELLATED_GEOMETRIC_SET\s*\(\s*'([^']*)'", text))
+
+        nist = os.environ["FC_PMI_NIST"]
+        for name in ("nist_ftc_08_asme1_ap242-e1-tg.stp", "nist_ctc_04_asme1_ap242-e1.stp",
+                     "nist_stc_09_asme1_ap242-e3.stp"):
+            with self.subTest(name):
+                path = os.path.join(nist, name)
+                again = self.write_and_read(self.read(path))
+                theirs, ours = kinds(path), kinds(self.written)
+                if name.endswith("-tg.stp"):
+                    self.assertEqual(ours, theirs)
+                else:
+                    self.assertEqual(set(ours) - set(theirs), set())
+                    self.assertIn("label", ours)
+                kept = [c.ImportedGraphicType for c in again.Objects
+                        if hasattr(c, "ImportedGraphicType")]
+                self.assertTrue(kept and all(kept), kept)
+
+    def test_notes_say_what_the_file_says(self):
+        """A note's or label's words, the file's semantic text: CTC-04's
+        labels of its datums and a counterbore, FTC-07's general note a line
+        each -- and written again as one, read back the same"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def texts(doc):
+            return sorted(tuple(n.Text) for n in objects(doc, "Note") if n.Text)
+
+        doc = self.read(os.path.join(nist, "nist_ctc_04_asme1_ap242-e1.stp"))
+        self.assertEqual(texts(doc), [("A",), ("B",), ("C",), ("\u2334",)])
+        # On what the file says they are of: a datum's faces
+        self.assertTrue(all(n.Feature for n in objects(doc, "Note") if n.Text))
+        again = self.write_and_read(doc)
+        self.assertEqual(texts(again), texts(doc))
+        with open(self.written, errors="replace") as f:
+            written = f.read()
+        self.assertEqual(written.count("PROPERTY_DEFINITION('semantic text'"), 4)
+        doc = self.read(os.path.join(nist, "nist_ftc_07_asme1_ap242-e2.stp"))
+        general = [n.Text for n in objects(doc, "Note") if len(n.Text) > 30]
+        self.assertEqual(len(general), 1)
+        self.assertEqual(general[0][0], "NOTES (UNLESS OTHERWISE SPECIFIED):")
+        self.assertEqual(general[0][-1], "6. UNITS: INCHES")
+        self.assertEqual(texts(self.write_and_read(doc)), texts(doc))
+
     def test_what_the_drawing_says(self):
         """What SFA, against NIST's drawings, found lost: CTC-01's diameters
         given as their limits (34.8-35.2), CTC-03's thickness the file's
@@ -627,13 +680,15 @@ class TestStepExport(Base):
         # Each occurrence named, uniquely
         occs = re.findall(r"TESSELLATED_ANNOTATION_OCCURRENCE\('([^']*)'", text)
         self.assertEqual(len(occs), len(set(occs)))
-        # Each but the note also associated with what it is about: the
-        # semantic link, and one per shape aspect (the length's two faces,
-        # the angle's)
+        # Each associated with what it is about: the semantic link -- the
+        # note's to its words, a semantic text -- and one per shape aspect
+        # (the length's two faces, the angle's)
         links = re.findall(r"DRAUGHTING_MODEL_ITEM_ASSOCIATION\('([^']*)'", text)
         semantic = links.count("PMIrepresentationtopresentationlink")
-        self.assertEqual(semantic, len(occs) - 1)
-        self.assertEqual(len(links) - semantic, len(occs) - 1 + 1 + 1 + 1)
+        self.assertEqual(semantic, len(occs))
+        self.assertEqual(len(links) - semantic, len(occs) + 1 + 1)
+        self.assertIn("=PROPERTY_DEFINITION('semantictext',", text)
+        self.assertIn("=DESCRIPTIVE_REPRESENTATION_ITEM('Note','BREAKEDGES')", text)
         got = {gt.Characteristic: gt for gt in objects(back, "GeometricTolerance")}
         projected = [gt for gt in objects(back, "GeometricTolerance")
                      if gt.ProjectedLength.Value > 0]

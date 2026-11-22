@@ -96,6 +96,9 @@ Callout::Callout()
     ADD_PROPERTY_TYPE(ImportedGraphic, (TopoDS_Shape()), "Presentation",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
                       "The graphic the file drew");
+    ADD_PROPERTY_TYPE(ImportedGraphicType, (""), "Presentation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
+                      "The kind of graphic the file named it, written again with it");
     ADD_PROPERTY_TYPE(UseImported, (false), "Presentation", App::Prop_None,
                       "Draw the file's graphic until the callout is edited");
 }

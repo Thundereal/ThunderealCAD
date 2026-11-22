@@ -3,6 +3,7 @@ target_sources(
     Part_tests_run
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/TopoShape.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/TopoShapeSearch.cpp
             # TopoShapeCache.cpp tests upstream's src/Mod/Part/App/TopoShapeCache
             # class, which this fork does not build -- the two source files are
             # commented out of src/Mod/Part/App/CMakeLists.txt because the fork

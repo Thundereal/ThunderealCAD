@@ -2690,3 +2690,84 @@ what reads it not made from it), `testARecomputeThatSavesLittleIsNotSplit`.
 Not done: more than two halves; a half's objects made in the other's
 worker when that one is gone; a split of an edit's recompute measured in
 the GUI on a real change.
+
+## 43. Page009's views: two references lost in the migration (2026-11-22)
+
+Sec 39 left the three views on scanner's Page009 unmeasured: their source
+`Fillet011` stayed touched with its migration pending, so they were never
+made. Nothing in TechDraw or the worker kept them back. `Fillet011` needs
+`Pocket041`, and `Pocket041` failed ("Part::FaceMaker: result shape is
+null"), so nothing after it was made; nor anything after `Helix001`
+("Sub shape not found: scanner#Helix.?Face24"). Both are references
+followed by geometry, wrong in two ways.
+
+The file was written by OCCT 7.7.2, and its element map version (1.15
+.70200.4) is not this build's (1.17.80001.4). The migration recompute
+makes every name again, and each reference is found again by the
+geometry its element had (`PropertyLinkBase::_updateElementReference`,
+`TopoShape::searchSubShape` with `CheckGeometry`). The geometry was the
+same; the search was what failed:
+
+- **Two halves of one circle were one edge to it.** `Pocket041`'s
+  profile is four edges of `Pocket040`, two pairs of half circles. Each
+  half has the other's two vertices, and its trimmed curve, 0 to pi on a
+  circle turned half a turn, compares the same as the other's. The
+  search returned both, and the reference took the first:
+  `Edge78 -> Edge76`, `Edge59 -> Edge58`. The profile became two edges
+  twice, and no face. The same holds for the two halves of a cylinder.
+  Now a matched edge must also hold the middle of the one searched for,
+  and so must each edge of a matched face's outline. A face is matched
+  by its outline, and that stays: a point inside the face, tried first,
+  fell in the hole a cut had made in the top of a box, and the top was
+  no longer found (`ShapeDiffPlainTest.aHoleMoreInAShapeWithNoNames`,
+  three `ElementAppearance` tests and three `TransactionBranchCases`).
+- **A circle written as a B-spline was another edge.** `Helix001` is on
+  `Face24` of `Helix`, a plane face with a circular edge, which OCCT
+  8.0 makes as a B-spline of degree 6. `isSame` compares the two ways of
+  writing the curve and says no, so the face was not found. Now an edge
+  whose curve is written otherwise is the same edge when its vertices
+  match and points a quarter, half and three quarters along each lie on
+  the other. That holds for an edge searched for itself and for the
+  edges of a face.
+
+On scanner, every object recomputed in the console: 524 made, where 25
+had stayed touched before and 4 now are: `SectionView003` and
+`Dimension012`, which fail, `Page004`, which holds them, and `Group`.
+Three are invalid, all three failures of the model's own:
+`SectionView003`, whose cut fails; `Dimension005`, on the section that
+draws nothing; and `Dimension012`, a distance on an edge that is now a
+B-spline. Every shape's volume and area are the file's, to four places
+(`LinkGroup001` to 4e-8 relative). 24 objects have fewer or more faces
+than the file: OCCT 8 splits faces otherwise. A reference that took the
+wrong edge would show in the volume of a fillet or a pocket, and none
+does. Of 99 references changed in the migration, 30 moved to another
+element number. All are right by that measure.
+
+Tests (`tests/src/Mod/Part/App/TopoShapeSearch.cpp`):
+`halvesAreToldApart` (the halves of a circle and of a cylinder, each
+finds itself alone) and `anArcWrittenAsABSplineIsFound` (the arc and a
+face bounded by it found as their B-spline form; an arc of another
+circle between the same two points is not). Both fail without the
+change.
+
+Page009's three views are now made, here and by a worker alike (93, 45
+and 43 visible edges, none hidden, both ways). Its 25 dimensions are not
+alike, and that is two more problems, open:
+
+- **Here, some dimensions now measure something else.** When a view is
+  made again, TechDraw finds its dimensions' references again in the new
+  projection ("no exact match for changed 2d reference" in the log) and
+  rewrites their `References2D`. With the model's geometry unchanged, a
+  dimension should keep its value. `Dimension246` (3.5978) and
+  `Dimension259` (3.6) do; `Dimension264` goes from 15.9821 to 4.4245
+  and `Dimension265` from 18.3095 to 24.2612. Their references were
+  found again wrong.
+- **A worker's result is not here's.** After the worker's put-in, the
+  dimensions keep their old `References2D`. With every object touched,
+  five of the 25 come back invalid (`Dimension264` to `267`, `274`), and
+  most others with other values. With only what the file left touched,
+  `Dimension264` comes back valid but reading 0.0, and `Dimension259`
+  17.5. The dimension's own `execute()` rewrites its references
+  (`fixByName`, `fixExactMatch`, `handleNoExactMatch`); whether the
+  worker's put-in leaves that write out, or the worker finds them again
+  otherwise, is not yet known.

@@ -810,6 +810,57 @@ static double largestTolerance(const TopoDS_Shape &shape)
     return shape.IsNull() ? 0.0 : ShapeAnalysis_ShapeTolerance().Tolerance(shape, 1);
 }
 
+/** A point inside an edge: what two edges of one curve between the same two
+ * vertices -- the halves of a circle -- differ by. False when it has none to
+ * give (a degenerated edge, or not an edge).
+ */
+static bool interiorPoint(const TopoDS_Shape &shape, gp_Pnt &pnt)
+{
+    if (shape.IsNull() || shape.ShapeType() != TopAbs_EDGE)
+        return false;
+    const TopoDS_Edge &edge = TopoDS::Edge(shape);
+    if (BRep_Tool::Degenerated(edge))
+        return false;
+    BRepAdaptor_Curve curve(edge);
+    pnt = curve.Value(0.5 * (curve.FirstParameter() + curve.LastParameter()));
+    return true;
+}
+
+/// Whether 'pnt' is on 'shape' to within 'tol', or the shape's own
+/// tolerance; 'unknown' when that cannot be told
+static bool holdsPoint(const TopoDS_Shape &shape, const gp_Pnt &pnt, double tol,
+                       bool unknown = true)
+{
+    BRepExtrema_DistShapeShape dist(BRepBuilderAPI_MakeVertex(pnt).Vertex(), shape);
+    if (!dist.IsDone() || dist.NbSolution() == 0)
+        return unknown;
+    return dist.Value() <= std::max(tol, largestTolerance(shape));
+}
+
+/** Whether two edges between the same vertices are one curve written two
+ * ways -- an arc of a circle that a later kernel hands back as a B-spline
+ * (OCCT 8.0 does so for the end faces of a PartDesign helix, and a sketch
+ * attached to one was not found again): points a quarter, half and three
+ * quarters along each lie on the other.
+ */
+static bool sameEdgeByPoints(const TopoDS_Shape &a, const TopoDS_Shape &b, double tol)
+{
+    if (a.ShapeType() != TopAbs_EDGE || b.ShapeType() != TopAbs_EDGE
+            || BRep_Tool::Degenerated(TopoDS::Edge(a)) || BRep_Tool::Degenerated(TopoDS::Edge(b)))
+        return false;
+    const TopoDS_Shape *pair[2][2] = {{&a, &b}, {&b, &a}};
+    for (const auto &ends : pair) {
+        BRepAdaptor_Curve curve(TopoDS::Edge(*ends[0]));
+        const double first = curve.FirstParameter();
+        const double last = curve.LastParameter();
+        for (double at : {0.25, 0.5, 0.75}) {
+            if (!holdsPoint(*ends[1], curve.Value(first + at * (last - first)), tol, false))
+                return false;
+        }
+    }
+    return true;
+}
+
 std::vector<TopoShape> TopoShape::searchSubShapeNear(
         const TopoShape &subshape, std::vector<std::string> *names, double factor,
         Data::SearchOptions options, double tol, double atol) const
@@ -1029,6 +1080,9 @@ std::vector<TopoShape> TopoShape::searchSubShape(
         // * Perform geometry comparison of the ancestor and input shape.
         //      * For face, perform addition geometry comparison of each edges.
         std::unordered_set<TopoShape> shapeSet;
+        enum class Inside { NotTried, Have, None };
+        Inside insideState = Inside::NotTried;
+        gp_Pnt inside;
         for(auto &v : searchSubShape(vertices[0],nullptr,options,tol,atol)) {
             for(auto idx : findAncestors(v.getShape(), shapeType)) {
                 auto s = getSubTopoShape(shapeType, idx);
@@ -1045,8 +1099,14 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                     otherVertices = s.getSubShapes(TopAbs_VERTEX);
                 if (otherVertices.size() != vertices.size())
                     continue;
-                if(checkGeometry && !compareGeometry(s, false))
-                    continue;
+                // An edge whose curve is written otherwise may still be this
+                // one: told by its points, once its vertices are matched
+                bool byPoints = false;
+                if(checkGeometry && !compareGeometry(s, false)) {
+                    if (shapeType != TopAbs_EDGE)
+                        continue;
+                    byPoints = true;
+                }
                 unsigned i = 0;
                 bool matched = true;
                 for(auto &v : vertices) {
@@ -1069,6 +1129,8 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                 }
                 if(!matched)
                     continue;
+                if (byPoints && !sameEdgeByPoints(subshape.getShape(), s.getShape(), tol))
+                    continue;
 
                 if(shapeType == TopAbs_FACE && checkGeometry) {
                     // Is it really necessary to check geometries of each edge of a face?
@@ -1087,6 +1149,8 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                         }
                         bool isLine = false;
                         gp_Pnt pt1, pt2;
+                        gp_Pnt mid;
+                        const bool haveMid = !isStraight(*g) && interiorPoint(e, mid);
                         if (isStraight(*g))
                         {
                             pt1 = BRep_Tool::Pnt(TopExp::FirstVertex(TopoDS::Edge(e)));
@@ -1123,6 +1187,27 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                             }
 
                             if(g1->isSame(*g,tol,atol)) {
+                                // and the same piece of it: the other half of
+                                // a circle is not, as the other half of a
+                                // cylinder is not this one
+                                if (!haveMid || holdsPoint(e1, mid, tol)) {
+                                    found = true;
+                                    break;
+                                }
+                                continue;
+                            }
+                            // the curve written otherwise, between the same
+                            // vertices (sameEdgeByPoints)
+                            auto near = [&](const TopoDS_Vertex &p, const TopoDS_Vertex &q) {
+                                return BRep_Tool::Pnt(p).SquareDistance(BRep_Tool::Pnt(q)) <= tol2;
+                            };
+                            const auto &edge = TopoDS::Edge(e);
+                            const auto &edge1 = TopoDS::Edge(e1);
+                            TopoDS_Vertex a1 = TopExp::FirstVertex(edge), a2 = TopExp::LastVertex(edge);
+                            TopoDS_Vertex b1 = TopExp::FirstVertex(edge1), b2 = TopExp::LastVertex(edge1);
+                            if (!a1.IsNull() && !a2.IsNull() && !b1.IsNull() && !b2.IsNull()
+                                    && ((near(a1, b1) && near(a2, b2)) || (near(a1, b2) && near(a2, b1)))
+                                    && sameEdgeByPoints(e, e1, tol)) {
                                 found = true;
                                 break;
                             }
@@ -1133,6 +1218,19 @@ std::vector<TopoShape> TopoShape::searchSubShape(
                         }
                     }
                     if (!matched)
+                        continue;
+                }
+                // Alike in vertices and geometry, and still another one: the
+                // other half of a circle has its curve and both its vertices.
+                // A point inside tells them apart. A straight edge between the
+                // two vertices is the one there is. (A face is matched by its
+                // outline, a hole more or less inside it, so its edges are
+                // what is told apart, above.)
+                if (checkGeometry && shapeType == TopAbs_EDGE && !isLine) {
+                    if (insideState == Inside::NotTried)
+                        insideState = interiorPoint(subshape.getShape(), inside)
+                            ? Inside::Have : Inside::None;
+                    if (insideState == Inside::Have && !holdsPoint(s.getShape(), inside, tol))
                         continue;
                 }
                 if(names)

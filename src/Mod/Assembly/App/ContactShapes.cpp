@@ -907,9 +907,9 @@ Assembly::trueFacesOf(const TopoDS_Shape& solid,
         double nearest = std::numeric_limits<double>::infinity();
         for (const auto& f : faces) {
             if (f.box.IsOut(at)) {
-                Bnd_Box near = f.box;
-                near.Enlarge(size);
-                if (near.IsOut(at)) {
+                Bnd_Box nearby = f.box;
+                nearby.Enlarge(size);
+                if (nearby.IsOut(at)) {
                     continue;
                 }
             }

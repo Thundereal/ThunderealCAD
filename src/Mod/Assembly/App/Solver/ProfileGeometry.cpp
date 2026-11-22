@@ -235,19 +235,19 @@ void profileTouches(const Profile2& a,
         const V2 out = norm(d) > 1e-12 ? unit(d) * (signedDistance < 0.0 ? -1.0 : 1.0) : y.normal;
         keep({y.point, x, out, y.pieces, pieces, followed(found, y, x, out, {})});
     };
-    auto near = [&](V2 x, const Profile2& other) {
+    auto isNear = [&](V2 x, const Profile2& other) {
         return x.x > other.low[0] - envelope && x.x < other.high[0] + envelope
             && x.y > other.low[1] - envelope && x.y < other.high[1] + envelope;
     };
     for (std::size_t k = 0; k < a.pieces.size(); ++k) {
         const Profile2::Piece& p = a.pieces[k];
-        if (a.corner[k] && near(p.from, b)) {
+        if (a.corner[k] && isNear(p.from, b)) {
             fromA(p.from, {a.pieces[p.prev].key, p.key}, {Kind::CornerA, p.key, nullptr});
         }
     }
     for (std::size_t k = 0; k < b.pieces.size(); ++k) {
         const Profile2::Piece& q = b.pieces[k];
-        if (b.corner[k] && near(q.from, a)) {
+        if (b.corner[k] && isNear(q.from, a)) {
             fromB(q.from, {b.pieces[q.prev].key, q.key}, {Kind::CornerB, q.key, nullptr});
         }
     }

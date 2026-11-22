@@ -228,6 +228,7 @@ protected:
     std::string recoverChangedVertex2d(int iReference);
     std::string recoverChangedVertex3d(int iReference);
     void replaceReferenceSubElement2d(int iRef, std::string &newSubelement);
+    void repointReferences(const std::vector<std::pair<int, std::string>>& fixes, bool is3d);
     void replaceReferenceSubElement3d(int iRef, std::string &newSubelement);
 
     std::vector<Part::TopoShape> getEdges(const Part::TopoShape& inShape);

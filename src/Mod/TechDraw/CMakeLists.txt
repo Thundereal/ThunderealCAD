@@ -208,6 +208,7 @@ SET(TDTest_SRCS
     TDTest/DrawPageRemoveTest.py
     TDTest/DrawViewUndoTest.py
     TDTest/RestoredEnumerationTest.py
+    TDTest/DimensionReferenceTest.py
     TDTest/TechDrawTestUtilities.py
 )
 

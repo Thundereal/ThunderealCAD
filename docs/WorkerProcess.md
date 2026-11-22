@@ -3163,7 +3163,8 @@ in the destructor, each after the process is reaped. Test
 fails without it. A whole TestWorkerPool run now leaves one empty
 document folder in the cache, not of a worker.
 
-Not done: the folders other processes left, killed or crashed, the bulk
-of this box's 2.4 GB. A document's folder may hold the transaction log a
+Not done: the folders already left, and those other processes leave when
+killed or crashed. Which of this box's 2.4 GB were workers' is not known:
+a pid no longer says what it was. A document's folder may hold the transaction log a
 recovery reads (`Application::recoverDocument`), so removing those is a
 decision about recovery, not a cleanup. Asked of the user.

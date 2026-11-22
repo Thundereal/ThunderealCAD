@@ -58,6 +58,8 @@ SET(Solver_SRCS
 SOURCE_GROUP("Solver" FILES ${Solver_SRCS})
 
 SET(Fluid_SRCS
+    ParticleSurface.cpp
+    ParticleSurface.h
     ResultsArchive.cpp
     ResultsArchive.h
     Study.cpp

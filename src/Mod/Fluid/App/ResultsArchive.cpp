@@ -229,6 +229,7 @@ void ArchiveWriter::close(ResultsIndex index)
     out["version"] = index.version;
     out["kind"] = kindName(index.kind);
     out["signature"] = std::to_string(index.signature);
+    out["spacing"] = index.spacing;
     out["frames"] = frames;
     out["samples"] = samples;
     json monitors = json::array();
@@ -294,6 +295,7 @@ ArchiveReader::ArchiveReader(const std::string& path)
                         : kind == "Fields" ? Solver::ResultKind::Fields
                                            : Solver::ResultKind::Particles;
         d->index.signature = std::stoull(index.value("signature", std::string("0")));
+        d->index.spacing = index.value("spacing", 0.0);
         for (const auto& monitor : index.at("monitors")) {
             d->index.monitors.push_back(
                 {monitor.value("source", std::string()),

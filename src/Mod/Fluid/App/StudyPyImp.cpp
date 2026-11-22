@@ -4,6 +4,7 @@
 #include <App/Document.h>
 #include <App/DocumentObjectPy.h>
 
+#include "ParticleSurface.h"
 #include "Solver/Model.h"
 
 // inclusion of the generated files (generated out of Study.pyi)
@@ -221,6 +222,77 @@ PyObject* StudyPy::getFrame(PyObject* args) const
                             static_cast<Py_ssize_t>(frame.triangles.size()
                                                     * sizeof(std::int32_t)))));
         }
+        return Py::new_reference_to(ret);
+    }
+    PY_CATCH
+}
+
+PyObject* StudyPy::getSurface(PyObject* args) const
+{
+    long at = 0;
+    if (!PyArg_ParseTuple(args, "l", &at)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        const auto* results = getStudyPtr()->results();
+        if (!results) {
+            THROWM(Base::RuntimeError, "the study keeps no results");
+        }
+        if (at < 0) {
+            THROWM(Base::IndexError, "a frame's index is not negative");
+        }
+        const auto frame = results->frame(static_cast<std::size_t>(at));
+        const auto bytesOf = [](const void* data, std::size_t size) {
+            return Py::asObject(PyBytes_FromStringAndSize(static_cast<const char*>(data),
+                                                          static_cast<Py_ssize_t>(size)));
+        };
+        Py::Dict ret;
+        ret.setItem("Time", Py::Float(frame.time));
+        if (!frame.triangles.empty()) {
+            ret.setItem("Count", Py::Long(static_cast<long>(frame.points.size() / 3)));
+            ret.setItem("Points", bytesOf(frame.points.data(), frame.points.size() * sizeof(float)));
+            ret.setItem("Triangles",
+                        bytesOf(frame.triangles.data(),
+                                frame.triangles.size() * sizeof(std::int32_t)));
+            return Py::new_reference_to(ret);
+        }
+        // results kept before the spacing was: the study's own, as it is now
+        double spacing = results->index().spacing;
+        if (!(spacing > 0.0)) {
+            spacing = getStudyPtr()->buildModel().resolution * 1000.0;
+        }
+        std::vector<Solver::Vec3> particles(frame.points.size() / 3);
+        for (std::size_t i = 0; i < particles.size(); ++i) {
+            particles[i] = {frame.points[3 * i], frame.points[3 * i + 1], frame.points[3 * i + 2]};
+        }
+        ParticleSurface surface;
+        surfaceOf(particles, spacing, surface, SprayBelow);
+        std::vector<float> spray(surface.spray.size() * 3);
+        for (std::size_t i = 0; i < surface.spray.size(); ++i) {
+            for (std::size_t x = 0; x < 3; ++x) {
+                spray[3 * i + x] = static_cast<float>(surface.spray[i][x]);
+            }
+        }
+        ret.setItem("Spray", bytesOf(spray.data(), spray.size() * sizeof(float)));
+        std::vector<float> points(surface.points.size() * 3);
+        std::vector<float> normals(surface.points.size() * 3);
+        for (std::size_t i = 0; i < surface.points.size(); ++i) {
+            for (std::size_t x = 0; x < 3; ++x) {
+                points[3 * i + x] = static_cast<float>(surface.points[i][x]);
+                normals[3 * i + x] = static_cast<float>(surface.normals[i][x]);
+            }
+        }
+        std::vector<std::int32_t> triangles(surface.triangles.size() * 3);
+        for (std::size_t i = 0; i < surface.triangles.size(); ++i) {
+            for (std::size_t x = 0; x < 3; ++x) {
+                triangles[3 * i + x] = surface.triangles[i][x];
+            }
+        }
+        ret.setItem("Count", Py::Long(static_cast<long>(surface.points.size())));
+        ret.setItem("Points", bytesOf(points.data(), points.size() * sizeof(float)));
+        ret.setItem("Normals", bytesOf(normals.data(), normals.size() * sizeof(float)));
+        ret.setItem("Triangles", bytesOf(triangles.data(), triangles.size() * sizeof(std::int32_t)));
         return Py::new_reference_to(ret);
     }
     PY_CATCH

@@ -310,6 +310,7 @@ Solver::Status Study::start(std::string& why)
     run->index.version = availability.version;
     run->index.kind = backend->capabilities().results;
     run->index.signature = Solver::signature(run->model);
+    run->index.spacing = run->model.resolution * 1000.0;
     for (const auto& monitor : run->model.monitors) {
         run->index.monitors.push_back({monitor.source, monitor.kind});
     }

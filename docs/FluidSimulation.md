@@ -953,6 +953,125 @@ Known limits, measured:
   test class says. Plus the plates on SPlisHSPlasH.
 - **The manual**: `fluid/study/particles`.
 
+### 12.6 Particles drawn as water (2026-11-21)
+
+A frame of particles was drawn as points. It is now drawn, by default, as
+the closed surface around them, and that surface is a body of water to the
+bgfx renderer.
+
+- **The surface** (`App/ParticleSurface`, `Study.getSurface(index)`): each
+  particle adds a weight `(1 - q^2)^3` to a grid of half the spacing, the
+  sum scaled to 1 deep inside particles a spacing apart; the surface is
+  where it is a half, which against a flat face of particles is half a
+  spacing past their middles, the fluid's edge, whatever the reach. Cut by
+  marching tetrahedra (six a cell about one diagonal, so neighbours agree
+  and the surface is closed), a point for every grid line it crosses, a
+  normal a point from its triangles by their area.
+- **A long reach, and drops.** A reach of 1.4 spacings showed every
+  particle of a moving fluid: on a block of them each a third of a
+  spacing off its place the surface was 7% more than the block's and its
+  top faced up by 0.90 of its area. With 2 spacings it is under 5% more
+  and over 0.97. But a particle alone rises only to 0.2 with it, and a
+  strand of three to 0.36: thrown water would be gone. So every particle
+  the surface does not hold (the long field at its own place is under a
+  half) is a drop, and adds a second, short field (reach 1.2 spacings),
+  scaled so that a particle alone is a ball 0.45 of a spacing in radius:
+  two a spacing apart run together, two 2.5 apart do not. Only such
+  particles add it -- added wherever the long field was weak it swelled
+  the body's own face. The crossing on a grid line is found on the cubic
+  through the two nodes' values and slopes, not the straight line (a drop
+  is a node or two wide, and came out a quarter too small), and a point's
+  normal is the field's slope there, not its triangles': a drop of a few
+  triangles is lit as a ball. Tried before this and dropped: a ball of 20
+  or 80 triangles a particle, as water (thousands of bodies of water a
+  few pixels each were a haze over the whole tank) and then as pale lit
+  balls (the user: "doesn't even look like liquid").
+- **Spray** (2026-11-22). With every particle in the surface the height
+  of a splash was still a cloud of separate specks: at 5 mm the thrown
+  water is one particle wide, further apart than drops run together,
+  and no surface over single particles is a sheet. What other renderers
+  do (Blender, Houdini; Ihmsen et al. 2012 triangulate "neglecting
+  isolated particles") is treat such particles as a layer of their own.
+  So `surfaceOf` takes `sprayBelow`: a particle whose long field at its
+  own place is under that many times what a particle alone has (itself)
+  is left out of the surface and handed back as spray. `SprayBelow` is
+  2.5: one alone (1), a pair a spacing apart (1.42), three in a row are
+  spray; a clump of four and more is a drop. In the dam break at 5 mm
+  that is 14% of the particles at the height of the splash (13333 of
+  96000 at 0.60 s) and next to none before and after. The view draws
+  them as mist: unlit pale points one pixel in size, three quarters seen
+  through. Left out and not drawn at all the body is as clean but the
+  thrown water simply vanishes.
+- **Cohesion in the solver, tried for the same end** (2026-11-22): the
+  pull between particles of Akinci et al. 2013, `cohesion <k>` in the
+  runner's case, from the preference `Mod/Fluid/Cohesion` (0, off). At
+  the solver's own 0.05 the splash is as without; at 0.25 it gathers in
+  clumps and strands, and 8% are spray where 14% were. But the peak
+  pressure on the block moves from 3305 Pa to 3665 (0.05) and 3684
+  (0.25), the level at the end from 33.9 mm to 33.0 and 30.4, the run
+  from 225 s to 232 and 256: it is not the validated run, and the look
+  did not need it once the spray was a layer. Kept as it is, off; a
+  setting of the study when there is a use for it. The solver's own
+  method is not used: it works out the wall's kernel even with the pull
+  to the walls at nothing, a fourth root that is of a number a rounding
+  below zero when a particle is at the kernel's edge, and one run in
+  four at 10 mm was not-a-number from some step on (and ran its hour to
+  the end and said Done). The runner has the force itself, less the wall
+  part (twelve runs of twelve whole), and now stops with an error at the
+  first step whose particles are not numbers.
+- **The spacing** is kept with the results (`spacing` in index.json, mm);
+  results kept before it take the study's resolution as it is now.
+- **Cost**, the dam break of sec 12.5 at 5 mm: 0.4 to 0.6 s a frame, 450000
+  to 580000 points (0.75 s and a million points with every particle in
+  the surface).
+- **In the view** (`FluidPlayback.FrameView`): the surface with its
+  normals under an `SoFCRenderMaterial` node saying `water TRUE`, found
+  by name, so the workbench needs nothing of the renderer. Coin draws it
+  as a smooth lit body. The bgfx renderer draws it as water when its
+  water surface is on -- checked on screen, no renderer change needed.
+  The spray is points of its own under the same root.
+  The panel's "Particles as a surface" (preference
+  `Mod/Fluid/ParticlesAsSurface`, on) switches back to points.
+- **What the look needs of the renderer's settings**, found by trying:
+  `View/RenderCache` 3 and `View/Render/Type` "bgfx - OpenGL";
+  `WaterSurface`; `Volumetric` AND the view's `Render_Light`, without
+  which the water has no depth tint at all (the tint by depth runs only
+  with the volumetric pass, and that only with the scene light);
+  `VolumetricDensity` small (1e-6: at 0, automatic, the air itself is
+  hazy at this size); `WaterAbsorption` about 0.02 (the default 0.2 is
+  for a pool seen in metres and makes 100 mm of water opaque blue);
+  `WaterPlanarReflection` off (a splash has no plane to mirror about);
+  `WaterWaveStrength` 0 (the ripples are a pool's, the surface here has
+  its own shape). The workbench sets none of these: they are the user's.
+  Tried further and kept for the manual's pictures: the shadow soft and
+  light (the view's `RenderShadow_SmoothBorder` 60,
+  `RenderShadow_Transparency` 0.75) with the light from nearly overhead
+  (`Render_LightDirection` (-0.25, 0.35, -1)) -- the tank is drawn four
+  fifths clear and still casts a whole shadow, which was the heaviest
+  thing in the picture; the water (0.10, 0.45, 0.80) at absorption 0.012.
+  Tried and dropped: the water as a glass body of index 1.33 (grey, no
+  colour by depth), the tank as glass (the block behind it is displaced
+  out of recognition), bloom and the sun's disc (no visible change).
+- **Cycles** (tried 2026-11-21; `BUILD_CYCLES` was off in this box's
+  tree and its three libraries not in the environment: installed as
+  docs/DevEnvironment.md says, at the versions it names, nothing else
+  moved). The path tracer leaves a body of water out, by design
+  (docs/CyclesIntegration.md, "Skipped"), so the surface goes to it as
+  glass: the same node saying `water FALSE glass TRUE glassIOR 1.33
+  glassDensity 0.01`. With the colour and the tank of the renderer's
+  picture the water came out dark and looked solid; a paler colour
+  (0.55, 0.80, 0.95) and the tank nine tenths clear gave clear blue
+  water. CPU only here (no nvcc): 1280 x 720, 64 samples, denoised, about
+  22 s a frame of 700000 triangles; 256 samples 46 s. No shadow on the
+  ground, and the water's floor is lit by the environment alone. The
+  workbench does not switch the node itself: the manual's script does.
+  It draws no points, so no mist: the water alone, which with the
+  spray out of the surface is a clean body (11.6 s a frame at 64
+  samples, a million triangles).
+- **Open**: OpenFOAM's frames are an open sheet (the surface between water and
+  air, not closed against the walls) and stay drawn as they were; the
+  settings above could be offered as one switch.
+
 ## 13. For the user to rule (2026-11-21)
 
 1. **The first backend (S2).** OpenFOAM: validated, CPU, already this

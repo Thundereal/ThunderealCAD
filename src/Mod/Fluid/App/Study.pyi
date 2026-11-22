@@ -84,6 +84,22 @@ class Study(DocumentObject):
         ...
 
     @constmethod
+    def getSurface(self, index: int, /) -> dict:
+        """
+        One kept frame as a closed surface to draw: Time (s), Count (of
+        points), Points (bytes: float32 x, y, z each, mm), Normals (bytes:
+        float32, one a point, outwards) and Triangles (bytes: int32, three
+        per triangle, wound outwards). A frame of particles is wrapped in
+        the surface around them, each a cube of the run's resolution,
+        particles apart from the body as drops that run together where
+        they are near; those with next to none about them (one alone, a
+        pair, three in a row) are no part of it but its Spray (bytes:
+        float32 x, y, z each, mm). A frame that is a surface has no
+        Normals and no Spray and is given as it is kept.
+        """
+        ...
+
+    @constmethod
     def isStale(self) -> bool:
         """
         Whether the kept results are of another model than the study is now.

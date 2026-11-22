@@ -14,7 +14,8 @@
 // A run's results as its study keeps them in the document
 // (docs/FluidSimulation.md sec 11.4): a zip of
 //   index.json                    the schema, the units, the backend, the
-//                                 model's signature, the monitors
+//                                 model's signature, the particles'
+//                                 spacing, the monitors
 //   times.npy     (frames,)       float64, s: the frames' times
 //   samples.npy   (samples,)      float64, s: the monitors' times, which
 //                                 are their own and far more than the frames
@@ -39,6 +40,7 @@ struct ResultsIndex
     std::string version;
     Solver::ResultKind kind = Solver::ResultKind::Particles;
     std::uint64_t signature = 0;
+    double spacing = 0.0;  // between particles at rest, mm; 0 when not kept
     std::vector<ArchivedMonitor> monitors;
     std::vector<double> times;    // the frames', s
     std::vector<double> samples;  // the monitors' times, s

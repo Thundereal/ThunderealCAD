@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 """A fluid study's kept frames, and one of them drawn in the 3D view
-(docs/FluidSimulation.md sec 11.4): particles as points, a surface as
-triangles -- by what the frames are, not by the backend they came from."""
+(docs/FluidSimulation.md sec 11.4, 12.6): particles as points or as the
+closed surface around them, a surface as triangles -- by what the frames
+are, not by the backend they came from."""
 
 import bisect
 import os
@@ -13,7 +14,7 @@ import FluidApp  # noqa: F401 -- the study's object types are its
 
 translate = App.Qt.translate
 
-WATER = (0.20, 0.50, 0.90)
+WATER = (0.10, 0.45, 0.80)
 
 
 def iconPath(name):
@@ -70,6 +71,24 @@ class Frames:
             triangles = numpy.frombuffer(frame["Triangles"], dtype=numpy.int32).reshape(-1, 3)
         return points, triangles
 
+    def surface(self, index):
+        """The frame as a closed surface to draw: its points, triangles,
+        the points' normals and the spray. A frame of particles is wrapped,
+        and the particles with next to none about them are no part of the
+        surface: they are the spray, points (n, 3). A frame that is a
+        surface already comes as it is, its normals and spray None."""
+        import numpy
+
+        frame = self.study.getSurface(index)
+        points = numpy.frombuffer(frame["Points"], dtype=numpy.float32).reshape(-1, 3)
+        triangles = numpy.frombuffer(frame["Triangles"], dtype=numpy.int32).reshape(-1, 3)
+        normals = None
+        spray = None
+        if "Normals" in frame:
+            normals = numpy.frombuffer(frame["Normals"], dtype=numpy.float32).reshape(-1, 3)
+            spray = numpy.frombuffer(frame["Spray"], dtype=numpy.float32).reshape(-1, 3)
+        return points, triangles, normals, spray
+
     def sampleAt(self, time):
         """The monitors' last sample at or before a time; -1 without one."""
         if not self.monitorTimes:
@@ -91,17 +110,34 @@ class Frames:
 class FrameView:
     """One frame in the scene: under the node given, or the active 3D view's
     scene graph. Particles are points of a size on the screen; a surface is
-    lit triangles."""
+    lit triangles; a closed surface with its normals is a smooth body, and
+    a body of water to a renderer that draws one (the bgfx renderer with
+    its water surface on: refraction, reflection, the light in its depth).
+    The spray of a body is fine pale points, half seen through: thrown
+    water at a particle's size is mist to the eye, not so many balls."""
 
-    def __init__(self, parent=None, color=WATER, pointSize=4.0):
+    MIST = (0.85, 0.92, 1.0)
+    MIST_SIZE = 1.0
+    MIST_TRANSPARENCY = 0.75
+
+    PARTICLES = 0
+    SURFACE = 1
+    BODY = 2
+
+    def __init__(self, parent=None, color=WATER, pointSize=4.0, water=True):
         self.parent = parent
         self.color = color
         self.pointSize = pointSize
+        self.water = water
+        self.normals = None
+        self.body = None
         self.root = None
         self.coords = None
         self.points = None
         self.faces = None
         self.switch = None
+        self.mistCoords = None
+        self.mist = None
 
     def _parent(self):
         if self.parent is not None:
@@ -147,21 +183,75 @@ class FrameView:
         self.faces = coin.SoIndexedFaceSet()
         for node in (hints, self.faces):
             surface.addChild(node)
+        # a closed surface with a normal a point: a smooth body, one side
+        body = coin.SoSeparator()
+        hints = coin.SoShapeHints()
+        hints.vertexOrdering = coin.SoShapeHints.COUNTERCLOCKWISE
+        hints.shapeType = coin.SoShapeHints.SOLID
+        self.normals = coin.SoNormal()
+        binding = coin.SoNormalBinding()
+        binding.value = coin.SoNormalBinding.PER_VERTEX_INDEXED
+        self.body = coin.SoIndexedFaceSet()
+        for node in (hints, self.waterNode(), self.normals, binding, self.body):
+            if node is not None:
+                body.addChild(node)
         self.switch = coin.SoSwitch()
         self.switch.addChild(particles)
         self.switch.addChild(surface)
+        self.switch.addChild(body)
         for node in (material, self.coords, self.switch):
             self.root.addChild(node)
+        # the spray: unlit points of their own colour
+        spray = coin.SoSeparator()
+        pale = coin.SoMaterial()
+        pale.diffuseColor = self.MIST
+        pale.emissiveColor = tuple(0.3 * c for c in self.MIST)
+        pale.transparency = self.MIST_TRANSPARENCY
+        light = coin.SoLightModel()
+        light.model = coin.SoLightModel.BASE_COLOR
+        style = coin.SoDrawStyle()
+        style.pointSize = self.MIST_SIZE
+        self.mistCoords = coin.SoCoordinate3()
+        self.mist = coin.SoPointSet()
+        self.mist.numPoints = 0
+        for node in (pale, light, style, self.mistCoords, self.mist):
+            spray.addChild(node)
+        self.root.addChild(spray)
         parent.addChild(self.root)
         return True
 
-    def show(self, points, triangles=None):
-        """Draws the points (n, 3), as a surface when there are triangles
-        (m, 3); what was drawn before is replaced. False without a view."""
+    def waterNode(self):
+        """The node that says the shape after it is a body of water, to the
+        renderer that knows of one; None where there is no such node (no
+        GUI) or water was not asked for."""
+        from pivy import coin
+
+        if not self.water:
+            return None
+        kind = coin.SoType.fromName("SoFCRenderMaterial")
+        if kind.isBad() or not kind.canCreateInstance():
+            return None
+        node = kind.createInstance()
+        # by name: the node is the GUI's own and pivy knows only its base
+        node.set("water TRUE waterDensity 0")
+        return node
+
+    def show(self, points, triangles=None, normals=None, spray=None):
+        """Draws the points (n, 3): as a surface when there are triangles
+        (m, 3), as a closed body when there are the points' normals (n, 3)
+        too, and the body's spray (k, 3) as mist; what was drawn before is
+        replaced. False without a view."""
         import numpy
 
         if self.root is None and not self._build():
             return False
+        count = 0
+        if spray is not None and len(spray):
+            spray = numpy.ascontiguousarray(spray, dtype=numpy.float32).reshape(-1, 3)
+            count = len(spray)
+            self.mistCoords.point.setNum(count)
+            self.mistCoords.point.setValues(0, count, spray)
+        self.mist.numPoints = count
         points = numpy.ascontiguousarray(points, dtype=numpy.float32).reshape(-1, 3)
         count = len(points)
         self.coords.point.setNum(count)
@@ -169,16 +259,27 @@ class FrameView:
             self.coords.point.setValues(0, count, points)
         if triangles is None:
             self.points.numPoints = count
-            self.switch.whichChild = 0
-        else:
-            triangles = numpy.asarray(triangles, dtype=numpy.int32).reshape(-1, 3)
-            index = numpy.full((len(triangles), 4), -1, dtype=numpy.int32)
-            index[:, :3] = triangles
-            index = index.reshape(-1)
-            self.faces.coordIndex.setNum(len(index))
-            if len(index):
-                self.faces.coordIndex.setValues(0, len(index), index)
-            self.switch.whichChild = 1
+            self.switch.whichChild = self.PARTICLES
+            return True
+        triangles = numpy.asarray(triangles, dtype=numpy.int32).reshape(-1, 3)
+        index = numpy.full((len(triangles), 4), -1, dtype=numpy.int32)
+        index[:, :3] = triangles
+        index = index.reshape(-1)
+        faces = self.faces if normals is None else self.body
+        # the other set keeps nothing of an earlier frame
+        other = self.body if normals is None else self.faces
+        other.coordIndex.setNum(0)
+        faces.coordIndex.setNum(len(index))
+        if len(index):
+            faces.coordIndex.setValues(0, len(index), index)
+        if normals is None:
+            self.switch.whichChild = self.SURFACE
+            return True
+        normals = numpy.ascontiguousarray(normals, dtype=numpy.float32).reshape(-1, 3)
+        self.normals.vector.setNum(len(normals))
+        if len(normals):
+            self.normals.vector.setValues(0, len(normals), normals)
+        self.switch.whichChild = self.BODY
         return True
 
     def count(self):

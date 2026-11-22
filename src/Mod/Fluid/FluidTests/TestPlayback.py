@@ -50,6 +50,37 @@ class TestFrames(FluidCase):
         self.assertEqual(rows[1][1], "Pressure")
         self.assertEqual(rows[1][3], "Pa")
 
+    def test_particles_wrapped(self):
+        # 250 particles 20 mm apart, a block 100 x 100 x 200: the surface
+        # around them is closed and holds about the block
+        import numpy
+
+        self.assertEqual(self.study.run(), 0)
+        frames = FluidPlayback.Frames(self.study)
+        points, triangles, normals, spray = frames.surface(4)
+        # a block at rest: none of it is spray
+        self.assertEqual(spray.shape, (0, 3))
+        self.assertEqual(normals.shape, points.shape)
+        self.assertGreater(len(triangles), 100)
+        self.assertLess(int(triangles.max()), len(points))
+        lengths = numpy.linalg.norm(normals, axis=1)
+        self.assertAlmostEqual(float(lengths.min()), 1.0, delta=1e-4)
+        self.assertAlmostEqual(float(lengths.max()), 1.0, delta=1e-4)
+        # closed: every edge once each way
+        edges = numpy.concatenate(
+            [triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]]
+        )
+        there = set(map(tuple, edges.tolist()))
+        self.assertEqual(len(there), len(edges))
+        self.assertTrue(all((b, a) in there for a, b in there))
+        a, b, c = (points[triangles[:, k]].astype(numpy.float64) for k in range(3))
+        volume = float(numpy.einsum("ij,ij->i", a, numpy.cross(b, c)).sum()) / 6.0
+        # less the rounding of its edges, much on a block five particles wide
+        self.assertAlmostEqual(volume / (100.0 * 100.0 * 200.0), 0.95, delta=0.07)
+        # the particles are inside it by half their spacing
+        particles, _none = frames.frame(4)
+        self.assertAlmostEqual(float(points[:, 2].max() - particles[:, 2].max()), 10.0, delta=1.5)
+
 
 class TestSetUp(FluidCase):
     def test_active_study(self):
@@ -130,4 +161,31 @@ class TestFrameView(unittest.TestCase):
         # and back to particles
         self.assertTrue(view.show(points))
         self.assertEqual(view.switch.whichChild.getValue(), 0)
+        view.remove()
+
+    def test_body(self):
+        import numpy
+
+        view = FluidPlayback.FrameView(self.parent)
+        points = numpy.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=numpy.float32)
+        triangles = numpy.array([[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]], dtype=numpy.int32)
+        normals = numpy.array([[-1, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=numpy.float32)
+        self.assertTrue(view.show(points, triangles, normals))
+        self.assertEqual(view.switch.whichChild.getValue(), view.BODY)
+        self.assertEqual(view.body.coordIndex.getNum(), 16)
+        self.assertEqual(view.normals.vector.getNum(), 4)
+        self.assertEqual(tuple(view.normals.vector[3].getValue()), (0.0, 0.0, 1.0))
+        self.assertEqual(view.mist.numPoints.getValue(), 0)
+        # with its spray: so many points of mist
+        spray = numpy.array([[5, 5, 5], [6, 5, 5], [7, 5, 5]], dtype=numpy.float32)
+        self.assertTrue(view.show(points, triangles, normals, spray))
+        self.assertEqual(view.mist.numPoints.getValue(), 3)
+        self.assertEqual(tuple(view.mistCoords.point[2].getValue()), (7.0, 5.0, 5.0))
+        # a surface with no normals after it: the body keeps nothing, and
+        # no spray is left
+        self.assertTrue(view.show(points, triangles[:2]))
+        self.assertEqual(view.switch.whichChild.getValue(), view.SURFACE)
+        self.assertEqual(view.body.coordIndex.getNum(), 0)
+        self.assertEqual(view.mist.numPoints.getValue(), 0)
+        self.assertEqual(view.faces.coordIndex.getNum(), 8)
         view.remove()

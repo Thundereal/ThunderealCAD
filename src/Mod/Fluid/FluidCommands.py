@@ -229,6 +229,21 @@ class TaskFluidStudy:
         self.time.setMinimumWidth(70)
         row.addWidget(self.time)
         layout.addLayout(row)
+        self.asSurface = QtWidgets.QCheckBox(translate("Fluid", "Particles as a surface"))
+        self.asSurface.setToolTip(
+            translate(
+                "Fluid",
+                "Draws a frame of particles as the closed surface around them, a body "
+                "of water to a renderer that draws one. Off: the particles as points.",
+            )
+        )
+        self.asSurface.setChecked(
+            App.ParamGet("User parameter:BaseApp/Preferences/Mod/Fluid").GetBool(
+                "ParticlesAsSurface", True
+            )
+        )
+        self.asSurface.toggled.connect(self.onAsSurface)
+        layout.addWidget(self.asSurface)
         self.table = QtWidgets.QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(
             [translate("Fluid", "Monitor"), translate("Fluid", "At this frame")]
@@ -356,6 +371,7 @@ class TaskFluidStudy:
         valid = self.frames.valid
         self.playButton.setEnabled(valid)
         self.slider.setEnabled(valid)
+        self.asSurface.setVisible(valid and self.frames.kind == "Particles")
         if not valid:
             self.summary.setText(translate("Fluid", "No results kept. Run the study."))
             self.table.setRowCount(0)
@@ -386,8 +402,11 @@ class TaskFluidStudy:
     def onFrame(self, index):
         if self.frames is None or not self.frames.valid:
             return
-        points, triangles = self.frames.frame(index)
-        if self.view.show(points, triangles):
+        if self.frames.kind == "Particles" and self.asSurface.isChecked():
+            drawn = self.view.show(*self.frames.surface(index))
+        else:
+            drawn = self.view.show(*self.frames.frame(index))
+        if drawn:
             self.hideVolumes()
         self.time.setText("{:.4g} s".format(self.frames.times[index]))
         rows = self.frames.monitorsAt(index)
@@ -395,6 +414,13 @@ class TaskFluidStudy:
         for row, (label, _kind, value, unit) in enumerate(rows):
             self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(label))
             self.table.setItem(row, 1, QtWidgets.QTableWidgetItem("{:.6g} {}".format(value, unit)))
+
+    def onAsSurface(self, on):
+        App.ParamGet("User parameter:BaseApp/Preferences/Mod/Fluid").SetBool(
+            "ParticlesAsSurface", on
+        )
+        if self.frames is not None and self.frames.valid:
+            self.onFrame(self.slider.value())
 
     def onPlay(self):
         if self.playTimer.isActive():

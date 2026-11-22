@@ -1313,6 +1313,76 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(info["MadeHere"], 1, info)
         self.assertEqual(len(edges()), 9)
 
+    def testAViewsDimensionsComeBackWithIt(self):
+        """A TechDraw view recomputes its dimensions in its execute(), and a
+        dimension finds its references again there when the projection
+        numbers its elements otherwise. Put in rather than executed here,
+        the view leaves them to this process's recompute, which does not
+        reach them -- they are not touched: they are recomputed after it,
+        each from what the worker made of it. Found again by the geometry it
+        saved, read by the worker from a version of the document, whose
+        files are named by content too (docs/WorkerProcess.md sec 46)"""
+        import shutil
+
+        import TechDraw  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        # Made by the worker and not sent, read by the model (sec 44): its
+        # entry is left out of what comes back, and the places counted past
+        # it are counted again
+        sheet = self.doc.addObject("Spreadsheet::Sheet", "Sheet")
+        sheet.set("A1", "10")
+        sheet.setAlias("A1", "size")
+        box.setExpression("Length", "Sheet.size")
+        other = self.doc.addObject("Part::Box", "Other")
+        other.Length = other.Width = other.Height = 4
+        other.Placement.Base = App.Vector(40, 0, 0)
+        page = self.doc.addObject("TechDraw::DrawPage", "Page")
+        template = self.doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        template.Template = os.path.join(
+            App.getHomePath(), "Mod", "TechDraw", "TDTest", "TestTemplate.svg")
+        page.Template = template
+        # A view of a projection group: the group's execute() recomputes it,
+        # and it its dimensions
+        group = self.doc.addObject("TechDraw::DrawProjGroup", "Group")
+        page.addView(group)
+        group.Source = [box, other]
+        view = group.addProjection("Front")
+        # Drawn first, as in the GUI: a dimension made with its view saves
+        # its references before there is anything to save
+        self.doc.recompute()
+        dim = self.doc.addObject("TechDraw::DrawViewDimension", "Dim")
+        dim.Type = "DistanceX"
+        dim.References2D = [(view, ("Vertex0", "Edge1"))]
+        page.addView(dim)
+        self.doc.recompute()
+        self.assertAlmostEqual(dim.getRawValue(), 10.0)
+        # Found by geometry alone, not by the names its elements carry
+        dim.SavedNames = ["", ""]
+        # Read from a file, as a worker reads the files of a version
+        path = os.path.join(tempfile.mkdtemp(prefix="fc-dims-"), "dims.FCStd")
+        self.addCleanup(shutil.rmtree, os.path.dirname(path), True)
+        self.doc.saveAs(path)
+        name = self.doc.Name
+        App.closeDocument(name)
+        self.doc = App.openDocument(path)
+        self.pool = App.workerPool(self.doc)
+        group = self.doc.getObject("Group")
+        dim = self.doc.getObject("Dim")
+        box, other = self.doc.getObject("Box"), self.doc.getObject("Other")
+        self.assertEqual(dim.References2D[0][1], ("Vertex0", "Edge1"))
+        # The same outline, numbered otherwise: the other box's first
+        group.Source = [other, box]
+        self.doc.getObject("Sheet").touch()
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertEqual(info["Unused"], 0, info)
+        self.assertGreaterEqual(info["Inner"], 1, info)
+        self.assertNotEqual(dim.References2D[0][1], ("Vertex0", "Edge1"))
+        self.assertAlmostEqual(dim.getRawValue(), 10.0)
+        self.assertEqual(self.touched(), [])
+
     def polygonSketch(self):
         """A sketch projecting the face of a _Polygon, made here"""
         import Sketcher  # noqa: F401

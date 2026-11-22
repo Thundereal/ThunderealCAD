@@ -3711,6 +3711,7 @@ public:
         dict.setItem("ExecutedHere", Py::Long(i.executedHere));
         dict.setItem("MadeHere", Py::Long(i.madeHere));
         dict.setItem("Unused", Py::Long(i.unused));
+        dict.setItem("Inner", Py::Long(i.inner));
         Py::List here;
         for (auto& n : i.executedHereNames) {
             here.append(Py::String(n));

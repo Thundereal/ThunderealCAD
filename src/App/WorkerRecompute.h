@@ -68,6 +68,8 @@ public:
         long executedHere = 0; ///< objects executed here all the same
         long madeHere = 0;     ///< of the others, executed here by their type
         long unused = 0;       ///< objects the worker made that were not asked
+        /// recomputed after the one whose execute() ran them there (sec 46)
+        long inner = 0;
         /// The first of those executed here, by name, for a look
         std::vector<std::string> executedHereNames;
         bool byId = false;     ///< its strings taken in under their ids

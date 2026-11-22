@@ -3340,9 +3340,10 @@ void Document::onChanged(const Property* prop)
                 bool renamed = TransDirOld.renameFile(new_dir.c_str());
 #ifdef FC_OS_WIN32
                 // An opener from outside -- a file monitor -- has held a file
-                // in it for a moment (docs/WorkerProcess.md sec 45)
-                for (int i = 0; !renamed && i < 10; ++i) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+                // in it for a moment, 31 ms and 100 ms on one Windows box: up to
+                // a second (docs/WorkerProcess.md sec 45)
+                for (int i = 0; !renamed && i < 20; ++i) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
                     renamed = TransDirOld.renameFile(new_dir.c_str());
                 }
 #endif

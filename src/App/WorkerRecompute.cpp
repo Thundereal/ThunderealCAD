@@ -34,6 +34,7 @@
 #include <deque>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -258,9 +259,10 @@ bool notSaved(const Property& prop)
 /// the rows; 0 for none sent, docs/WorkerProcess.md sec 15), the dynamic
 /// properties it added (object, name, type, group, doc, attributes, read
 /// only, hidden), and each object it executed, in order: its name, whether it came out, its error,
-/// its seconds, and what its execute() wrote -- each value's object and
+/// its seconds, the one whose execute() ran it (its place plus one, 0 for
+/// none; sec 46), and what its execute() wrote -- each value's object and
 /// property by name, its fragment and its attachments
-const char RecomputeMagic[8] = {'F', 'C', 'W', 'R', 'C', 'P', '0', '1'};
+const char RecomputeMagic[8] = {'F', 'C', 'W', 'R', 'C', 'P', '0', '2'};
 
 /** Made here, never from a worker's values: an object whose result is not
  * all in its properties (DocumentObject::resultInProperties), which values
@@ -392,6 +394,8 @@ public:
         std::vector<std::pair<DocumentObject*, Property*>> writes;
         std::map<DocumentObject*, bool> touched;  ///< the other owners, when it was over
         bool here = false;  ///< made by the other process itself: not sent
+        /// The entry whose execute() ran this one, plus one; 0 for none
+        std::size_t outer = 0;
     };
 
     Recorder(Document& doc, std::function<void(const std::string&)> at)
@@ -500,6 +504,7 @@ public:
         Entry entry;
         entry.obj = &obj;
         entry.here = madeHere(obj);
+        entry.outer = running.empty() ? 0 : running.back() + 1;
         // Where it is, should this process die in it (docs/WorkerProcess.md
         // sec 34)
         if (at && !entry.here) {
@@ -643,7 +648,26 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
     if (auto why = recorder.why(); !why.empty()) {
         return unfit(why);
     }
-    // What the other process makes itself is not sent
+    // What the other process makes itself is not sent. The entry each
+    // inner one names as its outer is renumbered for the entries left; one
+    // whose outer is made there has none, that execute() recomputing it
+    // there itself (sec 46)
+    {
+        constexpr std::size_t gone = std::numeric_limits<std::size_t>::max();
+        std::vector<std::size_t> place(recorder.entries.size(), gone);
+        std::size_t kept = 0;
+        for (std::size_t i = 0; i < recorder.entries.size(); ++i) {
+            if (!recorder.entries[i].here) {
+                place[i] = kept++;
+            }
+        }
+        for (auto& e : recorder.entries) {
+            if (e.outer) {
+                const std::size_t to = place[e.outer - 1];
+                e.outer = to == gone ? 0 : to + 1;
+            }
+        }
+    }
     recorder.entries.erase(std::remove_if(recorder.entries.begin(), recorder.entries.end(),
                                           [](const Recorder::Entry& e) { return e.here; }),
                            recorder.entries.end());
@@ -754,6 +778,7 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             putSize(s, entry.res ? 0 : 1);
             putBytes(s, entry.error);
             putDouble(s, entry.seconds);
+            putSize(s, entry.outer);
             putSize(s, entry.writes.size());
             for (std::size_t k = 0; k < entry.writes.size(); ++k) {
                 auto& [obj, prop] = entry.writes[k];
@@ -887,6 +912,11 @@ public:
         std::string error;
         double seconds = 0;
         std::vector<Value> values;
+        /// What its execute() recomputed itself, in order: a TechDraw view
+        /// its dimensions. Not reached by this process's recompute when the
+        /// outer one is put in rather than executed (docs/WorkerProcess.md
+        /// sec 46)
+        std::vector<std::string> inner;
     };
     struct Added
     {
@@ -973,14 +1003,21 @@ public:
             return false;
         }
         std::string name;
+        // In the file's order, which an entry's outer one is told by
+        std::vector<std::pair<std::string, Entry>> read;
         for (std::uint64_t i = 0; i < n; ++i) {
             Entry entry;
             std::uint64_t ok = 0;
             std::uint64_t k = 0;
+            std::uint64_t outer = 0;
             if (!getBytes(in, name, most) || !getSize(in, ok) || !getBytes(in, entry.error, most)
-                || !getDouble(in, entry.seconds) || !getSize(in, k) || k > most) {
+                || !getDouble(in, entry.seconds) || !getSize(in, outer) || outer > i
+                || !getSize(in, k) || k > most) {
                 why = "its objects do not read";
                 return false;
+            }
+            if (outer) {
+                read[outer - 1].second.inner.push_back(name);
             }
             entry.ok = ok != 0;
             entry.values.resize(k);
@@ -1001,7 +1038,10 @@ public:
                 }
                 v.value.ok = true;
             }
-            entries[name].push_back(std::move(entry));
+            read.emplace_back(name, std::move(entry));
+        }
+        for (auto& [object, entry] : read) {
+            entries[object].push_back(std::move(entry));
             ++count;
         }
         return true;
@@ -1183,6 +1223,21 @@ public:
         made.error = entry.error;
         made.seconds = entry.seconds;
         ++supplied;
+        // What its execute() recomputed there, recomputed here in turn as
+        // its execute() would have: each from its own entry, or executed
+        // here where it must be. A TechDraw view's dimensions, otherwise
+        // never reached -- they are not touched -- and left measuring the
+        // view as it was (docs/WorkerProcess.md sec 46)
+        for (auto& name : entry.inner) {
+            auto inner = doc.getObject(name.c_str());
+            if (inner && inner->isAttachedToDocument()) {
+                // as the view asks it: an object none of whose inputs is
+                // touched is otherwise skipped
+                inner->enforceRecompute();
+                inner->recomputeFeature();
+                ++innerMade;
+            }
+        }
         return true;
     }
 
@@ -1225,6 +1280,7 @@ public:
     std::size_t bytes = 0;
     long count = 0;
     long supplied = 0;
+    long innerMade = 0;  ///< recomputed after their outer one (sec 46)
     long executedHere = 0;
     std::vector<std::string> hereNames;
     long touchSet = 0;
@@ -1496,6 +1552,7 @@ void noteSupplied(State& s, const Supplier& supplier)
     s.info.madeHere = supplier.madeByType;
     s.info.executedHereNames = supplier.hereNames;
     s.info.unused = supplier.unused();
+    s.info.inner = supplier.innerMade;
     s.info.byId = supplier.takenById;
     s.info.byContentWhy = supplier.byContentWhy;
     s.info.workerSeconds = supplier.seconds;

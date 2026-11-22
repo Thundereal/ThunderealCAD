@@ -2932,8 +2932,9 @@ retried, up to 20 times, 50 ms apart (first 10 times 25 ms apart; widened
 after dwin's retest, where TechDraw's `testOutOfRangeEnumerationIsPutBack`
 got through on the fourth retry, about 100 ms in). Each failure still
 prints its `Error in renameFile` line. dwin's retest of d3cb4101ca:
-TestWorkerPool 74 OK with no rename failure, TestTechDrawApp 25 OK, the
-sheet-metal suites clean.
+TestWorkerPool 74 OK with no rename failure, TestTechDrawApp 25 OK, and
+no rename failure in the sheet-metal suites (TestSheetMetalConvert's
+`testSolidOutside` fails there on its own account).
 
 The fourth case, TechDraw's `testOutOfRangeEnumerationIsPutBack`, did
 not fail in dwin's run.

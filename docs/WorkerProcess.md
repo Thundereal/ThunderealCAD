@@ -2928,8 +2928,12 @@ tests failed the same rename in one run, one of them in the next, and nothing he
 a file by the time the trace looked. With retries, the one that hit it
 succeeded on the first retry, after 31 ms: an opener from outside, most
 likely the laptop's file monitoring. On Windows the rename is now
-retried up to 10 times, 25 ms apart; each failure still prints its
-`Error in renameFile` line. Not run on Windows yet.
+retried, up to 20 times, 50 ms apart (first 10 times 25 ms apart; widened
+after dwin's retest, where TechDraw's `testOutOfRangeEnumerationIsPutBack`
+got through on the fourth retry, about 100 ms in). Each failure still
+prints its `Error in renameFile` line. dwin's retest of d3cb4101ca:
+TestWorkerPool 74 OK with no rename failure, TestTechDrawApp 25 OK, the
+sheet-metal suites clean.
 
 The fourth case, TechDraw's `testOutOfRangeEnumerationIsPutBack`, did
 not fail in dwin's run.

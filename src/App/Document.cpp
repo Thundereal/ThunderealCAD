@@ -84,7 +84,6 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include <filesystem>
 #include <limits>
 #include <random>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -3337,16 +3336,10 @@ void Document::onChanged(const Property* prop)
                     blobWrites = blobs->holdWrites();
                     blobs->closeArchives();
                 }
-                bool renamed = TransDirOld.renameFile(new_dir.c_str());
-#ifdef FC_OS_WIN32
-                // An opener from outside -- a file monitor -- has held a file
-                // in it for a moment, 31 ms and 100 ms on one Windows box: up to
-                // a second (docs/WorkerProcess.md sec 45)
-                for (int i = 0; !renamed && i < 20; ++i) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                    renamed = TransDirOld.renameFile(new_dir.c_str());
-                }
-#endif
+                // A refusal for a moment -- a file monitor holding a file in
+                // it -- renameFile waits out itself (docs/WorkerProcess.md
+                // secs 45, 47)
+                const bool renamed = TransDirOld.renameFile(new_dir.c_str());
                 if (renamed)
                     this->TransientDir.setValue(new_dir);
                 // Before the log reopens, which may wait on its worker.

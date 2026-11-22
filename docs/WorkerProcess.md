@@ -3072,3 +3072,51 @@ Open:
   after its view is drawn.
 - `handleNoExactMatch` accepts a reference that was not found as it stands,
   so a dimension like Dimension075 measures another element with no error.
+
+## 47. A rename or a delete waits out a hold for a moment (2026-11-22)
+
+Sec 45's second kind, a rename refused while nothing named held the file,
+is not Windows' own. dwin runs on a company laptop under IT monitoring,
+whose file-system filter opens a file a moment after it is written. An
+antivirus, an indexer or a slow network share does the same anywhere.
+How long such a hold lasts depends on the box, 31 ms and 100 ms on
+dwin's. So a fixed retry around one call site was the wrong shape. Now
+`Base::FileInfo` waits such holds out for every rename and delete
+(`renameFile`, `deleteFile`, `deleteDirectory`, and so
+`deleteDirectoryRecursive`), and learns how long to wait:
+
+- **Momentary refusals only.** On Windows these are a sharing or lock
+  violation, a mapped file, access denied unless the file is read-only,
+  and a directory not empty (a file deleted while something held it
+  still lists). Elsewhere they are `EBUSY` and `ETXTBSY`. A directory not
+  empty there stays so: POSIX has no delete pending. Any other refusal
+  fails at once, as before.
+- **Waits** double from 2 ms to 100 ms between attempts.
+- **The budget is learned.** It is 1 s until a hold has been seen, then
+  four times the longest hold that cleared in this process, never more
+  than `FileRetrySeconds` (User parameter:BaseApp/Preferences/General,
+  10 s by default; 0 tries once). A slow box widens its own budget after
+  its first slow hold; a fast one keeps the second.
+- **Logging.** An operation that went through after retries is logged
+  once ("rename of '...' went through after 4 tries, 104 ms"). One still
+  refused is reported once, with its tries and time. The `Error in
+  renameFile` line for every attempt is gone.
+- `FileInfo::retryStats()` counts them: retried, recovered, failed, the
+  longest hold, the current budget.
+
+Document's own retry around the transient directory's rename (sec 45) is
+gone with it. Ending the workers that read the store stays: that hold is
+ours, and lasts as long as they do.
+
+Not told apart: a lasting hold by another program (an editor with the
+file open) waits the whole budget before it fails. On Windows the Restart
+Manager could name such a holder, but it does not see a filter driver,
+and a named holder is the rarer case.
+
+Tests (`tests/src/Base/FileRetry.cpp`): the test hook
+`FileInfo::setRetryFault` refuses attempts as each case needs.
+`aMomentaryHoldIsWaitedOut`, `anotherRefusalFailsAtOnce` (under 50 ms),
+`aLastingHoldFailsAtTheLimit` (0.2 s), `aZeroLimitTriesOnce`,
+`theWaitGrowsWithTheLongestHold` (1 s, then four times a 0.3 s hold,
+then capped by the limit), `aDeleteIsWaitedOutToo`. They run on macOS;
+the Windows branch is not compiled here.

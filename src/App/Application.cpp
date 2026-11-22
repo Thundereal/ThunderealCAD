@@ -3510,6 +3510,12 @@ void Application::initConfig(int argc, char ** argv)
         mConfig["AppTempPath"] = tmpPath + "/";
     }
 
+    // The most a rename or a delete waits for something that has its file
+    // open for a moment -- a file monitor, an antivirus, a slow share
+    // (docs/WorkerProcess.md sec 47)
+    Base::FileInfo::setRetryLimit(_pcUserParamMngr->GetGroup("BaseApp/Preferences/General")
+                                      ->GetFloat("FileRetrySeconds", 10.0));
+
 
     // capture python variables
     SaveEnv("PYTHONPATH");

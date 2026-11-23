@@ -926,7 +926,9 @@ private:
             case Dimension::SphericalRadius:
                 out = XCAFDimTolObjects_DimensionType_Size_SphericalRadius;
                 break;
-            case Dimension::Width: out = XCAFDimTolObjects_DimensionType_Size_Thickness; break;
+            // A depth is a thickness, as NIST's files write a hole's (STC-06, STC-10)
+            case Dimension::Width:
+            case Dimension::Depth: out = XCAFDimTolObjects_DimensionType_Size_Thickness; break;
             case Dimension::AngularSize: out = XCAFDimTolObjects_DimensionType_Size_Angular; break;
             case Dimension::Distance:
                 out = XCAFDimTolObjects_DimensionType_Location_LinearDistance;

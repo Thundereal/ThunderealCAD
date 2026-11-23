@@ -62,6 +62,9 @@ struct PMIExport Primitive
     double radius = 0.0;
     double angle = 0.0;
     double major = 0.0;
+    /// A cylindrical face's extent along dir, from loc
+    double from = 0.0;
+    double to = 0.0;
 
     bool isAxial() const
     {
@@ -91,6 +94,14 @@ PMIExport Primitive ofElement(const TopoDS_Shape& element);
 /// may be reversed
 PMIExport bool sameSurface(const Primitive& a, const Primitive& b, double tol = 1e-6,
                            double atol = 1e-9);
+
+/// A hole's depth, of its faces (docs/GDandT.md sec 10.12): each hole's
+/// cylinders on its axis, from the far end of the widest -- the bore, a
+/// counterbore's or the hole's own -- to the floor, a plane square to the axis
+/// next to it, or the widest's length along the axis where there is none (a
+/// drill point is no floor). A pattern's holes ("4X") all of one depth. False
+/// with why for faces that are not
+PMIExport bool depth(const std::vector<Primitive>& faces, double& depth, std::string& why);
 
 /// The distance between two reference primitives (planes parallel, axes
 /// parallel, a point and anything); false if they have no single distance

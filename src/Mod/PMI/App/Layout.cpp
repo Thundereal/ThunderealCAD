@@ -59,6 +59,7 @@ using GT = GeometricTolerance;
 const char32_t DiameterSign = 0x2300;
 const char32_t PlusMinus = 0x00B1;
 const char32_t Degree = 0x00B0;
+const char32_t DepthSign = 0x21A7;
 
 /// The characteristics' code points, for the equivalent text
 char32_t symbolOf(int c)
@@ -490,6 +491,9 @@ std::u32string dimensionText(const Dimension& dim)
             break;
         case Dimension::SphericalRadius:
             s += U"SR";
+            break;
+        case Dimension::Depth:
+            s += DepthSign;
             break;
         default:
             break;

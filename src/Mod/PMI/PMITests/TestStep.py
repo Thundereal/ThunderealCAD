@@ -43,6 +43,12 @@ PER_UNIT = (
     ("nist_stc_10_asme1_ap242-e2.stp", "Straightness", "Length", 15.0, 0.0),
 )
 
+# The NIST set's hole depths, written as 'thickness' sizes: (file, depths)
+DEPTHS = (
+    ("nist_stc_06_asme1_ap242-e3.stp", [7.9375, 12.7]),
+    ("nist_stc_10_asme1_ap242-e2.stp", [2.0, 6.0, 6.0, 6.0, 10.0, 10.0, 27.5, 35.0]),
+)
+
 
 def edition(path):
     """A NIST file whatever its edition: nist_ctc_04_asme1_ap242-e1.stp is
@@ -595,6 +601,26 @@ class TestNistSet(Base):
                 # With its graphic (CTC-03's was lost in p9, dwin)
                 self.assertFalse(gt.ImportedGraphic.isNull())
                 self.assertEqual(per_unit(self.write_and_read(doc)), [(kind, basis, size, size2)])
+
+    def test_a_holes_depth(self):
+        """A 'thickness' of a hole is its depth: STC-06's two (one hole, a
+        pattern of four), STC-10's eight (counterbores to their floors, holes
+        to their drill points, patterns of them), read as the file gives
+        them, measured Ok, written and read again the same"""
+        nist = os.environ["FC_PMI_NIST"]
+        for name, want in DEPTHS:
+            with self.subTest(name):
+                doc = self.read(os.path.join(nist, name))
+
+                def depths(doc):
+                    return sorted(round(d.Nominal.Value, 4) for d in objects(doc, "Dimension")
+                                  if d.Type == "Depth")
+
+                self.assertEqual(depths(doc), want)
+                for d in objects(doc, "Dimension"):
+                    if d.Type == "Depth":
+                        self.assertEqual(d.Condition, "Ok", (d.Label, d.ConditionMessage))
+                self.assertEqual(depths(self.write_and_read(doc)), want)
 
     def test_on_supplemental_geometry(self):
         """GD&T on supplemental geometry -- a thread's cylinder drawn as its

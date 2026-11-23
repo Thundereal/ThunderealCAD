@@ -175,8 +175,9 @@ before making another (STEP's uniqueness rule, [A7]).
 
 ### 4.4 PMI::Dimension
 
-- `Type`: size (linear, diameter, radius, spherical, angular, thickness), location (linear
-  between two features, angular, with path), or `Basic` (a TED: exact, in a box, no tolerance).
+- `Type`: size (linear, diameter, radius, spherical, angular, thickness, curve length, a
+  hole's depth), location (linear between two features, angular, with path), or `Basic` (a
+  TED: exact, in a box, no tolerance).
 - `Features`: one PMI::TolerancedFeature for a size, two for a location.
 - `Nominal`: **measured from the geometry** at recompute -- a dimension cannot disagree with
   the model. `Driver` (optional): an expression to the parameter that makes it (a Hole's
@@ -748,7 +749,7 @@ The NIST set's ledger, what is not read or is read invalid, all 17 files (2026-1
 | references to edges or points | 22 | read since: 37 features on edges, none on a point, 10.14 |
 | a second feature with no shape | 1 | the file gives none |
 | curve lengths | 10 | no dimension type for them |
-| widths on other than two planes | 11 | thickness used for a depth, or a width across several faces |
+| widths on other than two planes | 11 | a depth (read since: Depth, 10.12), or across faces |
 | MMR on no feature of size | 3 | slots and counterbores: read since, 10.12 |
 | graphic-only dimensions | 185 | presentation, not read yet (sec 5.1 step 3); read since, 10.10 |
 
@@ -853,8 +854,19 @@ feature, the width dimension and the advisor:
   the first two. The advisor calls a slot a width and a counterbored hole axial.
 
 Faces facing the same way are a depth, not a width (STC-06's and STC-10's "widths" on a hole's
-cylinders are `thickness` sizes on the shape aspect of a diameter: a hole's depth, still read
-invalid -- a depth has no dimension type yet).
+cylinders are `thickness` sizes on the shape aspect of a diameter: a hole's depth). A **Depth**
+dimension (2026-11-23) is one: a size of a hole, or a pattern of holes of one depth, shown
+after the depth sign (U+21A7). Each hole is its cylinders on one axis; its depth runs from the
+far end of the widest (a counterbore's bore, else the hole) to its floor -- a plane square to
+the axis, no further from the bore's end than the bore is wide -- or is the widest's length
+where there is none: a drill point's cone is no floor, so a hole's axis 36.65 long is 35 deep
+(STC-10). The import makes a `thickness` a Depth when its faces are no width (two planes, a
+slot) but are a hole; the export writes a Depth as a `thickness`, as NIST does. The NIST set:
+STC-06's 12.7 and 4X 7.9375, STC-10's 2.0, 3X 6.0, 10.0 (two), 27.5 and 35.0 -- ten, all Ok and
+as the file gives them. STC-06's third, 12.7 on four counterbores' floors alone (no bore, no
+opening), has nothing to measure and stays invalid; FTC-07's depths are locations between two
+faces, read as distances, the depth sign only in their semantic text. Tests:
+`TestModel.test_a_holes_depth`, `TestNistSet.test_a_holes_depth`.
 
 The NIST set: the three "MMR on no feature of size" are read now -- FTC-09's pattern of two
 widths, STC-06's four counterbored holes, STC-09's slot. Tests: `TestModel` (a slot and two

@@ -931,6 +931,29 @@ private:
         ++_report.tolerances;
     }
 
+    /// A thickness of a hole is its depth (STC-06's, STC-10's): faces that
+    /// are no width, two planes or a slot, but are a hole
+    static bool isDepth(const Faces& f)
+    {
+        if (!f.object) {
+            return false;
+        }
+        const Part::TopoShape& shape = f.object->Shape.getShape();
+        std::vector<Primitive> prims;
+        for (auto& name : f.names) {
+            prims.push_back(Geom::ofElement(shape.getSubShape(name.c_str(), true)));
+        }
+        double value = 0;
+        std::string why;
+        bool planes = prims.size() == 2 && prims[0].type == Primitive::Plane
+            && prims[1].type == Primitive::Plane;
+        if ((planes && Geom::distance(prims[0], prims[1], value, why))
+            || Geom::width(prims, value)) {
+            return false;
+        }
+        return Geom::depth(prims, value, why);
+    }
+
     /// Our type, or -1
     static int dimensionType(XCAFDimTolObjects_DimensionType t)
     {
@@ -1023,6 +1046,9 @@ private:
         std::string why;
         if (!faces(first, f1, why)) {
             return skip(l, "dimension", why);
+        }
+        if (type == Dimension::Width && isDepth(f1)) {
+            type = Dimension::Depth;
         }
         bool location = type == Dimension::Distance || type == Dimension::Angle;
         if (location && !faces(second, f2, why)) {

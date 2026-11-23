@@ -238,6 +238,51 @@ class TestModel(Base):
         self.assertAlmostEqual(a.x, 20, 6)
         self.assertAlmostEqual(b.y, 10, 6)
 
+    def test_a_holes_depth(self):
+        """A Depth: a counterbore's, its bore down to its floor (3), of one
+        hole or a pattern of them, of its axis too; a plain hole's its
+        length (10). Holes of two depths, or a face that is no hole, have
+        none. Shown with the depth sign (STC-06, STC-10, docs sec 10.12)"""
+        for name, x in (("Bore", 20), ("Hole2", 8), ("Bore2", 8), ("Plain", 32)):
+            if name.startswith("Bore"):
+                self.cut("Cylinder", name, V(x, 10, 7), Radius=5, Height=3)
+            else:
+                self.cut("Cylinder", name, V(x, 10, 0), Radius=3, Height=10)
+        self.doc.recompute()
+
+        def around(x, r=5.5):
+            def test(f):
+                c = f.BoundBox.Center
+                return (f.BoundBox.XLength < 2 * r and abs(c.x - x) < 1e-6
+                        and abs(c.y - 10) < 1e-6)
+            return test
+
+        one = self.faces_where(around(20))
+        two = one + self.faces_where(around(8))
+        plain = self.faces_where(around(32))
+
+        def depth(name, subs, kind="Integral"):
+            f = self.add("TolerancedFeature", name + "F", References=[(self.solid, subs)],
+                         Kind=kind)
+            return self.add("Dimension", name, Type="Depth", Features=[f], Upper=0.1,
+                            Lower=-0.1)
+
+        dims = {"One": depth("One", one), "Two": depth("Two", two),
+                "Axis": depth("Axis", one, "Axis"), "Plain": depth("Plain", plain)}
+        self.recompute()
+        for name, value in (("One", 3), ("Two", 3), ("Axis", 3), ("Plain", 10)):
+            dim = dims[name]
+            self.assertEqual(dim.Condition, "Ok", (name, dim.ConditionMessage))
+            self.assertAlmostEqual(dim.Nominal.Value, value, 6, name)
+        self.assertEqual(dims["One"].EquivalentText, "\u21a73.00 \u00b10.1")
+        mixed = depth("Mixed", one + plain)
+        flat = depth("Flat", [face_at(self.solid.Shape, BOTTOM)])
+        self.doc.recompute()
+        self.assertEqual(mixed.Condition, "Invalid")
+        self.assertIn("one depth", mixed.ConditionMessage)
+        self.assertEqual(flat.Condition, "Invalid")
+        self.assertIn("a hole", flat.ConditionMessage)
+
     def test_a_fillet_radius(self):
         cyl = Part.makeCylinder(5, 10)
         top = [e for e in cyl.Edges if e.Curve.TypeId == "Part::GeomCircle"

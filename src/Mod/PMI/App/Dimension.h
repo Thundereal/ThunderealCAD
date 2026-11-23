@@ -87,6 +87,8 @@ public:
         /// The length along a curve: a size, after the locations to keep
         /// the values saved before it
         CurveLength,
+        /// A hole's depth along its axis, to its floor: a size
+        Depth,
     };
     TypeValue getType() const
     {
@@ -94,7 +96,7 @@ public:
     }
     bool isSize() const
     {
-        return getType() < Distance || getType() == CurveLength;
+        return getType() < Distance || getType() >= CurveLength;
     }
     bool isAngular() const
     {

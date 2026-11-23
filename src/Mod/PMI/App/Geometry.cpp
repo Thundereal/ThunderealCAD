@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 #include <Bnd_Box.hxx>
 #include <BRep_Builder.hxx>
@@ -135,6 +136,9 @@ Primitive Geom::ofFace(const TopoDS_Shape& shape)
             res.loc = cyl.Location();
             res.dir = cyl.Axis().Direction();
             res.radius = cyl.Radius();
+            // v runs along the axis from its location
+            res.from = surf.FirstVParameter();
+            res.to = surf.LastVParameter();
             break;
         }
         case GeomAbs_Sphere: {
@@ -418,6 +422,98 @@ bool Geom::holes(const std::vector<Primitive>& faces, std::size_t& hole)
         if (!fits) {
             return false;
         }
+    }
+    return true;
+}
+
+bool Geom::depth(const std::vector<Primitive>& faces, double& depth, std::string& why)
+{
+    // The holes: cylinders by axis, all parallel (one hole, or a pattern "4X")
+    struct Hole
+    {
+        gp_Ax1 axis;
+        double radius = 0;
+        double lo = 0, hi = 0;
+    };
+    std::vector<Hole> holes;
+    const Primitive* first = nullptr;
+    for (auto& p : faces) {
+        if (p.type != Primitive::Cylinder) {
+            continue;
+        }
+        if (!first) {
+            first = &p;
+        }
+        else if (!p.dir.IsParallel(first->dir, 1e-9)) {
+            why = "a depth needs holes whose axes are parallel";
+            return false;
+        }
+        auto it = std::find_if(holes.begin(), holes.end(), [&](const Hole& h) {
+            return gp_Lin(h.axis).Distance(p.loc) < SizeTol;
+        });
+        if (it == holes.end()) {
+            holes.push_back({gp_Ax1(p.loc, first->dir), p.radius});
+        }
+        else {
+            it->radius = std::max(it->radius, p.radius);
+        }
+    }
+    if (holes.empty()) {
+        why = "a depth needs a hole: cylindrical faces";
+        return false;
+    }
+    // Along the axis, from a point all the holes share the measure of
+    const gp_Vec dir(first->dir);
+    auto at = [&](const gp_Pnt& p) {
+        return gp_Vec(first->loc, p).Dot(dir);
+    };
+    for (auto& h : holes) {
+        h.lo = std::numeric_limits<double>::max();
+        h.hi = -h.lo;
+        for (auto& p : faces) {
+            if (p.type != Primitive::Cylinder || std::fabs(p.radius - h.radius) > SizeTol
+                || gp_Lin(h.axis).Distance(p.loc) > SizeTol) {
+                continue;
+            }
+            double s = at(p.loc);
+            double sign = p.dir.Dot(first->dir) > 0 ? 1 : -1;
+            for (double v : {p.from, p.to}) {
+                h.lo = std::min(h.lo, s + sign * v);
+                h.hi = std::max(h.hi, s + sign * v);
+            }
+        }
+    }
+    bool found = false;
+    for (auto& h : holes) {
+        // Its floor: the plane square to the axis nearest the bore's ends,
+        // no further from them than the bore is wide (a counterbore's walls
+        // end 0.2 short of its floor, STC-10)
+        bool floor = false;
+        double at_floor = 0, gap = h.radius;
+        for (auto& p : faces) {
+            if (p.type != Primitive::Plane || !p.dir.IsParallel(first->dir, 1e-9)) {
+                continue;
+            }
+            double s = at(p.loc);
+            double g = s < h.lo ? h.lo - s : s > h.hi ? s - h.hi : 0.0;
+            if (g <= gap) {
+                floor = true;
+                at_floor = s;
+                gap = g;
+            }
+        }
+        double d = floor ? std::max(std::fabs(at_floor - h.lo), std::fabs(at_floor - h.hi))
+                         : h.hi - h.lo;
+        if (found && std::fabs(d - depth) > SizeTol * std::max(1.0, d)) {
+            why = "a depth needs holes of one depth";
+            return false;
+        }
+        depth = d;
+        found = true;
+    }
+    if (depth <= SizeTol) {
+        why = "a depth needs a hole of some length";
+        return false;
     }
     return true;
 }

@@ -56,6 +56,7 @@ const char* Dimension::TypeEnums[] = {"Diameter",
                                       "Distance",
                                       "Angle",
                                       "CurveLength",
+                                      "Depth",
                                       nullptr};
 
 PROPERTY_SOURCE(PMI::Dimension, PMI::Callout)
@@ -63,7 +64,7 @@ PROPERTY_SOURCE(PMI::Dimension, PMI::Callout)
 Dimension::Dimension()
 {
     ADD_PROPERTY_TYPE(Type, (0L), "PMI", App::Prop_None,
-                      "A size (Diameter ... AngularSize, CurveLength) of one feature, or a "
+                      "A size (Diameter ... AngularSize, CurveLength, Depth) of one feature, or a "
                       "location (Distance, Angle) between two");
     Type.setEnums(TypeEnums);
     ADD_PROPERTY_TYPE(Features, (nullptr), "PMI", App::Prop_None,
@@ -231,6 +232,8 @@ bool Dimension::measure(double& value, std::string& why) const
             }
             why = "an angular size needs a cone or two planar faces";
             return false;
+        case Depth:
+            return Geom::depth(faces, value, why);
         case Distance:
             return Geom::distance(p, feats[1]->primitive(), value, why);
         case Angle:

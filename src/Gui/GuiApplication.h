@@ -53,6 +53,11 @@ public:
     /// Pointer to exceptions caught in Qt event handler
     std::shared_ptr<Base::SystemExitException> caughtException;
 
+    /// Ends the event loop the way a sys.exit() caught by notify() does: a
+    /// slot catches it and calls this, for one thrown on through a Qt frame
+    /// aborts the program instead (docs/WorkerProcess.md sec 51)
+    static void exitWith(const Base::SystemExitException& e);
+
 public Q_SLOTS:
     void commitData(QSessionManager &manager);
 

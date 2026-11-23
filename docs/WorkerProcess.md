@@ -3306,3 +3306,42 @@ longer running.
 chased). That aborted run left 14 folders itself, which is a crash's
 leftover as designed.
 
+
+## 51. A GUI test run ended in an abort, and its lock stayed (2026-11-23)
+
+After sec 50 the cache held 13 lock files, `Thundereal_<pid>.lock`, all
+of dead processes, the oldest from Nov 14. The GUI writes one per session
+and removes the dead ones only from `checkForPreviousCrashes`, at the end
+of `MainWindow::delayedStartup`. A test run returns before that, and so
+does a script on the command line that ends the program. No session on
+the mini got that far after Nov 14, so nothing removed them.
+
+The three newest (pids 87808, 87952, 629, Nov 22) each have a crash log
+from the same second:
+`libc++abi: terminating due to uncaught exception of type
+Base::SystemExitException`, then SIGABRT. The stack runs through the
+`delayedStartup` lambda that runs a `-t` test. That run ends with
+`sys.exit(0 if result else 1)`. The lambda caught the exception and threw
+it on, through Qt's timer frames, where it ends the program, though
+`GUIApplication::notify` is further out and catches it. `build/td-gui.log`
+from then shows `Ran 22 tests ... OK` followed by the abort. So every
+`Thundereal -t` run here ended with SIGABRT, whatever its result. The
+other 38 crash logs are the CAUGHT reports of the worker-crash tests,
+which is expected.
+
+Two fixes:
+
+1. `GUIApplication::exitWith()` does what `notify` does with a caught
+   `sys.exit()`: it keeps the exception for `runApplication`, which throws
+   it once the loop has ended, and it ends the loop with its code. The
+   test-run lambda and the command-line files of `delayedStartup` call it
+   and no longer throw on. The latter returns, as the program is ending.
+2. `runApplication` threw the kept exception before it removed the lock,
+   so a GUI session that ended through `sys.exit()` left its lock behind,
+   even without a crash. The lock now goes first.
+
+Measured after the build: `Thundereal -t TestTechDrawGui` offscreen ran 22
+tests OK, exit 0. `Thundereal -t NoSuchTestModule51` failed its import,
+exit 1. Neither wrote a crash log, and the cache was empty after each.
+The 13 locks were removed by hand beforehand. Each had a dead pid and no
+folder of its own.

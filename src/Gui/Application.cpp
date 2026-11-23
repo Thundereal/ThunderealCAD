@@ -3881,17 +3881,19 @@ void Application::runApplication(void)
             }
         }
 
-        // Qt can't handle exceptions thrown from event handlers, so we need
-        // to manually rethrow SystemExitExceptions.
-        if (mainApp.caughtException.get())
-            THROWM(Base::SystemExitException, *mainApp.caughtException.get())
-
         // close the lock file, in case of a crash we can see the existing lock file
         // on the next restart and try to repair the documents, if needed.
+        // Before a sys.exit() is thrown on, which it was not: each ended
+        // session's lock stayed in the cache (docs/WorkerProcess.md sec 51).
         if (flock.get())
             flock->unlock();
         lock.close();
         fi.deleteFile();
+
+        // Qt can't handle exceptions thrown from event handlers, so we need
+        // to manually rethrow SystemExitExceptions.
+        if (mainApp.caughtException.get())
+            THROWM(Base::SystemExitException, *mainApp.caughtException.get())
     }
     catch (const Base::SystemExitException&) {
         Base::Console().Message("System exit\n");

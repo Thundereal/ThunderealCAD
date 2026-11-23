@@ -461,7 +461,7 @@ class TestNistSet(Base):
         for name in ("nist_ftc_08_asme1_ap242-e1-tg.stp", "nist_ctc_04_asme1_ap242-e1.stp",
                      "nist_stc_09_asme1_ap242-e3.stp"):
             with self.subTest(name):
-                path = os.path.join(nist, name)
+                path = edition(os.path.join(nist, name))
                 again = self.write_and_read(self.read(path))
                 theirs, ours = kinds(path), kinds(self.written)
                 if name.endswith("-tg.stp"):

@@ -3223,3 +3223,86 @@ document with something in it, a running process's folders and this
 process's, a folder changed since the start, other programs' and other
 names, a stopped sweep, and a reused pid. The last case expects the folder
 gone on macOS and kept elsewhere.
+
+## 50. Why the folders the sweep keeps were left (2026-11-23)
+
+The user asked, of the 2799 document folders sec 49 kept: are they known
+leftovers? Find out why they were left first, then clear them. Each of
+them holds a `history/log.db`, so the GUI's recovery would offer every one.
+
+On this box, the suites run one after another left six folders in the
+cache. Document left five, from three processes, and TestWorkerPool one
+(both 2026-11-23). Run class by class, and then test by test, the folders
+came from three causes.
+
+1. **`sys.exit()` from the console skipped the documents' close.**
+   `FreeCADTest.py`, what `-t` runs, ends with `sys.exit(...)`.
+   `MainCmd.cpp` answered `SystemExitException` with `exit(code)`, which
+   skips the destruction phase: `closeAllDocuments()` and
+   `Application::destruct()`. Each document a test left open kept its
+   folder, with its log. A script that ends without `sys.exit()` closed
+   them; one that calls it did not. Shown with a one-test module that
+   leaves one document open: under `-t` its folder stayed, and no longer
+   does. Of Document's tests, `XLinkIntoUnsavedCases.testACopyIntoADocumentNeverSaved`
+   reopens `dst.FCStd`, and the link opens `bolt.FCStd` with it, both named
+   after their files. The tearDown closed `XUnsaved*` only, so two folders
+   were left per run.
+   Now a `sys.exit()` falls through to the destruction phase, and `main`
+   returns its code. A run with a test that fails still exits 1, and
+   `sys.exit(7)` exits 7. The tearDown also closes what was opened from
+   the test's folder. The GUI's `main` (`MainGui.cpp`) answers the same
+   way and is left: its documents close with its window, and closing them
+   after the window has gone is what the GUI probes must not do.
+
+2. **A pinned version an undo opened again never named its folder.** In
+   `TransactionBranchCases.testReleasedPinnedVersionClosesHeadless`, an
+   unpin closes the version (`ClosePinnedVersion` 1), and the undo of the
+   unpin opens it again, as the link resolves. While an undo is applied,
+   the property changes are held (`Transaction::isApplying`) and replayed
+   after it. So the new document's `Uid` reached `onChanged` only once
+   `_openVersionDocument` had made it a `FrozenVersion`. The Uid branch
+   made the folder, and its `TransientDir.setValue` went through
+   `onBeforeChange` to `checkNotFrozen`, which threw. The held changes'
+   replay swallowed the throw, so nothing said so. The document lived with
+   `TransientDir` empty, and its close removed nothing. Traced with prints
+   in the Uid branch: the folder was made, and the write after it never
+   returned. On the first open the same branch ran inside the restore,
+   which `checkNotFrozen` allows.
+   Now `Document::setTransientDir()` writes it as bookkeeping
+   (`d->bookkeeping`, the flag `_openVersionDocument` names the version's
+   label under), for both the made and the renamed folder. The test now
+   asserts that no folder named for the part's Uid is left at its end. It
+   fails without the fix ("Lists differ: ['Thundereal_Doc_d57e48ba-..._17747']
+   != []") and passes with it.
+
+3. **Two tests end a child with `os._exit()`, and left its folder.**
+   `UndoRedoCases.testProcessEndedFromAScriptEnds` must end its child with
+   a document open: that is the case it tests. Its child now prints the
+   folder, and the test removes it. In
+   `TransactionTwoProcessCases.testAFolderSavedToItsHistoryElsewhereIsCopiedWhole`,
+   `os._exit()` only skips the helper's save, so the child now closes its
+   document first.
+
+A wrong turn, for the record: a bisect of the class from a script named
+`grp.py` found nothing, twice. A `.py` on the command line is loaded as
+a module by its name, and `grp` is a module of Python's own, so none of
+those runs ran a test.
+
+After the three: Document (363), TestWorkerPool (76), FileBlobs (97),
+TestTechDrawApp (31) and TestPartApp (446) each pass with exit 0 and leave
+nothing in the cache, measured by listing it before and after each. ctest
+passes all 1295 that ran, none failed.
+
+The old folders. By day: 273 on Nov 12 from 21 processes, about 13 a
+process, which looks like what cause 1 leaves; 1597 on Nov 16 from 1006
+processes, one or two each, which looks like killed workers (sec 48). That
+is a reading of the counts, not a trace: their reader folders were swept
+already, and a pid says nothing now. Every one of them is of a process no
+longer running.
+
+`-t 0` was run too, and it aborts in
+`CAMTests.TestPathToolShapeIcon.TestToolBitShapeSvgIcon.test_get_qpixmap`
+(Qt's font database without a QGuiApplication; known since sec 29, not
+chased). That aborted run left 14 folders itself, which is a crash's
+leftover as designed.
+

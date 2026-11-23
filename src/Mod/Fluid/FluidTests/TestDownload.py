@@ -29,8 +29,8 @@ class TestDownload(unittest.TestCase):
         self.assertEqual(lines[0], "set -e")
         self.assertNotIn("curl", script)
         self.assertIn(
-            "'/usr/bin/mamba' create -y -p '/data/of' -c conda-forge --override-channels "
-            "openfoam=2412",
+            "'/usr/bin/mamba' create -y -p '/data/of' -c realthunder -c conda-forge "
+            "--override-channels 'openfoam=2412=*_100'",
             lines,
         )
         self.assertEqual(lines[-1], "echo DONE")

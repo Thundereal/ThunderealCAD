@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -186,6 +187,64 @@ bool probe(const std::string& preamble, bool clean, OpenFoamInstall& found, std:
     return true;
 }
 
+// One duct of the check, run in a folder of its own under base: what its
+// flow lost, NaN when it did not run.
+double ductRun(const std::string& preamble, bool clean, const fs::path& base, int axis)
+{
+    const double none = std::numeric_limits<double>::quiet_NaN();
+    const OpenFoam::Case made = OpenFoam::ductCase(axis);
+    const fs::path folder = base / ("duct" + std::to_string(axis));
+    try {
+        for (const auto& [name, text] : made.files) {
+            const fs::path path = folder / name;
+            fs::create_directories(path.parent_path());
+            std::ofstream out(path, std::ios::binary);
+            out << text;
+            if (!out) {
+                return none;
+            }
+        }
+    }
+    catch (const std::exception&) {
+        return none;
+    }
+    for (const auto& step : made.steps) {
+        const std::string command = (preamble.empty() ? std::string() : preamble + " >/dev/null 2>&1; ")
+            + "cd " + quoted(folder.string()) + " && " + step.command + " > log." + step.name
+            + " 2>&1";
+        if (runShell(command, clean, nullptr, nullptr) != 0) {
+            return none;
+        }
+    }
+    return OpenFoam::ductLoss(readFile(folder / "postProcessing" / "pressure" / "0" / "p"));
+}
+
+// The verdicts of the check kept from one session to the next, by what
+// was tested: the solver's stress library, its size and its date.
+fs::path verdictsFile()
+{
+    return fs::path(App::Application::getUserCachePath()) / "Fluid" / "openfoam-viscous.txt";
+}
+
+std::string testedOf(const std::string& preamble, bool clean)
+{
+    std::string out;
+    const std::string script = (preamble.empty() ? std::string() : preamble + " >/dev/null 2>&1; ")
+        + "lib=$(ldd \"$(command -v simpleFoam)\" 2>/dev/null | "
+          "awk '/libincompressibleTurbulenceModels/ {print $3; exit}'); "
+          "[ -n \"$lib\" ] && stat -Lc 'TESTED %n %s %Y' \"$lib\"";
+    if (runShell(script, clean, nullptr, nullptr, &out) != 0) {
+        return {};
+    }
+    const auto at = out.find("TESTED ");
+    if (at == std::string::npos) {
+        return {};
+    }
+    std::string key = out.substr(at + 7);
+    key.erase(key.find_last_not_of("\r\n") + 1);
+    return key;
+}
+
 std::vector<fs::path> globbed(const fs::path& folder, const std::string& prefix)
 {
     std::vector<fs::path> found;
@@ -209,11 +268,22 @@ OpenFoamInstall search()
     return install;
 #else
     std::vector<std::string> looked;
+    std::string refused;
     auto attempt = [&](const std::string& where, const std::string& preamble, bool clean) {
         std::string whyNot;
         if (probe(preamble, clean, install, whyNot)) {
-            install.where = where;
-            return true;
+            const std::string fault = OpenFoamBackend::viscousFault(preamble, clean);
+            if (fault.empty()) {
+                install.where = where;
+                install.refused = refused;
+                return true;
+            }
+            // found, and not to be used: the search goes on
+            install = OpenFoamInstall {};
+            whyNot = "not used";
+            if (refused.empty()) {
+                refused = "The OpenFOAM at " + where + " is not used: " + fault + ".";
+            }
         }
         looked.push_back(where + " (" + whyNot + ")");
         return false;
@@ -247,7 +317,9 @@ OpenFoamInstall search()
             return install;
         }
     }
-    std::string text = "OpenFOAM was not found. Looked in: ";
+    std::string text = refused.empty() ? std::string("OpenFOAM was not found. ")
+                                       : refused + " No other was found. ";
+    text += "Looked in: ";
     for (std::size_t i = 0; i < looked.size(); ++i) {
         text += (i ? "; " : "") + looked[i];
     }
@@ -255,6 +327,7 @@ OpenFoamInstall search()
         + ", /usr/lib/openfoam, /opt, ~/OpenFOAM). Set the preference Mod/Fluid/OpenFoamPath "
           "to its folder or its etc/bashrc.";
     install.searched = text;
+    install.refused = refused;
     return install;
 #endif
 }
@@ -527,6 +600,77 @@ Availability OpenFoamBackend::availability() const
 std::unique_ptr<Session> OpenFoamBackend::createSession() const
 {
     return std::make_unique<OpenFoamSession>(install());
+}
+
+std::string OpenFoamBackend::viscousFault(const std::string& preamble, bool cleanEnvironment)
+{
+    const auto said = [](double along, double across) {
+        char text[320];
+        std::snprintf(text,
+                      sizeof(text),
+                      "it computes viscous flow wrongly -- the same flow along a duct loses "
+                      "%.1f%% more pressure laid along x than along y, as conda-forge's "
+                      "build of v2412 does; a mended build is what Download OpenFOAM "
+                      "installs",
+                      100.0 * (along / across - 1.0));
+        return std::string(text);
+    };
+    // what was tested before is not tested again
+    const std::string tested = testedOf(preamble, cleanEnvironment);
+    const fs::path kept = verdictsFile();
+    if (!tested.empty()) {
+        std::ifstream in(kept);
+        for (std::string line; std::getline(in, line);) {
+            const auto tab = line.find('\t');
+            if (tab != std::string::npos && line.substr(0, tab) == tested) {
+                double along = 0.0;
+                double across = 0.0;
+                std::istringstream values(line.substr(tab + 1));
+                if (values >> along >> across) {
+                    return OpenFoam::sameLoss(along, across) ? std::string() : said(along, across);
+                }
+            }
+        }
+    }
+    fs::path base;
+    try {
+        const fs::path temp = fs::path(App::Application::getTempPath());
+        for (int attempt = 0; attempt < 1000 && base.empty(); ++attempt) {
+            const fs::path candidate = temp
+                / ("FluidCheck_" + std::to_string(QCoreApplication::applicationPid()) + "_"
+                   + std::to_string(attempt));
+            if (fs::create_directory(candidate)) {
+                base = candidate;
+            }
+        }
+    }
+    catch (const std::exception&) {
+        return {};
+    }
+    if (base.empty()) {
+        return {};
+    }
+    const double along = ductRun(preamble, cleanEnvironment, base, 0);
+    const double across = ductRun(preamble, cleanEnvironment, base, 1);
+    std::error_code ec;
+    fs::remove_all(base, ec);
+    if (!(along > 0.0) || !(across > 0.0)) {
+        return {};  // not seen: not refused
+    }
+    if (!tested.empty()) {
+        fs::create_directories(kept.parent_path(), ec);
+        std::ofstream out(kept, std::ios::app);
+        char values[80];
+        std::snprintf(values, sizeof(values), "%.9g %.9g", along, across);
+        out << tested << '\t' << values << '\n';
+    }
+    return OpenFoam::sameLoss(along, across) ? std::string() : said(along, across);
+}
+
+std::string OpenFoamBackend::faultAt(const std::string& place)
+{
+    const std::string preamble = preambleOf(place);
+    return preamble.empty() ? std::string() : viscousFault(preamble, true);
 }
 
 const OpenFoamInstall& OpenFoamBackend::install()

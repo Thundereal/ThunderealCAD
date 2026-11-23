@@ -1424,6 +1424,24 @@ chased; and the backend tests an install for the fault as it tests for
 a parallel run, and refuses one that has it, saying why. Reporting it
 upstream was not ruled on.
 
+**The check, as built.** `OpenFoam::ductCase(axis)` is the recipe's test
+as a case of ours: a square duct 10 mm across and 100 long, 50 x 10 x 10
+cells, laminar, `simpleFoam`, the pressure probed at two points of its
+axis. `OpenFoamBackend::viscousFault()` runs it along x and along y on
+every OpenFOAM the search finds (about 2 s), and one whose two losses
+differ by more than a hundredth is not used: the search goes on to the
+next place, and with no other the backend is not available and its
+reason says which install was refused and why. What could not be run is
+not refused. The verdict is kept in the user's cache folder
+(`Fluid/openfoam-viscous.txt`) by the stress library's path, size and
+date, so an install is put to it once. `FluidApp.checkOpenFoam(folder)`
+asks it of a folder. Download OpenFOAM now takes `openfoam=2412=*_100`
+from our channel (what it runs on from conda-forge), which is our build
+and no other.
+
+Until that package is on the channel and installed here, this box's
+OpenFOAM is refused and the five tests that run OpenFOAM skip.
+
 ### 14.3 F1 as built, step 1: the fluid's space (2026-11-23)
 
 What a steady flow is to the model, on the App side; no backend runs one

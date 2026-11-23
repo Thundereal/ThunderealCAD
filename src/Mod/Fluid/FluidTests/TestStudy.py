@@ -79,6 +79,59 @@ class TestBackends(unittest.TestCase):
             # it says where it looked
             self.assertIn("OpenFoamPath", foam["Reason"])
 
+    @staticmethod
+    def pretended(folder, along, across):
+        """A folder that passes for an OpenFOAM: its simpleFoam writes what a
+        duct's flow lost, one figure for a duct along x and one for the rest."""
+        os.makedirs(os.path.join(folder, "bin"))
+        os.makedirs(os.path.join(folder, "etc"))
+        with open(os.path.join(folder, "etc", "bashrc"), "w") as out:
+            out.write('export PATH="%s/bin:$PATH"\n' % folder)
+        solver = (
+            "#!/bin/bash\n"
+            "mkdir -p postProcessing/pressure/0\n"
+            "if grep -q 'probeLocations ((0.04 0 0)' system/controlDict; "
+            "then loss=%r; else loss=%r; fi\n"
+            "printf '# Time 0 1\\n1 %%s 0\\n' \"$loss\" > postProcessing/pressure/0/p\n"
+        ) % (along, across)
+        for name, text in (("blockMesh", "#!/bin/bash\nexit 0\n"), ("simpleFoam", solver)):
+            path = os.path.join(folder, "bin", name)
+            with open(path, "w") as out:
+                out.write(text)
+            os.chmod(path, 0o755)
+
+    @unittest.skipIf(os.name == "nt", "the backend drives no OpenFOAM on Windows yet")
+    def test_an_openfoam_is_put_to_the_duct(self):
+        folder = tempfile.mkdtemp()
+        try:
+            wrong = os.path.join(folder, "wrong")
+            self.pretended(wrong, 0.1695, 0.1371)
+            fault = FluidApp.checkOpenFoam(wrong)
+            self.assertIn("computes viscous flow wrongly", fault)
+            self.assertIn("23.6% more pressure laid along x", fault)
+            right = os.path.join(folder, "right")
+            self.pretended(right, 0.13707, 0.13712)
+            self.assertEqual(FluidApp.checkOpenFoam(right), "")
+            # what could not be run is not refused, and nothing is nothing
+            broken = os.path.join(folder, "broken")
+            self.pretended(broken, 0.0, 0.0)
+            self.assertEqual(FluidApp.checkOpenFoam(broken), "")
+            self.assertEqual(FluidApp.checkOpenFoam(os.path.join(folder, "none")), "")
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_a_faulty_openfoam_is_not_used(self):
+        named = os.environ.get("FLUID_OPENFOAM_PATH")
+        if not named or FluidApp.checkOpenFoam(named) == "":
+            self.skipTest("no OpenFOAM with the fault is named on this machine")
+        foam = {b["Name"]: b for b in FluidApp.getBackends()}["OpenFOAM"]
+        if foam["Available"]:
+            # another one was found, and that one is right
+            return
+        self.assertIn("is not used", foam["Reason"])
+        self.assertIn("computes viscous flow wrongly", foam["Reason"])
+        self.assertIn(named, foam["Reason"])
+
     def test_free_fall_is_listed_as_test_data(self):
         backends = {b["Name"]: b for b in FluidApp.getBackends()}
         self.assertIn("FreeFall", backends)

@@ -2,10 +2,12 @@
 
 """OpenFOAM for the fluid workbench, when there is none on this machine
 (docs/FluidSimulation.md sec 13, ruling 4): never shipped with us -- it is
-GPL -- but offered as a download the user starts. On Linux it is
-conda-forge's package, put in a folder of the workbench's own by micromamba
-(or a conda or mamba already here), and mended so that it runs in
-parallel."""
+GPL -- but offered as a download the user starts. On Linux it is a conda
+package, put in a folder of the workbench's own by micromamba (or a conda or
+mamba already here): our own build of conda-forge's recipe
+(Thundereal/openfoam-feedstock, in the realthunder channel), since
+conda-forge's computes viscous flow wrongly (sec 14.2) and the backend
+refuses it; what it runs on comes from conda-forge."""
 
 import glob
 import os
@@ -16,8 +18,9 @@ import FreeCAD as App
 
 translate = App.Qt.translate
 
-PACKAGE = "openfoam=2412"
-CHANNEL = "conda-forge"
+# our build of it and no other: conda-forge's own is numbered below 100
+PACKAGE = "openfoam=2412=*_100"
+CHANNELS = ("realthunder", "conda-forge")
 MICROMAMBA = (
     "https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-{}"
 )
@@ -77,8 +80,9 @@ def installScript(folder=None, tool=None):
             "chmod +x '%s'" % tool,
         ]
     lines += [
-        "echo 'Installing %s from %s into %s'" % (PACKAGE, CHANNEL, folder),
-        "'%s' create -y -p '%s' -c %s --override-channels %s" % (tool, folder, CHANNEL, PACKAGE),
+        "echo 'Installing %s from %s into %s'" % (PACKAGE, " and ".join(CHANNELS), folder),
+        "'%s' create -y -p '%s' %s --override-channels '%s'"
+        % (tool, folder, " ".join("-c " + channel for channel in CHANNELS), PACKAGE),
         "echo DONE",
     ]
     return "\n".join(lines) + "\n"
@@ -112,7 +116,8 @@ def explanation():
         "OpenFOAM is the solver this study runs on. It is free software under the GNU "
         "General Public License, made by OpenCFD and others, and is not part of this "
         "program: it runs as programs of its own.\n\n"
-        "The download takes OpenFOAM v2412 as packaged by conda-forge, about 230 MB to "
+        "The download takes OpenFOAM v2412 as packaged by conda-forge and built again by "
+        "us with its viscous flow put right, about 230 MB to "
         "fetch and 1.1 GB on disk, into\n{}\n"
         "and nothing outside that folder is changed. Deleting the folder removes it.\n\n"
         "It is installed by a conda, mamba or micromamba found on this machine; when "

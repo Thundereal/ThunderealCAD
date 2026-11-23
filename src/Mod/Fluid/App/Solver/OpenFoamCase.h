@@ -47,6 +47,22 @@ struct Case
 // fluid, no space, a resolution that is not positive.
 FluidExport bool makeCase(const Model& model, const CaseOptions& options, Case& made, std::string& why);
 
+// The check an install is put to (docs/FluidSimulation.md sec 14.2): a
+// laminar flow along a square duct 10 mm across and 100 long, laid along
+// one of the model's axes -- 0 x, 1 y, 2 z -- with the pressure probed at
+// two points of its axis 50 mm apart. The flow loses the same pressure
+// whichever axis it is along; conda-forge's build of v2412 loses a quarter
+// more along x.
+FluidExport Case ductCase(int axis);
+
+// What a duct's flow lost between its two probes, from the probes' table
+// (m^2/s^2): its last row. NaN when the table has none.
+FluidExport double ductLoss(const std::string& table);
+
+// Whether two ducts' losses are one flow's: both real and above nothing,
+// and within a hundredth of each other.
+FluidExport bool sameLoss(double first, double second);
+
 // A surface as an ASCII STL, one solid of that name.
 FluidExport std::string stlOf(const Surface& surface, const std::string& name);
 

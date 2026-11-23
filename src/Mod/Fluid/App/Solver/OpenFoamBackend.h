@@ -20,6 +20,9 @@ struct OpenFoamInstall
     std::string version;   // its API number, "2412"
     bool parallel = false;  // its programs can run under MPI
     std::string searched;   // when not found: where was looked, and why not
+    // An install that was found and is not used: where, and what is wrong
+    // with it. Empty when there is none.
+    std::string refused;
 };
 
 // OpenFOAM's interFoam, run as separate programs over a case's files
@@ -50,6 +53,15 @@ public:
     // after refresh().
     static const OpenFoamInstall& install();
     static void refresh();
+    // What is wrong with the way an OpenFOAM made callable by that preamble
+    // computes a viscous flow (docs/FluidSimulation.md sec 14.2): the same
+    // duct run along x and along y, which must lose the same pressure.
+    // Empty when it is right, and when the ducts could not be run -- an
+    // install is not refused for what was not seen.
+    static std::string viscousFault(const std::string& preamble, bool cleanEnvironment);
+    // The same of the OpenFOAM in a folder, or made callable by a file;
+    // empty as well when there is none there.
+    static std::string faultAt(const std::string& place);
     // The folders an install is looked for in, after the preference and the
     // environment: our download's first.
     static std::vector<std::string> usualPlaces();

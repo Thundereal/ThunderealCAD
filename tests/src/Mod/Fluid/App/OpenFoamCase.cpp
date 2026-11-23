@@ -162,6 +162,43 @@ TEST(OpenFoamCase, whatCannotBeACase)
     EXPECT_FALSE(makeCase(model, {}, made, why));
 }
 
+TEST(OpenFoamCase, theDuctAnInstallIsPutTo)
+{
+    const Case alongX = ductCase(0);
+    for (const char* name : {"system/blockMeshDict", "system/controlDict", "system/fvSchemes",
+                             "system/fvSolution", "constant/transportProperties",
+                             "constant/turbulenceProperties", "0/U", "0/p"}) {
+        EXPECT_TRUE(alongX.files.count(name)) << name;
+    }
+    ASSERT_EQ(alongX.steps.size(), 2U);
+    EXPECT_EQ(alongX.steps[0].command, "blockMesh");
+    EXPECT_EQ(alongX.steps[1].command, "simpleFoam");
+    EXPECT_NE(alongX.files.at("0/U").find("value uniform (0.1 0 0);"), std::string::npos);
+    EXPECT_NE(alongX.files.at("system/controlDict").find("probeLocations ((0.04 0 0) (0.09 0 0));"),
+              std::string::npos);
+    EXPECT_NE(alongX.files.at("system/blockMeshDict").find("(0.1 0.005 0.005)"), std::string::npos);
+    // the same duct turned: what was along x is along y, or z
+    const Case alongY = ductCase(1);
+    EXPECT_NE(alongY.files.at("0/U").find("value uniform (0 0.1 0);"), std::string::npos);
+    EXPECT_NE(alongY.files.at("system/controlDict").find("probeLocations ((0 0.04 0) (0 0.09 0));"),
+              std::string::npos);
+    EXPECT_NE(alongY.files.at("system/blockMeshDict").find("(0.005 0.1 0.005)"), std::string::npos);
+    const Case alongZ = ductCase(2);
+    EXPECT_NE(alongZ.files.at("0/U").find("value uniform (0 0 0.1);"), std::string::npos);
+    // the stress term the check is of is the one a solver is told to use
+    EXPECT_NE(alongX.files.at("system/fvSchemes").find("div((nuEff*dev2(T(grad(U)))))"),
+              std::string::npos);
+
+    EXPECT_NEAR(ductLoss("# Probe 0 (0.04 0 0)\n# Time 0 1\n1 0.9 0.1\n2 0.24 0.04\n"), 0.2, 1e-15);
+    EXPECT_TRUE(std::isnan(ductLoss("# nothing yet\n")));
+    EXPECT_TRUE(std::isnan(ductLoss("1 0.5\n")));
+    EXPECT_TRUE(sameLoss(0.13707, 0.13712));
+    EXPECT_FALSE(sameLoss(0.1695, 0.1371));
+    EXPECT_FALSE(sameLoss(0.1371, 0.1695));
+    EXPECT_FALSE(sameLoss(0.0, 0.0));
+    EXPECT_FALSE(sameLoss(std::nan(""), 0.1371));
+}
+
 TEST(OpenFoamCase, stlOfASurface)
 {
     Surface s;

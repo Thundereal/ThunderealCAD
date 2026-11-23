@@ -34,6 +34,16 @@ public:
             "after one was installed, or the preference Mod/Fluid/OpenFoamPath or\n"
             "Mod/Fluid/SplishPath changed."
         );
+        add_varargs_method(
+            "checkOpenFoam",
+            &Module::checkOpenFoam,
+            "checkOpenFoam(folder) -> str\n\n"
+            "What is wrong with the way the OpenFOAM in that folder (or made callable\n"
+            "by that etc/bashrc) computes a viscous flow: the same duct is run along x\n"
+            "and along y, and must lose the same pressure. Empty when it is right, when\n"
+            "there is no OpenFOAM there, and when the ducts could not be run. An\n"
+            "install with the fault is not used by the backend."
+        );
         initialize("The fluid simulation workbench's application module.");
     }
 
@@ -46,6 +56,17 @@ private:
         Solver::OpenFoamBackend::refresh();
         Solver::SplishBackend::refresh();
         return Py::None();
+    }
+
+    Py::Object checkOpenFoam(const Py::Tuple& args)
+    {
+        char* folder = nullptr;
+        if (!PyArg_ParseTuple(args.ptr(), "et", "utf-8", &folder)) {
+            throw Py::Exception();
+        }
+        const std::string place(folder);
+        PyMem_Free(folder);
+        return Py::String(Solver::OpenFoamBackend::faultAt(place));
     }
 
     Py::Object getBackends(const Py::Tuple& args)

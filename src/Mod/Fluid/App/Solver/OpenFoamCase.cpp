@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <sstream>
 
 #include "OpenFoamCase.h"
@@ -104,7 +105,7 @@ std::string snappyHexMeshDict(const Model& model, const Vec3& inside)
            "    nGrow 0;\n    featureAngle 60;\n    nRelaxIter 3;\n"
            "    nSmoothSurfaceNormals 1;\n    nSmoothNormals 3;\n    nSmoothThickness 10;\n"
            "    maxFaceThicknessRatio 0.5;\n    maxThicknessToMedialRatio 0.3;\n"
-           "    minMedianAxisAngle 90;\n    nBufferCellsNoExtrude 0;\n    nLayerIter 50;\n}\n"
+           "    minMedialAxisAngle 90;\n    nBufferCellsNoExtrude 0;\n    nLayerIter 50;\n}\n"
            "meshQualityControls\n{\n    maxNonOrtho 65;\n    maxBoundarySkewness 20;\n"
            "    maxInternalSkewness 4;\n    maxConcave 80;\n    minVol 1e-13;\n"
            "    minTetQuality 1e-15;\n    minArea -1;\n    minTwist 0.02;\n"
@@ -204,6 +205,99 @@ std::string field(const std::string& name,
     return out;
 }
 }  // namespace
+
+Case Fluid::Solver::OpenFoam::ductCase(int axis)
+{
+    // a point of the duct along x, turned to lie along the axis
+    const auto turned = [axis](const Vec3& p) -> Vec3 {
+        switch (axis) {
+            case 1:
+                return {p[2], p[0], p[1]};
+            case 2:
+                return {p[1], p[2], p[0]};
+            default:
+                return p;
+        }
+    };
+    Case made;
+    made.cells = {50, 10, 10};
+    std::ostringstream mesh;
+    mesh << "scale 1;\nvertices\n(\n";
+    for (int i = 0; i < 8; ++i) {
+        const bool x = i == 1 || i == 2 || i == 5 || i == 6;
+        const bool y = i == 2 || i == 3 || i == 6 || i == 7;
+        const bool z = i >= 4;
+        mesh << "    " << vec(turned({x ? 0.1 : 0.0, y ? 0.005 : -0.005, z ? 0.005 : -0.005}))
+             << "\n";
+    }
+    mesh << ");\nblocks\n(\n    hex (0 1 2 3 4 5 6 7) (50 10 10) simpleGrading (1 1 1)\n);\n"
+            "edges ();\nboundary\n(\n"
+            "    inlet { type patch; faces ((0 4 7 3)); }\n"
+            "    outlet { type patch; faces ((1 2 6 5)); }\n"
+            "    wall { type wall; faces ((0 1 5 4) (3 7 6 2) (0 3 2 1) (4 5 6 7)); }\n);\n";
+    auto& files = made.files;
+    files["system/blockMeshDict"] = dictionary("blockMeshDict", mesh.str());
+    files["system/controlDict"] = dictionary(
+        "controlDict",
+        "application simpleFoam;\nstartFrom startTime;\nstartTime 0;\nstopAt endTime;\n"
+        "endTime 500;\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval 500;\npurgeWrite 1;\n"
+        "writeFormat ascii;\nwritePrecision 8;\ntimeFormat general;\nrunTimeModifiable no;\n"
+        "functions\n{\n    pressure\n    {\n        type probes;\n        libs (sampling);\n"
+        "        writeControl timeStep;\n        writeInterval 1;\n        fields (p);\n"
+        "        probeLocations ("
+            + vec(turned({0.04, 0.0, 0.0})) + " " + vec(turned({0.09, 0.0, 0.0}))
+            + ");\n    }\n}\n");
+    files["system/fvSchemes"] = dictionary(
+        "fvSchemes",
+        "ddtSchemes { default steadyState; }\ngradSchemes { default Gauss linear; }\n"
+        "divSchemes\n{\n    default none;\n"
+        "    div(phi,U) bounded Gauss linearUpwind grad(U);\n"
+        "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
+        "laplacianSchemes { default Gauss linear corrected; }\n"
+        "interpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n");
+    files["system/fvSolution"] = dictionary(
+        "fvSolution",
+        "solvers\n{\n"
+        "    p { solver PCG; preconditioner DIC; tolerance 1e-9; relTol 0.05; }\n"
+        "    U { solver smoothSolver; smoother symGaussSeidel; tolerance 1e-10; relTol 0.1; }\n"
+        "}\nSIMPLE\n{\n    nNonOrthogonalCorrectors 0;\n    consistent yes;\n"
+        "    residualControl { p 1e-7; U 1e-8; }\n}\n"
+        "relaxationFactors { equations { U 0.9; } }\n");
+    files["constant/transportProperties"] =
+        dictionary("transportProperties", "transportModel Newtonian;\nnu 0.0001;\n");
+    files["constant/turbulenceProperties"] =
+        dictionary("turbulenceProperties", "simulationType laminar;\n");
+    files["0/U"] = header("volVectorField", "U")
+        + "dimensions [0 1 -1 0 0 0 0];\ninternalField uniform (0 0 0);\nboundaryField\n{\n"
+          "    inlet { type fixedValue; value uniform "
+        + vec(turned({0.1, 0.0, 0.0}))
+        + "; }\n    outlet { type zeroGradient; }\n    wall { type noSlip; }\n}\n";
+    files["0/p"] = header("volScalarField", "p")
+        + "dimensions [0 2 -2 0 0 0 0];\ninternalField uniform 0;\nboundaryField\n{\n"
+          "    inlet { type zeroGradient; }\n"
+          "    outlet { type fixedValue; value uniform 0; }\n"
+          "    wall { type zeroGradient; }\n}\n";
+    made.steps.push_back({"blockMesh", "blockMesh"});
+    made.steps.push_back({"simpleFoam", "simpleFoam", true});
+    return made;
+}
+
+double Fluid::Solver::OpenFoam::ductLoss(const std::string& table)
+{
+    const auto rows = readTable(table);
+    if (rows.empty() || rows.back().size() < 3) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    return rows.back()[1] - rows.back()[2];
+}
+
+bool Fluid::Solver::OpenFoam::sameLoss(double first, double second)
+{
+    if (!(first > 0.0) || !(second > 0.0) || !std::isfinite(first) || !std::isfinite(second)) {
+        return false;
+    }
+    return std::abs(first / second - 1.0) <= 0.01;
+}
 
 std::string Fluid::Solver::OpenFoam::stlOf(const Surface& surface, const std::string& name)
 {

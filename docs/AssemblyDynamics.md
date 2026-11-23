@@ -6342,6 +6342,26 @@ Phase D1 is under way (2026-10-28):
     nor in 150 angles 0.37 deg apart (test_torus_on_pin_at_any_angle:
     four of the eleven). The flexible plate's case was not seen to fail
     on Linux; it goes through the same function.
+  - **The flexible torus on the plate, which that did not mend** (the
+    same day; Windows still 49.31 N for a step): on Linux too once the
+    rod is turned 1.0007 turns in place of one, its steps then at other
+    places round it -- 49.56 and 49.64 N for one step each, the second at
+    104.4 deg where Windows had it, 37 such steps in twelve runs each
+    0.07% further. Three things in FlexibleContact::towardsTrue(), the
+    torus touching along its outer equator, a row of its mesh's edges.
+    A point sent back and forth across an edge was left where the step
+    met the edge: there its farthest along the edge now (alongEdge()), as
+    farthestNear() and hullFarthest() had it already. One that came to
+    the edge's end stayed on that vertex, 6 um short, with the farthest
+    on a face round it: on along the edges of the faces about the corner
+    to where the surface's normal is nearest the contact's
+    (`LS::pastCorner()`, `missAt()`), eight corners at most. And a point
+    on its own face was dropped for the step when it gained more than
+    one and a half times what a face stands out of its triangles -- by 1
+    to 8%, the triangle's slope adding to it: three times now. None in
+    40 such runs nor in 120 further apart; the pin's 40 angles as
+    before; test_torus_on_plate_at_any_turn (1.0007, 1.0042 and 1.0238
+    turns: 49.91 to 50.03 N).
   - Numbers: the flexible torus on a flexible pin 46.11 N, 46.02 to 46.28
     (37.91 to 55.39); at 20 deg 46.07 to 46.11 (46.04 to 46.26).
     Every other figure of the four suites as before: the forces to the

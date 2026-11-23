@@ -1221,6 +1221,35 @@ class TestFlexibleBody(unittest.TestCase):
             most=50.5,
         )
 
+    def test_torus_on_plate_at_any_turn(self):
+        """test_torus_on_plate's flexible torus turned a little more than
+        once, its steps then at other places round it: the force as even. By
+        one turn it was (on Linux; 49.31 N for one step at 279.5 deg on
+        Windows); by 1.0007 turns 49.56 and 49.64 N for one step each, by
+        1.0238 turns 49.20, at 37 places in twelve such runs. Three things
+        in FlexibleContact::towardsTrue(), where the torus touches along its
+        outer equator, a row of its mesh's edges: a point sent back and
+        forth across an edge was left where the step met the edge, not at
+        the edge's farthest (alongEdge()); one that came to the edge's end
+        stayed on that vertex with the farthest on a face round it
+        (LocalSurface's pastCorner()); and a point on its own face was
+        dropped for that step when it gained 1 to 8% over one and a half
+        times what a face stands out of its triangles, which the
+        triangle's slope adds to"""
+        for turn in (1.0007, 1.0042, 1.0238):
+            mean = self.roundTurned(
+                "a flexible torus on a plate, %g turns" % turn,
+                55,
+                -10,
+                torus=True,
+                arm=13.0,
+                within=0.005,
+                most=50.5,
+                turns=turn,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+
     def test_torus_on_roller(self):
         """Two curved faces, one of no round (D4b way 1 step 7, the
         catch-all): test_torus_on_plate's rigid torus on a rigid roller R 5
@@ -1708,6 +1737,7 @@ class TestFlexibleBody(unittest.TestCase):
         ring=False,
         inside=False,
         flat=False,
+        turns=1.0,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1740,7 +1770,7 @@ class TestFlexibleBody(unittest.TestCase):
         a hollow face of no round, curved in round the ring and out across
         the tube. pressure: the
         contact's law a pressure over the area (D4b way 2), N/mm^3. Returns
-        the mean force over the turn"""
+        the mean force over the turn. turns: how many turns it is turned by"""
         import CommandCreateContact
 
         # Lying flat, the mount over the torus's hole
@@ -1911,7 +1941,7 @@ class TestFlexibleBody(unittest.TestCase):
         motion.Joint = hinge
         motion.MotionType = "Angular"
         motion.Control = "Position"
-        motion.Formula = "%r*(time/0.1)*(time/0.1)*(3 - 2*time/0.1)" % (2 * math.pi)
+        motion.Formula = "%r*(time/0.1)*(time/0.1)*(3 - 2*time/0.1)" % (2 * math.pi * turns)
         if not rigidRod:
             body = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
             body.MeshSize = 4.0

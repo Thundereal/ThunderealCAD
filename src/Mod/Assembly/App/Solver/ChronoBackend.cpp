@@ -2689,8 +2689,62 @@ public:
         }
         const bool across = LS::dot(way, way) > 0.0;
         const LS::Vec own = v(on.flat);
+        // On from a corner alongEdge() stopped at, along another of the
+        // edges there (LS::pastCorner()): the faces of this solid face about
+        // the corner, by the edges across
+        std::vector<LS::Face> ringFaces;
+        auto past = [&]() {
+            int corner = -1;
+            for (int k = 0; k < 3; ++k) {
+                if (L[static_cast<std::size_t>(k)] > 1.0 - 1e-9) {
+                    corner = k;
+                }
+            }
+            if (corner < 0) {
+                return false;
+            }
+            const auto node = surface->face(faceNow)[static_cast<std::size_t>(corner)];
+            auto cornerIn = [&](std::size_t face) {
+                for (int k = 0; k < 3; ++k) {
+                    if (surface->face(face)[static_cast<std::size_t>(k)] == node) {
+                        return k;
+                    }
+                }
+                return -1;
+            };
+            std::vector<std::size_t> ring {faceNow};
+            for (std::size_t k = 0; k < ring.size() && ring.size() < 24; ++k) {
+                for (int edge = 0; edge < 3; ++edge) {
+                    const std::int64_t next = surface->across(ring[k], edge);
+                    if (next >= 0 && static_cast<std::size_t>(next) < faceTrue.size()
+                        && solidOf(static_cast<std::size_t>(next)) == faceSolid[on.face]
+                        && cornerIn(static_cast<std::size_t>(next)) >= 0
+                        && std::find(ring.begin(), ring.end(), static_cast<std::size_t>(next))
+                            == ring.end()) {
+                        ring.push_back(static_cast<std::size_t>(next));
+                    }
+                }
+            }
+            std::vector<LS::CornerFace> about;
+            ringFaces.resize(ring.size());
+            for (std::size_t k = 0; k < ring.size(); ++k) {
+                trueCorners(ring[k], ringFaces[k]);
+                about.push_back({ringFaces[k], &faceTrue[ring[k]], cornerIn(ring[k])});
+            }
+            const int taken = LS::pastCorner(about,
+                                             v(into),
+                                             false,
+                                             LS::missAt(x, &faceTrue[faceNow], L, v(into)),
+                                             L);
+            if (taken < 0) {
+                return false;
+            }
+            faceNow = ring[static_cast<std::size_t>(taken)];
+            return true;
+        };
         std::int64_t cameFrom = -1;
         bool found = false;
+        int corners = 0;
         for (int more = 0; more < 8; ++more) {
             trueCorners(faceNow, x);
             int leaving = -1;
@@ -2705,7 +2759,24 @@ public:
             const std::int64_t next = surface->across(faceNow, leaving);
             if (next < 0 || next == cameFrom
                 || solidOf(static_cast<std::size_t>(next)) != faceSolid[on.face]) {
-                // At the edge: the face's own, or its farthest along it
+                // At the edge: the face's own, or the one the face beyond
+                // sends it back across -- there its farthest along the
+                // edge, not where the step met it (alongEdge()), as
+                // farthestNear() has it. A torus standing on a plate as a
+                // wheel touches along its outer equator, a row of its
+                // mesh's edges: left where the step met the edge its point
+                // was a micron short now and then, 49.3 N for 50 for one
+                // step
+                if (!across) {
+                    LS::alongEdge(x, &faceTrue[faceNow], v(into), leaving, L, false);
+                    // At the edge's end: on along the next, eight at most
+                    if (corners < 8 && past()) {
+                        ++corners;
+                        more = -1;
+                        cameFrom = -1;
+                        continue;
+                    }
+                }
                 found = true;
                 break;
             }
@@ -2743,8 +2814,16 @@ public:
         // far as a tenth of a face -- a torus's points found up its tube's
         // side, held at the bulge, stayed 15 um short of its bottom and
         // took the force from 50 to 45.5 N
+        // On its own face three times that, not one and a half: what it
+        // gains from the triangle's point is the face's standing out and
+        // the triangle's slope to there, and a point a little up the slope
+        // came out 1 to 8% over one and a half -- left where it was found
+        // for that step, the next under it again: a flexible torus turned
+        // on a plate pressed it 49.3 to 49.6 N for 50 for one step, at 37
+        // places in twelve turns each 0.07% longer than the last, and at
+        // two of the test's own turn by another machine's arithmetic
         const double size = LS::length(LS::add(x[1], x[0], -1.0));
-        const double most = faceNow == on.face ? 1.5 * surface->bulge() : 0.1 * size;
+        const double most = faceNow == on.face ? 3.0 * surface->bulge() : 0.1 * size;
         if (!(ch::Vdot(into, at - on.flat) <= most)) {
             return false;
         }

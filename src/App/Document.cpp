@@ -3278,6 +3278,19 @@ void Document::onBeforeChange(const Property* prop)
     signalBeforeChange(*this, *prop);
 }
 
+void Document::setTransientDir(const std::string& dir)
+{
+    // Where the document's files live is no change of it: a pinned version
+    // (sec 27.22) refuses its properties, and an undo that opens one again
+    // -- a pin brought back -- hands it its Uid only after it is frozen, the
+    // change held till the transaction is applied. The write was refused
+    // there, the refusal swallowed with the held changes, and the version
+    // lived with no directory named: the one made for it was never removed
+    // (docs/WorkerProcess.md sec 50).
+    Base::FlagToggler<> quiet(d->bookkeeping, false);
+    TransientDir.setValue(dir);
+}
+
 void Document::onChanged(const Property* prop)
 {
     signalChanged(*this, *prop);
@@ -3341,7 +3354,7 @@ void Document::onChanged(const Property* prop)
                 // secs 45, 47)
                 const bool renamed = TransDirOld.renameFile(new_dir.c_str());
                 if (renamed)
-                    this->TransientDir.setValue(new_dir);
+                    setTransientDir(new_dir);
                 // Before the log reopens, which may wait on its worker.
                 if (blobWrites)
                     blobWrites.unlock();
@@ -3369,7 +3382,7 @@ void Document::onChanged(const Property* prop)
                 if (!TransDirNew.createDirectories())
                     Base::Console().Warning("Failed to create '%s'\n", new_dir.c_str());
                 else
-                    this->TransientDir.setValue(new_dir);
+                    setTransientDir(new_dir);
             }
         }
         // when reloading an existing document the transient directory doesn't change

@@ -2410,6 +2410,8 @@ protected:
         const std::vector<App::DocumentObject*> &objs = std::vector<App::DocumentObject*>());
 
     std::string getTransientDirectoryName(const std::string& uuid, const std::string& filename) const;
+    /// TransientDir set as bookkeeping, which a pinned version allows
+    void setTransientDir(const std::string& dir);
 
     /** Open a new command Undo/Redo, an UTF-8 name can be specified
      *

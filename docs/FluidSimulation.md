@@ -1322,3 +1322,87 @@ no benchmark):
   process, and the files are the "faces and slices" sec 9 wants kept.
   The reader stays the way to look at a whole volume later (streamlines,
   iso-surfaces), from Python, where it is known to work.
+
+### 14.2 The downloaded OpenFOAM computes viscous flow wrongly (2026-11-23)
+
+Found while trying F1's first validation outside FreeCAD (a laminar pipe,
+scratch `~/.cache/fluid/f1/proto/pipe.py`): **conda-forge's
+`openfoam-2412-h946d6a9_1`, the package S2 runs on and the workbench's
+download installs, has a miscompiled viscous stress term.** Every solver
+that takes its stress from the turbulence library is affected --
+`simpleFoam`, `pimpleFoam`, and `interFoam` with them; `icoFoam`, which
+writes its own Laplacian, is not.
+
+Measured, the same fluid (1000 kg/m^3, 0.1 Pa s) at 0.1 m/s, Re 10, the
+pressure drop over 50 mm of developed flow:
+
+| Case | Solver | Result | Closed form | Off by |
+|---|---|---|---|---|
+| Pipe, 10 mm, along x, snappyHexMesh, 20 cells across | simpleFoam | 200.0 Pa | 160.0 | +25.0% |
+| the same with 3 wall layers | simpleFoam | 200.2 | 160.0 | +25.1% |
+| Square duct, 10 mm, along x, blockMesh 20 x 20 | simpleFoam | 175.1 | 142.3 | +23.1% |
+| the same | pimpleFoam to a steady state | 175.1 | 142.3 | +23.1% |
+| the same | icoFoam to a steady state | 140.9 | 142.3 | -1.0% |
+| the same duct turned along y, and along z | simpleFoam | 140.9 | 142.3 | -1.0% |
+| the duct along x, **the stress term rebuilt and preloaded** | simpleFoam | 140.9 | 142.3 | -1.0% |
+| the pipe along x, 20 across, no layers, term rebuilt | simpleFoam | 160.3 | 160.0 | +0.2% |
+| the pipe, 10 across, no layers, term rebuilt | simpleFoam | 161.8 | 160.0 | +1.1% |
+
+What is known:
+
+- The excess does not move with the mesh, the mesher, wall layers, the
+  solver's settings, the convection scheme, the speed or the viscosity
+  (it is linear in both): it is not an error of resolution.
+- It depends on the direction of the flow in the model's axes: wrong
+  along x, right along y and z. The velocity carries a cell-to-cell
+  checkerboard along x, and the duct's profile differs between its two
+  cross directions in a problem that is symmetric.
+- Asked directly (`repro/h2.C`, a program calling the shipped library's
+  `divDevReff` on a case's velocity): the explicit part of the viscous
+  term, `- div(nuEff dev2(T(grad U)))`, has a wrong x component in 42000
+  of the duct's 80000 cells -- every even cell and 2000 odd ones -- and
+  right y and z components everywhere.
+- The same expression compiled here from the package's own headers, by
+  conda-forge's own gcc 13.3.0-2 with the flags the package records,
+  is right. Built into a 20-line library of the three
+  `linearViscousStress` classes and preloaded (`repro/shim.C`,
+  `LD_PRELOAD`), it gives the right answers above. So a rebuild cures
+  it; why the shipped copy differs is not known. A suspect in the source:
+  `T()` of a temporary tensor field transposes it in its own storage
+  through pointers declared `__restrict__` (`GeometricTensorField.C`,
+  `ListLoopM.H`), which a compiler may turn into anything -- but that it
+  is the cause is not shown.
+- conda-forge has only this version, in two builds of the same day.
+
+What it means for what is built:
+
+- S2's dam break ran with the faulty term. In water it is a millionth of
+  the momentum's other terms, and the validation against Lobovsky and
+  Kleefsman stands as measured; it was not run again with the term
+  rebuilt.
+- F1 cannot be validated, or trusted, on this install as it comes: a
+  pipe along x is a quarter out. Wherever viscosity matters the fault
+  does.
+- With the term right, snappyHexMesh without layers meets F1's 1% on the
+  pipe at 20 cells across the diameter.
+
+Ways out, for the user to rule -- none taken:
+
+1. **A package of our own** (a feedstock in our channel, as for
+   SPlisHSPlasH): OpenFOAM built again, the duct along x against the duct
+   along y as the recipe's test, the parallel link of sec 12.1 mended in
+   it too. The clean one; hours of CI per platform, and a GPL package we
+   publish (source offered by the recipe itself).
+2. **A mend made on the user's machine at download**: a compiler
+   installed beside OpenFOAM (about 0.9 GB), the 20-line library built
+   from the headers the package ships, preloaded for every solver the
+   backend starts. Nothing of ours published; but it covers only the
+   classes we rebuild, and says nothing of other places the same fault
+   may be.
+3. **Reported upstream** (conda-forge's feedstock, and ESI if it is the
+   source's): right to do whichever of the others is taken, not a way
+   out by itself.
+
+Whichever: the backend should test an install for this as it tests for a
+parallel run -- the two ducts take 2 s each -- and refuse, saying why,
+rather than give numbers a quarter out.

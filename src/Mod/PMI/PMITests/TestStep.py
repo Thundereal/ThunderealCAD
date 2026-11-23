@@ -248,8 +248,10 @@ class TestStepImport(Base):
         notes = objects(self.doc, "Note")
         self.assertEqual(len(notes), EXPECTED["notes"])
         for n in notes:
-            self.assertEqual(list(n.Text), [])
             self.assertFalse(n.ImportedGraphic.isNull(), n.Name)
+        # Their words, where the file gives a graphic its 'semantic text' beside
+        # the geometry it is on: two labels', 'A' and 'B'
+        self.assertEqual(sorted(t for n in notes for t in n.Text), ["A", "B"])
         # The graphic of what is read, given again on its own, is no note:
         # CTC-01 gives its three datums' so
         read = [o for o in self.doc.Objects if hasattr(o, "ImportedGraphic") and o not in notes]
@@ -559,6 +561,32 @@ class TestNistSet(Base):
         self.write_and_read(doc)
         self.assertEqual(kinds(self.written), kinds(nist))
         self.assertEqual(len(kinds(nist)), 22)
+        # A file with placeholders says it is of AP242's second edition, where
+        # they are from (dwin, p13: SFA tells off one identified as the first)
+        self.assertIn("442 3 1 4", schema_of(self.written))
+
+    def test_a_notes_words_beside_the_geometry_it_is_on(self):
+        """A graphic linked both to the geometry it is on and to its words (a
+        'semantic text') is read with both: CTC-02's general notes, on the
+        product itself, have their words -- read by the first link alone, they
+        were lost, and with them the note's placeholder, which had nothing to
+        be linked by (dwin, p13: 45 for 46)"""
+        nist = os.path.join(os.environ["FC_PMI_NIST"], "nist_ctc_02_asme1_ap242-e2.stp")
+
+        def placeholders(path):
+            with open(path, errors="replace") as f:
+                return len(re.findall(r"=\s*ANNOTATION_PLACEHOLDER_OCCURRENCE", f.read()))
+
+        doc = self.read(nist)
+        general = [n for n in objects(doc, "Note") if n.Label == "Text.1"]
+        self.assertEqual(len(general), 1)
+        self.assertTrue(general[0].Text[0].startswith("NOTES (UNLESS OTHERWISE SPECIFIED)"))
+        self.assertGreater(len(general[0].Text), 5)
+        self.assertEqual(list(general[0].ImportedPlaceholder), ["note", "Text.1"])
+        again = self.write_and_read(doc)
+        self.assertEqual(placeholders(self.written), placeholders(nist))
+        back = [n for n in objects(again, "Note") if n.Label == "Text.1"]
+        self.assertEqual([list(n.Text) for n in back], [list(general[0].Text)])
 
     def test_the_supplemental_geometry_is_read_with_the_pmi(self):
         """The curves a file's PMI is on (FTC-10's, a thread's rims) are read

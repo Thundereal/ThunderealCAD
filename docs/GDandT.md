@@ -1612,9 +1612,16 @@ Four things decided on that (2026-11-23), and built:
   `draughting_model_item_association_with_placeholder`, its geometric set named by the kind
   (what SFA counts a file's graphics by). OCCT has no class for the placeholder: it is written
   as an entity of parameters (`StepData_UndefinedEntity::SetStepType`), which a draughting
-  callout may now hold. STC-07's 22 kinds and names are NIST's. Not written: the placeholder
-  of a note that is on the product itself and has no words (STC-08's Text.8, FTC-06's Text.6:
-  nothing to define its link by), and of the datum targets that are not read (FTC-06's two).
+  callout may now hold. STC-07's 22 kinds and names are NIST's. A file with placeholders is
+  identified as AP242's second edition (`{ 1 0 10303 442 3 1 4 }`), where they are from: SFA
+  tells off one that says it is the first (pass 13). Not written: the placeholder of the datum
+  targets that are not read (FTC-06's two).
+- **A note's words beside its geometry (pass 13).** A graphic linked both to the geometry it
+  is on and to its words was read by the first link alone, and its words lost: every note of
+  CTC-02, STC-08 and FTC-06 came in with none, the general notes among them -- and a note of
+  no words on the product itself had nothing to link its placeholder by. The reader takes the
+  words from any of the graphic's associations to a 'semantic text'. CTC-01's two labels read
+  'A' and 'B' now.
 
 ### 10.24 P3: SFA on the output (2026-11-22)
 

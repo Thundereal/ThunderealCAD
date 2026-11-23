@@ -5,6 +5,7 @@
 # Nothing is fetched here.
 
 import os
+import platform
 import shutil
 import tempfile
 import unittest
@@ -51,6 +52,9 @@ class TestDownload(unittest.TestCase):
         self.assertIn("micromamba-linux-64", lines[fetch[0]])
         self.assertIn("https://", lines[fetch[0]])
 
+    # The download, and so the mend after it, is Linux's only (supported()),
+    # and os.symlink needs Developer Mode or elevation on Windows.
+    @unittest.skipIf(platform.system() == "Windows", "the OpenFOAM download is for Linux")
     def test_parallel_layer_mended(self):
         folder = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, folder, True)

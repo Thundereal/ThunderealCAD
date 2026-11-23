@@ -6,6 +6,7 @@
 
 import array
 import os
+import platform
 import shutil
 import tempfile
 import time
@@ -71,6 +72,9 @@ class TestBackends(unittest.TestCase):
         self.assertTrue(foam["FreeSurface"])
         if foam["Available"]:
             self.assertTrue(foam["Version"])
+        elif platform.system() == "Windows":
+            # no search there: it says why (OpenFoamBackend.cpp, search())
+            self.assertIn("WSL", foam["Reason"])
         else:
             # it says where it looked
             self.assertIn("OpenFoamPath", foam["Reason"])

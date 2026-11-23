@@ -997,6 +997,42 @@ class TestEdges(Base):
         self.assertEqual(bad.Condition, "Invalid")
         self.assertIn("circular edge", bad.ConditionMessage)
 
+    def test_a_rim_and_an_edge_written_as_splines(self):
+        """A circle and a line a file wrote as B-splines (FTC-10's hole rims,
+        cubic, 1.7e-4 off the circle, the edge's tolerance saying so): what
+        they are, within it -- a distance to them measured, a rim's diameter"""
+        box = Part.makeBox(40, 20, 10)
+
+        def spline(points):
+            curve = Part.BSplineCurve()
+            curve.approximate(Points=points, DegMax=3, Tolerance=1e-4)
+            edge = curve.toShape()
+            edge.fixTolerance(2e-4)
+            return edge
+
+        rim = spline([V(20 + 3 * math.cos(a), 10 + 3 * math.sin(a), 30)
+                      for a in (math.pi * k / 20 for k in range(21))])
+        line = spline([V(4 * k, 0, 25) for k in range(11)])
+        self.assertEqual(rim.Curve.TypeId, "Part::GeomBSplineCurve")
+        part = self.doc.addObject("Part::Feature", "Splined")
+        part.Shape = Part.Compound([box, rim, line])
+        self.doc.recompute()
+        shape = part.Shape
+        rim_at = edge_at(shape, V(23, 10, 30))
+        line_at = edge_at(shape, V(20, 0, 25))
+        bottom = self.add("TolerancedFeature", "Bottom",
+                          References=[(part, [face_at(shape, BOTTOM)])])
+        to_rim = self.add("Dimension", "ToRim", Type="Distance",
+                          Features=[self.element(rim_at, solid=part), bottom])
+        to_line = self.add("Dimension", "ToLine", Type="Distance",
+                           Features=[self.element(line_at, solid=part), bottom])
+        across = self.add("Dimension", "Across", Type="Diameter",
+                          Features=[self.element(rim_at, solid=part)])
+        self.recompute()
+        for dim, value in ((to_rim, 30), (to_line, 25), (across, 6)):
+            self.assertEqual(dim.Condition, "Ok", (dim.Name, dim.ConditionMessage))
+            self.assertAlmostEqual(dim.Nominal.Value, value, 3, dim.Name)
+
     def test_tolerances_on_edges(self):
         edge = self.edge(TOP_FRONT)
         rim = self.edge(RIM)

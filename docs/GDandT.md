@@ -902,7 +902,11 @@ element (ASME Y14.5 5.4.1: straightness of a line on a surface), a hole's rim, a
 what a STEP file names as such (a dimension between two edges, a note on an edge).
 
 - **The geometry** (`Geom::ofElement`): a straight edge is a `Line`, a circular one a `Circle`
-  (centre, axis, radius), a vertex a `Point`; a face is what it was. `sameSurface` compares
+  (centre, axis, radius), a vertex a `Point`; a face is what it was. A line or a circle a file
+  wrote as a B-spline is one, within the edge's own tolerance (`GeomConvert_CurveToAnaCurve`):
+  FTC-07's four distances and FTC-10's 35.0 and 27.5 to hole rims, cubic splines 1.7e-4 off
+  their circles, were invalid ("a distance needs planes, axes or points") and are Ok, the
+  nominal measured as the file gives it (2026-11-23). `sameSurface` compares
   them (a line collinear, a circle of the same centre, axis and radius, a point coincident),
   so an edge is found again **by name, by history or by geometry** as a face is, each among
   its own kind: a face is never taken for an edge. `SavedGeometry` keeps edges and vertices as

@@ -36,6 +36,9 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <GeomAbs_CurveType.hxx>
+#include <GeomAdaptor_Curve.hxx>
+#include <GeomConvert_CurveToAnaCurve.hxx>
+#include <Geom_Curve.hxx>
 #include <GeomAbs_SurfaceType.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Circ.hxx>
@@ -45,12 +48,15 @@
 #include <gp_Pln.hxx>
 #include <gp_Sphere.hxx>
 #include <gp_Torus.hxx>
+#include <Precision.hxx>
 #include <TopAbs_Orientation.hxx>
+#include <TopLoc_Location.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Iterator.hxx>
 
@@ -168,17 +174,42 @@ Primitive Geom::ofEdge(const TopoDS_Shape& shape)
         || BRep_Tool::Degenerated(TopoDS::Edge(shape))) {
         return res;
     }
-    BRepAdaptor_Curve curve(TopoDS::Edge(shape));
-    switch (curve.GetType()) {
+    const TopoDS_Edge& edge = TopoDS::Edge(shape);
+    BRepAdaptor_Curve curve(edge);
+    GeomAdaptor_Curve analytic;
+    const Adaptor3d_Curve* use = &curve;
+    GeomAbs_CurveType type = curve.GetType();
+    if (type == GeomAbs_BSplineCurve || type == GeomAbs_BezierCurve) {
+        // A line or a circle written as a spline (FTC-10's hole rims): what
+        // it is, within the edge's own tolerance
+        TopLoc_Location loc;
+        double first = 0, last = 0;
+        Handle(Geom_Curve) spline = BRep_Tool::Curve(edge, loc, first, last);
+        Handle(Geom_Curve) conv;
+        double from = 0, to = 0;
+        double tol = std::max(BRep_Tool::Tolerance(edge), Precision::Confusion());
+        if (!spline.IsNull()
+            && GeomConvert_CurveToAnaCurve(spline).ConvertToAnalytical(tol, conv, first, last,
+                                                                       from, to)
+            && !conv.IsNull()) {
+            if (!loc.IsIdentity()) {
+                conv = Handle(Geom_Curve)::DownCast(conv->Transformed(loc.Transformation()));
+            }
+            analytic.Load(conv, from, to);
+            use = &analytic;
+            type = analytic.GetType();
+        }
+    }
+    switch (type) {
         case GeomAbs_Line: {
-            gp_Lin line = curve.Line();
+            gp_Lin line = use->Line();
             res.type = Primitive::Line;
-            res.loc = curve.Value(curve.FirstParameter());
+            res.loc = use->Value(use->FirstParameter());
             res.dir = line.Direction();
             break;
         }
         case GeomAbs_Circle: {
-            gp_Circ circ = curve.Circle();
+            gp_Circ circ = use->Circle();
             res.type = Primitive::Circle;
             res.loc = circ.Location();
             res.dir = circ.Axis().Direction();

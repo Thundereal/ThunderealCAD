@@ -1274,3 +1274,51 @@ then OpenFOAM first and SPlisHSPlasH second, Chrono FSI-SPH after; the
 three installs are allowed; the module is `Mod/Fluid`. 4: OpenFOAM is
 never bundled -- the workbench searches for an install and, finding
 none, offers to download one.
+
+## 14. The steady-flow track
+
+Secs 5 and 6 as written on 2026-11-03, built after the free-surface
+track on what that track left: the module, the neutral model, the
+backend interface, the OpenFOAM launcher and its download, kept results.
+
+### 14.1 F0 measured (2026-11-23)
+
+Most of F0 was settled by S0 and S2 (secs 12.1, 12.4). What was left,
+measured on this box with the install S2 uses (scratch
+`~/.cache/fluid/f0`, `run.sh` and `read.py`; other sessions running, so
+no benchmark):
+
+| Case | Cells | Solver | Ran to | Wall time | Memory | On disk |
+|---|---|---|---|---|---|---|
+| Lid-driven cavity (tutorial) | 400 | icoFoam, 1 core | 0.5 s, 100 steps | 0.08 s | 47 MB | 0.5 MB |
+| pitzDaily (tutorial, k-epsilon) | 12225 | simpleFoam, 1 core | converged, 281 iterations | 3.7 s | 132 MB | 7.5 MB |
+| the same | 12225 | simpleFoam, 4 processes (scotch) | converged, 288 iterations | 2.2 s | 153 MB | 13 MB |
+
+- **Which OpenFOAM** (sec 9's first question): ESI's, v2412, the
+  conda-forge package -- what S2 runs and what the workbench's download
+  installs. Its solvers keep their names (`simpleFoam`, `pimpleFoam`,
+  `buoyantSimpleFoam`, all present), so the case writers of F1 to F4 are
+  written for those; the Foundation's `foamRun` modules are not a target.
+- **Parallel** works after sec 12.1's link, serial and 4 processes giving
+  the same flow (the pressure's range on the lower wall -8.21 to 12.16
+  against -8.14 to 12.27, each stopped by its own residuals). A case this
+  small gains little; the study decides the process count from the cell
+  count, as S2 does.
+- **The launcher**: the one S2 built (the install's `etc/bashrc` in a
+  shell, the steps as processes). Linux only still; Windows through WSL
+  and macOS through a container remain as sec 12.4 left them, since
+  neither can be tried from this box's Linux side.
+- **VTK's reader in FreeCAD's process**: `vtkOpenFOAMReader` (VTK 9.6.2,
+  through the Python modules FreeCADCmd already loads) read all three
+  cases as they stand, the reconstructed parallel one too: the internal
+  mesh and every patch as blocks, each with its fields (`U`, `p`, and
+  `k`, `epsilon`, `nut`), 0.01 s for the cavity and 0.06 s for pitzDaily.
+- **How F1 reads results, decided here**: not through that reader.
+  `Mod/Fluid`'s C++ links no VTK, and S2 already has OpenFOAM write what
+  the view draws (the free surface, by a `surfaces` function object) as
+  legacy VTK files our own small parser reads. F1 asks the same function
+  object for each patch's fields and for the cut planes, and reads them
+  the same way: no new dependency, nothing of the volume read into our
+  process, and the files are the "faces and slices" sec 9 wants kept.
+  The reader stays the way to look at a whole volume later (streamlines,
+  iso-surfaces), from Python, where it is known to work.

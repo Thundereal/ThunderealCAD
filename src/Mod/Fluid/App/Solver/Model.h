@@ -91,6 +91,23 @@ struct Inlet
     double end = 0.0;    // s; not after start: to the run's end
 };
 
+// A flat face the fluid leaves through, held at one pressure.
+struct Outlet
+{
+    std::string source;
+    Surface surface;        // the face, open: its triangles
+    double pressure = 0.0;  // Pa, over the surroundings'
+};
+
+// What kind of flow the model is of.
+enum class Analysis
+{
+    FreeSurface,  // a liquid under the air, from how it stands at the start,
+                  // through time
+    Steady,       // one fluid filling the closed space inside the walls, in
+                  // at its inlets and out at its outlets, as it settles to
+};
+
 // The box nothing leaves. A side that is open lets the fluid out, and it is
 // gone; the order is -x, +x, -y, +y, -z, +z.
 struct Space
@@ -125,6 +142,15 @@ struct Model
     std::vector<Wall> walls;
     std::vector<FluidVolume> fluids;
     std::vector<Inlet> inlets;
+    Analysis analysis = Analysis::FreeSurface;
+    // Of a steady flow only, what follows to the space.
+    std::vector<Outlet> outlets;
+    // The space the fluid fills, closed, its triangles wound outwards. Its
+    // patches say what each triangle is: 0 a wall, 1 + i the model's inlet
+    // i, 1 + the count of inlets + j its outlet j.
+    Surface domain;
+    // How many steps the flow is given to settle in, at most.
+    int iterations = 2000;
     Space space;
     Vec3 gravity {0.0, 0.0, -9.80665};  // m/s^2
     double timeEnd = 1.0;               // s
@@ -159,6 +185,13 @@ FluidExport bool liquidOf(const Model& model, Material& liquid);
 // widest angle between a triangle and that plane. false for a face of no
 // area.
 FluidExport bool faceOf(const Inlet& inlet, double& area, Vec3& middle, double& slant);
+
+// What a closed surface wound outwards holds, m^3.
+FluidExport double volumeOf(const Surface& surface);
+
+// The area of each patch of a surface, m^2: count of them, a triangle whose
+// patch is none of them left out. A surface without patches is all patch 0.
+FluidExport std::vector<double> patchAreas(const Surface& surface, std::size_t count);
 
 // The box of a surface's points: false when it has none.
 FluidExport bool boxOf(const Surface& surface, Vec3& min, Vec3& max);

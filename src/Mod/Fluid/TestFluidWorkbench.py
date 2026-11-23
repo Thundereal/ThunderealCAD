@@ -1,6 +1,13 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-from FluidTests.TestStudy import TestBackends, TestBodies, TestInlets, TestStudy, TestResults
+from FluidTests.TestStudy import (
+    TestBackends,
+    TestBodies,
+    TestInlets,
+    TestSteady,
+    TestStudy,
+    TestResults,
+)
 from FluidTests.TestDownload import TestDownload
 from FluidTests.TestOpenFoam import TestOpenFoamDamBreak, TestOpenFoamStillWater
 from FluidTests.TestSplish import (
@@ -30,3 +37,4 @@ True if TestMovedParts else False
 True if TestSplishFloating else False
 True if TestInlets else False
 True if TestSplishJet else False
+True if TestSteady else False

@@ -308,6 +308,57 @@ TEST(FluidModel, inletsAndForces)
     EXPECT_NE(signature(changed), forced);
 }
 
+TEST(FluidModel, aSteadyFlowsParts)
+{
+    const Model model = blockModel();
+    const auto base = signature(model);
+    // a model of a free surface is told from the same one as a steady flow
+    Model steady = model;
+    steady.analysis = Analysis::Steady;
+    const auto first = signature(steady);
+    EXPECT_NE(base, first);
+    Model other = steady;
+    other.iterations = 100;
+    EXPECT_NE(first, signature(other));
+    other = steady;
+    other.outlets.push_back({"Outlet", {}, 0.0});
+    const auto withOutlet = signature(other);
+    EXPECT_NE(first, withOutlet);
+    other.outlets[0].pressure = 10.0;
+    EXPECT_NE(withOutlet, signature(other));
+    other = steady;
+    other.domain = model.fluids[0].surface;
+    const auto withDomain = signature(other);
+    EXPECT_NE(first, withDomain);
+    other.domain.patches.assign(other.domain.triangles.size(), 0);
+    other.domain.patches[0] = 1;
+    EXPECT_NE(withDomain, signature(other));
+    // and none of it tells in a free surface's
+    other = model;
+    other.iterations = 100;
+    other.outlets.push_back({"Outlet", {}, 0.0});
+    EXPECT_EQ(base, signature(other));
+
+    // the block of the model is 0.2 x 0.1 x 0.3 m
+    const Surface& block = model.fluids[0].surface;
+    Vec3 low {};
+    Vec3 high {};
+    ASSERT_TRUE(boxOf(block, low, high));
+    const Vec3 size {high[0] - low[0], high[1] - low[1], high[2] - low[2]};
+    EXPECT_NEAR(volumeOf(block), size[0] * size[1] * size[2], 1e-15);
+    Surface patched = block;
+    patched.patches.assign(patched.triangles.size(), 0);
+    patched.patches[0] = 2;
+    const auto areas = patchAreas(patched, 3);
+    ASSERT_EQ(areas.size(), 3U);
+    const double all = 2.0 * (size[0] * size[1] + size[1] * size[2] + size[0] * size[2]);
+    EXPECT_NEAR(areas[0] + areas[2], all, 1e-15);
+    EXPECT_EQ(areas[1], 0.0);
+    EXPECT_GT(areas[2], 0.0);
+    // without patches it is all the first
+    EXPECT_NEAR(patchAreas(block, 2)[0], all, 1e-15);
+}
+
 TEST(FluidRegistry, addFindRemoveSelect)
 {
     auto& registry = Registry::instance();

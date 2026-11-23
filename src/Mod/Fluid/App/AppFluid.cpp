@@ -33,6 +33,7 @@ PyMOD_INIT_FUNC(FluidApp)
     Fluid::FreeBody::init();
     Fluid::Monitor::init();
     Fluid::Inlet::init();
+    Fluid::Outlet::init();
 
     // The backends (docs/FluidSimulation.md sec 11.2), in the order a study
     // that names none tries them: OpenFOAM, the reference (S2); then the

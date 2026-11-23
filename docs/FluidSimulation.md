@@ -1362,16 +1362,48 @@ What is known:
   term, `- div(nuEff dev2(T(grad U)))`, has a wrong x component in 42000
   of the duct's 80000 cells -- every even cell and 2000 odd ones -- and
   right y and z components everywhere.
-- The same expression compiled here from the package's own headers, by
-  conda-forge's own gcc 13.3.0-2 with the flags the package records,
-  is right. Built into a 20-line library of the three
-  `linearViscousStress` classes and preloaded (`repro/shim.C`,
-  `LD_PRELOAD`), it gives the right answers above. So a rebuild cures
-  it; why the shipped copy differs is not known. A suspect in the source:
-  `T()` of a temporary tensor field transposes it in its own storage
-  through pointers declared `__restrict__` (`GeometricTensorField.C`,
-  `ListLoopM.H`), which a compiler may turn into anything -- but that it
-  is the cause is not shown.
+- **The cause** (chased 2026-11-23 on the user's word, `repro/g.C` and
+  `k.C`): OpenFOAM's own source, brought out by conda-forge's flags.
+  `T()` of a temporary tensor field reuses the temporary's storage
+  (`UNARY_FUNCTION(tensor, tensor, T, transform)` in
+  `GeometricTensorField.C`, through `reuseTmpGeometricField`) and
+  transposes it in place, the result and the argument one field. Every
+  list's data pointer is declared `__restrict__` (`UList<T>::v_`, in
+  `UList.H`), and the loops' own pointers again (`List_ACCESS`,
+  `List_CONST_ACCESS` in `ListLoopM.H`): a promise that what one points
+  at is reached through no other, which here it is. gcc may then do
+  anything, and its SLP vectoriser does: in every other cell the
+  transposed zx keeps its old value in place of xz's.
+  The stress term is `dev2(T(fvc::grad(U)))`, a temporary.
+- It shows with `-O2 -ftree-vectorize`, which is what the package was
+  built with: the recipe appends conda's flags after OpenFOAM's own
+  `-O3`, and the last `-O` wins. With those two flags it is wrong by
+  conda-forge's gcc 13.3.0-2 and by Ubuntu's 13.3.0 alike (40000 of
+  80000 cells for `T()` alone, 42000 for the whole term -- the shipped
+  library's count exactly). It is right with `-O2` alone, with
+  OpenFOAM's `-O3` alone, with `-fno-tree-slp-vectorize`, and with
+  `__restrict__` taken off the list's pointer -- off the loops' alone it
+  stays wrong. So a build by OpenFOAM's own rules hides
+  it, and the first note of this section had the rebuild right for the
+  wrong reason: it put `-O3` last.
+- Every in-place operation on a reused temporary whose result's
+  components depend on other components of the input stands on the same
+  promise -- `dev`, `dev2`, `symm`, `inv` and the rest -- whether or not
+  this compiler happens to break them. The mend that covers them all is
+  to take `__restrict__` off the list's pointer and the loops';
+  `-fno-tree-slp-vectorize` only stops this compiler finding it.
+- ESI has not mended it: `UList.H`, `ListLoopM.H`, `tensorField.C` and
+  `GeometricTensorField.C` are the same in v2506 and v2512 (their
+  tarballs, from dl.openfoam.com).
+- **Our package** (ruled 2026-11-23): `Thundereal/openfoam-feedstock`,
+  conda-forge's recipe for v2412 with that patch
+  (`0001-no-restrict-on-list-data.patch`), the parallel link of sec 12.1
+  made in the build, the libraries pinned to those conda-forge's own
+  build was made against, ESI's tarball as the source (the archive
+  address of conda-forge's recipe now asks for a login), and
+  `test/viscous.sh` as the recipe's test: the same duct along x, y and
+  z, serial and under MPI, the three within 1% -- 3 s, and on
+  conda-forge's package it says 23.7%.
 - conda-forge has only this version, in two builds of the same day.
 
 What it means for what is built:
@@ -1387,23 +1419,55 @@ What it means for what is built:
 - With the term right, snappyHexMesh without layers meets F1's 1% on the
   pipe at 20 cells across the diameter.
 
-Ways out, for the user to rule -- none taken:
+Ruled 2026-11-23: a package of our own (above), after the cause was
+chased; and the backend tests an install for the fault as it tests for
+a parallel run, and refuses one that has it, saying why. Reporting it
+upstream was not ruled on.
 
-1. **A package of our own** (a feedstock in our channel, as for
-   SPlisHSPlasH): OpenFOAM built again, the duct along x against the duct
-   along y as the recipe's test, the parallel link of sec 12.1 mended in
-   it too. The clean one; hours of CI per platform, and a GPL package we
-   publish (source offered by the recipe itself).
-2. **A mend made on the user's machine at download**: a compiler
-   installed beside OpenFOAM (about 0.9 GB), the 20-line library built
-   from the headers the package ships, preloaded for every solver the
-   backend starts. Nothing of ours published; but it covers only the
-   classes we rebuild, and says nothing of other places the same fault
-   may be.
-3. **Reported upstream** (conda-forge's feedstock, and ESI if it is the
-   source's): right to do whichever of the others is taken, not a way
-   out by itself.
+### 14.3 F1 as built, step 1: the fluid's space (2026-11-23)
 
-Whichever: the backend should test an install for this as it tests for a
-parallel run -- the two ducts take 2 s each -- and refuse, saying why,
-rather than give numbers a quarter out.
+What a steady flow is to the model, on the App side; no backend runs one
+yet (each says so: "cannot run a steady flow"), and there is no command
+for it. Built on S5's inlet rather than on sec 5.2's `Domain` and
+`Boundary` objects: the study already has walls and an inlet that is a
+face of one of them, and a lid is a wall like any other.
+
+- **The study**: `Analysis`, "Free surface" (as every study was) or
+  "Steady flow", and `Iterations` (2000), the steps a steady flow is
+  given to settle in.
+- **`Fluid::Outlet`**, a child of the study: `Face` (one flat face of a
+  part) and `Pressure` (over the surroundings', 0). The inlet is S5's;
+  its times mean nothing to a steady flow. Fluid at the start and parts
+  the fluid moves are errors in a steady study, an outlet in a free
+  surface's.
+- **The space the fluid fills is found, not drawn** (sec 5.2): a box
+  around the walls, the walls cut out of it, and of the solids left the
+  ones that do not reach the box are the closed spaces inside. The one
+  the inlets' and outlets' faces lie on is the fluid's. The openings are
+  closed by parts the user makes -- lids, walls of the study -- and an
+  inlet or an outlet is the lid's face on the fluid's side: the fluid
+  goes out of the solid the face is of, as in S5. An opening without a
+  lid leaves no closed space, and the error says so; faces on two spaces
+  are an error too.
+- **The model** (`Model.h`): `analysis`, `outlets`, `iterations`, and
+  `domain`, the space's closed triangulation with a patch per triangle
+  -- 0 a wall, then each inlet, then each outlet -- by which of the
+  crossed faces a point of the space's face lies on. The model's space
+  is the fluid's box; the resolution left to the study is a twentieth of
+  its smallest side. `volumeOf()` and `patchAreas()` for whoever checks
+  it. The signature takes all of it in a steady model only, so kept
+  results of the studies before stay theirs.
+- **Round faces are cut finer here than a wall's**: flat pieces a
+  hundredth of the resolution off the face (a wall's are a quarter),
+  since a mesh is drawn onto these triangles and a pipe's pressure drop
+  goes with the fourth power of the radius they make. The space is
+  meshed whole and each face's triangles taken from it, so neighbours
+  share their edges' points.
+
+Tests: `TestSteady` (a tube with two lids: the bore's volume and the
+three patches' areas to 0.3%, the resolution, the errors, kept with the
+document), `FluidModel.aSteadyFlowsParts`.
+
+Open: the lids the study could find itself (sec 5.2); an inlet by flow
+rate or pressure; the rest of F1 -- the case for `simpleFoam`, the run,
+the result on faces -- which waits on sec 14.2.

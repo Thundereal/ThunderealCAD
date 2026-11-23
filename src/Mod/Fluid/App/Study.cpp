@@ -5,8 +5,23 @@
 #include <cmath>
 #include <thread>
 
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepGProp.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Tool.hxx>
+#include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
+#include <GeomLib_IsPlanarSurface.hxx>
+#include <Poly_Triangulation.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopTools_ListOfShape.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Face.hxx>
 #include <gp_Mat.hxx>
 
 #include <App/Document.h>
@@ -89,6 +104,114 @@ Solver::MassProps massOf(const Part::TopoShape& shape, double density)
     return mass;
 }
 
+// The closed spaces inside the parts: what is left of a box around them
+// when they are taken out of it, less the piece that reaches the box.
+std::vector<TopoDS_Shape> spacesInside(const std::vector<Part::TopoShape>& parts)
+{
+    Bnd_Box all;
+    TopTools_ListOfShape tools;
+    for (const auto& part : parts) {
+        BRepBndLib::Add(part.getShape(), all);
+        tools.Append(part.getShape());
+    }
+    std::vector<TopoDS_Shape> spaces;
+    if (all.IsVoid()) {
+        return spaces;
+    }
+    double x0 = 0.0, y0 = 0.0, z0 = 0.0, x1 = 0.0, y1 = 0.0, z1 = 0.0;
+    all.Get(x0, y0, z0, x1, y1, z1);
+    const double margin = 0.1 * std::max({x1 - x0, y1 - y0, z1 - z0, 1.0});
+    const gp_Pnt low(x0 - margin, y0 - margin, z0 - margin);
+    const gp_Pnt high(x1 + margin, y1 + margin, z1 + margin);
+    TopTools_ListOfShape arguments;
+    arguments.Append(BRepPrimAPI_MakeBox(low, high).Shape());
+    BRepAlgoAPI_Cut cut;
+    cut.SetArguments(arguments);
+    cut.SetTools(tools);
+    cut.Build();
+    if (!cut.IsDone()) {
+        THROWM(Base::ValueError, "the space inside the walls could not be worked out");
+    }
+    for (TopExp_Explorer each(cut.Shape(), TopAbs_SOLID); each.More(); each.Next()) {
+        Bnd_Box box;
+        BRepBndLib::Add(each.Current(), box);
+        double a0 = 0.0, b0 = 0.0, c0 = 0.0, a1 = 0.0, b1 = 0.0, c1 = 0.0;
+        box.Get(a0, b0, c0, a1, b1, c1);
+        // the piece outside the walls is the one the box bounds
+        const double reach = 0.5 * margin;
+        const bool outside = a0 < low.X() + reach || b0 < low.Y() + reach || c0 < low.Z() + reach
+            || a1 > high.X() - reach || b1 > high.Y() - reach || c1 > high.Z() - reach;
+        if (!outside) {
+            spaces.push_back(each.Current());
+        }
+    }
+    return spaces;
+}
+
+// A face of a space as triangles wound out of the space, mm to m, added to
+// the surface under that patch. The space must be meshed already. Returns
+// a point inside the face, in mm; false when the face has no triangles.
+bool addFace(const TopoDS_Face& face, int patch, Solver::Surface& surface, gp_Pnt& within)
+{
+    TopLoc_Location location;
+    const Handle(Poly_Triangulation) mesh = BRep_Tool::Triangulation(face, location);
+    if (mesh.IsNull() || mesh->NbTriangles() == 0) {
+        return false;
+    }
+    const gp_Trsf placed = location.Transformation();
+    const int first = static_cast<int>(surface.points.size());
+    for (int i = 1; i <= mesh->NbNodes(); ++i) {
+        const gp_Pnt p = mesh->Node(i).Transformed(placed);
+        surface.points.push_back({p.X() * 1.0e-3, p.Y() * 1.0e-3, p.Z() * 1.0e-3});
+    }
+    const bool reversed = face.Orientation() == TopAbs_REVERSED;
+    double largest = -1.0;
+    for (int i = 1; i <= mesh->NbTriangles(); ++i) {
+        int a = 0, b = 0, c = 0;
+        mesh->Triangle(i).Get(a, b, c);
+        if (reversed) {
+            std::swap(b, c);
+        }
+        surface.triangles.push_back({first + a - 1, first + b - 1, first + c - 1});
+        surface.patches.push_back(patch);
+        const gp_Pnt pa = mesh->Node(a).Transformed(placed);
+        const gp_Pnt pb = mesh->Node(b).Transformed(placed);
+        const gp_Pnt pc = mesh->Node(c).Transformed(placed);
+        const double area = gp_Vec(pa, pb).Crossed(gp_Vec(pa, pc)).Magnitude();
+        if (area > largest) {
+            largest = area;
+            within = gp_Pnt((pa.XYZ() + pb.XYZ() + pc.XYZ()) / 3.0);
+        }
+    }
+    return true;
+}
+
+// Which way a flat face looks, from its triangles; false when it has no
+// area or is not flat.
+bool flatOf(const Solver::Surface& surface, Base::Vector3d& out, bool& hasArea)
+{
+    out = Base::Vector3d();
+    for (const auto& t : surface.triangles) {
+        const auto& a = surface.points[static_cast<std::size_t>(t[0])];
+        const auto& b = surface.points[static_cast<std::size_t>(t[1])];
+        const auto& c = surface.points[static_cast<std::size_t>(t[2])];
+        out += (Base::Vector3d(b[0] - a[0], b[1] - a[1], b[2] - a[2]))
+                   .Cross(Base::Vector3d(c[0] - a[0], c[1] - a[1], c[2] - a[2]));
+    }
+    hasArea = out.Length() > 0.0;
+    if (!hasArea) {
+        return false;
+    }
+    out.Normalize();
+    Solver::Inlet probe;
+    probe.surface = surface;
+    probe.direction = {out.x, out.y, out.z};
+    double area = 0.0;
+    double slant = 0.0;
+    Solver::Vec3 middle {};
+    return Solver::faceOf(probe, area, middle, slant) && slant <= 1.0e-3;
+}
+
 const char* statusText(Solver::Status status)
 {
     switch (status) {
@@ -163,12 +286,21 @@ struct Study::Run: public Solver::FrameSink
 
 PROPERTY_SOURCE_WITH_EXTENSIONS(Fluid::Study, App::DocumentObject)
 
+const char* Study::AnalysisEnums[] = {"Free surface", "Steady flow", nullptr};
+
 Study::Study()
 {
     GroupExtension::initExtension(this);
 
     ADD_PROPERTY_TYPE(Walls, (nullptr), "Study", App::Prop_None,
                       "The parts the fluid cannot pass");
+    ADD_PROPERTY_TYPE(Analysis, (0L), "Study", App::Prop_None,
+                      "A liquid under the air, from how it stands at the start; or one "
+                      "fluid filling the closed space inside the walls, from its inlets "
+                      "to its outlets, as it settles to");
+    Analysis.setEnums(AnalysisEnums);
+    ADD_PROPERTY_TYPE(Iterations, (2000), "Study", App::Prop_None,
+                      "A steady flow's: how many steps it is given to settle in, at most");
     ADD_PROPERTY_TYPE(TimeEnd, (1.0), "Study", App::Prop_None, "How long the run is");
     ADD_PROPERTY_TYPE(OutputInterval, (1.0e-2), "Study", App::Prop_None,
                       "The time between the frames the run keeps");
@@ -266,6 +398,30 @@ Solver::Model Study::buildModel() const
         Part::TopoShape face;
     };
     std::vector<Fed> inlets;
+    struct Let
+    {
+        const Outlet* source;
+        Part::TopoShape face;
+    };
+    std::vector<Let> outlets;
+    const bool steady = Analysis.getValue() == 1;
+    model.analysis = steady ? Solver::Analysis::Steady : Solver::Analysis::FreeSurface;
+    model.iterations = static_cast<int>(Iterations.getValue());
+    // The one face a link names, where it stands.
+    const auto faceOf = [](const App::DocumentObject* asker, const App::PropertyLinkSub& link) {
+        auto* owner = link.getValue();
+        const auto& subs = link.getSubValues();
+        if (!owner || subs.size() != 1) {
+            FC_THROWM(Base::ValueError, asker->getFullLabel() << " has no face, or several");
+        }
+        Part::TopoShape face = Part::Feature::getTopoShape(owner, subs.front().c_str(), true);
+        if (face.isNull() || face.countSubShapes("Face") != 1) {
+            FC_THROWM(Base::ValueError,
+                      asker->getFullLabel() << ": " << subs.front() << " of "
+                                            << owner->getFullLabel() << " is not a face");
+        }
+        return face;
+    };
     struct Asked
     {
         const Monitor* source;
@@ -281,6 +437,12 @@ Solver::Model Study::buildModel() const
         }
     }
     for (auto* child : Group.getValues()) {
+        if (steady && (freecad_cast<InitialFluid*>(child) || freecad_cast<FreeBody*>(child))) {
+            FC_THROWM(Base::ValueError,
+                      child->getFullLabel() << " is of a free surface's study: a steady "
+                                               "flow's fluid fills the space inside the "
+                                               "walls, and moves no part");
+        }
         if (auto* fluid = freecad_cast<InitialFluid*>(child)) {
             auto* volume = fluid->Volume.getValue();
             if (!volume) {
@@ -318,17 +480,7 @@ Solver::Model Study::buildModel() const
             space.Add(walls.back().shape.getBoundBox());
         }
         else if (auto* inlet = freecad_cast<Inlet*>(child)) {
-            auto* owner = inlet->Face.getValue();
-            const auto& subs = inlet->Face.getSubValues();
-            if (!owner || subs.size() != 1) {
-                FC_THROWM(Base::ValueError, inlet->getFullLabel() << " has no face, or several");
-            }
-            Part::TopoShape face = Part::Feature::getTopoShape(owner, subs.front().c_str(), true);
-            if (face.isNull() || face.countSubShapes("Face") != 1) {
-                FC_THROWM(Base::ValueError,
-                          inlet->getFullLabel() << ": " << subs.front() << " of "
-                                                << owner->getFullLabel() << " is not a face");
-            }
+            Part::TopoShape face = faceOf(inlet, inlet->Face);
             if (!(inlet->Velocity.getValue() > 0.0)) {
                 FC_THROWM(Base::ValueError,
                           inlet->getFullLabel() << " has no speed: the fluid comes in at "
@@ -336,6 +488,15 @@ Solver::Model Study::buildModel() const
             }
             inlets.push_back({inlet, face});
             space.Add(face.getBoundBox());
+        }
+        else if (auto* outlet = freecad_cast<Outlet*>(child)) {
+            if (!steady) {
+                FC_THROWM(Base::ValueError,
+                          outlet->getFullLabel() << " is of a steady flow's study: a free "
+                                                    "surface's fluid leaves by the open "
+                                                    "sides of its space");
+            }
+            outlets.push_back({outlet, faceOf(outlet, outlet->Face)});
         }
         else if (auto* monitor = freecad_cast<Monitor*>(child)) {
             if (monitor->Kind.getValue() == 2) {
@@ -362,6 +523,118 @@ Solver::Model Study::buildModel() const
                                       monitor->Kind.getValue() == 1 ? Solver::MonitorKind::Pressure
                                                                     : Solver::MonitorKind::Height,
                                       {p.x * 1.0e-3, p.y * 1.0e-3, p.z * 1.0e-3}});
+        }
+    }
+    if (steady) {
+        if (inlets.empty()) {
+            THROWM(Base::ValueError, "a steady flow needs an inlet");
+        }
+        if (outlets.empty()) {
+            THROWM(Base::ValueError, "a steady flow needs an outlet");
+        }
+        // The faces the fluid crosses, the inlets first: a patch each
+        std::vector<std::pair<const App::DocumentObject*, TopoDS_Shape>> crossed;
+        // and each flat: said here, before a round one is looked for among
+        // the space's faces and not found
+        const auto flat = [](const Part::TopoShape& face) {
+            const TopoDS_Face one = TopoDS::Face(face.getSubShape(TopAbs_FACE, 1));
+            return GeomLib_IsPlanarSurface(BRep_Tool::Surface(one), 1.0e-7).IsPlanar();
+        };
+        for (const auto& fed : inlets) {
+            if (!flat(fed.face)) {
+                FC_THROWM(Base::ValueError,
+                          fed.source->getFullLabel() << "'s face is not flat: the fluid comes "
+                                                        "in through a flat face, square to it");
+            }
+            crossed.emplace_back(fed.source, fed.face.getShape());
+        }
+        for (const auto& let : outlets) {
+            if (!flat(let.face)) {
+                FC_THROWM(Base::ValueError,
+                          let.source->getFullLabel() << "'s face is not flat: the fluid "
+                                                        "leaves through a flat face");
+            }
+            crossed.emplace_back(let.source, let.face.getShape());
+        }
+        std::vector<Part::TopoShape> parts;
+        for (const auto& wall : walls) {
+            parts.push_back(wall.shape);
+        }
+        std::vector<TopoDS_Shape> spaces = spacesInside(parts);
+        const auto smallestOf = [](const std::vector<TopoDS_Shape>& shapes) {
+            // the shapes' own box: not padded by their tolerances
+            Bnd_Box box;
+            for (const auto& shape : shapes) {
+                BRepBndLib::AddOptimal(shape, box, false, false);
+            }
+            if (box.IsVoid()) {
+                return 0.0;
+            }
+            double x0 = 0.0, y0 = 0.0, z0 = 0.0, x1 = 0.0, y1 = 0.0, z1 = 0.0;
+            box.Get(x0, y0, z0, x1, y1, z1);
+            return std::min({x1 - x0, y1 - y0, z1 - z0});
+        };
+        // The round faces as flat pieces a hundredth of the resolution off
+        // them: a mesh is drawn onto these, and a pipe's pressure drop goes
+        // with the fourth power of what they make its radius.
+        const auto deflectionOf = [this](double side) {
+            const double asked = Resolution.getValue();
+            return std::max(0.01 * (asked > 0.0 ? asked : side / 20.0), 1.0e-4);
+        };
+        std::vector<int> spaceOf(crossed.size(), -1);
+        for (int pass = 0; pass < 2; ++pass) {
+            const double deflection = deflectionOf(smallestOf(spaces));
+            model.domain = Solver::Surface {};
+            std::ranges::fill(spaceOf, -1);
+            std::vector<Solver::Surface> surfaces(spaces.size());
+            for (std::size_t i = 0; i < spaces.size(); ++i) {
+                BRepTools::Clean(spaces[i]);
+                BRepMesh_IncrementalMesh mesher(spaces[i], deflection, false, 0.2, true);
+                for (TopExp_Explorer each(spaces[i], TopAbs_FACE); each.More(); each.Next()) {
+                    gp_Pnt within;
+                    const std::size_t from = surfaces[i].triangles.size();
+                    if (!addFace(TopoDS::Face(each.Current()), 0, surfaces[i], within)) {
+                        continue;
+                    }
+                    const TopoDS_Vertex probe = BRepBuilderAPI_MakeVertex(within);
+                    for (std::size_t k = 0; k < crossed.size(); ++k) {
+                        BRepExtrema_DistShapeShape gap(probe, crossed[k].second);
+                        if (gap.IsDone() && gap.Value() < 1.0e-6) {
+                            for (std::size_t t = from; t < surfaces[i].triangles.size(); ++t) {
+                                surfaces[i].patches[t] = static_cast<int>(k) + 1;
+                            }
+                            spaceOf[k] = static_cast<int>(i);
+                            break;
+                        }
+                    }
+                }
+            }
+            for (std::size_t k = 0; k < crossed.size(); ++k) {
+                if (spaceOf[k] < 0) {
+                    FC_THROWM(Base::ValueError,
+                              crossed[k].first->getFullLabel()
+                                  << "'s face does not open onto a closed space inside the "
+                                     "walls: an opening without a lid, or a gap, lets the "
+                                     "space out");
+                }
+                if (spaceOf[k] != spaceOf[0]) {
+                    FC_THROWM(Base::ValueError,
+                              crossed[0].first->getFullLabel()
+                                  << " and " << crossed[k].first->getFullLabel()
+                                  << " do not open onto the same space");
+                }
+            }
+            const auto which = static_cast<std::size_t>(spaceOf[0]);
+            model.domain = std::move(surfaces[which]);
+            // The spaces the fluid is not in may be smaller: once they are
+            // out, the pieces are as fine as the fluid's own space asks
+            const std::vector<TopoDS_Shape> filled {spaces[which]};
+            const bool same = deflectionOf(smallestOf(filled)) == deflection;
+            smallest = smallestOf(filled);
+            spaces = filled;
+            if (same) {
+                break;
+            }
         }
     }
     double resolution = Resolution.getValue();  // mm
@@ -434,6 +707,21 @@ Solver::Model Study::buildModel() const
         }
         model.inlets.push_back(inlet);
     }
+    for (const auto& let : outlets) {
+        Solver::Outlet outlet;
+        outlet.source = sourceOf(let.source, getDocument());
+        outlet.surface = surfaceOf(let.face, accuracy);
+        Base::Vector3d out;
+        bool hasArea = false;
+        if (!flatOf(outlet.surface, out, hasArea)) {
+            FC_THROWM(Base::ValueError,
+                      let.source->getFullLabel() << "'s face is not flat: the fluid leaves "
+                                                    "through a flat face");
+        }
+        // kPa, the document's unit
+        outlet.pressure = let.source->Pressure.getValue() * 1.0e3;
+        model.outlets.push_back(outlet);
+    }
     for (const auto& fluid : fluids) {
         model.fluids.push_back(
             {sourceOf(fluid.source, getDocument()), surfaceOf(fluid.shape, accuracy), fluid.material});
@@ -441,6 +729,10 @@ Solver::Model Study::buildModel() const
     if (space.IsValid()) {
         model.space.min = {space.MinX * 1.0e-3, space.MinY * 1.0e-3, space.MinZ * 1.0e-3};
         model.space.max = {space.MaxX * 1.0e-3, space.MaxY * 1.0e-3, space.MaxZ * 1.0e-3};
+    }
+    if (steady) {
+        // the fluid's own box, not the walls'
+        Solver::boxOf(model.domain, model.space.min, model.space.max);
     }
     return model;
 }
@@ -475,6 +767,11 @@ Solver::Status Study::start(std::string& why)
     const auto moved = Solver::freeWalls(run->model);
     if (!moved.empty() && !backend->capabilities().freeBodies) {
         why = backend->label() + " cannot move a part by the fluid";
+        Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
+        return Solver::Status::Unsupported;
+    }
+    if (run->model.analysis == Solver::Analysis::Steady && !backend->capabilities().steady) {
+        why = backend->label() + " cannot run a steady flow";
         Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
         return Solver::Status::Unsupported;
     }
@@ -625,6 +922,18 @@ Monitor::Monitor()
                       "A force: the wall of the study the fluid's force is on");
     ADD_PROPERTY_TYPE(Direction, (Base::Vector3d(0.0, 0.0, 1.0)), "Monitor", App::Prop_None,
                       "A force: the way it is taken along, in the document's coordinates");
+}
+
+// ================================ Outlet ===============================
+
+PROPERTY_SOURCE(Fluid::Outlet, App::DocumentObject)
+
+Outlet::Outlet()
+{
+    ADD_PROPERTY_TYPE(Face, (nullptr), "Outlet", App::Prop_None,
+                      "The flat face the fluid leaves through");
+    ADD_PROPERTY_TYPE(Pressure, (0.0), "Outlet", App::Prop_None,
+                      "The pressure the face is held at, over the surroundings'");
 }
 
 // ================================ Inlet ================================

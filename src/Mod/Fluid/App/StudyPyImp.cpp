@@ -123,6 +123,32 @@ PyObject* StudyPy::buildModel(PyObject* args) const
             open.setItem(side, Py::Boolean(model.space.open[side]));
         }
         ret.setItem("Open", open);
+        const bool steady = model.analysis == Solver::Analysis::Steady;
+        ret.setItem("Analysis", Py::String(steady ? "Steady" : "FreeSurface"));
+        if (steady) {
+            ret.setItem("Iterations", Py::Long(static_cast<long>(model.iterations)));
+            Py::List outlets;
+            for (const auto& let : model.outlets) {
+                Py::Dict outlet;
+                outlet.setItem("Source", Py::String(let.source));
+                outlet.setItem("Pressure", Py::Float(let.pressure));
+                outlet.setItem("Area", Py::Float(Solver::patchAreas(let.surface, 1)[0]));
+                outlets.append(outlet);
+            }
+            ret.setItem("Outlets", outlets);
+            Py::Dict domain;
+            domain.setItem("Triangles",
+                           Py::Long(static_cast<long>(model.domain.triangles.size())));
+            domain.setItem("Volume", Py::Float(Solver::volumeOf(model.domain)));
+            const auto areas =
+                Solver::patchAreas(model.domain, 1 + model.inlets.size() + model.outlets.size());
+            Py::Tuple each(static_cast<int>(areas.size()));
+            for (std::size_t i = 0; i < areas.size(); ++i) {
+                each.setItem(i, Py::Float(areas[i]));
+            }
+            domain.setItem("Areas", each);
+            ret.setItem("Domain", domain);
+        }
         return Py::new_reference_to(ret);
     }
     PY_CATCH

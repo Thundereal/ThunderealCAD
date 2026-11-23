@@ -35,6 +35,12 @@ public:
     /// The parts the fluid cannot pass, each as its shape where it stands
     /// (a Link or a sub-assembly as the shape it shows)
     App::PropertyLinkList Walls;
+    /// What kind of flow the study is of: a liquid under the air from how
+    /// it stands at the start; or one fluid filling the closed space inside
+    /// the walls, from its inlets to its outlets, as it settles to
+    App::PropertyEnumeration Analysis;
+    /// A steady flow's: how many steps it is given to settle in, at most
+    App::PropertyInteger Iterations;
     App::PropertyTime TimeEnd;
     App::PropertyTime OutputInterval;
     /// Gravity, in the document's coordinates, mm/s^2
@@ -83,6 +89,8 @@ public:
     const ArchiveReader* results() const;
     /// Whether the kept results are of another model than the study is now.
     bool isStale() const;
+
+    static const char* AnalysisEnums[];
 
     const char* getViewProviderName() const override
     {
@@ -160,6 +168,25 @@ public:
     /// start is the run's
     App::PropertyTime StartTime;
     App::PropertyTime EndTime;
+
+    const char* getViewProviderName() const override
+    {
+        return "Gui::ViewProviderDocumentObject";
+    }
+};
+
+/// A flat face a steady flow's fluid leaves through (docs/FluidSimulation.md
+/// sec 6 F1), held at one pressure. A child of a Study.
+class FluidExport Outlet: public App::DocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Fluid::Outlet);
+
+public:
+    Outlet();
+
+    App::PropertyLinkSub Face;
+    /// Over the surroundings'
+    App::PropertyPressure Pressure;
 
     const char* getViewProviderName() const override
     {

@@ -30,6 +30,11 @@ class Study(DocumentObject):
         (the way the fluid goes), Speed (m/s), Area (m^2), Middle (m), Start
         and End (s; an End not after the Start is the run's).
         Open: which sides of the space are open, -x, +x, -y, +y, -z, +z.
+        Analysis: FreeSurface or Steady. A steady flow has as well
+        Iterations; Outlets, each Source, Pressure (Pa) and Area (m^2); and
+        Domain, the space the fluid fills: Triangles, Volume (m^3) and
+        Areas (m^2) -- of its walls, then of each inlet, then of each
+        outlet. Its space is the fluid's box.
         """
         ...
 

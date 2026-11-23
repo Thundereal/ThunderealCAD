@@ -387,7 +387,9 @@ class TestBodies(FluidCase):
     def test_a_backend_that_moves_none_says_so(self):
         foam = [b for b in FluidApp.getBackends() if b["Name"] == "OpenFOAM"][0]
         self.assertFalse(foam["FreeBodies"])
-        self.assertTrue([b for b in FluidApp.getBackends() if b["Name"] == "FreeFall"][0]["FreeBodies"])
+        self.assertTrue(
+            [b for b in FluidApp.getBackends() if b["Name"] == "FreeFall"][0]["FreeBodies"]
+        )
         if not foam["Available"]:
             self.skipTest("no OpenFOAM on this machine")
         self.study.Backend = "OpenFOAM"
@@ -574,3 +576,165 @@ class TestInlets(unittest.TestCase):
         self.doc.recompute()
         self.assertEqual(self.study.run(), -2)
         self.assertIn("cannot report the force", self.study.Status)
+
+
+class TestSteady(unittest.TestCase):
+    """A tube along x, 10 mm inside and 14 outside, 100 long, closed at each
+    end by a lid 2 thick: the fluid comes in through the face of the lid at
+    x 0 at 0.1 m/s and leaves through the face of the lid at x 100."""
+
+    def setUp(self):
+        self.doc = App.newDocument("FluidSteady")
+        along = App.Vector(1, 0, 0)
+        tube = Part.makeCylinder(7, 100, App.Vector(0, 0, 0), along).cut(
+            Part.makeCylinder(5, 100, App.Vector(0, 0, 0), along)
+        )
+        self.tube = self.doc.addObject("Part::Feature", "Tube")
+        self.tube.Shape = tube
+        self.first = self.doc.addObject("Part::Feature", "First")
+        self.first.Shape = Part.makeCylinder(7, 2, App.Vector(-2, 0, 0), along)
+        self.last = self.doc.addObject("Part::Feature", "Last")
+        self.last.Shape = Part.makeCylinder(7, 2, App.Vector(100, 0, 0), along)
+        self.study = self.doc.addObject("Fluid::Study", "Study")
+        self.study.Analysis = "Steady flow"
+        self.study.Walls = [self.tube, self.first, self.last]
+        self.inlet = self.doc.addObject("Fluid::Inlet", "Inlet")
+        self.inlet.Face = (self.first, [self.faceAt(self.first, 0)])
+        self.inlet.Velocity = 100
+        self.outlet = self.doc.addObject("Fluid::Outlet", "Outlet")
+        self.outlet.Face = (self.last, [self.faceAt(self.last, 100)])
+        self.study.Group = [self.inlet, self.outlet]
+        self.doc.recompute()
+
+    def tearDown(self):
+        App.closeDocument(self.doc.Name)
+
+    @staticmethod
+    def faceAt(obj, x):
+        """The name of the object's flat face at that x."""
+        for i, face in enumerate(obj.Shape.Faces):
+            box = face.BoundBox
+            if abs(box.XMin - x) < 1e-9 and abs(box.XMax - x) < 1e-9:
+                return "Face%d" % (i + 1)
+        raise AssertionError("no face at x %g" % x)
+
+    def test_a_study_is_of_a_free_surface_unless_told(self):
+        study = self.doc.addObject("Fluid::Study", "Other")
+        self.assertEqual(study.Analysis, "Free surface")
+        self.assertEqual(study.buildModel()["Analysis"], "FreeSurface")
+        self.assertNotIn("Domain", study.buildModel())
+
+    def test_the_fluid_fills_the_space_inside_the_walls(self):
+        model = self.study.buildModel()
+        self.assertEqual(model["Analysis"], "Steady")
+        self.assertEqual(model["Iterations"], 2000)
+        domain = model["Domain"]
+        import math
+
+        # the tube's bore, a cylinder 10 across and 100 long, in SI; the
+        # round is of flat pieces a hundredth of the resolution off it
+        self.assertAlmostEqual(domain["Volume"] / (math.pi * 25e-6 * 0.1), 1.0, delta=3e-3)
+        walls, inlet, outlet = domain["Areas"]
+        self.assertAlmostEqual(inlet / (math.pi * 25e-6), 1.0, delta=3e-3)
+        self.assertAlmostEqual(outlet / (math.pi * 25e-6), 1.0, delta=3e-3)
+        self.assertAlmostEqual(walls / (math.pi * 0.01 * 0.1), 1.0, delta=3e-3)
+        # the space is the fluid's box
+        for got, want in zip(model["SpaceMin"], (0.0, -0.005, -0.005)):
+            self.assertAlmostEqual(got, want, places=9)
+        for got, want in zip(model["SpaceMax"], (0.1, 0.005, 0.005)):
+            self.assertAlmostEqual(got, want, places=9)
+        # a twentieth of its smallest side
+        self.assertAlmostEqual(model["Resolution"], 0.0005, places=12)
+        (fed,) = model["Inlets"]
+        for got, want in zip(fed["Direction"], (1.0, 0.0, 0.0)):
+            self.assertAlmostEqual(got, want, places=12)
+        self.assertAlmostEqual(fed["Speed"], 0.1, places=12)
+        (out,) = model["Outlets"]
+        self.assertEqual(out["Source"], "Outlet")
+        self.assertEqual(out["Pressure"], 0.0)
+        self.assertAlmostEqual(out["Area"] / (math.pi * 49e-6), 1.0, delta=3e-3)
+
+    def test_the_outlets_pressure_is_in_pascal(self):
+        self.outlet.Pressure = "2 kPa"
+        self.assertAlmostEqual(self.study.buildModel()["Outlets"][0]["Pressure"], 2000.0, places=9)
+
+    def test_the_signature_follows_the_outlet_and_the_iterations(self):
+        base = self.study.buildModel()["Signature"]
+        self.assertEqual(base, self.study.buildModel()["Signature"])
+        self.outlet.Pressure = "1 kPa"
+        other = self.study.buildModel()["Signature"]
+        self.assertNotEqual(base, other)
+        self.study.Iterations = 500
+        self.assertNotEqual(other, self.study.buildModel()["Signature"])
+
+    def test_what_a_steady_flow_needs(self):
+        self.study.Group = [self.inlet]
+        with self.assertRaisesRegex(ValueError, "needs an outlet"):
+            self.study.buildModel()
+        self.study.Group = [self.outlet]
+        with self.assertRaisesRegex(ValueError, "needs an inlet"):
+            self.study.buildModel()
+        self.study.Group = [self.inlet, self.outlet]
+        self.outlet.Face = (self.last, ["Edge1"])
+        with self.assertRaisesRegex(ValueError, "is not a face"):
+            self.study.buildModel()
+        self.outlet.Face = None
+        with self.assertRaisesRegex(ValueError, "has no face"):
+            self.study.buildModel()
+        # a round face is no way out
+        self.outlet.Face = (self.tube, [self.roundFace(self.tube, 5)])
+        with self.assertRaisesRegex(ValueError, "is not flat"):
+            self.study.buildModel()
+
+    @staticmethod
+    def roundFace(obj, radius):
+        for i, face in enumerate(obj.Shape.Faces):
+            if (
+                face.Surface.TypeId == "Part::GeomCylinder"
+                and abs(face.Surface.Radius - radius) < 1e-9
+            ):
+                return "Face%d" % (i + 1)
+        raise AssertionError("no round face")
+
+    def test_an_opening_without_a_lid_lets_the_space_out(self):
+        self.study.Walls = [self.tube, self.first]
+        with self.assertRaisesRegex(ValueError, "does not open onto a closed space"):
+            self.study.buildModel()
+
+    def test_fluid_at_the_start_is_of_another_analysis(self):
+        water = box(self.doc, "Water", (10, 10, 10), (0, 0, 0))
+        fluid = self.doc.addObject("Fluid::InitialFluid", "Fluid")
+        fluid.Volume = water
+        self.study.Group = [self.inlet, self.outlet, fluid]
+        with self.assertRaisesRegex(ValueError, "fills the space"):
+            self.study.buildModel()
+
+    def test_two_spaces_are_not_one_flow(self):
+        # a wall across the middle of the bore
+        plug = self.doc.addObject("Part::Feature", "Plug")
+        plug.Shape = Part.makeCylinder(5, 4, App.Vector(48, 0, 0), App.Vector(1, 0, 0))
+        self.study.Walls = [self.tube, self.first, self.last, plug]
+        self.doc.recompute()
+        with self.assertRaisesRegex(ValueError, "do not open onto the same space"):
+            self.study.buildModel()
+
+    def test_no_backend_runs_one_yet(self):
+        for backend in FluidApp.getBackends():
+            self.assertFalse(backend["Steady"], backend["Name"])
+        self.study.Backend = "FreeFall"
+        self.assertEqual(self.study.run(), -2)
+        self.assertIn("cannot run a steady flow", self.study.Status)
+
+    def test_it_is_kept_with_the_document(self):
+        folder = tempfile.mkdtemp()
+        try:
+            path = os.path.join(folder, "steady.FCStd")
+            before = self.study.buildModel()["Signature"]
+            self.doc.saveAs(path)
+            App.closeDocument(self.doc.Name)
+            self.doc = App.openDocument(path)
+            study = self.doc.getObject("Study")
+            self.assertEqual(study.Analysis, "Steady flow")
+            self.assertEqual(study.buildModel()["Signature"], before)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)

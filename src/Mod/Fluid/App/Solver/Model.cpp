@@ -154,6 +154,18 @@ std::uint64_t Fluid::Solver::signature(const Model& model)
             hash.number(inlet.end);
         }
     }
+    // likewise: only a steady flow's
+    if (model.analysis != Analysis::FreeSurface) {
+        hash.integer(static_cast<int>(model.analysis));
+        hash.integer(static_cast<std::int64_t>(model.outlets.size()));
+        for (const auto& outlet : model.outlets) {
+            hash.text(outlet.source);
+            hash.surface(outlet.surface);
+            hash.number(outlet.pressure);
+        }
+        hash.surface(model.domain);
+        hash.integer(model.iterations);
+    }
     hash.vec(model.space.min);
     hash.vec(model.space.max);
     for (bool open : model.space.open) {
@@ -174,6 +186,41 @@ std::uint64_t Fluid::Solver::signature(const Model& model)
         }
     }
     return hash.value;
+}
+
+double Fluid::Solver::volumeOf(const Surface& surface)
+{
+    // a sixth of each triangle's box product with the origin, summed
+    double six = 0.0;
+    for (const auto& t : surface.triangles) {
+        const Vec3& a = surface.points[static_cast<std::size_t>(t[0])];
+        const Vec3& b = surface.points[static_cast<std::size_t>(t[1])];
+        const Vec3& c = surface.points[static_cast<std::size_t>(t[2])];
+        six += a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+            + a[2] * (b[0] * c[1] - b[1] * c[0]);
+    }
+    return six / 6.0;
+}
+
+std::vector<double> Fluid::Solver::patchAreas(const Surface& surface, std::size_t count)
+{
+    std::vector<double> areas(count, 0.0);
+    for (std::size_t i = 0; i < surface.triangles.size(); ++i) {
+        const std::size_t patch =
+            i < surface.patches.size() ? static_cast<std::size_t>(surface.patches[i]) : 0;
+        if (patch >= count) {
+            continue;
+        }
+        const auto& t = surface.triangles[i];
+        const Vec3& a = surface.points[static_cast<std::size_t>(t[0])];
+        const Vec3& b = surface.points[static_cast<std::size_t>(t[1])];
+        const Vec3& c = surface.points[static_cast<std::size_t>(t[2])];
+        const Vec3 u {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const Vec3 v {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+        const Vec3 n {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
+        areas[patch] += 0.5 * std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    }
+    return areas;
 }
 
 std::vector<std::size_t> Fluid::Solver::freeWalls(const Model& model)

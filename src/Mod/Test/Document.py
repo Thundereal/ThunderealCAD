@@ -1555,6 +1555,8 @@ class UndoRedoCases(unittest.TestCase):
         exe = consoleExe()
         if not exe:
             self.skipTest("no FreeCADCmd beside this build")
+        import shutil
+
         script = os.path.join(tempfile.gettempdir(), "FreeCADTestEndedFromAScript.py")
         with open(script, "w") as f:
             f.write(
@@ -1570,6 +1572,7 @@ class UndoRedoCases(unittest.TestCase):
                 "obj.Label = 'changed'\n"
                 "doc.commitTransaction()\n"
                 "doc.recompute()\n"
+                "print('dir', doc.TransientDir, flush=True)\n"
                 "print('before the end', flush=True)\n"
                 "os._exit(0)\n"
             )
@@ -1577,6 +1580,11 @@ class UndoRedoCases(unittest.TestCase):
             done = subprocess.run([exe, script], capture_output=True, timeout=300)
         finally:
             os.remove(script)
+        # What the process left in the cache, ended as it was: a crash's
+        # (docs/WorkerProcess.md sec 50)
+        for line in done.stdout.decode("utf-8", "replace").splitlines():
+            if line.startswith("dir "):
+                shutil.rmtree(line[4:].strip(), ignore_errors=True)
         self.assertIn(b"before the end", done.stdout)
         self.assertEqual(done.returncode, 0)
 
@@ -4127,6 +4135,15 @@ class TransactionBranchCases(unittest.TestCase):
             FreeCAD.closeDocument(asm.Name)
             self.assertNotIn(name, FreeCAD.listDocuments())
             self.assertIn(part.Name, FreeCAD.listDocuments())
+            # Each version took its directory with it: one the undo opened
+            # again had its Uid only once frozen, held till the undo was
+            # applied, and the write naming its directory was refused
+            # (docs/WorkerProcess.md sec 50)
+            cache = FreeCAD.getUserCachePath()
+            own = os.path.basename(part.TransientDir.rstrip("/\\"))
+            left = [n for n in os.listdir(cache)
+                    if part.Uid in n and n.endswith("_%d" % os.getpid()) and n != own]
+            self.assertEqual(left, [])
         finally:
             self.param.SetInt("ClosePinnedVersion", 0)
 
@@ -14322,6 +14339,8 @@ class TransactionTwoProcessCases(unittest.TestCase):
             "doc.commitTransaction()\n"
             "doc.saveToLog('theirs')\n"
             "print('saved', flush=True)\n"
+            # its folder goes with it; os._exit() only skips the save
+            "FreeCAD.closeDocument(doc.Name)\n"
             "import os\n"
             "os._exit(0)",
         )
@@ -15075,8 +15094,11 @@ class XLinkIntoUnsavedCases(unittest.TestCase):
         self.src.saveAs(os.path.join(self.dir, "src", "src.FCStd"))
 
     def tearDown(self):
-        for name in list(FreeCAD.listDocuments()):
-            if name.startswith("XUnsaved"):
+        # And what was opened from the folder by its file: the reopened copy
+        # and the part its link opened, named after their files and left
+        # open past the test (docs/WorkerProcess.md sec 50)
+        for name, doc in list(FreeCAD.listDocuments().items()):
+            if name.startswith("XUnsaved") or (doc.FileName and isUnder(doc.FileName, self.dir)):
                 FreeCAD.closeDocument(name)
 
     def same(self, a, b):

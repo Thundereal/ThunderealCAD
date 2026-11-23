@@ -3464,3 +3464,18 @@ the same save what they may borrow. Skipping it for an unchanged shape is
 a change to the shared storage's design, which sec 22 already declined.
 The 179 shapes the edit changes add about 0.5 s more, and those are new
 shapes that have to be written.
+
+**The worker's time outside its recompute is the view's meshes.** In the
+console a warm run's `Job` is 0.07 to 0.08 s longer than `WorkerSeconds`
+(`~/works/sw/fcad-probes/worker/workersample.py`). In the GUI it is
+0.65 s longer, and the GUI's job carries display hints (sec 14). The same
+GUI probe with `Workers/RecomputeMeshes` off: `Job` 9.26 to 9.29 s against
+`WorkerSeconds` 9.19 to 9.21 s, and `Apply` 1.26 to 1.30 s against 0.63
+to 0.69 s with meshes. So the 0.6 s is meshing the worker takes off the
+main thread, and it stays. Meshing each object as the recompute goes, on
+another thread, would overlap it with the recompute. But it writes
+triangulations into shapes the later features are still reading, which
+sec 20 showed a result can depend on, so it is not done.
+
+What is left of the gap is the move across recomputes made here (1.15 s,
+in the worker) and `Start`'s snapshot (0.6 s, on the main thread).

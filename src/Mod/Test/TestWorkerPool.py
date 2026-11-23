@@ -1131,7 +1131,7 @@ class TestWorkerRecompute(unittest.TestCase):
         allowed (this class allows one)"""
         group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
         group.SetInt("Workers", 2)
-        # The default (5 s) is past what these take: the tests' own
+        # The default (2 s) is past what these save (1.5 s): the tests' own
         group.SetFloat("SplitSeconds", 1.0)
         self.addCleanup(group.RemFloat, "SplitSeconds")
         self.pool.expectedRecompute()  # notes what each takes from now
@@ -1288,13 +1288,13 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertLess(took, 2 * 2.0, info)
 
     def testARecomputeThatSavesLittleIsNotSplit(self):
-        """Below Workers/SplitSeconds -- its default, 5 s, or one set -- or
+        """Below Workers/SplitSeconds -- its default, 2 s, or one set -- or
         with it 0: one worker"""
         base, left, right, tails = self.splitChains()
         group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
-        for value in (None, 2.0, 0.0):
+        for value in (None, 3.0, 0.0):
             if value is None:
-                group.RemFloat("SplitSeconds")  # the default: 5 s
+                group.RemFloat("SplitSeconds")  # the default: 2 s
             else:
                 group.SetFloat("SplitSeconds", value)
             base.Input += 1

@@ -2619,7 +2619,8 @@ take everything (all reads the spreadsheet), which is why the cut is
 looked for along the chain and not only at it.
 
 It is split when that saving is at least `Workers/SplitSeconds` (1.0 s
-then, 5.0 s since 2026-11-22 at the user's word; 0 never splits) and the pool may have two workers. Then two jobs, each
+then, 5.0 s since 2026-11-22 at the user's word, 2.0 s since 2026-11-23,
+sec 59; 0 never splits) and the pool may have two workers. Then two jobs, each
 `objects` its half, the same `touched`, `display`, `numbers` and
 `refused` cut to it; a worker recomputes exactly what it is sent
 (`doc->recompute(objs)`), so the two make their halves of the same
@@ -3797,7 +3798,8 @@ kind of sec 43, open, and the last of four places in `Part012`'s area or
 `Helix`'s volume. `Dimension014` is listed too, and in a recompute here
 against another, but it reads nan every way: nan is not equal to itself.
 
-At the default `SplitSeconds` (5 s) this edit is still not split: 2.3 s
-expected. Left at the user's 5 s.
+At the default `SplitSeconds` then (5 s) this edit was not split: 2.3 s
+expected. **The default is 2 s since** (the user, 2026-11-23, on these
+numbers), and this edit now splits as it is.
 
 TestWorkerPool 79 and Document 363 are OK.

@@ -2535,7 +2535,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     // chain of what it reaches and all after it; the others, the rest
     const double least = GetApplication()
                              .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
-                             ->GetFloat("SplitSeconds", 5.0);
+                             ->GetFloat("SplitSeconds", 2.0);
     double saving = 0;
     std::set<DocumentObject*> joined;
     const std::vector<std::set<DocumentObject*>> parts =

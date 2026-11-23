@@ -286,6 +286,41 @@ int ShapeOwnerTable::addFile(File file)
     return index;
 }
 
+int ShapeOwnerTable::fileOf(const std::string& hash) const
+{
+    auto known = _fileIndex.find(hash);
+    return known == _fileIndex.end() ? 0 : known->second;
+}
+
+std::vector<std::string> ShapeRefSet::borrowedHashes() const
+{
+    std::vector<std::string> hashes;
+    hashes.reserve(_borrowed.size());
+    for (int file : _borrowed) {
+        hashes.push_back(_owners ? _owners->file(file).hash : std::string());
+    }
+    return hashes;
+}
+
+bool ShapeRefSet::rebind(const ShapeOwnerTable* owners, const std::vector<std::string>& hashes)
+{
+    if (!owners || hashes.size() != _borrowed.size()) {
+        return false;
+    }
+    std::vector<int> files;
+    files.reserve(hashes.size());
+    for (const auto& hash : hashes) {
+        const int file = hash.empty() ? 0 : owners->fileOf(hash);
+        if (!file) {
+            return false;
+        }
+        files.push_back(file);
+    }
+    _borrowed = std::move(files);
+    _owners = owners;
+    return true;
+}
+
 const ShapeOwnerTable::File& ShapeOwnerTable::file(int index) const
 {
     static const File none;

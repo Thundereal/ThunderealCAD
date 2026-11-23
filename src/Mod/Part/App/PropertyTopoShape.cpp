@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <atomic>
 # include <charconv>
 # include <memory>
 # include <mutex>
@@ -540,6 +541,11 @@ const ParsedShape* parseBlob(App::FileBlobManager& manager,
  * a closed document's address is reused by the next one, and the stale table
  * then answers with TShape addresses that have since been freed and reissued.
  */
+/// Part.saveAnalysisWork(): shapes walked by a save, and shapes that took the
+/// analysis the last save kept (docs/WorkerProcess.md sec 55)
+std::atomic<long> analysisWalked {0};
+std::atomic<long> analysisKept {0};
+
 ShapeOwnerTable* saveOwnerTable(uint64_t generation)
 {
     static uint64_t built = 0;
@@ -742,24 +748,62 @@ void PropertyPartShape::makeBlob(Base::Writer& writer) const
     // serialization -- walking TShapes and mapping pointers
     // (docs/SharedShapeStorage.md sec 11.7).
     const TopoDS_Shape root = shapeForSave(writer);
-    ShapeRefSet refs;
+    auto made = std::make_shared<ShapeRefSet>();
     // Before build(), which is what fills the geometry tables.
-    TopoShape::applyStorageOptions(refs, true);
-    refs.setOwners(owners);
+    TopoShape::applyStorageOptions(*made, true);
+    made->setOwners(owners);
     // Rides on the same table, and is off wherever that is: a geometry entry
     // names a file, and the table is what says which files there are.
     const bool geometry = owners && App::DocumentParams::getDedupCrossFileGeometry();
-    refs.setGeometrySharing(geometry);
+    made->setGeometrySharing(geometry);
     // Below a face the association *is* the identity of a geometry object, so
     // this is sound only while that object can be named across files: off
     // wherever the geometry is not shared, whatever the setting says.
     // And not an edge or a vertex under a stable write: the lender leaves out
     // the 2D curves its own faces do not use, and the borrower's faces are
     // exactly the ones that use them. A face keeps its own (sec 23.12).
-    const int belowFace = refs.IsStableBytes() ? PartParams::getBorrowBelowFace() & 1
-                                               : PartParams::getBorrowBelowFace();
-    refs.setSubFaceBorrowing(geometry ? belowFace : 0);
-    refs.build(root);
+    const int belowFace = made->IsStableBytes() ? PartParams::getBorrowBelowFace() & 1
+                                                : PartParams::getBorrowBelowFace();
+    made->setSubFaceBorrowing(geometry ? belowFace : 0);
+
+    // The last save's analysis, where nothing it was made of has changed: the
+    // shape, the options, the files it borrowed from, which this save has
+    // written again before it -- the walk was 0.30 s of each snapshot of
+    // scanner with no shape changed (docs/WorkerProcess.md sec 55). Only with
+    // its file still held, so that what is done with it is publish() and
+    // plan(), never a write. It keeps what it borrowed: where an object
+    // before it changed and now holds what it holds, a walk would borrow
+    // that too, which only shares more; the file is the same either way.
+    const std::string options = std::to_string(App::DocumentParams::getDedupShapePCurves())
+        + std::to_string(made->IsStableBytes()) + std::to_string(geometry)
+        + std::to_string(geometry ? belowFace : 0);
+    const bool keeps = owners
+        && App::GetApplication()
+               .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Mod/Part")
+               ->GetBool("KeepSaveAnalysis", true);
+    std::shared_ptr<ShapeRefSet> used;
+    if (keeps && _blob && _analysis && _analysisOptions == options && !root.IsNull()
+            && _analysisFor.IsEqual(root) && _analysis->rebind(owners, _analysisSources)
+            && _analysis->plan() == _blobPlan) {
+        used = _analysis;
+        ++analysisKept;
+    }
+    else {
+        made->build(root);
+        ++analysisWalked;
+        used = made;
+        if (keeps) {
+            _analysis = made;
+            _analysisFor = root;
+            _analysisOptions = options;
+            _analysisSources = made->borrowedHashes();
+        }
+        else {
+            _analysis.reset();
+            _analysisFor.Nullify();
+        }
+    }
+    ShapeRefSet& refs = *used;
     const std::string plan = refs.plan();
 
     // *** A shape that is another file's whole root is not borrowed, it is
@@ -883,6 +927,11 @@ void PropertyPartShape::noteBlob(Base::Writer& writer) const
     blobManager().noteReferenced(_blob, referrer);
 }
 
+std::pair<long, long> PropertyPartShape::saveAnalysisWork()
+{
+    return {analysisWalked.load(), analysisKept.load()};
+}
+
 void PropertyPartShape::dropBlob(const TopoDS_Shape& next)
 {
     // Nor the old shape held for its invariants (sec 38.11).
@@ -890,6 +939,12 @@ void PropertyPartShape::dropBlob(const TopoDS_Shape& next)
         _congruentFor.Nullify();
         _congruentInvariants.reset();
         _congruentMatch = CongruenceIndex::Match();
+    }
+    // And the last save's analysis of it (sec 55 of docs/WorkerProcess.md)
+    if (!_analysisFor.IsNull() && !_analysisFor.IsPartner(next)) {
+        _analysisFor.Nullify();
+        _analysis.reset();
+        _analysisSources.clear();
     }
     if (!_blob)
         return;

@@ -831,6 +831,12 @@ public:
             "this process, never reset: keys, lengths, areas and volumes. A save of\n"
             "shapes that were saved before computes none of them.\n"
         );
+        add_varargs_method("saveAnalysisWork", &Module::saveAnalysisWork,
+            "saveAnalysisWork() -> dict\n"
+            "How many shapes saves in this process walked for what they borrow and\n"
+            "publish (walked), and how many took the last save's analysis instead\n"
+            "(kept), never reset (docs/WorkerProcess.md sec 55).\n"
+        );
         initialize("This is a module working with shapes."); // register with Python
 
         PyModule_AddObject(m_module, "BRepFeat", brepFeat.module().ptr());
@@ -3057,6 +3063,17 @@ private:
         dict.setItem("lengths", Py::Long(static_cast<long>(work.lengths)));
         dict.setItem("areas", Py::Long(static_cast<long>(work.areas)));
         dict.setItem("volumes", Py::Long(static_cast<long>(work.volumes)));
+        return dict;
+    }
+
+    Py::Object saveAnalysisWork(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), ""))
+            throw Py::Exception();
+        const auto work = PropertyPartShape::saveAnalysisWork();
+        Py::Dict dict;
+        dict.setItem("walked", Py::Long(work.first));
+        dict.setItem("kept", Py::Long(work.second));
         return dict;
     }
 

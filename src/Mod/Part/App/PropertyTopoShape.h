@@ -334,6 +334,23 @@ private:
     mutable std::shared_ptr<CongruenceIndex::Invariants> _congruentInvariants;
     /// And the match the last save made for it.
     mutable CongruenceIndex::Match _congruentMatch;
+    /** The last save's analysis of the shape it wrote (ShapeRefSet::build),
+     * for the next save while the shape, the options it was made with and
+     * the files it borrowed from are the same: rebound to that save's owner
+     * table instead of walked again (docs/WorkerProcess.md sec 55). With the
+     * hashes of the files it borrowed from, which the table it was built
+     * against no longer has. Dropped with the shape (dropBlob), as the
+     * invariants above are: it holds its sub-shapes.
+     */
+    mutable std::shared_ptr<ShapeRefSet> _analysis;
+public:
+    /// Shapes saves walked, and shapes that took the analysis kept, in this
+    /// process (Part.saveAnalysisWork())
+    static std::pair<long, long> saveAnalysisWork();
+private:
+    mutable TopoDS_Shape _analysisFor;
+    mutable std::string _analysisOptions;
+    mutable std::vector<std::string> _analysisSources;
     /** Whether this property's file is offered for other files to borrow
      * from (ShapeRefSet::publish). Off for a retained generation
      * (Feature::materializeShapeVersions): it may borrow, but nothing

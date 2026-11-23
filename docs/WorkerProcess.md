@@ -3516,3 +3516,79 @@ is also what keeps a dimension on an edge the user lengthened, which
 matches no saved geometry exactly, so an error there would break the
 ordinary edit. Dimension075 (sec 46) is the other side of it: saved
 geometry that is stale in the file.
+
+## 55. A save keeps the analysis of a shape that has not changed (2026-11-23)
+
+Sec 53 left `Start`'s floor alone: 0.30 s of each snapshot of scanner
+with no shape changed, nearly all of it `ShapeRefSet::build()`, which
+every shape's `makeBlob()` runs in every save. I had called caching it a
+change to the shared storage's design. The user did not see why, and on a
+closer look it is not one: a cache, with a check that it still holds.
+
+What the analysis is for, and why "skip it if the shape is unchanged"
+alone would be wrong:
+
+- It decides what the file borrows from files written before it in the
+  same save (its plan, by their content hashes), and
+- it publishes what the file holds into this save's owner table
+  (`ShapeRefSet::publish()`), which is what lets later files borrow from
+  it. The table is made afresh for each save and numbers its files in save
+  order.
+
+Skipped outright, later files would borrow nothing from it. And a kept
+plan could name a file this save no longer writes.
+
+So each `PropertyPartShape` keeps the last save's `ShapeRefSet`
+(`_analysis`), with the shape it was made of, its options (pcurve dedup,
+stable bytes, geometry sharing, below-face level), and the hashes of the
+files it borrowed from. A save takes it instead of walking when all of
+these hold:
+
+- the shape is the same (location stripped, so a moved object keeps it,
+  as it keeps its file);
+- the options are the same;
+- the property's file is still held, and the plan comes out as the plan
+  that file was written with, so `write()` never runs on a kept set;
+- every file it borrowed from has been written again in this save.
+  `ShapeRefSet::rebind()` finds each one by its hash
+  (`ShapeOwnerTable::fileOf()`) and renumbers `_borrowed`, the only place
+  a set holds owner-table numbers. Everything else names a slot in it, and
+  what `build()` plans with and does not keep (`_prefer`) is not needed
+  afterwards.
+
+Then `publish()` offers the kept set's shapes and geometry to the files
+after it, as a walk would. It is dropped with the shape (`dropBlob`), like
+the congruence invariants of sec 22, so it pins nothing the property does
+not hold. `Mod/Part/KeepSaveAnalysis` (default true) turns it off, and
+`Part.saveAnalysisWork()` counts shapes walked and kept.
+
+A kept set keeps what it borrowed. If an object before it changed and now
+holds what it holds, a walk would borrow that too. That case only shares
+less, and the file is the same either way. On scanner it does not arise:
+see below.
+
+Measured, console (`~/works/sw/fcad-probes/worker/analysiscache.py`):
+
+| snapshot | walked | kept |
+|---|---|---|
+| no shape changed (an unread cell) | 0.30-0.32 s | 0.10-0.11 s |
+| the `hole_radius` edit, 179 shapes changed | 0.76-0.81 s | 0.64-0.78 s |
+
+The first save with it on walks everything (0.30 s), and every later one
+is 0.10 s. After the edit and back, a save with the analyses kept and one
+that walked every shape were compared member by member: all 622 shape
+files are byte-identical. `blobs/History.db` differs (the save history)
+and `blobs/Content.xml` only in that file's hash. The save with kept
+analyses reopens with every one of 405 shapes as the live one, except two
+infinite planes whose "volume" is noise (-5e167 against 0.0). The walked
+save reopens with the same noise.
+
+`ShapeStorage.ShapeRefCases.testAKeptAnalysisWritesWhatAWalkWrites`: a
+borrower beside its source, both unchanged while a third object changes.
+The second save keeps 2 and walks 1 (counted), and its three shape files
+are those of a save that walks all. It reopens with the borrower's solid
+still the source's. `testABorrowerIsRewrittenWhenWhatItBorrowedIsGone`
+covers the other side: the source replaced, the borrower unchanged, so its
+kept set cannot be rebound and it is walked and rewritten. ShapeStorage
+67, FileBlobs 97, Document 363, TestPartApp 446, TestWorkerPool 76 and
+TestTechDrawApp 32 are OK. ctest passes all 1285 that run (11 disabled).

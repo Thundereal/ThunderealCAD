@@ -3167,4 +3167,59 @@ Not done: the folders already left, and those other processes leave when
 killed or crashed. Which of this box's 2.4 GB were workers' is not known:
 a pid no longer says what it was. A document's folder may hold the transaction log a
 recovery reads (`Application::recoverDocument`), so removing those is a
-decision about recovery, not a cleanup. Asked of the user.
+decision about recovery, not a cleanup. Asked of the user; sec 49 is the
+answer.
+
+## 49. The start removes what ended processes left that holds nothing (2026-11-23)
+
+The user's ruling on sec 48: at start, remove the folders of processes
+that no longer run that cannot hold anything to recover. Those are a
+store's reader folders, and document folders that are empty. A document
+folder with anything in it stays, whatever is in it.
+
+`App::CacheSweep::start()`, at the end of `Application::initApplication()`,
+sweeps the user cache on the shared thread pool. It runs for the console
+and the GUI alike, but not in a worker (its env has
+`THUNDEREAL_WORKER_SERVER`): sec 48 removes a worker's folders, and a pool
+starts many workers. `run()` looks at `<exe>_Reader_*` and `<exe>_Doc_*`, and
+takes the pid from the end of the name. It leaves a folder alone if any of
+these holds:
+- the name ends in no pid, or in this process's;
+- the folder was changed after the sweep began, so one a process makes
+  meanwhile is never touched;
+- the process may still run.
+
+A process may run when it is there and its start time is not known: Linux,
+and a Windows process this user may not ask. Pids are reused. Where the
+start time is known (macOS through sysctl, Windows through
+`GetProcessTimes`), a process that started more than a second after the
+folder last changed did not make it. Then a reader folder is removed whole,
+and an empty document folder is removed. The sweep stops at the next
+folder once the application shuts down (`isShuttingDown()`, or Qt's
+`closingDown()`), and logs one line of what it did.
+
+The GUI's start already had a scan of its own (`DocumentRecoveryFinder`,
+in `Gui/DocumentRecovery.cpp`). It offers the recoverable document folders
+of dead sessions and removes the others. It never ran for the console,
+which is what the tests and the workers start, and it does not look at
+reader folders. It is left as it was.
+
+On this box, the first console start after the change took the cache
+from 8091 document and 4771 reader folders, 2.4 GB, to 2800 and 1, 1.9 GB.
+That is 5291 empty document folders and 4770 reader folders removed. The
+two it kept were pid 39432's, a pid a system process had reused (started
+Nov 23, the folders last changed Nov 21). That was before the start-time
+check, which went in for them; the next start removed both ("Removed 1
+reader and 1 empty document folders of ended processes from the cache, 0
+would not go"). Of the 2799 document folders that remain, 2798 hold a
+`history/log.db`, which the GUI's recovery offers. The other holds only a
+`blobs` folder, and the GUI's scan would remove it as not recoverable.
+There are also 13 lock files, which the GUI's scan removes once none of
+their pid's folders are left.
+
+Test `tests/src/App/CacheSweep.cpp` (7 cases) runs `run()` on a folder of
+its own. It covers an ended process's reader and empty document, a
+document with something in it, a running process's folders and this
+process's, a folder changed since the start, other programs' and other
+names, a stopped sweep, and a reused pid. The last case expects the folder
+gone on macOS and kept elsewhere.

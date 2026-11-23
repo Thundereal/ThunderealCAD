@@ -515,7 +515,7 @@ class TestNistSet(Base):
         # One text, as the file has it: its lines broken as the file breaks them
         with open(self.written, errors="replace") as f:
             written = re.sub(r"\s+", "", f.read())
-        self.assertIn("SPECIFIED):\\X2\\000A", written)
+        self.assertIn("SPECIFIED):\\X\\0A", written)
 
     def test_names_whatever_the_locale(self):
         """A graphic's name is ASCII under a locale whose letters include
@@ -587,6 +587,43 @@ class TestNistSet(Base):
         self.assertEqual(placeholders(self.written), placeholders(nist))
         back = [n for n in objects(again, "Note") if n.Label == "Text.1"]
         self.assertEqual([list(n.Text) for n in back], [list(general[0].Text)])
+        # As SFA has it (dwin, p14). A line break in the 8-bit directive, as
+        # NIST's: in UTF-16 the text counts as Unicode. And a file of the
+        # second edition -- one with placeholders -- connects each view's
+        # camera to its draughting model by a model_geometric_view, the lack
+        # of which is a syntax error there
+        with open(self.written, errors="replace") as f:
+            raw = f.read()
+        self.assertIn("\\X\\0A", raw)
+        self.assertNotIn("\\X2\\000A", raw)
+        with open(nist, errors="replace") as f:
+            views = f.read().count("MODEL_GEOMETRIC_VIEW(")
+        text = re.sub(r"\s+", "", raw)
+        ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+        linked = [re.findall(r"#(\d+)", v) for v in ents.values()
+                  if v.startswith("MODEL_GEOMETRIC_VIEW(")]
+        self.assertEqual(len(linked), views)
+        self.assertEqual(len(linked), len(objects(again, "View")))
+        for camera, model in linked:
+            self.assertTrue(ents[camera].startswith("CAMERA_MODEL_D3"), ents[camera][:40])
+            self.assertIn("DRAUGHTING_MODEL", ents[model][:60])
+            self.assertIn("#" + camera, ents[model])
+
+    def test_a_line_break_said_is_no_word(self):
+        """FTC-08 gives its general note's lines as items with one of '/n'
+        between each two: line breaks said, not words of the note (dwin, p14)"""
+        nist = os.path.join(os.environ["FC_PMI_NIST"], "nist_ftc_08_asme1_ap242-e2.stp")
+        doc = self.read(nist)
+        notes = [n for n in objects(doc, "Note") if n.Text]
+        self.assertTrue(notes)
+        self.assertEqual([n.Label for n in notes if "/n" in n.Text], [])
+        general = [n for n in notes if n.Text[0].startswith("NOTES (UNLESS OTHERWISE")]
+        self.assertEqual(len(general), 1)
+        self.assertGreater(len(general[0].Text), 5)
+        self.write_and_read(doc)
+        with open(self.written, errors="replace") as f:
+            self.assertNotIn("/n", "".join(re.findall(
+                r"DESCRIPTIVE_REPRESENTATION_ITEM\('[^']*','([^']*)'\)", f.read())))
 
     def test_the_supplemental_geometry_is_read_with_the_pmi(self):
         """The curves a file's PMI is on (FTC-10's, a thread's rims) are read

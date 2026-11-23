@@ -1481,14 +1481,38 @@ private:
         // Its words, when the file gives them (a semantic text): a line
         // each, and each of its lines
         std::vector<std::string> lines;
+        // A file may give a note's lines as items with one of '/n' between
+        // each two (NIST FTC-08, FTC-11): a line break said, not words
+        bool marked = false;
+        for (int i = 0; i < p.obj->NbDescriptions() && !marked; ++i) {
+            marked = text(p.obj->GetDescription(i)) == "/n";
+        }
+        bool open = false;
         for (int i = 0; i < p.obj->NbDescriptions(); ++i) {
-            std::istringstream words(text(p.obj->GetDescription(i)));
+            std::string item = text(p.obj->GetDescription(i));
+            if (marked && item == "/n") {
+                if (!open) {
+                    lines.emplace_back();
+                }
+                open = false;
+                continue;
+            }
+            std::istringstream words(item);
+            bool first = true;
             for (std::string line; std::getline(words, line);) {
                 if (!line.empty() && line.back() == '\r') {
                     line.pop_back();
                 }
-                lines.push_back(line);
+                // Between two marks, items are one line
+                if (marked && open && first) {
+                    lines.back() += line;
+                }
+                else {
+                    lines.push_back(line);
+                }
+                first = false;
             }
+            open = marked;
         }
         if (!lines.empty()) {
             n->Text.setValues(lines);

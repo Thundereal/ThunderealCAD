@@ -1622,6 +1622,15 @@ Four things decided on that (2026-11-23), and built:
   no words on the product itself had nothing to link its placeholder by. The reader takes the
   words from any of the graphic's associations to a 'semantic text'. CTC-01's two labels read
   'A' and 'B' now.
+- **What the second edition asks (pass 14).** Identified as the second edition, a file is
+  checked by SFA for a `model_geometric_view` connecting each saved view's camera to its
+  draughting model (recommended practice 9.4.2), a syntax error when missing: written, for a
+  file of that edition, as an entity of its four parameters. A note's line break is written
+  in the 8-bit directive, `\X\0A`, as NIST's are -- in UTF-16 SFA counts the text as Unicode;
+  OCCT's writer did not know that directive (only a form `\XHH\` the standard has not) and
+  doubled its backslashes, which is fixed in `StepData_StepWriter::CleanTextForSend`. And a
+  note given as items with one of '/n' between each two (FTC-08, FTC-11) is read with those
+  as its line breaks, not as words.
 
 ### 10.24 P3: SFA on the output (2026-11-22)
 

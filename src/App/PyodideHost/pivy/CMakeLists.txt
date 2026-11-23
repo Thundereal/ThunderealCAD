@@ -110,11 +110,13 @@ target_link_libraries(_coin PRIVATE ${COIN_WASM_LIB})
 set(_wheel_dir ${CMAKE_CURRENT_BINARY_DIR}/dist)
 set(_wheel ${_wheel_dir}/pivy-${PIVY_WHEEL_VERSION}-${PYODIDE_ABI}-${PYODIDE_ABI}-${PYODIDE_PLATFORM}.whl)
 set(_pkg_files ${PIVY_SOURCE_DIR}/pivy/__init__.py ${PIVY_SOURCE_DIR}/pivy/pivy_meta.py)
+# Not a bare `python3`: on Windows that name is the Microsoft Store stub.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_custom_command(
     OUTPUT ${_wheel}
     COMMAND ${CMAKE_COMMAND} -E copy ${_pkg_files} ${_stage}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${_wheel_dir}
-    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../guest/make_wheel.py
+    COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/../guest/make_wheel.py
             --name pivy --version ${PIVY_WHEEL_VERSION} --out ${_wheel_dir}
             --abi ${PYODIDE_ABI} --platform ${PYODIDE_PLATFORM}
             ${_stage}

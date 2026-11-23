@@ -558,8 +558,9 @@ private:
         if (!g.IsNull()) {
             obj->SetPresentation(g, graphicName(c));
         }
+
         // The file's graphic, written again: the kind the file named it
-        if (c->UseImported.getValue() && *c->ImportedGraphicType.getValue()) {
+        if (!g.IsNull() && c->UseImported.getValue() && *c->ImportedGraphicType.getValue()) {
             obj->SetPresentationType(ascii(c->ImportedGraphicType.getValue()));
         }
     }
@@ -618,6 +619,19 @@ private:
         }
         for (auto n : notes) {
             guard(n, [&]() { note(n, ex); });
+        }
+        // Drawn in another's graphic: linked to it as what it presents too
+        // (NIST's 32 radii to one '32X R', a hole's depth to its callout)
+        for (auto o : set->Group.getValues()) {
+            auto c = freecad_cast<Callout*>(o);
+            if (!c || !c->drawnByAnother()) {
+                continue;
+            }
+            auto mine = _labels.find(c);
+            auto host = _labels.find(c->ImportedWith.getValue());
+            if (mine != _labels.end() && host != _labels.end()) {
+                _tool->SetPresentedWith(mine->second, host->second);
+            }
         }
         // Last, once every set is written: a view lists what is written of
         // what it shows, which may be in another set
@@ -876,6 +890,7 @@ private:
             else if (m == "U") {
                 obj->SetZoneModifier(XCAFDimTolObjects_GeomToleranceZoneModif_NonUniform);
                 obj->SetValueOfZoneModifier(gt->UnequalValue.getValue());
+                partly(gt, "its unequally disposed zone (U): OCCT writes none");
             }
             else if (modifier(m, mod)) {
                 obj->AddModifier(mod);

@@ -447,10 +447,8 @@ std::vector<Primitive> Geom::bores(const TopoDS_Shape& solid,
         }
         // Out of the material: a floor's bore runs out of it that way, the
         // part's face a hole goes through runs into it
-        gp_Dir out = BRepAdaptor_Surface(TopoDS::Face(floor)).Plane().Axis().Direction();
-        if (floor.Orientation() == TopAbs_REVERSED) {
-            out.Reverse();
-        }
+        // (ofFace's normal: out of the material, a mirrored solid's too)
+        const gp_Dir& out = plane.dir;
         for (TopExp_Explorer xp(floor, TopAbs_EDGE); xp.More(); xp.Next()) {
             int i = edgeFaces.FindIndex(xp.Current());
             if (i == 0) {

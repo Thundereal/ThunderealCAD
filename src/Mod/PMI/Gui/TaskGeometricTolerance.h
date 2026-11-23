@@ -92,6 +92,12 @@ class TaskDlgGeometricTolerance: public Gui::TaskView::TaskDialog
 public:
     explicit TaskDlgGeometricTolerance(PMI::GeometricTolerance* gt);
 
+    /// The tolerance it edits, or null once that is gone
+    App::DocumentObject* object() const
+    {
+        return _obj.getObject();
+    }
+
     bool accept() override;
     bool reject() override;
     QDialogButtonBox::StandardButtons getStandardButtons() const override

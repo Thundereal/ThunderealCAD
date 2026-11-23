@@ -334,24 +334,6 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
         }
     }
     bool derived = derive(live, why);
-    // The bores its planar faces close, from one copy of the part: each
-    // getTopoShape() is a copy of its own, its faces none of another's
-    _bores.clear();
-    if (!newObjs.empty()) {
-        try {
-            auto whole = Part::Feature::getTopoShape(newObjs.front());
-            std::vector<TopoDS_Shape> floors;
-            for (std::size_t i = 0; i < newObjs.size() && i < newSubs.size(); ++i) {
-                if (newObjs[i] == newObjs.front() && !Data::hasMissingElement(newSubs[i].c_str())) {
-                    floors.push_back(whole.getSubShape(newSubs[i].c_str(), true));
-                }
-            }
-            _bores = Geom::bores(whole.getShape(), floors);
-        }
-        catch (...) {
-        }
-    }
-
     // What it was last resolved to, kept for a broken reference
     SavedGeometry.setValue(Geom::compound(faces));
     if (SavedNames.getValues() != names) {
@@ -384,8 +366,44 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
     return App::DocumentObject::StdReturn;
 }
 
+const std::vector<Primitive>& TolerancedFeature::borePrimitives() const
+{
+    if (_boresFound) {
+        return _bores;
+    }
+    _boresFound = true;
+    _bores.clear();
+    // From one copy of the part: each getTopoShape() is a copy of its own,
+    // its faces none of another's
+    const auto& objs = References.getValues();
+    const auto& subs = References.getSubValues();
+    if (objs.empty() || !objs.front()) {
+        return _bores;
+    }
+    try {
+        auto whole = Part::Feature::getTopoShape(objs.front());
+        std::vector<TopoDS_Shape> floors;
+        for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
+            if (objs[i] != objs.front() || Data::hasMissingElement(subs[i].c_str())) {
+                continue;
+            }
+            TopoDS_Shape face = whole.getSubShape(subs[i].c_str(), true);
+            if (!face.IsNull()) {
+                floors.push_back(face);
+            }
+        }
+        _bores = Geom::bores(whole.getShape(), floors);
+    }
+    catch (const Base::Exception&) {
+    }
+    catch (const Standard_Failure&) {
+    }
+    return _bores;
+}
+
 bool TolerancedFeature::derive(const std::vector<TopoDS_Shape>& faces, std::string& why)
 {
+    _boresFound = false;
     _faces.clear();
     for (auto& f : faces) {
         _faces.push_back(Geom::ofElement(f));

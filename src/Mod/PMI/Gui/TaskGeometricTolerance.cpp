@@ -125,8 +125,9 @@ TaskGeometricTolerance::TaskGeometricTolerance(GT* gt, QWidget* parent)
 
     _value = new QDoubleSpinBox(this);
     _value->setObjectName(QStringLiteral("value"));
-    _value->setDecimals(4);
-    _value->setRange(0.0, 1000.0);
+    // A file's value whole: 0.0002 in is 0.00508
+    _value->setDecimals(6);
+    _value->setRange(0.0, 1.0e6);
     _value->setSingleStep(0.01);
     _value->setSuffix(QStringLiteral(" mm"));
     form->addRow(tr("Tolerance"), _value);
@@ -167,6 +168,9 @@ TaskGeometricTolerance::TaskGeometricTolerance(GT* gt, QWidget* parent)
         _datumMaterial[i] = new QComboBox(this);
         _datumMaterial[i]->setObjectName(QStringLiteral("%1Material").arg(QLatin1String(names[i])));
         _datumMaterial[i]->addItems({QString(), QStringLiteral("M"), QStringLiteral("L")});
+        // Any a frame may have ("M,BSC", "F", "P"): shown and kept, not only
+        // the two offered
+        _datumMaterial[i]->setEditable(true);
         col->addWidget(_datum[i]);
         col->addWidget(_datumMaterial[i]);
         datums->addLayout(col);
@@ -189,6 +193,8 @@ TaskGeometricTolerance::TaskGeometricTolerance(GT* gt, QWidget* parent)
         if (!_filling) {
             apply();
             offer();
+            // The zone the new characteristic is offered, shown, is the one set
+            apply();
         }
     });
     connect(_zone, qOverload<int>(&QComboBox::currentIndexChanged), this, changed);
@@ -200,7 +206,7 @@ TaskGeometricTolerance::TaskGeometricTolerance(GT* gt, QWidget* parent)
     connect(_projectedLength, qOverload<double>(&QDoubleSpinBox::valueChanged), this, changed);
     for (int i = 0; i < 3; ++i) {
         connect(_datum[i], &QComboBox::currentTextChanged, this, changed);
-        connect(_datumMaterial[i], qOverload<int>(&QComboBox::currentIndexChanged), this, changed);
+        connect(_datumMaterial[i], &QComboBox::currentTextChanged, this, changed);
     }
 }
 
@@ -328,7 +334,15 @@ void TaskGeometricTolerance::apply()
     if (_projected->isChecked()) {
         mods.emplace_back("P");
     }
-    gt->Modifiers.setValues(mods);
+    // Those the panel does not show (U, CZ's kin, a file's) stay as they are
+    for (auto& m : gt->Modifiers.getValues()) {
+        if (m != "F" && m != "T" && m != "CZ" && m != "ST" && m != "P") {
+            mods.push_back(m);
+        }
+    }
+    if (mods != gt->Modifiers.getValues()) {
+        gt->Modifiers.setValues(mods);
+    }
     gt->ProjectedLength.setValue(_projected->isChecked() ? _projectedLength->value() : 0.0);
 
     // The frame: one per distinct set of compartments, shared
@@ -350,7 +364,21 @@ void TaskGeometricTolerance::apply()
             drf->recomputeFeature();
         }
     }
-    gt->DatumSystem.setValue(drf);
+    App::DocumentObject* before = gt->DatumSystem.getValue();
+    if (before != drf) {
+        gt->DatumSystem.setValue(drf);
+        // The frame left behind, of no tolerance now (one made for each
+        // letter typed on the way to this one): gone, a cancel brings it back
+        if (before && before->getDocument()) {
+            bool used = false;
+            for (auto in : before->getInList()) {
+                used = used || in->isDerivedFrom<PMI::GeometricTolerance>();
+            }
+            if (!used) {
+                before->getDocument()->removeObject(before->getNameInDocument());
+            }
+        }
+    }
     gt->recomputeFeature();
     report();
 }

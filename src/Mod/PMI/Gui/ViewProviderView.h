@@ -78,6 +78,15 @@ public:
     bool doubleClicked() override;
     void setupContextMenu(QMenu* menu, QObject* receiver, const char* member) override;
     bool onDelete(const std::vector<std::string>& subs) override;
+    /// Removed by any way (an undo of its creation, removeObject, its
+    /// set's deletion), not only Std_Delete: the views it is active in get
+    /// their cameras, clipping and callouts back
+    void beforeDelete() override;
+
+private:
+    void letGo();
+
+public:
     QIcon getIcon() const override;
 
     /// The PMI view active in the view \a doc is looked at through now --

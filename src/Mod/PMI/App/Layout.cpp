@@ -423,7 +423,9 @@ TopoDS_Shape DatumTarget::mark(double h) const
     // side of the centre; \a chord gives each line's ends
     auto hatch = [&](double gap, double reach, auto chord) {
         const double s = std::sqrt(0.5);
-        int n = int(std::ceil(reach / gap));
+        // (a target 1000 long and 0.001 wide is not three million lines)
+        int n = int(std::min(500.0, std::ceil(reach / gap)));
+        gap = reach / std::max(1, n);
         for (int i = -n; i <= n; ++i) {
             double c = i * gap;
             double t0, t1;

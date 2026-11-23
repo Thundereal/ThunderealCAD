@@ -693,7 +693,10 @@ bool ViewProviderCallout::setEdit(int ModNum)
         return ViewProviderDocumentObject::setEdit(ModNum);
     }
     if (auto dlg = Gui::Control().activeDialog()) {
-        if (qobject_cast<TaskDlgGeometricTolerance*>(dlg)) {
+        // Its own panel, still up: shown. Another tolerance's is not this
+        // one's -- the edit is refused, as with any other dialog open
+        auto mine = qobject_cast<TaskDlgGeometricTolerance*>(dlg);
+        if (mine && mine->object() == gt) {
             Gui::Control().showDialog(dlg);
             return true;
         }

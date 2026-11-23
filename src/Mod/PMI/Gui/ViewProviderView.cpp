@@ -496,6 +496,18 @@ QIcon ViewProviderView::getIcon() const
 
 bool ViewProviderView::onDelete(const std::vector<std::string>& subs)
 {
+    letGo();
+    return ViewProviderDocumentObject::onDelete(subs);
+}
+
+void ViewProviderView::beforeDelete()
+{
+    letGo();
+    ViewProviderDocumentObject::beforeDelete();
+}
+
+void ViewProviderView::letGo()
+{
     // Deleted while active: the cameras and the clipping come back first
     auto obj = getObject();
     for (auto mdi : views3D(getDocument())) {
@@ -512,7 +524,6 @@ bool ViewProviderView::onDelete(const std::vector<std::string>& subs)
     for (auto viewer : still) {
         deactivateIn(viewer);
     }
-    return ViewProviderDocumentObject::onDelete(subs);
 }
 
 bool ViewProviderView::doubleClicked()

@@ -25,7 +25,12 @@
 #include "PreCompiled.h"
 
 #include <App/DocumentObjectPy.h>
+#include <typeinfo>
+
+#include <Standard_Failure.hxx>
+
 #include <Base/Console.h>
+#include <Base/Exception.h>
 #include <Base/Interpreter.h>
 #include <Base/PyObjectBase.h>
 #include <Mod/Part/App/BodyBase.h>
@@ -95,6 +100,25 @@ public:
     }
 
 private:
+    /// A C++ exception of the core is a Python error, not the end of the
+    /// interpreter's frames
+    Py::Object invoke_method_varargs(void* method_def, const Py::Tuple& args) override
+    {
+        try {
+            return Py::ExtensionModule<Module>::invoke_method_varargs(method_def, args);
+        }
+        catch (const Standard_Failure& e) {
+            const char* msg = e.what();
+            throw Py::RuntimeError(std::string("OCCT: ") + (msg && *msg ? msg : typeid(e).name()));
+        }
+        catch (const Base::Exception& e) {
+            throw Py::RuntimeError(e.what());
+        }
+        catch (const std::exception& e) {
+            throw Py::RuntimeError(e.what());
+        }
+    }
+
     static App::DocumentObject* toObject(PyObject* py)
     {
         if (!PyObject_TypeCheck(py, &App::DocumentObjectPy::Type)) {

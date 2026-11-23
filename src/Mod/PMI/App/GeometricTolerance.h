@@ -139,6 +139,20 @@ public:
     void layout(Drawing& d, double h) const override;
     std::u32string equivalentText() const override;
     Callout* composedUnder(double h, double& below) const override;
+    bool editTakesHost() const override
+    {
+        return compositeUpper() && compositeUpper() == ImportedWith.getValue();
+    }
+
+protected:
+    void onBeforeChange(const App::Property* prop) override;
+    void onChanged(const App::Property* prop) override;
+
+private:
+    /// Its composite frame's other segments are drawn by it: touched
+    void touchFrame(GeometricTolerance* upper) const;
+
+public:
 
     static const char* CharacteristicEnums[];
     static const char* ZoneShapeEnums[];

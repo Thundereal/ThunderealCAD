@@ -1740,6 +1740,17 @@ upstream's rewrite.**
 The expected failures are all in `CAMTests.TestOpenSBPPost` and the
 post-processor sanity checks.
 
+**One skip is ours, and it hides a suite.** `PMITests.TestStep.TestNistSet` -- 18 of the PMI
+module's STEP tests, the only coverage of reading and writing depths, composite frames, fits,
+datum targets, tolerances per unit, supplemental geometry and placeholder graphics -- is one
+skipped class unless `FC_PMI_NIST` names a folder holding NIST's PMI test files (the
+`NIST-PMI-STEP-Files` folder of the MBE PMI Validation and Conformance Testing download, 17
+files). A green run without it has tested none of that:
+
+```
+FC_PMI_NIST=$HOME/works/sw/pmi-data/step/NIST-PMI-STEP-Files ./bin/FreeCADCmd -t TestPMIApp
+```
+
 ### On another OCCT than the fork (2026-10-15)
 
 FreeCAD runs on upstream's OCCT too (`FCAD_DEV_OCCT_BIN`, see

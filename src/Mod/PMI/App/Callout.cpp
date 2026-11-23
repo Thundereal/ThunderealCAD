@@ -142,7 +142,7 @@ void Callout::onChanged(const App::Property* prop)
     // graphic drew it is drawn from what it says too
     if (prop == &UseImported && !UseImported.getValue() && !isRestoring()) {
         auto other = freecad_cast<Callout*>(ImportedWith.getValue());
-        if (other && other != this && other->UseImported.getValue()) {
+        if (other && other != this && other->UseImported.getValue() && editTakesHost()) {
             other->UseImported.setValue(false);
             other->touch();
         }
@@ -526,6 +526,12 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
             continue;
         }
         double oh = other->TextHeight.getValue() > 0 ? other->TextHeight.getValue() : h;
+        // A composite frame's lower segment is its upper's row, no callout
+        // landing there of its own
+        double below = 0;
+        if (other->composedUnder(oh, below)) {
+            continue;
+        }
         if (!other->autoPlane(oh, ax, t)) {
             continue;
         }
@@ -541,6 +547,14 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
 
 void Callout::updatePresentation()
 {
+    // The one whose graphic drew it too is edited, drawn from what it says:
+    // so is this, not the file's graphic of both under it
+    if (UseImported.getValue()) {
+        auto other = freecad_cast<Callout*>(ImportedWith.getValue());
+        if (other && other != this && !other->UseImported.getValue()) {
+            UseImported.setValue(false);
+        }
+    }
     if (drawnByAnother()) {
         if (UprightAt.getSize()) {
             UprightAt.setValues({});

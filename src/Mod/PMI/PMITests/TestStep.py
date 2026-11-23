@@ -73,24 +73,28 @@ class Base(unittest.TestCase):
 
     def assertSameGdt(self, a, b):
         """What two documents read of GD&T is the same: the datums, the
-        tolerances with their frames, the dimensions (a nominal measured on
-        the model again, to 1e-3), the datum targets and the notes"""
+        tolerances with their frames, zones and modifiers, the dimensions (a
+        nominal measured on the model again, to 1e-3) with theirs, the datum
+        targets and the notes"""
 
         def gdt(d):
             letters = sorted(x.Letter for x in objects(d, "Datum"))
             tols = sorted((gt.Characteristic, round(gt.Value, 6),
                            list(gt.DatumSystem.Compartments) if gt.DatumSystem else [],
-                           round(gt.ProjectedLength.Value, 6))
+                           round(gt.ProjectedLength.Value, 6), gt.ZoneShape,
+                           gt.MaterialCondition, sorted(gt.Modifiers), gt.UnitBasis,
+                           bool(gt.Composite))
                           for gt in objects(d, "GeometricTolerance"))
             dims = sorted((x.Type, round(x.Upper, 6), round(x.Lower, 6), x.Limits, x.Reference,
-                           x.Basic, x.Fit, x.Nominal.Value) for x in objects(d, "Dimension"))
+                           x.Basic, x.Fit, x.Nominal.Value, sorted(x.Modifiers), x.DecimalPlaces)
+                          for x in objects(d, "Dimension"))
             targets = sorted((t.TargetType, t.Number) for t in objects(d, "DatumTarget"))
             return letters, tols, dims, targets, len(objects(d, "Note"))
 
         ga, gb = gdt(a), gdt(b)
         self.assertEqual(ga[0], gb[0])
         self.assertEqual(ga[1], gb[1])
-        self.assertEqual([x[:7] for x in ga[2]], [x[:7] for x in gb[2]])
+        self.assertEqual([x[:7] + x[8:] for x in ga[2]], [x[:7] + x[8:] for x in gb[2]])
         for x, y in zip(ga[2], gb[2]):
             self.assertAlmostEqual(x[7], y[7], delta=1e-3)
         self.assertEqual(ga[3], gb[3])
@@ -354,6 +358,7 @@ class TestNistSet(Base):
         """Read, written and read again, each file reads the same: graphics
         alone on a tessellated part (-tg) too"""
         files = sorted(glob.glob(os.path.join(os.environ["FC_PMI_NIST"], "*ap242*.stp")))
+        self.assertTrue(files, "no AP242 file in FC_PMI_NIST")
         for path in files:
             with self.subTest(os.path.basename(path)):
                 doc = self.read(path)
@@ -553,43 +558,75 @@ class TestNistSet(Base):
         doc = self.read(os.path.join(nist, "nist_ctc_03_asme1_ap242-e2.stp"))
         self.assertIn("Simple Datum.6", [n.Label for n in objects(doc, "Note")])
 
-    def test_a_placeholder_alone_is_ours_named_as_the_file_names_it(self):
-        """STC-07 presents 32 radii by one graphic, '32X R': 31 of them are
-        linked only to a placeholder, where a reader writes the PMI, named
-        'Linear Size.13' as the graphic is, its set a 'linear dimension'.
-        Ours is drawn there, and written named and of the kind the file named
-        it -- by which SFA counts one linear dimension, not 31 radial ones
-        (dwin, p10) -- until edited"""
+    def test_a_placeholder_is_of_the_graphic_of_its_name(self):
+        """STC-07 presents 32 radii by one graphic, '32X R', named 'Linear
+        Size.13': 31 of them are linked only to a placeholder of that name,
+        where a reader writes the PMI -- all 32 at the one place, the
+        graphic's. The radius the graphic is linked to is linked to four more
+        (its oriented dimensions): each of the five is kept, none lost. The
+        '32X R' is the 31's: the first of them holds it, the others draw
+        nothing of their own, and are written linked to it, so SFA counts one
+        linear dimension, not 31 radial ones (dwin, p10). One edited is
+        drawn, the graphic stays"""
         doc = self.read(os.path.join(os.environ["FC_PMI_NIST"],
                                      "nist_stc_07_asme1_ap242-e3.stp"))
+        notes = {n.Label: n for n in objects(doc, "Note")}
+        for name in ("Oriented Linear Dimension.2", "Oriented Linear Dimension.3",
+                     "Oriented Linear Dimension.4"):
+            self.assertIn(name, notes)
+            self.assertFalse(notes[name].ImportedGraphic.isNull(), name)
+        self.assertNotIn("Linear Size.13", notes)
         held = [d for d in objects(doc, "Dimension") if d.ImportedGraphicName == "Linear Size.13"]
+        self.assertEqual(len(held), 31)
+        hosts = [d for d in held if not d.ImportedGraphic.isNull()]
+        self.assertEqual(len(hosts), 1)
+        host = hosts[0]
+        self.assertFalse(host.Presentation.isNull())
         alone = [d for d in held if d.ImportedGraphic.isNull()]
-        self.assertEqual(len(alone), 31)
+        self.assertEqual(len(alone), 30)
         for d in alone:
             self.assertEqual(d.Type, "Radius")
             self.assertTrue(d.UseImported)
             self.assertEqual(d.ImportedGraphicType, "linear dimension")
-            self.assertFalse(d.Presentation.isNull(), d.Label)
+            self.assertEqual(d.ImportedWith, host, d.Label)
+            self.assertTrue(d.Presentation.isNull(), d.Label)
         # The others with a graphic are named as the file names them too
         drawn = [c for c in doc.Objects if getattr(c, "UseImported", False)
                  and not c.ImportedGraphic.isNull()]
         self.assertTrue(drawn)
         self.assertEqual([c.Label for c in drawn if not c.ImportedGraphicName], [])
-        # Edited: ours, named as ours
+        # Edited: ours, drawn and named as ours; the graphic of the rest stays
         alone[0].Upper = alone[0].Upper.Value + 0.1
         doc.recompute()
         self.assertFalse(alone[0].UseImported)
-        self.write_and_read(doc)
+        self.assertFalse(alone[0].Presentation.isNull())
+        self.assertTrue(host.UseImported)
+        self.assertTrue(alone[1].UseImported)
+        again = self.write_and_read(doc)
         with open(self.written, errors="replace") as f:
             text = re.sub(r"\s+", "", f.read())
         ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
         kinds = collections.Counter()
-        for v in ents.values():
+        callout = None
+        for k, v in ents.items():
             m = re.match(r"TESSELLATED_ANNOTATION_OCCURRENCE\('([^']*)',\(#\d+\),#(\d+)\)", v)
             if m:
                 kinds[(m.group(1), re.match(r"\w+\('([^']*)'", ents[m.group(2)]).group(1))] += 1
-        self.assertEqual(kinds[("LinearSize.13", "lineardimension")], 30)
+            if v.startswith("DRAUGHTING_CALLOUT('LinearSize.13'"):
+                callout = k
+        self.assertEqual(kinds[("LinearSize.13", "lineardimension")], 1)
         self.assertEqual(kinds[(re.sub(r"\s", "", alone[0].Label), "radialdimension")], 1)
+        # The one that holds it and the 29 drawn in it, each linked to the one
+        # callout as what it presents
+        links = [v for v in ents.values()
+                 if v.startswith("DRAUGHTING_MODEL_ITEM_ASSOCIATION('PMIrepresentationto")
+                 and v.endswith(",#%s)" % callout)]
+        self.assertEqual(len(links), 30)
+        # Read again: the 30 hold that graphic, one drawing it
+        back = [d for d in objects(again, "Dimension")
+                if d.ImportedGraphicName == "Linear Size.13"]
+        self.assertEqual(len(back), 30)
+        self.assertEqual(len([d for d in back if d.Presentation.isNull()]), 29)
         self.assertWrittenClean("nist_stc_07_asme1_ap242-e3.stp")
 
     def test_composite_frames_as_the_file_has_them(self):
@@ -871,6 +908,7 @@ class TestStepExport(Base):
         from PMITests.TestModel import BOTTOM, FRONT, HOLE, LEFT, RIGHT, TOP, face_at
 
         self.dir = tempfile.mkdtemp(prefix="pmi-export-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
         doc = self.doc = App.newDocument("PMIExport")
         self.addCleanup(App.closeDocument, doc.Name)
         body = self.body = doc.addObject("PartDesign::Body", "Body")
@@ -928,6 +966,50 @@ class TestStepExport(Base):
         doc.recompute()
         bad = [o.Name for o in doc.Objects if getattr(o, "Condition", "Ok") != "Ok"]
         self.assertEqual(bad, [])
+
+    def test_what_an_audit_found_lost(self):
+        """Written and read again (audit, 2026-11-23): deviations keep their
+        signs -- a shaft's 6 -0.01/-0.03 was read a range, a +0.03/+0.01 came
+        back +0.03/-0.01; limits stay where they are; a profile all around is
+        all around; a composite frame's lower segment is its upper's"""
+        doc = self.doc
+        pset = doc.getObject("PMI")
+
+        def add(kind, name, **props):
+            o = doc.addObject("PMI::" + kind, name)
+            pset.addObject(o)
+            for k, v in props.items():
+                setattr(o, k, v)
+            return o
+
+        position = doc.getObject("Position")
+        add("GeometricTolerance", "Lower", Characteristic="Position", Value=0.02,
+            ZoneShape="Diameter", Feature=position.Feature, DatumSystem=position.DatumSystem,
+            Composite=position)
+        add("GeometricTolerance", "Around", Characteristic="ProfileOfSurface", Value=0.3,
+            Feature=doc.getObject("Flatness").Feature, DatumSystem=position.DatumSystem,
+            Modifiers=["AllAround"])
+        dia = doc.getObject("Dia")
+        for n, (upper, lower, limits) in enumerate(((-0.01, -0.03, False), (0.03, 0.01, False),
+                                                    (0.05, 0.0, True))):
+            with self.subTest(upper=upper, lower=lower, limits=limits):
+                dia.Upper, dia.Lower, dia.Limits = upper, lower, limits
+                doc.recompute()
+                self.assertEqual([o.Name for o in doc.Objects
+                                  if getattr(o, "Condition", "Ok") != "Ok"], [])
+                back = self.export(bool(n % 2))[1]
+                got = [d for d in objects(back, "Dimension") if d.Type == "Diameter"]
+                self.assertEqual(len(got), 1)
+                self.assertAlmostEqual(got[0].Nominal.Value, 6, 6)
+                self.assertAlmostEqual(got[0].Upper.Value, upper, 6)
+                self.assertAlmostEqual(got[0].Lower.Value, lower, 6)
+                self.assertEqual(got[0].Limits, limits)
+                tols = objects(back, "GeometricTolerance")
+                lowers = [t for t in tols if t.Composite]
+                self.assertEqual([round(t.Value.Value, 6) for t in lowers], [0.02])
+                self.assertAlmostEqual(lowers[0].Composite.Value.Value, 0.1, 6)
+                self.assertEqual([list(t.Modifiers) for t in tols
+                                  if t.Characteristic == "ProfileOfSurface"], [["AllAround"]])
 
     def export(self, keep, objs=None):
         path = os.path.join(self.dir, "part-%d.step" % keep)

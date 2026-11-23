@@ -138,6 +138,7 @@ class TestImportModelAnnotations(unittest.TestCase):
         edges = [self.view.getEdgeByIndex(i)
                  for i, (name, _source, _index) in enumerate(self.view.getEdgeNames())
                  if ";HLR:V" in name]
+        self.assertTrue(edges, "no visible edge named as the view names them")
         got = self.imported()
         for name, c in got.items():
             # The leader ends on a visible edge of the view: in its middle; on
@@ -221,6 +222,7 @@ class TestImportModelAnnotations(unittest.TestCase):
                 pts = [(p.x * scale, -p.y * scale)
                        for p in self.view.getEdgeByIndex(i).discretize(Deflection=0.05)]
                 lines += list(zip(pts, pts[1:]))
+        self.assertTrue(lines, "no visible edge named as the view names them")
         boxes = {}
         for name, c in self.imported().items():
             x0, y0, x1, y1 = PMI.extent(c.Source, height)

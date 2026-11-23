@@ -857,6 +857,13 @@ private:
         auto comps = compartments(l);
         std::ostringstream k;
         k << "tolerance " << ch << " " << zone << " " << obj->GetValue() << " " << key(f);
+        // What tells two frames of one value on one feature apart: a flatness
+        // overall and per unit, at MMC and not
+        k << " " << int(obj->GetMaterialRequirementModifier()) << " " << int(obj->GetUnitBasis())
+          << " " << obj->GetUnitSize() << " " << obj->GetMaxValueModifier();
+        for (auto m : obj->GetModifiers()) {
+            k << " m" << int(m);
+        }
         for (auto& c : comps) {
             k << "|" << c;
         }
@@ -894,6 +901,15 @@ private:
             else if (const char* name = modifier(m)) {
                 mods.emplace_back(name);
             }
+            else {
+                // Said, not dropped in silence
+                _report.skipped.push_back("tolerance " + entry(l) + ": a modifier (OCCT's "
+                                          + std::to_string(int(m)) + ") this has no name for");
+            }
+        }
+        if (obj->GetZoneModifier() == XCAFDimTolObjects_GeomToleranceZoneModif_NonUniform) {
+            _report.skipped.push_back("tolerance " + entry(l)
+                                      + ": its unequally disposed zone (U) is not read");
         }
         if (obj->GetZoneModifier() == XCAFDimTolObjects_GeomToleranceZoneModif_Projected) {
             mods.emplace_back("P");
@@ -924,7 +940,7 @@ private:
             gt->UnitSize.setValue(obj->GetUnitSize());
         }
         if (!comps.empty()) {
-            gt->DatumSystem.setValue(Api::frame(set(f.object), comps));
+            gt->DatumSystem.setValue(Api::frame(set(partOf(f.object)), comps));
         }
         place(gt, f.object, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
               obj->GetPointTextAttach(), obj->GetPresentation());
@@ -982,6 +998,18 @@ public:
                 }
             }
             return nullptr;
+        }
+        // A placeholder named as a graphic another holds: where that graphic
+        // is, is where the file says this one's text goes -- it is that
+        // graphic's (STC-07's 31 radii, each a placeholder 'Linear Size.13'
+        // at the '32X R')
+        std::string name = c->ImportedGraphicName.getValue();
+        if (c->UseImported.getValue() && !name.empty()) {
+            for (auto o : _made) {
+                if (o != c && drawn(o) && name == o->ImportedGraphicName.getValue()) {
+                    return o;
+                }
+            }
         }
         auto depth = freecad_cast<Dimension*>(c);
         if (!depth || depth->getType() != Dimension::Depth || c->UseImported.getValue()) {
@@ -1159,6 +1187,12 @@ private:
         }
         std::ostringstream k;
         k << "dimension " << type << " " << obj->GetValue() << " " << key(f1);
+        if (obj->IsDimWithPlusMinusTolerance()) {
+            k << " +" << obj->GetUpperTolValue() << " -" << obj->GetLowerTolValue();
+        }
+        for (auto m : obj->GetModifiers()) {
+            k << " m" << int(m);
+        }
         if (location) {
             k << " " << key(f2);
         }
@@ -1228,6 +1262,10 @@ private:
         for (auto m : obj->GetModifiers()) {
             if (const char* name = modifier(m)) {
                 mods.emplace_back(name);
+            }
+            else {
+                _report.skipped.push_back("dimension " + entry(l) + ": a modifier (OCCT's "
+                                          + std::to_string(int(m)) + ") this has no name for");
             }
         }
         dim->Modifiers.setValues(mods);
@@ -1432,6 +1470,13 @@ private:
         if (!s || !part) {
             return skip(l, "view", "no annotation set for it");
         }
+        // Refused before it is made: a view skipped leaves no object behind
+        gp_Dir look = obj->ViewDirection();
+        gp_Dir up = obj->UpDirection();
+        gp_Dir z = look.Reversed();
+        if (up.IsParallel(z, Precision::Angular())) {
+            return skip(l, "view", "its up direction is its direction of sight");
+        }
         auto v = static_cast<View*>(_info.doc->addObject("PMI::View", "View"));
         s->addObject(v);
         std::string name = text(obj->Name());
@@ -1440,12 +1485,6 @@ private:
         }
         // The camera looks along -z with y up; its origin the point looked
         // at, here the one on the line of sight nearest the part
-        gp_Dir look = obj->ViewDirection();
-        gp_Dir up = obj->UpDirection();
-        gp_Dir z = look.Reversed();
-        if (up.IsParallel(z, Precision::Angular())) {
-            return skip(l, "view", "its up direction is its direction of sight");
-        }
         gp_Dir x = up.Crossed(z);
         gp_Dir y = z.Crossed(x);
         gp_Pnt eye = obj->ProjectionPoint();
@@ -1595,7 +1634,39 @@ Step::Report Step::read(const Import::PostImport& info)
             c->UseImported.setValue(true);
         }
     }
-    if (report.datums + report.tolerances + report.dimensions == 0) {
+    // A graphic alone that PMI are drawn in is no note: it is theirs. The
+    // first of them holds it, the others are drawn in it there (STC-07's
+    // '32X R', linked in the file to another radius than the 31 its
+    // placeholders are of; written and read again it is so too)
+    std::vector<Callout*> gone;
+    for (auto c : reader._made) {
+        auto note = freecad_cast<Note*>(c->ImportedWith.getValue());
+        if (!note || !note->Text.getValues().empty() || !c->ImportedGraphic.getShape().isNull()
+            || std::find(gone.begin(), gone.end(), note) != gone.end()) {
+            continue;
+        }
+        c->ImportedGraphic.setValue(note->ImportedGraphic.getShape().getShape());
+        c->ImportedGraphicType.setValue(note->ImportedGraphicType.getValue());
+        if (c->Views.getValues().empty()) {
+            c->Views.setValues(note->Views.getValues());
+        }
+        c->ImportedWith.setValue(nullptr);
+        for (auto o : reader._made) {
+            if (o != c && o->ImportedWith.getValue() == note) {
+                o->ImportedWith.setValue(c);
+            }
+        }
+        gone.push_back(note);
+    }
+    for (auto note : gone) {
+        reader._made.erase(std::remove(reader._made.begin(), reader._made.end(), note),
+                           reader._made.end());
+        info.doc->removeObject(note->getNameInDocument());
+        if (report.notes > 0) {
+            --report.notes;
+        }
+    }
+    if (reader._made.empty() && report.views == 0) {
         for (auto& s : report.skipped) {
             FC_WARN("PMI: " << s);
         }

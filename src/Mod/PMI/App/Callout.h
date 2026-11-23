@@ -157,6 +157,14 @@ public:
     /// Whether the file's graphic of another callout (ImportedWith) draws
     /// this one too: nothing of its own is drawn then
     bool drawnByAnother() const;
+    /// Whether, edited, the callout whose graphic drew it too (ImportedWith)
+    /// is drawn from what it says as well: the two are one drawing (a
+    /// composite frame). Else that graphic stays -- one of the 32 radii of a
+    /// "32X R" edited does not make 32 callouts of it
+    virtual bool editTakesHost() const
+    {
+        return false;
+    }
 
     /// Whether \a view shows it
     bool inView(const View* view) const;
@@ -182,7 +190,9 @@ protected:
     /// a parallel plane
     int autoSlot(const gp_Ax3& mine, double h) const;
 
-private:
+    /// Set while the callout changes its own properties (its plane as it is
+    /// placed, a limits dimension's deviations about a nominal measured
+    /// again): no edit by the user
     bool _placing = false;
 };
 

@@ -97,10 +97,10 @@ public:
     }
     /// The bores its planar faces close (Geom::bores): a depth on a
     /// counterbore's floor is of them
-    const std::vector<Primitive>& borePrimitives() const
-    {
-        return _bores;
-    }
+    /// Found when first asked for since the faces were resolved, from the
+    /// part as it is: few features are asked, and a document restored has
+    /// its faces but was not executed
+    const std::vector<Primitive>& borePrimitives() const;
     /// What a dimension measures to and a datum is simulated from: the
     /// derived element for a derived kind, else the surface of the faces
     /// (their common surface, or the first face's)
@@ -123,7 +123,8 @@ private:
     bool derive(const std::vector<TopoDS_Shape>& faces, std::string& why);
 
     std::vector<Primitive> _faces;
-    std::vector<Primitive> _bores;
+    mutable std::vector<Primitive> _bores;
+    mutable bool _boresFound = false;
     Primitive _primitive;
 };
 

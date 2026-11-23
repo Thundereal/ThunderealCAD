@@ -2799,3 +2799,7 @@ fc_add_gui_test(GuiPMIQuery_tests_run pmi-query.py --timeout 300)
 # The GD&T of a STEP file (sec 5.1): NIST CTC-01 through ImportGui, at once and
 # progressively, gives what the headless import gives, none invalid, drawn.
 fc_add_gui_test(GuiPMIStep_tests_run pmi-step.py --timeout 300)
+
+# Datum targets (sec 10.11): PMI_DatumTarget on a datum and a face, its symbol
+# and its mark on the part.
+fc_add_gui_test(GuiPMITargets_tests_run pmi-targets.py --timeout 300)

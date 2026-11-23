@@ -120,6 +120,17 @@ App::DocumentObjectExecReturn* AnnotationSet::execute()
 
 void AnnotationSet::onChanged(const App::Property* prop)
 {
+    // Its members are drawn to its decimal places and checked by its
+    // standard: they do not depend on it (it lists them), so they are told
+    if ((prop == &DecimalPlaces || prop == &Standard || prop == &GeneralTolerance)
+        && !isRestoring() && getDocument()
+        && !getDocument()->testStatus(App::Document::Restoring)) {
+        for (auto obj : Group.getValues()) {
+            if (obj) {
+                obj->touch();
+            }
+        }
+    }
     App::DocumentObjectGroup::onChanged(prop);
 }
 

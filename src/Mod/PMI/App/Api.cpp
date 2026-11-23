@@ -25,11 +25,15 @@
 #include "PreCompiled.h"
 
 #include <cmath>
+#include <cstring>
 #include <algorithm>
 #include <set>
 
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
+#include <Standard_Failure.hxx>
+
+#include <Base/Exception.h>
 
 #include <App/Document.h>
 #include <App/GeoFeatureGroupExtension.h>
@@ -218,6 +222,33 @@ AnnotationSet* Api::getSet(App::DocumentObject* part, bool create)
 TolerancedFeature* Api::feature(AnnotationSet* set, App::DocumentObject* solid,
                                 const std::vector<std::string>& faces, const char* kind)
 {
+    // A kind that is none would be taken for the first, and made again each
+    // time; a face the solid has not is a feature broken from the start
+    if (kind) {
+        bool known = false;
+        for (const char** k = TolerancedFeature::KindEnums; *k; ++k) {
+            known = known || std::strcmp(*k, kind) == 0;
+        }
+        if (!known) {
+            THROWM(Base::ValueError, std::string("PMI: no kind of feature '") + kind + "'");
+        }
+    }
+    if (solid) {
+        for (auto& face : faces) {
+            bool found = false;
+            try {
+                found = !Part::Feature::getTopoShape(solid, face.c_str(), true).isNull();
+            }
+            catch (const Base::Exception&) {
+            }
+            catch (const Standard_Failure&) {
+            }
+            if (!found) {
+                THROWM(Base::ValueError, "PMI: " + std::string(solid->getNameInDocument())
+                                             + " has no element '" + face + "'");
+            }
+        }
+    }
     if (!set || !solid || faces.empty()) {
         return nullptr;
     }
@@ -261,14 +292,19 @@ std::string Api::nextDatumLetter(AnnotationSet* set, App::DocumentObject* solid)
             return s;
         }
     }
-    // Past Z: AA, AB, ... (ASME Y14.5 7.11)
-    for (char c = 'A'; c <= 'Z'; ++c) {
-        std::string s(2, c);
-        if (!used.count(s)) {
-            return s;
+    // Past Z: AA, AB, ... AZ, BA, ... (ASME Y14.5 7.11), without its I, O, Q
+    auto legal = [asme](char c) {
+        return !(asme && (c == 'I' || c == 'O' || c == 'Q'));
+    };
+    for (char a = 'A'; a <= 'Z'; ++a) {
+        for (char b = 'A'; legal(a) && b <= 'Z'; ++b) {
+            std::string s {a, b};
+            if (legal(b) && !used.count(s)) {
+                return s;
+            }
         }
     }
-    return "AA";
+    return std::string();
 }
 
 App::DocumentObject* Api::frame(AnnotationSet* set, const std::vector<std::string>& compartments)

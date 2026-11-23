@@ -38,6 +38,7 @@
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 
+#include <Base/Tools.h>
 #include <Base/Unit.h>
 #include <Mod/Part/App/PartFeature.h>
 
@@ -290,8 +291,25 @@ App::DocumentObjectExecReturn* Dimension::execute()
     }
     // Measured again: a value that agrees with the one it has (a file's 90 as
     // 90.000000000292) leaves it as it is
+    // Two planes are at an angle and at its supplement: the one it has (a
+    // file's 120, measured 60) is the one meant
+    if ((getType() == Angle || getType() == AngularSize) && Nominal.getValue() > 90.0
+        && std::fabs(Nominal.getValue() - (180.0 - value)) < 1e-6 * 180.0) {
+        value = 180.0 - value;
+    }
     if (std::fabs(Nominal.getValue() - value) > 1e-9 * std::max(1.0, std::fabs(value))) {
+        // Given as its limits, the limits stay: its deviations are about the
+        // nominal, which a file gives as the middle of them and the model
+        // measures elsewhere (10.00-10.05 on a model at 10)
+        double shift = Nominal.getValue() - value;
+        bool given = Limits.getValue() && Nominal.getValue() != 0.0
+            && (Upper.getValue() != 0.0 || Lower.getValue() != 0.0);
         Nominal.setValue(value);
+        if (given) {
+            Base::StateLocker guard(_placing);
+            Upper.setValue(Upper.getValue() + shift);
+            Lower.setValue(Lower.getValue() + shift);
+        }
     }
     updatePresentation();
     for (auto obj : Features.getValues()) {

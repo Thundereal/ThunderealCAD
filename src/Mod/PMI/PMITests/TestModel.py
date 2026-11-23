@@ -11,6 +11,7 @@ references through edits of the Body under them (TestRepair, sec 7).
 
 import math
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -283,6 +284,74 @@ class TestModel(Base):
         self.assertEqual(flat.Condition, "Invalid")
         self.assertIn("a hole", flat.ConditionMessage)
 
+    def test_a_depth_on_its_floor(self):
+        """A depth given on a counterbore's floor alone (STC-06) is of the
+        bore the floor closes: the wall that runs out of it, not the hole
+        below it. Saved, reopened and edited, it still is: the bores are
+        found from the part, not kept from the last recompute"""
+        self.cut("Cylinder", "Bore", V(8, 10, 7), Radius=5, Height=3)
+        self.cut("Cylinder", "Through", V(8, 10, 0), Radius=2, Height=10)
+        self.doc.recompute()
+        floor = [n for n in ("Face%d" % (i + 1) for i in range(len(self.solid.Shape.Faces)))
+                 if self.solid.Shape.getElement(n).Surface.TypeId == "Part::GeomPlane"
+                 and abs(self.solid.Shape.getElement(n).BoundBox.ZMin - 7) < 1e-6
+                 and abs(self.solid.Shape.getElement(n).BoundBox.ZMax - 7) < 1e-6]
+        self.assertTrue(floor)
+        f = self.add("TolerancedFeature", "FloorF", References=[(self.solid, floor)])
+        dim = self.add("Dimension", "Floor", Type="Depth", Features=[f], Upper=0.1, Lower=-0.1)
+        self.recompute()
+        self.assertEqual(dim.Condition, "Ok", dim.ConditionMessage)
+        self.assertAlmostEqual(dim.Nominal.Value, 3, 6)
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "floor.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        dim = self.doc.getObject("Floor")
+        dim.Upper = 0.2
+        self.doc.recompute()
+        self.assertEqual(dim.Condition, "Ok", dim.ConditionMessage)
+        self.assertAlmostEqual(dim.Nominal.Value, 3, 6)
+
+    def test_limits_stay_when_the_nominal_is_measured(self):
+        """A dimension given as its limits keeps them: its deviations are
+        about its nominal, which a file gives as the middle of the limits and
+        the model measures elsewhere (10.00-10.05 on a model at 10)"""
+        hole = self.feature(HOLE, kind="Axis")
+        dim = self.add("Dimension", "Lim", Type="Diameter", Features=[hole], Limits=True)
+        self.recompute()
+        self.assertAlmostEqual(dim.Nominal.Value, 6, 6)
+        # 6.00-6.05, and the hole made 6.02
+        dim.Upper, dim.Lower = 0.05, 0.0
+        self.hole.Radius = 3.01
+        self.doc.recompute()
+        self.assertAlmostEqual(dim.Nominal.Value, 6.02, 6)
+        self.assertAlmostEqual(dim.Nominal.Value + dim.Upper.Value, 6.05, 6)
+        self.assertAlmostEqual(dim.Nominal.Value + dim.Lower.Value, 6.0, 6)
+
+    def test_datum_letters_past_z_and_a_feature_of_no_kind(self):
+        """Past Z the letters go AA, AB, ... (Y14.5 7.11), without I, O, Q
+        under ASME; a feature of a kind that is none, or on a face the solid
+        has not, is refused, not made"""
+        top = self.feature(TOP)
+        asme = self.set.Standard.startswith("ASME")
+        for i in range(23 if asme else 26):
+            letter = PMI.nextDatumLetter(self.set)
+            self.assertEqual(len(letter), 1)
+            if asme:
+                self.assertNotIn(letter, "IOQ")
+            self.add("Datum", "D%d" % i, Letter=letter, Feature=top)
+        self.assertEqual(PMI.nextDatumLetter(self.set), "AA")
+        self.add("Datum", "DAA", Letter="AA", Feature=top)
+        self.assertEqual(PMI.nextDatumLetter(self.set), "AB")
+        before = len(self.doc.Objects)
+        with self.assertRaises(Exception):
+            PMI.feature(self.set, self.solid, ["Face1"], "NoSuchKind")
+        with self.assertRaises(Exception):
+            PMI.feature(self.set, self.solid, ["Face999"])
+        self.assertEqual(len(self.doc.Objects), before)
+
     def test_a_fillet_radius(self):
         cyl = Part.makeCylinder(5, 10)
         top = [e for e in cyl.Edges if e.Curve.TypeId == "Part::GeomCircle"
@@ -372,7 +441,9 @@ class TestModel(Base):
         dim = self.add("Dimension", "Dia", Type="Diameter", Features=[hole], Upper=0.1)
         self.set.Standard = "ASME Y14.5-2018"
         self.recompute()
-        path = os.path.join(tempfile.mkdtemp(), "pmi.FCStd")
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "pmi.FCStd")
         name = hole.Name
         self.doc.saveAs(path)
         App.closeDocument(self.doc.Name)
@@ -970,7 +1041,9 @@ class TestPresentation(Base):
                       Feature=self.feature(TOP), Value=0.05)
         self.recompute()
         edges = len(gt.Presentation.Edges)
-        path = os.path.join(tempfile.mkdtemp(), "pmi-look.FCStd")
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "pmi-look.FCStd")
         self.doc.saveAs(path)
         App.closeDocument(self.doc.Name)
         self.doc = App.openDocument(path)
@@ -1194,7 +1267,9 @@ class TestEdges(Base):
         dim = self.add("Dimension", "Dia", Type="Diameter", Features=[rim])
         corner = self.element(vertex_at(self.solid.Shape, CORNER))
         self.recompute()
-        path = os.path.join(tempfile.mkdtemp(), "pmi-edges.FCStd")
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "pmi-edges.FCStd")
         names = rim.Name, corner.Name
         self.doc.saveAs(path)
         App.closeDocument(self.doc.Name)
@@ -1220,7 +1295,9 @@ class TestViewObjects(Base):
         self.recompute()
         self.assertEqual(view.Condition, "Ok")
         self.assertFalse("Touched" in self.body.State or "Touched" in view.State)
-        path = os.path.join(tempfile.mkdtemp(), "pmi-view-objects.FCStd")
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "pmi-view-objects.FCStd")
         body = self.body.Name
         self.doc.saveAs(path)
         App.closeDocument(self.doc.Name)
@@ -1321,7 +1398,9 @@ class TestDatumTarget(Base):
         self.add("Datum", "A", Letter="A", Targets=[t])
         self.recompute()
         name = t.Name
-        path = os.path.join(tempfile.mkdtemp(), "targets.FCStd")
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "targets.FCStd")
         self.doc.saveAs(path)
         App.closeDocument(self.doc.Name)
         self.doc = App.openDocument(path)

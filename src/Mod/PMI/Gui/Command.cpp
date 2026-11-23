@@ -541,10 +541,36 @@ void CmdPMIDimension::activated(int)
         return;
     }
     if (picks.size() == 1) {
+        // The size its surface has: none for a plane or a point alone
+        const char* type = nullptr;
+        switch (a.type) {
+            case PMI::Primitive::Cylinder:
+            case PMI::Primitive::Circle:
+                type = "Diameter";
+                break;
+            case PMI::Primitive::Sphere:
+                type = "SphericalDiameter";
+                break;
+            case PMI::Primitive::Torus:
+                type = "Radius";
+                break;
+            case PMI::Primitive::Cone:
+                type = "AngularSize";
+                break;
+            default:
+                break;
+        }
+        if (!type) {
+            QMessageBox::information(Gui::getMainWindow(), QObject::tr("PMI"),
+                                     QObject::tr("Dimension: one face has a size when it is a "
+                                                 "cylinder, a sphere, a cone or a fillet; pick "
+                                                 "two elements for the distance between them"));
+            abortCommand();
+            return;
+        }
         makeFeature(this, picks, nullptr);
         addToSet(this, "Dimension", "Dimension");
-        doCommand(Doc, "_obj.Type = '%s'",
-                  a.type == PMI::Primitive::Sphere ? "SphericalDiameter" : "Diameter");
+        doCommand(Doc, "_obj.Type = '%s'", type);
         doCommand(Doc, "_obj.Features = [_feat]");
     }
     else {

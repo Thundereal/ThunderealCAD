@@ -103,7 +103,7 @@ Names follow the upstream proposal (decision 1): its `PMI_AnnotationSet` is our
 
 ```
 PMI::AnnotationSet  (in a Body, its solids' faces by solid body; beside any other shape)
- |-- Standard, Units, GeneralTolerance (ISO 2768-m, ...), Planes, Views
+ |-- Part, Standard, GeneralTolerance (ISO 2768-m, ...), DecimalPlaces
  |
  |-- PMI::TolerancedFeature  "toleranced feature" (= shape_aspect)        <-- shared by everything below
  |      References (faces of the part, mapped names), Kind, derived geometry
@@ -118,16 +118,18 @@ PMI::AnnotationSet  (in a Body, its solids' faces by solid body; beside any othe
  |-- PMI::View         camera + member list + clipping (section 6.3)
 ```
 
-All are `App::DocumentObject`s (C++, App side, Python bindings by the usual XML pattern), so a
-headless FreeCADCmd reads, edits, checks and exports them; the Gui only draws and edits.
+All are `App::DocumentObject`s (C++, App side; from Python their properties, and the functions
+of the `PMI` module -- there is no binding class of their own), so a headless FreeCADCmd reads,
+edits, checks and exports them; the Gui only draws and edits.
 
 ### 4.1 PMI::AnnotationSet
 
 The container and the part's settings: `Part` (a hidden link: the Body it is in, or the shape it sits beside),
 `Standard` (ASME Y14.5-2018, ASME Y14.5-2009, ISO GPS -- it changes the default principle,
 envelope or independency, and which symbols are legal [A6]), `GeneralTolerance` (ISO 2768 class
-or a +/- default, for the title block and for dimensions without their own), `Units`,
-`DecimalPlaces`. A Body has at most one, in it; another shape at most one, beside it. It is
+or a +/- default, for the title block and for dimensions without their own), `DecimalPlaces`
+(lengths are the document's, millimetres; a file's unit is the importer's and exporter's).
+A Body has at most one, in it; another shape at most one, beside it. It is
 created with the first annotation. Its group takes only PMI objects. Datum letters are each
 solid's own (sec 8): a Body's two solids are two parts.
 
@@ -145,18 +147,20 @@ The heart of the model, because it is what survives edits.
   derived kinds compute their geometry at recompute from the faces (a cylinder's axis, two
   opposed planes' median plane) and hold it in `Shape`, so a dimension can measure to an axis
   and STEP gets its `derived_shape_aspect` + constructive geometry [A7].
-- `Size`: whether it is a feature of size (a hole, a boss, a slot width) -- computed from the
+- `IsSize`: whether it is a feature of size (a hole, a boss, a slot width) -- computed from the
   faces, it decides whether M/L modifiers are legal on tolerances that reference it.
-- `State`: `Ok`, `Remapped` (found, but by history or geometry, not by name -- the user should
-  look), `Broken`. `SavedGeometry` keeps the last faces it resolved to, so a broken feature is
-  still drawn where it was, in red, and `Reattach` is one command (section 7).
+- `Condition` (with `ConditionMessage`): `Ok`, `Remapped` (found, but by history or geometry,
+  not by name -- the user should look), `Broken`. `SavedGeometry` keeps the last faces it
+  resolved to, so a broken feature is still drawn where it was, in red; it is reattached by
+  setting `References` again (section 7; no command of its own yet).
 
 Every annotation on the same faces shares one PMI::TolerancedFeature; the tools look for an existing one
 before making another (STEP's uniqueness rule, [A7]).
 
 ### 4.3 PMI::Datum and PMI::DatumReferenceFrame
 
-- `PMI::Datum`: `Name` ('A'), `Feature` (a PMI::TolerancedFeature), `Targets` (optional: point, line,
+- `PMI::Datum`: `Letter` ('A'), `Feature` (a PMI::TolerancedFeature), `Targets` (optional:
+  point, line,
   circle, rectangle, area, each with position and size, `Movable`), and the simulated datum
   (plane/axis/point) computed into `Shape` for display and for datum-system orientation.
 - `PMI::DatumTarget` (built 2026-11-20, 10.11): each target is its own callout, not an entry of a
@@ -175,13 +179,15 @@ before making another (STEP's uniqueness rule, [A7]).
 
 ### 4.4 PMI::Dimension
 
-- `Type`: size (linear, diameter, radius, spherical, angular, thickness, curve length, a
-  hole's depth), location (linear between two features, angular, with path), or `Basic` (a
-  TED: exact, in a box, no tolerance).
+- `Type`: a size (`Diameter`, `Radius`, `SphericalDiameter`, `SphericalRadius`, `Width` -- STEP's
+  thickness too --, `AngularSize`, `CurveLength`, `Depth`) or a location between two features
+  (`Distance`, `Angle`). `Basic` (a bool) makes it a TED: exact, in a box, no tolerance;
+  `Reference` one given for information, in brackets.
 - `Features`: one PMI::TolerancedFeature for a size, two for a location.
 - `Nominal`: **measured from the geometry** at recompute -- a dimension cannot disagree with
-  the model. `Driver` (optional): an expression to the parameter that makes it (a Hole's
-  `Diameter`, a Pad's `Length`); when set, the check (section 8) reports when the two part.
+  the model. (A `Driver`, an expression to the parameter that makes it, with a check that the
+  two agree, was planned and is not built.) Given as its `Limits`, the limits stay when the
+  nominal is measured again: the deviations move with it.
 - Tolerance: `Upper`/`Lower` (+/-, unequal allowed), or `Limits`, or `Fit` (ISO 286, "H7"); the
   ISO 14405 size modifiers (`LP`, `GG`, `CT`, ...) as a list; `DecimalPlaces`.
 - TechDraw's `DrawViewDimension` already has +/-, basic and format specs [B3]; section 9 makes a
@@ -189,9 +195,10 @@ before making another (STEP's uniqueness rule, [A7]).
 
 ### 4.5 PMI::GeometricTolerance -- the feature control frame
 
-- `Characteristic`: the 14 (12 under Y14.5-2018; the two are refused there).
+- `Characteristic`: the 14, concentricity and coaxiality being two names here, 15 (12 under
+  Y14.5-2018; concentricity and symmetry are refused there).
 - `Feature`: the toleranced PMI::TolerancedFeature.
-- `Zone`: `Shape` (none, DIA, S-DIA), `Value` (a quantity, expressions allowed),
+- Zone: `ZoneShape` (none, DIA, S-DIA), `Value` (a quantity, expressions allowed),
   `Modifiers` (M, L, F, P + `ProjectedLength`, T, U + `UnequalValue`, ST, CZ, ACS, LE, NC,
   LD/MD/PD, ...), `MaxValue`, `UnitBasis` (None, Length, Square, Rectangle, Circle) with
   `UnitSize` and a rectangle's `UnitSize2`: the value holds on any part of the feature of that
@@ -361,8 +368,9 @@ Found with the same (2026-11-23), and fixed on the fork:
     as a presentation of no shape, named as the callout, its kind the name of the placeholder's
     set; the three XCAF attributes keep a presentation's name and kind without a shape. Only
     STC-07 has them: the 31 radii, three of its oriented linear dimensions, four of its
-    profiles. FreeCAD draws ours there, and writes it as the file named it while
-    `UseImported` (sec 10.10, I). `test_a_placeholder_alone_is_ours_named_as_the_file_names_it`.
+    profiles. Its placement is the PMI's plane and text point. All 32 of the radii's are at one
+    place, the '32X R': a placeholder named as a graphic is of that graphic (sec 10.10, I).
+    `test_a_placeholder_is_of_the_graphic_of_its_name`.
 17. Composite frames, in 11 of the NIST files: the lower segment, a tolerance of its own
     related to its upper by a `geometric_tolerance_relationship` 'composite' (the upper
     relating), read as a frame of its own, its relation lost; NIST draws both segments in the
@@ -377,6 +385,18 @@ Found with the same (2026-11-23), and fixed on the fork:
     size's graphic ('Linear Size.1') as the datum's, the one linked to its feature; the datum
     symbol, 'Datum Feature.2', linked to the datum, was lost. Such a feature's graphic is left
     to its size now, the datum's read from the datum.
+20. A PMI linked to more graphics than one kept the first and lost the rest: STC-07's radius
+    is linked to four oriented dimensions and the '32X R'. A graphic whose PMI holds another is
+    a graphic alone now, on that PMI's shapes (the name it holds tells them apart).
+21. From the audit of 2026-11-23 (sec 10.25), in the reader and writer: a deviation is signed
+    -- an upper of -0.1 was taken for unset and a range read, a lower of +0.1 came back -0.1;
+    a profile all around was read and never written (an `all_around_shape_aspect` is its
+    target now); the annotation plane's text point was written unscaled in a file not in
+    millimetres; a datum feature that is its own size was bound to its datum and its size in
+    the reader's map, the first read winning; a value's format not 'NR2 d.d' threw.
+    `STEPCAFControl_Writer` is constructed on its user's stack: the two members the GD&T work
+    gave it broke binaries built before (their state is behind `myGDTPresentationDM` now, the
+    class as it was). `test_what_an_audit_found_lost`.
 19. A value's format -- 'NR2 1.2', how many places it is written to, a
     `value_format_type_qualifier` of the measure's `qualified_representation_item` -- was read
     only on a qualified value of the plain kind, a case its complex with a measure (NIST's every
@@ -582,7 +602,8 @@ What building it taught:
 - **Derived properties must not be outputs.** With `OptimizeRecompute` (the default) a link sees
   only the linked object's non-output revision (docs/InputProperties.md sec 2): with `Shape` an
   output, a Body edit recomputed the toleranced feature and stopped, and the dimension on it kept
-  its old nominal. `Shape`, `IsSize`, `Condition` and `Nominal` are read-only, not outputs.
+  its old nominal. `Shape`, `IsSize` and `Nominal` are read-only, not outputs;
+  `Condition` is each recompute's (set by hand, it lasts until the next).
 - **A new object with nothing touched is skipped** by the same optimisation; every annotation
   calls `enforceRecompute()` when it is made.
 - **OCCT 8 builders**: `BRepBuilderAPI_MakeEdge(...).Edge()` no longer converts to a
@@ -1512,6 +1533,46 @@ itself. As the end slides with the frame, the offset between them no longer tell
 frame from an imported one: the import clears `ImportOffset` for it, which marks it placed
 by the user for good (`DrawPMICallout::isMoved`).
 
+### 10.25 An audit (2026-11-23)
+
+Four reviews by reading, none anchored on the work: the model and geometry, the STEP import
+and export, the fork's OCCT changes, the Gui with the tests and this document. The list, with
+what was done of each, is `~/works/sw/setup-logs/pmi-audit-2026-11-23.md` on the development
+box. Fixed, beside sec 5.3 items 20 and 21:
+
+- **Model.** A dimension given as its limits keeps them when its nominal is measured again
+  (a file's 10.00-10.05 on a model at 10 became 9.975-10.025). An angle the file gives obtuse
+  stays so (two planes are at 60 and at 120). A floor's bores are found when asked, from the
+  part: a document reopened had none, a depth on a floor went invalid at the first edit (and
+  every feature built an edge map of the whole part at each recompute). A composite frame's
+  segments are told when one joins or leaves; a lower segment is no callout taking a slot.
+  The set's decimal places and standard reach its members. A hatch has at most 1000 lines.
+- **Import and export.** A tolerance's datum system is made in its part's set (a stray set
+  was, for supplemental geometry). A view refused leaves no object. Two tolerances of one
+  value on one feature are two when their material condition, modifiers, unit or maximum
+  differ. A modifier with no name here, and an unequally disposed zone, are said, not dropped
+  in silence. A file of notes, targets or views alone is recomputed and summed up.
+- **Gui and Python.** The frame builder discarded what it does not show at any edit -- U,
+  SZ, a datum's 'M,BSC' -- and rounded a value to four places; it left a datum system behind
+  for every letter typed. A PMI view removed by an undo, or with its set, gives the 3D view
+  back its camera, clipping and callouts. Another tolerance's panel is not taken for one's
+  own. One face picked is dimensioned by the size it has, or refused. A C++ exception under
+  a `PMI.*` function is a Python error. `PMI.feature` refuses a kind that is none and a face
+  the solid has not; datum letters past Z go AA, AB.
+- **Tests.** `TestNistSet` was run by no full suite: `FC_PMI_NIST` was set nowhere
+  (docs/Testing.md now, and the suite script). The round trip compares zones, material
+  conditions, modifiers, units and decimal places -- which found the all-around loss.
+  `pmi-targets.py` was on disk and registered nowhere. Temporary folders are removed.
+
+Open, and why: two parts with one datum letter in one file (the writer knows a datum by its
+letter, file-wide; the import maps targets by letter) -- a design change; two opposed coaxial
+blind holes read as one depth; the quadratic `autoSlot`; a composite frame's rows each turn
+upright about their own middle; a width between two faces facing the same way is accepted;
+`Datum.Shape` is null after a reopen until a recompute; a perspective PMI view is fitted, not
+kept; the tests need PartDesign. And one for a decision: supplemental geometry is read for
+every file since sec 10.24 K, whatever `read.step.constructivegeom.relationship` says -- a
+plain part with construction curves comes in with them beside its solid.
+
 ### 10.24 P3: SFA on the output (2026-11-22)
 
 NIST's STEP File Analyzer (SFA 5.54, Windows; run by a second session there) on the 19
@@ -1601,11 +1662,17 @@ Then, in that order:
   `test_graphics_typed_as_the_file_types_them`. The file's name for a graphic is kept as
   `ImportedGraphicName` and written again the same way, a note's included (it was named by its
   words): NIST names its graphics 'Linear Size.3', 'Text.1'. A PMI the file gives only a
-  placeholder (sec 5.3, item 16) has `UseImported` on and no `ImportedGraphic`: ours is drawn,
-  and written named and of the kind the file named the placeholder. A PMI the file draws in
-  another's graphic links that one, `ImportedWith`, and draws and writes nothing of its own
-  while both are as the file has them; an edit of either draws both from what they say. The
-  import links: a composite frame's lower segment to its upper (sec 5.3, item 17); the second
+  placeholder (sec 5.3, item 16) has `UseImported` on and no `ImportedGraphic`: ours is drawn
+  where the placeholder is, and written named and of the kind the file named it. A PMI the
+  file draws in another's graphic links that one, `ImportedWith`, and draws nothing of its own
+  while both are as the file has them; it is written with no graphic, linked to the other's
+  as what that presents too (`XCAFDoc_DimTolTool::SetPresentedWith`: the writer adds the
+  association once all are written). Edited, it is drawn from what it says and the graphic
+  stays (one of 32 radii edited does not make 32 callouts); in a composite frame, one drawing,
+  the upper is drawn from what it says too; and when the one holding the graphic is edited,
+  those drawn in it are. The import links: a placeholder to the graphic of its name -- a
+  graphic alone that PMI are drawn in is no note, the first of them holds it (STC-07's '32X
+  R'); a composite frame's lower segment to its upper (sec 5.3, item 17); the second
   of two PMI read with one graphic to the first (STC-06's hole callouts, a diameter's and its
   depth's: written twice before, as two graphics); a depth with no graphic to its hole's
   diameter or radius, a depth being lettered after its hole's size (STC-10's eight, which

@@ -191,6 +191,40 @@ Callout* GeometricTolerance::composedUnder(double h, double& below) const
     return upper;
 }
 
+void GeometricTolerance::touchFrame(GeometricTolerance* upper) const
+{
+    if (!upper) {
+        return;
+    }
+    // The upper's symbol cell opens to its lower segments, each lower lies
+    // under those above it and the last closes the cell: none depends on the
+    // others, so each is told
+    upper->touch();
+    for (auto lower : upper->lowerSegments()) {
+        if (lower != this) {
+            lower->touch();
+        }
+    }
+}
+
+void GeometricTolerance::onBeforeChange(const App::Property* prop)
+{
+    // The frame it leaves
+    if (prop == &Composite && !isRestoring()) {
+        touchFrame(compositeUpper());
+    }
+    Callout::onBeforeChange(prop);
+}
+
+void GeometricTolerance::onChanged(const App::Property* prop)
+{
+    // The frame it joins
+    if (prop == &Composite && !isRestoring()) {
+        touchFrame(compositeUpper());
+    }
+    Callout::onChanged(prop);
+}
+
 App::DocumentObjectExecReturn* GeometricTolerance::execute()
 {
     // Its own rules; the set's (datum letters defined, ...) are PMI.check's

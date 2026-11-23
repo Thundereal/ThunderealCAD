@@ -1376,10 +1376,11 @@ What is known:
 
 What it means for what is built:
 
-- S2's dam break ran with the faulty term. In water it is a millionth of
-  the momentum's other terms, and the validation against Lobovsky and
-  Kleefsman stands as measured; it was not run again with the term
-  rebuilt.
+- S2's dam break ran with the faulty term. Water's viscosity is a
+  hundred thousandth of the fluid's here and the flow is driven by its
+  weight, so the term should matter little there, and the validation
+  against Lobovsky and Kleefsman stands as measured -- but that is
+  reasoning: it was not run again with the term rebuilt.
 - F1 cannot be validated, or trusted, on this install as it comes: a
   pipe along x is a quarter out. Wherever viscosity matters the fault
   does.

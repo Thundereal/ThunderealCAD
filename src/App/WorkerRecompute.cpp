@@ -1333,8 +1333,18 @@ struct State
         std::string file;
         WorkerPool::JobId fileJob = 0;
         json numbers;
+        /// Its result's times (WorkerPool::Result::queued, ...)
+        double queued = 0;
+        double setup = 0;
+        double handler = 0;
+        double returned = 0;
     };
     std::vector<Part> parts;
+    /// When the one with the workers was started, how long start() took,
+    /// and when its last part's result was read here (sec 53)
+    double startedAt = 0;
+    double startSeconds = 0;
+    double resultAt = 0;
 };
 
 /// A job with the workers, of any part
@@ -1578,11 +1588,29 @@ void apply(State& s)
         schedule(s);
         return;
     }
+    const double reading = now();
+    // The times of the part that came last, the one waited for
+    const State::Part* last = nullptr;
+    for (auto& p : s.parts) {
+        if (!p.file.empty() && (!last || p.queued + p.returned > last->queued + last->returned)) {
+            last = &p;
+        }
+    }
+    WorkerRecompute::Info::Times times;
+    times.start = s.startSeconds;
+    if (last) {
+        times.queued = last->queued;
+        times.setup = last->setup;
+        times.job = last->handler;
+        times.returned = last->returned;
+    }
+    times.held = s.resultAt > 0 ? reading - s.resultAt : 0;
     std::unique_ptr<Supplier> supplier;
     if (!supplierFor(s, supplier)) {
         changed(s);
         return;
     }
+    times.read = now() - reading;
     std::vector<DocumentObject*> objs;
     for (auto& name : s.names) {
         if (auto obj = s.doc.getObject(name.c_str())) {
@@ -1602,6 +1630,9 @@ void apply(State& s)
         }
     }
     s.info.applySeconds = now() - began;
+    times.apply = s.info.applySeconds;
+    times.total = s.startedAt > 0 ? now() - s.startedAt : 0;
+    s.info.times = times;
     // The rows it was put in as, and what in them is the worker's: told to
     // the worker that made it, which keeps those values as it holds them
     // when it next moves across the rows (docs/WorkerProcess.md sec 29)
@@ -1752,6 +1783,11 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
                 part->file = r.file;
                 part->fileJob = id;
                 part->numbers = std::move(numbers);
+                part->queued = r.queued;
+                part->setup = r.setup;
+                part->handler = r.seconds;
+                part->returned = r.returned;
+                s->resultAt = now();
             }
             r.file.clear();  // ours now, in the pool's directory until put in
             break;
@@ -2294,6 +2330,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
                             std::string* why)
 {
     (void)registered;
+    const double began = now();
     State& s = stateFor(doc);
     auto refuse = [&](const std::string& reason) {
         s.info.reason = reason;
@@ -2435,6 +2472,9 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     s.parts = std::move(made);
     s.names = std::move(names);
     s.info.reason.clear();
+    s.startedAt = began;
+    s.startSeconds = now() - began;
+    s.resultAt = 0;
     ++s.info.started;
     changed(s);
     return true;

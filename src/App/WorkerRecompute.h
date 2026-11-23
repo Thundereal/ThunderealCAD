@@ -76,6 +76,22 @@ public:
         std::string byContentWhy;  ///< why not, when they were read by content
         double workerSeconds = 0;  ///< the worker's recompute
         double applySeconds = 0;   ///< putting it in here, the views included
+        /// Where the time of the last one put in went, in seconds on this
+        /// process's clock (docs/WorkerProcess.md sec 53). Of a split one,
+        /// the part that came last.
+        struct Times
+        {
+            double start = 0;     ///< in start(): the copy's version, the jobs
+            double queued = 0;    ///< submitted, until handed to its worker
+            double setup = 0;     ///< of that, the worker opening or moving its copy
+            double job = 0;       ///< the worker's handler, as it said
+            double returned = 0;  ///< handed to the worker, until the result is read here
+            double held = 0;      ///< the result read here, until its put-in starts
+            double read = 0;      ///< reading the result's file and its tables
+            double apply = 0;     ///< the put-in: applySeconds
+            double total = 0;     ///< start() called, until the put-in is over
+        };
+        Times times;
         std::size_t bytes = 0;     ///< its file
         /// Why the last one was not started, made or put in
         std::string reason;

@@ -1519,6 +1519,15 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(info["Supplied"], 4, info)
         self.assertTrue(info["ById"], info)
         self.assertGreater(info["WorkerSeconds"], 0)
+        # Where its time went (docs/WorkerProcess.md sec 53): each part on
+        # this process's clock, adding up to the whole
+        times = info["Times"]
+        self.assertTrue(all(v >= 0 for v in times.values()), times)
+        self.assertGreater(times["Job"], 0, times)
+        self.assertLessEqual(times["Job"], times["Returned"] + 0.05, times)
+        self.assertLessEqual(times["Setup"], times["Queued"] + 0.05, times)
+        parts = sum(times[k] for k in ("Start", "Queued", "Returned", "Held", "Read", "Apply"))
+        self.assertAlmostEqual(times["Total"], parts, delta=0.05)
         self.assertEqual(self.touched(), [])
         self.assertTrue(all(o.isValid() for o in self.doc.Objects))
         # Made there, not here, and its value here

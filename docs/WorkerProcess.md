@@ -3370,3 +3370,97 @@ hook. Both are right with a `QCoreApplication`, so neither was changed.
 The whole of `-t 0` after it: 5557 tests in 785 s, OK (skipped=178,
 expected failures=6), exit 0. It wrote one crash log, the CAUGHT report
 of the worker-crash test, and the cache was empty after it.
+
+## 53. Where a worker's recompute spends its time; the previews nobody draws (2026-11-23)
+
+Sec 44 left 4.1 s between the worker's 9.15 s and the 13.25 s at which
+scanner's `hole_radius` edit came back in the GUI: 1.4 s for the put-in,
+the rest "not broken down". It is broken down now. Each recompute put in
+records where its time went, on this process's clock, in
+`recomputeInfo()["Times"]`:
+
+- `Start`: inside `WorkerRecompute::start()`, mostly the copy's new
+  version (`WorkerPool::start()`, a snapshot to the log).
+- `Queued`: from the job's submit until it is handed to its worker.
+  `Setup` is the part of that the worker spent opening or moving its copy.
+- `Job`: the worker's handler, as it says itself.
+- `Returned`: from the hand-over until the result is read here.
+- `Held`: from the result read until its put-in starts.
+- `Read`: reading the result's file and tables.
+- `Apply`: the put-in (`ApplySeconds`).
+- `Total`: from `start()` until the put-in is over.
+
+The pool's `Result` carries `queued`, `returned` and `setup`, for any kind
+of job. A split recompute reports the part that came last.
+`TestWorkerPool.testAPartChainMadeByAWorker` checks that the parts add up
+to `Total`.
+
+Scanner in the GUI (`~/works/sw/fcad-probes/worker/times_gui.py`, sec
+44's probe with one worker, no split, the timeline printed; one warm-up,
+two recomputes here, then three by the worker):
+
+| run | Start | Queued (Setup) | Job | Returned - Job | Read | Apply | Total |
+|---|---|---|---|---|---|---|---|
+| after two here | 0.58 | 1.36 (1.17) | 9.87 | 0.004 | 0.07 | 1.35 | 13.24 |
+| warm | 0.64 | 0.06 (0.03) | 9.81 | 0.002 | 0.09 | 1.13 | 11.73 |
+| warm | 0.61 | 0.04 (0.03) | 9.88 | 0.004 | 0.09 | 1.09 | 11.70 |
+
+The parts add up to `Total` to the millisecond, and `Total` to the
+probe's own measure within 13 ms. So:
+
+- **Most of sec 44's unexplained time was the move.** The worker crossed
+  the rows the two recomputes made here wrote: 1.17 s. After its own
+  result it moves in 0.03 s, because it keeps what it sent (sec 29).
+- **Handing the result over takes nothing**: `Returned` is `Job` plus a
+  few milliseconds.
+- **Outside its recompute** the worker spends about 0.65 s (`Job` 9.8 s
+  against `WorkerSeconds` 9.15 s).
+- **On the main thread**: `Start` about 0.6 s and `Apply` 1.1 to 1.35 s.
+
+**The put-in meshed every PartDesign preview.** A `sample` of the main
+thread during a warm run (14 s at 1 ms) put 674 of the put-in's 982
+samples in view updates. 341 of those were
+`ViewProviderAddSub::updateAddSubShapeIndicator`, which rebuilds the
+feature's AddSubShape preview at every change of that shape:
+`BRepMesh_IncrementalMesh` on the main thread, for a preview that is down.
+The helix alone was 263 samples, its preview shape a long sweep. The
+preview's view is made with `forceUpdate()` and shown, so the hidden-object
+rule of sec 16 never applied to it. A recompute made here paid this too.
+
+Now `updateAddSubShapeIndicator` builds only while the preview is up
+(`previewShown()`: `previewActive`, the display mode, or a session's
+preview). Otherwise it leaves the visual touched
+(`ViewProviderPartExt::touchVisual()`). `setPreviewDisplayMode(true)` and
+a detail path into the preview build it first (`ensureVisual()`). The
+bounding-box build of sec 16 covers any other traversal that reaches it.
+Colours live in the material node, not the mesh, so a preview built later
+shows the colours set while it waited. The overrides that build
+differently are left as they are: Wrap shows another object's view, and
+DressUp and Defeaturing compute their preview shape.
+
+After it, the same probe:
+
+| | before | after |
+|---|---|---|
+| here | 10.2 s | 9.73 s |
+| one worker, warm | 11.7 s | 11.2 s |
+| `Apply` | 1.09 to 1.35 s | 0.63 to 0.88 s |
+| main thread blocked | 1.8 to 2.1 s | 1.35 to 1.72 s |
+
+GUI tests of the preview: pd-two-edits-preview 22, handle-over-preview 5,
+fillet-preview-pick-syncs-list 23, serve-pd-preview 32,
+serve-pd-multi-user-preview 15, serve-dressup-preview-pick 11 and
+serve-pd-multi-user-no-preview 14 pass every claim.
+`fillet-groups-and-preview-menu` passes 12 and then hangs at its colour
+dialog until the runner's deadline. It does the same with the old
+`ViewProviderAddSub.cpp`, so that is not this change. pd-preview-per-view,
+pd-edit-shown-per-view and edit-on-top-by-preview-and-path fail as they
+did before on the mini (see the handoff's list). TestWorkerPool 76 OK.
+
+`Start` is left as it is. The snapshot costs 0.30 s with no shape changed
+(console, an unread cell set). Every shape's `makeBlob` runs the sharing
+analysis (`ShapeRefSet::build`), and that is what tells later objects in
+the same save what they may borrow. Skipping it for an unchanged shape is
+a change to the shared storage's design, which sec 22 already declined.
+The 179 shapes the edit changes add about 0.5 s more, and those are new
+shapes that have to be written.

@@ -547,6 +547,10 @@ struct WorkerPool::Private
         std::string security;
         JobId lastJob = 0;  ///< the last it made
         bool setUpSince = false;  ///< told to open or move since
+        /// Its last open or move: how long it said it took, and when it
+        /// said it was ready
+        double setupSeconds = 0;
+        double setupAt = 0;
         /// Its last job's result as put in here (putIn), for its next move
         json own;
     };
@@ -576,6 +580,12 @@ struct WorkerPool::Private
         /// What the last worker to crash over it said of it (sec 35)
         std::string stack;
         std::string crashLog;
+        /// When it was submitted and last handed to a worker, and how long
+        /// the worker it went to was opening or moving its copy since it
+        /// was submitted (Result::queued, Result::returned, Result::setup)
+        double submittedAt = 0;
+        double sentAt = 0;
+        double setup = 0;
     };
     /// A copy the design moved past that a pinned job is still made on: its
     /// version stays held until no job is on it (Job::pinned)
@@ -1580,6 +1590,8 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
             ++starts.second;
         }
         kept += header.value("kept", 0L);
+        proc.setupSeconds = header.value("seconds", 0.0);
+        proc.setupAt = now();
         auto moved = header.find("moved");
         if (moved != header.end() && moved->is_boolean()) {
             // A newer copy, along the log or opened whole (sec 4)
@@ -1680,6 +1692,9 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
             result.output = output->dump();
         }
         result.seconds = header.value("seconds", 0.0);
+        result.queued = it->second.sentAt - it->second.submittedAt;
+        result.returned = now() - it->second.sentAt;
+        result.setup = it->second.setup;
         result.resident = proc.resident;
         takeMessages(it->second, result);
         if (Base::FileInfo(out).exists()) {
@@ -2107,8 +2122,12 @@ void WorkerPool::Private::sendJob(Proc& proc, JobId id)
         proc.security = std::move(security);
     }
     it->second.running = true;
+    it->second.sentAt = now();
+    it->second.setup = proc.setupSeconds > 0 && proc.setupAt >= it->second.submittedAt
+        ? proc.setupSeconds
+        : 0;
     proc.job = id;
-    proc.began = now();
+    proc.began = it->second.sentAt;
     proc.idleSince = 0;
     if (!send(*proc.socket, header)) {
         kill(proc);
@@ -2402,6 +2421,7 @@ WorkerPool::JobId WorkerPool::submit(Job job)
     Private::Entry entry;
     entry.job = std::move(job);
     entry.copyDir = d->dir;
+    entry.submittedAt = now();
     d->jobs.emplace(id, std::move(entry));
     d->queue.push_back(id);
     if (d->procs.empty() && !d->spawn()) {
@@ -3755,6 +3775,17 @@ public:
         dict.setItem("ByContentWhy", Py::String(i.byContentWhy));
         dict.setItem("WorkerSeconds", Py::Float(i.workerSeconds));
         dict.setItem("ApplySeconds", Py::Float(i.applySeconds));
+        Py::Dict times;
+        times.setItem("Start", Py::Float(i.times.start));
+        times.setItem("Queued", Py::Float(i.times.queued));
+        times.setItem("Setup", Py::Float(i.times.setup));
+        times.setItem("Job", Py::Float(i.times.job));
+        times.setItem("Returned", Py::Float(i.times.returned));
+        times.setItem("Held", Py::Float(i.times.held));
+        times.setItem("Read", Py::Float(i.times.read));
+        times.setItem("Apply", Py::Float(i.times.apply));
+        times.setItem("Total", Py::Float(i.times.total));
+        dict.setItem("Times", times);
         dict.setItem("Bytes", Py::Long(static_cast<unsigned long>(i.bytes)));
         dict.setItem("Reason", Py::String(i.reason));
         Py::List crashed;

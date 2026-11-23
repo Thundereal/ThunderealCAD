@@ -121,6 +121,14 @@ public:
         /// or not wanted
         std::vector<Message> messages;
         double seconds = 0;  ///< the handler's time
+        /// Seconds, on this process's clock: from its submit to its being
+        /// handed to the worker that made it, and from then to its result
+        /// read here (docs/WorkerProcess.md sec 53)
+        double queued = 0;
+        double returned = 0;
+        /// Of `queued`, what that worker said its open or move of its copy
+        /// took, when it was told one after the submit
+        double setup = 0;
         std::size_t resident = 0;  ///< what the worker held after it
     };
 

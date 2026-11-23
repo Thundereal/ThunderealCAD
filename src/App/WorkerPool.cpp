@@ -3841,6 +3841,7 @@ public:
         dict.setItem("Supplied", Py::Long(i.supplied));
         dict.setItem("ExecutedHere", Py::Long(i.executedHere));
         dict.setItem("MadeHere", Py::Long(i.madeHere));
+        dict.setItem("JoinedHere", Py::Long(i.joinedHere));
         dict.setItem("Unused", Py::Long(i.unused));
         dict.setItem("Inner", Py::Long(i.inner));
         Py::List here;
@@ -3883,6 +3884,7 @@ public:
             parts.setItem(k, Py::Long(i.splitObjects[k]));
         }
         dict.setItem("SplitObjects", parts);
+        dict.setItem("SplitJoins", Py::Long(i.splitJoins));
         dict.setItem("SuppliedSecond", Py::Long(i.suppliedSecond));
         return dict;
     }

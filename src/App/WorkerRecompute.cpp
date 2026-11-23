@@ -1155,6 +1155,10 @@ public:
             ++madeByType;
             return false;  // executed here, as it must be
         }
+        if (joined.count(obj.getNameInDocument())) {
+            ++joinedHere;
+            return false;  // a join of the parts, made here as was meant
+        }
         auto it = entries.find(obj.getNameInDocument());
         if (it == entries.end() || it->second.empty()) {
             noteHere(obj);
@@ -1288,6 +1292,9 @@ public:
     /// they were put in (docs/WorkerProcess.md sec 29)
     std::set<std::string> fromWorker;
     long madeByType = 0;  ///< executed here by their type (madeHere())
+    /// A split one's joins, sent to no worker: made here (sec 59)
+    std::set<std::string> joined;
+    long joinedHere = 0;
     /// Of a split recompute, the part each object's values came from;
     /// one not here is the first's
     std::map<std::string, std::size_t> part;
@@ -1309,6 +1316,9 @@ struct State
     Document& doc;
     std::string tag;
     std::vector<std::string> names;  ///< what it recomputes
+    /// Of a split one, the joins: in no part, made here as the parts are put
+    /// in (docs/WorkerProcess.md sec 59)
+    std::set<std::string> joined;
     std::string tables;
     bool applying = false;
     bool timer = false;
@@ -1465,6 +1475,7 @@ bool takeNumbers(Document& doc, const json& numbers, std::string& why)
 bool supplierFor(State& s, std::unique_ptr<Supplier>& supplier)
 {
     supplier = std::make_unique<Supplier>(s.doc);
+    supplier->joined = s.joined;
     std::string why;
     // Each part's result, taken out: the base is the first part's, or the
     // first that made one; the others are then added (docs/WorkerProcess.md
@@ -1565,6 +1576,7 @@ void noteSupplied(State& s, const Supplier& supplier)
     s.info.supplied = supplier.supplied;
     s.info.executedHere = supplier.executedHere;
     s.info.madeHere = supplier.madeByType;
+    s.info.joinedHere = supplier.joinedHere;
     s.info.executedHereNames = supplier.hereNames;
     s.info.unused = supplier.unused();
     s.info.inner = supplier.innerMade;
@@ -2202,9 +2214,12 @@ double splitOf(const Document& doc, const std::set<DocumentObject*>& all,
  */
 std::vector<std::set<DocumentObject*>> splitParts(const Document& doc,
                                                   const std::set<DocumentObject*>& all,
-                                                  long limit, double least, double& saving)
+                                                  long limit, double least, double& saving,
+                                                  std::set<DocumentObject*>& joined,
+                                                  const std::set<std::string>& risky)
 {
     saving = 0;
+    joined.clear();
     std::vector<std::set<DocumentObject*>> parts {all};
     if (limit < 2 || !(least > 0)) {
         return parts;
@@ -2213,45 +2228,118 @@ std::vector<std::set<DocumentObject*>> splitParts(const Document& doc,
     if (!slot.read) {
         readRecorded(doc, slot);
     }
+    // An object's time, if one is known
+    auto timeOf = [&](DocumentObject* obj, double& c) {
+        if (auto t = slot.seconds.find(obj->getID()); t != slot.seconds.end()) {
+            c = t->second;
+            return true;
+        }
+        if (auto r = slot.recorded.find(obj->getID()); r != slot.recorded.end()) {
+            c = r->second;
+            return true;
+        }
+        return false;
+    };
     auto costOf = [&](const std::set<DocumentObject*>& part) {
         double c = 0;
         for (auto obj : part) {
-            if (auto t = slot.seconds.find(obj->getID()); t != slot.seconds.end()) {
-                c += t->second;
-            }
-            else if (auto r = slot.recorded.find(obj->getID()); r != slot.recorded.end()) {
-                c += r->second;
+            double t = 0;
+            if (timeOf(obj, t)) {
+                c += t;
             }
         }
         return c;
     };
-    std::vector<double> costs {costOf(all)};
-    const double whole = costs.front();
-    while (static_cast<long>(parts.size()) < limit) {
-        const std::size_t worst =
-            static_cast<std::size_t>(std::max_element(costs.begin(), costs.end()) - costs.begin());
-        std::set<DocumentObject*> a;
-        std::set<DocumentObject*> b;
-        if (!(splitOf(doc, parts[worst], a, b) > 0) || a.empty() || b.empty()) {
-            break;
+    // `from` split while that saves `least` a step: the parts, and the
+    // costliest part's time
+    auto splitAll = [&](const std::set<DocumentObject*>& from,
+                        std::vector<std::set<DocumentObject*>>& out) {
+        out.assign(1, from);
+        std::vector<double> costs {costOf(from)};
+        while (static_cast<long>(out.size()) < limit) {
+            const std::size_t worst = static_cast<std::size_t>(
+                std::max_element(costs.begin(), costs.end()) - costs.begin());
+            std::set<DocumentObject*> a;
+            std::set<DocumentObject*> b;
+            if (!(splitOf(doc, out[worst], a, b) > 0) || a.empty() || b.empty()) {
+                break;
+            }
+            double others = 0;
+            for (std::size_t k = 0; k < costs.size(); ++k) {
+                if (k != worst) {
+                    others = std::max(others, costs[k]);
+                }
+            }
+            const double costA = costOf(a);
+            const double costB = costOf(b);
+            if (costs[worst] - std::max({others, costA, costB}) < least) {
+                break;
+            }
+            out[worst] = std::move(a);
+            costs[worst] = costA;
+            out.push_back(std::move(b));
+            costs.push_back(costB);
         }
-        double others = 0;
-        for (std::size_t k = 0; k < costs.size(); ++k) {
-            if (k != worst) {
-                others = std::max(others, costs[k]);
+        return *std::max_element(costs.begin(), costs.end());
+    };
+    const double whole = costOf(all);
+    const double longest = splitAll(all, parts);
+    // The joins (sec 59): cheap objects, each with a time known and none
+    // that crashed a worker, all of whose users in `all` are joins too. An
+    // assembly reads every part, and the part holding it holds everything
+    // it reads; left out of the parts and made here as they are put in, it
+    // lets what it gathers split. What comes after a join is a join, so no
+    // part reads one
+    const double cheap = GetApplication()
+                             .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+                             ->GetFloat("JoinSeconds", 0.05);
+    if (cheap > 0) {
+        std::map<DocumentObject*, std::vector<DocumentObject*>> users;
+        for (auto obj : all) {
+            for (auto dep : obj->getOutList()) {
+                if (dep != obj && all.count(dep)) {
+                    users[dep].push_back(obj);
+                }
             }
         }
-        const double costA = costOf(a);
-        const double costB = costOf(b);
-        if (costs[worst] - std::max({others, costA, costB}) < least) {
-            break;
+        std::set<DocumentObject*> joins;
+        double here = 0;
+        for (bool grew = true; grew;) {
+            grew = false;
+            for (auto obj : all) {
+                double t = 0;
+                if (joins.count(obj) || !timeOf(obj, t) || t > cheap
+                    || (obj->getNameInDocument() && risky.count(obj->getNameInDocument()))) {
+                    continue;
+                }
+                auto& u = users[obj];
+                if (std::all_of(u.begin(), u.end(), [&](DocumentObject* o) {
+                        return joins.count(o) > 0;
+                    })) {
+                    joins.insert(obj);
+                    here += t;
+                    grew = true;
+                }
+            }
         }
-        parts[worst] = std::move(a);
-        costs[worst] = costA;
-        parts.push_back(std::move(b));
-        costs.push_back(costB);
+        std::set<DocumentObject*> rest;
+        for (auto obj : all) {
+            if (!joins.count(obj)) {
+                rest.insert(obj);
+            }
+        }
+        std::vector<std::set<DocumentObject*>> without;
+        if (!joins.empty() && !rest.empty()) {
+            const double after = splitAll(rest, without) + here;
+            if (without.size() > 1 && longest - after >= least) {
+                parts = std::move(without);
+                joined = std::move(joins);
+                saving = whole - after;
+                return parts;
+            }
+        }
     }
-    saving = whole - *std::max_element(costs.begin(), costs.end());
+    saving = whole - longest;
     return parts;
 }
 
@@ -2449,8 +2537,9 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
                              .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
                              ->GetFloat("SplitSeconds", 5.0);
     double saving = 0;
+    std::set<DocumentObject*> joined;
     const std::vector<std::set<DocumentObject*>> parts =
-        splitParts(doc, all, pool->info().limit, least, saving);
+        splitParts(doc, all, pool->info().limit, least, saving, joined, s.risky);
     std::vector<std::string> names;
     std::vector<State::Part> made;
     if (parts.size() > 1) {
@@ -2478,12 +2567,14 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         ++s.info.split;
         s.info.splitSaving = saving;
         s.info.splitObjects = sizes;
+        s.info.splitJoins = static_cast<long>(joined.size());
         std::ostringstream ss;
         for (std::size_t k = 0; k < sizes.size(); ++k) {
             ss << (k ? (k + 1 == sizes.size() ? " and " : ", ") : "") << sizes[k];
         }
         FC_LOG(doc.getName() << ": a recompute split over " << sizes.size() << " workers, "
-                             << ss.str() << " objects, expected to save " << saving << " s");
+                             << ss.str() << " objects, " << joined.size()
+                             << " joins made here, expected to save " << saving << " s");
     }
     else {
         auto slot = std::make_shared<WorkerPool::JobId>(0);
@@ -2498,6 +2589,10 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     }
     s.parts = std::move(made);
     s.names = std::move(names);
+    s.joined.clear();
+    for (auto obj : joined) {
+        s.joined.insert(obj->getNameInDocument());
+    }
     s.info.reason.clear();
     s.startedAt = began;
     s.startSeconds = now() - began;

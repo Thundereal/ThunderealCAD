@@ -67,6 +67,8 @@ public:
         long supplied = 0;     ///< objects made from the worker's values
         long executedHere = 0; ///< objects executed here all the same
         long madeHere = 0;     ///< of the others, executed here by their type
+        /// of the others, a split one's joins: sent to no worker (sec 59)
+        long joinedHere = 0;
         long unused = 0;       ///< objects the worker made that were not asked
         /// recomputed after the one whose execute() ran them there (sec 46)
         long inner = 0;
@@ -111,6 +113,9 @@ public:
         long split = 0;
         double splitSaving = 0;
         std::vector<long> splitObjects;
+        /// Of the last one split, the joins left out of its parts: cheap
+        /// objects reading more than one, made here (sec 59)
+        long splitJoins = 0;
         /// Of the last one put in: objects made from the values of a part
         /// other than the first
         long suppliedSecond = 0;

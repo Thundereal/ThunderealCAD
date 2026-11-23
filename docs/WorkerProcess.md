@@ -3734,3 +3734,70 @@ and its `InvalidShape` are the same either way, and only the time is not.
 TestWorkerPool 78, Document 363, ShapeStorage 67, FileBlobs 97,
 TestPartApp 446 and TestTechDrawApp 32 are OK, and ctest passes all 1285
 that run.
+
+## 59. A split leaves its cheap joins to be made here (2026-11-23)
+
+The user, on sec 44's way through ("elaborate on 4", then "yes"). An
+edit above the bodies reaches the assemblies, and an assembly reads every
+body: the part holding the longest chain holds the assembly, so it holds
+all the assembly reads, and no cut saves anything. Sec 44's `hole_radius`
+edit of scanner was never split for that.
+
+**Measured first** (`fcad-probes/worker/joinsplit.py`, console): each
+object of a recompute here timed as `trackTimes()` times it, then sec 44's
+split run in Python, once as it is and once with the joins left out.
+
+| scanner | reached, time | as now: costliest part | with joins: costliest part + joins here |
+|---|---|---|---|
+| the `hole_radius` edit | 345, 8.47 s | 8.44 s | 6.54 + 0.06 s |
+| every object touched | 686, 10.77 s | 10.55 s | 6.55 + 0.11 s |
+
+The 6.5 s left is one chain, `PolarPattern003`'s body, which no split
+cuts.
+
+**The joins.** In `splitParts()`, an object is a join when its time is
+known and at most `Workers/JoinSeconds` (0.05 s; 0 turns this off), it is
+not risky (sec 56: a join is executed in this process), and every object
+of the recompute that reads it is a join too. So nothing a part makes
+reads a join. The recompute less its joins is split as before, and that
+split is taken when its costliest part plus the joins' time here beats
+the split without joins by `Workers/SplitSeconds`. An object no part
+makes is already executed in the put-in (sec 42); the supplier now counts
+a join apart (`JoinedHere`) and not as `ExecutedHere`, which stays the
+count of what a worker should have made and did not. `SplitJoins` is the
+joins of the last split. A recompute that is not split leaves nothing
+out: one worker makes all of it, the joins too.
+
+Test `testACheapJoinIsMadeHereSoWhatItGathersSplits`: sec 42's two slow
+branches, each with its tail, and `Join` reading both tails. Without
+joins it is one part (`JoinSeconds` 0 in the same test: one worker made
+both branches). With them, `Join` and both tails are made here, each
+branch by a worker of its own, at once.
+
+**Measured, GUI** (`editsplit_gui.py`, scanner, the `hole_radius` cell
+edited by 0.2 % and back, `SplitSeconds` 1 s for the split rows, two
+workers allowed, warm):
+
+| | result | main thread blocked | worker |
+|---|---|---|---|
+| here | 9.60-9.65 s | 9.77-9.81 s | -- |
+| one worker | 12.60-12.64 s | 1.53-1.56 s | 9.11-9.17 s |
+| split, joins here | 8.95-9.04 s | 1.55-1.60 s | 7.01-7.14 s |
+
+The parts were 9 and 46 objects, with 298 joins, of which 172 were
+executed (the rest, link elements and groups, come to no execute()). It
+was expected to save 2.3 s and saved 3.6 s against one worker. The
+second worker is faster than its estimate, and only 46 objects are put in
+from workers where one worker puts in 165. The joins cost the main thread
+nothing seen: it is blocked as long as with one worker. The split result
+is the first worker result to come sooner than the recompute made here.
+Compared object by object with here, it differs as the one worker does:
+`SectionView007` (19 visible edges here, 20 from a worker), the TechDraw
+kind of sec 43, open, and the last of four places in `Part012`'s area or
+`Helix`'s volume. `Dimension014` is listed too, and in a recompute here
+against another, but it reads nan every way: nan is not equal to itself.
+
+At the default `SplitSeconds` (5 s) this edit is still not split: 2.3 s
+expected. Left at the user's 5 s.
+
+TestWorkerPool 79 and Document 363 are OK.

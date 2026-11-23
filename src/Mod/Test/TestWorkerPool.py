@@ -1303,6 +1303,46 @@ class TestWorkerRecompute(unittest.TestCase):
             self.assertEqual(left.MadeBy, right.MadeBy, value)
             self.assertEqual((left.Result, right.Result), (4 * base.Input,) * 2, value)
 
+    def testACheapJoinIsMadeHereSoWhatItGathersSplits(self):
+        """An assembly's kind of object -- cheap, reading both slow branches --
+        put the whole recompute in one part: the part holding it holds all
+        it reads. Left out of the parts with the cheap objects before it
+        that only it reads, and made here as the parts are put in, the two
+        branches split; with Workers/JoinSeconds 0 they do not
+        (docs/WorkerProcess.md sec 59)"""
+        base, left, right, tails = self.splitChains()
+        join = self.counted("Join")
+        join.setExpression("Input", "LeftTail.Result + RightTail.Result")
+        self.doc.recompute()  # its time known
+        self.assertEqual(join.Result, 32)
+        base.Input = 2
+        began = time.time()
+        info = self.byWorker()
+        took = time.time() - began
+        self.assertEqual(info["Split"], 1, info)
+        self.assertEqual(info["SplitJoins"], 3, info)  # Join and the tails
+        self.assertEqual(info["JoinedHere"], 3, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertGreaterEqual(info["SplitSaving"], 1.4, info)
+        self.assertEqual(self.touched(), [])
+        self.assertEqual((left.Result, right.Result), (8, 8))
+        self.assertEqual([t.Result for t in tails], [16, 16])
+        self.assertEqual(join.Result, 64)
+        self.assertNotIn(os.getpid(), (left.MadeBy, right.MadeBy))
+        self.assertNotEqual(left.MadeBy, right.MadeBy)
+        self.assertEqual([t.MadeBy for t in tails] + [join.MadeBy], [os.getpid()] * 3)
+        self.assertLess(took, 2.0 + 1.5, info)
+        # No joins: one part, as before
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetFloat("JoinSeconds", 0.0)
+        self.addCleanup(group.RemFloat, "JoinSeconds")
+        base.Input = 3
+        info = self.byWorker()
+        self.assertEqual(info["Split"], 1, info)  # still the one before
+        self.assertEqual(left.MadeBy, right.MadeBy)
+        self.assertEqual(join.Result, 96)
+        self.assertNotEqual(join.MadeBy, os.getpid())
+
     def testATechDrawViewIsMadeByAWorker(self):
         """A TechDraw view is made by a worker -- inline, a console process --
         and put in from its stored projection: the same edges as made here,

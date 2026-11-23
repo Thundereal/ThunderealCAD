@@ -1247,6 +1247,63 @@ and the test backend. Scores: C++ 31 -> 35, Python 50 -> 60.
 - One speed over the face: no profile, no flow rate given in its place,
   no pressure inlet, no outlet other than the space's open sides.
 
+### 12.9 S4 step 2, planned: parts of a mechanism in the fluid (2026-11-24)
+
+Ruled 2026-11-24, to be built before F1 goes on. Step 1's part is free:
+the runner moves it itself. A part held by joints -- a flap on a hinge, a
+float on an arm, a wheel on its axle -- is the Assembly's, moved by its
+Chrono backend with the joints, contacts, motors and springs it has
+there; the fluid adds its push and takes the part's motion (sec 11.5: a
+fluid backend never owns a mechanism). What is there to build on, and
+what follows from it:
+
+- The fluid is another process (FluidSplish, sec 12.5), the mechanism a
+  thread of ours. They exchange, each step, the parts' poses and
+  velocities one way and a force and torque on each the other, over the
+  runner's pipes.
+- The Assembly's run is one call, `Session::simulate()`, and inside it
+  Chrono's steps are taken in substeps that are taken back -- a contact
+  found late, a sensor's trip located by bisection. A fluid cannot be
+  taken back. So the exchange is by pieces of the run, not by Chrono's
+  substeps: over a piece the fluid's force on each part is held as it
+  was found for that piece, and whatever Chrono does inside the piece it
+  does under that force. The fluid is asked for a piece once; a piece
+  taken again gets the same answer.
+- The piece is the fluid's own step (tenths of a millisecond at 5 mm):
+  that is the coupling step 1 has, the part integrated on the fluid's
+  step from the fluid's force of that step, and it held for a block half
+  the water's density. Longer pieces are not tried until that works.
+
+The steps, each with its tests:
+
+1. **The Assembly takes forces from outside.** `SimulationSpec` gains a
+   source of outside loads: the bodies it pushes, the longest piece it
+   allows, and a call that is given those bodies' poses and velocities at
+   a time and a piece's length, and answers with a force and a torque on
+   each for that piece. The Chrono backend cuts its run into such pieces
+   and holds the answer on the bodies through each. Nothing of the fluid
+   in it: tested with a source that is a formula (a constant force on a
+   free body, its closed form; a spring's law on a hinged one).
+2. **The runner moved from outside.** FluidSplish, told so by its case,
+   moves no part itself: for each piece it reads the parts' states from
+   its input, steps the fluid through the piece with the parts moving as
+   told, and writes the mean force and torque on each. `SplishBackend`
+   gets the session's other end. Tested with motions that are scripted:
+   a block held under water (its buoyancy), a block pushed through it.
+3. **The study and the mechanism together.** A study names an Assembly
+   simulation; its free parts that are that assembly's are the
+   mechanism's. The study's run starts the runner and the Assembly's run
+   with the runner as its source of loads; both results are kept, on the
+   same frames. Validation: a flap on a hinge under still water against
+   the hydrostatic moment's closed form; a float on a hinged arm at rest
+   at the angle where its buoyancy's moment is its weight's; then one let
+   go, as S4's block was. A command, the manual's page and its video.
+
+Open before it is built: whether a light part (a float a tenth of the
+water's density) stays stable when its motion and the fluid's force are
+a step apart -- step 1 was not tried below a half; the Assembly's
+results and the fluid's being two kept things for one run.
+
 ## 13. For the user to rule (2026-11-21)
 
 1. **The first backend (S2).** OpenFOAM: validated, CPU, already this

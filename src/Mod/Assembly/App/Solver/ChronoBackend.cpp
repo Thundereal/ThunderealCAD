@@ -15382,7 +15382,11 @@ Status ChronoSession::simulateDynamics(
         hht->SetStepControl(false);
     }
 
-    const double hMax = spec.maxStep > 0.0 ? spec.maxStep : 1e-3;
+    double hMax = spec.maxStep > 0.0 ? spec.maxStep : 1e-3;
+    // No step longer than a source of outside loads holds its answer over
+    if (spec.outside && spec.outside->longestPiece() > 0.0) {
+        hMax = std::min(hMax, spec.outside->longestPiece());
+    }
     const int sub = std::max(1, static_cast<int>(std::ceil(spec.tOutput / hMax - 1e-9)));
     const double h = spec.tOutput / sub;
     const auto steps =
@@ -17709,7 +17713,67 @@ Status ChronoSession::simulateDynamics(
     struct Stopped
     {};
     int crawled = 0;
+    // Loads from outside the mechanism (OutsideLoads): asked for the stretch
+    // of a step not asked for yet, from the bodies' states now, and held on
+    // the bodies as found until the next is asked. A step taken again after
+    // the state was taken back is within what was asked, and runs under the
+    // same loads.
+    std::vector<Id> pushed;
+    std::vector<unsigned int> pushedBy;
+    if (spec.outside) {
+        pushed = spec.outside->bodies();
+        for (const Id body : pushed) {
+            if (body == NoId || static_cast<std::size_t>(body) >= n) {
+                throw std::runtime_error("a source of outside loads names a body the model has not");
+            }
+            pushedBy.push_back(run.d->bodies[static_cast<std::size_t>(body)]->AddAccumulator());
+        }
+    }
+    double outsideReached = spec.tStart;
+    auto outsideFor = [&](double dt) {
+        const double from = sys.GetChTime();
+        if (pushed.empty() || !(from + dt > outsideReached + 1e-12 * std::max(dt, 1e-9))) {
+            return;
+        }
+        const double start = std::max(from, outsideReached);
+        std::vector<BodyState> states;
+        states.reserve(pushed.size());
+        for (const Id id : pushed) {
+            const auto b = static_cast<std::size_t>(id);
+            const auto& body = run.d->bodies[b];
+            BodyState state;
+            state.body = id;
+            state.placement = toPlacement(body->GetPos(), body->GetRot()) * centre[b].inverse();
+            // The frame's origin's, from the mass centre's
+            const ch::ChVector3d origin = toCh(state.placement.getPosition());
+            const ch::ChVector3d spin = body->GetAngVelParent();
+            const ch::ChVector3d v = body->GetPosDt() + ch::Vcross(spin, origin - body->GetPos());
+            state.placement.setPosition(state.placement.getPosition() / SI::length);
+            state.velocity = Base::Vector3d(v.x(), v.y(), v.z()) / SI::velocity;
+            state.angularVelocity = Base::Vector3d(spin.x(), spin.y(), spin.z());
+            states.push_back(state);
+        }
+        std::vector<Wrench> loads;
+        std::string why;
+        if (!spec.outside->piece(start, from + dt - start, states, loads, why)
+            || loads.size() != pushed.size()) {
+            throw std::runtime_error(why.empty() ? "the source of outside loads gave none" : why);
+        }
+        for (std::size_t k = 0; k < pushed.size(); ++k) {
+            const auto b = static_cast<std::size_t>(pushed[k]);
+            const auto& body = run.d->bodies[b];
+            const ch::ChVector3d origin = toCh(states[k].placement.getPosition() * SI::length);
+            body->EmptyAccumulator(pushedBy[k]);
+            body->AccumulateForce(pushedBy[k],
+                                  toCh(loads[k].force * SI::force),
+                                  origin,
+                                  false);
+            body->AccumulateTorque(pushedBy[k], toCh(loads[k].torque * SI::torque), false);
+        }
+        outsideReached = from + dt;
+    };
     auto advance = [&](double dt) {
+        outsideFor(dt);
         if (!contact) {
             // A flexible body's modal coordinates never pass the default
             // test: the modal assembly's Jacobian is approximate (its

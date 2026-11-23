@@ -13,6 +13,8 @@
 
 #include <gtest/gtest.h>
 
+#include <functional>
+
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -1530,3 +1532,196 @@ TEST(ChronoBackend, dynamicRunTakesOutRedundantRows)  // NOLINT
         EXPECT_TRUE(run.frames.empty());
     }
 }
+
+namespace
+{
+
+// A source of outside loads that is a formula of its one body's state, and
+// keeps what it was asked
+struct FormulaLoads: OutsideLoads
+{
+    Id body = NoId;
+    double longest = 0.0;
+    std::function<Wrench(const BodyState&)> law;
+    std::vector<double> starts;
+    std::vector<double> lengths;
+    std::vector<BodyState> states;
+    std::vector<Id> bodies() const override
+    {
+        return {body};
+    }
+    double longestPiece() const override
+    {
+        return longest;
+    }
+    bool piece(double time,
+               double length,
+               const std::vector<BodyState>& given,
+               std::vector<Wrench>& loads,
+               std::string& why) override
+    {
+        if (given.size() != 1 || given[0].body != body) {
+            why = "not the body asked for";
+            return false;
+        }
+        starts.push_back(time);
+        lengths.push_back(length);
+        states.push_back(given[0]);
+        loads = {law(given[0])};
+        return true;
+    }
+};
+
+Status runPushed(const Model& m, OutsideLoads& loads, RunRecorder& out, double end)
+{
+    SimulationSpec spec;
+    spec.analysis = Analysis::Dynamic;
+    spec.tEnd = end;
+    spec.tOutput = 0.01;
+    spec.outside = &loads;
+    ChronoSession session;
+    if (session.load(m) != Status::Ok) {
+        return Status::Failed;
+    }
+    return session.simulate(spec, out);
+}
+
+}  // namespace
+
+// Loads from outside the mechanism (docs/FluidSimulation.md sec 12.9, step
+// 1): a dynamic run cut into pieces, the source asked for each once and in
+// order with its bodies' states, its answer held on the body through the
+// piece. A free block under a constant force at its frame's origin, which
+// its mass centre is 5 mm along the force from, goes F t^2 / 2 m and does
+// not turn; the same force across that offset turns it by the moment; a bar
+// on a hinge under a torque -k times its angle swings as a torsion spring
+// has it, a little wider each swing by the piece the torque is behind.
+TEST(ChronoBackend, loadsFromOutsideTheMechanism)  // NOLINT
+{
+    {
+        SCOPED_TRACE("a free block pushed");
+        Builder b;
+        const Id block = b.body("Block", at(10, 20, 30));
+        Dynamics dynamics;
+        dynamics.gravity = Base::Vector3d(0, 0, 0);
+        dynamics.inertias.push_back(boxInertia(block, 2.0, 30, 20, 10, Base::Vector3d(5, 0, 0)));
+        b.m.dynamics = dynamics;
+        FormulaLoads push;
+        push.body = block;
+        push.longest = 2e-3;
+        push.law = [](const BodyState&) { return Wrench {Base::Vector3d(400, 0, 0), {}}; };
+        RunRecorder run;
+        ASSERT_EQ(runPushed(b.m, push, run, 0.1), Status::Ok);
+        ASSERT_EQ(run.frames.size(), 11u);
+        // mN over kg: mm/s^2
+        for (std::size_t f = 0; f < run.frames.size(); ++f) {
+            const double t = 0.01 * static_cast<double>(f);
+            const Base::Vector3d p = run.frames[f][block].placement.getPosition();
+            EXPECT_NEAR(p.x, 10.0 + 0.5 * 200.0 * t * t, 1e-4) << f;
+            EXPECT_NEAR(p.y, 20.0, 1e-9);
+            EXPECT_NEAR(p.z, 30.0, 1e-9);
+            EXPECT_NEAR(thez(run.frames[f][block].placement), 0.0, 1e-9);
+        }
+        // Asked once for each piece, in order, end to end, none over the
+        // longest, to the run's end; and told how the block goes
+        ASSERT_GT(push.starts.size(), 50u);
+        EXPECT_NEAR(push.starts.front(), 0.0, 1e-15);
+        for (std::size_t k = 0; k < push.starts.size(); ++k) {
+            EXPECT_GT(push.lengths[k], 0.0);
+            EXPECT_LE(push.lengths[k], 2e-3 * (1.0 + 1e-9));
+            if (k > 0) {
+                EXPECT_NEAR(push.starts[k], push.starts[k - 1] + push.lengths[k - 1], 1e-12) << k;
+                const BodyState& state = push.states[k];
+                EXPECT_NEAR(state.velocity.x, 200.0 * push.starts[k], 1e-3) << k;
+                EXPECT_NEAR(state.placement.getPosition().x,
+                            10.0 + 100.0 * push.starts[k] * push.starts[k],
+                            1e-4);
+                EXPECT_NEAR(state.angularVelocity.Length(), 0.0, 1e-9);
+            }
+        }
+        EXPECT_NEAR(push.starts.back() + push.lengths.back(), 0.1, 1e-12);
+    }
+    {
+        SCOPED_TRACE("pushed off its mass centre");
+        Builder b;
+        const Id block = b.body("Block", at(0, 0, 0));
+        Dynamics dynamics;
+        dynamics.gravity = Base::Vector3d(0, 0, 0);
+        // about z through its centre, kg mm^2
+        const double inertia = 2.0 * (30.0 * 30.0 + 20.0 * 20.0) / 12.0;
+        dynamics.inertias.push_back(boxInertia(block, 2.0, 30, 20, 10, Base::Vector3d(5, 0, 0)));
+        b.m.dynamics = dynamics;
+        FormulaLoads push;
+        push.body = block;
+        push.longest = 1e-3;
+        // along y in the model's axes, at the frame's origin 5 mm behind
+        // the centre: a moment of -5 F about z there
+        push.law = [](const BodyState&) { return Wrench {Base::Vector3d(0, 40, 0), {}}; };
+        RunRecorder run;
+        ASSERT_EQ(runPushed(b.m, push, run, 0.02), Status::Ok);
+        // so little turned that the arm is the same still
+        const double t = 0.02;
+        EXPECT_NEAR(thez(run.frames.back()[block].placement),
+                    0.5 * (-5.0 * 40.0 / inertia) * t * t,
+                    2e-7);
+        // and a torque alone turns it about its centre, which stays
+        Builder c;
+        const Id other = c.body("Block", at(0, 0, 0));
+        c.m.dynamics = dynamics;
+        c.m.dynamics->inertias[0].body = other;
+        FormulaLoads twist;
+        twist.body = other;
+        twist.longest = 1e-3;
+        twist.law = [](const BodyState&) { return Wrench {{}, Base::Vector3d(0, 0, 300)}; };
+        RunRecorder turned;
+        ASSERT_EQ(runPushed(c.m, twist, turned, 0.02), Status::Ok);
+        const Base::Placement& end = turned.frames.back()[other].placement;
+        const double angle = 0.5 * (300.0 / inertia) * t * t;
+        EXPECT_NEAR(thez(end), angle, 1e-7);
+        Base::Vector3d centre;
+        end.multVec(Base::Vector3d(5, 0, 0), centre);
+        EXPECT_NEAR((centre - Base::Vector3d(5, 0, 0)).Length(), 0.0, 1e-7);
+    }
+    {
+        SCOPED_TRACE("a bar on a hinge, a spring's torque from outside");
+        const double inertia = 0.6 * (100.0 * 100.0 + 10.0 * 10.0) / 12.0;
+        // a period of 0.1 s
+        const double omega = 2.0 * pi / 0.1;
+        const double stiffness = inertia * omega * omega;
+        auto swing = [&](double longest) {
+            Builder b;
+            const Id bar = b.body("Bar", at(0, 0, 0, rot(0, 0, 1, 0.1)));
+            b.joint(JointKind::Revolute, b.frame(b.g, at(0, 0, 0)), b.frame(bar, at(0, 0, 0)));
+            Dynamics dynamics;
+            dynamics.gravity = Base::Vector3d(0, 0, 0);
+            dynamics.inertias.push_back(boxInertia(bar, 0.6, 100, 10, 10, Base::Vector3d(0, 0, 0)));
+            b.m.dynamics = dynamics;
+            FormulaLoads spring;
+            spring.body = bar;
+            spring.longest = longest;
+            spring.law = [&](const BodyState& state) {
+                return Wrench {{}, Base::Vector3d(0, 0, -stiffness * thez(state.placement))};
+            };
+            RunRecorder run;
+            EXPECT_EQ(runPushed(b.m, spring, run, 0.1), Status::Ok);
+            std::vector<double> angles;
+            for (const auto& frame : run.frames) {
+                angles.push_back(thez(frame[bar].placement));
+            }
+            return angles;
+        };
+        const std::vector<double> fine = swing(1e-4);
+        ASSERT_EQ(fine.size(), 11u);
+        // half a period on, the other side; a whole one, back. The torque
+        // is a piece old: the swing grows by about pi omega h a period, 2%
+        EXPECT_NEAR(fine[5], -0.1, 0.002);
+        EXPECT_NEAR(fine[10], 0.1, 0.004);
+        EXPECT_NEAR(fine[2], 0.1 * std::cos(omega * 0.02), 0.002);
+        // and ten times as much by pieces ten times as long: what a source
+        // as stiff as this asks of its pieces
+        const std::vector<double> coarse = swing(1e-3);
+        EXPECT_GT(coarse[10], 0.115);
+        EXPECT_LT(coarse[10], 0.13);
+    }
+}
+

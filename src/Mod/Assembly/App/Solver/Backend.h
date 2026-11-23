@@ -134,6 +134,54 @@ enum class Analysis : std::uint8_t
     Static
 };
 
+// A body as a source of loads from outside the mechanism is told of it: its
+// frame's pose, the velocity of that frame's origin and the body's angular
+// velocity, in the model's axes and units (mm, mm/s, rad/s)
+struct BodyState
+{
+    Id body = NoId;
+    Base::Placement placement;
+    Base::Vector3d velocity;
+    Base::Vector3d angularVelocity;
+};
+
+// What it answers with for one: a force at the body's frame's origin and a
+// torque, in the model's axes and units (mN, mN mm)
+struct Wrench
+{
+    Base::Vector3d force;
+    Base::Vector3d torque;
+};
+
+// Loads on bodies of a dynamic run from outside the mechanism -- a fluid
+// about them (docs/FluidSimulation.md sec 12.9). The run is cut into pieces
+// no longer than longestPiece(); for each the source is given its bodies'
+// states at the piece's start and answers with the load on each, which is
+// held on the body, as it was found, through the piece. A piece is asked
+// for once and in time order: what the run takes back and steps again
+// within one (a contact found late, a sensor's trip) it does under the same
+// loads, and the source is never asked to go back.
+class OutsideLoads
+{
+public:
+    virtual ~OutsideLoads() = default;
+    // The bodies it pushes, as the model numbers them
+    virtual std::vector<Id> bodies() const = 0;
+    // s; 0: as long as the run's own steps
+    virtual double longestPiece() const
+    {
+        return 0.0;
+    }
+    // The piece from 'time', 'length' long: 'states' the bodies' at its
+    // start, in bodies()'s order; 'loads' the answer, in that order. false:
+    // the run fails, 'why' saying what went wrong
+    virtual bool piece(double time,
+                       double length,
+                       const std::vector<BodyState>& states,
+                       std::vector<Wrench>& loads,
+                       std::string& why) = 0;
+};
+
 struct SimulationSpec
 {
     Analysis analysis = Analysis::Kinematic;
@@ -155,6 +203,9 @@ struct SimulationSpec
     // output frames, in time order with them: as many as the contact
     // forces' curves need
     bool impactFrames = false;
+    // Dynamic: loads from outside the mechanism, or none. Not owned; it
+    // outlives the run
+    OutsideLoads* outside = nullptr;
 };
 
 // A value a run reports with each frame besides the poses

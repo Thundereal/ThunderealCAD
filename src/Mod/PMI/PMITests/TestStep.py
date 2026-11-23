@@ -536,23 +536,46 @@ class TestNistSet(Base):
         self.write_and_read(doc)
         self.assertWrittenClean("nist_ctc_04_asme1_ap242-e1.stp")
 
+    def test_a_value_format_of_the_value_written(self):
+        """Written in inches, a value's format counts the digits of the value
+        as written, not of the millimetres it is kept in: STC-06's 12 in is an
+        'NR2 2.2' as NIST's is, not the 'NR2 3.2' of 304.8 (dwin, p12: SFA
+        says it 'specifies more digits than are necessary')"""
+        nist = os.path.join(os.environ["FC_PMI_NIST"], "nist_stc_06_asme1_ap242-e3.stp")
+
+        def formats(path):
+            with open(path, errors="replace") as f:
+                return sorted(set(re.findall(r"VALUE_FORMAT_TYPE_QUALIFIER\('([^']*)'", f.read())))
+
+        unit = Part.exportUnits()["write.step.unit"]
+        self.addCleanup(Part.exportUnits, unit)
+        Part.exportUnits("INCH")
+        self.write_and_read(self.read(nist))
+        self.assertEqual(formats(self.written), formats(nist))
+        self.assertIn("NR2 2.2", formats(self.written))
+
     def test_a_graphic_by_its_placeholder(self):
         """A graphic linked to what it presents by an association with a
         placeholder (AP242 ed2), its only semantic link in FTC-06 and STC-08:
         each dimension has its graphic, not a note of its own beside it. And
         where a named association gives the graphic, the placeholder's (a
         callout of the placeholder alone) does not take its place: STC-06. A
-        graphic is a PMI's only when that PMI is read and holds it"""
+        graphic is a PMI's only when that PMI is read and holds it. The
+        graphic of a tolerance not read, being of no geometry (of the whole
+        part: 'Geometrical Tolerance.1' of FTC-06 and STC-08), is a graphic
+        alone, not lost (dwin, p12)"""
         nist = os.environ["FC_PMI_NIST"]
-        for name, notes in (("nist_ftc_06_asme1_ap242-e2.stp", 7),
-                            ("nist_stc_06_asme1_ap242-e3.stp", 2),
-                            ("nist_stc_08_asme1_ap242-e3.stp", 3)):
+        whole = "Geometrical Tolerance.1"
+        for name, notes, kept in (("nist_ftc_06_asme1_ap242-e2.stp", 8, True),
+                                  ("nist_stc_06_asme1_ap242-e3.stp", 2, False),
+                                  ("nist_stc_08_asme1_ap242-e3.stp", 4, True)):
             with self.subTest(name):
                 doc = self.read(os.path.join(nist, name))
                 dims = objects(doc, "Dimension")
                 self.assertTrue(dims)
                 self.assertEqual([d.Label for d in dims if d.ImportedGraphic.isNull()], [])
                 self.assertEqual(len(objects(doc, "Note")), notes)
+                self.assertEqual(whole in [n.Label for n in objects(doc, "Note")], kept)
         # A placeholder to a PMI not read, or read with no graphic, takes no graphic away:
         # CTC-03's datum feature 6, which no tolerance cites, stays a graphic alone (dwin, p9)
         doc = self.read(os.path.join(nist, "nist_ctc_03_asme1_ap242-e2.stp"))

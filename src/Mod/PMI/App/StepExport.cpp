@@ -627,6 +627,12 @@ private:
             if (!c || !c->drawnByAnother()) {
                 continue;
             }
+            // A composite frame's lower segment is linked to no graphic, as
+            // NIST's is not: being composite says whose it is drawn in
+            auto gt = freecad_cast<GeometricTolerance*>(c);
+            if (gt && gt->compositeUpper() == c->ImportedWith.getValue()) {
+                continue;
+            }
             auto mine = _labels.find(c);
             auto host = _labels.find(c->ImportedWith.getValue());
             if (mine != _labels.end() && host != _labels.end()) {

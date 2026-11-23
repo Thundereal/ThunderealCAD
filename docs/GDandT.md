@@ -1573,6 +1573,17 @@ kept; the tests need PartDesign. And one for a decision: supplemental geometry i
 every file since sec 10.24 K, whatever `read.step.constructivegeom.relationship` says -- a
 plain part with construction curves comes in with them beside its solid.
 
+SFA pass 12 (dwin) on that: STC-06 and STC-10 equal NIST's graphics table, and two things it
+found. A value's format was written with the digits of the millimetres a value is kept in, in a
+file in inches ('NR2 3.2' for 12 in): the writer counts those of the value it writes. And one
+profile graphic short in four files, which is no regression -- the count before held a
+composite's lower segment drawn twice: 'Geometrical Tolerance.1' is a tolerance of the whole
+part (its toleranced shape an aspect of no geometry in STC-08 and FTC-06, the product's shape in
+FTC-07 and FTC-10), which OCCT does not read. Its graphic is kept now, a graphic alone, where it
+was dropped in the first two. Reading it as a tolerance needs a tolerance of no faces in the
+model and 'all over' in the reader and writer: open. A composite's lower segment is written
+linked to no graphic, as NIST's is; being composite says whose it is drawn in.
+
 ### 10.24 P3: SFA on the output (2026-11-22)
 
 NIST's STEP File Analyzer (SFA 5.54, Windows; run by a second session there) on the 19

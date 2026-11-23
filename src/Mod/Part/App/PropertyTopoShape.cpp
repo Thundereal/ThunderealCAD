@@ -1164,6 +1164,12 @@ void PropertyPartShape::validateShape(App::DocumentObject *obj)
     // the value put back other than the one recorded.
     if (obj->getDocument()->isPerformingTransaction())
         return;
+    // The same of a worker's copy moved along the log to a newer version: the
+    // values are those the document had. It ran a BRepCheck of every shape a
+    // recompute here had made, most of a 3.9 s move (docs/WorkerProcess.md
+    // sec 58)
+    if (obj->getDocument()->isMovingAlongLog())
+        return;
     // The same of a worker's result put in: checked, and fixed, where it was
     // made, its InvalidShape put in with it (docs/WorkerProcess.md sec 19)
     if (App::RecomputeHook::puttingIn())

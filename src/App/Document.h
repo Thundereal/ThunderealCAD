@@ -1991,6 +1991,16 @@ public:
      * Origin its axes and planes -- must wait for the log to supply them.
      */
     bool isReplaying() const;
+    /** A worker's copy moved to a newer version through the log's rows
+     * (WorkerPool, docs/WorkerProcess.md sec 58): _moveAlongLog() with
+     * isMovingAlongLog() true while it runs. Each value it restores is one
+     * the document had, checked when it was made, as with an undo: a value's
+     * own check on setting -- a shape's BRepCheck, its fix -- is not run
+     * again. Not a replay (isReplaying): a value the log lacks still refuses
+     * the move, and the worker opens the version whole.
+     */
+    bool moveAlongLogQuietly(int64_t fromHead, int64_t toSeq, TransactionLog* through);
+    bool isMovingAlongLog() const;
     /** Another copy's rows or state are being written into this document
      * (a fork's import, a linked set: docs/TransactionLogJournal.md sec 30.13,
      * 37.10): what they make, they say, and nothing is to be made on the

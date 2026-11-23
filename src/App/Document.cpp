@@ -2292,6 +2292,17 @@ bool Document::isReplaying() const
     return d->replaying || d->checkingOut;
 }
 
+bool Document::moveAlongLogQuietly(int64_t fromHead, int64_t toSeq, TransactionLog* through)
+{
+    Base::FlagToggler<> moving(d->movingAlong);
+    return _moveAlongLog(fromHead, toSeq, false, through);
+}
+
+bool Document::isMovingAlongLog() const
+{
+    return d->movingAlong;
+}
+
 bool Document::isWritingForeign() const
 {
     return d->writingForeign;

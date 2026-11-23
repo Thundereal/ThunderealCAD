@@ -3677,3 +3677,60 @@ The move itself is no gain.
 Why a move across those rows costs more than an open is not chased here.
 Until it is, a large change is caught up with faster by opening whole than
 by moving. That is the next item.
+
+## 58. A worker's move along the log checks no shape again (2026-11-23)
+
+Sec 57 found a live worker moving across one recompute made here took
+3.9 s, against 1.15 s for a new worker opening the whole version.
+Reproduced in the console (`~/works/sw/fcad-probes/worker/movecost.py`:
+`IdleSeconds` 600 so the worker stays, a job, a recompute here, a job):
+`Setup` 4.15 s and 3.92 s, against 1.04 s for the first open. A `sample`
+of the worker caught part of the move: of 335 samples under
+`_moveAlongLog`, 235 were `PropertyPartShape::validateShape()`, a full
+`BRepCheck_Analyzer` of each shape restored.
+
+`validateShape()` skips a value an undo or a redo puts back
+(`isPerformingTransaction()`): it was checked when it was made, and its
+`InvalidShape` comes back with it. Document's own moves along the log, a
+branch switch or a recovery, set `replaying`, which
+`isPerformingTransaction()` includes (sec 27.68 of
+docs/TransactionLogJournal.md: object code must not react to rows put
+back). The worker's `moveAlong` called `_moveAlongLog()` directly, with
+nothing set. So every shape the recompute here had made was checked again
+in the worker. A `FixShape` would also have fixed it there, into something
+other than the value the row has.
+
+Not `replaying` for the worker: under it a value the log lacks touches its
+object instead of refusing the move. A refused move has the worker open
+the version whole, which is right, and a touched object in its copy would
+feed stale input to the next job. So the move has its own state:
+`Document::moveAlongLogQuietly()` runs `_moveAlongLog()` with
+`isMovingAlongLog()` true, and `validateShape()` skips while it is.
+
+Measured, the same probe:
+
+| move across one recompute made here | before | after |
+|---|---|---|
+| `Setup` | 4.15 s, 3.92 s | 0.44 s, 0.41 s |
+| the job, in all | 14.76 s, 14.02 s | 11.03 s, 10.43 s |
+
+So a move is cheaper than an open again (1.04 s), and the pool needs no
+rule for opening whole instead. In the GUI, sec 57's probe (one recompute
+here, 3 s quiet, a job; rounds 2 and 3, the worker still up):
+
+| | `Start` | `Queued` (`Setup`) | main thread blocked | total |
+|---|---|---|---|---|
+| quiet move off (sec 57) | 0.44-0.47 s | 1.34-1.40 s (1.14 s) | 1.51-1.55 s | 12.55-12.71 s |
+| on, before this | 0.14-0.16 s | 1.2 s (3.9 s) | 0.98 s | 11.97-11.98 s |
+| on, after this | 0.20-0.22 s | 0.03 s (0.017 s) | 0.99-1.02 s | 10.83-10.95 s |
+
+The move is over within the quiet, and the job waits for nothing before
+its recompute. Against 9.7 s for the recompute made here, what is left is
+the worker's view meshes (0.6 s, sec 53), the put-in (0.65 s) and `Start`
+(0.2 s). In exchange, the main thread is blocked 1.0 s instead of 9.8 s.
+
+No test of its own: nothing a test can see changes. The shape restored
+and its `InvalidShape` are the same either way, and only the time is not.
+TestWorkerPool 78, Document 363, ShapeStorage 67, FileBlobs 97,
+TestPartApp 446 and TestTechDrawApp 32 are OK, and ctest passes all 1285
+that run.

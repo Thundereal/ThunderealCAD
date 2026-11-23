@@ -216,6 +216,9 @@ struct DocumentP
     /// A crash recovery rebuilding the document from its log (sec 25.2):
     /// what it writes is in the log already, and is no transaction.
     bool replaying {false};
+    /// A worker's copy moving to a newer version through the log's rows
+    /// (Document::moveAlongLogQuietly, docs/WorkerProcess.md sec 58)
+    bool movingAlong {false};
     /// The log's last seq when the document was opened: undo reaches no
     /// further back on any branch (docs/TransactionLogJournal.md sec 26.4).
     int64_t undoFloor {0};

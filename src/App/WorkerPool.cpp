@@ -3146,7 +3146,7 @@ int WorkerPool::serve()
         at.num = from;
         at.seq = fromSeq;
         TransactionLog through(*doc, &at);
-        return doc->_moveAlongLog(fromSeq, toSeq, false, &through);
+        return doc->moveAlongLogQuietly(fromSeq, toSeq, &through);
     };
     for (;;) {
         json header;

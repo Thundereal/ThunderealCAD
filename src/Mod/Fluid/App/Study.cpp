@@ -5,6 +5,10 @@
 #include <cmath>
 #include <thread>
 
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <gp_Mat.hxx>
+
 #include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
@@ -59,6 +63,30 @@ Solver::Surface surfaceOf(const Part::TopoShape& shape, double accuracy)
             {static_cast<int>(f.I1), static_cast<int>(f.I2), static_cast<int>(f.I3)});
     }
     return surface;
+}
+
+// What a shape of that density weighs and how: mm and kg/mm^3 to the
+// model's units.
+Solver::MassProps massOf(const Part::TopoShape& shape, double density)
+{
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(shape.getShape(), props);
+    // a reversed solid's volume and moments come negative
+    const double sign = props.Mass() < 0.0 ? -1.0 : 1.0;
+    Solver::MassProps mass;
+    mass.mass = sign * props.Mass() * density;
+    const gp_Pnt centre = props.CentreOfMass();
+    mass.centre = {centre.X() * 1.0e-3, centre.Y() * 1.0e-3, centre.Z() * 1.0e-3};
+    // about the centre of mass, per unit density
+    const gp_Mat m = props.MatrixOfInertia();
+    const double scale = sign * density * 1.0e-6;
+    mass.inertia = {m(1, 1) * scale,
+                    m(2, 2) * scale,
+                    m(3, 3) * scale,
+                    m(1, 2) * scale,
+                    m(1, 3) * scale,
+                    m(2, 3) * scale};
+    return mass;
 }
 
 const char* statusText(Solver::Status status)
@@ -222,6 +250,7 @@ Solver::Model Study::buildModel() const
         const App::DocumentObject* source;
         Part::TopoShape shape;
         Solver::Material material;
+        double density = 0.0;  // of a part the fluid moves, kg/mm^3
     };
     std::vector<Taken> walls;
     std::vector<Taken> fluids;
@@ -248,6 +277,28 @@ Solver::Model Study::buildModel() const
             const double side = std::min({box.LengthX(), box.LengthY(), box.LengthZ()});
             smallest = smallest == 0.0 ? side : std::min(smallest, side);
         }
+        else if (auto* body = freecad_cast<FreeBody*>(child)) {
+            auto* part = body->Part.getValue();
+            if (!part) {
+                FC_THROWM(Base::ValueError, body->getFullLabel() << " has no part");
+            }
+            for (const auto& wall : walls) {
+                if (wall.source == part) {
+                    FC_THROWM(Base::ValueError,
+                              part->getFullLabel() << " is a wall of the study and "
+                                                   << body->getFullLabel()
+                                                   << "'s part: it is held, or it is moved");
+                }
+            }
+            if (!(body->Density.getValue() > 0.0)) {
+                FC_THROWM(Base::ValueError,
+                          body->getFullLabel() << " has no density: what the fluid moves "
+                                                  "has to weigh something");
+            }
+            // named by its part: that is what the results move
+            walls.push_back({part, solidOf(part, "the part"), {}, body->Density.getValue()});
+            space.Add(walls.back().shape.getBoundBox());
+        }
         else if (auto* monitor = freecad_cast<Monitor*>(child)) {
             const Base::Vector3d p = monitor->Point.getValue();
             model.monitors.push_back({sourceOf(monitor, getDocument()),
@@ -263,7 +314,13 @@ Solver::Model Study::buildModel() const
     model.resolution = resolution * 1.0e-3;
     const double accuracy = std::max(resolution * 0.25, 1.0e-3);
     for (const auto& wall : walls) {
-        model.walls.push_back({sourceOf(wall.source, getDocument()), surfaceOf(wall.shape, accuracy)});
+        model.walls.emplace_back();
+        model.walls.back().source = sourceOf(wall.source, getDocument());
+        model.walls.back().surface = surfaceOf(wall.shape, accuracy);
+        if (wall.density > 0.0) {
+            model.walls.back().motion = Solver::WallMotion::Free;
+            model.walls.back().mass = massOf(wall.shape, wall.density);
+        }
     }
     for (const auto& fluid : fluids) {
         model.fluids.push_back(
@@ -303,6 +360,12 @@ Solver::Status Study::start(std::string& why)
         Status.setValue(why);
         return Solver::Status::Empty;
     }
+    const auto moved = Solver::freeWalls(run->model);
+    if (!moved.empty() && !backend->capabilities().freeBodies) {
+        why = backend->label() + " cannot move a part by the fluid";
+        Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
+        return Solver::Status::Unsupported;
+    }
     run->session = backend->createSession();
     run->path = Results.getExchangeTempFile();
     run->writer = std::make_unique<ArchiveWriter>(run->path);
@@ -313,6 +376,9 @@ Solver::Status Study::start(std::string& why)
     run->index.spacing = run->model.resolution * 1000.0;
     for (const auto& monitor : run->model.monitors) {
         run->index.monitors.push_back({monitor.source, monitor.kind});
+    }
+    for (std::size_t wall : moved) {
+        run->index.bodies.push_back(run->model.walls[wall].source);
     }
     active = std::move(run);
     Status.setValue("Running");
@@ -402,6 +468,18 @@ InitialFluid::InitialFluid()
     ADD_PROPERTY_TYPE(Density, (998.2e-9), "Fluid", App::Prop_None, "The fluid's density");
     ADD_PROPERTY_TYPE(Viscosity, (1.002e-6), "Fluid", App::Prop_None,
                       "The fluid's dynamic viscosity");
+}
+
+// ============================== FreeBody ===============================
+
+PROPERTY_SOURCE(Fluid::FreeBody, App::DocumentObject)
+
+FreeBody::FreeBody()
+{
+    ADD_PROPERTY_TYPE(Part, (nullptr), "Body", App::Prop_None,
+                      "The solid the fluid moves: a wall to it, held by nothing");
+    ADD_PROPERTY_TYPE(Density, (0.0), "Body", App::Prop_None,
+                      "The solid's density, the same all through");
 }
 
 // =============================== Monitor ===============================

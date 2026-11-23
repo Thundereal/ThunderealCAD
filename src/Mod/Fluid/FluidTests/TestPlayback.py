@@ -114,6 +114,86 @@ class TestSetUp(FluidCase):
         self.assertEqual(study.run(), 0)
 
 
+class TestMovedParts(FluidCase):
+    """A block the fluid moves, put where a frame has it and back
+    (docs/FluidSimulation.md sec 12, S4): on the test data it falls 110 to
+    the space's floor."""
+
+    def addBlock(self):
+        self.block = self.doc.addObject("Part::Box", "Block")
+        self.block.Length, self.block.Width, self.block.Height = 50, 50, 50
+        self.block.Placement.Base = App.Vector(200, 75, 100)
+        return self.block
+
+    def run_with(self, block):
+        self.body = FluidPlayback.addBody(self.study, block, 600.0)
+        self.assertEqual(self.body.Part, block)
+        self.assertAlmostEqual(self.body.Density.getValueAs("kg/m^3").Value, 600.0, delta=1e-9)
+        self.assertIn(self.body, self.study.Group)
+        self.doc.recompute()
+        self.assertEqual(self.study.run(), 0, self.study.Status)
+        return FluidPlayback.Frames(self.study)
+
+    def test_moved_and_put_back(self):
+        block = self.addBlock()
+        frames = self.run_with(block)
+        self.assertEqual(frames.bodies, [block])
+        fall = 0.5 * G * 0.1**2 * 1000.0
+        self.assertAlmostEqual(frames.motions(2)[0].Base.z, -fall, delta=1e-9)
+        moved = FluidPlayback.MovedParts(frames)
+        moved.show(2)
+        self.assertAlmostEqual(block.Placement.Base.z, 100.0 - fall, delta=1e-9)
+        self.assertAlmostEqual(block.Placement.Base.x, 200.0, delta=1e-9)
+        # from where it stood, not from where the last frame put it
+        moved.show(8)
+        self.assertAlmostEqual(block.Placement.Base.z, -10.0, delta=1e-9)
+        moved.show(0)
+        self.assertAlmostEqual(block.Placement.Base.z, 100.0, delta=1e-9)
+        moved.show(8)
+        moved.restore()
+        self.assertEqual(block.Placement.Base, App.Vector(200, 75, 100))
+        # and the study is of the model it ran
+        self.assertFalse(self.study.isStale())
+        # put back, it stays: nothing is kept of the frames
+        moved.restore()
+        self.assertEqual(block.Placement.Base, App.Vector(200, 75, 100))
+
+    def test_a_part_inside_a_turned_group(self):
+        # the block in a group that is turned a quarter about x and set
+        # aside: the model's down is not the block's own
+        block = self.addBlock()
+        group = self.doc.addObject("App::Part", "Group")
+        group.Placement = App.Placement(
+            App.Vector(10, 0, 300), App.Rotation(App.Vector(1, 0, 0), 90)
+        )
+        group.addObject(block)
+        self.doc.recompute()
+        start = block.getGlobalPlacement()
+        own = block.Placement
+        self.assertNotEqual(start.Base, own.Base)
+        frames = self.run_with(block)
+        moved = FluidPlayback.MovedParts(frames)
+        moved.show(2)
+        fall = frames.motions(2)[0].Base.z
+        self.assertLess(fall, -10.0)
+        now = block.getGlobalPlacement()
+        self.assertAlmostEqual(now.Base.z, start.Base.z + fall, delta=1e-9)
+        self.assertAlmostEqual(now.Base.x, start.Base.x, delta=1e-9)
+        self.assertAlmostEqual(now.Base.y, start.Base.y, delta=1e-9)
+        self.assertTrue(now.Rotation.isSame(start.Rotation, 1e-12))
+        moved.restore()
+        self.assertTrue(block.Placement.isSame(own, 1e-12))
+
+    def test_nothing_moved(self):
+        self.assertEqual(self.study.run(), 0)
+        frames = FluidPlayback.Frames(self.study)
+        self.assertEqual(frames.bodies, [])
+        self.assertEqual(frames.motions(1), [])
+        moved = FluidPlayback.MovedParts(frames)
+        moved.show(1)
+        moved.restore()
+
+
 class TestFrameView(unittest.TestCase):
     def setUp(self):
         try:

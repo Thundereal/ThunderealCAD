@@ -22,7 +22,10 @@ class Study(DocumentObject):
         """
         The study as a solver is given it, summed up: Walls and Fluids (how
         many), Triangles, Monitors, Resolution (m), SpaceMin and SpaceMax (m),
-        Gravity (m/s^2), TimeEnd and OutputInterval (s), Signature (str).
+        Gravity (m/s^2), TimeEnd and OutputInterval (s), Signature (str), and
+        Bodies: the parts the fluid moves, counted among the Walls, each
+        Source, Mass (kg), Centre (m) and Inertia (about the centre, kg m^2:
+        xx, yy, zz, xy, xz, yz).
         """
         ...
 
@@ -70,7 +73,8 @@ class Study(DocumentObject):
         'Surface'), Times (the frames', s), Frames (how many), MonitorTimes
         (the monitors' own times, s: a solver reports them far oftener than
         it makes frames) and Monitors, each Object, Kind, Unit and Values
-        (one per monitor time).
+        (one per monitor time); and Bodies, the parts the fluid moved, each
+        Object and Source.
         """
         ...
 
@@ -79,14 +83,26 @@ class Study(DocumentObject):
         """
         One kept frame, read from the document when asked for: Time (s),
         Count (of points), Points (bytes: float32 x, y, z each, mm) and, for
-        a surface, Triangles (bytes: int32, three per triangle).
+        a surface, Triangles (bytes: int32, three per triangle); and Bodies,
+        where the parts the fluid moved are, in the results' order: each a
+        Placement, the motion from where the part stood at the start.
+        """
+        ...
+
+    @constmethod
+    def getBodies(self, index: int, /) -> list:
+        """
+        Where the parts the fluid moved are at a kept frame, in the order
+        of getResults()'s Bodies: each a Placement, the motion from where
+        the part stood at the start. Read without the frame's points.
         """
         ...
 
     @constmethod
     def getSurface(self, index: int, /) -> dict:
         """
-        One kept frame as a closed surface to draw: Time (s), Count (of
+        One kept frame as a closed surface to draw: Time (s), Bodies (as
+        getFrame()'s), Count (of
         points), Points (bytes: float32 x, y, z each, mm), Normals (bytes:
         float32, one a point, outwards) and Triangles (bytes: int32, three
         per triangle, wound outwards). A frame of particles is wrapped in

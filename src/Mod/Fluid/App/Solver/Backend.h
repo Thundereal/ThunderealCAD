@@ -65,6 +65,9 @@ struct Frame
     std::vector<Vec3> points;
     // Surface only.
     std::vector<std::array<int, 3>> triangles;
+    // Where the walls the fluid moves are: one per such wall, in the
+    // model's order (freeWalls).
+    std::vector<Motion> bodies;
 };
 
 // Where a run's frames and its monitors' values go as they are made, and

@@ -1072,6 +1072,75 @@ bgfx renderer.
   air, not closed against the walls) and stay drawn as they were; the
   settings above could be offered as one switch.
 
+### 12.7 S4 as built, step 1: a free part in the fluid (2026-11-23)
+
+Decided here, not ruled: S4 comes in two steps. Step 1 is a part with no
+joint -- it floats, sinks, is pushed -- and the particle backend moves it
+itself, inside its runner. Step 2 is a part of a mechanism, where Chrono
+owns the bodies and the fluid backend exchanges poses and forces with it
+(sec 11.5). Step 1 needs none of the exchange and gives the tests their
+closed form (Archimedes), so it is first; nothing in it stands in the way
+of step 2, which replaces the runner's own integration by Chrono's.
+
+- **The object**: `Fluid::FreeBody`, a child of the study: `Part` (a
+  link) and `Density`. A part is a wall or a free body, not both; no
+  part, no density, or a part also in `Walls` is an error of the model.
+  Command `Fluid_AddBody`: the density from the part's material if it has
+  one, else asked for; the part is taken out of `Walls`.
+- **The model**: `WallMotion::Free`, with `MassProps` (mass, centre,
+  inertia about the centre, from the shape by `BRepGProp`), and
+  `freeWalls(model)`. The signature takes the mass properties to nine
+  digits: a shape read back from a file gives values that differ in the
+  last places, and the kept results were stale after every reload.
+- **The capability** (sec 11.2): `freeBodies`. A study with a free body on
+  a backend without it does not start: "<backend> cannot move a part by
+  the fluid". OpenFOAM has it off (a moving mesh is its own piece of
+  work); SPlisHSPlasH on; the test backend on (a free wall falls
+  g t^2 / 2 down to the floor of the space).
+- **Results**: each frame carries a `Motion` for each free body
+  (translation and rotation from where the part stood at the start), kept
+  as `bodies.npy` (frames x bodies x 7, mm and a quaternion) beside the
+  particles. Python: `getResults()["Bodies"]`, `getFrame(i)["Bodies"]`
+  (placements), `getBodies(i)`. Playback sets the parts' own `Placement`
+  for the frame shown and puts them back on leaving, before a new run and
+  before other results are loaded.
+- **SPlisHSPlasH**: the body is sampled as the walls are (a sheet behind
+  every face, a particle at each corner) and written to the case as
+  `body` lines with its mass properties. In the runner it is a dynamic
+  rigid body of ours: after each step of the solver the force and torque
+  on its particles are read (Akinci's boundary handling gives them), the
+  body is stepped (semi-implicit Euler) and its particles moved.
+- **Against the walls**: SPlisHSPlasH has no contact between bodies, so
+  the runner has a stand-in until Chrono does it: a spring and damper
+  where the body's particles come within reach of a fixed wall's, and a
+  drag of the water film in a band beyond that. It holds the body ONE
+  PARTICLE'S WIDTH off the wall, the layer of water staying between them.
+  Letting the faces touch was tried first and dropped: one landing in
+  five flipped the block and threw 118 to 213 particles out of the tank;
+  with the gap, twelve landings in twelve were calm and lost none.
+
+Measured (SPlisHSPlasH, a block 60 x 60 x 40 in a tank 120 x 120, water
+60 deep, 5 mm):
+
+| case | expected | measured |
+|---|---|---|
+| half the water's density, put at its draught | underside at 39.96 | 39.24 in the mean after 0.5 s (0.7 deep, 3.6% of the draught) |
+| the same let go 10 above the water | 44.97 (the water rises by what it pushes aside) | 44.78 in the mean after 1 s, still moving 2 each way |
+| twice the water's density | on the floor | 4.8 to 4.95 above it (the gap), leaning up to 2.6 deg |
+
+At 10 mm the floating block was 6 to 10 off its draught: a body needs
+some eight particles across its least side, and the study does not check
+that yet.
+
+Tests: `FluidTests/Floating.py`, written for every backend that has the
+capability, as the dam break is; the C++ tests cover the model, the
+archive, the case writer and the test backend's fall. Scores: C++ 28 ->
+31, Python 37 -> 50.
+
+**Limits, all of step 1**: a body rests a particle's width off a wall; no
+friction against the walls; two free bodies do not meet each other; no
+joints. All four go with step 2, Chrono's contact and mechanism.
+
 ## 13. For the user to rule (2026-11-21)
 
 1. **The first backend (S2).** OpenFOAM: validated, CPU, already this

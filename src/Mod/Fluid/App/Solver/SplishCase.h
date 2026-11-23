@@ -27,14 +27,19 @@ struct Sizes
 };
 FluidExport Sizes sizesOf(double resolution);
 
-// The walls as particles: one sheet behind every face the fluid can reach,
-// of the parts and of the space's closed sides. A face is left out when the
-// place a particle of fluid would rest against it is inside another part
-// or outside the space.
+// The walls that stay as particles: one sheet behind every face the fluid
+// can reach, of the fixed parts and of the space's closed sides. A face is
+// left out when the place a particle of fluid would rest against it is
+// inside another fixed part or outside the space. A part the fluid moves
+// covers nothing: it will not stay where it is.
 FluidExport std::vector<Vec3> boundaryOf(const Model& model);
 
+// A wall the fluid moves as particles, where it stands at the start: one
+// sheet behind every face of it. None for a wall that is not moved.
+FluidExport std::vector<Vec3> bodyOf(const Model& model, std::size_t wall);
+
 // The fluid as particles at the start: a grid of the resolution in each
-// volume, less what is inside a part.
+// volume, less what is inside a part, fixed or moved.
 FluidExport std::vector<Vec3> particlesOf(const Model& model);
 
 struct CaseOptions
@@ -48,10 +53,13 @@ struct CaseOptions
 
 struct Case
 {
-    // name -> contents: case.txt, and the points as three floats each
+    // name -> contents: case.txt, and the points as three floats each:
+    // fluid.points, boundary.points, and body.<k>.points for the k-th wall
+    // the fluid moves
     std::map<std::string, std::string> files;
     std::size_t particles = 0;
     std::size_t boundary = 0;
+    std::vector<std::size_t> bodies;  // the moved walls' particles
 };
 
 // The case of a model; false and why when it cannot be one.
@@ -67,6 +75,9 @@ struct Event
         Version,  // text: the solver's version
         Frame,    // index, time, count: frame.<index> holds count points
         Sample,   // time, values: the monitors' in the case's order
+        Body,     // index, values: where the index-th moved wall is at the
+                  // frame that follows, its translation and its rotation's
+                  // x, y, z, w (Model.h's Motion)
         Error,    // text
     };
     Kind kind = Other;

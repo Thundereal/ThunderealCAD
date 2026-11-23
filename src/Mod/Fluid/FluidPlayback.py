@@ -34,6 +34,8 @@ class Frames:
         self.monitors = results["Monitors"] if self.valid else []
         # the monitors' own times, far more than the frames
         self.monitorTimes = list(results["MonitorTimes"]) if self.valid else []
+        # the parts the fluid moved; None for one that is gone
+        self.bodies = [body["Object"] for body in results["Bodies"]] if self.valid else []
 
     def __len__(self):
         return len(self.times)
@@ -89,6 +91,11 @@ class Frames:
             spray = numpy.frombuffer(frame["Spray"], dtype=numpy.float32).reshape(-1, 3)
         return points, triangles, normals, spray
 
+    def motions(self, index):
+        """Where the moved parts are at a frame, as the bodies are listed:
+        each the motion from where the part stood at the start."""
+        return self.study.getBodies(index) if self.valid else []
+
     def sampleAt(self, time):
         """The monitors' last sample at or before a time; -1 without one."""
         if not self.monitorTimes:
@@ -105,6 +112,50 @@ class Frames:
             value = monitor["Values"][sample] if sample >= 0 else float("nan")
             rows.append((label, monitor["Kind"], value, monitor["Unit"]))
         return rows
+
+
+class MovedParts:
+    """The parts the fluid moved, put where a frame has them: by their own
+    Placement, as an assembly's simulation shows its parts, and put back
+    where they stood when the frames are done with. A run takes the parts
+    where they are: put them back before one starts."""
+
+    def __init__(self, frames):
+        self.frames = frames
+        self.parts = []
+        for index, part in enumerate(frames.bodies):
+            if part is None or not hasattr(part, "Placement"):
+                continue
+            own = App.Placement(part.Placement)
+            try:
+                whole = App.Placement(part.getGlobalPlacement())
+            except Exception:
+                whole = App.Placement(own)
+            # what is above it: the placement its own is in
+            above = whole.multiply(own.inverse())
+            self.parts.append((index, part, own, whole, above.inverse()))
+        self.moved = False
+
+    def show(self, index):
+        """The parts where the frame has them."""
+        if not self.parts:
+            return
+        motions = self.frames.motions(index)
+        for at, part, _own, whole, down in self.parts:
+            if at < len(motions):
+                part.Placement = down.multiply(motions[at].multiply(whole))
+        self.moved = True
+
+    def restore(self):
+        """The parts where they stood."""
+        if not self.moved:
+            return
+        for _at, part, own, _whole, _down in self.parts:
+            try:
+                part.Placement = own
+            except Exception:
+                pass
+        self.moved = False
 
 
 class FrameView:
@@ -350,6 +401,16 @@ def addFluid(study, volume):
     fluid.Volume = volume
     study.Group = study.Group + [fluid]
     return fluid
+
+
+def addBody(study, part, density):
+    """The part as one the fluid moves, of that density (kg/m^3)."""
+    body = study.Document.addObject("Fluid::FreeBody", "Body")
+    body.Label = translate("Fluid", "{} moved by the fluid").format(part.Label)
+    body.Part = part
+    body.Density = App.Units.Quantity(density, "kg/m^3")
+    study.Group = study.Group + [body]
+    return body
 
 
 def addMonitor(study, kind, point):

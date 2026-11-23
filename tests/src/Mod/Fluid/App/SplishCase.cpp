@@ -100,11 +100,11 @@ Model platesModel()
 {
     Model model = spaceModel();
     const double t = 0.03;
-    model.walls.push_back({"Doc#Floor", boxSurface({-t, -t, -t}, {0.4 + t, 0.2 + t, 0.0}), {}});
-    model.walls.push_back({"Doc#Left", boxSurface({-t, -t, 0.0}, {0.0, 0.2 + t, 0.3}), {}});
-    model.walls.push_back({"Doc#Right", boxSurface({0.4, -t, 0.0}, {0.4 + t, 0.2 + t, 0.3}), {}});
-    model.walls.push_back({"Doc#Front", boxSurface({0.0, -t, 0.0}, {0.4, 0.0, 0.3}), {}});
-    model.walls.push_back({"Doc#Back", boxSurface({0.0, 0.2, 0.0}, {0.4, 0.2 + t, 0.3}), {}});
+    model.walls.push_back({"Doc#Floor", boxSurface({-t, -t, -t}, {0.4 + t, 0.2 + t, 0.0}), {}, {}});
+    model.walls.push_back({"Doc#Left", boxSurface({-t, -t, 0.0}, {0.0, 0.2 + t, 0.3}), {}, {}});
+    model.walls.push_back({"Doc#Right", boxSurface({0.4, -t, 0.0}, {0.4 + t, 0.2 + t, 0.3}), {}, {}});
+    model.walls.push_back({"Doc#Front", boxSurface({0.0, -t, 0.0}, {0.4, 0.0, 0.3}), {}, {}});
+    model.walls.push_back({"Doc#Back", boxSurface({0.0, 0.2, 0.0}, {0.4, 0.2 + t, 0.3}), {}, {}});
     model.space.min = {-t, -t, -t};
     model.space.max = {0.4 + t, 0.2 + t, 0.3};
     return model;
@@ -218,7 +218,7 @@ TEST(SplishCase, particlesFillTheWaterAndKeepOutOfParts)
     EXPECT_EQ(water.size(), 500U);
     EXPECT_NEAR(water.front()[0], 0.01, 1e-12);
     // a part standing in the water takes its place
-    model.walls.push_back({"Doc#Post", boxSurface({0.0, 0.0, 0.0}, {0.04, 0.04, 0.2}), {}});
+    model.walls.push_back({"Doc#Post", boxSurface({0.0, 0.0, 0.0}, {0.04, 0.04, 0.2}), {}, {}});
     water = Splish::particlesOf(model);
     EXPECT_EQ(water.size(), 500U - 2U * 2U * 10U);
     for (const Vec3& p : water) {
@@ -276,6 +276,81 @@ TEST(SplishCase, filesOfACase)
               std::string::npos);
 }
 
+TEST(SplishCase, aWallTheFluidMoves)
+{
+    // a block 0.1 x 0.1 x 0.06 standing on the floor of the plates' tank,
+    // beside the water, no face of it where a particle of the grid is
+    Model model = platesModel();
+    const Vec3 low {0.2, 0.06, 0.0};
+    const Vec3 high {0.3, 0.16, 0.06};
+    const std::size_t without = Splish::boundaryOf(model).size();
+    model.walls.push_back({"Doc#Float", boxSurface(low, high), {}, {}});
+    // held, it covers the floor under it and has its own faces among the
+    // walls
+    EXPECT_NE(Splish::boundaryOf(model).size(), without);
+    model.walls.back().motion = WallMotion::Free;
+    model.walls.back().mass = {0.3, {0.25, 0.11, 0.03}, {4e-4, 5e-4, 6e-4, 1e-5, 2e-5, 3e-5}};
+    const Splish::Sizes sizes = Splish::sizesOf(model.resolution);
+
+    // The fixed walls are as though it were not there: the floor under it
+    // has its sheet, which a fixed block would have covered.
+    const std::vector<Vec3> wall = Splish::boundaryOf(model);
+    EXPECT_EQ(wall.size(), without);
+    std::size_t under = 0;
+    for (const Vec3& p : wall) {
+        // nothing of the block's own among the walls
+        EXPECT_GT(outside(p, low, high), 0.0);
+        if (p[2] < 0.0 && p[0] > 0.22 && p[0] < 0.28 && p[1] > 0.08 && p[1] < 0.14) {
+            ++under;
+        }
+    }
+    EXPECT_GT(under, 4U);
+
+    // Its own sheet: behind every face of it, the floor's side too, and
+    // nowhere a hole a particle of fluid gets through.
+    const std::vector<Vec3> body = Splish::bodyOf(model, model.walls.size() - 1);
+    ASSERT_FALSE(body.empty());
+    for (const Vec3& p : body) {
+        EXPECT_LT(outside(p, low, high), 1e-9);
+        double depth = 1.0;
+        for (std::size_t k = 0; k < 3; ++k) {
+            depth = std::min({depth, p[k] - low[k], high[k] - p[k]});
+        }
+        // as deep as a sheet is, every one: the corners' too
+        EXPECT_NEAR(depth, sizes.behind, 1e-9);
+    }
+    const Vec3 in {low[0] + sizes.behind, low[1] + sizes.behind, low[2] + sizes.behind};
+    const Vec3 out {high[0] - sizes.behind, high[1] - sizes.behind, high[2] - sizes.behind};
+    EXPECT_LT(widestHole(body, in, out, 0.5 * sizes.radius), 2.0 * sizes.radius);
+    // a wall that is not moved has no sheet of its own
+    EXPECT_TRUE(Splish::bodyOf(model, 0).empty());
+
+    Splish::Case made;
+    std::string why;
+    ASSERT_TRUE(Splish::makeCase(model, {}, made, why)) << why;
+    ASSERT_EQ(made.bodies.size(), 1U);
+    EXPECT_EQ(made.bodies[0], body.size());
+    ASSERT_TRUE(made.files.contains("body.0.points"));
+    EXPECT_EQ(made.files.at("body.0.points").size(), body.size() * 12U);
+    EXPECT_EQ(made.files.at("boundary.points").size(), wall.size() * 12U);
+    // how many particles, the mass, its centre, the inertia about it
+    EXPECT_NE(made.files.at("case.txt")
+                  .find("body " + std::to_string(body.size())
+                        + " 0.3 0.25 0.11 0.03 0.0004 0.0005 0.0006 1e-05 2e-05 3e-05\n"),
+              std::string::npos)
+        << made.files.at("case.txt");
+    // the water keeps out of it, as out of any part
+    model.fluids[0].surface = boxSurface({0.0, 0.0, 0.0}, {0.4, 0.2, 0.2});
+    for (const Vec3& p : Splish::particlesOf(model)) {
+        EXPECT_GT(outside(p, low, high), 0.0);
+    }
+
+    // a wall with nothing to weigh cannot be moved
+    model.walls.back().mass.mass = 0.0;
+    EXPECT_FALSE(Splish::makeCase(model, {}, made, why));
+    EXPECT_NE(why.find("Doc#Float"), std::string::npos) << why;
+}
+
 TEST(SplishCase, whatCannotBeACase)
 {
     Splish::Case made;
@@ -286,7 +361,7 @@ TEST(SplishCase, whatCannotBeACase)
     EXPECT_NE(why.find("no fluid"), std::string::npos);
     // water wholly inside a part leaves no particle
     model = spaceModel();
-    model.walls.push_back({"Doc#Block", boxSurface({-0.1, -0.1, -0.1}, {0.2, 0.3, 0.3}), {}});
+    model.walls.push_back({"Doc#Block", boxSurface({-0.1, -0.1, -0.1}, {0.2, 0.3, 0.3}), {}, {}});
     EXPECT_FALSE(Splish::makeCase(model, {}, made, why));
     EXPECT_NE(why.find("no fluid"), std::string::npos);
     model = spaceModel();
@@ -316,6 +391,15 @@ TEST(SplishCase, theRunnersLines)
     EXPECT_DOUBLE_EQ(event.values[0], 0.2);
     EXPECT_TRUE(std::isnan(event.values[1]));
     EXPECT_DOUBLE_EQ(event.values[2], 1500.5);
+
+    // where a moved wall is at the frame that follows
+    event = Splish::parseLine("body 1 0.01 0 -0.25 0 0 0.6 0.8");
+    EXPECT_EQ(event.kind, Splish::Event::Body);
+    EXPECT_EQ(event.index, 1);
+    ASSERT_EQ(event.values.size(), 7U);
+    EXPECT_DOUBLE_EQ(event.values[2], -0.25);
+    EXPECT_DOUBLE_EQ(event.values[6], 0.8);
+    EXPECT_EQ(Splish::parseLine("body 1 0.01 0 -0.25").kind, Splish::Event::Other);
 
     event = Splish::parseLine("error the case has no fluid");
     EXPECT_EQ(event.kind, Splish::Event::Error);

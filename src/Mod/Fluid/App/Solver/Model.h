@@ -3,6 +3,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -32,7 +33,25 @@ enum class WallMotion
 {
     Fixed,  // where it is, for the whole run
     Given,  // moved as a kept run has it (not yet)
-    Free,   // moved by the fluid (not yet)
+    Free,   // moved by the fluid and by gravity, held by nothing
+};
+
+// What a wall the fluid moves weighs, and how.
+struct MassProps
+{
+    double mass = 0.0;  // kg
+    Vec3 centre {0.0, 0.0, 0.0};
+    // about the centre, along the model's axes, kg m^2: xx, yy, zz, xy, xz,
+    // yz, the products as the tensor's entries (minus the integrals)
+    std::array<double, 6> inertia {};
+};
+
+// A rigid motion from where a wall stood at the start: a point p of it is
+// at rotation * p + translation.
+struct Motion
+{
+    Vec3 translation {0.0, 0.0, 0.0};
+    std::array<double, 4> rotation {0.0, 0.0, 0.0, 1.0};  // a unit quaternion: x, y, z, w
 };
 
 // A part the fluid cannot pass.
@@ -42,6 +61,7 @@ struct Wall
                          // another document than the study's
     Surface surface;
     WallMotion motion = WallMotion::Fixed;
+    MassProps mass;  // of a Free one
 };
 
 struct Material
@@ -107,6 +127,9 @@ FluidExport bool inside(const Surface& surface, const Vec3& point);
 // centre of a cube of the spacing's side; the grid starts half a spacing in
 // from the surface's box, so a box of whole spacings is filled exactly.
 FluidExport std::vector<Vec3> sampled(const Surface& surface, double spacing);
+
+// The walls the fluid moves, as their places in the model's walls.
+FluidExport std::vector<std::size_t> freeWalls(const Model& model);
 
 // The box of a surface's points: false when it has none.
 FluidExport bool boxOf(const Surface& surface, Vec3& min, Vec3& max);

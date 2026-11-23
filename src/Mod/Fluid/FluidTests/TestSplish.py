@@ -12,6 +12,7 @@ import FreeCAD as App
 import FluidPlayback
 
 from FluidTests.DamBreak import DamBreak, backendNamed
+from FluidTests.Floating import Floating
 from FluidTests.StillWater import StillWater
 
 
@@ -28,6 +29,10 @@ class TestSplishStillWater(StillWater, unittest.TestCase):
     BACKEND = "SPlisHSPlasH"
     KIND = "Particles"
     EDGE = 5.0
+
+
+class TestSplishFloating(Floating, unittest.TestCase):
+    BACKEND = "SPlisHSPlasH"
 
 
 class TestSplishPlates(unittest.TestCase):

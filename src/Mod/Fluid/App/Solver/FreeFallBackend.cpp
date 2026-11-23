@@ -34,6 +34,17 @@ public:
         up = g > 0.0 ? Vec3 {-model.gravity[0] / g, -model.gravity[1] / g, -model.gravity[2] / g}
                      : Vec3 {0.0, 0.0, 1.0};
         weight = g * (model.fluids.empty() ? 1000.0 : model.fluids.front().material.density);
+        // the walls that fall with the fluid, each as its box
+        moved.clear();
+        for (std::size_t wall : freeWalls(model)) {
+            Vec3 low {};
+            Vec3 high {};
+            if (!boxOf(model.walls[wall].surface, low, high)) {
+                why = model.walls[wall].source + " has no shape";
+                return Status::Unsupported;
+            }
+            moved.push_back({low, high});
+        }
         return Status::Ok;
     }
 
@@ -69,6 +80,18 @@ public:
                     frame.points.push_back(p);
                 }
             }
+            // a moved wall falls as the fluid does, until its box is at a
+            // side of the space
+            for (const auto& box : moved) {
+                Motion motion;
+                for (std::size_t i = 0; i < 3; ++i) {
+                    const double fall = 0.5 * model.gravity[i] * frame.time * frame.time;
+                    motion.translation[i] = std::clamp(fall,
+                                                       std::min(model.space.min[i] - box[0][i], 0.0),
+                                                       std::max(model.space.max[i] - box[1][i], 0.0));
+                }
+                frame.bodies.push_back(motion);
+            }
             std::vector<double> values;
             for (const auto& monitor : model.monitors) {
                 const double height = heightAt(frame, monitor.point);
@@ -100,6 +123,7 @@ private:
 
     Model model;
     std::vector<Vec3> start;
+    std::vector<std::array<Vec3, 2>> moved;
     Vec3 up {0.0, 0.0, 1.0};
     double weight = 0.0;
 };
@@ -110,6 +134,7 @@ Capabilities FreeFallBackend::capabilities() const
     Capabilities can;
     can.results = ResultKind::Particles;
     can.freeSurface = true;
+    can.freeBodies = true;
     can.repeatable = true;
     can.inProcess = true;
     can.testData = true;

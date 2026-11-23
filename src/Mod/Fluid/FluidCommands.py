@@ -76,6 +76,77 @@ class CommandAddFluid:
         doc.recompute()
 
 
+def densityOf(part):
+    """The density of the part's material, kg/m^3, or None when it has
+    none: the card every shape has until one is chosen gives a density of
+    1 that is no material's."""
+    try:
+        material = part.getLinkedObject(True).ShapeMaterial
+        if material.Name in ("Default", ""):
+            return None
+        density = App.Units.Quantity(material.PhysicalProperties["Density"])
+        value = density.getValueAs("kg/m^3").Value
+        return value if value > 0.0 else None
+    except Exception:
+        return None
+
+
+class CommandAddBody:
+    def GetResources(self):
+        return {
+            "Pixmap": FluidPlayback.iconPath("Fluid_AddBody.svg"),
+            "MenuText": QT_TRANSLATE_NOOP("Fluid_AddBody", "Part Moved by the Fluid"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Fluid_AddBody",
+                "The solids selected are moved by the fluid: walls to it, held by "
+                "nothing, each under the fluid's push and its own weight. A part's "
+                "density is its material's, or is asked for. Select the solids, and "
+                "the study when the document has several.",
+            ),
+        }
+
+    def IsActive(self):
+        return (
+            FluidPlayback.activeStudy(selected()) is not None
+            and len(FluidPlayback.solidsOf(selected())) > 0
+        )
+
+    def Activated(self):
+        study = FluidPlayback.activeStudy(selected())
+        doc = study.Document
+        taken = [child.Part for child in study.Group if child.isDerivedFrom("Fluid::FreeBody")]
+        asked = []
+        for part in FluidPlayback.solidsOf(selected()):
+            if part in taken:
+                continue
+            density = densityOf(part)
+            if density is None:
+                density, ok = QtWidgets.QInputDialog.getDouble(
+                    Gui.getMainWindow(),
+                    translate("Fluid", "Part Moved by the Fluid"),
+                    translate(
+                        "Fluid", "{} has no material that gives a density. Its density, kg/m^3:"
+                    ).format(part.Label),
+                    500.0,
+                    1.0e-3,
+                    1.0e6,
+                    3,
+                )
+                if not ok:
+                    continue
+            asked.append((part, density))
+        if not asked:
+            return
+        doc.openTransaction(translate("Fluid", "Add part moved by the fluid"))
+        for part, density in asked:
+            # held or moved, not both
+            if part in study.Walls:
+                study.Walls = [wall for wall in study.Walls if wall != part]
+            FluidPlayback.addBody(study, part, density)
+        doc.commitTransaction()
+        doc.recompute()
+
+
 class CommandAddMonitor:
     kind = "Height"
 
@@ -159,6 +230,7 @@ class TaskFluidStudy:
         self.study = study
         self.frames = None
         self.view = FluidPlayback.FrameView()
+        self.moved = None
         self.hidden = []
         self.form = QtWidgets.QWidget()
         self.form.setWindowTitle(translate("Fluid", "Fluid Study"))
@@ -326,6 +398,7 @@ class TaskFluidStudy:
             self.progress.setText(translate("Fluid", "Stopping..."))
             return
         self.stopPlaying()
+        self.putBack()
         self.applySettings()
         try:
             started = self.study.start()
@@ -360,7 +433,16 @@ class TaskFluidStudy:
 
     # ----------------------------- playback ------------------------------
 
+    def putBack(self):
+        """The parts the frames moved, where they stood: a run and the
+        question whether the results are still the study's take the parts
+        where they are."""
+        if self.moved is not None:
+            self.moved.restore()
+            self.moved = None
+
     def loadResults(self):
+        self.putBack()
         try:
             self.frames = FluidPlayback.Frames(self.study)
             stale = self.frames.valid and self.study.isStale()
@@ -408,6 +490,9 @@ class TaskFluidStudy:
             drawn = self.view.show(*self.frames.frame(index))
         if drawn:
             self.hideVolumes()
+        if self.moved is None:
+            self.moved = FluidPlayback.MovedParts(self.frames)
+        self.moved.show(index)
         self.time.setText("{:.4g} s".format(self.frames.times[index]))
         rows = self.frames.monitorsAt(index)
         self.table.setRowCount(len(rows))
@@ -456,6 +541,7 @@ class TaskFluidStudy:
             self.study.cancel()
             self.study.finish()
         self.view.remove()
+        self.putBack()
         for volume in self.hidden:
             try:
                 volume.ViewObject.Visibility = True
@@ -568,6 +654,7 @@ class DownloadOpenFoam(QtWidgets.QDialog):
 
 Gui.addCommand("Fluid_CreateStudy", CommandCreateStudy())
 Gui.addCommand("Fluid_AddFluid", CommandAddFluid())
+Gui.addCommand("Fluid_AddBody", CommandAddBody())
 Gui.addCommand("Fluid_AddMonitor", CommandAddMonitor())
 Gui.addCommand("Fluid_AddPressureMonitor", CommandAddPressureMonitor())
 Gui.addCommand("Fluid_RunStudy", CommandRunStudy())

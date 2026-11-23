@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <unordered_map>
@@ -416,10 +417,14 @@ struct Part
     Vec3 max {};
 };
 
-std::vector<Part> partsOf(const Model& model)
+// The parts, or only those that stay where they are.
+std::vector<Part> partsOf(const Model& model, bool fixedOnly = false)
 {
     std::vector<Part> parts;
     for (const auto& wall : model.walls) {
+        if (fixedOnly && wall.motion != WallMotion::Fixed) {
+            continue;
+        }
         Part part;
         part.surface = &wall.surface;
         if (boxOf(wall.surface, part.min, part.max)) {
@@ -558,7 +563,7 @@ Splish::Sizes Splish::sizesOf(double resolution)
 std::vector<Vec3> Splish::boundaryOf(const Model& model)
 {
     const Sizes sizes = sizesOf(model.resolution);
-    const std::vector<Part> parts = partsOf(model);
+    const std::vector<Part> parts = partsOf(model, true);
     const double slack = 1e-9 * sizes.radius;
     // Whether fluid can be at a place: in the space and in no part.
     const auto fluidAt = [&](const Vec3& p) {
@@ -581,7 +586,9 @@ std::vector<Vec3> Splish::boundaryOf(const Model& model)
     std::vector<Vec3> creases;
     std::vector<Vec3> faces;
     for (const auto& wall : model.walls) {
-        sheetOf(wall.surface.points, wall.surface.triangles, sizes, fluidAt, creases, faces);
+        if (wall.motion == WallMotion::Fixed) {
+            sheetOf(wall.surface.points, wall.surface.triangles, sizes, fluidAt, creases, faces);
+        }
     }
     std::vector<Vec3> points;
     std::vector<std::array<int, 3>> triangles;
@@ -595,6 +602,92 @@ std::vector<Vec3> Splish::boundaryOf(const Model& model)
     for (const auto* samples : {&creases, &faces}) {
         for (const Vec3& p : *samples) {
             if (apart.take(p)) {
+                kept.push_back(p);
+            }
+        }
+    }
+    return kept;
+}
+
+std::vector<Vec3> Splish::bodyOf(const Model& model, std::size_t wall)
+{
+    std::vector<Vec3> kept;
+    if (wall >= model.walls.size() || model.walls[wall].motion != WallMotion::Free) {
+        return kept;
+    }
+    const Sizes sizes = sizesOf(model.resolution);
+    const Surface& surface = model.walls[wall].surface;
+    // Fluid can be anywhere but in it: where it goes, what is around it now
+    // is not.
+    const auto fluidAt = [&](const Vec3& p) {
+        return !inside(surface, p);
+    };
+    std::vector<Vec3> creases;
+    std::vector<Vec3> faces;
+    sheetOf(surface.points, surface.triangles, sizes, fluidAt, creases, faces);
+
+    // A corner of three faces or more: one particle behind them all. A
+    // crease's row ends on the corner's other face, which against a fixed
+    // wall is behind the next part and here is the part's own skin.
+    struct Corner
+    {
+        Vec3 at {};
+        std::vector<Vec3> normals;
+    };
+    const double grain = sizes.radius * 1e-6;
+    std::map<std::array<std::int64_t, 3>, Corner> corners;
+    for (const auto& t : surface.triangles) {
+        const std::array<Vec3, 3> p {surface.points[static_cast<std::size_t>(t[0])],
+                                     surface.points[static_cast<std::size_t>(t[1])],
+                                     surface.points[static_cast<std::size_t>(t[2])]};
+        Vec3 n = cross(p[1] - p[0], p[2] - p[0]);
+        if (!unit(n)) {
+            continue;
+        }
+        for (const Vec3& q : p) {
+            Corner& corner = corners[{std::llround(q[0] / grain),
+                                      std::llround(q[1] / grain),
+                                      std::llround(q[2] / grain)}];
+            corner.at = q;
+            corner.normals.push_back(n);
+        }
+    }
+    std::vector<Vec3> points;
+    for (const auto& [key, corner] : corners) {
+        std::vector<Vec3> apart;  // the faces that meet there, one normal each
+        for (const Vec3& n : corner.normals) {
+            bool known = false;
+            for (const Vec3& other : apart) {
+                known = known || dot(other, n) > 0.95;
+            }
+            if (!known) {
+                apart.push_back(n);
+            }
+        }
+        if (apart.size() >= 3) {
+            points.push_back(corner.at - retreatOf(corner.normals) * sizes.behind);
+        }
+    }
+
+    // How far a place is from the part's skin.
+    const auto depthOf = [&](const Vec3& p) {
+        double least = std::numeric_limits<double>::max();
+        for (const auto& t : surface.triangles) {
+            least = std::min(least,
+                             length(p
+                                    - nearestOn(surface.points[static_cast<std::size_t>(t[0])],
+                                                surface.points[static_cast<std::size_t>(t[1])],
+                                                surface.points[static_cast<std::size_t>(t[2])],
+                                                p)));
+        }
+        return least;
+    };
+    Apart apart(0.4 * sizes.wallSpacing);
+    for (const auto* samples : {&points, &creases, &faces}) {
+        for (const Vec3& p : *samples) {
+            // in it, and as deep as a sheet is: nothing of it stands
+            // nearer the fluid than the rest
+            if (inside(surface, p) && depthOf(p) > sizes.behind * (1.0 - 1e-6) && apart.take(p)) {
                 kept.push_back(p);
             }
         }
@@ -653,6 +746,22 @@ bool Splish::makeCase(const Model& model, const CaseOptions& options, Case& made
     }
     const std::vector<Vec3> boundary = boundaryOf(model);
     const Sizes sizes = sizesOf(model.resolution);
+    std::vector<std::vector<Vec3>> bodies;
+    for (std::size_t wall : freeWalls(model)) {
+        const Wall& moved = model.walls[wall];
+        const auto& inertia = moved.mass.inertia;
+        if (!(moved.mass.mass > 0.0) || !(inertia[0] > 0.0) || !(inertia[1] > 0.0)
+            || !(inertia[2] > 0.0)) {
+            why = moved.source + " is to be moved by the fluid and has no mass";
+            return false;
+        }
+        bodies.push_back(bodyOf(model, wall));
+        if (bodies.back().empty()) {
+            why = moved.source + " is to be moved by the fluid and is too small for this "
+                                 "resolution";
+            return false;
+        }
+    }
 
     std::ostringstream text;
     text << "fluidsplish 1\n"
@@ -670,6 +779,18 @@ bool Splish::makeCase(const Model& model, const CaseOptions& options, Case& made
          << "space " << vec(model.space.min) << " " << vec(model.space.max) << "\n"
          << "boundary " << boundary.size() << "\n"
          << "fluid " << particles.size() << "\n";
+    // The walls the fluid moves, in the model's order: how many particles,
+    // the mass, its centre, the inertia about it (xx yy zz xy xz yz).
+    for (std::size_t k = 0; k < bodies.size(); ++k) {
+        const MassProps& mass = model.walls[freeWalls(model)[k]].mass;
+        text << "body " << bodies[k].size() << " " << num(mass.mass) << " " << vec(mass.centre);
+        for (double v : mass.inertia) {
+            text << " " << num(v);
+        }
+        text << "\n";
+        made.files["body." + std::to_string(k) + ".points"] = bytesOf(bodies[k]);
+        made.bodies.push_back(bodies[k].size());
+    }
     for (const auto& monitor : model.monitors) {
         text << "monitor " << (monitor.kind == MonitorKind::Pressure ? "pressure " : "height ")
              << vec(monitor.point);
@@ -725,6 +846,23 @@ Splish::Event Splish::parseLine(const std::string& line)
             event.kind = Event::Frame;
             event.index = static_cast<int>(i);
             event.count = static_cast<std::size_t>(n);
+        }
+    }
+    else if (word == "body") {
+        std::string index;
+        double i = 0.0;
+        std::vector<double> values;
+        std::string value;
+        if ((in >> index) && numberOf(index, i) && i >= 0.0) {
+            double v = 0.0;
+            while ((in >> value) && numberOf(value, v)) {
+                values.push_back(v);
+            }
+        }
+        if (values.size() == 7) {
+            event.kind = Event::Body;
+            event.index = static_cast<int>(i);
+            event.values = values;
         }
     }
     else if (word == "sample") {

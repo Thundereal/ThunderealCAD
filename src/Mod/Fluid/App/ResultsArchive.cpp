@@ -140,7 +140,9 @@ struct ArchiveWriter::Private
     std::vector<double> times;
     std::vector<double> samples;
     std::vector<double> values;
+    std::vector<double> motions;
     std::size_t width = 0;
+    std::size_t bodies = 0;  // a frame, as the first frame has them
     bool sampled = false;
 };
 
@@ -182,6 +184,16 @@ void ArchiveWriter::frame(const Solver::Frame& frame)
                  {frame.triangles.size(), 3},
                  triangles.data(),
                  triangles.size() * sizeof(std::int32_t));
+    }
+    if (at == 0) {
+        d->bodies = frame.bodies.size();
+    }
+    for (std::size_t b = 0; b < d->bodies; ++b) {
+        const Solver::Motion motion = b < frame.bodies.size() ? frame.bodies[b] : Solver::Motion();
+        for (double v : motion.translation) {
+            d->motions.push_back(v * 1000.0);
+        }
+        d->motions.insert(d->motions.end(), motion.rotation.begin(), motion.rotation.end());
     }
     d->times.push_back(frame.time);
 }
@@ -239,6 +251,10 @@ void ArchiveWriter::close(ResultsIndex index)
                             {"unit", unitOf(monitor.kind)}});
     }
     out["monitors"] = monitors;
+    // as many as the frames have: a run that failed before it named them
+    // keeps none
+    index.bodies.resize(d->bodies);
+    out["bodies"] = index.bodies;
 
     d->zip->setLevel(6);
     d->zip->putNextEntry("times.npy");
@@ -251,6 +267,14 @@ void ArchiveWriter::close(ResultsIndex index)
              {samples, d->width},
              d->values.data(),
              d->values.size() * sizeof(double));
+    if (d->bodies > 0) {
+        d->zip->putNextEntry("bodies.npy");
+        writeNpy(*d->zip,
+                 "<f8",
+                 {frames, d->bodies, 7},
+                 d->motions.data(),
+                 d->motions.size() * sizeof(double));
+    }
     d->zip->putNextEntry("index.json");
     *d->zip << out.dump(1);
     d->zip->close();
@@ -315,6 +339,20 @@ ArchiveReader::ArchiveReader(const std::string& path)
         if (d->index.values.size() != d->index.samples.size() * d->index.monitors.size()) {
             THROWM(Base::RuntimeError, "the fluid results' monitors do not match its samples");
         }
+        if (index.contains("bodies")) {
+            d->index.bodies = index.at("bodies").get<std::vector<std::string>>();
+        }
+        if (!d->index.bodies.empty()) {
+            auto motionsIn = entry("bodies.npy");
+            if (!motionsIn) {
+                THROWM(Base::RuntimeError, "the fluid results have no place for the walls moved");
+            }
+            d->index.motions = readNpy<double>(*motionsIn, "<f8", shape);
+            if (d->index.motions.size() != d->index.times.size() * d->index.bodies.size() * 7) {
+                THROWM(Base::RuntimeError,
+                       "the fluid results' moved walls do not match its frames");
+            }
+        }
     }
     catch (const Base::Exception&) {
         throw;
@@ -331,6 +369,21 @@ const ResultsIndex& ArchiveReader::index() const
     return d->index;
 }
 
+std::vector<Solver::Motion> ArchiveReader::bodies(std::size_t at) const
+{
+    if (at >= d->index.times.size()) {
+        FC_THROWM(Base::IndexError,
+                  "frame " << at << " of fluid results with " << d->index.times.size());
+    }
+    std::vector<Solver::Motion> found;
+    const std::size_t count = d->index.bodies.size();
+    for (std::size_t b = 0; b < count; ++b) {
+        const double* kept = d->index.motions.data() + (at * count + b) * 7;
+        found.push_back({{kept[0], kept[1], kept[2]}, {kept[3], kept[4], kept[5], kept[6]}});
+    }
+    return found;
+}
+
 ArchivedFrame ArchiveReader::frame(std::size_t at) const
 {
     if (at >= d->index.times.size()) {
@@ -339,6 +392,7 @@ ArchivedFrame ArchiveReader::frame(std::size_t at) const
     }
     ArchivedFrame frame;
     frame.time = d->index.times[at];
+    frame.bodies = bodies(at);
     try {
         std::vector<std::size_t> shape;
         std::unique_ptr<std::istream> in(d->zip->getInputStream(frameName(at, "points")));

@@ -3,6 +3,7 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObjectPy.h>
+#include <Base/PlacementPy.h>
 
 #include "ParticleSurface.h"
 #include "Solver/Model.h"
@@ -33,6 +34,23 @@ App::DocumentObject* objectOf(const std::string& source, const App::Document* ho
     }
     auto* doc = App::GetApplication().getDocument(source.substr(0, hash).c_str());
     return doc ? doc->getObject(source.substr(hash + 1).c_str()) : nullptr;
+}
+
+// Where the moved walls are at a frame, each the motion from where it
+// stood: a Placement, mm.
+Py::List motionsOf(const std::vector<Solver::Motion>& bodies)
+{
+    Py::List list;
+    for (const auto& motion : bodies) {
+        const Base::Placement placement(
+            Base::Vector3d(motion.translation[0], motion.translation[1], motion.translation[2]),
+            Base::Rotation(motion.rotation[0],
+                           motion.rotation[1],
+                           motion.rotation[2],
+                           motion.rotation[3]));
+        list.append(Py::asObject(new Base::PlacementPy(new Base::Placement(placement))));
+    }
+    return list;
 }
 }  // namespace
 
@@ -68,6 +86,21 @@ PyObject* StudyPy::buildModel(PyObject* args) const
         ret.setItem("TimeEnd", Py::Float(model.timeEnd));
         ret.setItem("OutputInterval", Py::Float(model.outputInterval));
         ret.setItem("Signature", Py::String(std::to_string(Solver::signature(model))));
+        Py::List bodies;
+        for (std::size_t wall : Solver::freeWalls(model)) {
+            const auto& moved = model.walls[wall];
+            Py::Dict body;
+            body.setItem("Source", Py::String(moved.source));
+            body.setItem("Mass", Py::Float(moved.mass.mass));
+            body.setItem("Centre", tupleOf(moved.mass.centre));
+            Py::Tuple inertia(6);
+            for (std::size_t i = 0; i < 6; ++i) {
+                inertia.setItem(i, Py::Float(moved.mass.inertia[i]));
+            }
+            body.setItem("Inertia", inertia);
+            bodies.append(body);
+        }
+        ret.setItem("Bodies", bodies);
         return Py::new_reference_to(ret);
     }
     PY_CATCH
@@ -187,6 +220,15 @@ PyObject* StudyPy::getResults(PyObject* args) const
             monitors.append(monitor);
         }
         ret.setItem("Monitors", monitors);
+        Py::List bodies;
+        for (const auto& source : index.bodies) {
+            Py::Dict body;
+            auto* obj = objectOf(source, getStudyPtr()->getDocument());
+            body.setItem("Object", obj ? Py::asObject(obj->getPyObject()) : Py::None());
+            body.setItem("Source", Py::String(source));
+            bodies.append(body);
+        }
+        ret.setItem("Bodies", bodies);
         return Py::new_reference_to(ret);
     }
     PY_CATCH
@@ -210,6 +252,7 @@ PyObject* StudyPy::getFrame(PyObject* args) const
         const auto frame = results->frame(static_cast<std::size_t>(at));
         Py::Dict ret;
         ret.setItem("Time", Py::Float(frame.time));
+        ret.setItem("Bodies", motionsOf(frame.bodies));
         ret.setItem("Count", Py::Long(static_cast<long>(frame.points.size() / 3)));
         ret.setItem("Points",
                     Py::asObject(PyBytes_FromStringAndSize(
@@ -223,6 +266,26 @@ PyObject* StudyPy::getFrame(PyObject* args) const
                                                     * sizeof(std::int32_t)))));
         }
         return Py::new_reference_to(ret);
+    }
+    PY_CATCH
+}
+
+PyObject* StudyPy::getBodies(PyObject* args) const
+{
+    long at = 0;
+    if (!PyArg_ParseTuple(args, "l", &at)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        const auto* results = getStudyPtr()->results();
+        if (!results) {
+            THROWM(Base::RuntimeError, "the study keeps no results");
+        }
+        if (at < 0) {
+            THROWM(Base::IndexError, "a frame's index is not negative");
+        }
+        return Py::new_reference_to(motionsOf(results->bodies(static_cast<std::size_t>(at))));
     }
     PY_CATCH
 }
@@ -249,6 +312,7 @@ PyObject* StudyPy::getSurface(PyObject* args) const
         };
         Py::Dict ret;
         ret.setItem("Time", Py::Float(frame.time));
+        ret.setItem("Bodies", motionsOf(frame.bodies));
         if (!frame.triangles.empty()) {
             ret.setItem("Count", Py::Long(static_cast<long>(frame.points.size() / 3)));
             ret.setItem("Points", bytesOf(frame.points.data(), frame.points.size() * sizeof(float)));

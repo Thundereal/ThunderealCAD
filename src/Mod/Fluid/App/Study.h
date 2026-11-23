@@ -22,8 +22,8 @@ namespace Fluid
 {
 
 /// A fluid study (docs/FluidSimulation.md secs 5.2, 11): the parts that are
-/// its walls, in Walls; the fluid at the start and the monitors, in Group;
-/// the run and its kept results.
+/// its walls, in Walls; the fluid at the start, the parts the fluid moves
+/// and the monitors, in Group; the run and its kept results.
 class FluidExport Study: public App::DocumentObject, public App::GroupExtension
 {
     PROPERTY_HEADER_WITH_OVERRIDE(Fluid::Study);
@@ -110,6 +110,27 @@ public:
     App::PropertyLink Volume;
     App::PropertyDensity Density;
     App::PropertyDynamicViscosity Viscosity;
+
+    const char* getViewProviderName() const override
+    {
+        return "Gui::ViewProviderDocumentObject";
+    }
+};
+
+/// A part the fluid moves (docs/FluidSimulation.md sec 12 S4): the solid of
+/// Part, a wall to the fluid, free of everything but the fluid's push and
+/// its own weight from where it stands when the run starts. A child of a
+/// Study.
+class FluidExport FreeBody: public App::DocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Fluid::FreeBody);
+
+public:
+    FreeBody();
+
+    App::PropertyLink Part;
+    /// Of the part's solid, the same all through
+    App::PropertyDensity Density;
 
     const char* getViewProviderName() const override
     {

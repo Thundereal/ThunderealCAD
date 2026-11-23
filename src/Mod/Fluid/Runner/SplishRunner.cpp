@@ -8,10 +8,14 @@
 //   FluidSplish --version
 //   FluidSplish <folder>
 //
-// The folder holds case.txt, fluid.points and boundary.points (three floats
-// a point, metres). Lines on standard output say what happened:
+// The folder holds case.txt, fluid.points, boundary.points and a
+// body.<k>.points for each wall the fluid moves (three floats a point,
+// metres). Lines on standard output say what happened:
 //
 //   version <the solver's>
+//   body <k> <x y z> <qx qy qz qw> where the k-th moved wall is at the
+//                                  frame that follows: its motion from the
+//                                  start, a translation and a rotation
 //   frame <index> <time> <count>   frame.<index> is written: count points
 //   sample <time> <value> ...      the monitors, in the case's order
 //   error <why>
@@ -24,7 +28,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #ifdef _OPENMP
@@ -116,6 +122,123 @@ public:
     }
 };
 
+// A wall the fluid moves (docs/FluidSimulation.md sec 12 S4): a rigid body
+// held by nothing, under the fluid's push on its particles and its own
+// weight. The solver adds up the push each step; the body is stepped here,
+// after the fluid, with the step the fluid took.
+class Moved: public RigidBodyObject
+{
+public:
+    Real mass = 0;
+    Vector3r start = Vector3r::Zero();  // its centre of mass when the run starts
+    Matrix3r inertia = Matrix3r::Identity();  // about the centre, as it stood then
+    Vector3r x = Vector3r::Zero();
+    Quaternionr q = Quaternionr::Identity();
+    Vector3r v = Vector3r::Zero();
+    Vector3r w = Vector3r::Zero();
+    Vector3r force = Vector3r::Zero();
+    Vector3r torque = Vector3r::Zero();
+
+    bool isDynamic() const override
+    {
+        return true;
+    }
+    Real const getMass() const override
+    {
+        return mass;
+    }
+    Vector3r const& getPosition() const override
+    {
+        return x;
+    }
+    void setPosition(const Vector3r& value) override
+    {
+        x = value;
+    }
+    Vector3r getWorldSpacePosition() const override
+    {
+        return x;
+    }
+    Vector3r const& getVelocity() const override
+    {
+        return v;
+    }
+    void setVelocity(const Vector3r& value) override
+    {
+        v = value;
+    }
+    Quaternionr const& getRotation() const override
+    {
+        return q;
+    }
+    void setRotation(const Quaternionr& value) override
+    {
+        q = value;
+    }
+    Matrix3r getWorldSpaceRotation() const override
+    {
+        return q.matrix();
+    }
+    Vector3r const& getAngularVelocity() const override
+    {
+        return w;
+    }
+    void setAngularVelocity(const Vector3r& value) override
+    {
+        w = value;
+    }
+    void addForce(const Vector3r& f) override
+    {
+        force += f;
+    }
+    void addTorque(const Vector3r& t) override
+    {
+        torque += t;
+    }
+    void updateMeshTransformation() override
+    {}
+    const std::vector<Vector3r>& getVertices() const override
+    {
+        return none;
+    }
+    const std::vector<Vector3r>& getVertexNormals() const override
+    {
+        return none;
+    }
+    const std::vector<unsigned int>& getFaces() const override
+    {
+        return noFaces;
+    }
+
+    // A step of that length under what was added up, gravity, and a
+    // force and torque besides; the speeds first, then the place from the
+    // new speeds. What was added up stays: it is the fluid's for the whole
+    // of the fluid's step, however many of these that is.
+    void step(Real h, const Vector3r& gravity, const Vector3r& more, const Vector3r& turning)
+    {
+        v += h * ((force + more) / mass + gravity);
+        x += h * v;
+        const Matrix3r turn = q.matrix();
+        const Matrix3r now = turn * inertia * turn.transpose();
+        w += h * now.inverse() * (torque + turning - w.cross(now * w));
+        const Quaternionr spin((Real)0, w[0], w[1], w[2]);
+        q.coeffs() += (Real)0.5 * h * (spin * q).coeffs();
+        q.normalize();
+    }
+
+private:
+    std::vector<Vector3r> none;
+    std::vector<unsigned int> noFaces;
+};
+
+struct Body
+{
+    unsigned long count = 0;
+    double mass = 0.0;
+    Vector3r centre = Vector3r::Zero();
+    double inertia[6] = {0, 0, 0, 0, 0, 0};  // xx yy zz xy xz yz
+};
+
 struct Monitor
 {
     bool pressure = false;
@@ -140,6 +263,7 @@ struct Case
     unsigned long boundary = 0;
     unsigned long fluid = 0;
     std::vector<Monitor> monitors;
+    std::vector<Body> bodies;
 };
 
 [[noreturn]] void fail(const std::string& why)
@@ -161,7 +285,7 @@ Case readCase(const std::string& folder)
     bool ours = false;
     while (std::fgets(line, sizeof(line), in)) {
         char word[64] = "";
-        double a[6] = {0, 0, 0, 0, 0, 0};
+        double a[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
         if (std::sscanf(line, "%63s", word) != 1) {
             continue;
         }
@@ -205,6 +329,21 @@ Case readCase(const std::string& folder)
         }
         else if (key == "fluid") {
             made.fluid = std::strtoul(rest, nullptr, 10);
+        }
+        else if (key == "body") {
+            Body body;
+            if (std::sscanf(rest, "%lu %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf", &body.count, &a[0],
+                            &a[1], &a[2], &a[3], &a[4], &a[5], &a[6], &a[7], &a[8], &a[9])
+                    != 11
+                || body.count == 0 || !(a[0] > 0.0)) {
+                fail("a wall the fluid moves has no particles, or no mass");
+            }
+            body.mass = a[0];
+            body.centre = Vector3r((Real)a[1], (Real)a[2], (Real)a[3]);
+            for (int k = 0; k < 6; k++) {
+                body.inertia[k] = a[4 + k];
+            }
+            made.bodies.push_back(body);
         }
         else if (key == "monitor") {
             char kind[32] = "";
@@ -253,6 +392,155 @@ std::vector<Vector3r> readPoints(const std::string& path, unsigned long count)
     return points;
 }
 
+// The walls that stay, as a moved wall meets them: their particles in
+// cells of the distance a moved wall is slowed within.
+//
+// A stand-in for contact, until a mechanism's solver has the moved walls
+// (sec 11.5). A moved wall stops a particle's width off a fixed one: its
+// particle that comes nearer a fixed wall's than their two sheets are with
+// that much between the faces is pushed off it by a spring, damped, with
+// no friction. The springs are as stiff as it takes for the wall to rest
+// a twentieth of a particle's radius deep under its own weight, and to
+// stop within half a radius at the speed it comes in at; the wall is
+// stepped as finely as such springs need, the fluid's push held
+// meanwhile. Without it a block heavier than the water went through the
+// tank's floor.
+//
+// The width between is the water's: one layer of particles stays under a
+// block that lands, and it is no thinner than a particle. With the faces
+// let touch, the layer was crushed between the two sheets, and one
+// landing in five threw the block back up and over (45 degrees and more)
+// and 118 to 213 particles of 6336 through the floor; twelve of twelve
+// are quiet this way, with none lost.
+//
+// And a particle's width before that, the wall is slowed: to the speed at
+// which it falls a tenth of a radius from rest, or to a stop within a
+// radius when it comes faster. The water that is more than the one layer
+// has to get out sideways, as it does from under anything that lands.
+struct Held
+{
+    Real reach = 0;  // within this the wall is slowed
+    Real film = 0;   // and this much nearer it is held off
+    std::unordered_map<std::uint64_t, std::vector<Vector3r>> cells;
+
+    static std::uint64_t keyOf(long i, long j, long k)
+    {
+        const auto part = [](long v) {
+            return static_cast<std::uint64_t>(v + (1L << 20)) & ((1ULL << 21) - 1);
+        };
+        return (part(i) << 42) | (part(j) << 21) | part(k);
+    }
+    void add(const Vector3r& p)
+    {
+        cells[keyOf((long)std::floor(p[0] / reach),
+                    (long)std::floor(p[1] / reach),
+                    (long)std::floor(p[2] / reach))]
+            .push_back(p);
+    }
+
+    struct Touch
+    {
+        Vector3r at;      // the moved wall's particle
+        Vector3r normal;  // off the fixed wall
+        Real depth;  // past where it is held off; less than 0 before
+    };
+    // Where the wall's particles are within reach of these, the wall as it
+    // is now.
+    void touches(const Moved& body, BoundaryModel_Akinci2012& skin, std::vector<Touch>& found) const
+    {
+        found.clear();
+        if (cells.empty()) {
+            return;
+        }
+        const Matrix3r turn = body.q.matrix();
+        for (unsigned int j = 0; j < skin.numberOfParticles(); j++) {
+            const Vector3r p = turn * skin.getPosition0(j) + body.x;
+            const long c[3] = {(long)std::floor(p[0] / reach),
+                               (long)std::floor(p[1] / reach),
+                               (long)std::floor(p[2] / reach)};
+            for (long a = -1; a <= 1; a++) {
+                for (long b = -1; b <= 1; b++) {
+                    for (long d = -1; d <= 1; d++) {
+                        const auto cell = cells.find(keyOf(c[0] + a, c[1] + b, c[2] + d));
+                        if (cell == cells.end()) {
+                            continue;
+                        }
+                        for (const Vector3r& other : cell->second) {
+                            const Vector3r off = p - other;
+                            const Real apart = off.norm();
+                            if (apart < reach && apart > (Real)1e-9 * reach) {
+                                found.push_back({p, off / apart, reach - film - apart});
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+};
+
+// A moved wall through one step of the fluid's, against the walls that
+// stay.
+void stepBody(Moved& body,
+              BoundaryModel_Akinci2012& skin,
+              const Held& held,
+              Real h,
+              const Vector3r& gravity,
+              Real radius)
+{
+    std::vector<Held::Touch> touching;
+    Real done = 0;
+    const Real g = std::max(gravity.norm(), (Real)1e-3);
+    while (done < h * ((Real)1 - (Real)1e-9)) {
+        held.touches(body, skin, touching);
+        if (touching.empty()) {
+            // free: one step to the end, or as far as it takes to come
+            // within a quarter of the reach of where it is
+            const Real speed = body.v.norm() + body.w.norm() * (Real)10 * held.reach;
+            Real take = h - done;
+            if (!held.cells.empty() && speed * take > (Real)0.25 * held.reach) {
+                take = std::max((Real)0.25 * held.reach / speed, h * (Real)1e-3);
+                take = std::min(take, h - done);
+            }
+            body.step(take, gravity, Vector3r::Zero(), Vector3r::Zero());
+            done += take;
+            continue;
+        }
+        // the fastest any of them comes in, and how many touch
+        Real coming = 0;
+        std::size_t pressed = 0;
+        for (const Held::Touch& touch : touching) {
+            const Vector3r speed = body.v + body.w.cross(touch.at - body.x);
+            coming = std::max(coming, -speed.dot(touch.normal));
+            pressed += touch.depth > 0 ? 1 : 0;
+        }
+        const Real rate = std::max(std::sqrt(g / ((Real)0.05 * radius)), coming / ((Real)0.5 * radius));
+        const Real stiff = pressed > 0 ? body.mass * rate * rate / (Real)pressed : 0;
+        const Real damp = pressed > 0 ? (Real)1.4 * body.mass * rate / (Real)pressed : 0;
+        // the film: no spring, and a drag on what comes nearer
+        const Real slow = std::max(g / std::sqrt((Real)0.1 * g * radius), coming / radius);
+        const Real drag = body.mass * slow / (Real)touching.size();
+        Vector3r force = Vector3r::Zero();
+        Vector3r torque = Vector3r::Zero();
+        for (const Held::Touch& touch : touching) {
+            const Vector3r speed = body.v + body.w.cross(touch.at - body.x);
+            const Real nearing = -speed.dot(touch.normal);
+            Real push = std::max(nearing, (Real)0) * drag;
+            if (touch.depth > 0) {
+                // a push, never a pull
+                push += std::max(stiff * touch.depth + damp * nearing, (Real)0);
+            }
+            force += push * touch.normal;
+            torque += (touch.at - body.x).cross(push * touch.normal);
+        }
+        const Real take = std::min((Real)0.2 / std::max(rate, slow), h - done);
+        body.step(take, gravity, force, torque);
+        done += take;
+    }
+    body.force.setZero();
+    body.torque.setZero();
+}
+
 // What a run is, once the solver is set up.
 struct Run
 {
@@ -260,6 +548,10 @@ struct Run
     std::string folder;
     FluidModel* fluid = nullptr;
     BoundaryModel_Akinci2012* wall = nullptr;
+    // the walls the fluid moves, and their particles
+    std::vector<Moved*> moved;
+    std::vector<BoundaryModel_Akinci2012*> skins;
+    Held held;
     Real support = 0;
     Vector3r up = Vector3r::Zero();  // against gravity; zero without any
     Vector3r park = Vector3r::Zero();
@@ -292,8 +584,28 @@ void parkTheGone(Run& run)
     }
 }
 
+// A moved wall's particles where the wall is now, moving as it does.
+void place(const Moved& body, BoundaryModel_Akinci2012& skin)
+{
+    const Matrix3r turn = body.q.matrix();
+    const int count = (int)skin.numberOfParticles();
+    #pragma omp parallel for schedule(static) default(shared)
+    for (int j = 0; j < count; j++) {
+        skin.getPosition(j) = turn * skin.getPosition0(j) + body.x;
+        skin.getVelocity(j) = body.w.cross(skin.getPosition(j) - body.x) + body.v;
+    }
+}
+
 void writeFrame(Run& run, int index, double time)
 {
+    // where the moved walls are, before the frame they are of
+    for (std::size_t k = 0; k < run.moved.size(); k++) {
+        const Moved& body = *run.moved[k];
+        const Vector3r shift = body.x - body.q.matrix() * body.start;
+        std::printf("body %zu %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n", k, (double)shift[0],
+                    (double)shift[1], (double)shift[2], (double)body.q.x(), (double)body.q.y(),
+                    (double)body.q.z(), (double)body.q.w());
+    }
     FluidModel* fluid = run.fluid;
     std::vector<float> raw;
     raw.reserve(3 * (std::size_t)fluid->numActiveParticles());
@@ -519,11 +831,41 @@ int main(int argc, char** argv)
         run.wall = bm;
     }
 
+    // The walls the fluid moves, each a body of its own: its particles are
+    // kept about its centre of mass and put where it is.
+    for (std::size_t k = 0; k < made.bodies.size(); k++) {
+        const Body& given = made.bodies[k];
+        std::vector<Vector3r> skin
+            = readPoints(run.folder + "/body." + std::to_string(k) + ".points", given.count);
+        for (Vector3r& p : skin) {
+            p -= given.centre;
+        }
+        Moved* body = new Moved();
+        body->mass = (Real)given.mass;
+        body->start = given.centre;
+        body->x = given.centre;
+        const double* i = given.inertia;
+        body->inertia << (Real)i[0], (Real)i[3], (Real)i[4], (Real)i[3], (Real)i[1], (Real)i[5],
+            (Real)i[4], (Real)i[5], (Real)i[2];
+        if (!(std::abs(body->inertia.determinant()) > 0)) {
+            fail("a wall the fluid moves has no inertia");
+        }
+        BoundaryModel_Akinci2012* model = new BoundaryModel_Akinci2012();
+        model->initModel(body, (unsigned int)skin.size(), skin.data());
+        place(*body, *model);
+        sim->addBoundaryModel(model);
+        run.moved.push_back(body);
+        run.skins.push_back(model);
+    }
+
     // the fluid's points are registered with the neighbour search here,
     // then the walls': in that order, once each
     sim->setSimulationInitialized(true);
     if (bm) {
         bm->deferredInit();
+    }
+    for (BoundaryModel_Akinci2012* skin : run.skins) {
+        skin->deferredInit();
     }
     sim->performNeighborhoodSearchSort();
     if (bm) {
@@ -531,6 +873,21 @@ int main(int argc, char** argv)
             bm->getPosition(j) = bm->getPosition0(j);
             bm->getVelocity(j).setZero();
         }
+    }
+    for (std::size_t k = 0; k < run.moved.size(); k++) {
+        place(*run.moved[k], *run.skins[k]);
+    }
+    // two sheets are each this far behind their faces (the workbench's
+    // SplishCase sizesOf); a particle's width between the faces where the
+    // moved wall is held off, and another before it where it is slowed
+    run.held.film = (Real)(2 * made.radius);
+    run.held.reach = (Real)(2 * 1.2 * made.radius) + 2 * run.held.film;
+    if (bm && !run.moved.empty()) {
+        for (unsigned int j = 0; j < bm->numberOfParticles(); j++) {
+            run.held.add(bm->getPosition(j));
+        }
+    }
+    if (bm || !run.skins.empty()) {
         sim->updateBoundaryVolume();
     }
 
@@ -579,6 +936,22 @@ int main(int argc, char** argv)
                 std::printf("error the solver lost the fluid at %.9g s\n", time);
                 return 1;
             }
+        }
+        // the moved walls, by what the fluid pushed them with in this step
+        for (std::size_t k = 0; k < run.moved.size(); k++) {
+            Moved& body = *run.moved[k];
+            Vector3r force;
+            Vector3r torque;
+            run.skins[k]->getForceAndTorque(force, torque);
+            run.skins[k]->clearForceAndTorque();
+            body.addForce(force);
+            body.addTorque(torque);
+            stepBody(body, *run.skins[k], run.held, step, g, (Real)made.radius);
+            if (!body.x.allFinite() || !body.q.coeffs().allFinite()) {
+                std::printf("error the solver lost a moved wall at %.9g s\n", time);
+                return 1;
+            }
+            place(body, *run.skins[k]);
         }
         parkTheGone(run);
         writeSample(run, time, step);

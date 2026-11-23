@@ -290,3 +290,111 @@ class TestResults(FluidCase):
         self.assertEqual(monitors.shape, (9, 2))
         self.assertEqual(points.shape, (250, 3))
         self.assertEqual(points.dtype, numpy.float32)
+
+
+class TestBodies(FluidCase):
+    """The case with a block 50 x 50 x 50 of 600 kg/m^3 standing 100 above
+    the floor, for the fluid to move (docs/FluidSimulation.md sec 12, S4).
+    The space is the parts' box: its floor is the floor's underside, 110
+    under the block."""
+
+    def setUp(self):
+        super().setUp()
+        self.block = box(self.doc, "Block", (50, 50, 50), (200, 75, 100))
+        self.body = self.doc.addObject("Fluid::FreeBody", "Body")
+        self.body.Part = self.block
+        self.body.Density = "600 kg/m^3"
+        self.study.Group = self.study.Group + [self.body]
+        self.doc.recompute()
+
+    def test_a_part_moved_is_in_the_model(self):
+        model = self.study.buildModel()
+        # a wall to the fluid, as the floor is
+        self.assertEqual(model["Walls"], 2)
+        (body,) = model["Bodies"]
+        self.assertEqual(body["Source"], "Block")
+        mass = 600.0 * 0.05**3
+        self.assertAlmostEqual(body["Mass"], mass, delta=1e-12)
+        for got, want in zip(body["Centre"], (0.225, 0.1, 0.125)):
+            self.assertAlmostEqual(got, want, delta=1e-12)
+        # a cube's, about its middle: m a^2 / 6 each way and no products
+        for got, want in zip(body["Inertia"], [mass * 0.05**2 / 6.0] * 3 + [0.0] * 3):
+            self.assertAlmostEqual(got, want, delta=1e-12)
+        self.assertAlmostEqual(model["SpaceMin"][2], -0.01, delta=1e-12)
+
+    def test_what_it_weighs_is_of_the_model(self):
+        self.assertEqual(self.study.run(), 0)
+        self.assertFalse(self.study.isStale())
+        self.body.Density = "700 kg/m^3"
+        self.assertTrue(self.study.isStale())
+
+    def test_what_cannot_be_moved_is_named(self):
+        self.body.Density = 0
+        with self.assertRaises(ValueError) as raised:
+            self.study.buildModel()
+        self.assertIn("Body", str(raised.exception))
+        self.assertIn("density", str(raised.exception))
+        self.body.Density = "600 kg/m^3"
+        # held and moved at once
+        self.study.Walls = [self.floor, self.block]
+        with self.assertRaises(ValueError) as raised:
+            self.study.buildModel()
+        self.assertIn("Block", str(raised.exception))
+        self.study.Walls = [self.floor]
+        self.body.Part = None
+        with self.assertRaises(ValueError) as raised:
+            self.study.buildModel()
+        self.assertIn("no part", str(raised.exception))
+
+    def test_where_it_is_at_each_frame(self):
+        self.assertEqual(self.study.run(), 0, self.study.Status)
+        results = self.study.getResults()
+        (body,) = results["Bodies"]
+        self.assertEqual(body["Object"], self.block)
+        self.assertEqual(body["Source"], "Block")
+        for index, time in enumerate(results["Times"]):
+            fall = min(0.5 * G * time**2 * 1000.0, 110.0)
+            for motions in (
+                self.study.getFrame(index)["Bodies"],
+                self.study.getSurface(index)["Bodies"],
+                self.study.getBodies(index),
+            ):
+                (motion,) = motions
+                self.assertAlmostEqual(motion.Base.z, -fall, delta=1e-9)
+                self.assertAlmostEqual(motion.Base.x, 0.0, delta=1e-9)
+                self.assertAlmostEqual(motion.Rotation.Angle, 0.0, delta=1e-12)
+        with self.assertRaises(IndexError):
+            self.study.getBodies(len(results["Times"]))
+
+    def test_kept_with_the_document(self):
+        self.assertEqual(self.study.run(), 0)
+        before = self.study.getBodies(2)[0].Base.z
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "FluidBodies.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        study = self.doc.getObject("Study")
+        self.assertEqual(study.getResults()["Bodies"][0]["Object"], self.doc.getObject("Block"))
+        self.assertEqual(study.getBodies(2)[0].Base.z, before)
+        self.assertFalse(study.isStale())
+
+    def test_a_backend_that_moves_none_says_so(self):
+        foam = [b for b in FluidApp.getBackends() if b["Name"] == "OpenFOAM"][0]
+        self.assertFalse(foam["FreeBodies"])
+        self.assertTrue([b for b in FluidApp.getBackends() if b["Name"] == "FreeFall"][0]["FreeBodies"])
+        if not foam["Available"]:
+            self.skipTest("no OpenFOAM on this machine")
+        self.study.Backend = "OpenFOAM"
+        self.assertEqual(self.study.run(), -2)
+        self.assertIn("cannot move a part", self.study.Status)
+        self.assertIsNone(self.study.getResults())
+
+    def test_results_without_one_have_none(self):
+        self.study.Group = [o for o in self.study.Group if o != self.body]
+        self.assertEqual(self.study.buildModel()["Bodies"], [])
+        self.assertEqual(self.study.run(), 0)
+        self.assertEqual(self.study.getResults()["Bodies"], [])
+        self.assertEqual(self.study.getBodies(1), [])
+        self.assertEqual(self.study.getFrame(1)["Bodies"], [])

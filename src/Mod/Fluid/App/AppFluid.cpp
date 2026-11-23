@@ -30,6 +30,7 @@ PyMOD_INIT_FUNC(FluidApp)
 
     Fluid::Study::init();
     Fluid::InitialFluid::init();
+    Fluid::FreeBody::init();
     Fluid::Monitor::init();
 
     // The backends (docs/FluidSimulation.md sec 11.2), in the order a study

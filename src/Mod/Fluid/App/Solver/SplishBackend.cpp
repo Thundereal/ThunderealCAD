@@ -126,6 +126,8 @@ public:
             return given.fluids.empty() ? Status::Empty : Status::Unsupported;
         }
         monitors = given.monitors.size();
+        bodies = made.bodies.size();
+        motions.assign(bodies, Motion());
         keep = preferences()->GetBool("KeepCase", false);
         try {
             const fs::path base = fs::path(App::Application::getTempPath());
@@ -233,6 +235,7 @@ private:
                 const fs::path file = folder / ("frame." + std::to_string(event.index));
                 Frame frame;
                 frame.time = event.time;
+                frame.bodies = motions;
                 if (!Splish::pointsOf(readFile(file), event.count, frame.points)) {
                     error = "the frame at " + std::to_string(event.time) + " s could not be read";
                     return;
@@ -248,6 +251,17 @@ private:
                 sink.sample(event.time, values);
                 break;
             }
+            case Splish::Event::Body:
+                // of the frame that follows
+                if (static_cast<std::size_t>(event.index) < motions.size()) {
+                    Motion& motion = motions[static_cast<std::size_t>(event.index)];
+                    motion.translation = {event.values[0], event.values[1], event.values[2]};
+                    motion.rotation = {event.values[3],
+                                       event.values[4],
+                                       event.values[5],
+                                       event.values[6]};
+                }
+                break;
             case Splish::Event::Error:
                 error = event.text;
                 break;
@@ -264,6 +278,8 @@ private:
     SplishRunner runner;
     fs::path folder;
     std::size_t monitors = 0;
+    std::size_t bodies = 0;
+    std::vector<Motion> motions;  // where the moved walls are, as last said
     bool keep = false;
 };
 }  // namespace
@@ -273,6 +289,7 @@ Capabilities SplishBackend::capabilities() const
     Capabilities can;
     can.results = ResultKind::Particles;
     can.freeSurface = true;
+    can.freeBodies = true;
     can.inProcess = false;
     return can;
 }

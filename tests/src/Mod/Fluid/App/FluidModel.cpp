@@ -191,6 +191,32 @@ TEST(FluidModel, signatureFollowsTheModel)
     EXPECT_EQ(signature(other), signature(zero));
 }
 
+TEST(FluidModel, wallsTheFluidMoves)
+{
+    Model model = blockModel();
+    model.walls.push_back({"Doc#Floor", boxSurface({0.0, 0.0, -0.01}, {0.4, 0.2, 0.0}), {}, {}});
+    model.walls.push_back({"Doc#Float", boxSurface({0.2, 0.05, 0.1}, {0.3, 0.15, 0.2}), {}, {}});
+    EXPECT_TRUE(freeWalls(model).empty());
+    const auto fixed = signature(model);
+    model.walls[1].motion = WallMotion::Free;
+    model.walls[1].mass = {0.5, {0.25, 0.1, 0.15}, {1e-3, 1e-3, 1e-3, 0.0, 0.0, 0.0}};
+    ASSERT_EQ(freeWalls(model).size(), 1U);
+    EXPECT_EQ(freeWalls(model)[0], 1U);
+    // what it weighs is of the model: a kept result is of that weight
+    const auto free = signature(model);
+    EXPECT_NE(fixed, free);
+    Model other = model;
+    other.walls[1].mass.mass = 0.6;
+    EXPECT_NE(free, signature(other));
+    other = model;
+    other.walls[1].mass.inertia[3] = 1e-4;
+    EXPECT_NE(free, signature(other));
+    // a fixed wall's is nothing to it
+    other = model;
+    other.walls[0].mass.mass = 3.0;
+    EXPECT_EQ(free, signature(other));
+}
+
 TEST(FluidRegistry, addFindRemoveSelect)
 {
     auto& registry = Registry::instance();
@@ -249,6 +275,34 @@ TEST(FluidFreeFall, framesHaveTheClosedForm)
     }
 }
 
+TEST(FluidFreeFall, aFreeWallFallsToTheFloor)
+{
+    const FreeFallBackend backend;
+    EXPECT_TRUE(backend.capabilities().freeBodies);
+    Model model = blockModel();
+    model.walls.push_back({"Doc#Fixed", boxSurface({0.3, 0.0, 0.0}, {0.4, 0.2, 0.05}), {}, {}});
+    // 0.1 above the space's floor
+    model.walls.push_back({"Doc#Float", boxSurface({0.2, 0.05, 0.1}, {0.3, 0.15, 0.2}), {}, {}});
+    model.walls[1].motion = WallMotion::Free;
+    model.walls[1].mass = {0.5, {0.25, 0.1, 0.15}, {1e-3, 1e-3, 1e-3, 0.0, 0.0, 0.0}};
+    auto session = backend.createSession();
+    std::string why;
+    ASSERT_EQ(session->prepare(model, why), Status::Ok) << why;
+    Kept kept;
+    ASSERT_EQ(session->run(kept, why), Status::Ok) << why;
+    ASSERT_EQ(kept.frames.size(), 9U);
+    for (std::size_t k = 0; k < kept.frames.size(); ++k) {
+        const Frame& frame = kept.frames[k];
+        // one per wall the fluid moves, and none for the fixed one
+        ASSERT_EQ(frame.bodies.size(), 1U);
+        const Motion& motion = frame.bodies[0];
+        const double t = 0.05 * static_cast<double>(k);
+        EXPECT_NEAR(motion.translation[0], 0.0, 1e-12);
+        EXPECT_NEAR(motion.translation[2], -std::min(0.5 * 9.80665 * t * t, 0.1), 1e-12);
+        EXPECT_NEAR(motion.rotation[3], 1.0, 1e-12);
+    }
+}
+
 TEST(FluidFreeFall, openSideLetsTheFluidOut)
 {
     Model model = blockModel();
@@ -291,6 +345,7 @@ TEST(FluidArchive, framesReadBackOneAtATime)
     index.kind = ResultKind::Surface;
     index.signature = 18446744073709551557ULL;  // above 2^63: kept as text
     index.monitors = {{"Doc#Height", MonitorKind::Height}, {"Doc#P", MonitorKind::Pressure}};
+    index.bodies = {"Doc#Float", "Doc#Other"};
     {
         Fluid::ArchiveWriter writer(path);
         for (int k = 0; k < 3; ++k) {
@@ -300,6 +355,10 @@ TEST(FluidArchive, framesReadBackOneAtATime)
                 frame.points.push_back({0.001 * i, 0.002 * k, 0.5});
             }
             frame.triangles.push_back({0, k, 0});
+            // the first slides along x, the second turns about z
+            frame.bodies.resize(2);
+            frame.bodies[0].translation = {0.01 * k, 0.0, -0.002};
+            frame.bodies[1].rotation = {0.0, 0.0, std::sin(0.1 * k), std::cos(0.1 * k)};
             writer.frame(frame);
             // the monitors twice as often as the frames
             writer.sample(0.1 * k, {0.25 + k, 1000.0 * k});
@@ -334,9 +393,32 @@ TEST(FluidArchive, framesReadBackOneAtATime)
         EXPECT_FLOAT_EQ(frame.points[8], 500.0F);
         ASSERT_EQ(frame.triangles.size(), 3U);
         EXPECT_EQ(frame.triangles[1], 2);
+        // where the moved walls are: the lengths in mm, as the points
+        ASSERT_EQ(read.bodies.size(), 2U);
+        EXPECT_EQ(read.bodies[1], "Doc#Other");
+        ASSERT_EQ(frame.bodies.size(), 2U);
+        EXPECT_NEAR(frame.bodies[0].translation[0], 20.0, 1e-9);
+        EXPECT_NEAR(frame.bodies[0].translation[2], -2.0, 1e-9);
+        EXPECT_NEAR(frame.bodies[0].rotation[3], 1.0, 1e-12);
+        EXPECT_NEAR(frame.bodies[1].rotation[2], std::sin(0.2), 1e-12);
+        EXPECT_NEAR(frame.bodies[1].rotation[3], std::cos(0.2), 1e-12);
         EXPECT_EQ(reader.frame(0).points.size(), 3U);
         EXPECT_THROW(reader.frame(3), Base::IndexError);
     }
     Base::FileInfo(path).deleteFile();
     EXPECT_THROW(Fluid::ArchiveReader missing(path), Base::Exception);
+    // a run with no wall moved keeps nothing of them
+    {
+        Fluid::ArchiveWriter writer(path);
+        Frame frame;
+        frame.points.push_back({0.0, 0.0, 0.0});
+        writer.frame(frame);
+        writer.close({});
+    }
+    {
+        const Fluid::ArchiveReader reader(path);
+        EXPECT_TRUE(reader.index().bodies.empty());
+        EXPECT_TRUE(reader.frame(0).bodies.empty());
+    }
+    Base::FileInfo(path).deleteFile();
 }

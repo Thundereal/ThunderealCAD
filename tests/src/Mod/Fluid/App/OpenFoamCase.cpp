@@ -32,7 +32,7 @@ Surface boxSurface(const Vec3& min, const Vec3& max)
 Model damModel()
 {
     Model model;
-    model.walls.push_back({"Floor", boxSurface({0.0, 0.0, -0.01}, {0.4, 0.1, 0.0})});
+    model.walls.push_back({"Floor", boxSurface({0.0, 0.0, -0.01}, {0.4, 0.1, 0.0}), {}, {}});
     model.fluids.push_back({"Water", boxSurface({0.0, 0.0, 0.0}, {0.1, 0.1, 0.1}), {998.2, 1.002e-3}});
     model.space.min = {0.0, 0.0, -0.01};
     model.space.max = {0.4, 0.1, 0.2};

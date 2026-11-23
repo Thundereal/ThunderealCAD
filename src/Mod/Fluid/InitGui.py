@@ -22,6 +22,7 @@ class FluidWorkbench(Workbench):
         commands = [
             "Fluid_CreateStudy",
             "Fluid_AddFluid",
+            "Fluid_AddBody",
             "Fluid_AddMonitor",
             "Fluid_AddPressureMonitor",
             "Fluid_RunStudy",

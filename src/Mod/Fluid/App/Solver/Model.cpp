@@ -107,6 +107,30 @@ std::uint64_t Fluid::Solver::signature(const Model& model)
         hash.text(wall.source);
         hash.surface(wall.surface);
         hash.integer(static_cast<int>(wall.motion));
+        if (wall.motion == WallMotion::Free) {
+            // To nine digits, the centre to a nanometre: they are worked
+            // out from the shape, and a shape read back from its file
+            // gives them a rounding apart from the one it was made as.
+            const auto grained = [](double value, double grain) {
+                return grain > 0.0 ? static_cast<std::int64_t>(std::llround(value / grain))
+                                   : std::int64_t {0};
+            };
+            const MassProps& mass = wall.mass;
+            const double digits = std::fabs(mass.mass) > 0.0
+                ? std::pow(10.0, std::floor(std::log10(std::fabs(mass.mass))) - 8.0)
+                : 0.0;
+            hash.integer(grained(mass.mass, digits));
+            hash.number(digits);
+            for (double v : mass.centre) {
+                hash.integer(grained(v, 1e-9));
+            }
+            const double most = std::max({std::fabs(mass.inertia[0]),
+                                          std::fabs(mass.inertia[1]),
+                                          std::fabs(mass.inertia[2])});
+            for (double v : mass.inertia) {
+                hash.integer(grained(v, 1e-9 * most));
+            }
+        }
     }
     hash.integer(static_cast<std::int64_t>(model.fluids.size()));
     for (const auto& fluid : model.fluids) {
@@ -131,6 +155,17 @@ std::uint64_t Fluid::Solver::signature(const Model& model)
         hash.vec(monitor.point);
     }
     return hash.value;
+}
+
+std::vector<std::size_t> Fluid::Solver::freeWalls(const Model& model)
+{
+    std::vector<std::size_t> found;
+    for (std::size_t i = 0; i < model.walls.size(); ++i) {
+        if (model.walls[i].motion == WallMotion::Free) {
+            found.push_back(i);
+        }
+    }
+    return found;
 }
 
 bool Fluid::Solver::boxOf(const Surface& surface, Vec3& min, Vec3& max)

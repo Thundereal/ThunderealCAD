@@ -304,6 +304,21 @@ Found reading FTC-06's graphics (sec 10.24), and fixed on the fork (2026-11-23):
     reader writes the PMI's text) is kept as read, not modelled.
     `test_a_graphic_by_its_placeholder`.
 
+Found reading STC-07's tolerances (2026-11-23), and fixed on the fork (OCCT bbabd1ade7):
+
+12. STC-07 read 10 of its 22 tolerances. A shape aspect's geometry was looked for only through
+    a `geometric_item_specific_usage`: STC-07 names its surfaces by the plain
+    `item_identified_representation_usage` (a set of faces), and beside it gives them a
+    'semantic text' `property_definition`, which, met first, sent the aspect down the old way
+    to nothing. Either usage now, first; a `draughting_model_item_association` (a usage too,
+    naming the presentation) is not taken for one. Its positions' centres of symmetry are
+    axes drawn in its supplemental geometry, trimmed curves in composite curves, which were
+    not transferred: each curve is now an edge, bound. 19 read: the positions on the holes'
+    faces, the profile of any surface on datum feature A's surfaces, datums D and E.
+    `test_features_named_as_stc_07_names_them`. Left: the flatness per unit area (CTC-03,
+    FTC-07, STC-07; FTC-10's straightness per unit length too), a complex entity the reader
+    does not know, and what is on a `dimensional_size_with_datum_feature`.
+
 Worked around, not fixed: `GenerateTessellatedCurveSet` writes a curve that is not a line as
 its B-spline's poles -- the control polygon, not the curve -- and reads an edge's curve without
 its location. The exporter hands OCCT polylines and meshes instead (sec 10.17).

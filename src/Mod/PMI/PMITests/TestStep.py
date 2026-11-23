@@ -517,6 +517,26 @@ class TestNistSet(Base):
                 self.assertEqual([d.Label for d in dims if d.ImportedGraphic.isNull()], [])
                 self.assertEqual(len(objects(doc, "Note")), notes)
 
+    def test_features_named_as_stc_07_names_them(self):
+        """STC-07 names its holes' surfaces through an item identified
+        representation usage, a set of faces, beside a 'semantic text'
+        property; its positions are on centres of symmetry of those, an axis
+        drawn in its supplemental geometry, grouped as patterns. Each is read:
+        the positions on the holes' faces, the profile on datum feature A's
+        surfaces, datums A, D and E"""
+        doc = self.read(os.path.join(os.environ["FC_PMI_NIST"],
+                                     "nist_stc_07_asme1_ap242-e3.stp"))
+        gts = objects(doc, "GeometricTolerance")
+        kinds = collections.Counter(g.Characteristic for g in gts)
+        self.assertEqual(kinds["Position"], 8, kinds)
+        self.assertEqual(kinds["ProfileOfSurface"], 10, kinds)
+        for g in gts:
+            self.assertEqual(g.Condition, "Ok", (g.Label, g.ConditionMessage))
+            subs = [s for r in g.Feature.References for s in r[1]]
+            self.assertTrue(subs and all(s.startswith("Face") for s in subs), (g.Label, subs))
+        letters = sorted(d.Letter for d in objects(doc, "Datum"))
+        self.assertTrue({"A", "D", "E"} <= set(letters), letters)
+
     def test_on_supplemental_geometry(self):
         """GD&T on supplemental geometry -- a thread's cylinder drawn as its
         circles, its upper plane as its outline, curves of a constructive

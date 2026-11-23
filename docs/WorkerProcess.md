@@ -3345,3 +3345,28 @@ tests OK, exit 0. `Thundereal -t NoSuchTestModule51` failed its import,
 exit 1. Neither wrote a crash log, and the cache was empty after each.
 The 13 locks were removed by hand beforehand. Each had a dead pid and no
 folder of its own.
+
+## 52. A full `-t 0` runs to its end (2026-11-23)
+
+Sec 50 left `-t 0` aborting in
+`CAMTests.TestPathToolShapeIcon.TestToolBitShapeSvgIcon.test_get_qpixmap`,
+with "QFontDatabase: Must construct a QGuiApplication before accessing
+QFontDatabase". That module, run alone, passes with 32 run and 6 skipped.
+Its guard is `QtGui.QApplication.instance()`, which is None in a console,
+so the painting tests skip. But the worker pool's `ensureCore()`
+(`App/WorkerPool.cpp`) makes a `QCoreApplication` for its sockets, so
+after the first worker test of a `-t 0` the guard is not None. The test
+then paints without a `QGuiApplication`, and Qt aborts.
+
+To reproduce, a script makes `QtCore.QCoreApplication([])` and then runs
+the module: exit 134, the same message. The guard now asks for an
+instance that is a `QGuiApplication`. After the fix the same script runs
+32 tests, 0 failures, 6 skipped, exit 0.
+
+Two other places ask `QApplication.instance()` outside a GUI module:
+CAM's `AssetManager.get` (a thread warning) and the AddonManager's quit
+hook. Both are right with a `QCoreApplication`, so neither was changed.
+
+The whole of `-t 0` after it: 5557 tests in 785 s, OK (skipped=178,
+expected failures=6), exit 0. It wrote one crash log, the CAUGHT report
+of the worker-crash test, and the cache was empty after it.

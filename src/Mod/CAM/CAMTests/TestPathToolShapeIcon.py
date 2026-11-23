@@ -21,8 +21,12 @@ class TestToolBitShapeIconBase(PathTestWithAssets):
 
     def setUp(self):
         super().setUp()
-        # Ensure a QApplication exists for QPixmap tests
-        self.app = QtGui.QApplication.instance()
+        # Ensure a QApplication exists for QPixmap tests. A QGuiApplication:
+        # a console can hold a QCoreApplication, which the worker pool makes
+        # for its sockets, and painting without the GUI one aborts the
+        # program (docs/WorkerProcess.md sec 52)
+        app = QtGui.QApplication.instance()
+        self.app = app if isinstance(app, QtGui.QGuiApplication) else None
 
         # Create a test shape and a test SVG icon.
         self.test_shape = self.assets.get("toolbitshape://ballend")

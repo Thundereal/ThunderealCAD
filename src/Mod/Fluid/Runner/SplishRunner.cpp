@@ -8,9 +8,10 @@
 //   FluidSplish --version
 //   FluidSplish <folder>
 //
-// The folder holds case.txt, fluid.points, boundary.points and a
-// body.<k>.points for each wall the fluid moves (three floats a point,
-// metres). Lines on standard output say what happened:
+// The folder holds case.txt, fluid.points, boundary.points, a
+// body.<k>.points for each wall the fluid moves, a forced.<k>.points for
+// each wall a force is asked of and an inlet.<k>.points for each inlet
+// (three floats a point, metres). Lines on standard output say what happened:
 //
 //   version <the solver's>
 //   body <k> <x y z> <qx qy qz qw> where the k-th moved wall is at the
@@ -31,6 +32,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #ifdef _OPENMP
@@ -239,9 +241,26 @@ struct Body
     double inertia[6] = {0, 0, 0, 0, 0, 0};  // xx yy zz xy xz yz
 };
 
+// A flat face the fluid comes in through: a layer of particles on it,
+// sent off along n at the speed, another each time the last has gone a
+// particle's width.
+struct Inlet
+{
+    unsigned long count = 0;
+    Vector3r origin = Vector3r::Zero();  // a particle of the layer
+    Vector3r n = Vector3r::Zero();       // the way the fluid goes
+    Vector3r across = Vector3r::Zero();  // the layer's grid's first axis
+    double speed = 0.0;
+    double start = 0.0;
+    double end = 0.0;
+};
+
 struct Monitor
 {
     bool pressure = false;
+    // the fluid's force on the wall of that place among the forced ones,
+    // along normal; -1, not a force
+    int force = -1;
     Vector3r point = Vector3r::Zero();
     // a pressure on a wall: the way the wall faces there; zero in the open
     // fluid
@@ -264,6 +283,8 @@ struct Case
     unsigned long fluid = 0;
     std::vector<Monitor> monitors;
     std::vector<Body> bodies;
+    std::vector<unsigned long> forced;
+    std::vector<Inlet> inlets;
 };
 
 [[noreturn]] void fail(const std::string& why)
@@ -285,7 +306,7 @@ Case readCase(const std::string& folder)
     bool ours = false;
     while (std::fgets(line, sizeof(line), in)) {
         char word[64] = "";
-        double a[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+        double a[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
         if (std::sscanf(line, "%63s", word) != 1) {
             continue;
         }
@@ -345,11 +366,44 @@ Case readCase(const std::string& folder)
             }
             made.bodies.push_back(body);
         }
+        else if (key == "forced") {
+            made.forced.push_back(std::strtoul(rest, nullptr, 10));
+            if (made.forced.back() == 0) {
+                fail("a wall a force is asked of has no particles");
+            }
+        }
+        else if (key == "inlet") {
+            Inlet inlet;
+            if (std::sscanf(rest, "%lu %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf", &inlet.count,
+                            &a[0], &a[1], &a[2], &a[3], &a[4], &a[5], &a[6], &a[7], &a[8], &a[9],
+                            &a[10], &a[11])
+                    != 13
+                || inlet.count == 0 || !(a[9] > 0.0)) {
+                fail("an inlet has no particles, or no speed");
+            }
+            inlet.origin = Vector3r((Real)a[0], (Real)a[1], (Real)a[2]);
+            inlet.n = Vector3r((Real)a[3], (Real)a[4], (Real)a[5]);
+            inlet.across = Vector3r((Real)a[6], (Real)a[7], (Real)a[8]);
+            inlet.speed = a[9];
+            inlet.start = a[10];
+            inlet.end = a[11];
+            made.inlets.push_back(inlet);
+        }
         else if (key == "monitor") {
             char kind[32] = "";
             const int got = std::sscanf(rest, "%31s %lf %lf %lf %lf %lf %lf", kind, &a[0], &a[1], &a[2],
                                         &a[3], &a[4], &a[5]);
-            if (got == 4 || got == 7) {
+            if (std::string(kind) == "force") {
+                // which forced wall, and the way the force is taken
+                Monitor monitor;
+                monitor.force = (int)a[0];
+                monitor.normal = Vector3r((Real)a[1], (Real)a[2], (Real)a[3]);
+                if (got != 5 || monitor.force < 0) {
+                    fail("a force monitor names no wall");
+                }
+                made.monitors.push_back(monitor);
+            }
+            else if (got == 4 || got == 7) {
                 Monitor monitor;
                 monitor.pressure = std::string(kind) == "pressure";
                 monitor.point = Vector3r((Real)a[0], (Real)a[1], (Real)a[2]);
@@ -364,8 +418,14 @@ Case readCase(const std::string& folder)
     if (!ours) {
         fail(path + " is not a case of this program's");
     }
-    if (!(made.radius > 0.0) || made.fluid == 0 || !(made.interval > 0.0) || !(made.density > 0.0)) {
+    if (!(made.radius > 0.0) || (made.fluid == 0 && made.inlets.empty()) || !(made.interval > 0.0)
+        || !(made.density > 0.0)) {
         fail("the case has no fluid, or no size");
+    }
+    for (const Monitor& monitor : made.monitors) {
+        if (monitor.force >= (int)made.forced.size()) {
+            fail("a force monitor names a wall the case has not");
+        }
     }
     return made;
 }
@@ -542,6 +602,37 @@ void stepBody(Moved& body,
 }
 
 // What a run is, once the solver is set up.
+// An inlet as it runs.
+struct Feed
+{
+    Inlet inlet;
+    std::vector<Vector3r> layer;
+    Vector3r up = Vector3r::Zero();  // the grid's second axis
+    // the grid's places a particle of the layer is at, and the ones next
+    // to those
+    std::unordered_set<std::int64_t> cells;
+    double next = 0.0;  // when the next layer is due
+    unsigned long sent = 0;
+
+    static std::int64_t key(long i, long j)
+    {
+        return ((std::int64_t)i << 32) ^ (std::int64_t)(j & 0xffffffffL);
+    }
+    // Whether a place is in the stretch before the face where the fluid
+    // is carried at the inlet's speed, whatever presses on it: a kernel's
+    // width, so that what is past it has fluid behind it and not a void.
+    bool carries(const Vector3r& x, Real d, Real support) const
+    {
+        const Vector3r off = x - inlet.origin;
+        const Real along = off.dot(inlet.n);
+        if (along < -d || along > support) {
+            return false;
+        }
+        return cells.count(key(std::lround(off.dot(inlet.across) / d), std::lround(off.dot(up) / d)))
+            != 0;
+    }
+};
+
 struct Run
 {
     Case made;
@@ -552,6 +643,11 @@ struct Run
     std::vector<Moved*> moved;
     std::vector<BoundaryModel_Akinci2012*> skins;
     Held held;
+    // the walls a force is asked of: held still, and bodies to the solver
+    // so that it adds up what the fluid pushes them with
+    std::vector<BoundaryModel_Akinci2012*> forced;
+    std::vector<Vector3r> pushed;  // on each, in the last step, N
+    std::vector<Feed> feeds;
     Real support = 0;
     Vector3r up = Vector3r::Zero();  // against gravity; zero without any
     Vector3r park = Vector3r::Zero();
@@ -593,6 +689,94 @@ void place(const Moved& body, BoundaryModel_Akinci2012& skin)
     for (int j = 0; j < count; j++) {
         skin.getPosition(j) = turn * skin.getPosition0(j) + body.x;
         skin.getVelocity(j) = body.w.cross(skin.getPosition(j) - body.x) + body.v;
+    }
+}
+
+// The inlets after a step of that length that ended at that time.
+//
+// As the solver's own emitters go, which are rectangles and circles only:
+// the fluid in the stretch before the face is carried at the inlet's
+// speed -- the solver leaves a particle so marked where it is, and it is
+// moved here -- and a layer is put on the face each time the last has gone
+// a particle's width, placed as far on as it is late. A particle comes
+// from the ones that left the space, or else from the ones kept for the
+// inlets when the fluid was made.
+void feedInlets(Run& run, double time, Real step)
+{
+    if (run.feeds.empty()) {
+        return;
+    }
+    Simulation* sim = Simulation::getCurrent();
+    FluidModel* fluid = run.fluid;
+    const Real d = (Real)(2 * run.made.radius);
+    const double before = time - step;
+    const int active = (int)fluid->numActiveParticles();
+    #pragma omp parallel for schedule(static) default(shared)
+    for (int i = 0; i < active; i++) {
+        const ParticleState state = fluid->getParticleState(i);
+        if (state == ParticleState::Fixed) {
+            continue;
+        }
+        fluid->setParticleState(i, ParticleState::Active);
+        if (state == ParticleState::AnimatedByEmitter) {
+            // The solver did not move it in this step: it is moved here,
+            // as it was going, in the stretch still or just out of it.
+            // (The solver's own emitters leave a particle where it is for
+            // the step it comes out of the stretch in; the layer behind
+            // then runs into it, and the jet came apart from there on, its
+            // front half as fast again as it was sent.)
+            fluid->getPosition(i) += step * fluid->getVelocity(i);
+        }
+        for (const Feed& feed : run.feeds) {
+            if (before < feed.inlet.start || before > feed.inlet.end
+                || !feed.carries(fluid->getPosition(i), d, run.support)) {
+                continue;
+            }
+            fluid->getVelocity(i) = (Real)feed.inlet.speed * feed.inlet.n;
+            fluid->setParticleState(i, ParticleState::AnimatedByEmitter);
+            break;
+        }
+    }
+    for (Feed& feed : run.feeds) {
+        while (before >= feed.next && feed.next <= feed.inlet.end) {
+            const Vector3r speed = (Real)feed.inlet.speed * feed.inlet.n;
+            const Vector3r on = (Real)(before - feed.next + step) * speed;
+            // the ones that left the space first; the solver sorts its
+            // particles as it likes, so they are looked for each time
+            std::vector<unsigned int> free;
+            for (unsigned int i = 0; i < fluid->numActiveParticles() && free.size() < feed.layer.size();
+                 i++) {
+                if (fluid->getParticleState(i) == ParticleState::Fixed) {
+                    free.push_back(i);
+                }
+            }
+            const unsigned int had = fluid->numActiveParticles();
+            unsigned int fresh = 0;
+            for (std::size_t k = 0; k < feed.layer.size(); k++) {
+                unsigned int index = 0;
+                if (k < free.size()) {
+                    index = free[k];
+                }
+                else if (had + fresh < fluid->numParticles()) {
+                    index = had + fresh++;
+                }
+                else {
+                    fail("the inlets ran out of particles");
+                }
+                fluid->getPosition(index) = feed.layer[k] + on;
+                fluid->getVelocity(index) = speed;
+                fluid->setParticleState(index, ParticleState::AnimatedByEmitter);
+            }
+            if (fresh != 0) {
+                fluid->setNumActiveParticles(had + fresh);
+                sim->emittedParticles(fluid, had);
+                sim->getNeighborhoodSearch()->resizeSet(fluid->getPointSetIndex(),
+                                                        &fluid->getPosition(0)[0],
+                                                        fluid->numActiveParticles());
+            }
+            feed.sent++;
+            feed.next += (double)d / feed.inlet.speed;
+        }
     }
 }
 
@@ -667,20 +851,30 @@ void writeSample(Run& run, double time, Real stepUsed)
     std::vector<double> sum(n, 0.0);
     std::vector<double> weight(n, 0.0);
     // the wall's particles a monitor's push is taken on
-    std::vector<std::vector<unsigned int>> stands(n);
+    // of the walls held still, the ones a force is asked of with them
+    struct Stand
+    {
+        BoundaryModel_Akinci2012* wall;
+        unsigned int j;
+    };
+    std::vector<std::vector<Stand>> stands(n);
+    std::vector<BoundaryModel_Akinci2012*> still = run.forced;
     if (run.wall) {
+        still.push_back(run.wall);
+    }
+    for (BoundaryModel_Akinci2012* wall : still) {
         for (std::size_t m = 0; m < n; m++) {
             const Monitor& monitor = run.made.monitors[m];
-            if (!monitor.pressure || monitor.normal.squaredNorm() == 0) {
+            if (monitor.force >= 0 || !monitor.pressure || monitor.normal.squaredNorm() == 0) {
                 continue;
             }
-            for (unsigned int j = 0; j < run.wall->numberOfParticles(); j++) {
-                const Vector3r off = run.wall->getPosition(j) - monitor.point;
+            for (unsigned int j = 0; j < wall->numberOfParticles(); j++) {
+                const Vector3r off = wall->getPosition(j) - monitor.point;
                 const Real along = off.dot(monitor.normal);
                 // behind the face, on its own sheet or its crease's row
                 if (along < 0 && along > -2 * r
                     && (off - along * monitor.normal).squaredNorm() <= patch * patch) {
-                    stands[m].push_back(j);
+                    stands[m].push_back({wall, j});
                 }
             }
         }
@@ -702,6 +896,9 @@ void writeSample(Run& run, double time, Real stepUsed)
         const double kept = field ? *static_cast<Real*>(field->getFct(i)) * perStep : 0.0;
         for (std::size_t m = 0; m < n; m++) {
             const Monitor& monitor = run.made.monitors[m];
+            if (monitor.force >= 0) {
+                continue;
+            }
             const Vector3r off = x - monitor.point;
             if (!monitor.pressure) {
                 const Real along = off.dot(run.up);
@@ -715,11 +912,12 @@ void writeSample(Run& run, double time, Real stepUsed)
                 if (off.squaredNorm() > reach * reach) {
                     continue;
                 }
-                for (unsigned int j : stands[m]) {
-                    const Vector3r between = x - run.wall->getPosition(j);
+                for (const Stand& stand : stands[m]) {
+                    const Vector3r between = x - stand.wall->getPosition(stand.j);
                     if (between.squaredNorm() < run.support * run.support) {
                         // on the wall's particle, towards it from the fluid's
-                        const Vector3r push = (Real)(fluid->getMass(i) * kept) * run.wall->getVolume(j)
+                        const Vector3r push = (Real)(fluid->getMass(i) * kept)
+                            * stand.wall->getVolume(stand.j)
                             * sim->gradW(between);
                         sum[m] -= push.dot(monitor.normal);
                     }
@@ -739,7 +937,11 @@ void writeSample(Run& run, double time, Real stepUsed)
     const double each = (1.5 * r) * (1.5 * r);  // the area one wall particle stands for
     for (std::size_t m = 0; m < n; m++) {
         double value = 0.0;
-        if (!run.made.monitors[m].pressure) {
+        if (run.made.monitors[m].force >= 0) {
+            value = (double)run.pushed[(std::size_t)run.made.monitors[m].force].dot(
+                run.made.monitors[m].normal);
+        }
+        else if (!run.made.monitors[m].pressure) {
             value = run.up.squaredNorm() > 0
                 ? sum[m] * (double)d * d * d * 3.0 / (3.14159265358979323846 * column * column)
                 : std::numeric_limits<double>::quiet_NaN();
@@ -791,7 +993,33 @@ int main(int argc, char** argv)
     std::vector<unsigned int> ids(x.size(), 0);
     // before the fluid is made: it lists the methods there are then
     sim->addSurfaceTensionMethod(Cohesion::Name, Cohesion::creator);
-    sim->addFluidModel("Fluid", (unsigned int)x.size(), x.data(), v.data(), ids.data(), 0);
+    // The inlets' particles are kept from the start: a layer each time the
+    // fluid has gone a particle's width, all the while an inlet runs.
+    unsigned long kept = 0;
+    for (const Inlet& inlet : made.inlets) {
+        Feed feed;
+        feed.inlet = inlet;
+        feed.inlet.end = std::min(inlet.end, made.end);
+        feed.next = inlet.start;
+        feed.up = inlet.n.cross(inlet.across);
+        feed.layer = readPoints(run.folder + "/inlet." + std::to_string(run.feeds.size()) + ".points",
+                                inlet.count);
+        for (const Vector3r& p : feed.layer) {
+            const Vector3r off = p - inlet.origin;
+            const long i = std::lround(off.dot(inlet.across) / (2 * made.radius));
+            const long j = std::lround(off.dot(feed.up) / (2 * made.radius));
+            for (long di = -1; di <= 1; di++) {
+                for (long dj = -1; dj <= 1; dj++) {
+                    feed.cells.insert(Feed::key(i + di, j + dj));
+                }
+            }
+        }
+        const double lasts = std::max(0.0, feed.inlet.end - inlet.start);
+        kept += inlet.count * ((unsigned long)(lasts * inlet.speed / (2 * made.radius)) + 2);
+        run.feeds.push_back(feed);
+    }
+    sim->addFluidModel("Fluid", (unsigned int)x.size(), x.data(), v.data(), ids.data(),
+                       (unsigned int)kept);
     FluidModel* fluid = sim->getFluidModel(0);
     run.fluid = fluid;
     fluid->setDensity0((Real)made.density);
@@ -858,6 +1086,22 @@ int main(int argc, char** argv)
         run.skins.push_back(model);
     }
 
+    // The walls a force is asked of: the solver adds up the fluid's push
+    // on a body's particles and not on a fixed wall's, so each is a body
+    // to it, one that is never moved.
+    for (std::size_t k = 0; k < made.forced.size(); k++) {
+        std::vector<Vector3r> skin
+            = readPoints(run.folder + "/forced." + std::to_string(k) + ".points", made.forced[k]);
+        Moved* body = new Moved();
+        body->mass = 1;
+        BoundaryModel_Akinci2012* model = new BoundaryModel_Akinci2012();
+        model->initModel(body, (unsigned int)skin.size(), skin.data());
+        place(*body, *model);
+        sim->addBoundaryModel(model);
+        run.forced.push_back(model);
+        run.pushed.push_back(Vector3r::Zero());
+    }
+
     // the fluid's points are registered with the neighbour search here,
     // then the walls': in that order, once each
     sim->setSimulationInitialized(true);
@@ -865,6 +1109,9 @@ int main(int argc, char** argv)
         bm->deferredInit();
     }
     for (BoundaryModel_Akinci2012* skin : run.skins) {
+        skin->deferredInit();
+    }
+    for (BoundaryModel_Akinci2012* skin : run.forced) {
         skin->deferredInit();
     }
     sim->performNeighborhoodSearchSort();
@@ -877,6 +1124,12 @@ int main(int argc, char** argv)
     for (std::size_t k = 0; k < run.moved.size(); k++) {
         place(*run.moved[k], *run.skins[k]);
     }
+    for (BoundaryModel_Akinci2012* skin : run.forced) {
+        for (unsigned int j = 0; j < skin->numberOfParticles(); j++) {
+            skin->getPosition(j) = skin->getPosition0(j);
+            skin->getVelocity(j).setZero();
+        }
+    }
     // two sheets are each this far behind their faces (the workbench's
     // SplishCase sizesOf); a particle's width between the faces where the
     // moved wall is held off, and another before it where it is slowed
@@ -887,7 +1140,14 @@ int main(int argc, char** argv)
             run.held.add(bm->getPosition(j));
         }
     }
-    if (bm || !run.skins.empty()) {
+    if (!run.moved.empty()) {
+        for (BoundaryModel_Akinci2012* skin : run.forced) {
+            for (unsigned int j = 0; j < skin->numberOfParticles(); j++) {
+                run.held.add(skin->getPosition(j));
+            }
+        }
+    }
+    if (bm || !run.skins.empty() || !run.forced.empty()) {
         sim->updateBoundaryVolume();
     }
 
@@ -953,7 +1213,13 @@ int main(int argc, char** argv)
             }
             place(body, *run.skins[k]);
         }
+        for (std::size_t k = 0; k < run.forced.size(); k++) {
+            Vector3r torque;
+            run.forced[k]->getForceAndTorque(run.pushed[k], torque);
+            run.forced[k]->clearForceAndTorque();
+        }
         parkTheGone(run);
+        feedInlets(run, time, step);
         writeSample(run, time, step);
         const double next = std::min(index * made.interval, made.end);
         if (time >= next - 1e-9) {

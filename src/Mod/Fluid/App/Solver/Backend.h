@@ -39,6 +39,7 @@ struct Capabilities
     ResultKind results = ResultKind::Particles;
     bool freeSurface = false;
     bool inlets = false;
+    bool forces = false;       // the fluid's force on a wall, as a monitor
     bool movingWalls = false;  // walls moved as given
     bool freeBodies = false;   // walls moved by the fluid
     bool heat = false;

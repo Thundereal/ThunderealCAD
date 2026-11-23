@@ -24,6 +24,8 @@ SET(FluidIcons_SRCS
     Resources/icons/Fluid_CreateStudy.svg
     Resources/icons/Fluid_AddFluid.svg
     Resources/icons/Fluid_AddBody.svg
+    Resources/icons/Fluid_AddInlet.svg
+    Resources/icons/Fluid_AddForceMonitor.svg
     Resources/icons/Fluid_AddMonitor.svg
     Resources/icons/Fluid_AddPressureMonitor.svg
     Resources/icons/Fluid_RunStudy.svg
@@ -36,6 +38,7 @@ SET(FluidTests_SRCS
     FluidTests/DamBreak.py
     FluidTests/StillWater.py
     FluidTests/Floating.py
+    FluidTests/Jet.py
     FluidTests/TestOpenFoam.py
     FluidTests/TestSplish.py
     FluidTests/TestDownload.py

@@ -78,6 +78,19 @@ struct FluidVolume
     Material material;
 };
 
+// A flat face the fluid comes in through, at one speed all over it.
+struct Inlet
+{
+    std::string source;
+    Surface surface;  // the face, open: its triangles
+    Vec3 direction {0.0, 0.0, 1.0};  // the way the fluid goes, a unit vector
+                                     // square to the face
+    double speed = 0.0;  // m/s
+    Material material;
+    double start = 0.0;  // s
+    double end = 0.0;    // s; not after start: to the run's end
+};
+
 // The box nothing leaves. A side that is open lets the fluid out, and it is
 // gone; the order is -x, +x, -y, +y, -z, +z.
 struct Space
@@ -92,6 +105,7 @@ enum class MonitorKind
     Height,    // of the fluid's surface on the line through point along
                // -gravity, measured from point, m
     Pressure,  // at point, Pa, over the surroundings'
+    Force,     // the fluid's on a wall, along direction, N
 };
 
 struct Monitor
@@ -99,6 +113,10 @@ struct Monitor
     std::string source;
     MonitorKind kind = MonitorKind::Height;
     Vec3 point {0.0, 0.0, 0.0};
+    // Force: the wall, as its place in the model's walls, and the unit
+    // vector the force is taken along
+    int wall = -1;
+    Vec3 direction {0.0, 0.0, 0.0};
 };
 
 struct Model
@@ -106,6 +124,7 @@ struct Model
     int version = 1;
     std::vector<Wall> walls;
     std::vector<FluidVolume> fluids;
+    std::vector<Inlet> inlets;
     Space space;
     Vec3 gravity {0.0, 0.0, -9.80665};  // m/s^2
     double timeEnd = 1.0;               // s
@@ -130,6 +149,16 @@ FluidExport std::vector<Vec3> sampled(const Surface& surface, double spacing);
 
 // The walls the fluid moves, as their places in the model's walls.
 FluidExport std::vector<std::size_t> freeWalls(const Model& model);
+
+// What all the fluid of the model is made of: the first volume's, or with
+// none the first inlet's. false when the model has neither.
+FluidExport bool liquidOf(const Model& model, Material& liquid);
+
+// An inlet's face: its area (m^2), its middle, and how far its triangles
+// are from one plane square to the inlet's direction -- the sine of the
+// widest angle between a triangle and that plane. false for a face of no
+// area.
+FluidExport bool faceOf(const Inlet& inlet, double& area, Vec3& middle, double& slant);
 
 // The box of a surface's points: false when it has none.
 FluidExport bool boxOf(const Surface& surface, Vec3& min, Vec3& max);

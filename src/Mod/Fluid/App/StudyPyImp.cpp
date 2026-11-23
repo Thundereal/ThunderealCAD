@@ -101,6 +101,28 @@ PyObject* StudyPy::buildModel(PyObject* args) const
             bodies.append(body);
         }
         ret.setItem("Bodies", bodies);
+        Py::List inlets;
+        for (const auto& fed : model.inlets) {
+            Py::Dict inlet;
+            double area = 0.0;
+            double slant = 0.0;
+            Solver::Vec3 middle {};
+            Solver::faceOf(fed, area, middle, slant);
+            inlet.setItem("Source", Py::String(fed.source));
+            inlet.setItem("Direction", tupleOf(fed.direction));
+            inlet.setItem("Speed", Py::Float(fed.speed));
+            inlet.setItem("Area", Py::Float(area));
+            inlet.setItem("Middle", tupleOf(middle));
+            inlet.setItem("Start", Py::Float(fed.start));
+            inlet.setItem("End", Py::Float(fed.end));
+            inlets.append(inlet);
+        }
+        ret.setItem("Inlets", inlets);
+        Py::Tuple open(6);
+        for (std::size_t side = 0; side < 6; ++side) {
+            open.setItem(side, Py::Boolean(model.space.open[side]));
+        }
+        ret.setItem("Open", open);
         return Py::new_reference_to(ret);
     }
     PY_CATCH
@@ -208,9 +230,12 @@ PyObject* StudyPy::getResults(PyObject* args) const
             monitor.setItem("Object", obj ? Py::asObject(obj->getPyObject()) : Py::None());
             monitor.setItem("Source", Py::String(index.monitors[m].source));
             monitor.setItem("Kind",
-                            Py::String(index.monitors[m].kind == Solver::MonitorKind::Pressure
-                                           ? "Pressure"
-                                           : "Height"));
+                            Py::String(index.monitors[m].kind == Solver::MonitorKind::Force
+                                           ? "Force"
+                                           : index.monitors[m].kind
+                                                   == Solver::MonitorKind::Pressure
+                                               ? "Pressure"
+                                               : "Height"));
             monitor.setItem("Unit", Py::String(unitOf(index.monitors[m].kind)));
             Py::List values;
             for (std::size_t f = 0; f < samples; ++f) {

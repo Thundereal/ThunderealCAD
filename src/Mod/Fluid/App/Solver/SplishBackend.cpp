@@ -290,6 +290,8 @@ Capabilities SplishBackend::capabilities() const
     can.results = ResultKind::Particles;
     can.freeSurface = true;
     can.freeBodies = true;
+    can.inlets = true;
+    can.forces = true;
     can.inProcess = false;
     return can;
 }

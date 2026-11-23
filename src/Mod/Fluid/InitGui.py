@@ -23,8 +23,10 @@ class FluidWorkbench(Workbench):
             "Fluid_CreateStudy",
             "Fluid_AddFluid",
             "Fluid_AddBody",
+            "Fluid_AddInlet",
             "Fluid_AddMonitor",
             "Fluid_AddPressureMonitor",
+            "Fluid_AddForceMonitor",
             "Fluid_RunStudy",
         ]
         self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Fluid"), commands)

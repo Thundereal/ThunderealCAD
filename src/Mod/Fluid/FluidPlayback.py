@@ -413,6 +413,17 @@ def addBody(study, part, density):
     return body
 
 
+def addInlet(study, part, face, speed):
+    """The face (by its name, 'Face2') of the part as one the fluid comes
+    in through, at that speed (mm/s), out of the part's solid."""
+    inlet = study.Document.addObject("Fluid::Inlet", "Inlet")
+    inlet.Label = translate("Fluid", "Inlet at {} of {}").format(face, part.Label)
+    inlet.Face = (part, [face])
+    inlet.Velocity = App.Units.Quantity(speed, "mm/s")
+    study.Group = study.Group + [inlet]
+    return inlet
+
+
 def addMonitor(study, kind, point):
     """A monitor of that kind ('Height', 'Pressure') at a point."""
     monitor = study.Document.addObject("Fluid::Monitor", kind)
@@ -420,3 +431,31 @@ def addMonitor(study, kind, point):
     monitor.Point = point
     study.Group = study.Group + [monitor]
     return monitor
+
+
+def addForceMonitor(study, part, direction):
+    """A monitor of the fluid's force on a wall of the study, along a
+    direction."""
+    monitor = study.Document.addObject("Fluid::Monitor", "Force")
+    monitor.Label = translate("Fluid", "Force on {}").format(part.Label)
+    monitor.Kind = "Force"
+    monitor.Part = part
+    monitor.Direction = direction
+    study.Group = study.Group + [monitor]
+    return monitor
+
+
+def forceDirection(study):
+    """The way a new force monitor looks: the way the study's first inlet
+    sends its fluid, or with none against gravity, or with neither +Z."""
+    try:
+        inlets = study.buildModel()["Inlets"]
+    except Exception:
+        inlets = []
+    if inlets:
+        return App.Vector(*inlets[0]["Direction"])
+    up = -study.Gravity
+    if up.Length > 0:
+        up.normalize()
+        return up
+    return App.Vector(0, 0, 1)

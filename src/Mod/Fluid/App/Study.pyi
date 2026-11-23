@@ -26,6 +26,10 @@ class Study(DocumentObject):
         Bodies: the parts the fluid moves, counted among the Walls, each
         Source, Mass (kg), Centre (m) and Inertia (about the centre, kg m^2:
         xx, yy, zz, xy, xz, yz).
+        Inlets: the faces the fluid comes in through, each Source, Direction
+        (the way the fluid goes), Speed (m/s), Area (m^2), Middle (m), Start
+        and End (s; an End not after the Start is the run's).
+        Open: which sides of the space are open, -x, +x, -y, +y, -z, +z.
         """
         ...
 

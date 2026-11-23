@@ -562,6 +562,12 @@ Splish::Sizes Splish::sizesOf(double resolution)
 
 std::vector<Vec3> Splish::boundaryOf(const Model& model)
 {
+    std::vector<int> owners;
+    return boundaryOf(model, owners);
+}
+
+std::vector<Vec3> Splish::boundaryOf(const Model& model, std::vector<int>& owners)
+{
     const Sizes sizes = sizesOf(model.resolution);
     const std::vector<Part> parts = partsOf(model, true);
     const double slack = 1e-9 * sizes.radius;
@@ -585,28 +591,144 @@ std::vector<Vec3> Splish::boundaryOf(const Model& model)
 
     std::vector<Vec3> creases;
     std::vector<Vec3> faces;
-    for (const auto& wall : model.walls) {
+    std::vector<int> creasesOf;
+    std::vector<int> facesOf;
+    const auto owned = [&](int owner) {
+        creasesOf.resize(creases.size(), owner);
+        facesOf.resize(faces.size(), owner);
+    };
+    for (std::size_t k = 0; k < model.walls.size(); ++k) {
+        const Wall& wall = model.walls[k];
         if (wall.motion == WallMotion::Fixed) {
             sheetOf(wall.surface.points, wall.surface.triangles, sizes, fluidAt, creases, faces);
+            owned(static_cast<int>(k));
         }
     }
     std::vector<Vec3> points;
     std::vector<std::array<int, 3>> triangles;
     sidesOf(model.space, points, triangles);
     sheetOf(points, triangles, sizes, fluidAt, creases, faces);
+    owned(-1);
 
     // Creases first: where a face's grid comes near one, the crease's row
     // is what stays.
     Apart apart(0.4 * sizes.wallSpacing);
     std::vector<Vec3> kept;
+    owners.clear();
     for (const auto* samples : {&creases, &faces}) {
-        for (const Vec3& p : *samples) {
-            if (apart.take(p)) {
-                kept.push_back(p);
+        const std::vector<int>& whose = samples == &creases ? creasesOf : facesOf;
+        for (std::size_t i = 0; i < samples->size(); ++i) {
+            if (apart.take((*samples)[i])) {
+                kept.push_back((*samples)[i]);
+                owners.push_back(whose[i]);
             }
         }
     }
     return kept;
+}
+
+std::vector<Vec3>
+Splish::inletOf(const Model& model, std::size_t inlet, Vec3& across, std::string& why)
+{
+    const Inlet& given = model.inlets[inlet];
+    const double d = model.resolution;
+    double area = 0.0;
+    double slant = 0.0;
+    Vec3 middle {};
+    Vec3 n = given.direction;
+    if (!unit(n) || !faceOf(given, area, middle, slant)) {
+        why = given.source + " has no face, or no direction";
+        return {};
+    }
+    // less than half a particle's face: one particle would be several
+    // times the fluid that comes through it
+    if (area < 0.5 * d * d) {
+        why = given.source + " is too small for this resolution";
+        return {};
+    }
+    if (slant > 1e-3) {
+        why = "the face of " + given.source + " is not flat, or the fluid does not come "
+            "through it squarely";
+        return {};
+    }
+    // Along the longest edge of the face's outline: an edge of one
+    // triangle alone
+    const auto& points = given.surface.points;
+    std::map<std::pair<int, int>, int> uses;
+    for (const auto& t : given.surface.triangles) {
+        for (int k = 0; k < 3; ++k) {
+            const int a = t[static_cast<std::size_t>(k)];
+            const int b = t[static_cast<std::size_t>((k + 1) % 3)];
+            ++uses[{std::min(a, b), std::max(a, b)}];
+        }
+    }
+    across = {0.0, 0.0, 0.0};
+    double longest = 0.0;
+    for (const auto& [edge, count] : uses) {
+        if (count != 1) {
+            continue;
+        }
+        Vec3 along = points[static_cast<std::size_t>(edge.second)]
+            - points[static_cast<std::size_t>(edge.first)];
+        along = along - n * dot(along, n);
+        const double size = length(along);
+        if (size > longest * (1.0 + 1e-9)) {
+            longest = size;
+            across = along;
+        }
+    }
+    if (!unit(across)) {
+        why = given.source + " has no face";
+        return {};
+    }
+    const Vec3 up = cross(n, across);
+    // the face in its plane's two axes, about its middle
+    std::vector<std::array<double, 2>> flat;
+    std::array<double, 2> low {std::numeric_limits<double>::max(),
+                               std::numeric_limits<double>::max()};
+    std::array<double, 2> high {-low[0], -low[1]};
+    for (const Vec3& p : points) {
+        const Vec3 off = p - middle;
+        flat.push_back({dot(off, across), dot(off, up)});
+        for (std::size_t k = 0; k < 2; ++k) {
+            low[k] = std::min(low[k], flat.back()[k]);
+            high[k] = std::max(high[k], flat.back()[k]);
+        }
+    }
+    const auto within = [&](double a, double b) {
+        for (const auto& t : given.surface.triangles) {
+            const auto& p = flat[static_cast<std::size_t>(t[0])];
+            const auto& q = flat[static_cast<std::size_t>(t[1])];
+            const auto& r = flat[static_cast<std::size_t>(t[2])];
+            const double e0 = (q[0] - p[0]) * (b - p[1]) - (q[1] - p[1]) * (a - p[0]);
+            const double e1 = (r[0] - q[0]) * (b - q[1]) - (r[1] - q[1]) * (a - q[0]);
+            const double e2 = (p[0] - r[0]) * (b - r[1]) - (p[1] - r[1]) * (a - r[0]);
+            if ((e0 >= 0.0 && e1 >= 0.0 && e2 >= 0.0) || (e0 <= 0.0 && e1 <= 0.0 && e2 <= 0.0)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::array<long, 2> cells {};
+    std::array<double, 2> first {};
+    for (std::size_t k = 0; k < 2; ++k) {
+        cells[k] = std::max(1L, std::lround((high[k] - low[k]) / d));
+        first[k] = 0.5 * (low[k] + high[k]) - 0.5 * static_cast<double>(cells[k]) * d + 0.5 * d;
+    }
+    std::vector<Vec3> layer;
+    for (long i = 0; i < cells[0]; ++i) {
+        for (long j = 0; j < cells[1]; ++j) {
+            const double a = first[0] + static_cast<double>(i) * d;
+            const double b = first[1] + static_cast<double>(j) * d;
+            if (within(a, b)) {
+                layer.push_back(middle + across * a + up * b);
+            }
+        }
+    }
+    if (layer.empty()) {
+        why = given.source + " is too small for this resolution";
+    }
+    return layer;
 }
 
 std::vector<Vec3> Splish::bodyOf(const Model& model, std::size_t wall)
@@ -716,16 +838,28 @@ bool Splish::makeCase(const Model& model, const CaseOptions& options, Case& made
         why = "the resolution must be more than 0";
         return false;
     }
-    if (model.fluids.empty()) {
+    Material liquid;
+    if (!liquidOf(model, liquid)) {
         why = "the model has no fluid";
         return false;
     }
-    const Material& liquid = model.fluids.front().material;
+    const std::string first = model.fluids.empty() ? model.inlets.front().source
+                                                   : model.fluids.front().source;
+    const auto sameLiquid = [&](const Material& material, const std::string& source) {
+        if (material.density != liquid.density || material.viscosity != liquid.viscosity) {
+            why = "this backend runs one liquid: " + source + " is not of " + first
+                + "'s material";
+            return false;
+        }
+        return true;
+    };
     for (const auto& fluid : model.fluids) {
-        if (fluid.material.density != liquid.density
-            || fluid.material.viscosity != liquid.viscosity) {
-            why = "this backend runs one liquid: " + fluid.source + " is not of "
-                + model.fluids.front().source + "'s material";
+        if (!sameLiquid(fluid.material, fluid.source)) {
+            return false;
+        }
+    }
+    for (const auto& inlet : model.inlets) {
+        if (!sameLiquid(inlet.material, inlet.source)) {
             return false;
         }
     }
@@ -740,11 +874,64 @@ bool Splish::makeCase(const Model& model, const CaseOptions& options, Case& made
         }
     }
     const std::vector<Vec3> particles = particlesOf(model);
-    if (particles.empty()) {
+    if (particles.empty() && model.inlets.empty()) {
         why = "there is no fluid left outside the parts at this resolution";
         return false;
     }
-    const std::vector<Vec3> boundary = boundaryOf(model);
+    std::vector<std::vector<Vec3>> layers;
+    std::vector<Vec3> acrosses;
+    for (std::size_t k = 0; k < model.inlets.size(); ++k) {
+        if (!(model.inlets[k].speed > 0.0)) {
+            why = model.inlets[k].source + " has no speed";
+            return false;
+        }
+        acrosses.emplace_back();
+        layers.push_back(inletOf(model, k, acrosses.back(), why));
+        if (layers.back().empty()) {
+            return false;
+        }
+    }
+    // The walls a force is asked of, each once
+    for (const auto& monitor : model.monitors) {
+        if (monitor.kind != MonitorKind::Force) {
+            continue;
+        }
+        if (monitor.wall < 0 || static_cast<std::size_t>(monitor.wall) >= model.walls.size()
+            || model.walls[static_cast<std::size_t>(monitor.wall)].motion != WallMotion::Fixed) {
+            why = monitor.source + " asks the force on a part that is not a wall held still";
+            return false;
+        }
+        Vec3 along = monitor.direction;
+        if (!unit(along)) {
+            why = monitor.source + " has no direction to take the force along";
+            return false;
+        }
+        if (std::find(made.forcedWalls.begin(), made.forcedWalls.end(), monitor.wall)
+            == made.forcedWalls.end()) {
+            made.forcedWalls.push_back(monitor.wall);
+        }
+    }
+    std::vector<int> owners;
+    const std::vector<Vec3> everyWall = boundaryOf(model, owners);
+    std::vector<Vec3> boundary;
+    std::vector<std::vector<Vec3>> forced(made.forcedWalls.size());
+    for (std::size_t i = 0; i < everyWall.size(); ++i) {
+        const auto found = std::find(made.forcedWalls.begin(), made.forcedWalls.end(), owners[i]);
+        if (found == made.forcedWalls.end()) {
+            boundary.push_back(everyWall[i]);
+        }
+        else {
+            forced[static_cast<std::size_t>(found - made.forcedWalls.begin())].push_back(
+                everyWall[i]);
+        }
+    }
+    for (std::size_t k = 0; k < forced.size(); ++k) {
+        if (forced[k].empty()) {
+            why = model.walls[static_cast<std::size_t>(made.forcedWalls[k])].source
+                + " has no face the fluid can reach: there is no force on it to report";
+            return false;
+        }
+    }
     const Sizes sizes = sizesOf(model.resolution);
     std::vector<std::vector<Vec3>> bodies;
     for (std::size_t wall : freeWalls(model)) {
@@ -791,7 +978,37 @@ bool Splish::makeCase(const Model& model, const CaseOptions& options, Case& made
         made.files["body." + std::to_string(k) + ".points"] = bytesOf(bodies[k]);
         made.bodies.push_back(bodies[k].size());
     }
+    // The walls a force is asked of: how many particles each has.
+    for (std::size_t k = 0; k < forced.size(); ++k) {
+        text << "forced " << forced[k].size() << "\n";
+        made.files["forced." + std::to_string(k) + ".points"] = bytesOf(forced[k]);
+        made.forced.push_back(forced[k].size());
+    }
+    // The inlets: a layer's particles, a point of the face, the way the
+    // fluid goes, the layer's first axis, the speed, from when and until
+    // when.
+    for (std::size_t k = 0; k < layers.size(); ++k) {
+        const Inlet& inlet = model.inlets[k];
+        Vec3 n = inlet.direction;
+        unit(n);
+        const double end = inlet.end > inlet.start ? inlet.end : model.timeEnd;
+        text << "inlet " << layers[k].size() << " " << vec(layers[k].front()) << " " << vec(n)
+             << " " << vec(acrosses[k]) << " " << num(inlet.speed) << " " << num(inlet.start)
+             << " " << num(end) << "\n";
+        made.files["inlet." + std::to_string(k) + ".points"] = bytesOf(layers[k]);
+        made.inlets.push_back(layers[k].size());
+    }
     for (const auto& monitor : model.monitors) {
+        if (monitor.kind == MonitorKind::Force) {
+            // which of the walls above, and the way the force is taken
+            Vec3 along = monitor.direction;
+            unit(along);
+            const auto found
+                = std::find(made.forcedWalls.begin(), made.forcedWalls.end(), monitor.wall);
+            text << "monitor force " << (found - made.forcedWalls.begin()) << " " << vec(along)
+                 << "\n";
+            continue;
+        }
         text << "monitor " << (monitor.kind == MonitorKind::Pressure ? "pressure " : "height ")
              << vec(monitor.point);
         // A pressure on a wall is the fluid's push on the wall there, and

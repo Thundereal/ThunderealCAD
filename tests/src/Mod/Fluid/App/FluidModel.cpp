@@ -33,6 +33,37 @@ Surface boxSurface(const Vec3& min, const Vec3& max)
     return s;
 }
 
+// A flat rectangle in the plane x = at, y from y0 to y1 and z from z0 to z1,
+// its two triangles facing +x.
+Surface faceSurface(double at, double y0, double y1, double z0, double z1)
+{
+    Surface s;
+    s.points = {{at, y0, z0}, {at, y1, z0}, {at, y1, z1}, {at, y0, z1}};
+    s.triangles = {{0, 1, 2}, {0, 2, 3}};
+    return s;
+}
+
+// A jet in the open, no gravity: a face 0.04 x 0.04 at x = 0 sending water
+// along +x at 2 m/s, in a space 0.2 long open all round.
+Model jetModel()
+{
+    Model model;
+    Inlet inlet;
+    inlet.source = "Doc#Inlet";
+    inlet.surface = faceSurface(0.0, -0.02, 0.02, -0.02, 0.02);
+    inlet.direction = {1.0, 0.0, 0.0};
+    inlet.speed = 2.0;
+    model.inlets.push_back(inlet);
+    model.space.min = {0.0, -0.1, -0.1};
+    model.space.max = {0.2, 0.1, 0.1};
+    model.space.open = {true, true, true, true, true, true};
+    model.gravity = {0.0, 0.0, 0.0};
+    model.resolution = 0.01;
+    model.timeEnd = 0.1;
+    model.outputInterval = 0.01;
+    return model;
+}
+
 // A block of water 0.1 x 0.1 x 0.2 standing 0.3 above the floor of a space
 // 0.4 x 0.2 x 0.5.
 Model blockModel()
@@ -217,6 +248,66 @@ TEST(FluidModel, wallsTheFluidMoves)
     EXPECT_EQ(free, signature(other));
 }
 
+TEST(FluidModel, inletsAndForces)
+{
+    Model model = jetModel();
+    double area = 0.0;
+    double slant = 1.0;
+    Vec3 middle {};
+    ASSERT_TRUE(faceOf(model.inlets[0], area, middle, slant));
+    EXPECT_NEAR(area, 0.0016, 1e-15);
+    EXPECT_NEAR(middle[0], 0.0, 1e-15);
+    EXPECT_NEAR(middle[1], 0.0, 1e-15);
+    EXPECT_NEAR(slant, 0.0, 1e-12);
+    // not square to the face: the sine of the angle between
+    Inlet askew = model.inlets[0];
+    askew.direction = {std::sqrt(0.5), std::sqrt(0.5), 0.0};
+    ASSERT_TRUE(faceOf(askew, area, middle, slant));
+    EXPECT_NEAR(slant, std::sqrt(0.5), 1e-12);
+    Inlet none = model.inlets[0];
+    none.surface.triangles.clear();
+    EXPECT_FALSE(faceOf(none, area, middle, slant));
+
+    // the liquid is the first volume's, or with none the first inlet's
+    Material liquid;
+    model.inlets[0].material = {800.0, 0.05};
+    ASSERT_TRUE(liquidOf(model, liquid));
+    EXPECT_EQ(liquid.density, 800.0);
+    Model both = model;
+    both.fluids.push_back({"Doc#Water", boxSurface({0.0, 0.0, 0.0}, {0.1, 0.1, 0.1}), {}});
+    ASSERT_TRUE(liquidOf(both, liquid));
+    EXPECT_EQ(liquid.density, 1000.0);
+    EXPECT_FALSE(liquidOf(Model(), liquid));
+
+    // everything of an inlet and of a force monitor is in the signature
+    const std::uint64_t base = signature(model);
+    Model changed = model;
+    changed.inlets[0].speed = 3.0;
+    EXPECT_NE(signature(changed), base);
+    changed = model;
+    changed.inlets[0].direction = {-1.0, 0.0, 0.0};
+    EXPECT_NE(signature(changed), base);
+    changed = model;
+    changed.inlets[0].end = 0.05;
+    EXPECT_NE(signature(changed), base);
+    changed = model;
+    changed.inlets[0].surface.points[2][1] = 0.03;
+    EXPECT_NE(signature(changed), base);
+    changed = model;
+    changed.inlets.clear();
+    EXPECT_NE(signature(changed), base);
+    model.walls.push_back({"Doc#Plate", boxSurface({0.1, -0.1, -0.1}, {0.11, 0.1, 0.1}), {}, {}});
+    model.walls.push_back({"Doc#Other", boxSurface({0.15, -0.1, -0.1}, {0.16, 0.1, 0.1}), {}, {}});
+    model.monitors.push_back({"Doc#Force", MonitorKind::Force, {}, 0, {1.0, 0.0, 0.0}});
+    const std::uint64_t forced = signature(model);
+    changed = model;
+    changed.monitors[0].wall = 1;
+    EXPECT_NE(signature(changed), forced);
+    changed = model;
+    changed.monitors[0].direction = {0.0, 1.0, 0.0};
+    EXPECT_NE(signature(changed), forced);
+}
+
 TEST(FluidRegistry, addFindRemoveSelect)
 {
     auto& registry = Registry::instance();
@@ -315,6 +406,57 @@ TEST(FluidFreeFall, openSideLetsTheFluidOut)
     EXPECT_EQ(kept.frames.front().points.size(), 250U);
     EXPECT_TRUE(kept.frames.back().points.empty());
     EXPECT_EQ(kept.samples.back()[0], 0.0);
+}
+
+TEST(FluidFreeFall, anInletSendsLayers)
+{
+    const FreeFallBackend backend;
+    EXPECT_TRUE(backend.capabilities().inlets);
+    EXPECT_TRUE(backend.capabilities().forces);
+    Model model = jetModel();
+    model.monitors.push_back({"Doc#Along", MonitorKind::Force, {}, -1, {1.0, 0.0, 0.0}});
+    model.monitors.push_back({"Doc#Across", MonitorKind::Force, {}, -1, {0.0, 1.0, 0.0}});
+    auto session = backend.createSession();
+    std::string why;
+    ASSERT_EQ(session->prepare(model, why), Status::Ok) << why;
+    Kept kept;
+    ASSERT_EQ(session->run(kept, why), Status::Ok) << why;
+    ASSERT_EQ(kept.frames.size(), 11U);
+    // A layer of 4 x 4 at the start and each 5 ms after, a spacing at 2
+    // m/s; the first is out of the space's far side, 0.2 on, at 0.1 s.
+    for (std::size_t k = 0; k < kept.frames.size(); ++k) {
+        const std::size_t layers = 2 * k + 1;
+        const std::size_t gone = k == 10 ? 1 : 0;
+        EXPECT_EQ(kept.frames[k].points.size(), 16U * (layers - gone)) << k;
+        double front = 0.0;
+        for (const Vec3& p : kept.frames[k].points) {
+            front = std::max(front, p[0]);
+            EXPECT_LE(std::fabs(p[1]), 0.015 + 1e-12);
+        }
+        // no further than the fluid has gone, and the last layer still
+        // at the face (held half a spacing inside the space)
+        EXPECT_NEAR(front, std::max(std::min(0.02 * static_cast<double>(k), 0.19), 0.005), 1e-9)
+            << k;
+        // the momentum a second: 1000 x 0.0016 x 2 x 2
+        EXPECT_NEAR(kept.samples[k][0], 6.4, 1e-9);
+        EXPECT_NEAR(kept.samples[k][1], 0.0, 1e-9);
+    }
+    // an inlet that stops: nothing after its end
+    model.inlets[0].start = 0.02;
+    model.inlets[0].end = 0.04;
+    ASSERT_EQ(session->prepare(model, why), Status::Ok) << why;
+    Kept short_;
+    ASSERT_EQ(session->run(short_, why), Status::Ok) << why;
+    EXPECT_TRUE(short_.frames[1].points.empty());
+    EXPECT_EQ(short_.frames[2].points.size(), 16U);
+    EXPECT_EQ(short_.frames[4].points.size(), 5U * 16U);
+    EXPECT_EQ(short_.frames[6].points.size(), 5U * 16U);
+    EXPECT_EQ(short_.samples[1][0], 0.0);
+    EXPECT_NEAR(short_.samples[3][0], 6.4, 1e-9);
+    EXPECT_EQ(short_.samples[6][0], 0.0);
+    // no fluid and no inlet is nothing to simulate
+    model.inlets.clear();
+    EXPECT_EQ(session->prepare(model, why), Status::Empty);
 }
 
 TEST(FluidFreeFall, emptyAndCancelled)

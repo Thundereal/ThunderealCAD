@@ -73,6 +73,8 @@ private:
             entry.setItem("Inlets", Py::Boolean(can.inlets));
             entry.setItem("MovingWalls", Py::Boolean(can.movingWalls));
             entry.setItem("FreeBodies", Py::Boolean(can.freeBodies));
+            entry.setItem("Inlets", Py::Boolean(can.inlets));
+            entry.setItem("Forces", Py::Boolean(can.forces));
             entry.setItem("Heat", Py::Boolean(can.heat));
             entry.setItem("Steady", Py::Boolean(can.steady));
             entry.setItem("Repeatable", Py::Boolean(can.repeatable));

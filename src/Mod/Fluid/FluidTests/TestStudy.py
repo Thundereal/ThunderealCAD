@@ -398,3 +398,175 @@ class TestBodies(FluidCase):
         self.assertEqual(self.study.getResults()["Bodies"], [])
         self.assertEqual(self.study.getBodies(1), [])
         self.assertEqual(self.study.getFrame(1)["Bodies"], [])
+
+
+class TestInlets(unittest.TestCase):
+    """A nozzle 40 x 40 across, its face at x 0 looking along +x, and a
+    plate 200 on; no gravity, the space open all round; the fluid comes in
+    at 2 m/s; a resolution of 10 mm."""
+
+    def setUp(self):
+        self.doc = App.newDocument("FluidInlet")
+        self.nozzle = box(self.doc, "Nozzle", (20, 40, 40), (-20, -20, -20))
+        self.plate = box(self.doc, "Plate", (10, 200, 200), (200, -100, -100))
+        self.study = self.doc.addObject("Fluid::Study", "Study")
+        self.study.Walls = [self.nozzle, self.plate]
+        self.study.Gravity = App.Vector(0, 0, 0)
+        self.study.OpenSides = True
+        self.inlet = self.doc.addObject("Fluid::Inlet", "Inlet")
+        # a box's second face looks along +x
+        self.inlet.Face = (self.nozzle, ["Face2"])
+        self.inlet.Velocity = 2000
+        self.force = self.doc.addObject("Fluid::Monitor", "Force")
+        self.force.Kind = "Force"
+        self.force.Part = self.plate
+        self.force.Direction = App.Vector(2, 0, 0)
+        self.study.Group = [self.inlet, self.force]
+        self.study.Resolution = 10
+        self.study.TimeEnd = 0.1
+        self.study.OutputInterval = 0.01
+        self.study.Backend = "FreeFall"
+        self.doc.recompute()
+
+    def tearDown(self):
+        App.closeDocument(self.doc.Name)
+
+    def test_an_inlet_is_in_the_model(self):
+        model = self.study.buildModel()
+        self.assertEqual(model["Fluids"], 0)
+        (inlet,) = model["Inlets"]
+        self.assertEqual(inlet["Source"], "Inlet")
+        # out of the nozzle's solid, in SI
+        for got, want in zip(inlet["Direction"], (1.0, 0.0, 0.0)):
+            self.assertAlmostEqual(got, want, places=12)
+        self.assertAlmostEqual(inlet["Speed"], 2.0, places=12)
+        self.assertAlmostEqual(inlet["Area"], 0.0016, places=12)
+        for got, want in zip(inlet["Middle"], (0.0, 0.0, 0.0)):
+            self.assertAlmostEqual(got, want, places=12)
+        self.assertEqual((inlet["Start"], inlet["End"]), (0.0, 0.0))
+        # the space is the walls' box, open all round: no gravity, no top
+        self.assertEqual(model["SpaceMin"], (-0.02, -0.1, -0.1))
+        self.assertEqual(model["SpaceMax"], (0.21, 0.1, 0.1))
+        self.assertEqual(model["Open"], (True,) * 6)
+        self.assertEqual(model["Monitors"], 1)
+
+    def test_the_sides_of_the_space(self):
+        self.study.OpenSides = False
+        self.assertEqual(self.study.buildModel()["Open"], (False,) * 6)
+        # with gravity one side is the top, and the others follow OpenSides
+        self.study.Gravity = App.Vector(0, 0, -9806.65)
+        self.assertEqual(self.study.buildModel()["Open"], (False,) * 5 + (True,))
+        self.study.OpenSides = True
+        self.assertEqual(self.study.buildModel()["Open"], (True,) * 6)
+        self.study.OpenTop = False
+        self.assertEqual(self.study.buildModel()["Open"], (True,) * 5 + (False,))
+
+    def test_reversed_and_timed(self):
+        before = self.study.buildModel()["Signature"]
+        self.inlet.Reversed = True
+        self.inlet.StartTime = 0.02
+        self.inlet.EndTime = 0.05
+        model = self.study.buildModel()
+        (inlet,) = model["Inlets"]
+        self.assertAlmostEqual(inlet["Direction"][0], -1.0, places=12)
+        self.assertEqual((inlet["Start"], inlet["End"]), (0.02, 0.05))
+        self.assertNotEqual(model["Signature"], before)
+
+    def test_what_cannot_be_an_inlet_is_named(self):
+        self.inlet.Face = None
+        with self.assertRaises(ValueError) as raised:
+            self.study.buildModel()
+        self.assertIn("no face", str(raised.exception))
+        self.inlet.Face = (self.nozzle, ["Edge1"])
+        with self.assertRaises(ValueError) as raised:
+            self.study.buildModel()
+        self.assertIn("not a face", str(raised.exception))
+        self.inlet.Face = (self.nozzle, ["Face2"])
+        self.inlet.Velocity = 0
+        with self.assertRaises(ValueError) as raised:
+            self.study.buildModel()
+        self.assertIn("no speed", str(raised.exception))
+        self.inlet.Velocity = 2000
+        # a cylinder's side is no flat face
+        pipe = self.doc.addObject("Part::Cylinder", "Pipe")
+        self.doc.recompute()
+        self.inlet.Face = (pipe, ["Face1"])
+        with self.assertRaises(ValueError) as raised:
+            self.study.buildModel()
+        self.assertIn("not flat", str(raised.exception))
+        # its end is one
+        self.inlet.Face = (pipe, ["Face2"])
+        (inlet,) = self.study.buildModel()["Inlets"]
+        self.assertAlmostEqual(abs(inlet["Direction"][2]), 1.0, places=9)
+
+    def test_what_cannot_be_a_force_is_named(self):
+        self.force.Part = None
+        with self.assertRaises(ValueError) as raised:
+            self.study.buildModel()
+        self.assertIn("no part", str(raised.exception))
+        other = box(self.doc, "Other", (10, 10, 10), (50, 50, 50))
+        self.doc.recompute()
+        self.force.Part = other
+        with self.assertRaises(ValueError) as raised:
+            self.study.buildModel()
+        self.assertIn("not one of the study's walls", str(raised.exception))
+        self.force.Part = self.plate
+        self.force.Direction = App.Vector(0, 0, 0)
+        with self.assertRaises(ValueError) as raised:
+            self.study.buildModel()
+        self.assertIn("no direction", str(raised.exception))
+
+    def test_the_fluid_is_all_the_inlets(self):
+        self.assertEqual(self.study.run(), 0, self.study.Status)
+        results = self.study.getResults()
+        self.assertEqual(results["Frames"], 11)
+        (monitor,) = results["Monitors"]
+        self.assertEqual((monitor["Kind"], monitor["Unit"]), ("Force", "N"))
+        self.assertEqual(monitor["Object"], self.force)
+        # the test data's force: the momentum a second, 998.2 x 0.0016 x 2 x 2
+        for value in monitor["Values"]:
+            self.assertAlmostEqual(value, 998.2 * 0.0016 * 4.0, places=9)
+        # a layer of 4 x 4 at the start and each 5 ms after
+        for k in range(results["Frames"]):
+            frame = self.study.getFrame(k)
+            self.assertEqual(frame["Count"], 16 * (2 * k + 1))
+            front = max(p[0] for p in pointsOf(frame))
+            self.assertAlmostEqual(front, max(20.0 * k, 0.0), delta=1e-3)
+        self.assertFalse(self.study.isStale())
+        self.inlet.Velocity = 1000
+        self.assertTrue(self.study.isStale())
+
+    def test_kept_with_the_document(self):
+        self.assertEqual(self.study.run(), 0, self.study.Status)
+        folder = tempfile.mkdtemp()
+        try:
+            path = os.path.join(folder, "inlet.FCStd")
+            self.doc.saveAs(path)
+            App.closeDocument(self.doc.Name)
+            self.doc = App.openDocument(path)
+            study = self.doc.getObject("Study")
+            self.assertFalse(study.isStale())
+            self.assertEqual(study.getResults()["Monitors"][0]["Kind"], "Force")
+            self.assertEqual(study.getFrame(2)["Count"], 80)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_a_backend_that_has_none_says_so(self):
+        backends = {b["Name"]: b for b in FluidApp.getBackends()}
+        self.assertFalse(backends["OpenFOAM"]["Inlets"])
+        self.assertFalse(backends["OpenFOAM"]["Forces"])
+        self.assertTrue(backends["FreeFall"]["Inlets"])
+        self.assertTrue(backends["FreeFall"]["Forces"])
+        if not backends["OpenFOAM"]["Available"]:
+            self.skipTest("no OpenFOAM on this machine")
+        self.study.Backend = "OpenFOAM"
+        self.assertEqual(self.study.run(), -2)
+        self.assertIn("cannot run an inlet", self.study.Status)
+        # and a force alone, with water at the start in the inlet's place
+        water = box(self.doc, "Water", (40, 40, 40), (20, -20, -20))
+        fluid = self.doc.addObject("Fluid::InitialFluid", "Fluid")
+        fluid.Volume = water
+        self.study.Group = [fluid, self.force]
+        self.doc.recompute()
+        self.assertEqual(self.study.run(), -2)
+        self.assertIn("cannot report the force", self.study.Status)

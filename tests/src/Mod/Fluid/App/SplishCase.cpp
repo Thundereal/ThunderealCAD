@@ -79,6 +79,39 @@ double widestHole(const std::vector<Vec3>& wall, const Vec3& min, const Vec3& ma
     return widest;
 }
 
+// A flat rectangle in the plane x = at, y from y0 to y1 and z from z0 to z1,
+// its two triangles facing +x.
+Surface faceSurface(double at, double y0, double y1, double z0, double z1)
+{
+    Surface s;
+    s.points = {{at, y0, z0}, {at, y1, z0}, {at, y1, z1}, {at, y0, z1}};
+    s.triangles = {{0, 1, 2}, {0, 2, 3}};
+    return s;
+}
+
+// A jet in the open, no gravity: a face 0.04 x 0.02 at x = 0 sending water
+// along +x at 2 m/s onto a plate 0.1 on, in a space open all round.
+Model jetModel()
+{
+    Model model;
+    Inlet inlet;
+    inlet.source = "Doc#Inlet";
+    inlet.surface = faceSurface(0.0, -0.01, 0.01, -0.02, 0.02);
+    inlet.direction = {1.0, 0.0, 0.0};
+    inlet.speed = 2.0;
+    model.inlets.push_back(inlet);
+    model.walls.push_back({"Doc#Plate", boxSurface({0.1, -0.05, -0.05}, {0.11, 0.05, 0.05}), {}, {}});
+    model.space.min = {0.0, -0.05, -0.05};
+    model.space.max = {0.11, 0.05, 0.05};
+    model.space.open = {true, true, true, true, true, true};
+    model.gravity = {0.0, 0.0, 0.0};
+    model.resolution = 0.01;
+    model.timeEnd = 0.3;
+    model.outputInterval = 0.01;
+    model.monitors.push_back({"Doc#Force", MonitorKind::Force, {}, 0, {1.0, 0.0, 0.0}});
+    return model;
+}
+
 // A space 0.4 x 0.2 x 0.3, open above, and water 0.1 x 0.2 x 0.2 in a
 // corner of it.
 Model spaceModel()
@@ -349,6 +382,133 @@ TEST(SplishCase, aWallTheFluidMoves)
     model.walls.back().mass.mass = 0.0;
     EXPECT_FALSE(Splish::makeCase(model, {}, made, why));
     EXPECT_NE(why.find("Doc#Float"), std::string::npos) << why;
+}
+
+TEST(SplishCase, anInletsLayer)
+{
+    Model model = jetModel();
+    Vec3 across {};
+    std::string why;
+    // 0.02 x 0.04 at 0.01: two by four, along the long side, the middles
+    // half a spacing in from the face's edges
+    std::vector<Vec3> layer = Splish::inletOf(model, 0, across, why);
+    ASSERT_EQ(layer.size(), 8U) << why;
+    EXPECT_NEAR(std::fabs(across[2]), 1.0, 1e-12);
+    for (const Vec3& p : layer) {
+        EXPECT_NEAR(p[0], 0.0, 1e-12);
+        EXPECT_NEAR(std::fabs(p[1]), 0.005, 1e-12);
+        const double z = std::fabs(p[2]);
+        EXPECT_TRUE(std::fabs(z - 0.005) < 1e-12 || std::fabs(z - 0.015) < 1e-12) << z;
+    }
+    // a face of no whole spacings is centred: 0.025 wide takes two (or
+    // three at most), the same on either side of its middle
+    model.inlets[0].surface = faceSurface(0.0, -0.0125, 0.0125, -0.02, 0.02);
+    layer = Splish::inletOf(model, 0, across, why);
+    ASSERT_FALSE(layer.empty());
+    double sum = 0.0;
+    for (const Vec3& p : layer) {
+        sum += p[1];
+    }
+    EXPECT_NEAR(sum, 0.0, 1e-12);
+    // a triangle: only the places whose middles are on it
+    model.inlets[0].surface.points = {{0.0, 0.0, 0.0}, {0.0, 0.04, 0.0}, {0.0, 0.0, 0.04}};
+    model.inlets[0].surface.triangles = {{0, 1, 2}};
+    layer = Splish::inletOf(model, 0, across, why);
+    EXPECT_GE(layer.size(), 6U);
+    EXPECT_LE(layer.size(), 10U);
+    for (const Vec3& p : layer) {
+        EXPECT_GE(p[1], 0.0);
+        EXPECT_GE(p[2], 0.0);
+        EXPECT_LE(p[1] + p[2], 0.04 + 1e-12);
+    }
+    // not flat, not square to the fluid's way, too small
+    model = jetModel();
+    model.inlets[0].surface.points[2][0] = 0.01;
+    EXPECT_TRUE(Splish::inletOf(model, 0, across, why).empty());
+    EXPECT_NE(why.find("not flat"), std::string::npos);
+    model = jetModel();
+    model.inlets[0].direction = {0.0, 1.0, 0.0};
+    EXPECT_TRUE(Splish::inletOf(model, 0, across, why).empty());
+    EXPECT_NE(why.find("not flat"), std::string::npos);
+    model = jetModel();
+    model.inlets[0].surface.points = {{0.0, 0.0, 0.0}, {0.0, 0.002, 0.0}, {0.0, 0.0, 0.002}};
+    model.inlets[0].surface.triangles = {{0, 1, 2}};
+    EXPECT_TRUE(Splish::inletOf(model, 0, across, why).empty());
+    EXPECT_NE(why.find("too small"), std::string::npos);
+}
+
+TEST(SplishCase, filesOfAnInletAndAForce)
+{
+    Model model = jetModel();
+    Splish::Case made;
+    std::string why;
+    // no fluid at the start: the inlet's is all there will be
+    ASSERT_TRUE(Splish::makeCase(model, {}, made, why)) << why;
+    EXPECT_EQ(made.particles, 0U);
+    ASSERT_EQ(made.inlets.size(), 1U);
+    EXPECT_EQ(made.inlets[0], 8U);
+    EXPECT_EQ(made.files.at("inlet.0.points").size(), 8U * 12U);
+    EXPECT_TRUE(made.files.at("fluid.points").empty());
+    // the plate's particles are apart from the other walls': there are no
+    // others here, the space being open all round
+    ASSERT_EQ(made.forcedWalls.size(), 1U);
+    EXPECT_EQ(made.forcedWalls[0], 0);
+    std::vector<int> owners;
+    const std::vector<Vec3> all = Splish::boundaryOf(model, owners);
+    ASSERT_EQ(owners.size(), all.size());
+    EXPECT_EQ(made.forced[0], all.size());
+    EXPECT_EQ(made.boundary, 0U);
+    EXPECT_EQ(made.files.at("forced.0.points").size(), all.size() * 12U);
+    for (int owner : owners) {
+        EXPECT_EQ(owner, 0);
+    }
+    const std::string& text = made.files.at("case.txt");
+    for (const std::string line : {std::string("fluid 0\n"),
+                                   std::string("boundary 0\n"),
+                                   "forced " + std::to_string(all.size()) + "\n",
+                                   std::string("monitor force 0 1 0 0\n"),
+                                   std::string(" 1 0 0 0 0 1 2 0 0.3\n")}) {
+        EXPECT_NE(text.find(line), std::string::npos) << line << text;
+    }
+    EXPECT_NE(text.find("inlet 8 0 "), std::string::npos) << text;
+
+    // with a closed space its sides are walls, and nobody's
+    Model closed = jetModel();
+    closed.space.open = {false, false, false, false, false, true};
+    ASSERT_TRUE(Splish::makeCase(closed, {}, made, why)) << why;
+    const std::vector<Vec3> withSides = Splish::boundaryOf(closed, owners);
+    EXPECT_GT(made.boundary, 0U);
+    EXPECT_EQ(made.boundary + made.forced[0], withSides.size());
+    EXPECT_EQ(static_cast<std::size_t>(std::count(owners.begin(), owners.end(), -1)), made.boundary);
+    // two monitors on one wall share its particles
+    closed.monitors.push_back({"Doc#Side", MonitorKind::Force, {}, 0, {0.0, 2.0, 0.0}});
+    ASSERT_TRUE(Splish::makeCase(closed, {}, made, why)) << why;
+    EXPECT_EQ(made.forcedWalls.size(), 1U);
+    EXPECT_NE(made.files.at("case.txt").find("monitor force 0 0 1 0\n"), std::string::npos);
+
+    // what cannot be: a force on no wall, on a wall the fluid moves, along
+    // nothing; an inlet of no speed; two liquids
+    Model bad = jetModel();
+    bad.monitors[0].wall = 3;
+    EXPECT_FALSE(Splish::makeCase(bad, {}, made, why));
+    EXPECT_NE(why.find("not a wall held still"), std::string::npos);
+    bad = jetModel();
+    bad.walls[0].motion = WallMotion::Free;
+    bad.walls[0].mass = {0.5, {0.105, 0.0, 0.0}, {1e-3, 1e-3, 1e-3, 0.0, 0.0, 0.0}};
+    EXPECT_FALSE(Splish::makeCase(bad, {}, made, why));
+    EXPECT_NE(why.find("not a wall held still"), std::string::npos);
+    bad = jetModel();
+    bad.monitors[0].direction = {0.0, 0.0, 0.0};
+    EXPECT_FALSE(Splish::makeCase(bad, {}, made, why));
+    EXPECT_NE(why.find("no direction"), std::string::npos);
+    bad = jetModel();
+    bad.inlets[0].speed = 0.0;
+    EXPECT_FALSE(Splish::makeCase(bad, {}, made, why));
+    EXPECT_NE(why.find("no speed"), std::string::npos);
+    bad = jetModel();
+    bad.fluids.push_back({"Doc#Oil", boxSurface({0.02, 0.0, 0.0}, {0.06, 0.04, 0.04}), {800.0, 0.05}});
+    EXPECT_FALSE(Splish::makeCase(bad, {}, made, why));
+    EXPECT_NE(why.find("one liquid"), std::string::npos);
 }
 
 TEST(SplishCase, whatCannotBeACase)

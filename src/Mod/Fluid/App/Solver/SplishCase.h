@@ -33,6 +33,18 @@ FluidExport Sizes sizesOf(double resolution);
 // inside another fixed part or outside the space. A part the fluid moves
 // covers nothing: it will not stay where it is.
 FluidExport std::vector<Vec3> boundaryOf(const Model& model);
+// The same, and whose each particle is: the wall's place in the model's
+// walls, or -1 for one of the space's sides.
+FluidExport std::vector<Vec3> boundaryOf(const Model& model, std::vector<int>& owners);
+
+// An inlet's face as the particles of one layer coming in through it: a
+// grid of the resolution in the face's plane, the places whose middles are
+// on the face. The grid lies along the face's longest edge and is centred
+// on the face, so a rectangle of whole spacings is filled exactly. across
+// is the grid's first axis, a unit vector. None, and why, for a face that
+// is not flat and square to the inlet's direction, or too small.
+FluidExport std::vector<Vec3>
+inletOf(const Model& model, std::size_t inlet, Vec3& across, std::string& why);
 
 // A wall the fluid moves as particles, where it stands at the start: one
 // sheet behind every face of it. None for a wall that is not moved.
@@ -54,12 +66,18 @@ struct CaseOptions
 struct Case
 {
     // name -> contents: case.txt, and the points as three floats each:
-    // fluid.points, boundary.points, and body.<k>.points for the k-th wall
-    // the fluid moves
+    // fluid.points, boundary.points, body.<k>.points for the k-th wall
+    // the fluid moves, forced.<k>.points for the k-th wall a force is asked
+    // of and inlet.<k>.points for the k-th inlet
     std::map<std::string, std::string> files;
     std::size_t particles = 0;
     std::size_t boundary = 0;
     std::vector<std::size_t> bodies;  // the moved walls' particles
+    // the walls a force is asked of, as their places in the model's walls,
+    // and their particles: forced.<k>.points, taken out of boundary.points
+    std::vector<int> forcedWalls;
+    std::vector<std::size_t> forced;
+    std::vector<std::size_t> inlets;  // a layer's particles: inlet.<k>.points
 };
 
 // The case of a model; false and why when it cannot be one.

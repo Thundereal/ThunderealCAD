@@ -139,6 +139,21 @@ std::uint64_t Fluid::Solver::signature(const Model& model)
         hash.number(fluid.material.density);
         hash.number(fluid.material.viscosity);
     }
+    // only a model that has any: the kept results of the ones without
+    // stay theirs
+    if (!model.inlets.empty()) {
+        hash.integer(static_cast<std::int64_t>(model.inlets.size()));
+        for (const auto& inlet : model.inlets) {
+            hash.text(inlet.source);
+            hash.surface(inlet.surface);
+            hash.vec(inlet.direction);
+            hash.number(inlet.speed);
+            hash.number(inlet.material.density);
+            hash.number(inlet.material.viscosity);
+            hash.number(inlet.start);
+            hash.number(inlet.end);
+        }
+    }
     hash.vec(model.space.min);
     hash.vec(model.space.max);
     for (bool open : model.space.open) {
@@ -153,6 +168,10 @@ std::uint64_t Fluid::Solver::signature(const Model& model)
         hash.text(monitor.source);
         hash.integer(static_cast<int>(monitor.kind));
         hash.vec(monitor.point);
+        if (monitor.kind == MonitorKind::Force) {
+            hash.integer(monitor.wall);
+            hash.vec(monitor.direction);
+        }
     }
     return hash.value;
 }
@@ -166,6 +185,55 @@ std::vector<std::size_t> Fluid::Solver::freeWalls(const Model& model)
         }
     }
     return found;
+}
+
+bool Fluid::Solver::liquidOf(const Model& model, Material& liquid)
+{
+    if (!model.fluids.empty()) {
+        liquid = model.fluids.front().material;
+        return true;
+    }
+    if (!model.inlets.empty()) {
+        liquid = model.inlets.front().material;
+        return true;
+    }
+    return false;
+}
+
+bool Fluid::Solver::faceOf(const Inlet& inlet, double& area, Vec3& middle, double& slant)
+{
+    area = 0.0;
+    slant = 0.0;
+    middle = {0.0, 0.0, 0.0};
+    const Vec3& n = inlet.direction;
+    for (const auto& t : inlet.surface.triangles) {
+        const Vec3& a = inlet.surface.points[static_cast<std::size_t>(t[0])];
+        const Vec3& b = inlet.surface.points[static_cast<std::size_t>(t[1])];
+        const Vec3& c = inlet.surface.points[static_cast<std::size_t>(t[2])];
+        const Vec3 ab {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const Vec3 ac {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+        const Vec3 twice {ab[1] * ac[2] - ab[2] * ac[1],
+                          ab[2] * ac[0] - ab[0] * ac[2],
+                          ab[0] * ac[1] - ab[1] * ac[0]};
+        const double size = std::sqrt(twice[0] * twice[0] + twice[1] * twice[1]
+                                      + twice[2] * twice[2]);
+        if (!(size > 0.0)) {
+            continue;
+        }
+        const double along = (twice[0] * n[0] + twice[1] * n[1] + twice[2] * n[2]) / size;
+        slant = std::max(slant, std::sqrt(std::max(0.0, 1.0 - along * along)));
+        for (std::size_t k = 0; k < 3; ++k) {
+            middle[k] += 0.5 * size * (a[k] + b[k] + c[k]) / 3.0;
+        }
+        area += 0.5 * size;
+    }
+    if (!(area > 0.0)) {
+        return false;
+    }
+    for (double& v : middle) {
+        v /= area;
+    }
+    return true;
 }
 
 bool Fluid::Solver::boxOf(const Surface& surface, Vec3& min, Vec3& max)

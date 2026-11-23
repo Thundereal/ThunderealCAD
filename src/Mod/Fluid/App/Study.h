@@ -45,6 +45,9 @@ public:
     /// Whether the space's side against gravity is open to the air: the
     /// fluid that leaves through it is gone. The other sides are closed.
     App::PropertyBool OpenTop;
+    /// Whether the space's other sides are open too, the one gravity points
+    /// to with them: what a jet in the open needs
+    App::PropertyBool OpenSides;
     /// The backend the study runs on, by name; empty: the first that can
     /// run here
     App::PropertyString Backend;
@@ -138,8 +141,35 @@ public:
     }
 };
 
+/// A flat face the fluid comes in through (docs/FluidSimulation.md sec 12
+/// S5), at one speed all over it, square to it: out of the solid the face
+/// is of, or the other way when Reversed. A child of a Study.
+class FluidExport Inlet: public App::DocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Fluid::Inlet);
+
+public:
+    Inlet();
+
+    App::PropertyLinkSub Face;
+    App::PropertySpeed Velocity;
+    App::PropertyBool Reversed;
+    App::PropertyDensity Density;
+    App::PropertyDynamicViscosity Viscosity;
+    /// From when the fluid comes, and until when: an end not after the
+    /// start is the run's
+    App::PropertyTime StartTime;
+    App::PropertyTime EndTime;
+
+    const char* getViewProviderName() const override
+    {
+        return "Gui::ViewProviderDocumentObject";
+    }
+};
+
 /// What a run reports at each frame and keeps: the height of the fluid's
-/// surface above Point, or the pressure at it. A child of a Study.
+/// surface above Point, the pressure at it, or the fluid's force on Part
+/// along Direction. A child of a Study.
 class FluidExport Monitor: public App::DocumentObject
 {
     PROPERTY_HEADER_WITH_OVERRIDE(Fluid::Monitor);
@@ -150,6 +180,9 @@ public:
     App::PropertyEnumeration Kind;
     /// In the document's coordinates
     App::PropertyPosition Point;
+    /// Force: the wall the force is on, and the way it is taken along
+    App::PropertyLink Part;
+    App::PropertyVector Direction;
 
     static const char* KindEnums[];
 

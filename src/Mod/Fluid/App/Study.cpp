@@ -181,6 +181,9 @@ Study::Study()
                       "The space is the box around the walls and the fluid. Its side "
                       "against gravity is open to the air, and what leaves through it is "
                       "gone; or it is closed like the others");
+    ADD_PROPERTY_TYPE(OpenSides, (false), "Study", App::Prop_None,
+                      "The space's other sides are open as well, the one gravity points "
+                      "to with them: what leaves the space anywhere is gone");
     ADD_PROPERTY_TYPE(Backend, (""), "Study", App::Prop_None,
                       "The solver the study runs on, by name; empty: the first that can run "
                       "on this machine");
@@ -236,12 +239,15 @@ Solver::Model Study::buildModel() const
     model.gravity = {g.x * 1.0e-3, g.y * 1.0e-3, g.z * 1.0e-3};
     model.timeEnd = TimeEnd.getValue();
     model.outputInterval = OutputInterval.getValue();
-    if (OpenTop.getValue() && g.Length() > 0.0) {
-        // the side gravity points away from most
-        const std::size_t axis = std::abs(g.x) >= std::abs(g.y) && std::abs(g.x) >= std::abs(g.z)
-            ? 0
-            : (std::abs(g.y) >= std::abs(g.z) ? 1 : 2);
-        model.space.open[2 * axis + (model.gravity[axis] < 0.0 ? 1 : 0)] = true;
+    // the side gravity points away from most: the top
+    const std::size_t axis = std::abs(g.x) >= std::abs(g.y) && std::abs(g.x) >= std::abs(g.z)
+        ? 0
+        : (std::abs(g.y) >= std::abs(g.z) ? 1 : 2);
+    const std::size_t top = 2 * axis + (model.gravity[axis] < 0.0 ? 1 : 0);
+    for (std::size_t side = 0; side < 6; ++side) {
+        // without gravity no side is the top: they are all the others
+        const bool isTop = g.Length() > 0.0 && side == top;
+        model.space.open[side] = isTop ? OpenTop.getValue() : OpenSides.getValue();
     }
 
     // The shapes first: the resolution left to us comes from the fluid's box
@@ -254,6 +260,18 @@ Solver::Model Study::buildModel() const
     };
     std::vector<Taken> walls;
     std::vector<Taken> fluids;
+    struct Fed
+    {
+        const Inlet* source;
+        Part::TopoShape face;
+    };
+    std::vector<Fed> inlets;
+    struct Asked
+    {
+        const Monitor* source;
+        const App::DocumentObject* part;
+    };
+    std::vector<Asked> forces;
     Base::BoundBox3d space;
     double smallest = 0.0;
     for (auto* wall : Walls.getValues()) {
@@ -299,7 +317,46 @@ Solver::Model Study::buildModel() const
             walls.push_back({part, solidOf(part, "the part"), {}, body->Density.getValue()});
             space.Add(walls.back().shape.getBoundBox());
         }
+        else if (auto* inlet = freecad_cast<Inlet*>(child)) {
+            auto* owner = inlet->Face.getValue();
+            const auto& subs = inlet->Face.getSubValues();
+            if (!owner || subs.size() != 1) {
+                FC_THROWM(Base::ValueError, inlet->getFullLabel() << " has no face, or several");
+            }
+            Part::TopoShape face = Part::Feature::getTopoShape(owner, subs.front().c_str(), true);
+            if (face.isNull() || face.countSubShapes("Face") != 1) {
+                FC_THROWM(Base::ValueError,
+                          inlet->getFullLabel() << ": " << subs.front() << " of "
+                                                << owner->getFullLabel() << " is not a face");
+            }
+            if (!(inlet->Velocity.getValue() > 0.0)) {
+                FC_THROWM(Base::ValueError,
+                          inlet->getFullLabel() << " has no speed: the fluid comes in at "
+                                                   "more than nothing");
+            }
+            inlets.push_back({inlet, face});
+            space.Add(face.getBoundBox());
+        }
         else if (auto* monitor = freecad_cast<Monitor*>(child)) {
+            if (monitor->Kind.getValue() == 2) {
+                if (!monitor->Part.getValue()) {
+                    FC_THROWM(Base::ValueError,
+                              monitor->getFullLabel() << " has no part to report the force on");
+                }
+                if (!(monitor->Direction.getValue().Length() > 0.0)) {
+                    FC_THROWM(Base::ValueError,
+                              monitor->getFullLabel()
+                                  << " has no direction to take the force along");
+                }
+                // which wall it is, once they all are known
+                forces.push_back({monitor, monitor->Part.getValue()});
+                model.monitors.push_back(
+                    {sourceOf(monitor, getDocument()), Solver::MonitorKind::Force, {}});
+                Base::Vector3d along = monitor->Direction.getValue();
+                along.Normalize();
+                model.monitors.back().direction = {along.x, along.y, along.z};
+                continue;
+            }
             const Base::Vector3d p = monitor->Point.getValue();
             model.monitors.push_back({sourceOf(monitor, getDocument()),
                                       monitor->Kind.getValue() == 1 ? Solver::MonitorKind::Pressure
@@ -321,6 +378,61 @@ Solver::Model Study::buildModel() const
             model.walls.back().motion = Solver::WallMotion::Free;
             model.walls.back().mass = massOf(wall.shape, wall.density);
         }
+    }
+    for (const auto& asked : forces) {
+        int found = -1;
+        for (std::size_t k = 0; k < walls.size(); ++k) {
+            if (walls[k].source == asked.part && !(walls[k].density > 0.0)) {
+                found = static_cast<int>(k);
+            }
+        }
+        if (found < 0) {
+            FC_THROWM(Base::ValueError,
+                      asked.source->getFullLabel()
+                          << " asks the force on " << asked.part->getFullLabel()
+                          << ", which is not one of the study's walls");
+        }
+        for (auto& monitor : model.monitors) {
+            if (monitor.source == sourceOf(asked.source, getDocument())) {
+                monitor.wall = found;
+            }
+        }
+    }
+    for (const auto& fed : inlets) {
+        Solver::Inlet inlet;
+        inlet.source = sourceOf(fed.source, getDocument());
+        inlet.surface = surfaceOf(fed.face, accuracy);
+        // Out of the solid the face is of: the way its triangles face
+        Base::Vector3d out;
+        for (const auto& t : inlet.surface.triangles) {
+            const auto& a = inlet.surface.points[static_cast<std::size_t>(t[0])];
+            const auto& b = inlet.surface.points[static_cast<std::size_t>(t[1])];
+            const auto& c = inlet.surface.points[static_cast<std::size_t>(t[2])];
+            out += (Base::Vector3d(b[0] - a[0], b[1] - a[1], b[2] - a[2]))
+                       .Cross(Base::Vector3d(c[0] - a[0], c[1] - a[1], c[2] - a[2]));
+        }
+        if (!(out.Length() > 0.0)) {
+            FC_THROWM(Base::ValueError, fed.source->getFullLabel() << "'s face has no area");
+        }
+        out.Normalize();
+        if (fed.source->Reversed.getValue()) {
+            out = -out;
+        }
+        inlet.direction = {out.x, out.y, out.z};
+        inlet.speed = fed.source->Velocity.getValue() * 1.0e-3;
+        inlet.material = {fed.source->Density.getValue() * 1.0e9,
+                          fed.source->Viscosity.getValue() * 1.0e3};
+        inlet.start = fed.source->StartTime.getValue();
+        inlet.end = fed.source->EndTime.getValue();
+        double area = 0.0;
+        double slant = 0.0;
+        Solver::Vec3 middle {};
+        if (!Solver::faceOf(inlet, area, middle, slant) || slant > 1.0e-3) {
+            FC_THROWM(Base::ValueError,
+                      fed.source->getFullLabel() << "'s face is not flat: the fluid comes "
+                                                    "in through a flat face, square to it");
+        }
+        model.inlets.push_back(inlet);
     }
     for (const auto& fluid : fluids) {
         model.fluids.push_back(
@@ -355,7 +467,7 @@ Solver::Status Study::start(std::string& why)
     }
     auto run = std::make_unique<Run>();
     run->model = buildModel();
-    if (run->model.fluids.empty()) {
+    if (run->model.fluids.empty() && run->model.inlets.empty()) {
         why = "the study has no fluid";
         Status.setValue(why);
         return Solver::Status::Empty;
@@ -365,6 +477,18 @@ Solver::Status Study::start(std::string& why)
         why = backend->label() + " cannot move a part by the fluid";
         Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
         return Solver::Status::Unsupported;
+    }
+    if (!run->model.inlets.empty() && !backend->capabilities().inlets) {
+        why = backend->label() + " cannot run an inlet";
+        Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
+        return Solver::Status::Unsupported;
+    }
+    for (const auto& monitor : run->model.monitors) {
+        if (monitor.kind == Solver::MonitorKind::Force && !backend->capabilities().forces) {
+            why = backend->label() + " cannot report the force on a part";
+            Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
+            return Solver::Status::Unsupported;
+        }
     }
     run->session = backend->createSession();
     run->path = Results.getExchangeTempFile();
@@ -486,14 +610,39 @@ FreeBody::FreeBody()
 
 PROPERTY_SOURCE(Fluid::Monitor, App::DocumentObject)
 
-const char* Monitor::KindEnums[] = {"Height", "Pressure", nullptr};
+const char* Monitor::KindEnums[] = {"Height", "Pressure", "Force", nullptr};
 
 Monitor::Monitor()
 {
     ADD_PROPERTY_TYPE(Kind, (0L), "Monitor", App::Prop_None,
                       "Height: of the fluid's surface above the point, against gravity. "
-                      "Pressure: at the point");
+                      "Pressure: at the point. Force: the fluid's on the part, along the "
+                      "direction");
     Kind.setEnums(KindEnums);
     ADD_PROPERTY_TYPE(Point, (Base::Vector3d()), "Monitor", App::Prop_None,
                       "Where, in the document's coordinates");
+    ADD_PROPERTY_TYPE(Part, (nullptr), "Monitor", App::Prop_None,
+                      "A force: the wall of the study the fluid's force is on");
+    ADD_PROPERTY_TYPE(Direction, (Base::Vector3d(0.0, 0.0, 1.0)), "Monitor", App::Prop_None,
+                      "A force: the way it is taken along, in the document's coordinates");
+}
+
+// ================================ Inlet ================================
+
+PROPERTY_SOURCE(Fluid::Inlet, App::DocumentObject)
+
+Inlet::Inlet()
+{
+    ADD_PROPERTY_TYPE(Face, (nullptr), "Inlet", App::Prop_None,
+                      "The flat face the fluid comes in through");
+    ADD_PROPERTY_TYPE(Velocity, (0.0), "Inlet", App::Prop_None,
+                      "The fluid's speed through the face, the same all over it");
+    ADD_PROPERTY_TYPE(Reversed, (false), "Inlet", App::Prop_None,
+                      "The fluid goes out of the solid the face is of; or the other way");
+    ADD_PROPERTY_TYPE(Density, (998.2e-9), "Inlet", App::Prop_None, "The fluid's density");
+    ADD_PROPERTY_TYPE(Viscosity, (1.002e-6), "Inlet", App::Prop_None,
+                      "The fluid's dynamic viscosity");
+    ADD_PROPERTY_TYPE(StartTime, (0.0), "Inlet", App::Prop_None, "From when the fluid comes");
+    ADD_PROPERTY_TYPE(EndTime, (0.0), "Inlet", App::Prop_None,
+                      "Until when: not after the start, to the run's end");
 }

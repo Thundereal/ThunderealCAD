@@ -1141,6 +1141,112 @@ archive, the case writer and the test backend's fall. Scores: C++ 28 ->
 friction against the walls; two free bodies do not meet each other; no
 joints. All four go with step 2, Chrono's contact and mechanism.
 
+### 12.8 S5 as built: inlets, and the force on a part (2026-11-23)
+
+The fluid comes in through a flat face, and a monitor reports what the
+fluid presses a part with. On the particle backend and the test backend;
+OpenFOAM has neither yet, and says so in place of running.
+
+- **The object**: `Fluid::Inlet`, a child of the study: `Face` (one flat
+  face of a part, a link with its sub-element), `Velocity` (the same all
+  over the face, square to it, out of the solid the face is of),
+  `Reversed`, `Density` and `Viscosity` (water's), `StartTime` and
+  `EndTime` (an end not after the start is the run's). No face, an edge,
+  no speed and a face that is not flat are errors of the model. Command
+  `Fluid_AddInlet`: on the faces picked, the speed asked for.
+- **The force**: a third kind of `Fluid::Monitor`, `Force`, with `Part`
+  (one of the study's walls) and `Direction`: the fluid's force on the
+  part along the direction, N. Command `Fluid_AddForceMonitor`, on the
+  walls selected; the direction is the way the study's first inlet sends
+  its fluid, or against gravity.
+- **The space**: `OpenSides` on the study, beside `OpenTop`: the space's
+  other sides are open too, the one gravity points to with them, and
+  what leaves is gone -- what a jet in the open needs. Without gravity no
+  side is the top and `OpenSides` is all six.
+- **The model**: `Inlet` (the face as triangles, direction, speed,
+  material, start, end) in `Model::inlets`; `MonitorKind::Force` with the
+  wall's place and a direction. A study needs fluid at the start or an
+  inlet, and may have both. The liquid is the first volume's, or with none the
+  first inlet's (`liquidOf`). The signature takes the inlets only when
+  there are any, so the kept results of every study without one stay
+  theirs.
+- **The capabilities** (sec 11.2): `inlets` and `forces`. The test
+  backend sends a layer of points from the face each time the last has
+  gone the resolution, each in free flight, and reports as the force the
+  momentum the inlets bring a second.
+- **SPlisHSPlasH**:
+  - The face is sampled as one layer of particles, a grid of the
+    resolution in the face's plane along its longest edge and centred on
+    it (`inletOf`), the places whose middles are on the face; a face of
+    less than half a particle's is too small. The case has an `inlet`
+    line and `inlet.<k>.points`.
+  - The runner puts a layer on the face each time the last has gone a
+    particle's width, placed as far on as it is late, and carries the
+    fluid within a kernel's width before the face at the inlet's speed
+    whatever presses on it, so that what is past that has fluid behind it
+    and not a void. Particles come from the ones that left the space
+    first, then from ones kept for the inlets when the fluid was made
+    (as many as the inlets can send in the run).
+  - The solver's own emitters were not used: they are rectangles and
+    circles only, and they have a fault that was found by doing the same
+    -- a particle is left where it is for the step in which it comes out
+    of the carried stretch, the layer behind runs into it, and the jet
+    comes apart from there on (measured: its front a half faster than it
+    was sent, the jet half as wide again before the plate, the force on
+    the plate 30% over). Moved in that step too, the jet stays the grid it
+    was sent as, at the speed it was sent.
+  - A wall a force is asked of is a body to the solver, one that is
+    never moved: the solver adds up the fluid's push on a body's
+    particles and not on a fixed wall's. Its particles go in
+    `forced.<k>.points`, out of `boundary.points` (`boundaryOf` says
+    whose each particle is). This is the accounting the floating block
+    was checked by (sec 12.7). A pressure monitor finds such a wall as
+    any other.
+
+Measured (a jet 20 x 20 mm out of a nozzle onto a plate 120 x 120 mm
+square to it, 100 mm on, no gravity, the space open; the force's mean
+over time from 0.15 to 0.3 s against density x area x speed^2):
+
+| spacing | speed | expected | measured | over |
+|---|---|---|---|---|
+| 5 mm | 2 m/s | 1.597 N | 1.720 N | 7.7% |
+| 2.5 mm | 2 m/s | 1.597 N | 1.733 N | 8.5% |
+| 1.25 mm | 2 m/s | 1.597 N | 1.688 N | 5.7% |
+| 2.5 mm | 4 m/s | 6.388 N | 6.923 N | 8.4% |
+| 2.5 mm | 1 m/s | 0.399 N | 0.431 N | 8% (the runner alone) |
+
+It goes with the speed's square, starts when the jet arrives (0.049 s
+for 100 mm at 2 m/s), and reads 6 to 9% over. The closed form is of a jet
+that leaves along the plate; some 200 of 4900 particles were found
+behind the plate's face plane and off the jet's axis, so some of the
+water comes back off the plate, which presses more. Not traced further.
+The pressure where the jet's axis meets the plate read 1340 Pa, two
+thirds of density x speed^2 / 2 (1996 Pa): a monitor's patch is three
+spacings across, of a jet eight across.
+
+A tap (40 x 40 mm, 1 m/s for 1.2 s) over a tank 200 x 200 mm at 5 mm:
+15424 particles sent, 111 of them out over the rim in the first splash;
+the level 0.8 s after the tap is shut 46.5 mm, where what is in the tank
+makes 47.9 (still moving a millimetre each way).
+
+Tests: `FluidTests/Jet.py` for every backend that has the capabilities;
+`TestInlets` and the C++ tests on the model, the layer, the case's files
+and the test backend. Scores: C++ 31 -> 35, Python 50 -> 60.
+
+**Open**:
+- OpenFOAM: an inlet is a patch of the mesh with a fixed velocity, and
+  the force a function object over a part's patch. Neither is built.
+- The flow through a face that is not whole spacings is that of the
+  particles on it, not of its area: a round face 20 mm across at 5 mm is
+  12 particles, 300 mm^2 for 314. The study does not say so yet.
+- The force is on a wall held still. On a part the fluid moves the
+  solver has it too, and it is not reported.
+- A sheet thinner than a particle, as a jet makes on a plate, is spray
+  to the surface drawn around the particles: such a run is looked at as
+  particles.
+- One speed over the face: no profile, no flow rate given in its place,
+  no pressure inlet, no outlet other than the space's open sides.
+
 ## 13. For the user to rule (2026-11-21)
 
 1. **The first backend (S2).** OpenFOAM: validated, CPU, already this

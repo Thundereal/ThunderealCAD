@@ -118,13 +118,15 @@ const char* kindName(Solver::ResultKind kind)
 
 const char* monitorName(Solver::MonitorKind kind)
 {
-    return kind == Solver::MonitorKind::Pressure ? "Pressure" : "Height";
+    return kind == Solver::MonitorKind::Force      ? "Force"
+           : kind == Solver::MonitorKind::Pressure ? "Pressure"
+                                                   : "Height";
 }
 }  // namespace
 
 const char* Fluid::unitOf(Solver::MonitorKind kind)
 {
-    return kind == Solver::MonitorKind::Pressure ? "Pa" : "mm";
+    return kind == Solver::MonitorKind::Force ? "N" : kind == Solver::MonitorKind::Pressure ? "Pa" : "mm";
 }
 
 struct ArchiveWriter::Private
@@ -236,7 +238,7 @@ void ArchiveWriter::close(ResultsIndex index)
     json out;
     out["format"] = format;
     out["schema"] = schema;
-    out["units"] = {{"time", "s"}, {"length", "mm"}, {"pressure", "Pa"}};
+    out["units"] = {{"time", "s"}, {"length", "mm"}, {"pressure", "Pa"}, {"force", "N"}};
     out["backend"] = index.backend;
     out["version"] = index.version;
     out["kind"] = kindName(index.kind);
@@ -323,8 +325,11 @@ ArchiveReader::ArchiveReader(const std::string& path)
         for (const auto& monitor : index.at("monitors")) {
             d->index.monitors.push_back(
                 {monitor.value("source", std::string()),
-                 monitor.value("kind", std::string()) == "Pressure" ? Solver::MonitorKind::Pressure
-                                                                    : Solver::MonitorKind::Height});
+                 monitor.value("kind", std::string()) == "Force"
+                     ? Solver::MonitorKind::Force
+                     : monitor.value("kind", std::string()) == "Pressure"
+                           ? Solver::MonitorKind::Pressure
+                           : Solver::MonitorKind::Height});
         }
         std::vector<std::size_t> shape;
         auto timesIn = entry("times.npy");

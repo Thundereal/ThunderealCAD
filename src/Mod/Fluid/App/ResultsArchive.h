@@ -50,7 +50,7 @@ struct ResultsIndex
     std::vector<std::string> bodies;  // the walls the fluid moved, as the model names them
     std::vector<double> times;    // the frames', s
     std::vector<double> samples;  // the monitors' times, s
-    std::vector<double> values;   // samples x monitors: Height mm, Pressure Pa
+    std::vector<double> values;   // samples x monitors: Height mm, Pressure Pa, Force N
     std::vector<double> motions;  // frames x bodies x 7, as bodies.npy
 };
 

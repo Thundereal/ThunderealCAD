@@ -13,6 +13,7 @@ import FluidPlayback
 
 from FluidTests.DamBreak import DamBreak, backendNamed
 from FluidTests.Floating import Floating
+from FluidTests.Jet import Jet
 from FluidTests.StillWater import StillWater
 
 
@@ -33,6 +34,13 @@ class TestSplishStillWater(StillWater, unittest.TestCase):
 
 class TestSplishFloating(Floating, unittest.TestCase):
     BACKEND = "SPlisHSPlasH"
+
+
+class TestSplishJet(Jet, unittest.TestCase):
+    BACKEND = "SPlisHSPlasH"
+    # measured: 5 to 8% over, at 1.25, 2.5 and 5 mm and at 1, 2 and 4 m/s
+    # -- some of the water comes back off the plate
+    OVER = 0.12
 
 
 class TestSplishPlates(unittest.TestCase):

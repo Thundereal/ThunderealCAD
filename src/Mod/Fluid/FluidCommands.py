@@ -147,6 +147,87 @@ class CommandAddBody:
         doc.recompute()
 
 
+def facesPicked():
+    """The faces selected, each with the object it is of."""
+    faces = []
+    for picked in Gui.Selection.getSelectionEx():
+        for name in picked.SubElementNames:
+            if name.startswith("Face"):
+                faces.append((picked.Object, name))
+    return faces
+
+
+class CommandAddInlet:
+    def GetResources(self):
+        return {
+            "Pixmap": FluidPlayback.iconPath("Fluid_AddInlet.svg"),
+            "MenuText": QT_TRANSLATE_NOOP("Fluid_AddInlet", "Inlet"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Fluid_AddInlet",
+                "The fluid comes in through the flat faces selected, square to each "
+                "and out of its solid, at a speed that is asked for. Reversed, "
+                "StartTime and EndTime can be set afterwards.",
+            ),
+        }
+
+    def IsActive(self):
+        return FluidPlayback.activeStudy(selected()) is not None and len(facesPicked()) > 0
+
+    def Activated(self):
+        study = FluidPlayback.activeStudy(selected())
+        faces = facesPicked()
+        speed, ok = QtWidgets.QInputDialog.getDouble(
+            Gui.getMainWindow(),
+            translate("Fluid", "Inlet"),
+            translate("Fluid", "The fluid's speed through the face, m/s:"),
+            1.0,
+            1.0e-6,
+            1.0e4,
+            3,
+        )
+        if not ok:
+            return
+        doc = study.Document
+        doc.openTransaction(translate("Fluid", "Add inlet"))
+        for part, face in faces:
+            FluidPlayback.addInlet(study, part, face, speed * 1000.0)
+        doc.commitTransaction()
+        doc.recompute()
+
+
+class CommandAddForceMonitor:
+    def GetResources(self):
+        return {
+            "Pixmap": FluidPlayback.iconPath("Fluid_AddForceMonitor.svg"),
+            "MenuText": QT_TRANSLATE_NOOP("Fluid_AddForceMonitor", "Force Monitor"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Fluid_AddForceMonitor",
+                "Reports at each frame the fluid's force on the walls selected, along "
+                "a direction: the way the study's first inlet sends its fluid, or "
+                "against gravity. Its Direction can be set afterwards.",
+            ),
+        }
+
+    def walls(self):
+        study = FluidPlayback.activeStudy(selected())
+        if study is None:
+            return None, []
+        return study, [part for part in selected() if part in study.Walls]
+
+    def IsActive(self):
+        return len(self.walls()[1]) > 0
+
+    def Activated(self):
+        study, walls = self.walls()
+        doc = study.Document
+        doc.openTransaction(translate("Fluid", "Add force monitor"))
+        along = FluidPlayback.forceDirection(study)
+        for part in walls:
+            FluidPlayback.addForceMonitor(study, part, along)
+        doc.commitTransaction()
+        doc.recompute()
+
+
 class CommandAddMonitor:
     kind = "Height"
 
@@ -655,6 +736,8 @@ class DownloadOpenFoam(QtWidgets.QDialog):
 Gui.addCommand("Fluid_CreateStudy", CommandCreateStudy())
 Gui.addCommand("Fluid_AddFluid", CommandAddFluid())
 Gui.addCommand("Fluid_AddBody", CommandAddBody())
+Gui.addCommand("Fluid_AddInlet", CommandAddInlet())
+Gui.addCommand("Fluid_AddForceMonitor", CommandAddForceMonitor())
 Gui.addCommand("Fluid_AddMonitor", CommandAddMonitor())
 Gui.addCommand("Fluid_AddPressureMonitor", CommandAddPressureMonitor())
 Gui.addCommand("Fluid_RunStudy", CommandRunStudy())

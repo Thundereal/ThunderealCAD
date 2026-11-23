@@ -102,6 +102,9 @@ Callout::Callout()
     ADD_PROPERTY_TYPE(ImportedGraphicName, (""), "Presentation",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
                       "The name the file gave its graphic, written again with it");
+    ADD_PROPERTY_TYPE(ImportedWith, (nullptr), "Presentation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
+                      "The callout whose graphic from the file draws this one too");
     ADD_PROPERTY_TYPE(UseImported, (false), "Presentation", App::Prop_None,
                       "Draw the file's graphic until the callout is edited");
 }
@@ -122,11 +125,27 @@ bool Callout::isEdit(const App::Property* prop) const
         && std::strcmp(prop->getName(), "ConditionMessage") != 0;
 }
 
+bool Callout::drawnByAnother() const
+{
+    auto other = freecad_cast<Callout*>(ImportedWith.getValue());
+    return other && other != this && UseImported.getValue() && other->UseImported.getValue()
+        && !other->ImportedGraphic.getShape().isNull();
+}
+
 void Callout::onChanged(const App::Property* prop)
 {
     // Edited: drawn from what it says from now on
     if (UseImported.getValue() && !_placing && !isRestoring() && isEdit(prop)) {
         UseImported.setValue(false);
+    }
+    // A graphic drawing more than one is one: this edited, the one whose
+    // graphic drew it is drawn from what it says too
+    if (prop == &UseImported && !UseImported.getValue() && !isRestoring()) {
+        auto other = freecad_cast<Callout*>(ImportedWith.getValue());
+        if (other && other != this && other->UseImported.getValue()) {
+            other->UseImported.setValue(false);
+            other->touch();
+        }
     }
     // Moved by the user: from now on where it was put
     if (prop == &Plane && !_placing && !isRestoring() && AutoPlace.getValue()) {
@@ -522,6 +541,19 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
 
 void Callout::updatePresentation()
 {
+    if (drawnByAnother()) {
+        if (UprightAt.getSize()) {
+            UprightAt.setValues({});
+        }
+        if (!Presentation.getShape().isNull()) {
+            Presentation.setValue(TopoDS_Shape());
+        }
+        std::string text = Font::toUtf8(equivalentText());
+        if (EquivalentText.getStrValue() != text) {
+            EquivalentText.setValue(text);
+        }
+        return;
+    }
     if (UseImported.getValue() && !ImportedGraphic.getShape().isNull()) {
         if (UprightAt.getSize()) {
             UprightAt.setValues({});
@@ -541,6 +573,10 @@ void Callout::updatePresentation()
     bool hasTarget = calloutTarget(target);
 
     Callout* parent = attachedParent();
+    double below = 0.5 * h;
+    if (!parent) {
+        parent = composedUnder(h, below);
+    }
     if (parent) {
         // Under the parent's drawing, left edges in line, in its plane
         double ph = parent->TextHeight.getValue() > 0 ? parent->TextHeight.getValue() : h;
@@ -558,7 +594,7 @@ void Callout::updatePresentation()
         if (!above.isEmpty() && !mine.isEmpty()) {
             pla = pla
                 * Base::Placement(Base::Vector3d(above.xmin - mine.xmin,
-                                                 above.ymin - 0.5 * h - mine.ymax, 0),
+                                                 above.ymin - below - mine.ymax, 0),
                                   Base::Rotation());
             Base::StateLocker guard(_placing);
             if (!pla.isSame(Plane.getValue(), 1e-9)) {

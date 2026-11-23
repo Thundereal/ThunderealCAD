@@ -23,7 +23,10 @@
  ***************************************************************************/
 
 #include "PreCompiled.h"
+#include <algorithm>
+#include <cstring>
 
+#include "AnnotationSet.h"
 #include "Check.h"
 #include "Datum.h"
 #include "GeometricTolerance.h"
@@ -132,6 +135,60 @@ TolerancedFeature* GeometricTolerance::getFeature() const
 DatumReferenceFrame* GeometricTolerance::getDatumSystem() const
 {
     return freecad_cast<DatumReferenceFrame*>(DatumSystem.getValue());
+}
+
+GeometricTolerance* GeometricTolerance::compositeUpper() const
+{
+    auto upper = freecad_cast<GeometricTolerance*>(Composite.getValue());
+    if (!upper || upper == this || upper->Composite.getValue()) {
+        return nullptr;
+    }
+    return upper;
+}
+
+std::vector<GeometricTolerance*> GeometricTolerance::lowerSegments() const
+{
+    std::vector<GeometricTolerance*> res;
+    auto add = [&](App::DocumentObject* obj) {
+        auto gt = freecad_cast<GeometricTolerance*>(obj);
+        if (gt && gt->compositeUpper() == this
+            && std::find(res.begin(), res.end(), gt) == res.end()) {
+            res.push_back(gt);
+        }
+    };
+    if (auto set = getSet()) {
+        for (auto obj : set->Group.getValues()) {
+            add(obj);
+        }
+    }
+    std::vector<GeometricTolerance*> rest;
+    std::swap(res, rest);
+    for (auto obj : getInList()) {
+        add(obj);
+    }
+    std::sort(res.begin(), res.end(), [](auto a, auto b) {
+        return std::strcmp(a->getNameInDocument(), b->getNameInDocument()) < 0;
+    });
+    for (auto gt : res) {
+        if (std::find(rest.begin(), rest.end(), gt) == rest.end()) {
+            rest.push_back(gt);
+        }
+    }
+    return rest;
+}
+
+Callout* GeometricTolerance::composedUnder(double h, double& below) const
+{
+    auto upper = compositeUpper();
+    if (!upper) {
+        return nullptr;
+    }
+    // Flush under the upper, a frame's height (twice the text) below each
+    // lower segment above it
+    auto lowers = upper->lowerSegments();
+    auto it = std::find(lowers.begin(), lowers.end(), this);
+    below = 2 * h * double(it - lowers.begin());
+    return upper;
 }
 
 App::DocumentObjectExecReturn* GeometricTolerance::execute()

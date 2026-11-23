@@ -527,6 +527,46 @@ class TestCheck(Base):
                                Composite=p)
         self.assertRule(lower, "composite")
 
+    def test_a_composite_frame_is_drawn_as_one(self):
+        """A composite frame's lower segments (ASME Y14.5 sec 10.5.1) are rows
+        under its upper, flush, left edges in line, in its plane, with no
+        symbol and no leader of their own: the upper's symbol cell goes on down
+        them, closed under the last"""
+        drf = self.frame()
+        hole = self.feature(HOLE, kind="Axis")
+        upper = self.tolerance("Position", hole, ZoneShape="Diameter", DatumSystem=drf,
+                               ShowLeader=False)
+        lowers = []
+        for value in (0.02, 0.01):
+            lower = self.tolerance("Position", hole, ZoneShape="Diameter", DatumSystem=drf,
+                                   Composite=upper)
+            lower.Value = value
+            lowers.append(lower)
+        for lower in lowers:
+            self.assertClean(lower)
+        self.assertClean(upper)
+        inv = upper.Plane.inverse().toMatrix()
+
+        def box(shape):
+            s = shape.copy()
+            s.transformShape(inv)
+            return s.BoundBox
+
+        h = upper.TextHeight.Value or 3.5
+        rows = [box(upper.Presentation)] + [box(lower.Presentation) for lower in lowers]
+        for above, below in zip(rows, rows[1:]):
+            self.assertAlmostEqual(below.XMin, above.XMin, 6)
+            self.assertAlmostEqual(below.YMax, above.YMin, 6)
+            self.assertAlmostEqual(below.YMax - below.YMin, 2 * h, 6)
+            self.assertAlmostEqual(below.ZLength, 0, 6)
+        for lower in lowers:
+            self.assertTrue(lower.Plane.Rotation.isSame(upper.Plane.Rotation, 1e-9))
+        # No symbol below: the lower rows' strokes are lines alone
+        for lower in lowers:
+            kinds = {e.Curve.__class__.__name__ for e in lower.Presentation.Edges
+                     if box(e).XMax <= rows[0].XMin + 2 * h + 1e-6}
+            self.assertEqual(kinds, {"Line"})
+
 
 class TestRepair(Base):
     def test_a_length_change_keeps_everything(self):

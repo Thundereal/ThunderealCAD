@@ -54,6 +54,7 @@
 #include <TopLoc_Location.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
@@ -424,6 +425,54 @@ bool Geom::holes(const std::vector<Primitive>& faces, std::size_t& hole)
         }
     }
     return true;
+}
+
+std::vector<Primitive> Geom::bores(const TopoDS_Shape& solid,
+                                   const std::vector<TopoDS_Shape>& floors)
+{
+    std::vector<Primitive> res;
+    if (solid.IsNull()) {
+        return res;
+    }
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(solid, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+    TopTools_IndexedMapOfShape taken;
+    for (auto& floor : floors) {
+        if (floor.IsNull() || floor.ShapeType() != TopAbs_FACE) {
+            continue;
+        }
+        Primitive plane = ofFace(floor);
+        if (plane.type != Primitive::Plane) {
+            continue;
+        }
+        // Out of the material: a floor's bore runs out of it that way, the
+        // part's face a hole goes through runs into it
+        gp_Dir out = BRepAdaptor_Surface(TopoDS::Face(floor)).Plane().Axis().Direction();
+        if (floor.Orientation() == TopAbs_REVERSED) {
+            out.Reverse();
+        }
+        for (TopExp_Explorer xp(floor, TopAbs_EDGE); xp.More(); xp.Next()) {
+            int i = edgeFaces.FindIndex(xp.Current());
+            if (i == 0) {
+                continue;
+            }
+            for (auto& face : edgeFaces(i)) {
+                if (face.IsSame(floor) || taken.Contains(face)) {
+                    continue;
+                }
+                Primitive p = ofFace(face);
+                if (p.type != Primitive::Cylinder || !p.dir.IsParallel(plane.dir, 1e-9)) {
+                    continue;
+                }
+                gp_Pnt mid = p.loc.Translated(gp_Vec(p.dir) * (0.5 * (p.from + p.to)));
+                if (gp_Vec(plane.loc, mid).Dot(gp_Vec(out)) > 0) {
+                    taken.Add(face);
+                    res.push_back(p);
+                }
+            }
+        }
+    }
+    return res;
 }
 
 bool Geom::depth(const std::vector<Primitive>& faces, double& depth, std::string& why)

@@ -603,6 +603,16 @@ private:
         for (auto gt : tolerances) {
             guard(gt, [&]() { tolerance(gt, ex); });
         }
+        // Composite frames: each lower segment related to its upper, both
+        // written (AP242's geometric_tolerance_relationship 'composite')
+        for (auto gt : tolerances) {
+            auto upper = gt->compositeUpper();
+            auto lo = _labels.find(gt);
+            auto hi = upper ? _labels.find(upper) : _labels.end();
+            if (lo != _labels.end() && hi != _labels.end()) {
+                _tool->SetCompositeUpper(lo->second, hi->second);
+            }
+        }
         for (auto dim : dims) {
             guard(dim, [&]() { dimension(dim, ex); });
         }
@@ -894,9 +904,6 @@ private:
                 partly(gt, "a tolerance per unit with modifiers or datums: its unit is not "
                            "written, STEP has no entity for both");
             }
-        }
-        if (gt->Composite.getValue()) {
-            partly(gt, "a composite frame's lower segment, written as a frame of its own");
         }
         present(gt, ex, obj);
         attr->SetObject(obj);

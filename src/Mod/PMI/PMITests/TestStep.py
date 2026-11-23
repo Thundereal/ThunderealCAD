@@ -45,7 +45,7 @@ PER_UNIT = (
 
 # The NIST set's hole depths, written as 'thickness' sizes: (file, depths)
 DEPTHS = (
-    ("nist_stc_06_asme1_ap242-e3.stp", [7.9375, 12.7]),
+    ("nist_stc_06_asme1_ap242-e3.stp", [7.9375, 12.7, 12.7, 14.2875]),
     ("nist_stc_10_asme1_ap242-e2.stp", [2.0, 6.0, 6.0, 6.0, 10.0, 10.0, 27.5, 35.0]),
 )
 
@@ -475,8 +475,10 @@ class TestNistSet(Base):
                 else:
                     self.assertEqual(set(ours) - set(theirs), set())
                     self.assertIn("label", ours)
+                # Of those read with a graphic: a composite frame's lower segment
+                # is drawn in its upper's, written with none
                 kept = [c.ImportedGraphicType for c in again.Objects
-                        if hasattr(c, "ImportedGraphicType")]
+                        if hasattr(c, "ImportedGraphicType") and not c.ImportedGraphic.isNull()]
                 self.assertTrue(kept and all(kept), kept)
 
     def test_notes_say_what_the_file_says(self):
@@ -590,6 +592,44 @@ class TestNistSet(Base):
         self.assertEqual(kinds[(re.sub(r"\s", "", alone[0].Label), "radialdimension")], 1)
         self.assertWrittenClean("nist_stc_07_asme1_ap242-e3.stp")
 
+    def test_composite_frames_as_the_file_has_them(self):
+        """A composite frame's lower segment is related to its upper by a
+        geometric_tolerance_relationship 'composite', in 11 of the files: each
+        read as its upper's lower segment, of its characteristic. NIST draws
+        both in the upper's graphic: while that is drawn the lower draws
+        nothing of its own. Written again, related as read"""
+        nist = os.environ["FC_PMI_NIST"]
+        for name, count in (("nist_ctc_04_asme1_ap242-e1.stp", 2),
+                            ("nist_ftc_06_asme1_ap242-e2.stp", 4),
+                            ("nist_ftc_07_asme1_ap242-e2.stp", 6),
+                            ("nist_ftc_08_asme1_ap242-e2.stp", 6),
+                            ("nist_ftc_09_asme1_ap242-e1.stp", 2),
+                            ("nist_ftc_10_asme1_ap242-e2.stp", 3),
+                            ("nist_stc_06_asme1_ap242-e3.stp", 4),
+                            ("nist_stc_07_asme1_ap242-e3.stp", 6),
+                            ("nist_stc_08_asme1_ap242-e3.stp", 4),
+                            ("nist_stc_09_asme1_ap242-e3.stp", 2),
+                            ("nist_stc_10_asme1_ap242-e2.stp", 3)):
+            with self.subTest(name):
+                doc = self.read(edition(os.path.join(nist, name)))
+                lowers = [g for g in objects(doc, "GeometricTolerance") if g.Composite]
+                self.assertEqual(len(lowers), count)
+                for g in lowers:
+                    upper = g.Composite
+                    self.assertEqual(upper.Characteristic, g.Characteristic, g.Label)
+                    self.assertFalse(upper.Composite)
+                    self.assertNotEqual(g.Condition, "Invalid", (g.Label, g.ConditionMessage))
+                    if upper.UseImported and not upper.ImportedGraphic.isNull():
+                        self.assertTrue(g.UseImported, g.Label)
+                        self.assertTrue(g.Presentation.isNull(), g.Label)
+                again = self.write_and_read(doc)
+                with open(self.written, errors="replace") as f:
+                    text = re.sub(r"\s+", "", f.read())
+                self.assertEqual(text.count("=GEOMETRIC_TOLERANCE_RELATIONSHIP('composite'"),
+                                 count)
+                back = [g for g in objects(again, "GeometricTolerance") if g.Composite]
+                self.assertEqual(len(back), count)
+
     def test_features_named_as_stc_07_names_them(self):
         """STC-07 names its holes' surfaces through an item identified
         representation usage, a set of faces, beside a 'semantic text'
@@ -642,10 +682,13 @@ class TestNistSet(Base):
                 self.assertEqual(per_unit(self.write_and_read(doc)), [(kind, basis, size, size2)])
 
     def test_a_holes_depth(self):
-        """A 'thickness' of a hole is its depth: STC-06's two (one hole, a
-        pattern of four), STC-10's eight (counterbores to their floors, holes
-        to their drill points, patterns of them), read as the file gives
-        them, measured Ok, written and read again the same"""
+        """A 'thickness' of a hole is its depth: STC-06's four (a hole, a
+        pattern of four, two counterbores given on their floors alone),
+        STC-10's eight (counterbores to their floors, holes to their drill
+        points, patterns of them), read as the file gives them, measured Ok,
+        written and read again the same. Each is drawn in its hole's graphic:
+        STC-06 presents a hole's diameter and depth by one, STC-10 gives a
+        depth none of its own (dwin, SFA p11)"""
         nist = os.environ["FC_PMI_NIST"]
         for name, want in DEPTHS:
             with self.subTest(name):
@@ -659,6 +702,9 @@ class TestNistSet(Base):
                 for d in objects(doc, "Dimension"):
                     if d.Type == "Depth":
                         self.assertEqual(d.Condition, "Ok", (d.Label, d.ConditionMessage))
+                        self.assertTrue(d.ImportedWith, d.Label)
+                        self.assertIn(d.ImportedWith.Type, ("Diameter", "Radius"), d.Label)
+                        self.assertTrue(d.Presentation.isNull(), d.Label)
                 self.assertEqual(depths(self.write_and_read(doc)), want)
 
     def test_on_supplemental_geometry(self):

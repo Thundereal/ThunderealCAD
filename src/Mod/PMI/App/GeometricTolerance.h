@@ -127,11 +127,18 @@ public:
     static Category category(CharacteristicValue c);
     TolerancedFeature* getFeature() const;
     DatumReferenceFrame* getDatumSystem() const;
+    /// The upper segment of the composite frame this is a lower segment of,
+    /// or null: none, itself, or one that is a lower segment itself
+    GeometricTolerance* compositeUpper() const;
+    /// The lower segments of its composite frame, top down: in the set's
+    /// order, else by name
+    std::vector<GeometricTolerance*> lowerSegments() const;
 
     App::DocumentObjectExecReturn* execute() override;
     TolerancedFeature* calloutFeature() const override;
     void layout(Drawing& d, double h) const override;
     std::u32string equivalentText() const override;
+    Callout* composedUnder(double h, double& below) const override;
 
     static const char* CharacteristicEnums[];
     static const char* ZoneShapeEnums[];

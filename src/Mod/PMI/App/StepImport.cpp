@@ -149,6 +149,7 @@ public:
         for (auto& l : labels) {
             guard(l, "tolerance", [&]() { tolerance(l); });
         }
+        composites(labels);
         labels.Clear();
         _tool->GetDimensionLabels(labels);
         for (auto& l : labels) {
@@ -931,6 +932,92 @@ private:
         ++_report.tolerances;
     }
 
+    /// Composite frames: each lower segment's tolerance to its upper's
+    void composites(const NCollection_Sequence<TDF_Label>& labels)
+    {
+        for (auto& l : labels) {
+            TDF_Label up;
+            if (!XCAFDoc_DimTolTool::GetCompositeUpper(l, up)) {
+                continue;
+            }
+            auto lo = _byLabel.find(entry(l));
+            auto hi = _byLabel.find(entry(up));
+            if (lo == _byLabel.end() || hi == _byLabel.end() || lo->second == hi->second) {
+                continue;
+            }
+            if (auto gt = freecad_cast<GeometricTolerance*>(lo->second)) {
+                gt->Composite.setValue(hi->second);
+            }
+        }
+    }
+
+public:
+    /// The callout whose graphic from the file draws \a c too, or null:
+    /// - a composite frame's upper segment, NIST drawing both in the upper's,
+    ///   the lower's linked to none;
+    /// - the first of two the file presents by one graphic (STC-06's hole
+    ///   callout, its diameter's and its depth's);
+    /// - a hole's diameter or radius for its depth the file gives no graphic
+    ///   (STC-10): a depth is lettered in the hole's callout, after its size
+    Callout* drawnWith(Callout* c) const
+    {
+        auto drawn = [](const Callout* o) {
+            return o && o->UseImported.getValue() && !o->ImportedGraphic.getShape().isNull();
+        };
+        if (auto gt = freecad_cast<GeometricTolerance*>(c)) {
+            auto upper = gt->compositeUpper();
+            if (upper && drawn(upper) && !drawn(c)) {
+                return upper;
+            }
+        }
+        if (drawn(c)) {
+            Extent mine = extent(c->ImportedGraphic.getShape().getShape());
+            for (auto o : _made) {
+                if (o == c) {
+                    return nullptr;
+                }
+                if (drawn(o) && !o->ImportedWith.getValue()
+                    && same(mine, extent(o->ImportedGraphic.getShape().getShape()))) {
+                    return o;
+                }
+            }
+            return nullptr;
+        }
+        auto depth = freecad_cast<Dimension*>(c);
+        if (!depth || depth->getType() != Dimension::Depth || c->UseImported.getValue()) {
+            return nullptr;
+        }
+        auto faces = [](const Dimension* d) {
+            std::set<std::pair<App::DocumentObject*, std::string>> res;
+            for (auto f : d->Features.getValues()) {
+                if (auto tf = freecad_cast<TolerancedFeature*>(f)) {
+                    const auto& objs = tf->References.getValues();
+                    const auto& subs = tf->References.getSubValues();
+                    for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
+                        res.emplace(objs[i], subs[i]);
+                    }
+                }
+            }
+            return res;
+        };
+        auto mine = faces(depth);
+        for (auto o : _made) {
+            auto size = freecad_cast<Dimension*>(o);
+            if (!size || !drawn(size)
+                || (size->getType() != Dimension::Diameter
+                    && size->getType() != Dimension::Radius)) {
+                continue;
+            }
+            for (auto& f : faces(size)) {
+                if (mine.count(f)) {
+                    return size;
+                }
+            }
+        }
+        return nullptr;
+    }
+
+private:
     /// A thickness of a hole is its depth (STC-06's, STC-10's): faces that
     /// are no width, two planes or a slot, but are a hole
     static bool isDepth(const Faces& f)
@@ -940,16 +1027,27 @@ private:
         }
         const Part::TopoShape& shape = f.object->Shape.getShape();
         std::vector<Primitive> prims;
+        std::vector<TopoDS_Shape> faces;
         for (auto& name : f.names) {
-            prims.push_back(Geom::ofElement(shape.getSubShape(name.c_str(), true)));
+            faces.push_back(shape.getSubShape(name.c_str(), true));
+            prims.push_back(Geom::ofElement(faces.back()));
         }
         double value = 0;
         std::string why;
+        // A width is of two planes apart, not two faces of one plane
         bool planes = prims.size() == 2 && prims[0].type == Primitive::Plane
             && prims[1].type == Primitive::Plane;
-        if ((planes && Geom::distance(prims[0], prims[1], value, why))
+        if ((planes && Geom::distance(prims[0], prims[1], value, why) && value > 1e-6)
             || Geom::width(prims, value)) {
             return false;
+        }
+        // A depth on a counterbore's floor alone (STC-06): of its bores
+        bool bored = std::any_of(prims.begin(), prims.end(), [](const Primitive& p) {
+            return p.type == Primitive::Cylinder;
+        });
+        if (!bored) {
+            auto bores = Geom::bores(shape.getShape(), faces);
+            prims.insert(prims.end(), bores.begin(), bores.end());
         }
         return Geom::depth(prims, value, why);
     }
@@ -1488,6 +1586,14 @@ Step::Report Step::read(const Import::PostImport& info)
         c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
         c->ImportedGraphicName.setValue(reader._graphicNames[c]);
         c->UseImported.setValue(true);
+    }
+    // A PMI the file draws in another's graphic: drawn so, until either is
+    // edited (docs/GDandT.md sec 10.10, I)
+    for (auto c : reader._made) {
+        if (auto other = reader.drawnWith(c)) {
+            c->ImportedWith.setValue(other);
+            c->UseImported.setValue(true);
+        }
     }
     if (report.datums + report.tolerances + report.dimensions == 0) {
         for (auto& s : report.skipped) {

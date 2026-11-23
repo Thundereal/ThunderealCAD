@@ -102,6 +102,12 @@ PMIExport bool sameSurface(const Primitive& a, const Primitive& b, double tol = 
 /// drill point is no floor). A pattern's holes ("4X") all of one depth. False
 /// with why for faces that are not
 PMIExport bool depth(const std::vector<Primitive>& faces, double& depth, std::string& why);
+/// The bores planar \a floors close in \a solid: its cylindrical faces that
+/// share an edge with one and are square to it (a counterbore's wall and its
+/// hole's, at its floor) -- what a depth given on its floor alone is of
+/// (NIST STC-06's counterbores)
+PMIExport std::vector<Primitive> bores(const TopoDS_Shape& solid,
+                                       const std::vector<TopoDS_Shape>& floors);
 
 /// The distance between two reference primitives (planes parallel, axes
 /// parallel, a point and anything); false if they have no single distance

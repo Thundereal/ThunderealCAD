@@ -198,7 +198,10 @@ before making another (STEP's uniqueness rule, [A7]).
   size, "0.01/25X25" (sec 5.3 item 13).
 - `DatumSystem`: a PMI::DatumReferenceFrame, or none (form tolerances).
 - `Composite`: a link to the upper frame this one is a lower segment of; `Stacked` is the
-  default (independent). OCCT does not carry composite frames today [B2] -- section 5.3.
+  default (independent). Drawn as one frame: each lower segment a row flush under the upper,
+  in its plane, with no symbol or leader of its own, the upper's symbol cell going on down
+  them. Read and written as AP242's `geometric_tolerance_relationship` 'composite' (sec 5.3
+  item 17).
 
 The enumerations follow OCCT's `XCAFDimTolObjects_*` where they exist (so import/export is a
 table, not a translation) and CAx-IF Tables 13-15 where OCCT has gaps [A6, B2].
@@ -257,7 +260,7 @@ The survey found five gaps [B2], in the order the phases need them:
 1. Datum targets skipped on read.
 2. The streamed-import duplicate risk (fork code: our root-range transfer).
 3. Composite frames (`geometric_tolerance_relationship`) neither read nor written, no field in
-   `XCAFDimTolObjects_GeomToleranceObject`.
+   `XCAFDimTolObjects_GeomToleranceObject`. Read and written on the fork (2026-11-23, item 17).
 4. Saved views not written to STEP (`model_geometric_view` + `camera_model_d3`). Written on
    the fork (2026-11-21, sec 10.18).
 5. The presentation curve colour hard-coded white; `writeDGTsAP242` ignoring its label list.
@@ -360,6 +363,26 @@ Found with the same (2026-11-23), and fixed on the fork:
     STC-07 has them: the 31 radii, three of its oriented linear dimensions, four of its
     profiles. FreeCAD draws ours there, and writes it as the file named it while
     `UseImported` (sec 10.10, I). `test_a_placeholder_alone_is_ours_named_as_the_file_names_it`.
+17. Composite frames, in 11 of the NIST files: the lower segment, a tolerance of its own
+    related to its upper by a `geometric_tolerance_relationship` 'composite' (the upper
+    relating), read as a frame of its own, its relation lost; NIST draws both segments in the
+    upper's graphic and links the lower's to none, so ours was drawn and written beside it
+    (STC-07's Position.5 and .8, which SFA counts as two positions more). Carried in XCAF now
+    (`XCAFDoc_DimTolTool::SetCompositeUpper` / `GetCompositeUpper`, a graph node of
+    `XCAFDoc::GeomTolCompositeRefGUID`), read and written. FreeCAD links the lower segment
+    (`Composite`); while its upper draws the file's graphic, the lower draws nothing of its own
+    and is written with no graphic, as NIST has it; an edit of either draws both from what they
+    say. `test_composite_frames_as_the_file_has_them`.
+18. A datum feature that is its own size (item 14: STC-07's holes, datums B and C) took the
+    size's graphic ('Linear Size.1') as the datum's, the one linked to its feature; the datum
+    symbol, 'Datum Feature.2', linked to the datum, was lost. Such a feature's graphic is left
+    to its size now, the datum's read from the datum.
+19. A value's format -- 'NR2 1.2', how many places it is written to, a
+    `value_format_type_qualifier` of the measure's `qualified_representation_item` -- was read
+    only on a qualified value of the plain kind, a case its complex with a measure (NIST's every
+    value) never reaches, being one of the kind before it: every NIST dimension read with no
+    places, written with none, a checker printing STC-06's depth .3125 where NIST's is '.31'.
+    Read now from the measure's qualifiers, wherever the value is; FreeCAD's `DecimalPlaces`.
 
 Worked around, not fixed: `GenerateTessellatedCurveSet` writes a curve that is not a line as
 its B-spline's poles -- the control polygon, not the curve -- and reads an edge's curve without
@@ -872,11 +895,15 @@ far end of the widest (a counterbore's bore, else the hole) to its floor -- a pl
 the axis, no further from the bore's end than the bore is wide -- or is the widest's length
 where there is none: a drill point's cone is no floor, so a hole's axis 36.65 long is 35 deep
 (STC-10). The import makes a `thickness` a Depth when its faces are no width (two planes, a
-slot) but are a hole; the export writes a Depth as a `thickness`, as NIST does. The NIST set:
-STC-06's 12.7 and 4X 7.9375, STC-10's 2.0, 3X 6.0, 10.0 (two), 27.5 and 35.0 -- ten, all Ok and
-as the file gives them. STC-06's third, 12.7 on four counterbores' floors alone (no bore, no
-opening), has nothing to measure and stays invalid; FTC-07's depths are locations between two
-faces, read as distances, the depth sign only in their semantic text. Tests:
+slot) but are a hole; the export writes a Depth as a `thickness`, as NIST does. A depth given on
+a counterbore's floor alone (STC-06's .5625 on two halves of one floor, its .5 on four) is of the
+bores the floor closes: the part's cylinders square to it that share its edges and run out of it
+the way it faces (`Geom::bores`; the hole below a counterbore's floor runs into the material, as
+a through hole does at the part's face). Two faces of one plane are no width (that one measured
+0, as a width). The NIST set: STC-06's 14.2875, 12.7 (two) and 4X 7.9375, STC-10's 2.0, 3X 6.0,
+10.0 (two), 27.5 and 35.0 -- twelve, all Ok and as the file gives them; FTC-07's depths are
+locations between two faces, read as distances, the depth sign only in their semantic text.
+A depth with no graphic of its own is drawn in its hole's (sec 10.10, I). Tests:
 `TestModel.test_a_holes_depth`, `TestNistSet.test_a_holes_depth`.
 
 The NIST set: the three "MMR on no feature of size" are read now -- FTC-09's pattern of two
@@ -1575,7 +1602,15 @@ Then, in that order:
   `ImportedGraphicName` and written again the same way, a note's included (it was named by its
   words): NIST names its graphics 'Linear Size.3', 'Text.1'. A PMI the file gives only a
   placeholder (sec 5.3, item 16) has `UseImported` on and no `ImportedGraphic`: ours is drawn,
-  and written named and of the kind the file named the placeholder.
+  and written named and of the kind the file named the placeholder. A PMI the file draws in
+  another's graphic links that one, `ImportedWith`, and draws and writes nothing of its own
+  while both are as the file has them; an edit of either draws both from what they say. The
+  import links: a composite frame's lower segment to its upper (sec 5.3, item 17); the second
+  of two PMI read with one graphic to the first (STC-06's hole callouts, a diameter's and its
+  depth's: written twice before, as two graphics); a depth with no graphic to its hole's
+  diameter or radius, a depth being lettered after its hole's size (STC-10's eight, which
+  had graphics of their own written for them). STC-06 and STC-10 written again have NIST's
+  graphics, each the kind and name the file has (dwin, SFA p11).
 - **I2, a note's words.** Every NIST AP242 file gives a note's or label's words as a 'semantic
   text': a property of what it is on (a datum feature, a dimension's feature, the product), its
   words a representation's descriptive items, the graphic its presentation. Neither side read

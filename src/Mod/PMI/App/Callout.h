@@ -94,6 +94,10 @@ public:
     /// The name the file gave its graphic or placeholder ('Linear Size.13'),
     /// written again with it: many PMI may share one (STC-07's 31 radii)
     App::PropertyString ImportedGraphicName;
+    /// The callout whose graphic from the file draws this one too, while
+    /// both are as the file has them: a composite frame's upper segment, the
+    /// PMI a graphic presents with it, a hole's size for its depth
+    App::PropertyLink ImportedWith;
     /// Draw the file's graphic, or ours where its placeholder is, written
     /// named as the file named it; off once the callout is edited, and laid
     /// out from its semantics from then on
@@ -140,6 +144,19 @@ public:
 
     /// The callout this one is stacked under, or null (also for a loop)
     Callout* attachedParent() const;
+    /// The callout this one is drawn as one with, under it, when it is
+    /// stacked under none, and how far below that one's bottom its own top
+    /// is (\a below, at text height \a h): a composite frame's lower segment,
+    /// flush under its upper (docs/GDandT.md sec 4.5). None by default
+    virtual Callout* composedUnder(double h, double& below) const
+    {
+        (void)h;
+        (void)below;
+        return nullptr;
+    }
+    /// Whether the file's graphic of another callout (ImportedWith) draws
+    /// this one too: nothing of its own is drawn then
+    bool drawnByAnother() const;
 
     /// Whether \a view shows it
     bool inView(const View* view) const;

@@ -212,7 +212,14 @@ bool Dimension::measure(double& value, std::string& why) const
         case Width:
             if (faces.size() == 2 && faces[0].type == Primitive::Plane
                 && faces[1].type == Primitive::Plane) {
-                return Geom::distance(faces[0], faces[1], value, why);
+                if (!Geom::distance(faces[0], faces[1], value, why)) {
+                    return false;
+                }
+                // Two faces of one plane (a counterbore's floor, halved) are
+                // no width
+                if (value > 1e-6) {
+                    return true;
+                }
             }
             // A pattern of widths ("2X"), a slot
             if (Geom::width(faces, value)) {
@@ -232,8 +239,19 @@ bool Dimension::measure(double& value, std::string& why) const
             }
             why = "an angular size needs a cone or two planar faces";
             return false;
-        case Depth:
-            return Geom::depth(faces, value, why);
+        case Depth: {
+            // On its floor alone: of the bores the floor closes
+            bool bored = std::any_of(faces.begin(), faces.end(), [](const Primitive& f) {
+                return f.type == Primitive::Cylinder;
+            });
+            if (bored) {
+                return Geom::depth(faces, value, why);
+            }
+            std::vector<Primitive> all = faces;
+            const auto& bores = feats[0]->borePrimitives();
+            all.insert(all.end(), bores.begin(), bores.end());
+            return Geom::depth(all, value, why);
+        }
         case Distance:
             return Geom::distance(p, feats[1]->primitive(), value, why);
         case Angle:

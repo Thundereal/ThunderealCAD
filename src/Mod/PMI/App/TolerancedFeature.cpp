@@ -334,6 +334,23 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
         }
     }
     bool derived = derive(live, why);
+    // The bores its planar faces close, from one copy of the part: each
+    // getTopoShape() is a copy of its own, its faces none of another's
+    _bores.clear();
+    if (!newObjs.empty()) {
+        try {
+            auto whole = Part::Feature::getTopoShape(newObjs.front());
+            std::vector<TopoDS_Shape> floors;
+            for (std::size_t i = 0; i < newObjs.size() && i < newSubs.size(); ++i) {
+                if (newObjs[i] == newObjs.front() && !Data::hasMissingElement(newSubs[i].c_str())) {
+                    floors.push_back(whole.getSubShape(newSubs[i].c_str(), true));
+                }
+            }
+            _bores = Geom::bores(whole.getShape(), floors);
+        }
+        catch (...) {
+        }
+    }
 
     // What it was last resolved to, kept for a broken reference
     SavedGeometry.setValue(Geom::compound(faces));

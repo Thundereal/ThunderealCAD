@@ -170,7 +170,18 @@ void GeometricTolerance::layout(Drawing& d, double h) const
     const double margin = 0.5 * h;
     std::vector<double> walls;
 
-    d.characteristic(Characteristic.getValue(), 0, 0, H);
+    // A composite frame: one symbol, its cell down the upper segment and
+    // every lower one, each lower a row of its own under it (ASME Y14.5
+    // sec 10.5.1)
+    auto upper = compositeUpper();
+    std::vector<GeometricTolerance*> lowers;
+    if (upper) {
+        lowers = upper->lowerSegments();
+    }
+    else {
+        d.characteristic(Characteristic.getValue(), 0, 0, H);
+    }
+    bool hasLowers = !upper && !lowerSegments().empty();
     walls.push_back(H);
 
     Pen pen {d, h, H, H + margin};
@@ -248,8 +259,26 @@ void GeometricTolerance::layout(Drawing& d, double h) const
             }
         }
     }
-    d.rect(0, 0, walls.back(), H);
-    for (std::size_t i = 0; i + 1 < walls.size(); ++i) {
+    double w = walls.back();
+    if (upper) {
+        // The symbol cell goes on down; closed under the last
+        d.rect(H, 0, w - H, H);
+        d.line(0, 0, 0, H);
+        if (!lowers.empty() && lowers.back() == this) {
+            d.line(0, 0, H, 0);
+        }
+    }
+    else if (hasLowers) {
+        // Its symbol cell open below, to its lower segments
+        d.line(0, 0, 0, H);
+        d.line(0, H, w, H);
+        d.line(w, 0, w, H);
+        d.line(H, 0, w, 0);
+    }
+    else {
+        d.rect(0, 0, w, H);
+    }
+    for (std::size_t i = upper ? 1 : 0; i + 1 < walls.size(); ++i) {
         d.line(walls[i], 0, walls[i], H);
     }
 }

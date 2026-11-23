@@ -76,7 +76,7 @@ def build():
         h.addProperty("App::PropertyXLink", "L")
         h.L = part.Bolt
         asm.saveAs(ASM)
-        check("the link is saved under the library", asm.LibraryPaths.get(NAME) == LIB,
+        check("the link is saved under the library", same(asm.LibraryPaths.get(NAME, ""), LIB),
               asm.LibraryPaths)
         for name in list(FreeCAD.listDocuments()):
             FreeCAD.closeDocument(name)
@@ -104,7 +104,7 @@ def reported():
                       same(linked_file(), os.path.join(LIB2, "f", "bolt" + EXT)),
                       linked_file())
                 check("and the document's map names it",
-                      FreeCAD.getDocument("asm").LibraryPaths.get(NAME) == LIB2,
+                      same(FreeCAD.getDocument("asm").LibraryPaths.get(NAME, ""), LIB2),
                       FreeCAD.getDocument("asm").LibraryPaths)
             dialog.close()
     except Exception:
@@ -153,7 +153,7 @@ def look():
             for i in range(table.rowCount()):
                 rows[table.item(i, 0).text()] = table.item(i, 1).text()
         check("the preference page lists the library paths",
-              rows.get(NAME) == LIB, rows)
+              same(rows.get(NAME, ""), LIB), rows)
         if dialog is not None:
             dialog.reject()
     except Exception:

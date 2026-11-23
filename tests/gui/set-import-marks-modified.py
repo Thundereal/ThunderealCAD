@@ -43,8 +43,10 @@ def modified(doc):
 
 
 def ofFile(path):
+    # FileName has forward slashes, os.path.join backslashes on Windows
+    want = os.path.normcase(os.path.normpath(path))
     for d in FreeCAD.listDocuments().values():
-        if d.FileName == path:
+        if d.FileName and os.path.normcase(os.path.normpath(d.FileName)) == want:
             return d
     return None
 

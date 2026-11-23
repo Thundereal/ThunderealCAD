@@ -16,6 +16,7 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/BlobNames.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/BrandText.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Branding.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/CacheSweep.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Document.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Expression.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/ExpressionSecurity.cpp

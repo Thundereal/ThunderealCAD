@@ -98,6 +98,7 @@
 #include "Application.h"
 #include "ShuttingDown.h"
 #include "BrandText.h"
+#include "CacheSweep.h"
 #include "ComplexGeoData.h"
 #include "Document.h"
 #include "FileHistory.h"
@@ -3665,6 +3666,10 @@ void Application::initApplication()
 
     // seed randomizer
     srand(time(nullptr));
+
+    // What killed or crashed processes left in the user cache that holds
+    // nothing to recover (docs/WorkerProcess.md sec 49)
+    CacheSweep::start();
 }
 
 std::list<std::string> Application::getCmdLineFiles()

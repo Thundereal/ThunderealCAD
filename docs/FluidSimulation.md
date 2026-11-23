@@ -1439,8 +1439,20 @@ asks it of a folder. Download OpenFOAM now takes `openfoam=2412=*_100`
 from our channel (what it runs on from conda-forge), which is our build
 and no other.
 
-Until that package is on the channel and installed here, this box's
-OpenFOAM is refused and the five tests that run OpenFOAM skip.
+**Our package, built and tried (2026-11-23).** The feedstock's first CI
+run took 3 h 40 on GitHub's runner and passed the recipe's tests, the
+ducts along x, y and z losing 0.137072 each, serial and under MPI;
+`openfoam-2412-h7ecdde7_100` is on the realthunder channel. Installed
+here as the download does it (`~/.cache/fluid/env-openfoam2`): the duct
+test the same, the backend's check passes, the pipe of the table above
+at +0.21% of Hagen-Poiseuille at 20 cells across and +1.14% at 10, and
+the workbench's tests that run OpenFOAM pass on it as they did.
+
+One thing the trial found: where the machine's own conda settings say
+strict channel priority, mamba and micromamba refuse a build that is in
+one channel when the package's name is in two, whichever channel is
+named first (mamba 2.5.0; conda itself does not). The download's command
+says `--channel-priority flexible` to those two.
 
 ### 14.3 F1 as built, step 1: the fluid's space (2026-11-23)
 

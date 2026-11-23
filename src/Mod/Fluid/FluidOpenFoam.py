@@ -59,6 +59,16 @@ def condaTool():
     return None
 
 
+def priorityFlag(tool):
+    """What makes the tool take our package where the machine's own settings
+    say strict channel priority: mamba and micromamba then refuse a build
+    that is in one channel when the name is in two, whichever comes first
+    (measured, mamba 2.5.0); conda does not, and has no such flag."""
+    if os.path.basename(tool or "").startswith("conda"):
+        return ""
+    return " --channel-priority flexible"
+
+
 def installScript(folder=None, tool=None):
     """The shell script that makes the download: the installer fetched and
     checked when there is none here, the package installed into the folder,
@@ -81,8 +91,14 @@ def installScript(folder=None, tool=None):
         ]
     lines += [
         "echo 'Installing %s from %s into %s'" % (PACKAGE, " and ".join(CHANNELS), folder),
-        "'%s' create -y -p '%s' %s --override-channels '%s'"
-        % (tool, folder, " ".join("-c " + channel for channel in CHANNELS), PACKAGE),
+        "'%s' create -y -p '%s' %s --override-channels%s '%s'"
+        % (
+            tool,
+            folder,
+            " ".join("-c " + channel for channel in CHANNELS),
+            priorityFlag(tool),
+            PACKAGE,
+        ),
         "echo DONE",
     ]
     return "\n".join(lines) + "\n"

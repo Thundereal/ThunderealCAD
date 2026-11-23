@@ -30,8 +30,14 @@ class TestDownload(unittest.TestCase):
         self.assertNotIn("curl", script)
         self.assertIn(
             "'/usr/bin/mamba' create -y -p '/data/of' -c realthunder -c conda-forge "
-            "--override-channels 'openfoam=2412=*_100'",
+            "--override-channels --channel-priority flexible 'openfoam=2412=*_100'",
             lines,
+        )
+        # conda has no such flag, and needs none
+        self.assertIn(
+            "'/opt/conda/bin/conda' create -y -p '/data/of' -c realthunder -c conda-forge "
+            "--override-channels 'openfoam=2412=*_100'",
+            FluidOpenFoam.installScript("/data/of", "/opt/conda/bin/conda").splitlines(),
         )
         self.assertEqual(lines[-1], "echo DONE")
 

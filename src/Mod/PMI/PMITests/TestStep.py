@@ -34,8 +34,31 @@ def objects(doc, kind):
     return [o for o in doc.Objects if o.TypeId == "PMI::" + kind]
 
 
+# The NIST set's tolerances per unit: (file, characteristic, basis, size, second side), in mm
+PER_UNIT = (
+    ("nist_ctc_03_asme1_ap242-e2.stp", "Flatness", "Rectangle", 6.35, 6.35),
+    ("nist_ftc_07_asme1_ap242-e2.stp", "Flatness", "Circle", 25.4, 0.0),
+    ("nist_stc_07_asme1_ap242-e3.stp", "Flatness", "Circle", 25.4, 0.0),
+    ("nist_ftc_10_asme1_ap242-e2.stp", "Straightness", "Length", 15.0, 0.0),
+    ("nist_stc_10_asme1_ap242-e2.stp", "Straightness", "Length", 15.0, 0.0),
+)
+
+
+def edition(path):
+    """A NIST file whatever its edition: nist_ctc_04_asme1_ap242-e1.stp is
+    -e2 in a newer zip, ftc_08's -e1-tg -e4-tg (dwin, p9). The one named if it
+    is there, else the one other edition of it"""
+    if os.path.exists(path):
+        return path
+    folder, name = os.path.split(path)
+    pattern = re.sub(r"-e\d+", "-e*", name, count=1)
+    found = sorted(glob.glob(os.path.join(folder, pattern)))
+    return found[-1] if found else path
+
+
 class Base(unittest.TestCase):
     def read(self, path):
+        path = edition(path)
         doc = App.newDocument("PMIStep")
         self.addCleanup(App.closeDocument, doc.Name)
         Import.insert(path, doc.Name)
@@ -505,7 +528,8 @@ class TestNistSet(Base):
         placeholder (AP242 ed2), its only semantic link in FTC-06 and STC-08:
         each dimension has its graphic, not a note of its own beside it. And
         where a named association gives the graphic, the placeholder's (a
-        callout of the placeholder alone) does not take its place: STC-06"""
+        callout of the placeholder alone) does not take its place: STC-06. A
+        graphic is a PMI's only when that PMI is read and holds it"""
         nist = os.environ["FC_PMI_NIST"]
         for name, notes in (("nist_ftc_06_asme1_ap242-e2.stp", 7),
                             ("nist_stc_06_asme1_ap242-e3.stp", 2),
@@ -516,6 +540,10 @@ class TestNistSet(Base):
                 self.assertTrue(dims)
                 self.assertEqual([d.Label for d in dims if d.ImportedGraphic.isNull()], [])
                 self.assertEqual(len(objects(doc, "Note")), notes)
+        # A placeholder to a PMI not read, or read with no graphic, takes no graphic away:
+        # CTC-03's datum feature 6, which no tolerance cites, stays a graphic alone (dwin, p9)
+        doc = self.read(os.path.join(nist, "nist_ctc_03_asme1_ap242-e2.stp"))
+        self.assertIn("Simple Datum.6", [n.Label for n in objects(doc, "Note")])
 
     def test_features_named_as_stc_07_names_them(self):
         """STC-07 names its holes' surfaces through an item identified
@@ -523,19 +551,50 @@ class TestNistSet(Base):
         property; its positions are on centres of symmetry of those, an axis
         drawn in its supplemental geometry, grouped as patterns. Each is read:
         the positions on the holes' faces, the profile on datum feature A's
-        surfaces, datums A, D and E"""
+        surfaces, the flatness per unit area. Datums B and C are holes that
+        are their own diameters (dimensional_size_with_datum_feature): each a
+        datum on its faces and a diameter. All 22 of the file's tolerances"""
         doc = self.read(os.path.join(os.environ["FC_PMI_NIST"],
                                      "nist_stc_07_asme1_ap242-e3.stp"))
         gts = objects(doc, "GeometricTolerance")
         kinds = collections.Counter(g.Characteristic for g in gts)
-        self.assertEqual(kinds["Position"], 8, kinds)
+        self.assertEqual(len(gts), 22, kinds)
+        self.assertEqual(kinds["Position"], 9, kinds)
         self.assertEqual(kinds["ProfileOfSurface"], 10, kinds)
         for g in gts:
             self.assertEqual(g.Condition, "Ok", (g.Label, g.ConditionMessage))
             subs = [s for r in g.Feature.References for s in r[1]]
             self.assertTrue(subs and all(s.startswith("Face") for s in subs), (g.Label, subs))
         letters = sorted(d.Letter for d in objects(doc, "Datum"))
-        self.assertTrue({"A", "D", "E"} <= set(letters), letters)
+        self.assertEqual(letters, ["A", "B", "C", "D", "E"])
+        for d in objects(doc, "Datum"):
+            self.assertTrue(d.Feature and d.Feature.References, d.Letter)
+        holes = [d for d in objects(doc, "Dimension")
+                 if d.Type == "Diameter" and abs(d.Nominal.Value - 6.35) < 1e-6]
+        self.assertGreaterEqual(len(holes), 2)
+
+    def test_a_tolerance_per_unit(self):
+        """A flatness per unit area -- any 0.25 x 0.25 in of the face (CTC-03),
+        any circle of 1 in (FTC-07, STC-07) -- and a straightness per unit
+        length (FTC-10, STC-10): read with its unit, written and read again
+        the same"""
+        nist = os.environ["FC_PMI_NIST"]
+        for name, kind, basis, size, size2 in PER_UNIT:
+            with self.subTest(name):
+                doc = self.read(os.path.join(nist, name))
+
+                def per_unit(doc):
+                    return sorted((g.Characteristic, g.UnitBasis, round(g.UnitSize.Value, 4),
+                                   round(g.UnitSize2.Value, 4))
+                                  for g in objects(doc, "GeometricTolerance")
+                                  if g.UnitBasis != "None")
+
+                self.assertEqual(per_unit(doc), [(kind, basis, size, size2)])
+                gt = [g for g in objects(doc, "GeometricTolerance") if g.UnitBasis != "None"][0]
+                self.assertEqual(gt.Condition, "Ok", gt.ConditionMessage)
+                # With its graphic (CTC-03's was lost in p9, dwin)
+                self.assertFalse(gt.ImportedGraphic.isNull())
+                self.assertEqual(per_unit(self.write_and_read(doc)), [(kind, basis, size, size2)])
 
     def test_on_supplemental_geometry(self):
         """GD&T on supplemental geometry -- a thread's cylinder drawn as its

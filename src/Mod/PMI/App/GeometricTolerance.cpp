@@ -49,6 +49,8 @@ const char* GeometricTolerance::CharacteristicEnums[] = {"Straightness",
                                                          nullptr};
 const char* GeometricTolerance::ZoneShapeEnums[] = {"None", "Diameter", "SphericalDiameter", nullptr};
 const char* GeometricTolerance::MaterialEnums[] = {"None", "Maximum", "Least", nullptr};
+const char* GeometricTolerance::UnitBasisEnums[] = {"None",      "Length", "Square",
+                                                    "Rectangle", "Circle", nullptr};
 
 PROPERTY_SOURCE(PMI::GeometricTolerance, PMI::Callout)
 
@@ -72,6 +74,14 @@ GeometricTolerance::GeometricTolerance()
                       "The offset of an unequally disposed zone (modifier U)");
     ADD_PROPERTY_TYPE(MaxValue, (0.0), "PMI", App::Prop_None,
                       "A maximum the zone may not exceed (0.1 MAX 0.3); 0 for none");
+    ADD_PROPERTY_TYPE(UnitBasis, (0L), "PMI", App::Prop_None,
+                      "What the value holds on: the whole feature (None), or any part of it "
+                      "of the unit size -- a length, a square, a rectangle, a circle");
+    UnitBasis.setEnums(UnitBasisEnums);
+    ADD_PROPERTY_TYPE(UnitSize, (0.0), "PMI", App::Prop_None,
+                      "The unit's length, side or diameter (0.01/25)");
+    ADD_PROPERTY_TYPE(UnitSize2, (0.0), "PMI", App::Prop_None,
+                      "A rectangular unit's second side (0.01/25X30)");
     ADD_PROPERTY_TYPE(DatumSystem, (nullptr), "PMI", App::Prop_None,
                       "The datum reference frame; none for a form tolerance");
     ADD_PROPERTY_TYPE(Composite, (nullptr), "PMI", App::Prop_None,

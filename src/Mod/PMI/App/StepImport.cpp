@@ -902,6 +902,26 @@ private:
         if (obj->GetMaxValueModifier() > 0) {
             gt->MaxValue.setValue(obj->GetMaxValueModifier());
         }
+        switch (obj->GetUnitBasis()) {
+            case XCAFDimTolObjects_GeomToleranceUnitBasis_Length:
+                gt->UnitBasis.setValue(long(GT::PerLength));
+                break;
+            case XCAFDimTolObjects_GeomToleranceUnitBasis_Square:
+                gt->UnitBasis.setValue(long(GT::PerSquare));
+                break;
+            case XCAFDimTolObjects_GeomToleranceUnitBasis_Rectangle:
+                gt->UnitBasis.setValue(long(GT::PerRectangle));
+                gt->UnitSize2.setValue(obj->GetSecondUnitSize());
+                break;
+            case XCAFDimTolObjects_GeomToleranceUnitBasis_Circle:
+                gt->UnitBasis.setValue(long(GT::PerCircle));
+                break;
+            default:
+                break;
+        }
+        if (obj->GetUnitBasis() != XCAFDimTolObjects_GeomToleranceUnitBasis_None) {
+            gt->UnitSize.setValue(obj->GetUnitSize());
+        }
         if (!comps.empty()) {
             gt->DatumSystem.setValue(Api::frame(set(f.object), comps));
         }

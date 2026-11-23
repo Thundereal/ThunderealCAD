@@ -201,6 +201,24 @@ void GeometricTolerance::layout(Drawing& d, double h) const
             pen.text(Callout::number(UnequalValue.getValue()));
         }
     }
+    switch (UnitBasis.getValue()) {
+        case PerLength:
+            pen.text(U"/" + Callout::number(UnitSize.getValue()));
+            break;
+        case PerSquare:
+            pen.text(U"/" + Callout::number(UnitSize.getValue()) + U"X"
+                     + Callout::number(UnitSize.getValue()));
+            break;
+        case PerRectangle:
+            pen.text(U"/" + Callout::number(UnitSize.getValue()) + U"X"
+                     + Callout::number(UnitSize2.getValue()));
+            break;
+        case PerCircle:
+            pen.text(U"/" + std::u32string(1, DiameterSign) + Callout::number(UnitSize.getValue()));
+            break;
+        default:
+            break;
+    }
     if (MaxValue.getValue() > 0) {
         pen.space();
         pen.text(U"MAX " + Callout::number(MaxValue.getValue()));

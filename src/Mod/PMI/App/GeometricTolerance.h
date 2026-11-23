@@ -62,6 +62,12 @@ public:
     App::PropertyDistance UnequalValue;
     /// A refinement "0.1 MAX 0.3"; 0 for none
     App::PropertyLength MaxValue;
+    /// What the value holds on: the whole feature (None), or any part of it
+    /// of UnitSize -- per unit length, or area: a square, a rectangle
+    /// UnitSize by UnitSize2, a circle of diameter UnitSize ("0.01/25X25")
+    App::PropertyEnumeration UnitBasis;
+    App::PropertyLength UnitSize;
+    App::PropertyLength UnitSize2;
     App::PropertyLink DatumSystem;
     /// The upper frame this is a lower segment of (a composite frame)
     App::PropertyLink Composite;
@@ -90,6 +96,15 @@ public:
         DiameterZone,
         SphericalDiameterZone,
     };
+    enum UnitBasisValue
+    {
+        WholeFeature,
+        PerLength,
+        PerSquare,
+        PerRectangle,
+        PerCircle,
+    };
+    static const char* UnitBasisEnums[];
     enum MaterialValue
     {
         NoMaterial,

@@ -77,6 +77,12 @@ void checkTolerance(const GT* gt, const AnnotationSet* set, std::vector<Issue>& 
     if (gt->MaxValue.getValue() > 0.0 && gt->MaxValue.getValue() < gt->Value.getValue()) {
         error("the maximum is smaller than the tolerance");
     }
+    if (gt->UnitBasis.getValue() != GT::WholeFeature && gt->UnitSize.getValue() <= 0.0) {
+        error("a tolerance per unit needs the unit's size");
+    }
+    if (gt->UnitBasis.getValue() == GT::PerRectangle && gt->UnitSize2.getValue() <= 0.0) {
+        error("a tolerance per rectangular unit needs its second side");
+    }
 
     // The standard
     if (set && set->getStandard() == AnnotationSet::ASME2018

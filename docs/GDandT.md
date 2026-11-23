@@ -192,7 +192,9 @@ before making another (STEP's uniqueness rule, [A7]).
 - `Feature`: the toleranced PMI::TolerancedFeature.
 - `Zone`: `Shape` (none, DIA, S-DIA), `Value` (a quantity, expressions allowed),
   `Modifiers` (M, L, F, P + `ProjectedLength`, T, U + `UnequalValue`, ST, CZ, ACS, LE, NC,
-  LD/MD/PD, ...), `MaxValue`, `UnitBasis` (per length / area).
+  LD/MD/PD, ...), `MaxValue`, `UnitBasis` (None, Length, Square, Rectangle, Circle) with
+  `UnitSize` and a rectangle's `UnitSize2`: the value holds on any part of the feature of that
+  size, "0.01/25X25" (sec 5.3 item 13).
 - `DatumSystem`: a PMI::DatumReferenceFrame, or none (form tolerances).
 - `Composite`: a link to the upper frame this one is a lower segment of; `Stacked` is the
   default (independent). OCCT does not carry composite frames today [B2] -- section 5.3.
@@ -315,9 +317,37 @@ Found reading STC-07's tolerances (2026-11-23), and fixed on the fork (OCCT bbab
     axes drawn in its supplemental geometry, trimmed curves in composite curves, which were
     not transferred: each curve is now an edge, bound. 19 read: the positions on the holes'
     faces, the profile of any surface on datum feature A's surfaces, datums D and E.
-    `test_features_named_as_stc_07_names_them`. Left: the flatness per unit area (CTC-03,
-    FTC-07, STC-07; FTC-10's straightness per unit length too), a complex entity the reader
-    does not know, and what is on a `dimensional_size_with_datum_feature`.
+    `test_features_named_as_stc_07_names_them`. Left then: items 13 and 14.
+
+Found with the same (2026-11-23), and fixed on the fork:
+
+13. A tolerance per unit length or area -- the complex of its type, `geometric_tolerance`,
+    `geometric_tolerance_with_defined_unit` and, per area,
+    `geometric_tolerance_with_defined_area_unit`: CTC-03's flatness on any 0.25 x 0.25 in,
+    FTC-07's and STC-07's on any circle of 1 in, FTC-10's and STC-10's straightness on any 15
+    -- was an entity the reader did not know: the tolerance was not read. Read and written now
+    (`StepDimTol_GeoTolAndGeoTolWthDefUnit`, type 828; its unit sizes kept as read, a plain
+    `length_measure_with_unit` or NIST's complex with a `measure_representation_item`), carried
+    in XCAF (`XCAFDimTolObjects_GeomToleranceUnitBasis`: None, Length, Square, Rectangle,
+    Circle, and the sizes; two child labels of `XCAFDoc_GeomTolerance`), and here as
+    `UnitBasis`, `UnitSize`, `UnitSize2` (sec 4.5), drawn "0.01/25X25". With modifiers or
+    datums it is a complex no reader knows: written for the whole feature, the export says so.
+    In passing: `StepDimTol_GeometricToleranceWithDefinedAreaUnit::HasSecondUnitSize` said the
+    opposite. `test_a_tolerance_per_unit`.
+14. `dimensional_size_with_datum_feature` (a datum feature that is its own size: STC-07's holes,
+    datums B and C, each with its diameter) was an entity the reader did not know: the two
+    datums had no faces, their diameters, Position.1 and Perpendicularity.1 (on the holes'
+    centres) were not read. Read now (`StepShape_DimensionalSizeWithDatumFeature`, type 829, a
+    datum feature; a case of `StepShape_DimensionalCharacteristic`): the datum on its faces,
+    the size a diameter. STC-07 reads all 22 tolerances and datums A to E.
+15. A graphic is a PMI's only when that PMI is read and holds it (found by dwin, SFA p9).
+    Item 11 took a graphic with a placeholder association as its PMI's whether or not that PMI
+    was read: CTC-03's datum feature 6, which no tolerance cites, and its flatness (item 13,
+    then unread) lost their graphics. `ReadGDTs` now reads all the GD&T first, then the
+    graphics: one is left to its PMI when a presentation link (named so, or with a placeholder,
+    as `readAnnotation` takes one) names a PMI read that holds a graphic, else it is a graphic
+    alone, by its association to its geometry. A dimension read with no value (CTC-01's four,
+    given no graphic) leaves its graphic a note, as before.
 
 Worked around, not fixed: `GenerateTessellatedCurveSet` writes a curve that is not a line as
 its B-spline's poles -- the control polygon, not the curve -- and reads an edge's curve without
@@ -1592,6 +1622,14 @@ Then, in that order:
   ASCII themselves (`Step::isAsciiAlnum` and kin), whatever the locale.
   `test_names_whatever_the_locale` runs where a Latin-1 locale is installed (Windows; not
   this box).
+- **SFA p9 (dwin, 2026-11-23)**: every write syntax-clean, the exact counts as p8; FTC-06's
+  doubled graphics gone, its notes named by their words; STC-10's coverage as the original's;
+  SFA no longer misses names in CTC-04 and FTC-07. CTC-03 lost two graphics (sec 5.3 item 15,
+  fixed). Nine tests named NIST editions the Windows box has newer (`ctc_04 -e1` there `-e2`,
+  `ftc_08 -e1-tg` `-e4-tg` ...): a file is now found whatever its edition (`edition()` in
+  `TestStep.py`). `test_names_whatever_the_locale` ran there under cp1252 and passed. SFA's
+  "Processing Unicode characters" on a note's `\X2\000A\X0\` line breaks is an information,
+  not an error: kept, a note's words one text.
 
 ## 11. Decisions (made 2026-11-19)
 

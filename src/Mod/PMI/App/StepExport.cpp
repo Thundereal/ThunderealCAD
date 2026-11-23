@@ -864,6 +864,24 @@ private:
         if (gt->MaxValue.getValue() > 0) {
             obj->SetMaxValueModifier(gt->MaxValue.getValue());
         }
+        if (gt->UnitBasis.getValue() != GeometricTolerance::WholeFeature) {
+            static const XCAFDimTolObjects_GeomToleranceUnitBasis bases[] = {
+                XCAFDimTolObjects_GeomToleranceUnitBasis_None,
+                XCAFDimTolObjects_GeomToleranceUnitBasis_Length,
+                XCAFDimTolObjects_GeomToleranceUnitBasis_Square,
+                XCAFDimTolObjects_GeomToleranceUnitBasis_Rectangle,
+                XCAFDimTolObjects_GeomToleranceUnitBasis_Circle};
+            obj->SetUnitBasis(bases[gt->UnitBasis.getValue()], gt->UnitSize.getValue(),
+                              gt->UnitBasis.getValue() == GeometricTolerance::PerRectangle
+                                  ? gt->UnitSize2.getValue()
+                                  : 0.0);
+            if (!obj->GetModifiers().IsEmpty() || gt->getDatumSystem()
+                || gt->MaterialCondition.getValue() != GeometricTolerance::NoMaterial
+                || gt->MaxValue.getValue() > 0) {
+                partly(gt, "a tolerance per unit with modifiers or datums: its unit is not "
+                           "written, STEP has no entity for both");
+            }
+        }
         if (gt->Composite.getValue()) {
             partly(gt, "a composite frame's lower segment, written as a frame of its own");
         }

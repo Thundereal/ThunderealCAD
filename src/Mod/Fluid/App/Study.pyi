@@ -25,7 +25,8 @@ class Study(DocumentObject):
         Gravity (m/s^2), TimeEnd and OutputInterval (s), Signature (str), and
         Bodies: the parts the fluid moves, counted among the Walls, each
         Source, Mass (kg), Centre (m) and Inertia (about the centre, kg m^2:
-        xx, yy, zz, xy, xz, yz).
+        xx, yy, zz, xy, xz, yz), and Driven: a mechanism's part, moved by
+        the study's Mechanism under the fluid's push.
         Inlets: the faces the fluid comes in through, each Source, Direction
         (the way the fluid goes), Speed (m/s), Area (m^2), Middle (m), Start
         and End (s; an End not after the Start is the run's).

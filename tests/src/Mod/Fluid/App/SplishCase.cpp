@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <sstream>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -382,6 +383,96 @@ TEST(SplishCase, aWallTheFluidMoves)
     model.walls.back().mass.mass = 0.0;
     EXPECT_FALSE(Splish::makeCase(model, {}, made, why));
     EXPECT_NE(why.find("Doc#Float"), std::string::npos) << why;
+}
+
+TEST(SplishCase, aWallMovedFromOutside)
+{
+    // aWallTheFluidMoves's block, a mechanism's part: the same particles,
+    // and the case says who moves it
+    Model model = platesModel();
+    const Vec3 low {0.2, 0.06, 0.0};
+    const Vec3 high {0.3, 0.16, 0.06};
+    model.walls.push_back({"Doc#Float", boxSurface(low, high), {}, {}});
+    model.walls.back().motion = WallMotion::Free;
+    model.walls.back().mass = {0.3, {0.25, 0.11, 0.03}, {4e-4, 5e-4, 6e-4, 1e-5, 2e-5, 3e-5}};
+    EXPECT_FALSE(anyDriven(model));
+    const std::vector<Vec3> free = Splish::bodyOf(model, model.walls.size() - 1);
+    Splish::Case made;
+    std::string why;
+    ASSERT_TRUE(Splish::makeCase(model, {}, made, why)) << why;
+    EXPECT_EQ(made.files.at("case.txt").find("driven"), std::string::npos);
+
+    model.walls.back().motion = WallMotion::Driven;
+    EXPECT_TRUE(anyDriven(model));
+    ASSERT_EQ(freeWalls(model).size(), 1U);
+    EXPECT_EQ(Splish::bodyOf(model, model.walls.size() - 1).size(), free.size());
+    ASSERT_TRUE(Splish::makeCase(model, {}, made, why)) << why;
+    ASSERT_EQ(made.bodies.size(), 1U);
+    EXPECT_NE(made.files.at("case.txt").find("\ndriven 1\n"), std::string::npos);
+    EXPECT_NE(made.files.at("case.txt").find("body " + std::to_string(free.size()) + " 0.3 "),
+              std::string::npos);
+    // and it tells in the signature
+    Model other = model;
+    other.walls.back().motion = WallMotion::Free;
+    EXPECT_NE(signature(model), signature(other));
+
+    // a study's parts are all a mechanism's or all the fluid's own
+    model.walls.push_back({"Doc#Other", boxSurface({0.05, 0.06, 0.0}, {0.1, 0.16, 0.06}), {}, {}});
+    model.walls.back().motion = WallMotion::Free;
+    model.walls.back().mass = {0.2, {0.075, 0.11, 0.03}, {4e-4, 5e-4, 6e-4, 0.0, 0.0, 0.0}};
+    EXPECT_FALSE(Splish::makeCase(model, {}, made, why));
+    EXPECT_NE(why.find("Doc#Other"), std::string::npos) << why;
+    EXPECT_NE(why.find("all the one or all the other"), std::string::npos) << why;
+}
+
+TEST(SplishCase, theLinesOfADrivenWall)
+{
+    // the runner waiting, and how long a stretch it would take
+    Splish::Event event = Splish::parseLine("ask 0 0.0003193");
+    EXPECT_EQ(event.kind, Splish::Event::Ask);
+    EXPECT_EQ(event.time, 0.0);
+    ASSERT_EQ(event.values.size(), 1U);
+    EXPECT_EQ(event.values[0], 0.0003193);
+    // where it got to, and a force and a torque on each wall
+    event = Splish::parseLine("pushed 0.0125 1 2 3 0.1 0.2 0.3 -4 -5 -6 0 0 0.5");
+    EXPECT_EQ(event.kind, Splish::Event::Pushed);
+    EXPECT_EQ(event.time, 0.0125);
+    ASSERT_EQ(event.values.size(), 12U);
+    EXPECT_EQ(event.values[2], 3.0);
+    EXPECT_EQ(event.values[11], 0.5);
+    // with no wall it says so too
+    EXPECT_EQ(Splish::parseLine("pushed 0.5").kind, Splish::Event::Pushed);
+    for (const char* bad : {"ask", "ask 0", "ask 0 1 2", "pushed", "pushed 1 2 3", "pushed 1 a b c d e f"}) {
+        EXPECT_EQ(Splish::parseLine(bad).kind, Splish::Event::Other) << bad;
+    }
+
+    // What it is told: until when, and each wall's centre where the motion
+    // has it, its turn, its centre's velocity and its angular velocity. A
+    // quarter turn about z and a shift: the centre (0.1, 0, 0.02) goes to
+    // (0, 0.1, 0.02) and on by (1, 2, 3).
+    WallState state;
+    const double half = std::sqrt(0.5);
+    state.motion.rotation = {0.0, 0.0, half, half};
+    state.motion.translation = {1.0, 2.0, 3.0};
+    state.velocity = {0.25, 0.0, -0.5};
+    state.spin = {0.0, 0.0, 2.0};
+    const std::string line = Splish::moveLine(0.75, {{0.1, 0.0, 0.02}}, {state});
+    std::istringstream in(line);
+    std::string word;
+    double until = 0.0;
+    ASSERT_TRUE(in >> word >> until);
+    EXPECT_EQ(word, "move");
+    EXPECT_EQ(until, 0.75);
+    const double want[13] = {1.0, 2.1, 3.02, 0.0, 0.0, half, half, 0.25, 0.0, -0.5, 0.0, 0.0, 2.0};
+    for (double expected : want) {
+        double value = 0.0;
+        ASSERT_TRUE(in >> value);
+        EXPECT_NEAR(value, expected, 1e-12);
+    }
+    EXPECT_FALSE(in >> word);
+    EXPECT_EQ(line.back(), '\n');
+    // no wall: the time alone
+    EXPECT_EQ(Splish::moveLine(1.5, {}, {}), "move 1.5\n");
 }
 
 TEST(SplishCase, anInletsLayer)

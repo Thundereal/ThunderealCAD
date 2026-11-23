@@ -9,7 +9,7 @@
 
 #include <Mod/Fluid/FluidGlobal.h>
 
-#include "Model.h"
+#include "Backend.h"
 
 // What the SPlisHSPlasH backend hands its runner, and what it reads back
 // (docs/FluidSimulation.md sec 12 S3). Nothing here needs the solver: the
@@ -96,6 +96,11 @@ struct Event
         Body,     // index, values: where the index-th moved wall is at the
                   // frame that follows, its translation and its rotation's
                   // x, y, z, w (Model.h's Motion)
+        Ask,      // time, values[0]: the runner waits for its driven
+                  // walls' first states; the longest stretch it would take
+        Pushed,   // time, values: the runner is at that time, past the
+                  // stretch it was given; the mean force (3) and torque (3,
+                  // about its centre) on each driven wall since it last said
         Error,    // text
     };
     Kind kind = Other;
@@ -106,6 +111,13 @@ struct Event
     std::string text;
 };
 FluidExport Event parseLine(const std::string& line);
+
+// What the runner is told of its driven walls for a stretch ending at
+// 'until': a line, each wall's centre (where 'centres' has it at the
+// start, moved), its turn, its centre's velocity and its angular velocity.
+FluidExport std::string moveLine(double until,
+                                 const std::vector<Vec3>& centres,
+                                 const std::vector<WallState>& states);
 
 // count points out of a file's bytes; false when they are not all there.
 FluidExport bool pointsOf(const std::string& bytes, std::size_t count, std::vector<Vec3>& points);

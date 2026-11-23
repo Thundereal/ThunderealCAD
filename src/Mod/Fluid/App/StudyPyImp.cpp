@@ -91,6 +91,7 @@ PyObject* StudyPy::buildModel(PyObject* args) const
             const auto& moved = model.walls[wall];
             Py::Dict body;
             body.setItem("Source", Py::String(moved.source));
+            body.setItem("Driven", Py::Boolean(moved.motion == Solver::WallMotion::Driven));
             body.setItem("Mass", Py::Float(moved.mass.mass));
             body.setItem("Centre", tupleOf(moved.mass.centre));
             Py::Tuple inertia(6);

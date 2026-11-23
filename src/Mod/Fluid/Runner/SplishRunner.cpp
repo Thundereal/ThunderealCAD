@@ -30,6 +30,7 @@
 #include <cstring>
 #include <limits>
 #include <cstdint>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -283,6 +284,8 @@ struct Case
     unsigned long fluid = 0;
     std::vector<Monitor> monitors;
     std::vector<Body> bodies;
+    // the bodies are moved from outside: asked for, stretch by stretch
+    bool driven = false;
     std::vector<unsigned long> forced;
     std::vector<Inlet> inlets;
 };
@@ -365,6 +368,9 @@ Case readCase(const std::string& folder)
                 body.inertia[k] = a[4 + k];
             }
             made.bodies.push_back(body);
+        }
+        else if (key == "driven") {
+            made.driven = std::strtoul(rest, nullptr, 10) != 0;
         }
         else if (key == "forced") {
             made.forced.push_back(std::strtoul(rest, nullptr, 10));
@@ -599,6 +605,37 @@ void stepBody(Moved& body,
     }
     body.force.setZero();
     body.torque.setZero();
+}
+
+// The driven walls' states for a stretch, read from the input: "move
+// <until>" and for each wall its centre, its turn (x y z w), its centre's
+// velocity and its angular velocity. false at "end", at the input's end, and
+// at a line that is neither.
+bool readMove(std::vector<Moved*>& bodies, double& until)
+{
+    std::string line;
+    for (int c = std::fgetc(stdin); c != EOF && c != '\n'; c = std::fgetc(stdin)) {
+        line.push_back((char)c);
+    }
+    std::istringstream in(line);
+    std::string word;
+    if (!(in >> word) || word != "move" || !(in >> until)) {
+        return false;
+    }
+    for (Moved* body : bodies) {
+        double a[13];
+        for (double& value : a) {
+            if (!(in >> value)) {
+                fail("the driven walls' states are cut short");
+            }
+        }
+        body->x = Vector3r((Real)a[0], (Real)a[1], (Real)a[2]);
+        body->q = Quaternionr((Real)a[6], (Real)a[3], (Real)a[4], (Real)a[5]);
+        body->q.normalize();
+        body->v = Vector3r((Real)a[7], (Real)a[8], (Real)a[9]);
+        body->w = Vector3r((Real)a[10], (Real)a[11], (Real)a[12]);
+    }
+    return true;
 }
 
 // What a run is, once the solver is set up.
@@ -1184,7 +1221,58 @@ int main(int argc, char** argv)
         longest = std::min(longest, std::sqrt(0.01 * 2 * made.radius / (double)g.norm()));
     }
     sim->setValue<Real>(Simulation::CFL_MAX_TIMESTEPSIZE, (Real)longest);
-    while (time < made.end - 1e-9) {
+    // Driven walls (docs/FluidSimulation.md sec 12.9): the run waits for
+    // where they are and how they go, takes the fluid past the end of the
+    // stretch it is given with the walls going on as told, says what the
+    // fluid pushed each with on the way -- the mean over the steps taken,
+    // a force and a torque about its centre -- and waits again. A step is
+    // the solver's own to choose, so the fluid is up to a step ahead of
+    // what it was asked; asked for a stretch it has passed already, it
+    // says the same again. The run ends when its mover says so.
+    const bool driven = made.driven && !run.moved.empty();
+    double told = 0.0;
+    double since = 0.0;
+    std::vector<Vector3r> pushes(run.moved.size(), Vector3r::Zero());
+    std::vector<Vector3r> turns(run.moved.size(), Vector3r::Zero());
+    std::vector<Vector3r> meanPush(run.moved.size(), Vector3r::Zero());
+    std::vector<Vector3r> meanTurn(run.moved.size(), Vector3r::Zero());
+    if (driven) {
+        std::printf("ask 0 %.9g\n", longest);
+        std::fflush(stdout);
+        if (!readMove(run.moved, told)) {
+            return 0;
+        }
+        for (std::size_t k = 0; k < run.moved.size(); k++) {
+            place(*run.moved[k], *run.skins[k]);
+        }
+    }
+    while (driven || time < made.end - 1e-9) {
+        if (driven && time >= told - 1e-12) {
+            if (since > 0) {
+                for (std::size_t k = 0; k < run.moved.size(); k++) {
+                    meanPush[k] = pushes[k] / (Real)since;
+                    meanTurn[k] = turns[k] / (Real)since;
+                    pushes[k].setZero();
+                    turns[k].setZero();
+                }
+                since = 0.0;
+            }
+            std::printf("pushed %.9g", time);
+            for (std::size_t k = 0; k < run.moved.size(); k++) {
+                std::printf(" %.9g %.9g %.9g %.9g %.9g %.9g", (double)meanPush[k][0],
+                            (double)meanPush[k][1], (double)meanPush[k][2], (double)meanTurn[k][0],
+                            (double)meanTurn[k][1], (double)meanTurn[k][2]);
+            }
+            std::printf("\n");
+            std::fflush(stdout);
+            if (!readMove(run.moved, told)) {
+                break;
+            }
+            for (std::size_t k = 0; k < run.moved.size(); k++) {
+                place(*run.moved[k], *run.skins[k]);
+            }
+            continue;
+        }
         sim->getTimeStep()->step();
         const Real step = tm->getTimeStepSize();
         time += step;
@@ -1204,6 +1292,17 @@ int main(int argc, char** argv)
             Vector3r torque;
             run.skins[k]->getForceAndTorque(force, torque);
             run.skins[k]->clearForceAndTorque();
+            if (driven) {
+                // as it was told to go; what pushed it, for its mover
+                pushes[k] += force * step;
+                turns[k] += torque * step;
+                body.x += step * body.v;
+                const Quaternionr spin((Real)0, body.w[0], body.w[1], body.w[2]);
+                body.q.coeffs() += (Real)0.5 * step * (spin * body.q).coeffs();
+                body.q.normalize();
+                place(body, *run.skins[k]);
+                continue;
+            }
             body.addForce(force);
             body.addTorque(torque);
             stepBody(body, *run.skins[k], run.held, step, g, (Real)made.radius);
@@ -1213,6 +1312,7 @@ int main(int argc, char** argv)
             }
             place(body, *run.skins[k]);
         }
+        since += driven ? (double)step : 0.0;
         for (std::size_t k = 0; k < run.forced.size(); k++) {
             Vector3r torque;
             run.forced[k]->getForceAndTorque(run.pushed[k], torque);
@@ -1221,7 +1321,9 @@ int main(int argc, char** argv)
         parkTheGone(run);
         feedInlets(run, time, step);
         writeSample(run, time, step);
-        const double next = std::min(index * made.interval, made.end);
+        // driven, it goes on for as long as its mover does
+        const double next = driven ? index * made.interval
+                                   : std::min(index * made.interval, made.end);
         if (time >= next - 1e-9) {
             writeFrame(run, index++, time);
         }

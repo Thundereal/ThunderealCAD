@@ -54,6 +54,10 @@ public:
     /// Whether the space's other sides are open too, the one gravity points
     /// to with them: what a jet in the open needs
     App::PropertyBool OpenSides;
+    /// An Assembly's simulation the study runs together with: the parts of
+    /// the study that the fluid moves (its FreeBody children) are then that
+    /// mechanism's, moved by it with its joints under the fluid's push
+    App::PropertyLink Mechanism;
     /// The backend the study runs on, by name; empty: the first that can
     /// run here
     App::PropertyString Backend;

@@ -32,7 +32,12 @@
 #include <Mod/Part/App/TopoShape.h>
 
 #include "Solver/Registry.h"
+#include "Solver/WallExchange.h"
 #include "Study.h"
+#ifdef FLUID_WITH_ASSEMBLY
+# include <Mod/Assembly/App/AssemblyObject.h>
+# include <Mod/Assembly/App/Solver/Backend.h>
+#endif
 #include "StudyPy.h"
 
 using namespace Fluid;
@@ -232,6 +237,89 @@ const char* statusText(Solver::Status status)
 }  // namespace
 
 // The run in its thread: the frames go straight into the archive.
+#ifdef FLUID_WITH_ASSEMBLY
+namespace
+{
+// The fluid's run and an Assembly's simulation together
+// (docs/FluidSimulation.md sec 12.9): to the Assembly a source of loads on
+// its parts, to the fluid's session the mover of its driven walls. The
+// Assembly's bodies in mm, mN and mN mm, a load at a body's frame's origin;
+// the fluid's walls in SI, a load at the wall's centre.
+struct Together: Assembly::AssemblyObject::PartLoads
+{
+    Solver::WallExchange exchange;
+    Assembly::AssemblyObject* assembly = nullptr;
+    App::DocumentObject* simulation = nullptr;
+    std::vector<App::DocumentObject*> moved;
+    std::vector<Solver::Vec3> centres;  // each wall's, at the start, m
+    std::vector<Base::Placement> starts;  // each body's frame then
+    bool told = false;
+
+    std::vector<App::DocumentObject*> parts() const override
+    {
+        return moved;
+    }
+    double longestPiece() const override
+    {
+        double stretch = 0.0;
+        std::string why;
+        return const_cast<Solver::WallExchange&>(exchange).longest(stretch, why) ? stretch : 0.0;
+    }
+    bool piece(double time,
+               double length,
+               const std::vector<Assembly::Solver::BodyState>& states,
+               std::vector<Assembly::Solver::Wrench>& loads,
+               std::string& why) override
+    {
+        if (starts.empty()) {
+            for (const auto& state : states) {
+                starts.push_back(state.placement);
+            }
+        }
+        std::vector<Solver::WallState> walls(states.size());
+        std::vector<Base::Vector3d> arms(states.size());  // origin to centre, mm
+        for (std::size_t k = 0; k < states.size(); ++k) {
+            // where every point of the body is, from where it was
+            const Base::Placement motion = states[k].placement * starts[k].inverse();
+            double q[4];
+            motion.getRotation().getValue(q[0], q[1], q[2], q[3]);
+            const Base::Vector3d shift = motion.getPosition();
+            Base::Vector3d centre;
+            motion.multVec(Base::Vector3d(centres[k][0], centres[k][1], centres[k][2]) * 1.0e3,
+                           centre);
+            arms[k] = centre - states[k].placement.getPosition();
+            const Base::Vector3d speed =
+                states[k].velocity + states[k].angularVelocity.Cross(arms[k]);
+            walls[k].motion.translation = {shift.x * 1.0e-3, shift.y * 1.0e-3, shift.z * 1.0e-3};
+            walls[k].motion.rotation = {q[0], q[1], q[2], q[3]};
+            walls[k].velocity = {speed.x * 1.0e-3, speed.y * 1.0e-3, speed.z * 1.0e-3};
+            walls[k].spin = {states[k].angularVelocity.x,
+                             states[k].angularVelocity.y,
+                             states[k].angularVelocity.z};
+        }
+        std::vector<Solver::WallLoad> pushed;
+        if (!exchange.piece(time, length, walls, pushed, why) || pushed.size() != states.size()) {
+            if (why.empty()) {
+                why = "the fluid's run gave no loads";
+            }
+            return false;
+        }
+        loads.resize(states.size());
+        for (std::size_t k = 0; k < states.size(); ++k) {
+            // N to mN; N m about the centre to mN mm about the frame's origin
+            const Base::Vector3d force(pushed[k].force[0], pushed[k].force[1], pushed[k].force[2]);
+            const Base::Vector3d torque(pushed[k].torque[0],
+                                        pushed[k].torque[1],
+                                        pushed[k].torque[2]);
+            loads[k].force = force * 1.0e3;
+            loads[k].torque = torque * 1.0e6 + arms[k].Cross(force * 1.0e3);
+        }
+        return true;
+    }
+};
+}  // namespace
+#endif
+
 struct Study::Run: public Solver::FrameSink
 {
     void frame(const Solver::Frame& frame) override
@@ -265,8 +353,18 @@ struct Study::Run: public Solver::FrameSink
             status = Solver::Status::Failed;
             why = e.what();
         }
+#ifdef FLUID_WITH_ASSEMBLY
+        // whatever way it ended: the mechanism may be waiting for it
+        if (together) {
+            together->exchange.ended(why);
+        }
+#endif
         done.store(true);
     }
+
+#ifdef FLUID_WITH_ASSEMBLY
+    std::unique_ptr<Together> together;
+#endif
 
     std::unique_ptr<Solver::Session> session;
     Solver::Model model;
@@ -316,6 +414,10 @@ Study::Study()
     ADD_PROPERTY_TYPE(OpenSides, (false), "Study", App::Prop_None,
                       "The space's other sides are open as well, the one gravity points "
                       "to with them: what leaves the space anywhere is gone");
+    ADD_PROPERTY_TYPE(Mechanism, (nullptr), "Study", App::Prop_None,
+                      "An Assembly's simulation the study runs together with: the parts "
+                      "the fluid moves are then that mechanism's, moved with its joints "
+                      "under the fluid's push");
     ADD_PROPERTY_TYPE(Backend, (""), "Study", App::Prop_None,
                       "The solver the study runs on, by name; empty: the first that can run "
                       "on this machine");
@@ -648,7 +750,9 @@ Solver::Model Study::buildModel() const
         model.walls.back().source = sourceOf(wall.source, getDocument());
         model.walls.back().surface = surfaceOf(wall.shape, accuracy);
         if (wall.density > 0.0) {
-            model.walls.back().motion = Solver::WallMotion::Free;
+            // a mechanism's part where the study runs with one
+            model.walls.back().motion = Mechanism.getValue() ? Solver::WallMotion::Driven
+                                                             : Solver::WallMotion::Free;
             model.walls.back().mass = massOf(wall.shape, wall.density);
         }
     }
@@ -775,6 +879,19 @@ Solver::Status Study::start(std::string& why)
         Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
         return Solver::Status::Unsupported;
     }
+    const bool driven = Solver::anyDriven(run->model);
+    if (driven && !backend->capabilities().drivenWalls) {
+        why = backend->label() + " cannot run with a mechanism";
+        Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
+        return Solver::Status::Unsupported;
+    }
+#ifndef FLUID_WITH_ASSEMBLY
+    if (driven) {
+        why = "this build has no Assembly module to run the mechanism";
+        Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
+        return Solver::Status::Unsupported;
+    }
+#endif
     if (!run->model.inlets.empty() && !backend->capabilities().inlets) {
         why = backend->label() + " cannot run an inlet";
         Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
@@ -801,11 +918,55 @@ Solver::Status Study::start(std::string& why)
     for (std::size_t wall : moved) {
         run->index.bodies.push_back(run->model.walls[wall].source);
     }
+#ifdef FLUID_WITH_ASSEMBLY
+    if (driven) {
+        // The Assembly's simulation, the assembly it is of, and the parts
+        auto* simulation = Mechanism.getValue();
+        Assembly::AssemblyObject* assembly = nullptr;
+        for (auto* in : simulation->getInListRecursive()) {
+            if (auto* found = freecad_cast<Assembly::AssemblyObject*>(in)) {
+                assembly = found;
+                break;
+            }
+        }
+        if (!assembly) {
+            why = simulation->getFullLabel() + " is not an assembly's simulation";
+            Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
+            return Solver::Status::Unsupported;
+        }
+        run->together = std::make_unique<Together>();
+        run->together->assembly = assembly;
+        run->together->simulation = simulation;
+        for (auto* child : Group.getValues()) {
+            if (auto* body = freecad_cast<FreeBody*>(child)) {
+                run->together->moved.push_back(body->Part.getValue());
+            }
+        }
+        for (std::size_t wall : moved) {
+            run->together->centres.push_back(run->model.walls[wall].mass.centre);
+        }
+        run->session->drive(&run->together->exchange);
+    }
+#endif
     active = std::move(run);
     Status.setValue("Running");
     active->thread = std::thread([run = active.get()] {
         run->body();
     });
+#ifdef FLUID_WITH_ASSEMBLY
+    if (active->together) {
+        Together& together = *active->together;
+        if (together.assembly->startSimulation(together.simulation, &together) != 0) {
+            together.exchange.done();
+            active->cancel.store(true);
+            active->thread.join();
+            active.reset();
+            why = "the mechanism's simulation could not be started";
+            Status.setValue(std::string(statusText(Solver::Status::Failed)) + ": " + why);
+            return Solver::Status::Failed;
+        }
+    }
+#endif
     return Solver::Status::Ok;
 }
 
@@ -813,6 +974,12 @@ Study::Progress Study::progress() const
 {
     Progress progress;
     if (active) {
+#ifdef FLUID_WITH_ASSEMBLY
+        // the mechanism's run over, the fluid's has no more to take
+        if (active->together && active->together->assembly->simulationProgress().done) {
+            active->together->exchange.done();
+        }
+#endif
         progress.running = true;
         progress.done = active->done.load();
         progress.time = active->time.load();
@@ -825,6 +992,12 @@ void Study::cancel()
 {
     if (active) {
         active->cancel.store(true);
+#ifdef FLUID_WITH_ASSEMBLY
+        if (active->together) {
+            active->together->assembly->cancelSimulation();
+            active->together->exchange.done();
+        }
+#endif
     }
 }
 
@@ -834,9 +1007,24 @@ Solver::Status Study::finish(std::string& why)
         why = "the study is not running";
         return Solver::Status::Failed;
     }
+#ifdef FLUID_WITH_ASSEMBLY
+    int mechanism = 0;
+    if (active->together) {
+        // the mechanism's first: it keeps its frames, and the fluid's run
+        // ends where that did
+        mechanism = active->together->assembly->finishSimulation();
+        active->together->exchange.done();
+    }
+#endif
     if (active->thread.joinable()) {
         active->thread.join();
     }
+#ifdef FLUID_WITH_ASSEMBLY
+    if (mechanism != 0 && active->status == Solver::Status::Ok) {
+        active->status = Solver::Status::Failed;
+        active->why = "the mechanism's simulation failed";
+    }
+#endif
     const auto run = std::move(active);
     active.reset();
     why = run->why;

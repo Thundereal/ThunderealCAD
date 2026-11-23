@@ -734,7 +734,7 @@ Splish::inletOf(const Model& model, std::size_t inlet, Vec3& across, std::string
 std::vector<Vec3> Splish::bodyOf(const Model& model, std::size_t wall)
 {
     std::vector<Vec3> kept;
-    if (wall >= model.walls.size() || model.walls[wall].motion != WallMotion::Free) {
+    if (wall >= model.walls.size() || model.walls[wall].motion == WallMotion::Fixed) {
         return kept;
     }
     const Sizes sizes = sizesOf(model.resolution);
@@ -934,8 +934,15 @@ bool Splish::makeCase(const Model& model, const CaseOptions& options, Case& made
     }
     const Sizes sizes = sizesOf(model.resolution);
     std::vector<std::vector<Vec3>> bodies;
+    const bool driven = anyDriven(model);
     for (std::size_t wall : freeWalls(model)) {
         const Wall& moved = model.walls[wall];
+        if (driven && moved.motion != WallMotion::Driven) {
+            why = moved.source + " is moved by the fluid alone in a run whose other parts a "
+                                 "mechanism moves: a study's parts are all the one or all "
+                                 "the other";
+            return false;
+        }
         const auto& inertia = moved.mass.inertia;
         if (!(moved.mass.mass > 0.0) || !(inertia[0] > 0.0) || !(inertia[1] > 0.0)
             || !(inertia[2] > 0.0)) {
@@ -977,6 +984,10 @@ bool Splish::makeCase(const Model& model, const CaseOptions& options, Case& made
         text << "\n";
         made.files["body." + std::to_string(k) + ".points"] = bytesOf(bodies[k]);
         made.bodies.push_back(bodies[k].size());
+    }
+    // Moved from outside, all of them: the runner asks where they are
+    if (driven) {
+        text << "driven 1\n";
     }
     // The walls a force is asked of: how many particles each has.
     for (std::size_t k = 0; k < forced.size(); ++k) {
@@ -1082,6 +1093,30 @@ Splish::Event Splish::parseLine(const std::string& line)
             event.values = values;
         }
     }
+    else if (word == "ask" || word == "pushed") {
+        std::string time;
+        if ((in >> time) && numberOf(time, event.time)) {
+            std::string value;
+            bool good = true;
+            while (in >> value) {
+                double v = 0.0;
+                if (!numberOf(value, v)) {
+                    good = false;
+                    break;
+                }
+                event.values.push_back(v);
+            }
+            if (good && word == "ask" && event.values.size() == 1) {
+                event.kind = Event::Ask;
+            }
+            else if (good && word == "pushed" && event.values.size() % 6 == 0) {
+                event.kind = Event::Pushed;
+            }
+            else {
+                event.values.clear();
+            }
+        }
+    }
     else if (word == "sample") {
         std::string time;
         if ((in >> time) && numberOf(time, event.time)) {
@@ -1098,6 +1133,38 @@ Splish::Event Splish::parseLine(const std::string& line)
         }
     }
     return event;
+}
+
+std::string Splish::moveLine(double until,
+                             const std::vector<Vec3>& centres,
+                             const std::vector<WallState>& states)
+{
+    std::string line = "move " + num(until);
+    for (std::size_t k = 0; k < states.size() && k < centres.size(); ++k) {
+        const WallState& state = states[k];
+        // the centre turned and shifted: q c q* + t
+        const auto& q = state.motion.rotation;
+        const Vec3& c = centres[k];
+        const Vec3 u {q[0], q[1], q[2]};
+        const Vec3 uc {u[1] * c[2] - u[2] * c[1], u[2] * c[0] - u[0] * c[2], u[0] * c[1] - u[1] * c[0]};
+        const Vec3 uuc {u[1] * uc[2] - u[2] * uc[1],
+                        u[2] * uc[0] - u[0] * uc[2],
+                        u[0] * uc[1] - u[1] * uc[0]};
+        for (std::size_t x = 0; x < 3; ++x) {
+            line += " "
+                + num(c[x] + 2.0 * (q[3] * uc[x] + uuc[x]) + state.motion.translation[x]);
+        }
+        for (double v : q) {
+            line += " " + num(v);
+        }
+        for (double v : state.velocity) {
+            line += " " + num(v);
+        }
+        for (double v : state.spin) {
+            line += " " + num(v);
+        }
+    }
+    return line + "\n";
 }
 
 bool Splish::pointsOf(const std::string& bytes, std::size_t count, std::vector<Vec3>& points)

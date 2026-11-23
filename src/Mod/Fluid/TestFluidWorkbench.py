@@ -14,6 +14,7 @@ from FluidTests.TestSplish import (
     TestSplishDamBreak,
     TestSplishFloating,
     TestSplishJet,
+    TestSplishMechanism,
     TestSplishPlates,
     TestSplishStillWater,
 )
@@ -38,3 +39,4 @@ True if TestSplishFloating else False
 True if TestInlets else False
 True if TestSplishJet else False
 True if TestSteady else False
+True if TestSplishMechanism else False

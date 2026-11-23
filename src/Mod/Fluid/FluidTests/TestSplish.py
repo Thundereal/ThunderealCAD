@@ -14,6 +14,7 @@ import FluidPlayback
 from FluidTests.DamBreak import DamBreak, backendNamed
 from FluidTests.Floating import Floating
 from FluidTests.Jet import Jet
+from FluidTests.Mechanism import Mechanism
 from FluidTests.StillWater import StillWater
 
 
@@ -33,6 +34,10 @@ class TestSplishStillWater(StillWater, unittest.TestCase):
 
 
 class TestSplishFloating(Floating, unittest.TestCase):
+    BACKEND = "SPlisHSPlasH"
+
+
+class TestSplishMechanism(Mechanism, unittest.TestCase):
     BACKEND = "SPlisHSPlasH"
 
 

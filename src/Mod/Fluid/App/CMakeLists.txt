@@ -23,6 +23,13 @@ set(Fluid_LIBS
     ${QtCore_LIBRARIES}
 )
 
+# A study whose parts a mechanism moves runs with the Assembly's simulation
+# (docs/FluidSimulation.md sec 12.9): without that module it says it cannot.
+if(BUILD_ASSEMBLY)
+    list(APPEND Fluid_LIBS Assembly)
+    add_definitions(-DFLUID_WITH_ASSEMBLY)
+endif()
+
 generate_from_py(Study)
 
 SET(Python_SRCS
@@ -50,6 +57,8 @@ SET(Solver_SRCS
     Solver/SplishBackend.h
     Solver/SplishCase.cpp
     Solver/SplishCase.h
+    Solver/WallExchange.cpp
+    Solver/WallExchange.h
     Solver/Model.cpp
     Solver/Model.h
     Solver/Registry.cpp

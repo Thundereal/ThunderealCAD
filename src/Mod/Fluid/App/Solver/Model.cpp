@@ -107,7 +107,7 @@ std::uint64_t Fluid::Solver::signature(const Model& model)
         hash.text(wall.source);
         hash.surface(wall.surface);
         hash.integer(static_cast<int>(wall.motion));
-        if (wall.motion == WallMotion::Free) {
+        if (wall.motion == WallMotion::Free || wall.motion == WallMotion::Driven) {
             // To nine digits, the centre to a nanometre: they are worked
             // out from the shape, and a shape read back from its file
             // gives them a rounding apart from the one it was made as.
@@ -223,11 +223,19 @@ std::vector<double> Fluid::Solver::patchAreas(const Surface& surface, std::size_
     return areas;
 }
 
+bool Fluid::Solver::anyDriven(const Model& model)
+{
+    return std::ranges::any_of(model.walls, [](const Wall& wall) {
+        return wall.motion == WallMotion::Driven;
+    });
+}
+
 std::vector<std::size_t> Fluid::Solver::freeWalls(const Model& model)
 {
     std::vector<std::size_t> found;
     for (std::size_t i = 0; i < model.walls.size(); ++i) {
-        if (model.walls[i].motion == WallMotion::Free) {
+        if (model.walls[i].motion == WallMotion::Free
+            || model.walls[i].motion == WallMotion::Driven) {
             found.push_back(i);
         }
     }

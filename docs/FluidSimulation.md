@@ -1304,6 +1304,66 @@ water's density) stays stable when its motion and the fluid's force are
 a step apart -- step 1 was not tried below a half; the Assembly's
 results and the fluid's being two kept things for one run.
 
+**As built (2026-11-24), the three steps but for what is listed last.**
+
+- **The Assembly** (`Solver/Backend.h`): `OutsideLoads` and
+  `SimulationSpec::outside`; a body's state is its frame's pose, that
+  frame's origin's velocity and the angular velocity, the answer a force
+  at that origin and a torque, in the model's units. The Chrono backend
+  asks at the start of each stretch of its run not asked for yet, from
+  the bodies' states then, and holds the answer on the bodies (an
+  accumulator each) until the next: a substep taken back and stepped
+  again is within what was asked. `AssemblyObject::startSimulation(sim,
+  PartLoads*)` is the same by parts, which it finds among the run's
+  bodies.
+- **The model** (`Model.h`): a wall's motion `Driven`, moved from outside
+  as the run goes; `anyDriven()`. A study's moved parts are all driven or
+  all the fluid's own.
+- **The runner** (`driven 1` in its case): it prints `ask 0 <longest>`
+  and waits; told `move <until>` and each wall's centre, turn, velocity
+  and angular velocity, it puts the walls there, steps the fluid past
+  `until` with the walls going on as told between its steps, and prints
+  `pushed <time>` with the mean force and torque (about the centre) on
+  each over the steps it took; then waits again, until `end`. A step is
+  the solver's own to choose, so the fluid is up to a step ahead of what
+  it was asked; asked for a stretch it has passed, it says the same
+  again. The stand-in contact of step 1 is not used: a mechanism's
+  contacts are the Assembly's.
+- **Between them**: `WallDriver`, what a session asks of whoever moves
+  its driven walls; `WallExchange`, the two threads' meeting, either
+  side's end letting the other go; in `Study.cpp` the bridge that is a
+  `PartLoads` to the Assembly and the mover to the fluid, turning body
+  frames in mm and mN into walls' centres in SI and back, the torque
+  taken from the centre to the frame's origin.
+- **The study**: `Mechanism`, a link to an Assembly's simulation. With it
+  the study's `FreeBody` parts are that mechanism's; its run starts the
+  runner and the Assembly's simulation together, ends when the
+  mechanism's does, and keeps both results -- the fluid's in the study,
+  the Assembly's in its simulation, as each does alone. The piece is the
+  runner's longest step, 0.3 ms at 5 mm.
+
+Measured (`FluidTests/Mechanism.py`, S4's tank and block, the block on a
+vertical slider of an assembly, 5 mm):
+
+| Case | Result | Closed form |
+|---|---|---|
+| Half the water's density, put at its draught | bobs 2.1 mm down and 0.3 up, half that by 1 s; 0.7 mm deep in the mean | 39.96 mm |
+| A tenth of the water's density | within 1.1 mm for 1 s | 55.99 mm |
+| Nine tenths | within 1.3 mm | 23.94 mm |
+| Half, let go 10 mm above the water | under its draught and back, the mean after 1 s within 3 mm | 44.97 mm |
+
+The fluid's frames and the Assembly's are of one motion to 0.1 mm; the
+run of 1 s takes 8 s. The light float answers the first open question
+for this case: no growth seen. The spring test of step 1 says what the
+lag costs where there is nothing to damp it, 2% a period at a tenth of
+a millisecond for a period of 0.1 s.
+
+Not built yet: a turning part (the flap on a hinge against the
+hydrostatic moment, the float on an arm) -- the torque's path is tested
+only by the Assembly's own test of a formula; a command and the panel's
+part of it (the property is set by hand); the manual's page and video;
+the two results shown as one.
+
 ## 13. For the user to rule (2026-11-21)
 
 1. **The first backend (S2).** OpenFOAM: validated, CPU, already this

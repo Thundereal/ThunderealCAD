@@ -39,6 +39,7 @@ SET(FluidTests_SRCS
     FluidTests/StillWater.py
     FluidTests/Floating.py
     FluidTests/Jet.py
+    FluidTests/Mechanism.py
     FluidTests/TestOpenFoam.py
     FluidTests/TestSplish.py
     FluidTests/TestDownload.py

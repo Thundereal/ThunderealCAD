@@ -42,6 +42,7 @@ struct Capabilities
     bool forces = false;       // the fluid's force on a wall, as a monitor
     bool movingWalls = false;  // walls moved as given
     bool freeBodies = false;   // walls moved by the fluid
+    bool drivenWalls = false;  // walls moved from outside as the run goes
     bool heat = false;
     bool steady = false;
     bool repeatable = false;  // the same model gives the same frames, bit for bit
@@ -90,10 +91,55 @@ public:
     }
 };
 
+// A driven wall as its mover has it: where it is from where it stood at
+// the start, how fast its centre goes (the wall's mass centre, Wall::mass),
+// and its angular velocity; m, m/s, rad/s, in the model's axes.
+struct WallState
+{
+    Motion motion;
+    Vec3 velocity {0.0, 0.0, 0.0};
+    Vec3 spin {0.0, 0.0, 0.0};
+};
+
+// What the fluid pushes it with: a force at that centre where it is, and a
+// torque; N, N m.
+struct WallLoad
+{
+    Vec3 force {0.0, 0.0, 0.0};
+    Vec3 torque {0.0, 0.0, 0.0};
+};
+
+// Who moves the driven walls of a run (docs/FluidSimulation.md sec 12.9),
+// as the session sees it. Called from the run's thread, in this order:
+// ready() once; then next() for a stretch of time and the walls' states at
+// its start, and pushed() with the fluid's mean load on each over what it
+// took to pass the stretch's end; next() again, until it says there is no
+// more.
+class FluidExport WallDriver
+{
+public:
+    virtual ~WallDriver() = default;
+    // The fluid is set up: the longest stretch it would be asked for, s.
+    virtual void ready(double longest) = 0;
+    // Waits for the next stretch: from 'time', 'length' long, the walls'
+    // states at its start, one per driven wall in the model's order. false:
+    // no more, the run ends here.
+    virtual bool next(double& time, double& length, std::vector<WallState>& states) = 0;
+    virtual void pushed(const std::vector<WallLoad>& loads) = 0;
+    // The fluid's run is over, or failed: nothing more comes of it.
+    virtual void ended(const std::string& why) = 0;
+};
+
 class FluidExport Session
 {
 public:
     virtual ~Session() = default;
+    // Who moves the model's driven walls: before run(), and outliving it.
+    // A session that drives none ignores it.
+    virtual void drive(WallDriver* driver)
+    {
+        (void)driver;
+    }
     // Takes the model and makes ready to run it: the particles sampled, or
     // the case written and meshed. why says what is wrong when it is not Ok.
     virtual Status prepare(const Model& model, std::string& why) = 0;

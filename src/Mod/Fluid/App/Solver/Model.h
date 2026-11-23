@@ -34,6 +34,8 @@ enum class WallMotion
     Fixed,  // where it is, for the whole run
     Given,  // moved as a kept run has it (not yet)
     Free,   // moved by the fluid and by gravity, held by nothing
+    Driven,  // moved from outside as the run goes -- a mechanism's part --
+             // and told what the fluid pushes it with
 };
 
 // What a wall the fluid moves weighs, and how.
@@ -173,8 +175,12 @@ FluidExport bool inside(const Surface& surface, const Vec3& point);
 // from the surface's box, so a box of whole spacings is filled exactly.
 FluidExport std::vector<Vec3> sampled(const Surface& surface, double spacing);
 
-// The walls the fluid moves, as their places in the model's walls.
+// The walls that move in a run, the fluid's own and the driven ones, as
+// their places in the model's walls.
 FluidExport std::vector<std::size_t> freeWalls(const Model& model);
+
+// Whether any of them is moved from outside.
+FluidExport bool anyDriven(const Model& model);
 
 // What all the fluid of the model is made of: the first volume's, or with
 // none the first inlet's. false when the model has neither.

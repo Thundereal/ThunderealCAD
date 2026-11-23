@@ -429,6 +429,30 @@ struct AssemblyObject::SimulationRun
     std::atomic<bool> done {false};
     Solver::Status status = Solver::Status::Failed;
     std::thread thread;
+    // Loads from outside by parts (PartLoads), as the solver takes them:
+    // by the parts' bodies
+    struct Outside: Solver::OutsideLoads
+    {
+        AssemblyObject::PartLoads* by = nullptr;
+        std::vector<Solver::Id> ids;
+        std::vector<Solver::Id> bodies() const override
+        {
+            return ids;
+        }
+        double longestPiece() const override
+        {
+            return by->longestPiece();
+        }
+        bool piece(double time,
+                   double length,
+                   const std::vector<Solver::BodyState>& states,
+                   std::vector<Solver::Wrench>& loads,
+                   std::string& why) override
+        {
+            return by->piece(time, length, states, loads, why);
+        }
+    };
+    Outside outside;
 
     // A worker's warning reaches a Python observer under the GIL: the
     // thread waiting for it must not hold it
@@ -1149,6 +1173,11 @@ void AssemblyObject::captureBaselines()
 
 int AssemblyObject::startSimulation(App::DocumentObject* sim)
 {
+    return startSimulation(sim, nullptr);
+}
+
+int AssemblyObject::startSimulation(App::DocumentObject* sim, PartLoads* outside)
+{
     if (simulationRun) {
         cancelSimulation();
         finishSimulation();
@@ -1172,6 +1201,22 @@ int AssemblyObject::startSimulation(App::DocumentObject* sim)
     run->model = *solverModel;
     run->parts = objectPartMap;
     run->sim = sim;
+    if (outside) {
+        run->outside.by = outside;
+        for (App::DocumentObject* part : outside->parts()) {
+            const auto found = objectPartMap.find(part);
+            if (found == objectPartMap.end() || found->second.body == Solver::NoId) {
+                Base::Console().error(
+                    "Assembly: %s is pushed from outside and is not a part of the simulation\n",
+                    part ? part->getFullLabel() : "?");
+                // the session back, for the assembly's next solve
+                session = std::move(run->session);
+                return -1;
+            }
+            run->outside.ids.push_back(found->second.body);
+        }
+        run->spec.outside = &run->outside;
+    }
     SimulationRun* going = run.get();
     run->thread = std::thread([going]() {
         Base::ConsoleContext context("the simulation");

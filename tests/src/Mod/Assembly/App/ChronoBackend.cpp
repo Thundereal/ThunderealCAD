@@ -1609,7 +1609,7 @@ TEST(ChronoBackend, loadsFromOutsideTheMechanism)  // NOLINT
         FormulaLoads push;
         push.body = block;
         push.longest = 2e-3;
-        push.law = [](const BodyState&) { return Wrench {Base::Vector3d(400, 0, 0), {}}; };
+        push.law = [](const BodyState&) { return Wrench {Base::Vector3d(400, 0, 0), Base::Vector3d()}; };
         RunRecorder run;
         ASSERT_EQ(runPushed(b.m, push, run, 0.1), Status::Ok);
         ASSERT_EQ(run.frames.size(), 11u);
@@ -1656,7 +1656,7 @@ TEST(ChronoBackend, loadsFromOutsideTheMechanism)  // NOLINT
         push.longest = 1e-3;
         // along y in the model's axes, at the frame's origin 5 mm behind
         // the centre: a moment of -5 F about z there
-        push.law = [](const BodyState&) { return Wrench {Base::Vector3d(0, 40, 0), {}}; };
+        push.law = [](const BodyState&) { return Wrench {Base::Vector3d(0, 40, 0), Base::Vector3d()}; };
         RunRecorder run;
         ASSERT_EQ(runPushed(b.m, push, run, 0.02), Status::Ok);
         // so little turned that the arm is the same still
@@ -1672,7 +1672,7 @@ TEST(ChronoBackend, loadsFromOutsideTheMechanism)  // NOLINT
         FormulaLoads twist;
         twist.body = other;
         twist.longest = 1e-3;
-        twist.law = [](const BodyState&) { return Wrench {{}, Base::Vector3d(0, 0, 300)}; };
+        twist.law = [](const BodyState&) { return Wrench {Base::Vector3d(), Base::Vector3d(0, 0, 300)}; };
         RunRecorder turned;
         ASSERT_EQ(runPushed(c.m, twist, turned, 0.02), Status::Ok);
         const Base::Placement& end = turned.frames.back()[other].placement;
@@ -1700,7 +1700,7 @@ TEST(ChronoBackend, loadsFromOutsideTheMechanism)  // NOLINT
             spring.body = bar;
             spring.longest = longest;
             spring.law = [&](const BodyState& state) {
-                return Wrench {{}, Base::Vector3d(0, 0, -stiffness * thez(state.placement))};
+                return Wrench {Base::Vector3d(), Base::Vector3d(0, 0, -stiffness * thez(state.placement))};
             };
             RunRecorder run;
             EXPECT_EQ(runPushed(b.m, spring, run, 0.1), Status::Ok);

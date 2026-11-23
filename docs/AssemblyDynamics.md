@@ -6326,6 +6326,22 @@ Phase D1 is under way (2026-10-28):
   - **From within the face** (farthestNear()): a start on a corner of its
     face (an L within 1e-6 of 1) moved a tenth of the way to the face's
     middle. The walk's start, not its answer.
+  - **Why alongEdge() left it at the edge's end** (2026-11-24, after the
+    Windows box failed test_torus_on_pin's rigid case at 20 deg and
+    test_torus_on_plate's flexible one, 49.38 and 49.31 N for a single
+    step each, the same every run): its second difference at an end took
+    the end's own height for the point beyond it, so the bend was the
+    slope over the step and Newton's step always the step's length back
+    out of the edge -- a point that came to an edge at its end never left
+    the corner. Not Windows': on Linux the rigid torus on the pin dipped
+    for one step at 11 of 40 pin angles 0.013 deg apart from 20 (48.0 to
+    52.4 N for 50), where one of Bullet's points, new that step and an
+    edge of the mesh away along the torus's inner equator, stopped 0.75
+    mm short on a vertex, 47.2 um deep; 20 deg itself missed it by its
+    arithmetic. At an end now by the two points within. None in those 40
+    nor in 150 angles 0.37 deg apart (test_torus_on_pin_at_any_angle:
+    four of the eleven). The flexible plate's case was not seen to fail
+    on Linux; it goes through the same function.
   - Numbers: the flexible torus on a flexible pin 46.11 N, 46.02 to 46.28
     (37.91 to 55.39); at 20 deg 46.07 to 46.11 (46.04 to 46.26).
     Every other figure of the four suites as before: the forces to the

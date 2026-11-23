@@ -887,13 +887,26 @@ inline void alongEdge(const Face& x,
     auto height = [&](double w) { return dot(pointAt(x, offsets, at(w)), out); };
     const double e = 1e-4;
     for (int k = 0; k < 20; ++k) {
-        const double low = std::max(u - e, 0.0);
-        const double high = std::min(u + e, 1.0);
+        // By the points either side; at an end, by the two within. With
+        // the end's own height for the one beyond it the bend came out the
+        // slope over e, the step e back out of the edge, and a point that
+        // came to an edge at its end never left the corner
         const double h0 = height(u);
-        const double hl = height(low);
-        const double hh = height(high);
-        const double slope = (hh - hl) / (high - low);
-        const double bend = (hh - 2.0 * h0 + hl) / (e * e);
+        double slope = 0.0;
+        double bend = 0.0;
+        if (u - e < 0.0 || u + e > 1.0) {
+            const double in = u - e < 0.0 ? e : -e;
+            const double h1 = height(u + in);
+            const double h2 = height(u + 2.0 * in);
+            slope = (-3.0 * h0 + 4.0 * h1 - h2) / (2.0 * in);
+            bend = (h2 - 2.0 * h1 + h0) / (e * e);
+        }
+        else {
+            const double hl = height(u - e);
+            const double hh = height(u + e);
+            slope = (hh - hl) / (2.0 * e);
+            bend = (hh - 2.0 * h0 + hl) / (e * e);
+        }
         if (!(std::abs(bend) > 0.0) || (!stationary && !(bend < 0.0))) {
             break;
         }

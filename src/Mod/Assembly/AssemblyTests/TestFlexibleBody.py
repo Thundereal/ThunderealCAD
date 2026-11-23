@@ -1411,6 +1411,34 @@ class TestFlexibleBody(unittest.TestCase):
             self.assertGreater(mean, 45.5)
             self.renew()
 
+    def test_torus_on_pin_at_any_angle(self):
+        """test_torus_on_pin's rigid torus on its rigid pin with the pin a
+        few hundredths of a degree further round: the force as even. At 20
+        deg it was; at 20.156 it was 48.05 N for one step of the turn's 351
+        (and 49.38 at 20 deg itself by Windows' arithmetic), at 20.403 51.88,
+        in eleven of forty angles 0.013 deg apart. One of Bullet's points,
+        new that step and an edge of the torus's mesh away along its inner
+        equator, came to that edge at its end and stayed on the corner, 0.75
+        mm short and 47.2 um deep for 50: alongEdge() took the end's own
+        height for the point beyond it, its bend then the slope over its
+        step, and stepped back out of the edge each time"""
+        for at in (20.052, 20.156, 20.403, 20.481):
+            mean = self.roundTurned(
+                "a rigid torus on a rigid pin at %g deg" % at,
+                20,
+                -8,
+                roller=True,
+                inside=True,
+                torus=True,
+                rigidRod=True,
+                rollerAt=at,
+                arm=7.0,
+                within=0.002,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+
     def test_torus_lying_flat(self):
         """A line along a curve: test_torus_on_plate's torus lying flat on a
         plate, 0.05 mm into it, turned about its axis upright -- it touches

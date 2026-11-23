@@ -82,6 +82,9 @@ public:
         Group,
         AllAround,
         Between,
+        /// The part, all of it: what a tolerance 'all over' is on. Refers
+        /// to the part with no element named
+        WholePart,
     };
     KindValue getKind() const
     {
@@ -118,6 +121,8 @@ protected:
     void onDocumentRestored() override;
 
 private:
+    /// The faces of the part a WholePart feature is, as the part is now
+    std::vector<TopoDS_Shape> wholePart() const;
     /// Recompute _faces, _primitive, Shape and IsSize from \a faces;
     /// false with \a why if the kind cannot be made from them
     bool derive(const std::vector<TopoDS_Shape>& faces, std::string& why);

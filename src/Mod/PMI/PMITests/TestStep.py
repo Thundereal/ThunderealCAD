@@ -536,6 +536,51 @@ class TestNistSet(Base):
         self.write_and_read(doc)
         self.assertWrittenClean("nist_ctc_04_asme1_ap242-e1.stp")
 
+    def test_a_placeholder_written_again(self):
+        """An annotation placeholder (AP242 ed2: where a reader that draws PMI
+        itself puts its text) is kept as its kind and written again, a callout
+        of its own linked to its PMI: STC-07's kinds and names, each as the
+        file has it -- what SFA counts its graphics by (dwin, p12: 'general
+        tolerance' 1 for 7, 'note' none for 2)"""
+        nist = os.path.join(os.environ["FC_PMI_NIST"], "nist_stc_07_asme1_ap242-e3.stp")
+
+        def kinds(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            sets = dict(re.findall(r"#(\d+)=GEOMETRIC_SET\('([^']*)'", text))
+            found = re.findall(r"ANNOTATION_PLACEHOLDER_OCCURRENCE\w*\('([^']*)',\([^)]*\),#(\d+),",
+                               text)
+            return sorted({(sets[s], name) for name, s in found})
+
+        doc = self.read(nist)
+        self.assertEqual(sorted({o.ImportedPlaceholder[0] for o in doc.Objects
+                                 if getattr(o, "ImportedPlaceholder", [])}),
+                         ["datum", "general tolerance", "linear dimension", "note"])
+        self.write_and_read(doc)
+        self.assertEqual(kinds(self.written), kinds(nist))
+        self.assertEqual(len(kinds(nist)), 22)
+
+    def test_the_supplemental_geometry_is_read_with_the_pmi(self):
+        """The curves a file's PMI is on (FTC-10's, a thread's rims) are read
+        with its PMI and not without: a file read as its shapes alone has
+        its part alone"""
+        nist = os.path.join(os.environ["FC_PMI_NIST"], "nist_ftc_10_asme1_ap242-e2.stp")
+
+        def shapes(doc):
+            return [o.Name for o in doc.Objects
+                    if o.isDerivedFrom("Part::Feature") and not o.Shape.isNull()]
+
+        with_pmi = shapes(self.read(nist))
+        params = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Import")
+        self.addCleanup(params.RemBool, "ReadPMI")
+        params.SetBool("ReadPMI", False)
+        doc = self.read(nist)
+        self.assertEqual([o.Name for o in doc.Objects if o.TypeId.startswith("PMI::")], [])
+        # One object less: the curves; the solid and what else the file has stay
+        self.assertEqual(len(shapes(doc)), len(with_pmi) - 1)
+        self.assertEqual(sum(len(o.Shape.Solids) for o in doc.Objects
+                             if o.isDerivedFrom("Part::Feature")), 1)
+
     def test_a_value_format_of_the_value_written(self):
         """Written in inches, a value's format counts the digits of the value
         as written, not of the millimetres it is kept in: STC-06's 12 in is an
@@ -560,22 +605,27 @@ class TestNistSet(Base):
         each dimension has its graphic, not a note of its own beside it. And
         where a named association gives the graphic, the placeholder's (a
         callout of the placeholder alone) does not take its place: STC-06. A
-        graphic is a PMI's only when that PMI is read and holds it. The
-        graphic of a tolerance not read, being of no geometry (of the whole
-        part: 'Geometrical Tolerance.1' of FTC-06 and STC-08), is a graphic
-        alone, not lost (dwin, p12)"""
+        graphic is a PMI's only when that PMI is read and holds it. A
+        tolerance of no geometry is of the whole part, all over it ('Geometrical
+        Tolerance.1' of FTC-06 and STC-08, a general profile on a shape aspect
+        that names no face): read as one, on a feature that is the part, with
+        its graphic (dwin, p12: one profile short)"""
         nist = os.environ["FC_PMI_NIST"]
-        whole = "Geometrical Tolerance.1"
-        for name, notes, kept in (("nist_ftc_06_asme1_ap242-e2.stp", 8, True),
-                                  ("nist_stc_06_asme1_ap242-e3.stp", 2, False),
-                                  ("nist_stc_08_asme1_ap242-e3.stp", 4, True)):
+        general = "Geometrical Tolerance.1"
+        for name, notes, whole in (("nist_ftc_06_asme1_ap242-e2.stp", 7, 1),
+                                   ("nist_stc_06_asme1_ap242-e3.stp", 2, 0),
+                                   ("nist_stc_08_asme1_ap242-e3.stp", 3, 1)):
             with self.subTest(name):
                 doc = self.read(os.path.join(nist, name))
                 dims = objects(doc, "Dimension")
                 self.assertTrue(dims)
                 self.assertEqual([d.Label for d in dims if d.ImportedGraphic.isNull()], [])
                 self.assertEqual(len(objects(doc, "Note")), notes)
-                self.assertEqual(whole in [n.Label for n in objects(doc, "Note")], kept)
+                of_all = [t for t in objects(doc, "GeometricTolerance")
+                          if t.Feature.Kind == "WholePart"]
+                self.assertEqual([(t.Characteristic, t.ImportedGraphicName, t.Condition,
+                                   t.ImportedGraphic.isNull()) for t in of_all],
+                                 [("ProfileOfSurface", general, "Ok", False)] * whole)
         # A placeholder to a PMI not read, or read with no graphic, takes no graphic away:
         # CTC-03's datum feature 6, which no tolerance cites, stays a graphic alone (dwin, p9)
         doc = self.read(os.path.join(nist, "nist_ctc_03_asme1_ap242-e2.stp"))
@@ -635,7 +685,9 @@ class TestNistSet(Base):
             m = re.match(r"TESSELLATED_ANNOTATION_OCCURRENCE\('([^']*)',\(#\d+\),#(\d+)\)", v)
             if m:
                 kinds[(m.group(1), re.match(r"\w+\('([^']*)'", ents[m.group(2)]).group(1))] += 1
-            if v.startswith("DRAUGHTING_CALLOUT('LinearSize.13'"):
+            # The graphic's callout, not a placeholder's of that name
+            m = re.match(r"DRAUGHTING_CALLOUT\('LinearSize.13',\(#(\d+)", v)
+            if m and ents[m.group(1)].startswith("TESSELLATED_ANNOTATION_OCCURRENCE("):
                 callout = k
         self.assertEqual(kinds[("LinearSize.13", "lineardimension")], 1)
         self.assertEqual(kinds[(re.sub(r"\s", "", alone[0].Label), "radialdimension")], 1)
@@ -1277,6 +1329,106 @@ class TestStepExport(Base):
                                  (a.XMax, b.XMax), (a.YMax, b.YMax), (a.ZMax, b.ZMax)):
                         self.assertAlmostEqual(x, y, 6, o.Label)
                 self.assertEqual(seen, len(origs))
+
+    def test_a_tolerance_of_the_whole_part(self):
+        """A tolerance all over the part -- a general profile, NIST's
+        'Geometrical Tolerance.1' -- is on a feature that is the whole part,
+        no face of it named: written on the product's shape itself, with no
+        geometry, and read back so"""
+        import PMI
+
+        pset = self.doc.PMI
+        solid = self.body.SolidBodies[0]
+        whole = PMI.feature(pset, solid, [], "WholePart")
+        self.assertEqual(whole.Kind, "WholePart")
+        self.assertIs(PMI.feature(pset, solid, [], "WholePart"), whole)
+        with self.assertRaises(Exception):
+            PMI.feature(pset, solid, ["Face1"], "WholePart")
+        gt = self.doc.addObject("PMI::GeometricTolerance", "General")
+        pset.addObject(gt)
+        gt.Characteristic, gt.Value = "ProfileOfSurface", 0.5
+        gt.Feature, gt.DatumSystem = whole, self.doc.DRF
+        self.doc.recompute()
+        self.assertEqual(whole.Condition, "Ok", whole.ConditionMessage)
+        self.assertEqual(len(whole.Shape.Faces), len(solid.Shape.Faces))
+        self.assertEqual(gt.Condition, "Ok", gt.ConditionMessage)
+        path, doc = self.export(False)
+        with open(path) as f:
+            text = re.sub(r"\s+", "", f.read())
+        shapes = re.findall(r"#(\d+)=PRODUCT_DEFINITION_SHAPE\(", text)
+        on = re.findall(r"GEOMETRIC_TOLERANCE\('[^']*','[^']*',#\d+,#(\d+)\)", text)
+        self.assertEqual(len([t for t in on if t in shapes]), 1, (on, shapes))
+        back = [t for t in objects(doc, "GeometricTolerance") if t.Feature.Kind == "WholePart"]
+        self.assertEqual([(t.Characteristic, t.Value) for t in back],
+                         [("ProfileOfSurface", 0.5)])
+        self.assertEqual(list(back[0].DatumSystem.Compartments), ["A", "B", "C(M)"])
+        self.assertEqual(len(objects(doc, "GeometricTolerance")),
+                         len(objects(self.doc, "GeometricTolerance")))
+        self.assertSameGdt(self.doc, doc)
+
+    def test_two_parts_each_with_a_datum_a(self):
+        """Two parts written to one file, each with its own datum A and a
+        tolerance to it: each part's A is written with its own feature and
+        read back on its own part, its tolerance citing it (by the letter
+        alone the second part's was taken for the first's, and lost)"""
+        import PMI
+        from PMITests.TestModel import BOTTOM, TOP, face_at
+
+        other = self.doc.addObject("Part::Box", "Other")
+        other.Length, other.Width, other.Height = 30, 30, 30
+        other.Placement = App.Placement(V(-200, 0, 0), App.Rotation())
+        self.doc.recompute()
+        oset = PMI.getSet(other, True)
+        bottom = PMI.feature(oset, other, [face_at(other.Shape, V(-185, 15, 0))])
+        top = PMI.feature(oset, other, [face_at(other.Shape, V(-185, 15, 30))])
+        datum = self.doc.addObject("PMI::Datum", "OtherA")
+        oset.addObject(datum)
+        datum.Letter, datum.Feature = "A", bottom
+        par = self.doc.addObject("PMI::GeometricTolerance", "OtherParallel")
+        oset.addObject(par)
+        par.Characteristic, par.Value, par.Feature = "Parallelism", 0.2, top
+        par.DatumSystem = PMI.frame(oset, ["A"])
+        self.doc.recompute()
+        self.assertEqual(par.Condition, "Ok", par.ConditionMessage)
+        path = os.path.join(self.dir, "two-parts.step")
+        Import.export([self.body, other], path)
+        doc = App.newDocument("PMITwoParts")
+        self.addCleanup(App.closeDocument, doc.Name)
+        Import.insert(path, doc.Name)
+        doc.recompute()
+        sets = [s for s in objects(doc, "AnnotationSet") if s.Group]
+        self.assertEqual(len(sets), 2)
+        for s in sets:
+            letters = sorted(o.Letter for o in s.Group if o.TypeId == "PMI::Datum")
+            self.assertIn("A", letters, s.Label)
+            for o in s.Group:
+                if o.TypeId in ("PMI::Datum", "PMI::GeometricTolerance"):
+                    self.assertEqual(o.Condition, "Ok", (o.Label, o.ConditionMessage))
+        self.assertEqual(sorted(len([o for o in s.Group if o.TypeId == "PMI::Datum"])
+                                for s in sets), [1, 3])
+        pars = [t for t in objects(doc, "GeometricTolerance")
+                if t.Characteristic == "Parallelism"]
+        self.assertEqual(len(pars), 1)
+        self.assertEqual(list(pars[0].DatumSystem.Compartments), ["A"])
+        mine = [o for o in pars[0].getParentGroup().Group if o.TypeId == "PMI::Datum"]
+        self.assertEqual([d.Letter for d in mine], ["A"])
+        self.assertSameGdt(self.doc, doc)
+
+    def test_a_file_read_without_its_pmi(self):
+        """Preferences, Import-Export, STEP, 'Import PMI': off, a file is
+        read as its shapes alone -- no annotation, and none of the
+        supplemental geometry its PMI is on"""
+        path, doc = self.export(False)
+        self.assertTrue(objects(doc, "AnnotationSet"))
+        params = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Import")
+        self.addCleanup(params.RemBool, "ReadPMI")
+        params.SetBool("ReadPMI", False)
+        plain = App.newDocument("PMINotRead")
+        self.addCleanup(App.closeDocument, plain.Name)
+        Import.insert(path, plain.Name)
+        plain.recompute()
+        self.assertEqual([o.Name for o in plain.Objects if o.TypeId.startswith("PMI::")], [])
+        self.assertTrue([o for o in plain.Objects if o.isDerivedFrom("Part::Feature")])
 
     def test_without_pmi_the_schema_is_left_alone(self):
         path, _ = self.export(False)

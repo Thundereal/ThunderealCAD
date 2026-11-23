@@ -114,6 +114,8 @@ struct Faces
     Primitive::Type type = Primitive::None;
     /// And its normal or axis
     gp_Dir dir;
+    /// The object, all of it: no element named
+    bool whole = false;
 };
 
 class Reader
@@ -157,6 +159,7 @@ public:
         }
         notes();
         views();
+        placeholders();
         return _report;
     }
 
@@ -265,6 +268,42 @@ private:
         return true;
     }
 
+    /// A tolerance all over, on the part's own shape (NIST's general
+    /// profile, 'Geometrical Tolerance.1' of STC-08 and FTC-06, -07, -10): of
+    /// the whole part, no face of it
+    bool wholePart(const Handle(XCAFDimTolObjects_GeomToleranceObject)& obj,
+                   const NCollection_Sequence<TDF_Label>& labels, Faces& out)
+    {
+        bool over = false;
+        for (auto m : obj->GetModifiers()) {
+            over = over || m == XCAFDimTolObjects_GeomToleranceModif_All_Over;
+        }
+        if (!over || labels.Length() != 1 || XCAFDoc_ShapeTool::IsSubShape(labels.First())) {
+            return false;
+        }
+        auto feat = freecad_cast<Part::Feature*>(_info.objectOf(labels.First()));
+        if (!feat) {
+            // The product's shape read as several objects (its solid, and
+            // the surfaces and curves beside it): the one with its solid
+            TopoDS_Shape product = _shapes->GetShape(labels.First());
+            for (auto o : solidObjects()) {
+                TopExp_Explorer mine(o->Shape.getShape().getShape(), TopAbs_SOLID);
+                for (TopExp_Explorer xp(product, TopAbs_SOLID); xp.More() && !feat; xp.Next()) {
+                    if (mine.More() && xp.Current().IsPartner(mine.Current())) {
+                        feat = o;
+                    }
+                }
+            }
+        }
+        if (!feat) {
+            return false;
+        }
+        out = Faces();
+        out.object = feat;
+        out.whole = true;
+        return true;
+    }
+
     static bool hasSolid(Part::Feature* feat)
     {
         TopExp_Explorer xp(feat->Shape.getShape().getShape(), TopAbs_SOLID);
@@ -290,6 +329,9 @@ private:
 
     TolerancedFeature* feature(const Faces& f, bool axis)
     {
+        if (f.whole) {
+            return Api::feature(set(partOf(f.object)), partOf(f.object), {}, "WholePart");
+        }
         bool axial = f.type == Primitive::Cylinder || f.type == Primitive::Cone
             || f.type == Primitive::Circle;
         return Api::feature(set(partOf(f.object)), f.object, f.names,
@@ -390,6 +432,9 @@ private:
     {
         std::ostringstream ss;
         ss << f.object->getNameInDocument();
+        if (f.whole) {
+            ss << ".whole";
+        }
         for (auto& n : f.names) {
             ss << "." << n;
         }
@@ -439,7 +484,8 @@ private:
         auto d = add<Datum>(f.object, "PMI::Datum", "Datum");
         _datums[k] = d;
         _byLabel[entry(l)] = d;
-        _byLetter.emplace(letter, d);
+        _byLetter.emplace(lettered(f.object, letter), d);
+        _anyOf.emplace(letter, d);
         d->Letter.setValue(letter);
         d->Feature.setValue(feature(f, true));
         place(d, f.object, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
@@ -453,8 +499,21 @@ private:
     void target(const TDF_Label& l, const Handle(XCAFDimTolObjects_DatumObject) & obj,
                 const std::string& letter)
     {
+        // One per part, letter and number: two parts of a file may each have
+        // an A1. A label with no shape -- a frame citing it -- is the first
+        // read of its letter and number
         std::string k = "target " + letter + std::to_string(obj->GetDatumTargetNumber());
-        if (auto it = _keyed.find(k); it != _keyed.end()) {
+        std::string mine = k;
+        {
+            NCollection_Sequence<TDF_Label> on, none;
+            XCAFDoc_DimTolTool::GetRefShapeLabel(l, on, none);
+            Part::Feature* of = on.IsEmpty() ? nullptr : objectOf(on.First());
+            if (of) {
+                mine = "target " + lettered(of, letter)
+                    + std::to_string(obj->GetDatumTargetNumber());
+            }
+        }
+        if (auto it = _keyed.find(mine); it != _keyed.end()) {
             _byLabel[entry(l)] = it->second;
             return;
         }
@@ -551,9 +610,10 @@ private:
         }
         ax = gp_Ax2(at, normal, gp_Dir(x));
         auto t = add<DatumTarget>(owner, "PMI::DatumTarget", "DatumTarget");
-        _keyed[k] = t;
+        _keyed[mine] = t;
+        _keyed.emplace(k, t);
         _byLabel[entry(l)] = t;
-        _targetsOf[letter].push_back(t);
+        _targetsOf[{lettered(owner, letter), letter}].push_back(t);
         t->Label.setValue(k.substr(7));
         t->Number.setValue(obj->GetDatumTargetNumber());
         t->TargetType.setValue(long(type));
@@ -575,6 +635,27 @@ private:
               obj->GetPointTextAttach());
         graphic(t, owner, obj);
         ++_report.targets;
+    }
+
+    /// The annotation placeholders the file gives its PMI (AP242 ed2), each
+    /// kept as its kind: written again with one
+    void placeholders()
+    {
+        for (auto& [e, c] : _byLabel) {
+            TDF_Label l;
+            TDF_Tool::Label(_info.hDoc->GetData(), e.c_str(), l);
+            TCollection_AsciiString kind, name;
+            if (c && !l.IsNull() && XCAFDoc_DimTolTool::GetPlaceholder(l, kind, name)) {
+                _placeholderKinds[c] = {kind.ToCString(), name.ToCString()};
+            }
+        }
+    }
+
+    /// A letter as one part's: two parts of a file may each have a datum A
+    std::string lettered(Part::Feature* obj, const std::string& letter)
+    {
+        Part::Feature* part = partOf(obj);
+        return std::string(part ? part->getNameInDocument() : "") + ":" + letter;
     }
 
     /// The object made for a shape label or its owner
@@ -690,9 +771,10 @@ private:
     /// feature; and each datum's targets, in number order
     void targetDatums()
     {
-        for (auto& [letter, ts] : _targetsOf) {
+        for (auto& [of, ts] : _targetsOf) {
+            const std::string& letter = of.second;
             Datum* d = nullptr;
-            auto range = _byLetter.equal_range(letter);
+            auto range = _byLetter.equal_range(of.first);
             for (auto it = range.first; it != range.second && !d; ++it) {
                 d = freecad_cast<Datum*>(it->second);
             }
@@ -704,7 +786,8 @@ private:
                 d = static_cast<Datum*>(_info.doc->addObject("PMI::Datum", "Datum"));
                 s->addObject(d);
                 _made.push_back(d);
-                _byLetter.emplace(letter, d);
+                _byLetter.emplace(of.first, d);
+                _anyOf.emplace(letter, d);
                 d->Letter.setValue(letter);
                 _read.insert(letter);
                 ++_report.datums;
@@ -846,7 +929,7 @@ private:
         XCAFDoc_DimTolTool::GetRefShapeLabel(l, first, second);
         Faces f;
         std::string why;
-        if (!faces(first, f, why)) {
+        if (!wholePart(obj, first, f) && !faces(first, f, why)) {
             return skip(l, "tolerance", why);
         }
         using GT = GeometricTolerance;
@@ -897,6 +980,9 @@ private:
             }
             else if (m == XCAFDimTolObjects_GeomToleranceModif_Least_Material_Requirement) {
                 gt->MaterialCondition.setValue(2L);
+            }
+            else if (f.whole && m == XCAFDimTolObjects_GeomToleranceModif_All_Over) {
+                // Its feature says so: the whole part
             }
             else if (const char* name = modifier(m)) {
                 mods.emplace_back(name);
@@ -1446,6 +1532,7 @@ private:
         // Its callouts: a datum label only a frame cites shows the datum
         // of its letter
         std::vector<Callout*> members;
+        std::vector<std::string> letters;
         NCollection_Sequence<TDF_Label> gdts;
         tool->GetRefGDTLabel(l, gdts);
         for (auto& g : gdts) {
@@ -1456,8 +1543,22 @@ private:
                 c = it->second;
             }
             else if (auto lt = _letterOf.find(e); lt != _letterOf.end()) {
-                auto dt = _byLetter.find(lt->second);
-                c = dt == _byLetter.end() ? nullptr : dt->second;
+                letters.push_back(lt->second);
+            }
+            if (c && std::find(members.begin(), members.end(), c) == members.end()) {
+                members.push_back(c);
+            }
+        }
+        // A datum cited by its letter alone: the one of the part the view's
+        // other members are of, two parts of a file each having an A
+        for (auto& letter : letters) {
+            AnnotationSet* of = members.empty() ? nullptr : members.front()->getSet();
+            Callout* c = nullptr;
+            auto range = _anyOf.equal_range(letter);
+            for (auto dt = range.first; dt != range.second; ++dt) {
+                if (!c || (of && c->getSet() != of && dt->second->getSet() == of)) {
+                    c = dt->second;
+                }
             }
             if (c && std::find(members.begin(), members.end(), c) == members.end()) {
                 members.push_back(c);
@@ -1579,6 +1680,8 @@ public:
     std::vector<std::pair<Callout*, TopoDS_Shape>> _graphics;
     std::map<Callout*, std::string> _graphicTypes;
     std::map<Callout*, std::string> _graphicNames;
+    /// The kind of annotation placeholder the file gives each
+    std::map<Callout*, std::vector<std::string>> _placeholderKinds;
     std::vector<Callout*> _placeholders;
     Part::Feature* _lastObject = nullptr;
     std::vector<Pending> _pending;
@@ -1589,12 +1692,14 @@ private:
     Handle(XCAFDoc_DimTolTool) _tool;
     std::map<Part::Feature*, Part::TopoShape> _bases;
     std::map<std::string, Callout*> _keyed, _datums, _byLabel;
-    std::multimap<std::string, Callout*> _byLetter;
+    /// By part and letter (lettered()), and by letter alone
+    std::multimap<std::string, Callout*> _byLetter, _anyOf;
     /// A datum label that only a frame cites: its letter
     std::map<std::string, std::string> _letterOf;
     std::set<std::string> _cited, _read;
     std::map<std::string, int> _targets;
-    std::map<std::string, std::vector<DatumTarget*>> _targetsOf;
+    /// By part and letter, with the letter
+    std::map<std::pair<std::string, std::string>, std::vector<DatumTarget*>> _targetsOf;
     /// How far from its face a target's centre may be: a file's rounding
     static constexpr double TargetReach = 1e-3;
     Step::Report _report;
@@ -1625,6 +1730,9 @@ Step::Report Step::read(const Import::PostImport& info)
         c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
         c->ImportedGraphicName.setValue(reader._graphicNames[c]);
         c->UseImported.setValue(true);
+    }
+    for (auto& [c, kind] : reader._placeholderKinds) {
+        c->ImportedPlaceholder.setValues(kind);
     }
     // A PMI the file draws in another's graphic: drawn so, until either is
     // edited (docs/GDandT.md sec 10.10, I)

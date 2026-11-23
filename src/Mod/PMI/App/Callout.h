@@ -94,6 +94,11 @@ public:
     /// The name the file gave its graphic or placeholder ('Linear Size.13'),
     /// written again with it: many PMI may share one (STC-07's 31 radii)
     App::PropertyString ImportedGraphicName;
+    /// The annotation placeholder the file gave it (AP242 ed2), empty for
+    /// none: its kind ('linear dimension', 'general tolerance', 'note': the
+    /// name of its geometric set) and its name, which need not be the
+    /// graphic's. Written again with one, where its text is
+    App::PropertyStringList ImportedPlaceholder;
     /// The callout whose graphic from the file draws this one too, while
     /// both are as the file has them: a composite frame's upper segment, the
     /// PMI a graphic presents with it, a hole's size for its depth

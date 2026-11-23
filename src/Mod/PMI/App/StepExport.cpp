@@ -436,6 +436,15 @@ private:
             why = "it has no feature";
             return false;
         }
+        // The whole part: its own label, no element of it
+        if (feature->getKind() == TolerancedFeature::WholePart) {
+            if (ex.label.IsNull()) {
+                why = "its part is not exported";
+                return false;
+            }
+            out.Append(ex.label);
+            return true;
+        }
         for (auto& [obj, subs] : feature->References.getSubListValues()) {
             for (auto& sub : subs) {
                 Part::TopoShape el;
@@ -558,6 +567,11 @@ private:
         if (!g.IsNull()) {
             obj->SetPresentation(g, graphicName(c));
         }
+        else if (!c->ImportedPlaceholder.getValues().empty()) {
+            // Not drawn, another's graphic presenting it: its placeholder
+            // still has the name the file gave it
+            obj->SetPresentation(TopoDS_Shape(), graphicName(c));
+        }
 
         // The file's graphic, written again: the kind the file named it
         if (!g.IsNull() && c->UseImported.getValue() && *c->ImportedGraphicType.getValue()) {
@@ -619,6 +633,20 @@ private:
         }
         for (auto n : notes) {
             guard(n, [&]() { note(n, ex); });
+        }
+        // Its placeholder, as the file had it: written again
+        for (auto o : set->Group.getValues()) {
+            auto c = freecad_cast<Callout*>(o);
+            auto mine = c ? _labels.find(c) : _labels.end();
+            if (mine == _labels.end()) {
+                continue;
+            }
+            const auto& holder = c->ImportedPlaceholder.getValues();
+            if (!holder.empty() && !holder.front().empty()) {
+                XCAFDoc_DimTolTool::SetPlaceholder(
+                    mine->second, holder.front().c_str(),
+                    holder.size() > 1 ? ascii(holder[1])->String() : TCollection_AsciiString());
+            }
         }
         // Drawn in another's graphic: linked to it as what it presents too
         // (NIST's 32 radii to one '32X R', a hole's depth to its callout)
@@ -924,6 +952,17 @@ private:
                 || gt->MaxValue.getValue() > 0) {
                 partly(gt, "a tolerance per unit with modifiers or datums: its unit is not "
                            "written, STEP has no entity for both");
+            }
+        }
+        // On the whole part it is all over, said or not: what the writer
+        // writes it on the product's shape by
+        if (feature->getKind() == TolerancedFeature::WholePart) {
+            bool over = false;
+            for (auto m : obj->GetModifiers()) {
+                over = over || m == XCAFDimTolObjects_GeomToleranceModif_All_Over;
+            }
+            if (!over) {
+                obj->AddModifier(XCAFDimTolObjects_GeomToleranceModif_All_Over);
             }
         }
         present(gt, ex, obj);

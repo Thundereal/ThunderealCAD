@@ -30,6 +30,7 @@
 
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
+#include <TopExp_Explorer.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
@@ -56,6 +57,7 @@ const char* TolerancedFeature::KindEnums[] = {"Integral",
                                               "Group",
                                               "AllAround",
                                               "Between",
+                                              "WholePart",
                                               nullptr};
 
 PROPERTY_SOURCE(PMI::TolerancedFeature, PMI::Annotation)
@@ -69,7 +71,8 @@ TolerancedFeature::TolerancedFeature()
     ADD_PROPERTY_TYPE(Kind, (0L), "PMI", App::Prop_None,
                       "Integral: the faces; Axis, CentrePlane, CentrePoint, Apex: the exact "
                       "element derived from them; Group: several faces as one; AllAround, "
-                      "Between: a restricted feature");
+                      "Between: a restricted feature; WholePart: the part, all its faces, "
+                      "none named");
     Kind.setEnums(KindEnums);
     // Shape, IsSize and Condition are not outputs: a dimension or a datum on
     // this feature is recomputed only when one of them changes (with
@@ -194,6 +197,26 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
     }
 
     const std::vector<App::DocumentObject*> objs = References.getValues();
+    if (getKind() == WholePart) {
+        // The part as it is: no face is named, so none is lost or remapped
+        std::string why;
+        std::vector<TopoDS_Shape> faces = wholePart();
+        derive(faces, why);
+        SavedGeometry.setValue(TopoDS_Shape());
+        if (!SavedNames.getValues().empty()) {
+            SavedNames.setValues(std::vector<std::string>());
+        }
+        if (objs.empty() || !objs.front()) {
+            setState(Broken, "no part referred to");
+        }
+        else if (faces.empty()) {
+            setState(Invalid, "the part has no face");
+        }
+        else {
+            setState(Ok);
+        }
+        return App::DocumentObject::StdReturn;
+    }
     const std::vector<std::string> subs = References.getSubValues(false);
     const std::vector<App::ShadowSub> shadows = References.getShadowSubs();
     const std::vector<std::string> savedNames = SavedNames.getValues();
@@ -366,6 +389,28 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
     return App::DocumentObject::StdReturn;
 }
 
+std::vector<TopoDS_Shape> TolerancedFeature::wholePart() const
+{
+    std::vector<TopoDS_Shape> faces;
+    const auto& objs = References.getValues();
+    if (objs.empty() || !objs.front()) {
+        return faces;
+    }
+    try {
+        TopoDS_Shape whole = Part::Feature::getTopoShape(objs.front()).getShape();
+        if (!whole.IsNull()) {
+            for (TopExp_Explorer it(whole, TopAbs_FACE); it.More(); it.Next()) {
+                faces.push_back(it.Current());
+            }
+        }
+    }
+    catch (const Base::Exception&) {
+    }
+    catch (const Standard_Failure&) {
+    }
+    return faces;
+}
+
 const std::vector<Primitive>& TolerancedFeature::borePrimitives() const
 {
     if (_boresFound) {
@@ -489,7 +534,8 @@ void TolerancedFeature::onDocumentRestored()
     // Shape is not saved: made again from what was saved, so the check and
     // the dimensions have their geometry before the first recompute
     std::string why;
-    auto saved = Geom::members(SavedGeometry.getShape().getShape());
+    auto saved = getKind() == WholePart ? wholePart()
+                                        : Geom::members(SavedGeometry.getShape().getShape());
     bool touched = isTouched();
     derive(saved, why);
     if (!touched) {
@@ -507,6 +553,9 @@ bool TolerancedFeature::refersTo(const App::DocumentObject* part,
     std::set<std::string> have;
     const auto& objs = References.getValues();
     auto mine = References.getSubValues(false);
+    if (getKind() == WholePart) {
+        return want.empty() && !objs.empty() && objs.front() == part;
+    }
     for (std::size_t i = 0; i < objs.size() && i < mine.size(); ++i) {
         if (objs[i] != part) {
             return false;

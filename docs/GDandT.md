@@ -1581,8 +1581,40 @@ composite's lower segment drawn twice: 'Geometrical Tolerance.1' is a tolerance 
 part (its toleranced shape an aspect of no geometry in STC-08 and FTC-06, the product's shape in
 FTC-07 and FTC-10), which OCCT does not read. Its graphic is kept now, a graphic alone, where it
 was dropped in the first two. Reading it as a tolerance needs a tolerance of no faces in the
-model and 'all over' in the reader and writer: open. A composite's lower segment is written
-linked to no graphic, as NIST's is; being composite says whose it is drawn in.
+model and 'all over' in the reader and writer (built next, below). A composite's lower segment
+is written linked to no graphic, as NIST's is; being composite says whose it is drawn in.
+
+Four things decided on that (2026-11-23), and built:
+
+- **A tolerance of the whole part.** `TolerancedFeature.Kind` has `WholePart`: the part, all its
+  faces, none named (`PMI.feature(set, solid, [], "WholePart")`). It has no saved geometry and
+  nothing to repair: it is the part as it is. OCCT reads a tolerance of no geometry -- on the
+  product's shape, or on a shape aspect that names none -- on the part's own label, all over;
+  the import makes it on the object with the part's solid. Written, its target is the product's
+  shape itself, as NIST's FTC-07 has it. The 'AllOver' modifier is not kept beside it: the
+  feature says so.
+- **Read with or without its PMI.** Preferences, Import-Export, STEP, 'Import PMI (GD&T)'
+  (`Mod/Import/ReadPMI`, on by default). Off, `STEPCAFControl_Reader`'s GDT mode is off: no
+  annotation, and none of the supplemental geometry's curves, which are read for the PMI on
+  them and only then (`DESTEP_Parameters::ReadSupplementalCurves`, set from the GDT mode; a
+  plain `STEPControl_Reader` is as upstream's again). This closes the audit's B1.
+- **A datum letter is one part's.** Two parts written to one file may each have a datum A. The
+  writer keyed its datums by letter alone and took the second part's for the first's given
+  again; it keys them by letter and part now (a frame's citation, which has no shape, is of the
+  letter as first written -- and a datum established by targets alone, cited from another set
+  before its targets come, is still theirs: CTC-02's K). The import keys targets and the
+  datums they establish the same way. This closes the audit's A4.
+- **Annotation placeholders written.** A PMI's placeholder (AP242 ed2: where a reader that
+  draws PMI itself puts its text) is kept as `Callout.ImportedPlaceholder`, its kind and its
+  name -- the name need not be its graphic's: STC-07's dimension drawn as 'Oriented Linear
+  Dimension.1' has the placeholder 'Oriented Linear Dimension.5' -- and written again: a
+  callout of the placeholder alone in an annotation plane of its own, linked to the PMI by a
+  `draughting_model_item_association_with_placeholder`, its geometric set named by the kind
+  (what SFA counts a file's graphics by). OCCT has no class for the placeholder: it is written
+  as an entity of parameters (`StepData_UndefinedEntity::SetStepType`), which a draughting
+  callout may now hold. STC-07's 22 kinds and names are NIST's. Not written: the placeholder
+  of a note that is on the product itself and has no words (STC-08's Text.8, FTC-06's Text.6:
+  nothing to define its link by), and of the datum targets that are not read (FTC-06's two).
 
 ### 10.24 P3: SFA on the output (2026-11-22)
 

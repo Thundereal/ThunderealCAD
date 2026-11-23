@@ -249,7 +249,12 @@ TolerancedFeature* Api::feature(AnnotationSet* set, App::DocumentObject* solid,
             }
         }
     }
-    if (!set || !solid || faces.empty()) {
+    // The whole part names no face; any other kind is of the faces named
+    const bool whole = kind && std::strcmp(kind, "WholePart") == 0;
+    if (whole && !faces.empty()) {
+        THROWM(Base::ValueError, "PMI: a feature that is the whole part names no element");
+    }
+    if (!set || !solid || (faces.empty() && !whole)) {
         return nullptr;
     }
     for (auto feat : set->features()) {
@@ -262,8 +267,13 @@ TolerancedFeature* Api::feature(AnnotationSet* set, App::DocumentObject* solid,
     auto feat = static_cast<TolerancedFeature*>(
         doc->addObject(TolerancedFeature::getClassTypeId().getName(), "Feature"));
     set->addObject(feat);
-    std::vector<App::DocumentObject*> objs(faces.size(), solid);
-    feat->References.setValues(objs, faces);
+    if (whole) {
+        feat->References.setValues({solid}, {std::string()});
+    }
+    else {
+        std::vector<App::DocumentObject*> objs(faces.size(), solid);
+        feat->References.setValues(objs, faces);
+    }
     if (kind) {
         feat->Kind.setValue(kind);
     }

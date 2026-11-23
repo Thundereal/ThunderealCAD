@@ -117,6 +117,33 @@ class DimensionReferenceTest(unittest.TestCase):
         self.assertEqual(dim.References2D[0][1], ("Edge1",))
         self.assertNotAlmostEqual(sides[0], sides[1])
 
+    def testADimensionMadeWithItsViewSavesWhatItMeasures(self):
+        """A dimension made before its view has drawn -- both in the same
+        recompute, as a script makes them -- saved null geometry for its
+        references, and nothing filled it: every recompute said "no exact
+        match" and its references were never found again by their geometry.
+        The entries are filled from the elements once the view has drawn
+        them (docs/WorkerProcess.md sec 54)"""
+        source = self.doc.addObject("Part::Box", "Box")
+        view = self.doc.addObject("TechDraw::DrawViewPart", "View")
+        self.page.addView(view)
+        view.Source = [source]
+        dim = self.doc.addObject("TechDraw::DrawViewDimension", "Dim")
+        dim.Type = "DistanceX"
+        dim.References2D = [(view, ("Vertex0", "Edge1"))]
+        self.page.addView(dim)
+        # the state it is about: saved before the view drew anything
+        self.assertEqual(len(dim.SavedGeometry), 2)
+        self.assertTrue(all(g.isNull() for g in dim.SavedGeometry))
+        self.doc.recompute()
+        self.assertFalse(any(g.isNull() for g in dim.SavedGeometry))
+        # what a dimension made after its view saves for the same elements
+        other = self.dimension(view, "DistanceX", ("Vertex0", "Edge1"))
+        points = lambda d: [[tuple(round(c, 9) for c in v.Point) for v in g.Vertexes]
+                            for g in d.SavedGeometry]
+        self.assertEqual(points(dim), points(other))
+        self.assertAlmostEqual(dim.getRawValue(), other.getRawValue(), 9)
+
     def testSavedGeometryWithANullEntryIsCopied(self):
         """An entry with no geometry -- saved for a reference before its view
         drew anything -- is a value of the list: a transaction copies the

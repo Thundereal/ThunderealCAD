@@ -556,6 +556,12 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
         // below is the fallback for a reference this cannot place.
         fixByName();
 
+        // before the comparison: a null entry matches nothing, and the
+        // reference it stands for would never be found again by geometry
+        if (!isRestoring()) {
+            fillNullSavedGeometry();
+        }
+
         const std::vector<TopoShape> savedGeometry = SavedGeometry.getValues();
         if (!savedGeometry.empty()) {
             // we can only correct references if we have saved geometry for comparison
@@ -2025,6 +2031,44 @@ bool DrawViewDimension::fixExactMatch()
     repointReferences(refsToFix3d, true);
 
     return success;
+}
+
+//! A saved entry is null where its reference was set before its view had drawn
+//! the element -- a dimension made in the same recompute as its view, as a
+//! script makes them. Nothing filled it later: every recompute compared the
+//! null entry with the element, said "no exact match", and accepted the
+//! reference as it stood, so it was never found again by its geometry. What
+//! the reference names once the view has drawn is what it was made against:
+//! there was nothing else (docs/WorkerProcess.md sec 54). The entries stand
+//! for the references with a subname, as updateSavedGeometry() makes them.
+bool DrawViewDimension::fillNullSavedGeometry()
+{
+    std::vector<TopoShape> saved = SavedGeometry.getValues();
+    if (saved.empty()) {
+        return false;
+    }
+    bool filled = false;
+    std::size_t index = 0;
+    for (auto& entry : getEffectiveReferences()) {
+        if (entry.getSubName().empty()) {
+            continue;
+        }
+        if (index >= saved.size()) {
+            break;
+        }
+        if (saved[index].isNull() && entry.isValid()) {
+            TopoShape now = entry.asCanonicalTopoShape();
+            if (!now.isNull()) {
+                saved[index] = now;
+                filled = true;
+            }
+        }
+        ++index;
+    }
+    if (filled) {
+        SavedGeometry.setValues(saved);
+    }
+    return filled;
 }
 
 // deal with situation where the current geometry does not match the saved geometry,

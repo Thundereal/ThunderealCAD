@@ -223,6 +223,9 @@ protected:
     bool compareSavedGeometry();
     bool fixExactMatch();
     void handleNoExactMatch();
+    /// Saved entries left null, filled from what their references name now
+    /// (docs/WorkerProcess.md sec 54); true if one was
+    bool fillNullSavedGeometry();
     std::string recoverChangedEdge2d(int iReference);
     std::string recoverChangedEdge3d(int iReference);
     std::string recoverChangedVertex2d(int iReference);

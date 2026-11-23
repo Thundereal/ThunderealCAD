@@ -3479,3 +3479,40 @@ sec 20 showed a result can depend on, so it is not done.
 
 What is left of the gap is the move across recomputes made here (1.15 s,
 in the worker) and `Start`'s snapshot (0.6 s, on the main thread).
+
+## 54. A dimension made with its view saves what it measures (2026-11-23)
+
+Sec 46 left this open: a dimension made in the same recompute as its view
+saves its references' geometry before the view has drawn anything.
+`updateSavedGeometry()` runs when the references are set, and a reference
+whose element is not there yet gets a null entry. Nothing filled those
+entries later. At every recompute `compareSavedGeometry()` found the null
+entry's type unlike the element's, `fixExactMatch()` found nothing like a
+null shape ("Dim - no exact match for changed 2d reference: 0", one line
+per reference), and `handleNoExactMatch()` accepted the reference as it
+stood. The value was right, but the reference had no geometry to be found
+again by when its view numbered the elements otherwise. A script makes
+dimensions this way, and so does a worker's copy.
+
+Now `execute()` fills a null entry from what its reference names, once
+the reference has geometry (`fillNullSavedGeometry()`), before the
+comparison. That is the geometry it was made against: there was nothing
+else. The entries stand for the references that have a subname, the same
+correspondence `updateSavedGeometry()` makes. A restore fills nothing.
+
+`DimensionReferenceTest.testADimensionMadeWithItsViewSavesWhatItMeasures`:
+a box, its view and a dimension added and recomputed once. Before the
+recompute both entries are null, which checks the case is the one meant.
+After it, neither is, and they hold the same points, and give the same
+value, as a dimension made after its view. Without the fix it fails ("True
+is not false"), with the two "no exact match" lines. With it,
+DimensionReferenceTest 7 OK, TestTechDrawApp 32 OK and TestWorkerPool 76
+OK. TestTechDrawApp still prints "no exact match" twice per run of
+`testDimensionMeasuresWhatTheUndoPutBack`, which changes the model under
+its dimension: that is the message working.
+
+`handleNoExactMatch()` still accepts what it does not find, unchanged. It
+is also what keeps a dimension on an edge the user lengthened, which
+matches no saved geometry exactly, so an error there would break the
+ordinary edit. Dimension075 (sec 46) is the other side of it: saved
+geometry that is stale in the file.

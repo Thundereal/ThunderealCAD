@@ -1301,6 +1301,26 @@ pointer and `SetCursorPos` do not, and a modal box nobody sweeps waits for
 the guard's timeout. `GT_DESKTOP=screen` puts the window on the user's
 screen; `GT_DESKTOP=offscreen` is for a test that needs no pixels.
 
+**A Windows run is shaped like the xvfb one** (2026-11-24): the tests count
+pixels, pick and measure widgets against `gui-test.sh`'s screen, and a
+wide high-DPI monitor is not that screen. `gui-test.cmd` sets
+`QT_ENABLE_HIGHDPI_SCALING=0` (device pixel ratio 1) and `QT_FONT_DPI=96`
+(a point is the pixels it is on xvfb, not 1.25 of them at 125% scaling: a
+spin box's fitted minimum came out at 87 px where the test wants below
+80), and `gui-test-guard.py` gives the main window a maximum size of
+1280x1024 (`GT_SCREEN=WxH` another size, `GT_SCREEN=full` the monitor):
+maximized on a 5120x1440 monitor a 3D view is 4700x930, and a sketch
+marker measured 12x17 where it is 7. A maximum size and not a restored
+window, because Windows keeps a maximized window within it: a test that
+maximizes has a maximized window, with its own restore rect. A test that
+sizes the window past the bound itself gets that size, as X gives it
+past the screen; a maximize after that is not bounded again. Changing
+the window state from the guard behind a test's back was tried and broke
+three tests (a restore rect, a dialog, a layout). Together these took a
+5120x1440, 125% box from 13 failures a 1080p box does not have to 2,
+counting the 3D-view `grab()` fix (`Gui: a 3D view's grab() draws the
+frame it reads back`) for the ones that failed only on NVIDIA.
+
 Before the driver, a test was run by hand under cdb, which is still the
 way to catch a crash's stack:
 

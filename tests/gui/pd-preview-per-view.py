@@ -144,6 +144,9 @@ def run():
             note("ABORT render cache is not mode 3")
             finish()
             return
+        # In a view of a 1280 px window split in two the cube and its axes
+        # stand over the Link's occurrence, where a pixel is read.
+        params.SetBool("ShowNaviCube", False)
 
         doc = FreeCAD.newDocument(DOC)
         body = doc.addObject("PartDesign::Body", "Body")

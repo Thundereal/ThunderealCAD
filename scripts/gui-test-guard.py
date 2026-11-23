@@ -43,6 +43,46 @@ if PROFILE and os.path.exists(PROFILE) and not os.environ.get("GT_NO_PROFILE"):
     with open(PROFILE, encoding="utf-8") as f:
         exec(compile(f.read(), PROFILE, "exec"), {"__name__": "__main__", "__file__": PROFILE})
 
+
+# The main window no bigger than scripts/gui-test.sh's xvfb screen, 1280x1024: maximized
+# on a 5120x1440 monitor a 3D view is 4700x930, and tests that pick, zoom or count pixels
+# were written against the other shape (a sketch marker 12x17 where it is 7, a pick that
+# misses). A maximum size, not a restored window: Windows keeps a maximized window within
+# it, so a test that maximizes still has a maximized window, and its restore rect is its
+# own. A test that sizes the window past it asks for that size (X lets a window be bigger
+# than the screen; mw.resize(1400, 900)), so the bound gives way to it.
+# GT_SCREEN=WxH another size, GT_SCREEN=full the whole monitor.
+_screen = os.environ.get("GT_SCREEN", "1280x1024").lower()
+if _screen != "full":
+    _sw, _sh = (int(v) for v in _screen.split("x"))
+    _mw = FreeCADGui.getMainWindow()
+    _maximized = _mw.isMaximized()
+    if _maximized:
+        _mw.showNormal()
+    _mw.setMaximumSize(_sw, _sh)
+    if _maximized:
+        _mw.showMaximized()
+    else:
+        # the window FreeCAD restores is the monitor's size, unmaximized: on the screen
+        _avail = _mw.screen().availableGeometry()
+        _frame = _mw.frameGeometry()
+        _mw.move(_mw.x() + _avail.x() - _frame.x(), _mw.y() + _avail.y() - _frame.y())
+
+    def _lifted(call):
+        def sized(*args):
+            r = QtCore.QRect(*args) if len(args) == 4 else None
+            size = r.size() if r else (QtCore.QSize(*args) if len(args) == 2 else args[-1])
+            if hasattr(size, "size"):
+                size = size.size()
+            if size.width() > _sw or size.height() > _sh:
+                _mw.setMaximumSize(16777215, 16777215)
+            return call(*args)
+
+        return sized
+
+    _mw.resize = _lifted(_mw.resize)
+    _mw.setGeometry = _lifted(_mw.setGeometry)
+
 # FreeCAD puts the directory of a script it is handed on the path; this one is handed to
 # exec, so its helpers beside it (tests/gui/wsclient.py) would not be found
 sys.path.insert(0, os.path.dirname(os.path.abspath(SCRIPT)))

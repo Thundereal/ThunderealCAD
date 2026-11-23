@@ -195,6 +195,10 @@ public:
         bool stale = false;
         long moves = 0;    ///< workers moved along the log to a newer copy
         long reopens = 0;  ///< workers that opened a newer copy whole
+        /// Newer copies made while the document was quiet, before a job
+        /// asked for one (Workers/MoveWhenIdleSeconds, docs/WorkerProcess.md
+        /// sec 57)
+        long idleCopies = 0;
         /// Values workers kept as they held them, moving across the rows
         /// their own result was put in as (sec 29)
         long kept = 0;

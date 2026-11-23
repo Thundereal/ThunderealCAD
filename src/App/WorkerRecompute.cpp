@@ -1320,6 +1320,10 @@ struct State
     /// Objects that crashed a worker once: a recompute reaching one is
     /// handed to a worker whatever it is expected to take
     std::set<std::string> risky;
+    /// Of those, how many recomputes since its last crash a worker made it
+    /// in and were put in: at Workers/RiskyClearAfter it is risky no more
+    /// (docs/WorkerProcess.md sec 56)
+    std::map<std::string, int> clean;
     WorkerRecompute::Info info;
     std::vector<fastsignals::scoped_connection> conns;
     /// Each worker's part of the recompute: one, or more where it is split
@@ -1402,6 +1406,7 @@ void changed(State& s)
     for (auto& [name, why] : s.crashed) {
         s.info.crashed.push_back(name);
     }
+    s.info.risky.assign(s.risky.begin(), s.risky.end());
     WorkerRecompute::signalChanged(s.doc);
 }
 
@@ -1657,6 +1662,26 @@ void apply(State& s)
         p.fileJob = 0;
     }
     noteSupplied(s, *supplier);
+    // What crashed a worker once, made by one and put in again without a
+    // crash: after a few of those it is trusted as any other object, and its
+    // recomputes are not handed to a worker for it any more. A crash again
+    // starts the count over (quarantine)
+    if (!s.risky.empty()) {
+        const long after = GetApplication()
+                               .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+                               ->GetInt("RiskyClearAfter", 3);
+        for (auto& name : supplier->fromWorker) {
+            if (!s.risky.count(name) || s.crashed.count(name)) {
+                continue;
+            }
+            if (after > 0 && ++s.clean[name] >= after) {
+                s.risky.erase(name);
+                s.clean.erase(name);
+                FC_LOG(s.doc.getName() << "." << name << ": made by a worker " << after
+                                       << " times since its crash, no longer handed to one");
+            }
+        }
+    }
     ++s.info.applied;
     s.info.reason.clear();
     supplier.reset();
@@ -1721,6 +1746,7 @@ void quarantine(State& s, const WorkerPool::Result& r)
     }
     s.crashed[name] = why;
     s.risky.insert(name);
+    s.clean.erase(name);
     s.doc.setErrorDescription(obj, why.c_str());
     FC_ERR(obj->getFullName() << ": " << why);
 }
@@ -1971,6 +1997,7 @@ State& stateFor(Document& doc)
     s.conns.emplace_back(doc.signalDeletedObject.connect([&s](const DocumentObject& obj) {
         if (obj.getNameInDocument()) {
             s.risky.erase(obj.getNameInDocument());
+            s.clean.erase(obj.getNameInDocument());
             if (s.crashed.erase(obj.getNameInDocument())) {
                 changed(s);
             }

@@ -98,6 +98,10 @@ public:
         /// Objects whose recompute crashed a worker on what they read now:
         /// not executed in this process (docs/WorkerProcess.md sec 34)
         std::vector<std::string> crashed;
+        /// Objects that crashed a worker and were tried again since: a
+        /// recompute reaching one is handed to a worker, until a worker has
+        /// made it Workers/RiskyClearAfter times (sec 56)
+        std::vector<std::string> risky;
         /// Recomputes asked of this process that a worker made first, for
         /// reaching an object that crashed one before (sec 37)
         long handedOver = 0;

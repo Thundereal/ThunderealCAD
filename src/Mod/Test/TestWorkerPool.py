@@ -1487,6 +1487,54 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(len(there), 6, there)
         self.assertGreater(min(set(there) - set(held)), max(here), (held, here, there))
 
+    def testAQuietDocumentsWorkersMoveBeforeTheNextJob(self):
+        """A recompute made here leaves the workers' copy behind. Once the
+        document is quiet for Workers/MoveWhenIdleSeconds, the newer copy is
+        made and the workers moved to it, before a job waits for both: on
+        scanner that move was 1.17 s of the next job (docs/WorkerProcess.md
+        sec 57). Only where an event loop runs, as in the GUI: pumped here"""
+        from PySide import QtCore
+
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetFloat("MoveWhenIdleSeconds", 0.3)
+        self.addCleanup(group.RemFloat, "MoveWhenIdleSeconds")
+        first = self.counted("First", Input=1)
+        second = self.counted("Second")
+        second.setExpression("Input", "First.Result")
+        self.doc.recompute()
+        first.Input = 2
+        self.byWorker()  # a worker up, on the copy of then
+        self.assertEqual(second.Result, 8)
+        info = self.pool.info()
+        copies, moves = info["IdleCopies"], info["Moves"]
+
+        def pump(until, seconds=10):
+            end = time.time() + seconds
+            while time.time() < end and not until():
+                QtCore.QCoreApplication.processEvents()
+                self.pool.poll(20)
+            return until()
+
+        # Not while a transaction is open: it is a command's
+        self.doc.UndoMode = 1
+        self.doc.openTransaction("an edit")
+        first.Input = 3
+        self.doc.recompute()  # made here
+        self.assertFalse(pump(lambda: self.pool.info()["IdleCopies"] > copies, 1.0))
+        self.doc.commitTransaction()
+        self.assertTrue(pump(lambda: self.pool.info()["IdleCopies"] > copies), self.pool.info())
+        self.assertEqual(self.pool.info()["IdleCopies"], copies + 1)
+        # the worker told, and there
+        self.assertTrue(pump(lambda: self.pool.info()["Moves"] > moves), self.pool.info())
+        # quiet and the copy current: nothing more is made
+        self.assertFalse(pump(lambda: self.pool.info()["IdleCopies"] > copies + 1, 1.0))
+        # the next job is made on it, and right
+        first.Input = 4
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], 2, info)
+        self.assertEqual(second.Result, 16)
+        self.assertEqual(self.touched(), [])
+
     def testAPartChainMadeByAWorker(self):
         import Part  # noqa: F401
 
@@ -1903,6 +1951,31 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(after.Result, 24)
         self.assertNotIn("crashed here", _executions)
         self.assertEqual(other.Result, 2)
+
+    def testWhatCrashedIsTrustedAgainAfterCleanRuns(self):
+        """An object that crashed a worker and was tried again is handed to a
+        worker at each recompute reaching it -- until a worker has made it
+        Workers/RiskyClearAfter times, 3 by default, with no crash: then it is
+        made here as any other object (docs/WorkerProcess.md sec 56)"""
+        before, crash, after = self.crashingChain()
+        self.byWorker()
+        self.assertEqual(self.pool.recomputeInfo()["Crashed"], ["Crash"])
+        crash.Crash = False
+        handed = self.pool.recomputeInfo()["HandedOver"]
+        for k in range(3):
+            self.assertEqual(self.pool.recomputeInfo()["Risky"], ["Crash"], k)
+            before.Input = 10 + k
+            self.doc.recompute()
+            info = self.pool.recomputeInfo()
+            self.assertEqual(info["HandedOver"], handed + k + 1, info)
+            self.assertNotEqual(crash.MadeBy, os.getpid())
+        self.assertEqual(self.pool.recomputeInfo()["Risky"], [])
+        before.Input = 20
+        self.doc.recompute()
+        self.assertEqual(self.pool.recomputeInfo()["HandedOver"], handed + 3)
+        self.assertEqual(crash.MadeBy, os.getpid())
+        self.assertEqual(crash.Result, 80)
+        self.assertNotIn("crashed here", _executions)
 
     def testAScriptsRecomputeOfWhatCrashedIsAWorkersFirst(self):
         """A recompute a script asks of this process, reaching an object that

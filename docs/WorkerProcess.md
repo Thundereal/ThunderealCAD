@@ -3408,9 +3408,13 @@ two recomputes here, then three by the worker):
 The parts add up to `Total` to the millisecond, and `Total` to the
 probe's own measure within 13 ms. So:
 
-- **Most of sec 44's unexplained time was the move.** The worker crossed
-  the rows the two recomputes made here wrote: 1.17 s. After its own
-  result it moves in 0.03 s, because it keeps what it sent (sec 29).
+- **Most of sec 44's unexplained time was a new worker opening the copy:
+  1.17 s.** I first read it as the worker moving across the rows the two
+  recomputes made here wrote. Sec 57 found it was not: the worker had
+  quit during those recomputes (`IdleSeconds`, 30 s), and the job started
+  a new one, which opens the version whole (`Spawned` 2, `Moves` and
+  `Reopens` 0). After its own result a worker moves in 0.03 s, because it
+  keeps what it sent (sec 29).
 - **Handing the result over takes nothing**: `Returned` is `Job` plus a
   few milliseconds.
 - **Outside its recompute** the worker spends about 0.65 s (`Job` 9.8 s
@@ -3477,8 +3481,10 @@ another thread, would overlap it with the recompute. But it writes
 triangulations into shapes the later features are still reading, which
 sec 20 showed a result can depend on, so it is not done.
 
-What is left of the gap is the move across recomputes made here (1.15 s,
-in the worker) and `Start`'s snapshot (0.6 s, on the main thread).
+What is left of the gap is a new worker's open of the copy (1.15 s, in
+the worker, when the last one quit while the user worked here; sec 57
+corrects this from "the move") and `Start`'s snapshot (0.6 s, on the main
+thread).
 
 ## 54. A dimension made with its view saves what it measures (2026-11-23)
 
@@ -3592,3 +3598,82 @@ covers the other side: the source replaced, the borrower unchanged, so its
 kept set cannot be rebound and it is walked and rewritten. ShapeStorage
 67, FileBlobs 97, Document 363, TestPartApp 446, TestWorkerPool 76 and
 TestTechDrawApp 32 are OK. ctest passes all 1285 that run (11 disabled).
+
+## 56. What crashed a worker is trusted again after clean runs (2026-11-23)
+
+Sec 38 left it open that *risky* never expires. An object that once crashed
+a worker, and was changed so it is tried again (sec 34), had every later
+recompute reaching it handed to a worker (sec 37), for as long as the
+document was open, however often a worker made it without a crash since.
+The user agreed it should expire.
+
+Now `apply()` counts, for each risky object a worker supplied in a result
+that was put in, the recomputes since its last crash. At
+`Workers/RiskyClearAfter` (default 3; 0 keeps it risky for good) it is
+risky no more, and a recompute reaching it is made where any other would
+be. A crash again starts over: `quarantine()` drops the count with the
+refusal it puts back. A deleted object drops it too.
+`recomputeInfo()["Risky"]` lists the risky objects.
+
+`TestWorkerRecompute.testWhatCrashedIsTrustedAgainAfterCleanRuns`: a
+crash, the crash fixed, then three recomputes, each handed to a worker
+with `Risky` still `["Crash"]`. After the third, `Risky` is `[]`, and the
+fourth is made here (`MadeBy` this process, `HandedOver` unchanged).
+Run with `RiskyClearAfter` 0, it fails where it should (`Risky` still
+`["Crash"]`).
+
+## 57. A quiet document's workers move before the next job (2026-11-23)
+
+The user's item 1. A recompute made here leaves the workers' copy behind
+(`Stale`). The next job then pays the copy's new version (`Start`, on the
+main thread) and the worker's catching up (`Setup`), one after the other,
+before its recompute starts.
+
+Now a change that makes the copy stale, while a worker is up, starts a
+timer of `Workers/MoveWhenIdleSeconds` (default 2 s; 0 is off), and each
+further change starts it again. When it fires on a quiet document, the
+newer copy is made and every worker is told to move to it at once
+(`takeCopy()`, as for a job). Quiet means:
+
+- no recompute, restore or undo running, and no transaction open once an
+  implicit one is committed, as `takeCopy()` commits it;
+- no job queued or running;
+- a worker still up.
+
+Otherwise it waits another delay, or gives up when no worker is left. A
+job that comes later finds the version unchanged (`ReuseVersion`) and its
+worker there or on its way. It needs an event loop, so a console script
+does not see it. `pool.info()["IdleCopies"]` counts the copies made so.
+
+`TestWorkerRecompute.testAQuietDocumentsWorkersMoveBeforeTheNextJob`
+(0.3 s, events pumped by the test): nothing is made while a transaction
+is open. Once it is committed, one copy is made and the worker moves
+(`Moves` +1). Nothing more is made while the copy is current, and the next
+job is made on it, with the right result.
+
+**What it buys, scanner in the GUI** (`times_gui.py`, `PROBE_ONEHERE=1
+PROBE_QUIET=3`: a worker job, then three rounds of one `hole_radius`
+recompute here, 3 s quiet, and a worker job):
+
+| | `Start` | `Setup` | main thread blocked | total |
+|---|---|---|---|---|
+| off (`PROBE_NOIDLE`) | 0.44-0.47 s | 1.14-1.15 s | 1.51-1.55 s | 12.55-12.71 s |
+| on, rounds 2 and 3 | 0.14-0.16 s | 3.93-3.95 s | 0.98 s | 11.97-11.98 s |
+
+The gain is the snapshot made while the user is quiet: 0.3 s less
+`Start`, 0.55 s less of the main thread blocked, and 0.6 s sooner in all.
+The move itself is no gain.
+
+- **Off, the worker never moved: it had gone.** The probe's 3 s quiet
+  follows a 9.7 s recompute and the probe's own reading of every shape,
+  and the worker quits after `IdleSeconds` (30 s). So every job started a
+  new worker, which opened the version whole in 1.14 s. That is also what
+  sec 53's 1.17 s was (corrected there).
+- **On, the worker moved, and moving across one recompute made here took
+  it 3.9 s**: slower than a new worker's open of the whole version
+  (1.15 s). The move started in the quiet time, and the job still waited
+  about 1.2 s for the rest of it (`Queued`).
+
+Why a move across those rows costs more than an open is not chased here.
+Until it is, a large change is caught up with faster by opening whole than
+by moving. That is the next item.

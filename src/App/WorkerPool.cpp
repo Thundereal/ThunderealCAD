@@ -631,6 +631,13 @@ struct WorkerPool::Private
     Document& doc;
     QObject context;  ///< owns the connections to the processes and sockets
     QTimer idleTimer;
+    /// The copy gone stale and the document quiet for MoveWhenIdleSeconds:
+    /// the newer copy made then, and the workers moved to it, before a job
+    /// waits for both (docs/WorkerProcess.md sec 57)
+    QTimer moveTimer;
+    long idleCopies = 0;
+    void armMove();
+    void moveWhenIdle();
     std::unique_ptr<QLocalServer> server;
     std::string token;
     std::string dir;   ///< the copy's: root/copy-<k>
@@ -1217,10 +1224,73 @@ void WorkerPool::Private::pruneCopies()
     }
 }
 
+void WorkerPool::Private::armMove()
+{
+    const double delay = params()->GetFloat("MoveWhenIdleSeconds", 2.0);
+    if (delay <= 0 || !stale || copy.empty()) {
+        return;
+    }
+    // Only workers there are: none is started for it
+    bool live = false;
+    for (auto& proc : procs) {
+        live = live || (!proc->over && !proc->quitting && proc->socket);
+    }
+    if (live) {
+        moveTimer.start(static_cast<int>(delay * 1000));
+    }
+}
+
+void WorkerPool::Private::moveWhenIdle()
+{
+    if (!stale || copy.empty()) {
+        return;
+    }
+    // Not in the middle of something: what it is doing makes the copy stale
+    // again, or a job takes the copy itself. What a script or an event wrote
+    // is committed, as takeCopy() and the GUI's closer commit it; a
+    // transaction still open is a command's, and would have the copy saved
+    // whole, not written as a version
+    const bool busy = doc.testStatus(Document::Recomputing)
+        || doc.testStatus(Document::Restoring) || doc.isPerformingTransaction();
+    if (!busy) {
+        doc.commitImplicitTransaction();
+    }
+    if (busy || doc.hasPendingTransaction()) {
+        armMove();
+        return;
+    }
+    if (!queue.empty()) {
+        return;
+    }
+    for (auto& [id, entry] : jobs) {
+        if (entry.running) {
+            return;
+        }
+    }
+    // Still a worker to move: one that went meanwhile (IdleSeconds) leaves
+    // nothing to make the copy for
+    bool live = false;
+    for (auto& proc : procs) {
+        live = live || (!proc->over && !proc->quitting && proc->socket);
+    }
+    if (!live) {
+        return;
+    }
+    if (!takeCopy()) {
+        // The next job tries again, and says why it cannot be had
+        FC_LOG(doc.getName() << ": no newer copy for the workers while quiet: " << reason);
+        return;
+    }
+    ++idleCopies;
+    FC_LOG(doc.getName() << ": the workers moved to version " << version << " while quiet");
+    changedNotice();
+}
+
 void WorkerPool::Private::dropReached(const DocumentObject* obj, const std::string& why,
                                       const Property* prop)
 {
     stale = !copy.empty();
+    armMove();
     if (!doc.hasPendingTransaction() && !doc.isPerformingTransaction()) {
         unrecorded = true;
     }
@@ -2276,6 +2346,11 @@ WorkerPool::WorkerPool(Document& doc)
         Private::Depth guard(*d, true);  // a timer of its own, no socket's signal
         d->checkIdle();
     });
+    d->moveTimer.setSingleShot(true);
+    QObject::connect(&d->moveTimer, &QTimer::timeout, &d->context, [this]() {
+        Private::Depth guard(*d, true);
+        d->moveWhenIdle();
+    });
 }
 
 WorkerPool::~WorkerPool()
@@ -2825,6 +2900,7 @@ WorkerPool::Info WorkerPool::info() const
     info.version = d->version;
     info.stale = d->stale;
     info.moves = d->moves;
+    info.idleCopies = d->idleCopies;
     info.reopens = d->reopens;
     info.ended = d->ended;
     info.kept = d->kept;
@@ -3658,6 +3734,7 @@ public:
         dict.setItem("Version", Py::Long(static_cast<long>(i.version)));
         dict.setItem("Stale", Py::Boolean(i.stale));
         dict.setItem("Moves", Py::Long(i.moves));
+        dict.setItem("IdleCopies", Py::Long(i.idleCopies));
         dict.setItem("Reopens", Py::Long(i.reopens));
         dict.setItem("Ended", Py::Long(i.ended));
         dict.setItem("Kept", Py::Long(i.kept));
@@ -3793,6 +3870,11 @@ public:
             crashed.append(Py::String(n));
         }
         dict.setItem("Crashed", crashed);
+        Py::List risky;
+        for (auto& n : i.risky) {
+            risky.append(Py::String(n));
+        }
+        dict.setItem("Risky", risky);
         dict.setItem("HandedOver", Py::Long(i.handedOver));
         dict.setItem("Split", Py::Long(i.split));
         dict.setItem("SplitSaving", Py::Float(i.splitSaving));

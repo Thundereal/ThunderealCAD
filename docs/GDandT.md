@@ -349,6 +349,17 @@ Found with the same (2026-11-23), and fixed on the fork:
     as `readAnnotation` takes one) names a PMI read that holds a graphic, else it is a graphic
     alone, by its association to its geometry. A dimension read with no value (CTC-01's four,
     given no graphic) leaves its graphic a note, as before.
+16. A PMI linked only to a placeholder -- its link's callout holds the
+    `annotation_placeholder_occurrence` alone, a type the toolkit does not know -- read with no
+    presentation at all: STC-07 presents its 32 radii by one graphic, '32X R', the other 31 each
+    by a placeholder named 'Linear Size.13' as that graphic is, its set a 'linear dimension'.
+    Ours was drawn for each and written as 31 graphics of our own names and kind ('radial
+    dimension'), which SFA counts as 31 radial dimensions where NIST's file has none. Read now
+    as a presentation of no shape, named as the callout, its kind the name of the placeholder's
+    set; the three XCAF attributes keep a presentation's name and kind without a shape. Only
+    STC-07 has them: the 31 radii, three of its oriented linear dimensions, four of its
+    profiles. FreeCAD draws ours there, and writes it as the file named it while
+    `UseImported` (sec 10.10, I). `test_a_placeholder_alone_is_ours_named_as_the_file_names_it`.
 
 Worked around, not fixed: `GenerateTessellatedCurveSet` writes a curve that is not a line as
 its B-spline's poles -- the control polygon, not the curve -- and reads an edge's curve without
@@ -1560,7 +1571,11 @@ Then, in that order:
   OCCT keeps the name (`SetPresentationType` on the three XCAF objects, a child of the
   presentation's label), FreeCAD as `ImportedGraphicType`, written while the file's graphic is
   (`UseImported`): an edited one is drawn, and named, from its semantics.
-  `test_graphics_typed_as_the_file_types_them`.
+  `test_graphics_typed_as_the_file_types_them`. The file's name for a graphic is kept as
+  `ImportedGraphicName` and written again the same way, a note's included (it was named by its
+  words): NIST names its graphics 'Linear Size.3', 'Text.1'. A PMI the file gives only a
+  placeholder (sec 5.3, item 16) has `UseImported` on and no `ImportedGraphic`: ours is drawn,
+  and written named and of the kind the file named the placeholder.
 - **I2, a note's words.** Every NIST AP242 file gives a note's or label's words as a 'semantic
   text': a property of what it is on (a datum feature, a dimension's feature, the product), its
   words a representation's descriptive items, the graphic its presentation. Neither side read

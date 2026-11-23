@@ -167,6 +167,19 @@ Handle(TCollection_HAsciiString) nameOf(const App::DocumentObject* obj)
     return new TCollection_HAsciiString(obj->getNameInDocument());
 }
 
+/// A callout's graphic's name: the file's, while drawn as the file had it
+/// (a placeholder's for ours drawn in its place: STC-07's 31 radii are each
+/// 'Linear Size.13', the one graphic that presents them all); else its own
+Handle(TCollection_HAsciiString) graphicName(const Callout* c)
+{
+    std::string name = c->ImportedGraphicName.getValue();
+    if (c->UseImported.getValue()
+        && std::any_of(name.begin(), name.end(), [](char ch) { return Step::isAsciiAlnum(ch); })) {
+        return ascii(name);
+    }
+    return nameOf(c);
+}
+
 gp_Trsf trsfOf(const Base::Placement& pla)
 {
     gp_Trsf t;
@@ -543,7 +556,7 @@ private:
         obj->SetPointTextAttach(plane.Location());
         TopoDS_Shape g = graphic(c, ex.toLocal);
         if (!g.IsNull()) {
-            obj->SetPresentation(g, nameOf(c));
+            obj->SetPresentation(g, graphicName(c));
         }
         // The file's graphic, written again: the kind the file named it
         if (c->UseImported.getValue() && *c->ImportedGraphicType.getValue()) {
@@ -1120,8 +1133,9 @@ private:
             obj->AddDescription(new TCollection_HAsciiString(words.c_str()),
                                 nameOf(n));
         }
-        // Its graphic named by its words, read back as its label; by the label
-        // when they have no letter or digit of ASCII (a counterbore sign)
+        // Its graphic named as the file named it, while drawn as the file has
+        // it; else by its words, read back as its label; by the label when
+        // they have no letter or digit of ASCII (a counterbore sign)
         std::string text;
         for (auto& line : n->Text.getValues()) {
             text += (text.empty() ? "" : " ") + line;
@@ -1135,7 +1149,8 @@ private:
             attr->SetObject(obj);
             return skip(n, "it has no graphic");
         }
-        obj->SetPresentation(g, plain ? ascii(text) : nameOf(n));
+        bool asFile = n->UseImported.getValue() && *n->ImportedGraphicName.getValue();
+        obj->SetPresentation(g, asFile || !plain ? graphicName(n) : ascii(text));
         attr->SetObject(obj);
         if (!shapes.IsEmpty()) {
             NCollection_Sequence<TDF_Label> none;

@@ -99,6 +99,9 @@ Callout::Callout()
     ADD_PROPERTY_TYPE(ImportedGraphicType, (""), "Presentation",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
                       "The kind of graphic the file named it, written again with it");
+    ADD_PROPERTY_TYPE(ImportedGraphicName, (""), "Presentation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
+                      "The name the file gave its graphic, written again with it");
     ADD_PROPERTY_TYPE(UseImported, (false), "Presentation", App::Prop_None,
                       "Draw the file's graphic until the callout is edited");
 }

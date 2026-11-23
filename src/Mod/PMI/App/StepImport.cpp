@@ -1147,9 +1147,19 @@ private:
     void graphic(Callout* c, Part::Feature* obj, const Handle(T) & x)
     {
         TopoDS_Shape shape = x->GetPresentation();
+        std::string name = text(x->GetPresentationName());
         if (shape.IsNull()) {
+            // A placeholder (AP242's annotation_placeholder_occurrence): the
+            // file draws nothing, its reader the PMI where it says; ours is
+            // drawn, named and of the kind the file named its placeholder
+            if (!name.empty()) {
+                _placeholders.push_back(c);
+                _graphicNames[c] = name;
+                _graphicTypes[c] = text(x->GetPresentationType());
+            }
             return;
         }
+        _graphicNames[c] = name;
         gp_Trsf trsf;
         Part::TopoShape::convertTogpTrsf(obj->Placement.getValue().toMatrix(), trsf);
         _graphics.emplace_back(c, shape.Moved(TopLoc_Location(trsf)));
@@ -1431,6 +1441,8 @@ public:
     std::vector<Callout*> _made;
     std::vector<std::pair<Callout*, TopoDS_Shape>> _graphics;
     std::map<Callout*, std::string> _graphicTypes;
+    std::map<Callout*, std::string> _graphicNames;
+    std::vector<Callout*> _placeholders;
     Part::Feature* _lastObject = nullptr;
     std::vector<Pending> _pending;
 
@@ -1469,6 +1481,12 @@ Step::Report Step::read(const Import::PostImport& info)
     for (auto& [c, shape] : reader._graphics) {
         c->ImportedGraphic.setValue(shape);
         c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
+        c->ImportedGraphicName.setValue(reader._graphicNames[c]);
+        c->UseImported.setValue(true);
+    }
+    for (auto c : reader._placeholders) {
+        c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
+        c->ImportedGraphicName.setValue(reader._graphicNames[c]);
         c->UseImported.setValue(true);
     }
     if (report.datums + report.tolerances + report.dimensions == 0) {

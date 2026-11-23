@@ -85,12 +85,17 @@ public:
     App::PropertyVectorList UprightAt;
     App::PropertyString EquivalentText;
     /// The graphic a file drew for it (docs/GDandT.md sec 5.1 step 3), in
-    /// the set's coordinates: what is drawn while UseImported is set
+    /// the set's coordinates: what is drawn while UseImported is set. None
+    /// for a placeholder, where the file leaves the drawing to its reader
     Part::PropertyPartShape ImportedGraphic;
     /// The kind of graphic the file named it ('label', 'linear dimension':
     /// AP242's recommended practice, 8.4), written again with it
     App::PropertyString ImportedGraphicType;
-    /// Draw the file's graphic; off once the callout is edited, and laid
+    /// The name the file gave its graphic or placeholder ('Linear Size.13'),
+    /// written again with it: many PMI may share one (STC-07's 31 radii)
+    App::PropertyString ImportedGraphicName;
+    /// Draw the file's graphic, or ours where its placeholder is, written
+    /// named as the file named it; off once the callout is edited, and laid
     /// out from its semantics from then on
     App::PropertyBool UseImported;
 

@@ -383,7 +383,7 @@ void DatumTarget::layout(Drawing& d, double h) const
 
 TopoDS_Shape DatumTarget::mark(double h) const
 {
-    if (UseImported.getValue()) {
+    if (UseImported.getValue() && !ImportedGraphic.getShape().isNull()) {
         return {};
     }
     // In the target's own plane: x along it, z out of the part

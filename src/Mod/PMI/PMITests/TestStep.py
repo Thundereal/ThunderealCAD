@@ -551,6 +551,45 @@ class TestNistSet(Base):
         doc = self.read(os.path.join(nist, "nist_ctc_03_asme1_ap242-e2.stp"))
         self.assertIn("Simple Datum.6", [n.Label for n in objects(doc, "Note")])
 
+    def test_a_placeholder_alone_is_ours_named_as_the_file_names_it(self):
+        """STC-07 presents 32 radii by one graphic, '32X R': 31 of them are
+        linked only to a placeholder, where a reader writes the PMI, named
+        'Linear Size.13' as the graphic is, its set a 'linear dimension'.
+        Ours is drawn there, and written named and of the kind the file named
+        it -- by which SFA counts one linear dimension, not 31 radial ones
+        (dwin, p10) -- until edited"""
+        doc = self.read(os.path.join(os.environ["FC_PMI_NIST"],
+                                     "nist_stc_07_asme1_ap242-e3.stp"))
+        held = [d for d in objects(doc, "Dimension") if d.ImportedGraphicName == "Linear Size.13"]
+        alone = [d for d in held if d.ImportedGraphic.isNull()]
+        self.assertEqual(len(alone), 31)
+        for d in alone:
+            self.assertEqual(d.Type, "Radius")
+            self.assertTrue(d.UseImported)
+            self.assertEqual(d.ImportedGraphicType, "linear dimension")
+            self.assertFalse(d.Presentation.isNull(), d.Label)
+        # The others with a graphic are named as the file names them too
+        drawn = [c for c in doc.Objects if getattr(c, "UseImported", False)
+                 and not c.ImportedGraphic.isNull()]
+        self.assertTrue(drawn)
+        self.assertEqual([c.Label for c in drawn if not c.ImportedGraphicName], [])
+        # Edited: ours, named as ours
+        alone[0].Upper = alone[0].Upper.Value + 0.1
+        doc.recompute()
+        self.assertFalse(alone[0].UseImported)
+        self.write_and_read(doc)
+        with open(self.written, errors="replace") as f:
+            text = re.sub(r"\s+", "", f.read())
+        ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+        kinds = collections.Counter()
+        for v in ents.values():
+            m = re.match(r"TESSELLATED_ANNOTATION_OCCURRENCE\('([^']*)',\(#\d+\),#(\d+)\)", v)
+            if m:
+                kinds[(m.group(1), re.match(r"\w+\('([^']*)'", ents[m.group(2)]).group(1))] += 1
+        self.assertEqual(kinds[("LinearSize.13", "lineardimension")], 30)
+        self.assertEqual(kinds[(re.sub(r"\s", "", alone[0].Label), "radialdimension")], 1)
+        self.assertWrittenClean("nist_stc_07_asme1_ap242-e3.stp")
+
     def test_features_named_as_stc_07_names_them(self):
         """STC-07 names its holes' surfaces through an item identified
         representation usage, a set of faces, beside a 'semantic text'

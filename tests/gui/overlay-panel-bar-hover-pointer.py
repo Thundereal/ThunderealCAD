@@ -104,6 +104,33 @@ def screen_shot(area, bar):
     return screen.grabWindow(0, g.x() - sg.x(), g.y() - sg.y(), r.width(), r.height()).toImage()
 
 
+def screen_shows_window():
+    """Whether the screen shows this window: its menu bar there as the window
+    draws it. A window of another program can be in front -- which widgetAt()
+    does not know, it asks Qt's windows only -- and on a desktop not on
+    display (gui-test.cmd's hidden one, its default) a screen read hands out
+    the pixels of the desktop that is, the user's, and the system pointer is
+    not there to move."""
+    bar = mw().menuBar()
+    if bar is None or not bar.isVisible() or bar.width() < 40:
+        return True
+    own = bar.grab().toImage()
+    g = bar.mapToGlobal(QtCore.QPoint(0, 0))
+    screen = QtGui.QGuiApplication.screenAt(g) or QtGui.QGuiApplication.primaryScreen()
+    sg = screen.geometry()
+    shot = screen.grabWindow(0, g.x() - sg.x(), g.y() - sg.y(), bar.width(), bar.height()).toImage()
+    if shot.size() != own.size():
+        shot = shot.scaled(own.size())
+    y = bar.height() // 2
+    count = off = 0
+    for x in range(4, bar.width() - 4, 3):
+        p, q = shot.pixel(x, y), own.pixel(x, y)
+        count += 1
+        if sum(abs(((p >> s) & 255) - ((q >> s) & 255)) for s in (0, 8, 16)) > 60:
+            off += 1
+    return off <= count // 10
+
+
 def differ(a, b):
     if a.size() != b.size():
         return -1
@@ -147,6 +174,10 @@ def near(area, name, spot):
     v = ours(area, "OverlayScrollBarV")
     if not front(spot):
         check("%s: this window is in front at the spot" % name, False)
+        return
+    if not screen_shows_window():
+        note("SKIP %s: the screen does not show this window (another window in front, or a "
+             "desktop not on display: GT_DESKTOP=screen), nor is the pointer moved there" % name)
         return
     if not faded(area, name):
         return

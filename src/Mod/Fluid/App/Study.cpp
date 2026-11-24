@@ -36,6 +36,7 @@
 #include "Study.h"
 #ifdef FLUID_WITH_ASSEMBLY
 # include <Mod/Assembly/App/AssemblyObject.h>
+# include <Mod/Assembly/App/Simulation.h>
 # include <Mod/Assembly/App/Solver/Backend.h>
 #endif
 #include "StudyPy.h"
@@ -891,6 +892,56 @@ Solver::Status Study::start(std::string& why)
         Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
         return Solver::Status::Unsupported;
     }
+#else
+    // The Assembly's simulation, the assembly it is of, and what of it the
+    // fluid can move: refused here with the reason, rather than by a run
+    // that does not start or moves nothing
+    Assembly::AssemblyObject* assembly = nullptr;
+    if (driven) {
+        std::string refused;
+        auto* simulation = Mechanism.getValue();
+        for (auto* in : simulation->getInListRecursive()) {
+            if (auto* found = freecad_cast<Assembly::AssemblyObject*>(in)) {
+                assembly = found;
+                break;
+            }
+        }
+        if (!assembly) {
+            refused = simulation->getFullLabel() + " is not an assembly's simulation";
+        }
+        else if (auto* kind = freecad_cast<Assembly::Simulation*>(simulation);
+                 !kind || std::string(kind->AnalysisType.getValueAsString()) != "Dynamic") {
+            // a Kinematic run moves the parts by the joints' motions alone
+            refused = std::string(simulation->Label.getValue())
+                + " is not a dynamic simulation: the fluid's push moves a mechanism "
+                  "only under its forces";
+        }
+        else {
+            for (auto* child : Group.getValues()) {
+                auto* body = freecad_cast<FreeBody*>(child);
+                auto* part = body ? body->Part.getValue() : nullptr;
+                if (!part) {
+                    continue;
+                }
+                if (!assembly->hasObject(part, true)) {
+                    refused = std::string(part->Label.getValue()) + " is not a part of "
+                        + assembly->Label.getValue() + ", the mechanism's assembly";
+                }
+                else if (assembly->isPartGrounded(part)) {
+                    refused = std::string(part->Label.getValue()) + " is grounded in "
+                        + assembly->Label.getValue() + ": nothing moves it";
+                }
+                if (!refused.empty()) {
+                    break;
+                }
+            }
+        }
+        if (!refused.empty()) {
+            why = refused;
+            Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
+            return Solver::Status::Unsupported;
+        }
+    }
 #endif
     if (!run->model.inlets.empty() && !backend->capabilities().inlets) {
         why = backend->label() + " cannot run an inlet";
@@ -920,23 +971,9 @@ Solver::Status Study::start(std::string& why)
     }
 #ifdef FLUID_WITH_ASSEMBLY
     if (driven) {
-        // The Assembly's simulation, the assembly it is of, and the parts
-        auto* simulation = Mechanism.getValue();
-        Assembly::AssemblyObject* assembly = nullptr;
-        for (auto* in : simulation->getInListRecursive()) {
-            if (auto* found = freecad_cast<Assembly::AssemblyObject*>(in)) {
-                assembly = found;
-                break;
-            }
-        }
-        if (!assembly) {
-            why = simulation->getFullLabel() + " is not an assembly's simulation";
-            Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
-            return Solver::Status::Unsupported;
-        }
         run->together = std::make_unique<Together>();
         run->together->assembly = assembly;
-        run->together->simulation = simulation;
+        run->together->simulation = Mechanism.getValue();
         for (auto* child : Group.getValues()) {
             if (auto* body = freecad_cast<FreeBody*>(child)) {
                 run->together->moved.push_back(body->Part.getValue());

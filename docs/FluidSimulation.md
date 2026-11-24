@@ -1406,9 +1406,33 @@ is as deep (sec 12.7). Most likely it is how SPlisHSPlasH's boundary
 meets the fluid at 5 mm; whether it shrinks with the spacing waits for
 runs finer than 5 mm (sec 12.10).
 
-Not built yet: a command and the panel's part of it (the property is set
-by hand); the manual's page and video; the two results shown as one; the
-lag at finer spacings.
+**The command and the panel (2026-11-24).** `Fluid_Mechanism`, "Run with
+a Mechanism": the simulation selected, or the one of the assembly
+selected, or the document's only one, else picked from a list; one that
+is not Dynamic is offered to be made so, since a Kinematic run moves the
+parts by the joints' motions alone. The panel has a Mechanism row when
+the document has an Assembly simulation. Both go through
+`FluidPlayback.linkMechanism`, which also sets the simulation's end and
+output step to the study's: the run ends with the earlier of the two, so
+they are one. `Study::start` refuses, saying why, a mechanism whose
+simulation is not Dynamic (it ran before, and moved nothing), a part the
+fluid moves that is not the assembly's (the run did not start, and said
+only that), and one grounded in it. The manual's page is
+fluid/study/mechanism.
+
+The study's links -- its walls, its mechanism, each part's, volume's and
+face's -- are global now: an assembly is an App::Part, and a plain link
+into one warned at every recompute that it left its scope. A file saved
+with the plain links keeps them: `PropertyContainer`'s default
+`handleChangedPropertyType`, which dropped any value whose type had
+changed, now reads a link saved as another scope variant of its kind
+(Child, Global, Hidden of PropertyLink, -List, -Sub, -SubList; not
+PropertyXLink, which writes another format). Without it all seven of a
+test file's links came back empty, without a word.
+
+Not built yet: the two results shown as one (the panel plays the fluid's
+frames, which move the parts; the Assembly's own playback does not show
+the fluid); the lag at finer spacings.
 
 ### 12.10 The host's hard hangs, and what the runs are held to (2026-11-24)
 

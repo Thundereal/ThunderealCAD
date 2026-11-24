@@ -413,6 +413,23 @@ def addBody(study, part, density):
     return body
 
 
+def mechanismsOf(doc):
+    """The document's Assembly simulations, which a study can run together
+    with, in the document's order."""
+    return [obj for obj in doc.Objects if obj.isDerivedFrom("Assembly::Simulation")]
+
+
+def linkMechanism(study, simulation):
+    """The study run together with that Assembly simulation, or with none:
+    the parts the fluid moves are then the mechanism's. Linked, the
+    simulation ends when the study does and keeps its frames on the same
+    times, the two runs being one."""
+    study.Mechanism = simulation
+    if simulation is not None:
+        simulation.TimeEnd = study.TimeEnd
+        simulation.TimeStepOutput = study.OutputInterval
+
+
 def addInlet(study, part, face, speed):
     """The face (by its name, 'Face2') of the part as one the fluid comes
     in through, at that speed (mm/s), out of the part's solid."""

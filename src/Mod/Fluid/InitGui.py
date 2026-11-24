@@ -27,6 +27,7 @@ class FluidWorkbench(Workbench):
             "Fluid_AddMonitor",
             "Fluid_AddPressureMonitor",
             "Fluid_AddForceMonitor",
+            "Fluid_Mechanism",
             "Fluid_RunStudy",
         ]
         self.appendToolbar(QT_TRANSLATE_NOOP("Workbench", "Fluid"), commands)

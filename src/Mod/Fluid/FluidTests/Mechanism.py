@@ -8,6 +8,7 @@
 # buoyancy's moment about the hinge is its weight's.
 
 import math
+import os
 
 import FreeCAD as App
 import Part
@@ -339,15 +340,116 @@ class Mechanism:
         self.assertEqual(self.study.run(), -2)
         self.assertIn("cannot run with a mechanism", self.study.Status)
         self.study.Backend = self.BACKEND
+        # a simulation of the joints' motions alone takes no push
+        self.simulation.AnalysisType = "Kinematic"
+        self.assertEqual(self.study.run(), -2)
+        self.assertIn("Simulation is not a dynamic simulation", self.study.Status)
+        self.simulation.AnalysisType = "Dynamic"
+        # a part held to the ground goes nowhere
+        import JointObject
+
+        held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBlock")
+        JointObject.GroundedJoint(held, self.block)
+        self.doc.recompute()
+        self.assertEqual(self.study.run(), -2)
+        self.assertIn("Block is grounded in Assembly", self.study.Status)
+        self.doc.removeObject(held.Name)
+        self.doc.recompute()
         # a part that is not the assembly's is nobody's to move
         other = self.doc.addObject("Part::Box", "Other")
         other.Length, other.Width, other.Height = 20, 20, 20
         other.Placement.Base = App.Vector(5, 5, 70)
         FluidPlayback.addBody(self.study, other, 500.0)
         self.doc.recompute()
-        self.assertEqual(self.study.run(), -1)
-        self.assertIn("could not be started", self.study.Status)
+        self.assertEqual(self.study.run(), -2)
+        self.assertIn("Other is not a part of Assembly", self.study.Status)
         self.assertFalse(self.study.getProgress()["Running"])
+
+    def links(self):
+        """The study's objects' links, each by its object and property, as
+        the names of what they link."""
+
+        def named(value):
+            if isinstance(value, tuple):
+                return (value[0].Name, tuple(value[1]))
+            if isinstance(value, list):
+                return [obj.Name for obj in value]
+            return value.Name if value is not None else None
+
+        study = self.study
+        found = {"Walls": named(study.Walls), "Mechanism": named(study.Mechanism)}
+        for child in study.Group:
+            for name in ("Volume", "Part", "Face"):
+                if name in child.PropertiesList:
+                    found[child.TypeId + "." + name] = named(getattr(child, name))
+        return found
+
+    def test_links_reach_into_an_assembly(self):
+        # The parts the fluid moves are an assembly's, the mechanism its
+        # simulation, a wall may be a body's: no link of a study is held to
+        # its own group, as a plain link is (it warned at every recompute)
+        self.float_on_a_slider(500.0, 40.0, 0.1)
+        inlet = FluidPlayback.addInlet(self.study, self.tank, "Face1", 100.0)
+        outlet = self.doc.addObject("Fluid::Outlet", "Outlet")
+        outlet.Face = (self.tank, ["Face2"])
+        self.study.Group = self.study.Group + [outlet]
+        FluidPlayback.addForceMonitor(self.study, self.tank, App.Vector(0, 0, 1))
+        self.doc.recompute()
+        for obj in [self.study] + self.study.Group:
+            for name in obj.PropertiesList:
+                kind = obj.getTypeIdOfProperty(name)
+                # Group and the _ ones: the group's own, its children
+                ours = name != "Group" and not name.startswith("_")
+                if kind.startswith("App::PropertyLink") and ours:
+                    self.assertTrue(kind.endswith("Global"), f"{obj.Name}.{name} is {kind}")
+        before = self.links()
+        self.assertEqual(len(before), 7)
+        # a file saved before, when they were plain links, keeps them
+        import shutil
+        import tempfile
+        import zipfile
+
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "Mechanism.FCStd")
+        # every entry one zipfile reads
+        self.doc.BlobCompression = "Deflate"
+        self.doc.saveAs(path)
+        name = self.study.Name
+        App.closeDocument(self.doc.Name)
+        old = os.path.join(folder, "Before.FCStd")
+        with zipfile.ZipFile(path) as source, zipfile.ZipFile(old, "w") as target:
+            for item in source.infolist():
+                data = source.read(item.filename)
+                if item.filename == "Document.xml":
+                    text = data.decode("utf-8")
+                    self.assertIn('type="App::PropertyLinkGlobal"', text)
+                    for kind in ("PropertyLink", "PropertyLinkList", "PropertyLinkSub"):
+                        text = text.replace(f'type="App::{kind}Global"', f'type="App::{kind}"')
+                    data = text.encode("utf-8")
+                target.writestr(item, data)
+        self.doc = App.openDocument(old)
+        self.study = self.doc.getObject(name)
+        after = self.links()
+        self.assertEqual(after, before)
+        self.assertNotIn(None, before.values())
+
+    def test_linking_a_mechanism(self):
+        self.float_on_a_slider(500.0, 40.0, 0.1)
+        self.study.Mechanism = None
+        self.assertEqual(FluidPlayback.mechanismsOf(self.doc), [self.simulation])
+        # the two run as one: one end, frames on the same times
+        self.study.TimeEnd = 1.5
+        self.study.OutputInterval = 0.02
+        FluidPlayback.linkMechanism(self.study, self.simulation)
+        self.assertEqual(self.study.Mechanism, self.simulation)
+        self.assertAlmostEqual(self.simulation.TimeEnd.Value, 1.5)
+        self.assertAlmostEqual(self.simulation.TimeStepOutput.Value, 0.02)
+        (body,) = self.study.buildModel()["Bodies"]
+        self.assertTrue(body["Driven"])
+        FluidPlayback.linkMechanism(self.study, None)
+        self.assertIsNone(self.study.Mechanism)
+        self.assertAlmostEqual(self.simulation.TimeEnd.Value, 1.5)
 
     def settles(self, density, start, end=2.0):
         """The bar of that density on its hinge, let go 'start' deg down, run

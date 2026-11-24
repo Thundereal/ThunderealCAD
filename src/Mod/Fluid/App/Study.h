@@ -34,7 +34,7 @@ public:
 
     /// The parts the fluid cannot pass, each as its shape where it stands
     /// (a Link or a sub-assembly as the shape it shows)
-    App::PropertyLinkList Walls;
+    App::PropertyLinkListGlobal Walls;
     /// What kind of flow the study is of: a liquid under the air from how
     /// it stands at the start; or one fluid filling the closed space inside
     /// the walls, from its inlets to its outlets, as it settles to
@@ -57,7 +57,7 @@ public:
     /// An Assembly's simulation the study runs together with: the parts of
     /// the study that the fluid moves (its FreeBody children) are then that
     /// mechanism's, moved by it with its joints under the fluid's push
-    App::PropertyLink Mechanism;
+    App::PropertyLinkGlobal Mechanism;
     /// The backend the study runs on, by name; empty: the first that can
     /// run here
     App::PropertyString Backend;
@@ -122,7 +122,7 @@ class FluidExport InitialFluid: public App::DocumentObject
 public:
     InitialFluid();
 
-    App::PropertyLink Volume;
+    App::PropertyLinkGlobal Volume;
     App::PropertyDensity Density;
     App::PropertyDynamicViscosity Viscosity;
 
@@ -143,7 +143,7 @@ class FluidExport FreeBody: public App::DocumentObject
 public:
     FreeBody();
 
-    App::PropertyLink Part;
+    App::PropertyLinkGlobal Part;
     /// Of the part's solid, the same all through
     App::PropertyDensity Density;
 
@@ -163,7 +163,7 @@ class FluidExport Inlet: public App::DocumentObject
 public:
     Inlet();
 
-    App::PropertyLinkSub Face;
+    App::PropertyLinkSubGlobal Face;
     App::PropertySpeed Velocity;
     App::PropertyBool Reversed;
     App::PropertyDensity Density;
@@ -188,7 +188,7 @@ class FluidExport Outlet: public App::DocumentObject
 public:
     Outlet();
 
-    App::PropertyLinkSub Face;
+    App::PropertyLinkSubGlobal Face;
     /// Over the surroundings'
     App::PropertyPressure Pressure;
 
@@ -212,7 +212,7 @@ public:
     /// In the document's coordinates
     App::PropertyPosition Point;
     /// Force: the wall the force is on, and the way it is taken along
-    App::PropertyLink Part;
+    App::PropertyLinkGlobal Part;
     App::PropertyVector Direction;
 
     static const char* KindEnums[];

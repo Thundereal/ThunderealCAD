@@ -276,6 +276,79 @@ class CommandAddPressureMonitor(CommandAddMonitor):
         }
 
 
+class CommandMechanism:
+    def GetResources(self):
+        return {
+            "Pixmap": FluidPlayback.iconPath("Fluid_Mechanism.svg"),
+            "MenuText": QT_TRANSLATE_NOOP("Fluid_Mechanism", "Run with a Mechanism"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Fluid_Mechanism",
+                "Runs the study together with an Assembly's dynamic simulation: the "
+                "parts the fluid moves are then the assembly's, moved with its joints "
+                "under the fluid's push. Select the simulation, or its assembly, when "
+                "the document has several. The simulation ends with the study.",
+            ),
+        }
+
+    def IsActive(self):
+        study = FluidPlayback.activeStudy(selected())
+        return study is not None and len(FluidPlayback.mechanismsOf(study.Document)) > 0
+
+    def chosen(self, study):
+        """The simulation selected, or the one of the assembly selected, or
+        the document's only one; else the user picks one."""
+        mechanisms = FluidPlayback.mechanismsOf(study.Document)
+        for obj in selected():
+            if obj in mechanisms:
+                return obj
+        for obj in selected():
+            if obj.isDerivedFrom("Assembly::AssemblyObject"):
+                own = [sim for sim in mechanisms if obj in sim.InListRecursive]
+                dynamic = [sim for sim in own if sim.AnalysisType == "Dynamic"]
+                if len(dynamic or own) == 1:
+                    return (dynamic or own)[0]
+                if own:
+                    mechanisms = own
+                break
+        if len(mechanisms) == 1:
+            return mechanisms[0]
+        labels = [sim.Label for sim in mechanisms]
+        label, ok = QtWidgets.QInputDialog.getItem(
+            Gui.getMainWindow(),
+            translate("Fluid", "Run with a Mechanism"),
+            translate("Fluid", "The Assembly simulation to run with:"),
+            labels,
+            0,
+            False,
+        )
+        return mechanisms[labels.index(label)] if ok else None
+
+    def Activated(self):
+        study = FluidPlayback.activeStudy(selected())
+        simulation = self.chosen(study)
+        if simulation is None:
+            return
+        doc = study.Document
+        doc.openTransaction(translate("Fluid", "Run with a mechanism"))
+        if simulation.AnalysisType != "Dynamic":
+            asked = QtWidgets.QMessageBox.question(
+                Gui.getMainWindow(),
+                translate("Fluid", "Run with a Mechanism"),
+                translate(
+                    "Fluid",
+                    "{} is a {} simulation: its parts move by the joints' motions "
+                    "alone, and the fluid's push would move nothing. Make it dynamic?",
+                ).format(simulation.Label, simulation.AnalysisType),
+            )
+            if asked != QtWidgets.QMessageBox.Yes:
+                doc.abortTransaction()
+                return
+            simulation.AnalysisType = "Dynamic"
+        FluidPlayback.linkMechanism(study, simulation)
+        doc.commitTransaction()
+        doc.recompute()
+
+
 class CommandRunStudy:
     def GetResources(self):
         return {
@@ -358,6 +431,23 @@ class TaskFluidStudy:
         self.interval.setSuffix(" s")
         self.interval.setValue(study.OutputInterval.Value)
         settings.addRow(translate("Fluid", "Frame every"), self.interval)
+        self.mechanism = QtWidgets.QComboBox()
+        self.mechanism.setToolTip(
+            translate(
+                "Fluid",
+                "An Assembly's dynamic simulation the study runs together with: the "
+                "parts the fluid moves are then that mechanism's, moved with its joints. "
+                "It ends with the study and keeps its frames on the same times.",
+            )
+        )
+        self.mechanism.addItem(translate("Fluid", "None"), None)
+        for simulation in FluidPlayback.mechanismsOf(study.Document):
+            self.mechanism.addItem(simulation.Label, simulation.Name)
+        self.mechanism.setCurrentIndex(
+            max(self.mechanism.findData(study.Mechanism.Name if study.Mechanism else None), 0)
+        )
+        if self.mechanism.count() > 1:
+            settings.addRow(translate("Fluid", "Mechanism"), self.mechanism)
         layout.addLayout(settings)
 
         row = QtWidgets.QHBoxLayout()
@@ -468,6 +558,10 @@ class TaskFluidStudy:
         study.Resolution = self.resolution.value()
         study.TimeEnd = self.timeEnd.value()
         study.OutputInterval = self.interval.value()
+        name = self.mechanism.currentData()
+        chosen = study.Document.getObject(name) if name else None
+        if chosen is not None or study.Mechanism is not None:
+            FluidPlayback.linkMechanism(study, chosen)
         study.Document.commitTransaction()
 
     def running(self):
@@ -740,4 +834,5 @@ Gui.addCommand("Fluid_AddInlet", CommandAddInlet())
 Gui.addCommand("Fluid_AddForceMonitor", CommandAddForceMonitor())
 Gui.addCommand("Fluid_AddMonitor", CommandAddMonitor())
 Gui.addCommand("Fluid_AddPressureMonitor", CommandAddPressureMonitor())
+Gui.addCommand("Fluid_Mechanism", CommandMechanism())
 Gui.addCommand("Fluid_RunStudy", CommandRunStudy())

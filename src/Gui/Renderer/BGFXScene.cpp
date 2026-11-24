@@ -293,8 +293,10 @@ void BGFXRenderer::Private::publishScene(const void *viewMatrix,
         if (!server.running() && !serveFailed && !serveStarted) {
             serveStarted = true;
             if (server.start(atoi(servePort)))
-                fprintf(stderr, "bgfx: scene server on port %s\n",
-                        servePort);
+                // where: this machine only unless FC_SERVE_BIND says
+                // otherwise (SceneServer.h, setListenAddress)
+                fprintf(stderr, "bgfx: scene server on port %s, %s\n",
+                        servePort, server.listenAddress().c_str());
             else {
                 serveFailed = true;
                 fprintf(stderr,

@@ -1893,6 +1893,15 @@ compares; it took our curves for none.
   association has no definition it reads, and both were lost. A graphic of an unknown
   definition is a graphic alone, read as a note, and written again. (The file hides 75 graphics
   by `invisibility`; none is written hidden -- a gap of its own.)
+- **SFA p16 (dwin).** Graphic PMI coverage equals NIST's in every file but STC-09's labels
+  (fixed above); supplemental geometry item for item; exact matches unchanged. Three follow-ups:
+  a linear dimension that measures 0 -- FTC-09's .03 between two arcs of one circle, CTC-05's
+  an edge to itself, FTC-06's two between faces of one plane: features read that are not what
+  the file measures -- took 0 for its value and was written so (SFA: one more 'No match'); it
+  is Invalid now ("its features are at no distance from each other"), keeping the file's
+  value, and written with it. A `model_geometric_view` is named as its view (SFA takes one of
+  no name for a syntax error, NIST's own files' too). And each supplemental item keeps the
+  colour the file draws it in (`StepColor`; NIST's white or black), written as its style.
 
 ## 11. Decisions (made 2026-11-19)
 

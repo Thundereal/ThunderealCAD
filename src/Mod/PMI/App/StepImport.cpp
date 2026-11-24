@@ -31,6 +31,7 @@
 
 #include <BRep_Tool.hxx>
 #include <Precision.hxx>
+#include <Quantity_Color.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRep_Builder.hxx>
@@ -896,6 +897,15 @@ private:
                 obj->Label.setValue(itemName.IsEmpty() ? kind.ToCString() : itemName.ToCString());
                 property<App::PropertyString>(obj, "StepName", "Its name in the STEP file")
                     ->setValue(itemName.ToCString());
+                Quantity_Color color;
+                if (XCAFDoc_DimTolTool::GetSupplementalColor(item, color)) {
+                    property<App::PropertyColor>(obj,
+                                                 "StepColor",
+                                                 "The colour the STEP file draws it in")
+                        ->setValue(App::Color(float(color.Red()),
+                                              float(color.Green()),
+                                              float(color.Blue())));
+                }
                 // Reference geometry is shown when asked for; the curves are drawn, as
                 // the part's are
                 if (kind != "curves") {

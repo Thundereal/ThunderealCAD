@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <Precision.hxx>
 #include <regex>
 #include <vector>
 
@@ -290,6 +291,18 @@ App::DocumentObjectExecReturn* Dimension::execute()
         // Drawn as the file draws it still: what the file shows is shown, and
         // written again (CTC-03's thickness over five faces, its graphic lost
         // with it); drawn from what it says, there is nothing to measure
+        if (UseImported.getValue() && !ImportedGraphic.getShape().isNull()) {
+            updatePresentation();
+        }
+        return App::DocumentObject::StdReturn;
+    }
+    // A length of nothing: its features are not what it measures (NIST
+    // FTC-09's .03 between two arcs of one circle, CTC-05's an edge to itself,
+    // FTC-06's between two faces of one plane). Invalid, it keeps the value
+    // it has -- the file's -- and is written with it, not with 0
+    if (getType() != Angle && getType() != AngularSize
+        && std::fabs(value) < Precision::Confusion()) {
+        setState(Invalid, "its features are at no distance from each other");
         if (UseImported.getValue() && !ImportedGraphic.getShape().isNull()) {
             updatePresentation();
         }

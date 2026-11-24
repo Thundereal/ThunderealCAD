@@ -1019,7 +1019,13 @@ class TestNistSet(Base):
                          if typ(ents, k) == "GEOMETRIC_ITEM_SPECIFIC_USAGE"
                          and set(re.findall(r"#(\d+)", v)) & cgr)
             nauo = sum(1 for k in ents if typ(ents, k) == "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
-            return sorted(reps), usages, nauo
+            items = set()
+            for k in cgr:
+                items |= set(re.findall(r"#(\d+)", ents[k])[:-1])
+            styled = sum(1 for k, v in ents.items()
+                         if "STYLED_ITEM" in typ(ents, k)
+                         and (re.findall(r"#(\d+)", v) or [None])[-1] in items)
+            return sorted(reps), usages, nauo, styled
 
         kinds = {"Part::DatumPlane": "PLANE", "Part::LocalCoordinateSystem": "AXIS2_PLACEMENT_3D"}
 
@@ -1044,14 +1050,16 @@ class TestNistSet(Base):
                              ("nist_stc_08_asme1_ap242-e3.stp", 0)):
             with self.subTest(name):
                 path = edition(os.path.join(nist, name))
-                want, nist_usages, _ = written(path)
+                want, nist_usages, _, nist_styled = written(path)
                 # The usages of supplemental items an edition has (CTC-04 -e1 8, FTC-10 -e2 6)
                 self.assertEqual(bool(nist_usages), bool(usages))
                 doc = self.read(path)
                 self.assertEqual(read(doc), want)
                 again = self.write_and_read(doc)
-                reps, got_usages, nauo = written(self.written)
+                reps, got_usages, nauo, styled = written(self.written)
                 self.assertEqual(reps, want)
+                # Each item drawn in its colour as NIST's are (white: SFA says it may not show)
+                self.assertEqual(styled, nist_styled)
                 self.assertEqual(nauo, 0, "the part is one product")
                 # Each PMI on a thread's curves on their sets: NIST's, or twice where a
                 # tolerance and a dimension share them

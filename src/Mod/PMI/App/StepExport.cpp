@@ -49,6 +49,7 @@
 #include <NCollection_Sequence.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Precision.hxx>
+#include <Quantity_Color.hxx>
 #include <Standard_Failure.hxx>
 #include <TCollection_HAsciiString.hxx>
 #include <TDF_Label.hxx>
@@ -416,12 +417,25 @@ private:
                     ex->placedToLabel * trsfOf(geo->globalPlacement());
                 gp_Ax3 pos = gp_Ax3(ax2Of(toLabel));
                 TCollection_AsciiString name = ascii(stepName(item))->String();
+                // Its colour, as the file drew it
+                auto colored = [item](const TDF_Label& l) {
+                    auto prop =
+                        freecad_cast<App::PropertyColor*>(item->getPropertyByName("StepColor"));
+                    if (prop && !l.IsNull()) {
+                        App::Color c = prop->getValue();
+                        XCAFDoc_DimTolTool::SetSupplementalColor(
+                            l,
+                            Quantity_Color(c.r, c.g, c.b, Quantity_TOC_RGB));
+                    }
+                };
                 if (item->isDerivedFrom<App::Plane>()) {
-                    XCAFDoc_DimTolTool::AddSupplementalItem(group, "plane", name, pos, 0.0, {});
+                    colored(XCAFDoc_DimTolTool::AddSupplementalItem(group, "plane", name, pos,
+                                                                    0.0, {}));
                     continue;
                 }
                 if (item->isDerivedFrom<App::LocalCoordinateSystem>()) {
-                    XCAFDoc_DimTolTool::AddSupplementalItem(group, "axes", name, pos, 0.0, {});
+                    colored(XCAFDoc_DimTolTool::AddSupplementalItem(group, "axes", name, pos,
+                                                                    0.0, {}));
                     continue;
                 }
                 auto feat = freecad_cast<Part::Feature*>(item);
@@ -442,15 +456,16 @@ private:
                     BRepAdaptor_Surface surf(face);
                     if (!faces.More() && surf.GetType() == GeomAbs_Cylinder) {
                         gp_Cylinder cyl = surf.Cylinder();
-                        XCAFDoc_DimTolTool::AddSupplementalItem(group, "cylinder", name,
-                                                                cyl.Position(), cyl.Radius(),
-                                                                {});
+                        colored(XCAFDoc_DimTolTool::AddSupplementalItem(group, "cylinder",
+                                                                        name, cyl.Position(),
+                                                                        cyl.Radius(), {}));
                     }
                     continue;
                 }
                 TDF_Label l = XCAFDoc_DimTolTool::AddSupplementalItem(group, "curves", name,
                                                                       gp_Ax3(), 0.0, shape);
                 if (!l.IsNull()) {
+                    colored(l);
                     _supplementals[feat] = l;
                 }
             }

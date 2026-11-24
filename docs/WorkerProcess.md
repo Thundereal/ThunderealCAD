@@ -3973,3 +3973,10 @@ Document 364, ShapeStorage 67, FileBlobs 97, TestWorkerPool 79, TestPartApp
 446, TestPartDesignApp 1073, TestSketcherApp 182, TestTechDrawApp 32,
 TestAnimation 78 OK; ctest 1287 with one failure, `FormWidgets_Tests_run`
 under `-j 4`, which passed the 4 times it was run alone.
+
+**Not the fourth-place differences.** The GUI comparison of sec 60
+(`editsplit_gui.py`, scanner, `hole_radius` edited) on this writer, the
+OCCT the same: one worker 0 of 587 differ; split and one worker again
+`Part012`'s area 24940.2409 -> 24940.2408; split again `Helix`'s volume
+978.5405 -> 978.5404. The same rows and values as sec 60, so a value the
+old writer read back as another double does not make them.

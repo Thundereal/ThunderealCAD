@@ -42,6 +42,7 @@ import socket
 import http.server
 import json as jsonlib
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -365,6 +366,9 @@ def finish():
             share.SetInt("RequestsTotalMB", state["total"])
         for name in list(FreeCAD.listDocuments()):
             FreeCAD.closeDocument(name)
+        # Its documents, 120 MB a run: left behind, /tmp filled up (2026-11-25)
+        if "where" in state:
+            shutil.rmtree(state["where"], True)
     except Exception:
         note("ABORT " + traceback.format_exc().replace("\n", " | "))
     note("DONE")

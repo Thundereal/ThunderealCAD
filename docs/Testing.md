@@ -1308,7 +1308,14 @@ view's `saveRenderDump` are unaffected. A test that reads the screen has
 to check that the screen shows its window, as
 `view-cell-close-keeps-the-picture.py` does with the menu bar, and say
 SKIP where it does not; that one had passed and failed on what the user
-had open.
+had open. On the user's screen (`GT_DESKTOP=screen`) the guard makes the
+main window topmost, as Windows will not let it come to the front. And
+the display has to be awake: with the monitor asleep a screen read sees a
+window that holds a `QOpenGLWidget` -- all of it, Qt draws such a window
+with GL -- as a flat grey (8d8d8d), a bare PySide window as much as
+FreeCAD, while a window without one still reads as drawn. A 1 px
+`SendInput` mouse nudge wakes it; awake, `view-cell-close-keeps-the-picture.py`
+passes on the screen.
 
 **A Windows run is shaped like the xvfb one** (2026-11-24): the tests count
 pixels, pick and measure widgets against `gui-test.sh`'s screen, and a

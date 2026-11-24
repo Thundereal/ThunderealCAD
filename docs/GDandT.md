@@ -1887,6 +1887,12 @@ compares; it took our curves for none.
   a dimension (CTC-04, FTC-10) are used twice, as two shape aspects; NIST's two share one, as
   for any feature two PMI are on. FTC-10's second product (ASME Y14.41, the standard it cites)
   is not written. Read without its PMI, a file has no supplemental geometry, as before.
+- **NIST's February 2026 set (dwin, p16).** The suites now read the set SFA ships, newer for
+  CTC-01, CTC-04, FTC-08 -e4-tg, FTC-11 and STC-09. STC-09 -e4 gives a hole two hidden 'label'
+  graphics linked to a `basic_round_hole_occurrence`, an entity OCCT does not know: their
+  association has no definition it reads, and both were lost. A graphic of an unknown
+  definition is a graphic alone, read as a note, and written again. (The file hides 75 graphics
+  by `invisibility`; none is written hidden -- a gap of its own.)
 
 ## 11. Decisions (made 2026-11-19)
 

@@ -1745,10 +1745,13 @@ module's STEP tests, the only coverage of reading and writing depths, composite 
 datum targets, tolerances per unit, supplemental geometry and placeholder graphics -- is one
 skipped class unless `FC_PMI_NIST` names a folder holding NIST's PMI test files (the
 `NIST-PMI-STEP-Files` folder of the MBE PMI Validation and Conformance Testing download, 17
-files). A green run without it has tested none of that:
+files). A green run without it has tested none of that. The suites use NIST's February 2026
+update, the one SFA ships (`Release/NIST-PMI-STEP-Files.zip` of github.com/usnistgov/SFA;
+CTC-01, CTC-04, FTC-08's -e4-tg, FTC-11 and STC-09 newer than the 2021 download's); the tests
+find a file of either edition:
 
 ```
-FC_PMI_NIST=$HOME/works/sw/pmi-data/step/NIST-PMI-STEP-Files ./bin/FreeCADCmd -t TestPMIApp
+FC_PMI_NIST=$HOME/works/sw/pmi-data/sfa-2026-02/NIST-PMI-STEP-Files ./bin/FreeCADCmd -t TestPMIApp
 ```
 
 ### On another OCCT than the fork (2026-10-15)

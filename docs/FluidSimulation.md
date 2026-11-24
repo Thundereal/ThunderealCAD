@@ -1370,11 +1370,45 @@ the swing grows, about a tenth each swing, as step 1's spring test says
 a force a piece behind the motion does. Shorter pieces at 2.5 mm were
 being tried when the host hung (sec 12.10) and are not measured.
 
-Not built yet: a turning part against its closed form as a test (the
-flap on a hinge, the float on an arm, above) -- the torque's path is tested
-only by the Assembly's own test of a formula; a command and the panel's
-part of it (the property is set by hand); the manual's page and video;
-the two results shown as one.
+**The turning part as a test (2026-11-24).** `FluidTests/Mechanism.py`
+has the bar of the trial above, on a revolute of an assembly, against the
+closed form (`barAtRest`: the section clipped at the water's level, the
+level risen by what the section pushes aside, bisected for the angle where
+the moments meet). What it showed first: the bar rests low for every
+density, by more than the block on its slider is deep, and by more again
+when heavier -- not the lag, and not a share of the buoyancy lost (3.4%
+less moves the half-density bar 0.3 deg, not 1). One cause fits all of it:
+the fluid sees a part a skin thinner than it is. A skin of 0.3 mm is the
+block's 0.7 mm; the bar, 20 thick, feels the same skin more:
+
+| Density (of the water's) | Closed form | Measured, 5 mm, 4 threads | Skin that fits |
+|---|---|---|---|
+| 0.3, let go level | 13.08 deg | 13.61, swinging 0.67 | 0.33 mm |
+| 0.5, let go level | 16.45 | 17.42, swinging 0.25 | 0.43 |
+| 0.5, put at rest | 17.14 (less water) | 18.13, swinging 0.15 | 0.43 |
+| 0.7, let go level (3 s) | 21.07 | 23.80 | 0.38 |
+
+The heavier bar is turned the furthest by the same skin: it is mostly
+under, where a little less buoyancy takes a lot more turn to make up. Put at rest, the bar
+starts in the water, where the fluid is not seeded: 96 particles fewer,
+the level 0.83 mm lower, a rest 0.7 deg deeper -- the closed form takes
+the water the fluid has, from its count. The tests hold each case between
+the closed form for a skin of 0.25 mm and one of 0.6 (a twentieth and
+an eighth of the spacing). A torque taken to the wrong point would put it
+degrees out: the shift from the bar's centre to its frame's origin is the
+buoyancy times some 50 mm, as large as the moment about the hinge. The fluid's frame is its first step at or past the frame's
+time, so for a turning part the two runs agree to what the bar turns in
+3 ms more than 0.1 deg (0.23 deg at 0.05 s, the bar falling at near 200
+deg/s). The four cases take 100 s.
+
+The skin is not the coupling's: S4's block let go alone, no mechanism,
+is as deep (sec 12.7). Most likely it is how SPlisHSPlasH's boundary
+meets the fluid at 5 mm; whether it shrinks with the spacing waits for
+runs finer than 5 mm (sec 12.10).
+
+Not built yet: a command and the panel's part of it (the property is set
+by hand); the manual's page and video; the two results shown as one; the
+lag at finer spacings.
 
 ### 12.10 The host's hard hangs, and what the runs are held to (2026-11-24)
 

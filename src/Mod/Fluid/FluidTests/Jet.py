@@ -19,7 +19,9 @@ WATER = 998.2  # kg/m^3, the fluid's own
 class Jet:
     """A nozzle 20 x 20 across, its face at x 0 looking along +x; a plate
     120 x 120 and 10 thick, its face 100 on; no gravity, the space open all
-    round; 2 m/s; a resolution of 2.5 mm.
+    round; 2 m/s; a resolution of RESOLUTION mm -- 5, while the Windows
+    host's hard hangs under the fluid runner are looked into (the user's
+    ruling of 2026-11-24); it was 2.5.
 
     A test class is this and unittest.TestCase, and sets BACKEND and OVER:
     how much more than the closed form the backend may read, as a part of
@@ -28,6 +30,13 @@ class Jet:
     BACKEND = ""
     OVER = 0.0
     SPEED = 2.0  # m/s
+    RESOLUTION = 5.0  # mm
+
+    def layer(self):
+        """Particles a layer of the jet has, and how long one takes to
+        go its width, s."""
+        across = round(20.0 / self.RESOLUTION)
+        return across * across, self.RESOLUTION * 1e-3 / self.SPEED
 
     def setUp(self):
         found = backendNamed(self.BACKEND)
@@ -45,7 +54,7 @@ class Jet:
         self.study.Gravity = App.Vector(0, 0, 0)
         self.study.OpenSides = True
         self.study.Backend = self.BACKEND
-        self.study.Resolution = 2.5
+        self.study.Resolution = self.RESOLUTION
         self.study.OutputInterval = 0.01
         self.study.TimeEnd = 0.3
         # the box's face that looks along +x
@@ -93,15 +102,18 @@ class Jet:
         mean = area / span
         self.assertGreater(mean, 0.97 * expect, (mean, expect))
         self.assertLess(mean, (1.0 + self.OVER) * expect, (mean, expect))
-        # and steadily: no step's is half as much again, or half
+        # and steadily: no step's twice as much, or half. At 5 mm a layer
+        # is 4 x 4 and comes in whole (measured: 0.60 to 1.84 times; at
+        # 2.5 mm under one and a half)
         self.assertGreater(low, 0.5 * expect)
-        self.assertLess(high, 1.6 * expect)
+        self.assertLess(high, 2.2 * expect)
         # The pressure there, on a wall a force is asked of as well: of
         # the size of the jet's own, density x speed^2 / 2, and under it
-        # -- a monitor's patch is three spacings across, of a jet eight
-        # across (measured: two thirds).
+        # -- a monitor's patch is three spacings across, of a jet four
+        # across at 5 mm (measured: 0.39 to 0.40; two thirds at 2.5 mm,
+        # the jet eight across).
         stagnation = 0.5 * WATER * self.SPEED * self.SPEED
-        self.assertGreater(pressed / span, 0.4 * stagnation)
+        self.assertGreater(pressed / span, 0.3 * stagnation)
         self.assertLess(pressed / span, 1.1 * stagnation)
         # the fluid is all the inlet's: none at the start, more each frame
         # until the first of it leaves the space
@@ -109,9 +121,10 @@ class Jet:
         self.assertEqual(counts[0], 0)
         for k in range(1, 5):
             self.assertGreater(counts[k], counts[k - 1])
-        # 64 a layer, a layer each 1.25 ms, less what has left
-        self.assertLessEqual(counts[-1], 64 * 241)
-        self.assertGreater(counts[-1], 64 * 40)
+        # a layer each time one has gone its width, less what has left
+        each, every = self.layer()
+        self.assertLessEqual(counts[-1], each * (round(0.3 / every) + 1))
+        self.assertGreater(counts[-1], each * round(0.05 / every))
 
     def test_an_inlet_that_stops(self):
         self.inlet.EndTime = 0.05
@@ -120,9 +133,11 @@ class Jet:
         self.assertEqual(self.study.run(), 0, self.study.Status)
         results = self.study.getResults()
         counts = [self.study.getFrame(k)["Count"] for k in range(results["Frames"])]
-        # 41 layers were sent, and no more after
-        self.assertLessEqual(max(counts), 64 * 42)
-        self.assertGreaterEqual(max(counts), 64 * 38)
+        # 0.05 s of layers were sent, and no more after
+        each, every = self.layer()
+        sent = round(0.05 / every) + 1
+        self.assertLessEqual(max(counts), each * (sent + 1))
+        self.assertGreaterEqual(max(counts), each * (sent - 3))
         times = results["MonitorTimes"]
         values = results["Monitors"][0]["Values"]
         # the last of it reaches the plate at 0.1 s; well after, nothing

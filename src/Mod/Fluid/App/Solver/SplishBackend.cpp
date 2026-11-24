@@ -273,6 +273,15 @@ private:
     // the count is always said.
     static int threads()
     {
+        // FLUID_SPLISH_THREADS before the preference: a machine's own
+        // limit, for every run started there -- the tests' too, whose
+        // preferences are their own
+        if (const char* given = std::getenv("FLUID_SPLISH_THREADS")) {
+            const long asked = std::strtol(given, nullptr, 10);
+            if (asked > 0) {
+                return static_cast<int>(asked);
+            }
+        }
         long wanted = preferences()->GetInt("Threads", 0);
         if (wanted <= 0) {
             wanted = std::min(8L, static_cast<long>(std::thread::hardware_concurrency() / 2));

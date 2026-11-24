@@ -1340,7 +1340,9 @@ results and the fluid's being two kept things for one run.
   runner and the Assembly's simulation together, ends when the
   mechanism's does, and keeps both results -- the fluid's in the study,
   the Assembly's in its simulation, as each does alone. The piece is the
-  runner's longest step, 0.3 ms at 5 mm.
+  runner's longest step: no longer than gravity takes to move a particle
+  a hundredth of the spacing from rest, 2.3 ms at 5 mm and 1.6 ms at 2.5
+  (an earlier draft of this said 0.3 ms, which was wrong).
 
 Measured (`FluidTests/Mechanism.py`, S4's tank and block, the block on a
 vertical slider of an assembly, 5 mm):
@@ -1358,11 +1360,40 @@ for this case: no growth seen. The spring test of step 1 says what the
 lag costs where there is nothing to damp it, 2% a period at a tenth of
 a millisecond for a period of 0.1 s.
 
-Not built yet: a turning part (the flap on a hinge against the
-hydrostatic moment, the float on an arm) -- the torque's path is tested
+A turning part, tried (`~/.cache/fluid/s4/arm.py`, not yet a test): a
+bar 100 x 20 x 20 at half the water's density, hinged at one end 20 mm
+above the water and let go level. Where its buoyancy's moment about the
+hinge is its weight's, the water's level risen by what it pushes aside:
+16.45 deg below level. At 5 mm it settles at 17.5 to 18.0 deg, 1 to 1.5
+deg low, the same put there at the start; at 2.5 mm it does not settle --
+the swing grows, about a tenth each swing, as step 1's spring test says
+a force a piece behind the motion does. Shorter pieces at 2.5 mm were
+being tried when the host hung (sec 12.10) and are not measured.
+
+Not built yet: a turning part against its closed form as a test (the
+flap on a hinge, the float on an arm, above) -- the torque's path is tested
 only by the Assembly's own test of a formula; a command and the panel's
 part of it (the property is set by hand); the manual's page and video;
 the two results shown as one.
+
+### 12.10 The host's hard hangs, and what the runs are held to (2026-11-24)
+
+The Windows host hung hard twice, 2026-11-22 about 18:32 and 2026-11-24
+about 06:22, the first since July 2025: no crash code, no dump, nothing
+in its logs of why. Ruled out: the RTX A2000's PCIe advisory error
+(logged at every boot since April 2025), standby (the box has only S3,
+sleep is off; the screen had been off), the network's drops, memory,
+heat, the disks. Common to both: they came 1.5 to 4 minutes after a
+rebuild of FluidSplish and its runs began -- SPlisHSPlasH built with
+AVX (FMA throughout), on 8 threads, unattended. Not proved.
+
+Ruled by the user, for now: the runner on 4 threads, 5 mm the finest.
+`FLUID_SPLISH_THREADS` before the preference `Mod/Fluid/Threads` sets
+the runner's thread count for every run started under it, the tests'
+too; the jet test (`FluidTests/Jet.py`) is at 5 mm, its bounds from
+measurements there -- the force 7.5 to 8% over, single steps 0.60 to
+1.84 times the mean's, the plate's centre 0.39 to 0.40 of the stagnation
+pressure. An attended run to look for the cause is to come.
 
 ## 13. For the user to rule (2026-11-21)
 

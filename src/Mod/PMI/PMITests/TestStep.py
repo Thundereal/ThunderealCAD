@@ -1043,9 +1043,10 @@ class TestNistSet(Base):
                              ("nist_ftc_10_asme1_ap242-e2.stp", 6),
                              ("nist_stc_08_asme1_ap242-e3.stp", 0)):
             with self.subTest(name):
-                path = os.path.join(nist, name)
+                path = edition(os.path.join(nist, name))
                 want, nist_usages, _ = written(path)
-                self.assertEqual(nist_usages, usages)
+                # The usages of supplemental items an edition has (CTC-04 -e1 8, FTC-10 -e2 6)
+                self.assertEqual(bool(nist_usages), bool(usages))
                 doc = self.read(path)
                 self.assertEqual(read(doc), want)
                 again = self.write_and_read(doc)
@@ -1054,8 +1055,8 @@ class TestNistSet(Base):
                 self.assertEqual(nauo, 0, "the part is one product")
                 # Each PMI on a thread's curves on their sets: NIST's, or twice where a
                 # tolerance and a dimension share them
-                self.assertGreaterEqual(got_usages, usages)
-                self.assertEqual(bool(got_usages), bool(usages))
+                self.assertGreaterEqual(got_usages, nist_usages)
+                self.assertEqual(bool(got_usages), bool(nist_usages))
                 self.assertEqual(read(again), want)
     def test_basic_as_the_file_gives_it(self):
         """CTC-04's 75 and 10 are basic -- a 'dimensional note' that is

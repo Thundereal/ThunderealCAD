@@ -102,7 +102,11 @@ def switch(on):
 
 
 def at(mm_x, mm_y):
-    return page_view().mapFromScene(QtCore.QPointF(mm_x * 10.0, -mm_y * 10.0))
+    # where it is in the view's picture: the widget's, frame and all, which
+    # puts the viewport a frame's width in -- 2 px in the Windows 11 style,
+    # enough at 2 px/mm to lay the strip's first column on the face's outline
+    v = page_view()
+    return v.viewport().mapTo(v, v.mapFromScene(QtCore.QPointF(mm_x * 10.0, -mm_y * 10.0)))
 
 
 def rgb(p):
@@ -138,8 +142,9 @@ def measure(tag, zoom):
     a, b = at(STRIP[0], STRIP[3]), at(STRIP[2], STRIP[1])
     # zoomed far in the strip is taller than the view: what of it is on screen
     # (the picture is the widget's, scroll bars and all: the viewport's height)
-    top = max(a.y(), 4)
-    bottom = min(b.y(), page_view().viewport().height() - 5)
+    port = page_view().viewport().geometry()
+    top = max(a.y(), port.top() + 4)
+    bottom = min(b.y(), port.bottom() - 4)
     fill, hatch = COLOURS["fill"], COLOURS["hatch"]
     axis = [hatch[i] - fill[i] for i in range(3)]
     norm = float(sum(c * c for c in axis)) or 1.0

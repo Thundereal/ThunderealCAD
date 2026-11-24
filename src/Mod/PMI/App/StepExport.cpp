@@ -33,6 +33,8 @@
 #include <string>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <gp_Cylinder.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -80,7 +82,12 @@
 #include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Mod/Import/App/ExportOCAF2.h>
+#include <App/Datums.h>
+#include <App/DocumentObjectGroup.h>
 #include <App/GeoFeature.h>
+#include <App/GeoFeatureGroupExtension.h>
+#include <App/PropertyLinks.h>
+#include <App/PropertyStandard.h>
 #include <Mod/Part/App/BodyBase.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/TopoShape.h>
@@ -264,6 +271,9 @@ public:
                 docs.insert(obj->getDocument());
             }
         }
+        for (auto doc : docs) {
+            supplemental(doc);
+        }
         std::set<std::string> done;
         for (auto doc : docs) {
             for (auto o : doc->getObjectsOfType(AnnotationSet::getClassTypeId())) {
@@ -353,6 +363,98 @@ private:
         ex.label = proto;
         ex.shape = shape;
         return &ex;
+    }
+
+    /// The name an object of a STEP file had (its StepName), else its label
+    static std::string stepName(const App::DocumentObject* obj, const char* prop = "StepName")
+    {
+        if (auto p = freecad_cast<App::PropertyString*>(obj->getPropertyByName(prop))) {
+            return p->getValue();
+        }
+        return prop == std::string("StepName") ? obj->Label.getValue() : std::string();
+    }
+
+    /// Each group marked as a part's supplemental geometry
+    /// (ExportOCAF2::SupplementalProperty) written as such, in the part's
+    /// coordinates: its datum planes as planes, its coordinate systems as axis
+    /// systems, a cylindrical face as its cylinder, any other shape as a set of
+    /// curves -- GD&T on it is on that set (docs/GDandT.md sec 10.26)
+    void supplemental(App::Document* doc)
+    {
+        for (auto o : doc->getObjectsOfType(App::DocumentObjectGroup::getClassTypeId())) {
+            if (!Import::ExportOCAF2::isSupplemental(o)) {
+                continue;
+            }
+            App::DocumentObject* part = nullptr;
+            auto link = freecad_cast<App::PropertyLink*>(o->getPropertyByName("SupplementalOf"));
+            if (link) {
+                part = link->getValue();
+            }
+            if (!part) {
+                part = App::GeoFeatureGroupExtension::getGroupOfObject(o);
+            }
+            if (!part || !std::count(_info.objects.begin(), _info.objects.end(), part)) {
+                continue;
+            }
+            Exported* ex = exported(part, nullptr);
+            if (!ex) {
+                _report.skipped.push_back(std::string(o->Label.getValue())
+                                          + ": its part's shape was not exported whole");
+                continue;
+            }
+            TDF_Label group = _tool->AddSupplementalGeometry(
+                ex->label,
+                ascii(stepName(o))->String(),
+                ascii(stepName(o, "StepRelationName"))->String());
+            auto ext = o->getExtensionByType<App::GroupExtension>();
+            for (auto item : ext->Group.getValues()) {
+                auto geo = freecad_cast<App::GeoFeature*>(item);
+                if (!geo) {
+                    continue;
+                }
+                gp_Trsf toLabel =
+                    ex->placedToLabel * trsfOf(geo->globalPlacement());
+                gp_Ax3 pos = gp_Ax3(ax2Of(toLabel));
+                TCollection_AsciiString name = ascii(stepName(item))->String();
+                if (item->isDerivedFrom<App::Plane>()) {
+                    XCAFDoc_DimTolTool::AddSupplementalItem(group, "plane", name, pos, 0.0, {});
+                    continue;
+                }
+                if (item->isDerivedFrom<App::LocalCoordinateSystem>()) {
+                    XCAFDoc_DimTolTool::AddSupplementalItem(group, "axes", name, pos, 0.0, {});
+                    continue;
+                }
+                auto feat = freecad_cast<Part::Feature*>(item);
+                if (!feat) {
+                    continue;
+                }
+                TopoDS_Shape shape = feat->Shape.getShape().getShape();
+                if (shape.IsNull()) {
+                    continue;
+                }
+                shape = shape.Located(TopLoc_Location(ex->placedToLabel
+                                                      * trsfOf(feat->globalPlacement())));
+                // A cylindrical face alone: its cylinder
+                TopExp_Explorer faces(shape, TopAbs_FACE);
+                if (faces.More()) {
+                    TopoDS_Face face = TopoDS::Face(faces.Current());
+                    faces.Next();
+                    BRepAdaptor_Surface surf(face);
+                    if (!faces.More() && surf.GetType() == GeomAbs_Cylinder) {
+                        gp_Cylinder cyl = surf.Cylinder();
+                        XCAFDoc_DimTolTool::AddSupplementalItem(group, "cylinder", name,
+                                                                cyl.Position(), cyl.Radius(),
+                                                                {});
+                    }
+                    continue;
+                }
+                TDF_Label l = XCAFDoc_DimTolTool::AddSupplementalItem(group, "curves", name,
+                                                                      gp_Ax3(), 0.0, shape);
+                if (!l.IsNull()) {
+                    _supplementals[feat] = l;
+                }
+            }
+        }
     }
 
     static TopAbs_ShapeEnum typeOf(const char* name)
@@ -446,6 +548,12 @@ private:
             return true;
         }
         for (auto& [obj, subs] : feature->References.getSubListValues()) {
+            // On supplemental curves: on their set, as a whole
+            auto supplemental = _supplementals.find(obj);
+            if (supplemental != _supplementals.end()) {
+                out.Append(supplemental->second);
+                continue;
+            }
             for (auto& sub : subs) {
                 Part::TopoShape el;
                 try {
@@ -1315,6 +1423,8 @@ private:
     }
 
     std::map<App::DocumentObject*, Exported> _parts;
+    /// The supplemental curves written: each object's item
+    std::map<const App::DocumentObject*, TDF_Label> _supplementals;
     /// The views of the sets written, each with its set's part
     std::vector<std::pair<View*, Exported*>> _views;
     /// The label each callout was written as: what a view lists

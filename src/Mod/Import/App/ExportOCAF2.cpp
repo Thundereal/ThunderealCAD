@@ -113,13 +113,22 @@ void ExportOCAF2::runPostExport()
     }
     PostExport info;
     info.hDoc = pDoc;
-    info.objects.reserve(myObjects.size());
+    info.objects.reserve(myObjects.size() + myWithin.size());
     for (auto& [obj, label] : myObjects) {
         info.objects.push_back(obj);
     }
+    for (auto& [obj, label] : myWithin) {
+        if (!myObjects.count(obj)) {
+            info.objects.push_back(obj);
+        }
+    }
     info.labelOf = [this](App::DocumentObject* obj) {
         auto it = myObjects.find(obj);
-        return it == myObjects.end() ? TDF_Label() : it->second;
+        if (it != myObjects.end()) {
+            return it->second;
+        }
+        it = myWithin.find(obj);
+        return it == myWithin.end() ? TDF_Label() : it->second;
     };
     for (auto& [name, pass] : postExports()) {
         try {
@@ -776,6 +785,44 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
     }
 
     auto subs = obj->getSubObjects();
+    // A container written as one shape: the compound of its children's,
+    // each in its coordinates, as a shape's of no container is
+    std::vector<App::DocumentObject*> within;
+    if (!subs.empty() && isOneShape(obj)) {
+        std::vector<TopoDS_Shape> shapes;
+        for (auto& subobj : subs) {
+            auto sobj = obj->getSubObject(subobj.c_str());
+            if (!sobj || isSupplemental(sobj)
+                || (!options.exportHidden && !sobj->Visibility.getValue())) {
+                continue;
+            }
+            auto child = Part::Feature::getTopoShape(obj,
+                                                     subobj.c_str(),
+                                                     false,
+                                                     nullptr,
+                                                     nullptr,
+                                                     true,
+                                                     false);
+            if (child.isNull()) {
+                continue;
+            }
+            shapes.push_back(child.getShape());
+            within.push_back(sobj);
+        }
+        if (!shapes.empty()) {
+            TopoDS_Compound comp;
+            BRep_Builder builder;
+            builder.MakeCompound(comp);
+            for (auto& sh : shapes) {
+                builder.Add(comp, sh);
+            }
+            Base::Matrix4D at = shape.getTransform();
+            shape.setShape(comp);
+            shape.setTransform(at);
+            linkedShape = shape;
+            subs.clear();
+        }
+    }
     // subs empty means obj is not a container.
     if (subs.empty()) {
 
@@ -837,6 +884,9 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
         for (auto link : links) {
             myObjects.emplace(link, label);
         }
+        for (auto child : within) {
+            myWithin.emplace(child, label);
+        }
         return label;
     }
 
@@ -859,6 +909,9 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
         auto sobj = obj->resolve(subobj.c_str(), &parentGrp, &childName);
         if (!sobj) {
             FC_WARN("Cannot find object " << obj->getFullName() << '.' << subobj);
+            continue;
+        }
+        if (isSupplemental(sobj)) {
             continue;
         }
         int vis = -1;
@@ -919,6 +972,25 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
         setupObject(label, name ? parentObj : obj, shape, prefix, name);
     }
     return label;
+}
+
+namespace
+{
+bool markedBy(const App::DocumentObject* obj, const char* name)
+{
+    auto prop = obj ? freecad_cast<App::PropertyBool*>(obj->getPropertyByName(name)) : nullptr;
+    return prop && prop->getValue();
+}
+}  // namespace
+
+bool ExportOCAF2::isSupplemental(const App::DocumentObject* obj)
+{
+    return markedBy(obj, SupplementalProperty);
+}
+
+bool ExportOCAF2::isOneShape(const App::DocumentObject* obj)
+{
+    return markedBy(obj, OneShapeProperty);
 }
 
 bool ExportOCAF2::canFallback(std::vector<App::DocumentObject*> objs)

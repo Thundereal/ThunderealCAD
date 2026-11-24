@@ -154,6 +154,26 @@ public:
     static void addPostExport(const std::string& name,
                               std::function<void(const PostExport&)> pass);
 
+    /** @name What an object says of how it is written
+     *
+     * Dynamic properties an import gives (the PMI module's, of a STEP file:
+     * docs/GDandT.md sec 10.26), read by exportObjects()
+     */
+    //@{
+    /// An App::Part written as one shape -- one STEP product, each child a
+    /// representation of it -- not as an assembly of its children: a
+    /// PropertyBool of this name, true
+    static constexpr const char* OneShapeProperty = "ExportAsOneShape";
+    /// An object left out of the shapes written, and what it holds: a part's
+    /// supplemental geometry, which the PMI pass writes as such (a group
+    /// with a PropertyBool of this name, true)
+    static constexpr const char* SupplementalProperty = "SupplementalGeometry";
+    /// Whether \a obj is left out (SupplementalProperty)
+    static bool isSupplemental(const App::DocumentObject* obj);
+    /// Whether \a obj is written as one shape (OneShapeProperty)
+    static bool isOneShape(const App::DocumentObject* obj);
+    //@}
+
 private:
     TDF_Label exportObject(App::DocumentObject* obj,
                            const char* sub,
@@ -177,6 +197,8 @@ private:
     Handle(XCAFDoc_ColorTool) aColorTool;
 
     std::unordered_map<App::DocumentObject*, TDF_Label> myObjects;
+    /// The children of a container written as one shape (OneShapeProperty): its label
+    std::unordered_map<App::DocumentObject*, TDF_Label> myWithin;
 
     std::unordered_map<TDF_Label, std::vector<std::string>, LabelHasher> myNames;
 

@@ -32,6 +32,12 @@
 #include <BRep_Tool.hxx>
 #include <Precision.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRep_Builder.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <TopoDS_Compound.hxx>
+#include <TopoDS_Iterator.hxx>
+#include <XCAFDoc.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepGProp_Face.hxx>
@@ -66,10 +72,14 @@
 #include <XCAFView_Object.hxx>
 
 #include <App/Document.h>
+#include <App/DocumentObjectGroup.h>
 #include <App/GeoFeatureGroupExtension.h>
+#include <App/PropertyLinks.h>
+#include <App/PropertyStandard.h>
 #include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Base/Tools.h>
+#include <Mod/Import/App/ExportOCAF2.h>
 #include <Mod/Import/App/ImportOCAF2.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/TopoShape.h>
@@ -160,6 +170,8 @@ public:
         notes();
         views();
         placeholders();
+        oneShapes();
+        supplemental();
         return _report;
     }
 
@@ -667,6 +679,370 @@ private:
     }
 
     /// A letter as one part's: two parts of a file may each have a datum A
+    /// The object a part's label was made into: its own; or -- an assembly
+    /// label, a product's several representations -- the container its
+    /// components' objects are in
+    App::DocumentObject* containerOf(const TDF_Label& label)
+    {
+        TDF_Label l = label;
+        if (XCAFDoc_ShapeTool::IsReference(label)) {
+            XCAFDoc_ShapeTool::GetReferredShape(label, l);
+        }
+        if (!XCAFDoc_ShapeTool::IsAssembly(l)) {
+            return objectOf(l);
+        }
+        NCollection_Sequence<TDF_Label> comps;
+        XCAFDoc_ShapeTool::GetComponents(l, comps);
+        for (auto& c : comps) {
+            TDF_Label proto;
+            if (!XCAFDoc_ShapeTool::GetReferredShape(c, proto)) {
+                continue;
+            }
+            if (auto obj = objectOf(proto)) {
+                if (auto group = App::GeoFeatureGroupExtension::getGroupOfObject(obj)) {
+                    return group;
+                }
+            }
+        }
+        return nullptr;
+    }
+
+    /// A product of several shape representations (a solid, a surface
+    /// model, a wireframe: NIST CTC-04) is one App::Part of an object each,
+    /// written again as one product (docs/GDandT.md sec 10.26)
+    void oneShapes()
+    {
+        NCollection_Sequence<TDF_Label> labels;
+        _shapes->GetShapes(labels);
+        for (auto& l : labels) {
+            if (!l.IsAttribute(XCAFDoc::ProductRepresentationsGUID())) {
+                continue;
+            }
+            auto part = containerOf(l);
+            if (!part
+                || !part->hasExtension(
+                    App::GeoFeatureGroupExtension::getExtensionClassTypeId())) {
+                continue;
+            }
+            auto prop = freecad_cast<App::PropertyBool*>(
+                part->addDynamicProperty("App::PropertyBool",
+                                         Import::ExportOCAF2::OneShapeProperty,
+                                         "Export",
+                                         "Written to STEP as one product, each child a shape "
+                                         "representation of it, not as an assembly of them"));
+            if (prop) {
+                prop->setValue(true);
+            }
+        }
+    }
+
+    template<typename P>
+    static P* property(App::DocumentObject* obj, const char* name, const char* doc)
+    {
+        auto prop = freecad_cast<P*>(obj->getPropertyByName(name));
+        if (!prop) {
+            prop = freecad_cast<P*>(
+                obj->addDynamicProperty(P::getClassTypeId().getName(), name, "PMI", doc));
+        }
+        return prop;
+    }
+
+    static Base::Placement placementOf(const gp_Ax3& ax)
+    {
+        auto vec = [](const gp_XYZ& v) { return Base::Vector3d(v.X(), v.Y(), v.Z()); };
+        return Base::Placement(vec(ax.Location().XYZ()),
+                               Base::Rotation::makeRotationByAxes(vec(ax.XDirection().XYZ()),
+                                                                  vec(ax.YDirection().XYZ()),
+                                                                  vec(ax.Direction().XYZ())));
+    }
+
+    /// A part's supplemental geometry (XCAFDoc_DimTolTool::AddSupplementalGeometry): each group
+    /// a group of the part's, marked to be written so again -- its planes datum planes, its axis
+    /// systems coordinate systems, its cylinders and sets of curves shapes, each named as the
+    /// file names it. The curves the part's objects were read with are theirs alone: they are
+    /// taken out of those, and the GD&T on them refers to them where they now are
+    /// (docs/GDandT.md sec 10.26)
+    void supplemental()
+    {
+        NCollection_Sequence<TDF_Label> groups;
+        _tool->GetSupplementalGeometry(groups);
+        // The curves' shapes, by TShape, each the object it is now
+        std::map<const TopoDS_TShape*, Part::Feature*> curves;
+        for (auto& g : groups) {
+            TDF_Label partL;
+            TCollection_AsciiString name, relation;
+            if (!XCAFDoc_DimTolTool::GetSupplementalGeometry(g, partL, name, relation)) {
+                continue;
+            }
+            auto part = containerOf(partL);
+            if (!part) {
+                _report.skipped.push_back("supplemental geometry '" + std::string(name.ToCString())
+                                          + "': no object was made for its part");
+                continue;
+            }
+            auto doc = _info.doc;
+            auto group = doc->addObject("App::DocumentObjectGroup", "SupplementalGeometry");
+            group->Label.setValue(name.IsEmpty() ? "Supplemental geometry" : name.ToCString());
+            property<App::PropertyBool>(group,
+                                        Import::ExportOCAF2::SupplementalProperty,
+                                        "Written to STEP as the supplemental geometry of its "
+                                        "part (a constructive geometry representation), not as "
+                                        "a shape of it")
+                ->setValue(true);
+            property<App::PropertyString>(group, "StepName", "Its name in the STEP file")
+                ->setValue(name.ToCString());
+            property<App::PropertyString>(group,
+                                          "StepRelationName",
+                                          "The name of its relationship to its part's shape "
+                                          "in the STEP file")
+                ->setValue(relation.ToCString());
+            // In the part's coordinates: an App::Part's own, else beside the object, where it
+            // is placed
+            Base::Placement at;
+            if (auto ext = part->getExtensionByType<App::GeoFeatureGroupExtension>(true)) {
+                ext->addObject(group);
+            }
+            else {
+                if (auto geo = freecad_cast<App::GeoFeature*>(part)) {
+                    at = geo->Placement.getValue();
+                }
+                if (auto container = App::GeoFeatureGroupExtension::getGroupOfObject(part)) {
+                    container->getExtensionByType<App::GeoFeatureGroupExtension>()->addObject(
+                        group);
+                }
+                property<App::PropertyLink>(group, "SupplementalOf", "The part it is of")
+                    ->setValue(part);
+            }
+            auto groupExt = group->getExtensionByType<App::GroupExtension>();
+            // How far a cylinder is drawn: the part's size
+            Bnd_Box box;
+            Part::TopoShape whole = Part::Feature::getTopoShape(part, nullptr, false, nullptr,
+                                                                nullptr, true, false);
+            if (!whole.isNull()) {
+                BRepBndLib::Add(whole.getShape(), box);
+            }
+            NCollection_Sequence<TDF_Label> items;
+            XCAFDoc_DimTolTool::GetSupplementalItems(g, items);
+            for (auto& item : items) {
+                TCollection_AsciiString kind, itemName;
+                gp_Ax3 pos;
+                double radius = 0.0;
+                TopoDS_Shape shape;
+                if (!XCAFDoc_DimTolTool::GetSupplementalItem(item, kind, itemName, pos, radius,
+                                                             shape)) {
+                    continue;
+                }
+                App::DocumentObject* obj = nullptr;
+                if (kind == "plane") {
+                    obj = doc->addObject("Part::DatumPlane", "DatumPlane");
+                }
+                else if (kind == "axes") {
+                    obj = doc->addObject("Part::LocalCoordinateSystem", "LocalCoordinateSystem");
+                }
+                else if (kind == "cylinder" && radius > 0) {
+                    // Drawn as far along its axis as the part reaches
+                    double lo = -radius, hi = radius;
+                    if (!box.IsVoid()) {
+                        double x0, y0, z0, x1, y1, z1;
+                        box.Get(x0, y0, z0, x1, y1, z1);
+                        lo = hi = 0;
+                        bool first = true;
+                        for (double x : {x0, x1}) {
+                            for (double y : {y0, y1}) {
+                                for (double z : {z0, z1}) {
+                                    double v = gp_Vec(pos.Location(), gp_Pnt(x, y, z))
+                                                   .Dot(gp_Vec(pos.Direction()));
+                                    lo = first ? v : std::min(lo, v);
+                                    hi = first ? v : std::max(hi, v);
+                                    first = false;
+                                }
+                            }
+                        }
+                    }
+                    if (hi - lo < Precision::Confusion()) {
+                        hi = lo + radius;
+                    }
+                    Handle(Geom_CylindricalSurface) cyl =
+                        new Geom_CylindricalSurface(gp_Ax3(gp::Origin(), gp::DZ(), gp::DX()),
+                                                    radius);
+                    BRepBuilderAPI_MakeFace face(cyl, 0, 2 * M_PI, lo, hi, Precision::Confusion());
+                    if (face.IsDone()) {
+                        auto feat = static_cast<Part::Feature*>(
+                            doc->addObject("Part::Feature", "Cylinder"));
+                        feat->Shape.setValue(face.Shape());
+                        obj = feat;
+                    }
+                }
+                else if (kind == "curves" && !shape.IsNull()) {
+                    auto feat =
+                        static_cast<Part::Feature*>(doc->addObject("Part::Feature", "Curves"));
+                    TopoDS_Shape local = shape.Located(TopLoc_Location());
+                    feat->Shape.setValue(local);
+                    obj = feat;
+                    for (auto type : {TopAbs_EDGE, TopAbs_VERTEX, TopAbs_WIRE, TopAbs_COMPOUND}) {
+                        for (TopExp_Explorer xp(local, type); xp.More(); xp.Next()) {
+                            curves.emplace(xp.Current().TShape().get(), feat);
+                        }
+                    }
+                    curves.emplace(local.TShape().get(), feat);
+                }
+                if (!obj) {
+                    continue;
+                }
+                if (auto geo = freecad_cast<App::GeoFeature*>(obj)) {
+                    Base::Placement local = kind == "curves" ? Base::Placement() : placementOf(pos);
+                    geo->Placement.setValue(at * local);
+                }
+                obj->Label.setValue(itemName.IsEmpty() ? kind.ToCString() : itemName.ToCString());
+                property<App::PropertyString>(obj, "StepName", "Its name in the STEP file")
+                    ->setValue(itemName.ToCString());
+                // Reference geometry is shown when asked for; the curves are drawn, as
+                // the part's are
+                if (kind != "curves") {
+                    obj->Visibility.setValue(false);
+                }
+                groupExt->addObject(obj);
+            }
+        }
+        takeOut(curves);
+    }
+
+    /// The shape \a s without the shapes \a out holds (by TShape); null when nothing is left
+    static TopoDS_Shape without(const TopoDS_Shape& s,
+                                const std::map<const TopoDS_TShape*, Part::Feature*>& out)
+    {
+        if (s.IsNull() || out.count(s.TShape().get())) {
+            return {};
+        }
+        if (s.ShapeType() != TopAbs_COMPOUND) {
+            return s;
+        }
+        BRep_Builder builder;
+        TopoDS_Compound comp;
+        builder.MakeCompound(comp);
+        bool any = false;
+        for (TopoDS_Iterator it(s, false, false); it.More(); it.Next()) {
+            TopoDS_Shape child = without(it.Value(), out);
+            if (!child.IsNull()) {
+                builder.Add(comp, child);
+                any = true;
+            }
+        }
+        if (!any) {
+            return {};
+        }
+        comp.Location(s.Location());
+        return comp;
+    }
+
+    /// The supplemental curves \a curves out of every other object holding
+    /// them: the GD&T on them refers to their own objects, on what is left
+    /// to it by its new index
+    void takeOut(const std::map<const TopoDS_TShape*, Part::Feature*>& curves)
+    {
+        if (curves.empty()) {
+            return;
+        }
+        std::set<App::DocumentObject*> mine;
+        for (auto& [t, feat] : curves) {
+            mine.insert(feat);
+        }
+        auto features = _info.doc->getObjectsOfType(TolerancedFeature::getClassTypeId());
+        for (auto o : _info.doc->getObjectsOfType(Part::Feature::getClassTypeId())) {
+            auto feat = static_cast<Part::Feature*>(o);
+            if (mine.count(feat)) {
+                continue;
+            }
+            TopoDS_Shape s = feat->Shape.getShape().getShape();
+            bool holds = false;
+            for (auto type : {TopAbs_EDGE, TopAbs_VERTEX}) {
+                for (TopExp_Explorer xp(s, type); xp.More() && !holds; xp.Next()) {
+                    holds = curves.count(xp.Current().TShape().get()) > 0;
+                }
+            }
+            if (!holds) {
+                continue;
+            }
+            TopoDS_Shape left = without(s, curves);
+            // Where each element of the old shape is now
+            auto nameIn = [](const TopoDS_Shape& in, const TopoDS_Shape& el) -> std::string {
+                const char* type = el.ShapeType() == TopAbs_FACE ? "Face"
+                    : el.ShapeType() == TopAbs_EDGE              ? "Edge"
+                    : el.ShapeType() == TopAbs_VERTEX            ? "Vertex"
+                                                                 : nullptr;
+                if (!type || in.IsNull()) {
+                    return {};
+                }
+                NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
+                TopExp::MapShapes(in, el.ShapeType(), map);
+                for (int i = 1; i <= map.Extent(); ++i) {
+                    if (map(i).TShape() == el.TShape()) {
+                        return type + std::to_string(i);
+                    }
+                }
+                return {};
+            };
+            Part::TopoShape old(s);
+            for (auto f : features) {
+                auto tf = static_cast<TolerancedFeature*>(f);
+                auto refs = tf->References.getSubListValues();
+                bool changed = false;
+                std::vector<App::PropertyLinkSubList::SubSet> out;
+                for (auto& [obj, subs] : refs) {
+                    if (obj != feat) {
+                        out.emplace_back(obj, subs);
+                        continue;
+                    }
+                    changed = true;
+                    for (auto& sub : subs) {
+                        TopoDS_Shape el;
+                        try {
+                            el = old.getSubShape(sub.c_str(), true);
+                        }
+                        catch (const Base::Exception&) {
+                        }
+                        if (el.IsNull()) {
+                            continue;
+                        }
+                        App::DocumentObject* to = feat;
+                        std::string name;
+                        auto found = curves.find(el.TShape().get());
+                        if (found != curves.end()) {
+                            to = found->second;
+                            name = nameIn(found->second->Shape.getShape().getShape(), el);
+                        }
+                        else {
+                            name = nameIn(left, el);
+                        }
+                        if (name.empty()) {
+                            continue;
+                        }
+                        auto at = std::find_if(out.begin(), out.end(), [&](const auto& x) {
+                            return x.first == to;
+                        });
+                        if (at == out.end()) {
+                            out.emplace_back(to, std::vector<std::string>{name});
+                        }
+                        else {
+                            at->second.push_back(name);
+                        }
+                    }
+                }
+                if (changed) {
+                    tf->References.setSubListValues(out);
+                }
+            }
+            if (left.IsNull()) {
+                _info.doc->removeObject(feat->getNameInDocument());
+            }
+            else {
+                Base::Placement pla = feat->Placement.getValue();
+                feat->Shape.setValue(left.Located(TopLoc_Location()));
+                feat->Placement.setValue(pla);
+            }
+        }
+    }
+
     std::string lettered(Part::Feature* obj, const std::string& letter)
     {
         Part::Feature* part = partOf(obj);

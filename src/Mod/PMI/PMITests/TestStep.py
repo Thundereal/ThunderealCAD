@@ -62,6 +62,11 @@ def edition(path):
     return found[-1] if found else path
 
 
+def supplemental_group(obj):
+    """Whether obj is in a part's supplemental geometry"""
+    return any(getattr(g, "SupplementalGeometry", False) for g in obj.InList)
+
+
 class Base(unittest.TestCase):
     def read(self, path):
         path = edition(path)
@@ -672,17 +677,25 @@ class TestNistSet(Base):
         nist = os.path.join(os.environ["FC_PMI_NIST"], "nist_ftc_10_asme1_ap242-e2.stp")
 
         def shapes(doc):
+            """The part's shapes: not its supplemental geometry's"""
             return [o.Name for o in doc.Objects
-                    if o.isDerivedFrom("Part::Feature") and not o.Shape.isNull()]
+                    if o.isDerivedFrom("Part::Feature") and not o.Shape.isNull()
+                    and not supplemental_group(o)]
 
-        with_pmi = shapes(self.read(nist))
+        doc = self.read(nist)
+        with_pmi = shapes(doc)
+        groups = [o for o in doc.Objects if getattr(o, "SupplementalGeometry", False)]
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(len([o for o in groups[0].Group if o.TypeId == "Part::Feature"]), 26)
         params = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Import")
         self.addCleanup(params.RemBool, "ReadPMI")
         params.SetBool("ReadPMI", False)
         doc = self.read(nist)
         self.assertEqual([o.Name for o in doc.Objects if o.TypeId.startswith("PMI::")], [])
-        # One object less: the curves; the solid and what else the file has stay
-        self.assertEqual(len(shapes(doc)), len(with_pmi) - 1)
+        self.assertEqual([o for o in doc.Objects if getattr(o, "SupplementalGeometry", False)],
+                         [])
+        # The curves are their own objects or none: the solid and what else the file has stay
+        self.assertEqual(len(shapes(doc)), len(with_pmi))
         self.assertEqual(sum(len(o.Shape.Solids) for o in doc.Objects
                              if o.isDerivedFrom("Part::Feature")), 1)
 
@@ -936,10 +949,19 @@ class TestNistSet(Base):
             """What is on curves, not the solid: (kind, value), each Ok and in
             the solid's set"""
             got = []
+
+            def on_solid(obj, sub):
+                if not sub:
+                    # The whole part
+                    return bool(obj.Shape.Solids)
+                el = obj.Shape.getElement(sub)
+                return any(el.isPartner(x) for solid in obj.Shape.Solids
+                           for x in (solid.Faces if sub.startswith("Face") else solid.Edges))
+
             for o in objects(doc, "Dimension") + objects(doc, "GeometricTolerance"):
                 feats = o.Features if hasattr(o, "Features") else [o.Feature]
-                objs = [r[0] for f in feats if f for r in f.References]
-                if all(x.Shape.Solids for x in objs):
+                refs = [(r[0], sub) for f in feats if f for r in f.References for sub in r[1]]
+                if all(on_solid(obj, sub) for obj, sub in refs):
                     continue
                 self.assertEqual(o.Condition, "Ok", (o.Label, o.ConditionMessage))
                 sets = [s for s in o.InList if s.TypeId == "PMI::AnnotationSet"]
@@ -959,6 +981,82 @@ class TestNistSet(Base):
                          + [("Position", 0.8)] * 3)
         self.assertEqual(supplemental(self.write_and_read(doc)), supplemental(doc))
 
+
+    def test_supplemental_geometry_as_the_file_has_it(self):
+        """A part's supplemental geometry -- its constructive geometry
+        representations: planes, cylinders, axis systems, sets of curves --
+        read as a group each of datum planes, coordinate systems and shapes,
+        named as the file names them, and written again as NIST has it: the
+        part one product, each group one representation of the same items,
+        GD&T on a thread's curves on their set (CTC-04, FTC-06, FTC-10,
+        STC-08; docs/GDandT.md sec 10.26)"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def entities(path):
+            with open(path, errors="replace") as f:
+                text = f.read()
+            ents = {}
+            for m in re.finditer(r"#(\d+)\s*=\s*(.*?);\s*(?=#\d+\s*=|ENDSEC)", text, re.S):
+                ents[m.group(1)] = re.sub(r"\s+", " ", m.group(2))
+            return ents
+
+        def typ(ents, i):
+            return ents[i].split("(")[0].strip()
+
+        def written(path):
+            """Each representation's items, (type, name) sorted; how many
+            usages are of its items; the products assembled"""
+            ents = entities(path)
+            reps = []
+            cgr = set()
+            for k, v in ents.items():
+                if typ(ents, k) == "CONSTRUCTIVE_GEOMETRY_REPRESENTATION":
+                    cgr.add(k)
+                    refs = re.findall(r"#(\d+)", v)[:-1]
+                    reps.append(sorted((typ(ents, i), re.findall(r"'([^']*)'", ents[i])[0])
+                                       for i in refs))
+            usages = sum(1 for k, v in ents.items()
+                         if typ(ents, k) == "GEOMETRIC_ITEM_SPECIFIC_USAGE"
+                         and set(re.findall(r"#(\d+)", v)) & cgr)
+            nauo = sum(1 for k in ents if typ(ents, k) == "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
+            return sorted(reps), usages, nauo
+
+        kinds = {"Part::DatumPlane": "PLANE", "Part::LocalCoordinateSystem": "AXIS2_PLACEMENT_3D"}
+
+        def read(doc):
+            """Each group's items as written: (type, name) sorted"""
+            got = []
+            for g in doc.Objects:
+                if not getattr(g, "SupplementalGeometry", False):
+                    continue
+                items = []
+                for o in g.Group:
+                    kind = kinds.get(o.TypeId)
+                    if not kind:
+                        kind = ("CYLINDRICAL_SURFACE" if o.Shape.Faces else "GEOMETRIC_CURVE_SET")
+                    items.append((kind, o.StepName))
+                got.append(sorted(items))
+            return sorted(got)
+
+        for name, usages in (("nist_ctc_04_asme1_ap242-e1.stp", 8),
+                             ("nist_ftc_06_asme1_ap242-e2.stp", 0),
+                             ("nist_ftc_10_asme1_ap242-e2.stp", 6),
+                             ("nist_stc_08_asme1_ap242-e3.stp", 0)):
+            with self.subTest(name):
+                path = os.path.join(nist, name)
+                want, nist_usages, _ = written(path)
+                self.assertEqual(nist_usages, usages)
+                doc = self.read(path)
+                self.assertEqual(read(doc), want)
+                again = self.write_and_read(doc)
+                reps, got_usages, nauo = written(self.written)
+                self.assertEqual(reps, want)
+                self.assertEqual(nauo, 0, "the part is one product")
+                # Each PMI on a thread's curves on their sets: NIST's, or twice where a
+                # tolerance and a dimension share them
+                self.assertGreaterEqual(got_usages, usages)
+                self.assertEqual(bool(got_usages), bool(usages))
+                self.assertEqual(read(again), want)
     def test_basic_as_the_file_gives_it(self):
         """CTC-04's 75 and 10 are basic -- a 'dimensional note' that is
         'theoretical' -- read so and written so (SFA's [75], [dia10])"""

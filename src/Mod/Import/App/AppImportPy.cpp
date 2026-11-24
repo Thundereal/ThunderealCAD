@@ -21,6 +21,7 @@
  ***************************************************************************/
 
 #include "PreCompiled.h"
+#include <algorithm>
 #if defined(__MINGW32__)
 #define WNT  // avoid conflict with GUID
 #endif
@@ -239,6 +240,14 @@ private:
             if (!ocaf.partColors.empty()) {
                 Py::List list;
                 for (auto& it : ocaf.partColors) {
+                    // An object an import pass removed (the PMI module's, of one
+                    // holding supplemental curves alone) is in no document
+                    auto docs = App::GetApplication().getDocuments();
+                    if (std::none_of(docs.begin(), docs.end(), [&](App::Document* d) {
+                            return d->isIn(it.first);
+                        })) {
+                        continue;
+                    }
                     Py::Tuple tuple(2);
                     tuple.setItem(0, Py::asObject(it.first->getPyObject()));
 

@@ -1845,6 +1845,49 @@ Then, in that order:
   "Processing Unicode characters" on a note's `\X2\000A\X0\` line breaks is an information,
   not an error: kept, a note's words one text.
 
+### 10.26 A part's supplemental geometry, and one product of several shapes (2026-11-24)
+
+NIST's CTC-04, FTC-06, FTC-10 and STC-08 carry reference and construction geometry beside the
+part -- `constructive_geometry_representation`s ('supplemental geometry') of planes,
+cylindrical surfaces, axis systems and sets of curves, related to the part's shape
+representation. It defines nothing of the part; GD&T is on a thread's curves (CTC-04's
+position and size of its thread, FTC-10's three), nothing on the rest. And CTC-04 and FTC-10
+are one product of several shape representations (a solid, a surface model, a wireframe).
+Read, each of the four came in as an App::Part of an object per representation, the curves
+one more, and was written again as an assembly of as many products; the planes, cylinders and
+axis systems were not read at all. SFA (dwin, from pass 14) lists supplemental geometry in
+the files' contents, in two sheets and in its viewer, none of them a count the coverage
+compares; it took our curves for none.
+
+- **Read.** OCCT's reader keeps each representation as a group of its part
+  (`XCAFDoc_DimTolTool::AddSupplementalGeometry`, `AddSupplementalItem`: kind, name, axis
+  system, a cylinder's radius, a set's shape), and marks the label of a product whose
+  components are its representations (`XCAFDoc::ProductRepresentationsGUID`). The PMI import
+  makes each group an `App::DocumentObjectGroup` of the part, marked
+  `SupplementalGeometry`: a plane a `Part::DatumPlane`, an axis system a
+  `Part::LocalCoordinateSystem`, a cylinder a `Part::Feature` of its face as long as the part
+  reaches along it, a set of curves a `Part::Feature` of them; each named as the file names
+  it (`StepName`; a label must be unique, a name need not), the group's relationship name kept
+  (`StepRelationName`). Planes, axis systems and cylinders are hidden. The curves are taken out
+  of the object the reader put them in (removed when they were all it held), and the GD&T on
+  them refers to the object of their set; what is left keeps its references, by their new
+  indices. The App::Part of a product of several representations is marked
+  `ExportAsOneShape`.
+- **Written.** `ExportOCAF2` leaves a group marked `SupplementalGeometry` out of the shapes,
+  and writes an App::Part marked `ExportAsOneShape` as one shape: one product, its children
+  each a part of its shape, not an assembly of them. The PMI export gives each group to the
+  XCAF document again, in the part's coordinates; OCCT's writer writes it as a
+  `constructive_geometry_representation` of the items NIST has (`plane`, `cylindrical_surface`,
+  `axis2_placement_3d`, `geometric_curve_set`, named), related to the part's shape
+  representation, and GD&T on a set of curves as NIST does: a usage of the set, in that
+  representation. The four files write NIST's representations item for item, and one product
+  each (`TestNistSet.test_supplemental_geometry_as_the_file_has_it`).
+- **Not the same yet.** The part's shapes are one `shape_representation` of all its items,
+  not one per kind related to it, as NIST's are. A thread's curves shared by a tolerance and
+  a dimension (CTC-04, FTC-10) are used twice, as two shape aspects; NIST's two share one, as
+  for any feature two PMI are on. FTC-10's second product (ASME Y14.41, the standard it cites)
+  is not written. Read without its PMI, a file has no supplemental geometry, as before.
+
 ## 11. Decisions (made 2026-11-19)
 
 1. **Names**: the upstream proposal's (#29772, [A8]) where the concepts match --

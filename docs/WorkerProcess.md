@@ -3827,8 +3827,19 @@ with it changed: the store's options (`DedupShapePCurves`,
 `StableShapeBytes`, `DedupCongruentShapes`, `ShareStoredSubShapes`),
 location chains, the pcurves, the XML's number precision (an exact writer:
 still 20), `validateShape`, and the edges the fillet names (the same
-subs). What would mend it is a reader in our OCCT that keeps a direction
-already unit within an ulp as written: asked, not done.
+subs).
+
+**Mended in our OCCT** (the user: "do 3 then 1"). The readers, text and
+binary, keep a direction as written when its square norm is 1 within 4
+epsilon. They keep a conic's or an elementary surface's frame as written
+when the frame `gp_Ax2`/`gp_Ax3`/`gp_Ax22d` would make of it is that frame
+to rounding. occt `tests/fork/exchange/README.md`, "A direction read back
+as it was written", has the driver, the suites run with each read, and the
+fillet volumes that move: 31 of the fillet suite's 921 lines at 17 digits,
+1.7e-7 relative at most, no verdict, no vertex. After it, the binder made
+and the binder restored are the same but for the Checked flag, and
+SectionView007 has 19 visible edges from a worker as here (`sv7.py`,
+console: both values of the cell, by a worker and here).
 
 The XML's numbers: `Base::Writer` writes a double fixed with 16 decimals,
 so a value below about 1e-16 is written 0 and one below 1 loses digits.

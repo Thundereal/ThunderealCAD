@@ -101,6 +101,17 @@ struct BaseExport EntryCapture
     bool empty() const { return segments.empty(); }
 };
 
+/** The number format of every writer, so a value serialises to the same bytes
+ * whichever writer it goes through (TransactionLogJournal.md 23.3).
+ *
+ * A double is written as the shortest text that reads back as that double:
+ * 0.1 as "0.1", 1e-20 as "1e-20", -0.70710678118654735 as itself. The stream
+ * is left fixed at digits10 + 1 decimals, which the shortest form stands in
+ * for; a caller that sets another precision or notation for its own values
+ * gets that as before.
+ */
+BaseExport void setSaveNumberFormat(std::ios& stream);
+
 /** What decides, per property, whether the writer's loop serialises it
  * (docs/TransactionLogJournal.md sec 23.3). Record mode claims nothing and the
  * capture carries every body; compose mode claims what its owner already

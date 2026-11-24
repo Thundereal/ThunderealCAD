@@ -7,7 +7,11 @@
 #include "Base/Stream.h"
 #include "Base/Writer.h"
 #include <src/TempDirectory.h>
+#include <cmath>
+#include <cstdlib>
+#include <random>
 #include <sstream>
+#include <vector>
 
 // Writer is designed to be a base class, so for testing we actually instantiate a StringWriter,
 // which is derived from it
@@ -132,6 +136,45 @@ TEST_F(WriterTest, charStreamBase64Encoded)
     // Assert
     // Conversion done using https://www.base64encode.org for testing purposes
     EXPECT_EQ(std::string("RnJlZUNBRCByb2NrcyEg8J+qqPCfqqjwn6qo\n"), _writer.getString());
+}
+
+/// A double is saved as the shortest text that reads back as itself, where
+/// the fixed 16 decimals wrote noise, lost a tiny value whole and read 0.1 to 1
+/// back as another double about a third of the time
+TEST_F(WriterTest, doubleIsShortestRoundTrip)
+{
+    const double values[] {0.1, 1e-20, 12345.678, 0.5 + 0x1p-53, 2.0, -0.0, 5e-324, 1e300};
+    for (double value : values) {
+        _writer.Stream() << value << ' ';
+    }
+    EXPECT_EQ(_writer.getString(),
+              "0.1 1e-20 12345.678 0.5000000000000001 2 -0 5e-324 1e+300 ");
+
+    // Every one reads back as the double written
+    std::mt19937_64 random(7);
+    std::uniform_real_distribution<double> unit(-1., 1.);
+    Base::StringWriter writer;
+    std::vector<double> written;
+    for (int i = 0; i < 10000; ++i) {
+        written.push_back(unit(random) * std::pow(10., i % 41 - 20));
+        writer.Stream() << written.back() << ' ';
+    }
+    std::istringstream text(writer.getString());
+    for (double value : written) {
+        std::string token;
+        text >> token;
+        EXPECT_EQ(std::strtod(token.c_str(), nullptr), value) << token;
+    }
+}
+
+/// A caller asking for its own precision gets it, as before
+TEST_F(WriterTest, doubleAtAnotherPrecision)
+{
+    const auto precision = _writer.Stream().precision(3);
+    _writer.Stream() << 0.1;
+    _writer.Stream().precision(precision);
+    _writer.Stream() << ' ' << 0.1;
+    EXPECT_EQ(_writer.getString(), "0.100 0.1");
 }
 
 // ---------------------------------------------------------------------------

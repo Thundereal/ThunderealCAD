@@ -3843,10 +3843,13 @@ console: both values of the cell, by a worker and here).
 
 The XML's numbers: `Base::Writer` writes a double fixed with 16 decimals,
 so a value below about 1e-16 is written 0 and one below 1 loses digits.
-Not the cause here. Upstream took numbers to 17 digits in 2016 and back to
-`digits10 + 1` in 2019 (183cd16263, forum t=34392): at 17 digits a number
-shows its binary noise, 0.1 written 0.10000000000000001. The shortest text
-that reads back exactly would not; not done.
+Not the cause here. The writer went fixed at 12 decimals in 2011
+(a65d4fdda6, no reason given) and to 16 in 2018 (714604e58f, forum
+t=32212); bd89326d06 (2019) only spelled 16 `digits10 + 1`. The 17 digits
+taken up in 2016 and dropped in 2019 (a3af2902ef, 183cd16263, forum
+t=34392) were an expression's number text, which a user reads: at 17 digits
+it shows its binary noise, 0.1 as 0.10000000000000001. The writer now saves
+the shortest text that reads back exactly, sec 61.
 
 **A re-saved file asked for its recompute again.** Scanner opened,
 recomputed in full and saved, reopened with 18 objects `MigrationPending`,
@@ -3915,3 +3918,58 @@ run's 587 objects against the first recompute made here:
 
 `SectionView007` is gone from every row. The fourth-place differences of
 sec 59 stay, and are not this.
+
+## 61. A number saved as the shortest text that reads back as itself (2026-11-24)
+
+`Base::Writer` wrote every double fixed with `digits10 + 1` = 16 decimals:
+0.1 as `0.1000000000000000`, 1e-20 as `0.0000000000000000`, 12345.678 as
+`12345.6779999999998836`. Below 1 that is short of the 17 significant
+digits a double can need, so a value came back another double: of 100000
+random values in (-1, 1), 31426 did; in (-1e-3, 1e-3), 99915 (Python,
+`%.16f` read back). The history is in sec 60: fixed at 12 decimals in 2011
+with no reason given, 16 in 2018; the 17-digit noise upstream backed away
+from in 2019 was an expression's number text, which is not this writer.
+
+**The change.** `Base::setSaveNumberFormat()` (`Writer.h`) sets a stream to
+the save format, and every writer uses it: `ZipWriter`, `StringWriter`,
+`FileWriter`, `NullWriter`, the char stream, and the transaction log's
+`CaptureWriter`, which must write the bytes a save does (TransactionLogJournal
+23.3). It imbues the classic locale with a `num_put` whose double is
+`%.15g`, `%.16g` or `%.17g`, the first that `strtod` reads back as the
+value (from 1 digit for a subnormal). The stream stays fixed at 16
+decimals, which the shortest form stands for; a writer that sets another
+precision for its own values (the texture and finish floats at 9) gets that
+as before. No caller changed. A reader needs nothing: `atof` reads an
+exponent, as every FreeCAD's does.
+
+| value | before | after |
+|---|---|---|
+| 0.1 | 0.1000000000000000 | 0.1 |
+| 1e-20 | 0.0000000000000000 | 1e-20 |
+| 12345.678 | 12345.6779999999998836 | 12345.678 |
+| 2 | 2.0000000000000000 | 2 |
+| 5e-324 | 0.0000000000000000 | 5e-324 |
+
+`sh1.py` saves 14 such floats, a float list, a vector list and a placement,
+and reopens them: every one is the same double, bit for bit. Scanner
+re-saved: the 9836 decimal tokens of its `Document.xml` are 118849 bytes,
+182058 as `%.16f` would have written them (integral doubles, now written
+without a point, are not counted). A small value costs more digits than
+before, since it now has them: random values in (-1e-3, 1e-3) average 21.7
+characters, 18.5 before.
+
+**A crash on the way.** The first version kept the locale in a
+function-local static. Two Part tests (`OffsetFixLevelTest`,
+`FilletFixLevelTest.recomputePutsTheLevelBack`) end with their document
+open and the transaction log's thread still capturing values; the static
+was destroyed at exit, a `CaptureWriter` made after it imbued a dead
+locale, and the thread crashed writing a string (`PropertyString::Save`,
+`PropertyMaterial::Save`). The locale is now never destroyed; the two
+passed 8 runs in a row.
+
+Tests: `WriterTest.doubleIsShortestRoundTrip` (the table above, and 10000
+values from 1e-20 to 1e20 read back exactly) and `doubleAtAnotherPrecision`.
+Document 364, ShapeStorage 67, FileBlobs 97, TestWorkerPool 79, TestPartApp
+446, TestPartDesignApp 1073, TestSketcherApp 182, TestTechDrawApp 32,
+TestAnimation 78 OK; ctest 1287 with one failure, `FormWidgets_Tests_run`
+under `-j 4`, which passed the 4 times it was run alone.

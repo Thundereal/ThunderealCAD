@@ -1319,7 +1319,15 @@ the window state from the guard behind a test's back was tried and broke
 three tests (a restore rect, a dialog, a layout). Together these took a
 5120x1440, 125% box from 13 failures a 1080p box does not have to 2,
 counting the 3D-view `grab()` fix (`Gui: a 3D view's grab() draws the
-frame it reads back`) for the ones that failed only on NVIDIA.
+frame it reads back`) for the ones that failed only on NVIDIA. The last
+two were the Windows 11 style, not the screen: its header sections are
+filled with a translucent white, which showed a section the sticky
+element title was drawn over (`PD: the sticky element title is not
+drawn over the section under it`), and its frames are 2 px, which moved
+the backend hatch test's strip onto an outline (`tests: the backend
+hatch test reads its strip where the view draws it`). A test that maps
+scene or widget points into a `grab()` of a scroll area takes the
+viewport's offset in it, which is the style's frame width.
 
 Before the driver, a test was run by hand under cdb, which is still the
 way to catch a crash's stack:

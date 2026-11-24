@@ -287,6 +287,12 @@ App::DocumentObjectExecReturn* Dimension::execute()
     std::string why;
     if (!measure(value, why)) {
         setState(Invalid, why);
+        // Drawn as the file draws it still: what the file shows is shown, and
+        // written again (CTC-03's thickness over five faces, its graphic lost
+        // with it); drawn from what it says, there is nothing to measure
+        if (UseImported.getValue() && !ImportedGraphic.getShape().isNull()) {
+            updatePresentation();
+        }
         return App::DocumentObject::StdReturn;
     }
     // Measured again: a value that agrees with the one it has (a file's 90 as

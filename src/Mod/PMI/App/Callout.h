@@ -97,7 +97,9 @@ public:
     /// The annotation placeholder the file gave it (AP242 ed2), empty for
     /// none: its kind ('linear dimension', 'general tolerance', 'note': the
     /// name of its geometric set) and its name, which need not be the
-    /// graphic's. Written again with one, where its text is
+    /// graphic's; a third 'shared' when it is another PMI's placeholder too,
+    /// one the file links both to (STC-06's hole callout, its diameter's and
+    /// its depth's). Written again with one, where its text is
     App::PropertyStringList ImportedPlaceholder;
     /// The callout whose graphic from the file draws this one too, while
     /// both are as the file has them: a composite frame's upper segment, the

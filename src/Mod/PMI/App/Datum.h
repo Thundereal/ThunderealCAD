@@ -109,6 +109,9 @@ public:
         Rectangle,
         Circle,
         Area,
+        /// A circle that is a curve, not an area (AP242's 'circular curve':
+        /// NIST FTC-06): its diameter the Length, as a circle's
+        CircularCurve,
     };
 
     App::PropertyInteger Number;
@@ -116,7 +119,8 @@ public:
     /// Where it is: the origin its centre (a line's middle), z out of the
     /// part, x along a line or a rectangle's length
     App::PropertyPlacement Target;
-    /// A line's length, a rectangle's length, a circle's diameter
+    /// A line's length, a rectangle's length, a circle's or a circular
+    /// curve's diameter
     App::PropertyLength Length;
     /// A rectangle's width
     App::PropertyLength Width;

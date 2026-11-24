@@ -284,8 +284,9 @@ class TestStepImport(Base):
 # gives a value -- the other four, and the graphic-only callouts, are only
 # a presentation (deviations as signed limits, the nominal the model's)
 EXPECTED = {
-    # Two texts and two sizes the file gives only as graphics
-    "notes": 4,
+    # Two texts and four sizes the file gives only as graphics: two of the
+    # sizes, diameters of datum features given no value, were lost (dwin, p15)
+    "notes": 6,
     "views": ["MBD_0"],
     "datums": ["A", "B", "C"],
     "tolerances": [
@@ -319,8 +320,16 @@ TARGETS = {
     },
     "nist_ctc_05_asme1_ap242-e1.stp": {"C": [("Rectangle", 1)], "D": [("Rectangle", 1)]},
     "nist_ftc_06_asme1_ap242-e2.stp": {
+        "G": [("CircularCurve", 1)],
+        "H": [("CircularCurve", 1)],
         "J": [("Line", 1), ("Line", 2)],
         "K": [("Line", 1), ("Line", 2)],
+    },
+    # Areas, each a datum_target of its own face, with no feature for datum
+    # target relationship: read as none before (dwin, p15)
+    "nist_ftc_10_asme1_ap242-e2.stp": {
+        "K": [("Area", 1), ("Area", 2)],
+        "L": [("Area", 1), ("Area", 2)],
     },
 }
 
@@ -369,6 +378,37 @@ class TestNistSet(Base):
                 self.assertSameViews(doc, again)
                 self.assertEqual(len([b for b in self.sound(again) if " Broken: " in b]), 0)
                 self.assertWrittenClean(os.path.basename(path))
+                self.assertSameGraphics(path, self.written)
+
+    def assertSameGraphics(self, original, written):
+        """The graphics written are the file's, kind and name, each as many
+        times -- what SFA's graphic PMI coverage counts -- and so are its
+        placeholders and their links (dwin, p15: every file's table equal to
+        NIST's). A curve occurrence of the file is a tessellated one written:
+        of the same kind and name"""
+
+        def graphics(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+            found = collections.Counter()
+            for v in ents.values():
+                m = re.match(r"(TESSELLATED_ANNOTATION_OCCURRENCE|ANNOTATION_CURVE_OCCURRENCE"
+                             r"|ANNOTATION_FILL_AREA_OCCURRENCE|ANNOTATION_OCCURRENCE"
+                             r"|ANNOTATION_PLACEHOLDER_OCCURRENCE\w*)"
+                             r"\('([^']*)',\([^)]*\),#(\d+)", v)
+                if m:
+                    k = re.search(r"REPRESENTATION_ITEM\('([^']*)'\)|^\w+\('([^']*)'",
+                                  ents.get(m.group(3), ""))
+                    kind = (k.group(1) or k.group(2)) if k else ""
+                    found[("placeholder" if "PLACEHOLDER" in m.group(1) else "graphic", kind,
+                           m.group(2))] += 1
+                elif v.startswith("DRAUGHTING_MODEL_ITEM_ASSOCIATION_WITH_PLACEHOLDER("):
+                    found[("link", "", "")] += 1
+            return found
+
+        a, b = graphics(original), graphics(written)
+        self.assertEqual((sorted((a - b).items()), sorted((b - a).items())), ([], []))
 
     def assertWrittenClean(self, name):
         """What SFA reported of the file written (dwin, p6): no occurrence
@@ -1000,7 +1040,9 @@ class TestNistSet(Base):
 
     def test_datum_targets(self):
         # The datums only targets establish: points (CTC-02's A, B, C), a
-        # circle (its K), rectangles (CTC-05's C, D), lines (FTC-06's J, K)
+        # circle (its K), rectangles (CTC-05's C, D), lines (FTC-06's J, K),
+        # circular curves (its G, H: a circle that is no area), and FTC-10's
+        # areas, which are datums with a feature of their own too
         for name, want in TARGETS.items():
             path = os.path.join(os.environ["FC_PMI_NIST"], name)
             with self.subTest(name):
@@ -1013,8 +1055,11 @@ class TestNistSet(Base):
                 self.assertEqual(got, want)
                 for t in objects(doc, "DatumTarget"):
                     self.assertEqual(t.Condition, "Ok", (t.Label, t.ConditionMessage))
-                    # On a face of the part, its centre on it
+                    # On a face of the part, its centre on it; an area is
+                    # its faces, of no centre
                     self.assertTrue(t.Feature, t.Label)
+                    if t.TargetType == "Area":
+                        continue
                     face = t.Feature.Shape
                     d = face.distToShape(Part.Vertex(t.Target.Base))[0]
                     self.assertLess(d, 1e-3, t.Label)

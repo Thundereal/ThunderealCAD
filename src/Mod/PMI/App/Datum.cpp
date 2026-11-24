@@ -338,14 +338,15 @@ App::DocumentObjectExecReturn* DatumReferenceFrame::execute()
 
 PROPERTY_SOURCE(PMI::DatumTarget, PMI::Callout)
 
-const char* DatumTarget::TargetTypeEnums[] = {"Point", "Line", "Rectangle", "Circle", "Area",
-                                              nullptr};
+const char* DatumTarget::TargetTypeEnums[] = {"Point",  "Line",          "Rectangle", "Circle",
+                                              "Area",   "CircularCurve", nullptr};
 
 DatumTarget::DatumTarget()
 {
     ADD_PROPERTY_TYPE(Number, (1), "PMI", App::Prop_None, "The target's number: the 1 of A1");
     ADD_PROPERTY_TYPE(TargetType, (long(Point)), "PMI", App::Prop_None,
-                      "A point, a line, a rectangle, a circle, or an area (its faces)");
+                      "A point, a line, a rectangle, a circle, an area (its faces), or a "
+                      "circular curve (a circle that is no area)");
     TargetType.setEnums(TargetTypeEnums);
     ADD_PROPERTY_TYPE(Target, (Base::Placement()), "PMI", App::Prop_None,
                       "Where it is: the origin its centre, z out of the part, x along a line "
@@ -391,7 +392,7 @@ std::string DatumTarget::label() const
 bool DatumTarget::hasSize() const
 {
     auto t = getTargetType();
-    return t == Line || t == Rectangle || t == Circle;
+    return t == Line || t == Rectangle || t == Circle || t == CircularCurve;
 }
 
 bool DatumTarget::calloutTarget(gp_Pnt& target) const
@@ -464,6 +465,12 @@ TopoDS_Shape DatumTarget::makeShape() const
                 gp_Circ c(gp_Ax2(), len / 2);
                 TopoDS_Edge e = BRepBuilderAPI_MakeEdge(c).Edge();
                 s = BRepBuilderAPI_MakeFace(BRepBuilderAPI_MakeWire(e).Wire(), true).Shape();
+            }
+            break;
+        case CircularCurve:
+            // The circle itself, no face within it
+            if (len > 0) {
+                s = BRepBuilderAPI_MakeEdge(gp_Circ(gp_Ax2(), len / 2)).Edge();
             }
             break;
         case Area:

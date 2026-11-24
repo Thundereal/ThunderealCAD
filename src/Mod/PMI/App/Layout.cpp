@@ -363,6 +363,7 @@ std::u32string targetSize(const DatumTarget& t)
 {
     switch (t.getTargetType()) {
         case DatumTarget::Circle:
+        case DatumTarget::CircularCurve:
             return std::u32string(1, DiameterSign) + Callout::number(t.Length.getValue());
         case DatumTarget::Rectangle:
             return Callout::number(t.Length.getValue()) + U"X"
@@ -465,6 +466,7 @@ TopoDS_Shape DatumTarget::mark(double h) const
             }
             break;
         case Circle:
+        case CircularCurve:
             if (len > 0) {
                 double r = len / 2;
                 // Dashed: long and short arcs
@@ -474,6 +476,10 @@ TopoDS_Shape DatumTarget::mark(double h) const
                     double next = std::min(2 * Pi, a + (i % 2 == 0 ? 4 * step : step));
                     d.arc(0, 0, r, a, next);
                     a = std::min(2 * Pi, next + 0.6 * step);
+                }
+                // A curve: its line alone; a circle's area hatched within
+                if (getTargetType() == CircularCurve) {
+                    break;
                 }
                 hatch(std::min(h, len / 3), r, [&](double c, double& t0, double& t1) {
                     if (std::fabs(c) >= r) {

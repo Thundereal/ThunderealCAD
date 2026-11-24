@@ -645,7 +645,8 @@ private:
             if (!holder.empty() && !holder.front().empty()) {
                 XCAFDoc_DimTolTool::SetPlaceholder(
                     mine->second, holder.front().c_str(),
-                    holder.size() > 1 ? ascii(holder[1])->String() : TCollection_AsciiString());
+                    holder.size() > 1 ? ascii(holder[1])->String() : TCollection_AsciiString(),
+                    holder.size() > 2 && holder[2] == "shared");
             }
         }
         // Drawn in another's graphic: linked to it as what it presents too
@@ -730,6 +731,9 @@ private:
             case DatumTarget::Line: type = XCAFDimTolObjects_DatumTargetType_Line; break;
             case DatumTarget::Rectangle: type = XCAFDimTolObjects_DatumTargetType_Rectangle; break;
             case DatumTarget::Circle: type = XCAFDimTolObjects_DatumTargetType_Circle; break;
+            case DatumTarget::CircularCurve:
+                type = XCAFDimTolObjects_DatumTargetType_CircularCurve;
+                break;
             default: type = XCAFDimTolObjects_DatumTargetType_Area; break;
         }
         // Its letter: the datum it is of, else its label's ("A1")
@@ -776,6 +780,11 @@ private:
             obj->SetDatumTargetAxis(ax2Of(ex.toLocal * trsfOf(t->Target.getValue())));
             obj->SetDatumTargetLength(t->Length.getValue());
             obj->SetDatumTargetWidth(t->Width.getValue());
+        }
+        else if (!shapes.IsEmpty()) {
+            // The area itself, its face as written: without it OCCT writes
+            // the target as a datum alone, and it is lost (NIST FTC-10's)
+            obj->SetDatumTarget(_shapes->GetShape(shapes.First()));
         }
         present(t, ex, obj);
         attr->SetObject(obj);

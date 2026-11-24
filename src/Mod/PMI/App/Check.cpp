@@ -241,6 +241,7 @@ void checkTarget(const DatumTarget* t, std::vector<Issue>& out)
     switch (t->getTargetType()) {
         case DatumTarget::Line:
         case DatumTarget::Circle:
+        case DatumTarget::CircularCurve:
             if (t->Length.getValue() <= 0) {
                 bool line = t->getTargetType() == DatumTarget::Line;
                 out.push_back({obj, Error, line ? "a line target needs its length"

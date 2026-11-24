@@ -1631,6 +1631,28 @@ Four things decided on that (2026-11-23), and built:
   doubled its backslashes, which is fixed in `StepData_StepWriter::CleanTextForSend`. And a
   note given as items with one of '/n' between each two (FTC-08, FTC-11) is read with those
   as its line breaks, not as words.
+- **Every file's graphics as the file has them (after pass 14).** Compared locally, kind and
+  name of every graphic and placeholder, the NIST files written again had lost ten graphics in
+  six files; each now writes NIST's table exactly (`TestNistSet.assertSameGraphics`, in the
+  every-file round trip). The causes, one each:
+  - a dimension given no value (CTC-01's Linear Size.5 and .6, CTC-03's .10) holds no graphic,
+    and its graphic, on a shape aspect a dimension is on, was taken for one of GD&T read and
+    dropped: it is a graphic alone, read as a note, and has the dimension's placeholder;
+  - an Invalid dimension drew nothing, so was written with no graphic (CTC-03's thickness over
+    five faces, CTC-05's two): drawn as the file draws it, it is written again;
+  - two items alike, each with a graphic of its own (FTC-09's Dimension.2 and .3, STC-09's
+    curve length), were kept once as read twice: two graphics' names say they are two;
+  - a datum target alone, `datum_target` with a usage of its own face and no feature for datum
+    target relationship (FTC-10's four areas), was not read, and an area target was written as
+    a datum alone (OCCT's writer is given the face now, and relates the target to its datum);
+    a target joins its letter's datum on another part written beside it;
+  - a 'circular curve' target (FTC-06's G and H, which only they establish) was of no type
+    OCCT knew: `XCAFDimTolObjects_DatumTargetType_CircularCurve`, `DatumTarget.TargetType`
+    `CircularCurve` -- a circle of its diameter that is a curve, drawn with no hatching;
+  - one placeholder two PMI are linked to (STC-06's hole callouts, the diameter's and the
+    depth's) was written as two: kept as shared on reading (`ImportedPlaceholder`'s third
+    item), it is written once, linked to both. STC-07's 32 'Linear Size.13', each its own at
+    one spot, stay 32.
 
 ### 10.24 P3: SFA on the output (2026-11-22)
 

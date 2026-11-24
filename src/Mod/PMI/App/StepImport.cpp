@@ -409,11 +409,19 @@ private:
     }
 
     /// Kept once: a streamed import may read the same item twice. The
-    /// label read again is the one kept, for the views that show it.
-    bool seen(const std::string& key, const TDF_Label& l)
+    /// label read again is the one kept, for the views that show it. Two
+    /// items alike drawn by graphics of their own are two: NIST FTC-09's
+    /// Dimension.2 and .3, one location given twice, each drawn (dropped,
+    /// its graphic was lost)
+    bool seen(const std::string& key, const TDF_Label& l, const std::string& graphic = {})
     {
         auto it = _keyed.find(key);
         if (it == _keyed.end()) {
+            return false;
+        }
+        auto name = _graphicNames.find(it->second);
+        if (!graphic.empty() && name != _graphicNames.end() && !name->second.empty()
+            && name->second != graphic) {
             return false;
         }
         ++_report.duplicates;
@@ -524,6 +532,9 @@ private:
             case XCAFDimTolObjects_DatumTargetType_Rectangle: type = DatumTarget::Rectangle; break;
             case XCAFDimTolObjects_DatumTargetType_Circle: type = DatumTarget::Circle; break;
             case XCAFDimTolObjects_DatumTargetType_Area: type = DatumTarget::Area; break;
+            case XCAFDimTolObjects_DatumTargetType_CircularCurve:
+                type = DatumTarget::CircularCurve;
+                break;
         }
         if (type < 0) {
             return skip(l, "datum target " + k.substr(7), "its type is not read");
@@ -645,8 +656,12 @@ private:
             TDF_Label l;
             TDF_Tool::Label(_info.hDoc->GetData(), e.c_str(), l);
             TCollection_AsciiString kind, name;
-            if (c && !l.IsNull() && XCAFDoc_DimTolTool::GetPlaceholder(l, kind, name)) {
+            bool shared = false;
+            if (c && !l.IsNull() && XCAFDoc_DimTolTool::GetPlaceholder(l, kind, name, shared)) {
                 _placeholderKinds[c] = {kind.ToCString(), name.ToCString()};
+                if (shared) {
+                    _placeholderKinds[c].emplace_back("shared");
+                }
             }
         }
     }
@@ -950,7 +965,7 @@ private:
         for (auto& c : comps) {
             k << "|" << c;
         }
-        if (seen(k.str(), l)) {
+        if (seen(k.str(), l, text(obj->GetPresentationName()))) {
             return;
         }
         // A position, a coaxiality, or a cylindrical zone of a cylinder is
@@ -1282,7 +1297,7 @@ private:
         if (location) {
             k << " " << key(f2);
         }
-        if (seen(k.str(), l)) {
+        if (seen(k.str(), l, text(obj->GetPresentationName()))) {
             return;
         }
         auto dim = add<Dimension>(f1.object, "PMI::Dimension", "Dimension");

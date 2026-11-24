@@ -1348,6 +1348,36 @@ class TestDatumTarget(Base):
         self.recompute()
         self.assertEqual(t.EquivalentText, "C2")
 
+    def test_a_circular_curve_is_a_circle_with_no_area(self):
+        """AP242's 'circular curve' target (NIST FTC-06): a circle of its
+        diameter that is a curve, no face; drawn as the circle alone, no
+        hatching within"""
+        curve = self.target("CircularCurve", V(10, 10, 10), 1, Length=6)
+        circ = self.target("Circle", V(30, 10, 10), 2, Length=6)
+        self.add("Datum", "A", Letter="A", Targets=[curve, circ])
+        self.recompute()
+        self.assertEqual(curve.Condition, "Ok", curve.ConditionMessage)
+        self.assertEqual(curve.EquivalentText, "\u2300" + "6 A1")
+        self.assertEqual(curve.Shape.ShapeType, "Edge")
+        self.assertAlmostEqual(curve.Shape.Length, math.pi * 6, 6)
+        self.assertEqual(len(curve.Shape.Faces), 0)
+
+        def on_part(t):
+            return [e for e in t.Presentation.Edges
+                    if abs(e.BoundBox.ZMin - 10) < 1e-6 and abs(e.BoundBox.ZMax - 10) < 1e-6]
+
+        # The circle's dashes only: a circle's area has its hatching besides
+        self.assertTrue(on_part(curve))
+        self.assertLess(len(on_part(curve)), len(on_part(circ)))
+        for e in on_part(curve):
+            for v in e.Vertexes:
+                self.assertAlmostEqual((v.Point - V(10, 10, 10)).Length, 3, 6)
+        # No diameter, no target: as a circle's
+        curve.Length = 0
+        self.doc.recompute()
+        self.assertEqual(curve.Condition, "Invalid")
+        self.assertIn("a circle target needs its diameter", curve.ConditionMessage)
+
     def test_areas_carry_their_size(self):
         rect = self.target("Rectangle", V(20, 10, 10), 1, Length=8, Width=4)
         circ = self.target("Circle", V(10, 10, 10), 2, Length=6)

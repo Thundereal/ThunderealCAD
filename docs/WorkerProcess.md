@@ -3902,3 +3902,16 @@ Tests:
 - `testAShapeTheMigrationKeepsAsksOnce` (Document): a plain feature's
   shape rewritten to naming 15 asks at the open. Recomputed and saved, it
   asks no more and keeps its names.
+
+**Measured, GUI, on that OCCT** (`editsplit_gui.py`, as in sec 59), each
+run's 587 objects against the first recompute made here:
+
+| | objects that differ |
+|---|---|
+| here, here back, here again | 0 |
+| one worker | 0 |
+| one worker again | 1: `Part012`'s area in the fourth place |
+| split, split again | 1 each: `Part012`'s area, `Helix`'s volume, the fourth place |
+
+`SectionView007` is gone from every row. The fourth-place differences of
+sec 59 stay, and are not this.

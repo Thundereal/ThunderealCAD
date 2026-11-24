@@ -1822,11 +1822,18 @@ std::shared_ptr<const std::unordered_set<std::int64_t>> legacyStrings(const App:
         const auto &sid = v.second.deref();
         bool tainted = !sid.isBinary() && !sid.isHashed()
             && (namesLegacy(sid.data(), *res) || namesLegacy(sid.postfix(), *res));
-        for (const auto &r : sid.relatedIDs()) {
-            if (tainted)
-                break;
-            tainted = res->count(r.spelled()) != 0;
-        }
+        // Through the ids the string is made of -- its postfix, its prefix --
+        // and not the rest: those are the ids the name held when the string
+        // was first asked for, and a string asked for again by its text
+        // keeps them (StringHasher::getID). A recompute makes no name that
+        // reads a legacy id, yet its strings, found by text, held the old
+        // run's, and a re-saved file asked for the recompute at every open
+        // (docs/WorkerProcess.md sec 60).
+        const int made = (sid.isPostfixEncoded() ? 1 : 0)
+            + (sid.isIndexed() || sid.isPrefixID() || sid.isPrefixIDIndex() ? 1 : 0);
+        const auto &related = sid.relatedIDs();
+        for (int i = 0; !tainted && i < made && i < related.size(); ++i)
+            tainted = res->count(related[i].spelled()) != 0;
         // By the numbers names spell, as namesLegacy() reads them
         if (tainted)
             res->insert(sid.spelled());

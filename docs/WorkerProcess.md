@@ -3803,3 +3803,91 @@ expected. **The default is 2 s since** (the user, 2026-11-23, on these
 numbers), and this edit now splits as it is.
 
 TestWorkerPool 79 and Document 363 are OK.
+
+## 60. SectionView007; a re-saved file asks for no recompute it had (2026-11-24)
+
+**SectionView007** (sec 59: 19 visible edges here, 20 from a worker) is
+not the worker's. This process gives 20 too after a save and a reopen,
+and a full recompute after the reopen gives 19 again. Bisected, making
+`Binder008` again alone (a `SubShapeBinder` of `Body004`, upstream of
+`Fillet004`) gives 19. Made and restored, the binder differs in one line's
+direction, by one ulp a component:
+
+| Binder008, one line | direction | norm^2 - 1 |
+|---|---|---|
+| made | (-0.70710678118654735, 0.70710678118654757) | -1.1e-16 |
+| restored | (-0.70710678118654746, 0.70710678118654768) | 0 |
+
+Any read of a BRep moves it, a plain text one too: OCCT's reader makes a
+`gp_Dir` of what it reads, and `gp_Dir` normalizes. A worker opens a saved
+version, so it makes `Pocket022` and `Fillet004` from the restored
+binder. The fillet differs about 1e-15, and the section's projection makes
+of that one more edge, a B-spline 0.0133 long. Ruled out, each by a run
+with it changed: the store's options (`DedupShapePCurves`,
+`StableShapeBytes`, `DedupCongruentShapes`, `ShareStoredSubShapes`),
+location chains, the pcurves, the XML's number precision (an exact writer:
+still 20), `validateShape`, and the edges the fillet names (the same
+subs). What would mend it is a reader in our OCCT that keeps a direction
+already unit within an ulp as written: asked, not done.
+
+The XML's numbers: `Base::Writer` writes a double fixed with 16 decimals,
+so a value below about 1e-16 is written 0 and one below 1 loses digits.
+Not the cause here. Upstream took numbers to 17 digits in 2016 and back to
+`digits10 + 1` in 2019 (183cd16263, forum t=34392): at 17 digits a number
+shows its binary noise, 0.1 written 0.10000000000000001. The shortest text
+that reads back exactly would not; not done.
+
+**A re-saved file asked for its recompute again.** Scanner opened,
+recomputed in full and saved, reopened with 18 objects `MigrationPending`,
+each touched, and so did every open after, and every version a worker
+opens. Two causes.
+
+*A shape the recompute keeps.* 13 are shapes of naming 15 and OCCT 7.7.2
+(`1.15.70200.4`) whose recompute does not set them: plain `Part::Feature`s
+(`ShapeCopy`, `ShapeCopy001`, `ShapeCopy002`, `Solid004`, `Solid009`,
+`Compound007`), detached binders (`Binder019`, `Binder031`), and Python
+features whose class is not here (`Ray`, `Beam` to `Beam003`, of the
+Optics workbench). `PropertyPartShape` writes the version it read until
+its shape is set, so the save wrote 15 again. Now `Part::Feature::
+recompute()`, ending without error for an object marked `MigrationPending`,
+calls `keepMigratedNames()`. Each shape property whose read version
+differs from this build's in the naming and the kernel alone takes this
+build's (the table and the map format must be the same), and so does
+`_ElementMapVersion` for the geometry, as a reopen would read it. Nothing
+here makes those names again, and they read as they were written. Not
+taken: a retained generation (`_BaseShape<N>`, which keeps its day's map
+by design), and a Python feature whose `Proxy` is None. Its class, where
+it is installed, may make the names again, so the five Optics objects
+still ask.
+
+*Held ids.* 5 (`Mirrored`, `Pocket021`, `Fillet003`, `Pocket022`,
+`Fillet004`) were found to have names that crossed a document as text
+(TransactionLogJournal sec 27.76 item 4). None of their names spells a
+string with the old marker (`;:X;`, as `Binder008` wrote it before its
+marker named its document). Each spells a string found again by its text,
+and such a string keeps the related ids its first asking held
+(`StringHasher::getID` matches data and postfix alone). String `0x14294`
+spells `#14270;:M;CUT;:H75b:7,F`, and holds `0x8e5b`, which spells
+`0x1694`, which carries the marker. `legacyStrings()` tainted a string
+through every related id. Now only through the ids it is made of: the
+encoded postfix, and the prefix of an indexed or prefix-id string. Those
+it spells too, so this is a guard only. A held id is history, which the
+string's text does not read, and no recompute could change it. On the
+original file `Mirrored`, `Pocket021` and `Fillet003` are no longer found
+crossed: they ask for their recompute for the version all the same.
+
+Not mended: a plain feature whose name does carry the marker asks at every
+open (test `testAShapeThatCrossedAsTextAsksForARecompute`): only making
+the shape again could change the name, and that is the user's to do.
+
+| scanner, recomputed, saved, reopened | before | after |
+|---|---|---|
+| `MigrationPending` | 18 | 5 (the Optics objects) |
+
+Tests:
+- `ComplexGeoDataTest.legacyCrossingIsReadInTheTextOnly` (C++): a
+  name spelling a string that holds a marked one has not crossed; one
+  spelling the marked one has.
+- `testAShapeTheMigrationKeepsAsksOnce` (Document): a plain feature's
+  shape rewritten to naming 15 asks at the open. Recomputed and saved, it
+  asks no more and keeps its names.

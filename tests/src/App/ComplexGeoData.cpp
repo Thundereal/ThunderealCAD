@@ -7,6 +7,7 @@
 
 #include <App/Application.h>
 #include <App/ComplexGeoData.h>
+#include <App/StringHasher.h>
 #include <Base/BoundBox.h>
 #include <Base/Writer.h>
 #include <src/App/InitApplication.h>
@@ -464,5 +465,38 @@ TEST_F(ComplexGeoDataTest, saveDocFileWithElementMap)
 
 TEST_F(ComplexGeoDataTest, restoreStream)
 {}
+
+TEST_F(ComplexGeoDataTest, legacyCrossingIsReadInTheTextOnly)  // NOLINT
+{
+    // Arrange: a string of the external marker as written before it named its
+    // document, and a string asked for with that one held but not spelled -- as
+    // a string found again by its text keeps the ids its first asking held
+    // (docs/WorkerProcess.md sec 60)
+    Base::Reference<App::StringHasher> hasher(new App::StringHasher);
+    cgd().Hasher = hasher;
+    auto legacy = hasher->getID(Data::MappedName("Edge1;:Hbd7,E;:X;:Hbd8:3,E"), {});
+    auto held = hasher->getID(Data::MappedName(Data::MappedName("Face1"), ";:H5,F"), {legacy});
+    // held after the ids it is made of: its postfix, and "Face" of the index
+    ASSERT_EQ(3, held.relatedIDs().size());
+    EXPECT_TRUE(held.relatedIDs().back() == legacy);
+
+    // Act
+    cgd().setElementName(Data::IndexedName("EDGE", 1),
+                         Data::MappedName((held.toString() + ";:H6,E").c_str()));
+    const bool heldOnly = cgd().hasLegacyCrossing();
+    cgd().setElementName(Data::IndexedName("EDGE", 1),
+                         Data::MappedName((legacy.toString() + ";:H6,E").c_str()),
+                         nullptr,
+                         true);
+    const bool spelled = cgd().hasLegacyCrossing();
+
+    // Assert: a name that spells the old string crossed; one that spells a
+    // string only holding it did not, and no recompute could make it otherwise
+    EXPECT_FALSE(heldOnly);
+    EXPECT_TRUE(spelled);
+    cgd().resetElementMap();
+    cgd().Hasher.reset();
+    hasher->clear();
+}
 
 // NOLINTEND(readability-magic-numbers)

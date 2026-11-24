@@ -6890,6 +6890,52 @@ class TransactionBranchCases(unittest.TestCase):
         doc = self.track(FreeCAD.openDocument(os.path.join(self.dir, "oldcrossing.FCStd")))
         self.assertIn("Touched", doc.Old.State)
 
+    def testAShapeTheMigrationKeepsAsksOnce(self):
+        # docs/WorkerProcess.md sec 60: a plain feature's shape, of an older
+        # naming, is asked for its recompute at the open, and the recompute
+        # keeps it as it is. Saved again, the file asks no more: the shape
+        # took this build's version, and kept its names.
+        import re
+        import zipfile
+
+        self.param.SetInt("TransactionLog", 0)
+        doc = self.track(FreeCAD.newDocument("KeptNames"))
+        doc.BlobCompression = "Deflate"  # entries Python's zipfile reads
+        box = doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        plain = doc.addObject("Part::Feature", "Plain")
+        plain.Shape = box.Shape
+        doc.recompute()
+        names = sorted(plain.Shape.ElementMap.items())
+        self.assertTrue(names)
+        path = os.path.join(self.dir, "keptnames.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+
+        older = os.path.join(self.dir, "keptnames-older.FCStd")
+        with zipfile.ZipFile(path) as src, zipfile.ZipFile(older, "w") as dst:
+            for item in src.infolist():
+                data = src.read(item.filename)
+                if item.filename == "Document.xml":
+                    data, count = re.subn(
+                        rb'ElementMap="([01])\.\d+\.', rb'ElementMap="\1.15.', data
+                    )
+                    self.assertEqual(count, 2)
+                dst.writestr(item, data)
+
+        doc = self.track(FreeCAD.openDocument(older))
+        self.assertIn("MigrationPending", doc.Plain.State)
+        doc.recompute()
+        self.assertNotIn("MigrationPending", doc.Plain.State)
+        again = os.path.join(self.dir, "keptnames-again.FCStd")
+        doc.saveAs(again)
+        FreeCAD.closeDocument(doc.Name)
+
+        doc = self.track(FreeCAD.openDocument(again))
+        self.assertEqual([o.Name for o in doc.Objects if "MigrationPending" in o.State], [])
+        self.assertNotIn("Touched", doc.Plain.State)
+        self.assertEqual(sorted(doc.Plain.Shape.ElementMap.items()), names)
+
     def testABinderCrossingDocumentsTakesTheIdsOfItsTable(self):
         # Sec 27.76 item 4, 27.78: a SubShapeBinder bound to another
         # document's shape, as a link is: its names in its own table, the

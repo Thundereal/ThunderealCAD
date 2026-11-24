@@ -47,6 +47,7 @@
 #include <XCAFDoc_ShapeMapTool.hxx>
 #include <BRep_Builder.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopoDS_Iterator.hxx>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
@@ -883,6 +884,23 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
         myObjects.emplace(obj, label);
         for (auto link : links) {
             myObjects.emplace(link, label);
+        }
+        // Each child's looks on its part of the shape, as its own label had
+        // them: the compound's children, in the order they were added
+        if (!within.empty()) {
+            TDF_Label shapeL = label;
+            if (XCAFDoc_ShapeTool::IsReference(label)) {
+                XCAFDoc_ShapeTool::GetReferredShape(label, shapeL);
+            }
+            std::size_t i = 0;
+            for (TopoDS_Iterator it(aShapeTool->GetShape(shapeL), false, false);
+                 it.More() && i < within.size();
+                 it.Next(), ++i) {
+                TDF_Label sub = aShapeTool->AddSubShape(shapeL, it.Value());
+                if (!sub.IsNull()) {
+                    setupObject(sub, within[i], Part::TopoShape(it.Value()), prefix, nullptr, true);
+                }
+            }
         }
         for (auto child : within) {
             myWithin.emplace(child, label);

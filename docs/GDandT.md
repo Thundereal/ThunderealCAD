@@ -1902,6 +1902,17 @@ compares; it took our curves for none.
   value, and written with it. A `model_geometric_view` is named as its view (SFA takes one of
   no name for a syntax error, NIST's own files' too). And each supplemental item keeps the
   colour the file draws it in (`StepColor`; NIST's white or black), written as its style.
+- **SFA p17 (dwin).** Exact matches up (CTC-05 23, FTC-06 33, FTC-09 27), graphic coverage
+  equal to NIST's in every file. Two faults, one of them since p16: an App::Part written as one
+  shape lost its children's colours -- each child's are given to its sub-shape now, as its own
+  label had them, and the round trip checks each solid and surface model NIST colours is
+  coloured (`assertPartsStyled`); and a supplemental plane's style held two styles (a surface
+  style and a curve style), which SFA's reading of a supplemental colour cannot take ("Error
+  getting color"): one style now, the surface's, its boundary in the curve's colour, as NIST's
+  (OCCT cannot write the parameter lines NIST's have too). Each curve and point of a set of
+  supplemental curves is styled as well, where SFA takes their colour from. A tessellated part's
+  supplemental geometry (FTC-08 -e4-tg) is written; its tessellated constructive geometry (one
+  triangulated face) is not read.
 
 ## 11. Decisions (made 2026-11-19)
 

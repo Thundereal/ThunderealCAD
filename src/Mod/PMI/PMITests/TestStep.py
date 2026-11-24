@@ -384,6 +384,41 @@ class TestNistSet(Base):
                 self.assertEqual(len([b for b in self.sound(again) if " Broken: " in b]), 0)
                 self.assertWrittenClean(os.path.basename(path))
                 self.assertSameGraphics(path, self.written)
+                self.assertPartsStyled(path, self.written)
+
+    def assertPartsStyled(self, original, written):
+        """Each solid and surface model the file gives a colour is written
+        with one (dwin, p17: since one product of several shapes was written
+        as one, its children's colours had been lost in 12 files). The
+        supplemental items are styled as many times, each by one style alone
+        (SFA's colour of supplemental geometry reads a single style)"""
+
+        def styles(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+            typ = lambda i: ents.get(i, "").split("(")[0]
+            items = set()
+            for v in ents.values():
+                if v.startswith("CONSTRUCTIVE_GEOMETRY_REPRESENTATION("):
+                    items |= set(re.findall(r"#(\d+)", v)[:-1])
+            parts, supplemental, several = collections.Counter(), 0, 0
+            for v in ents.values():
+                if not re.match(r"(OVER_RIDING_)?STYLED_ITEM\(", v):
+                    continue
+                refs = re.findall(r"#(\d+)", v)
+                if refs[-1] in items:
+                    supplemental += 1
+                    psas = [r for r in refs[:-1] if typ(r) == "PRESENTATION_STYLE_ASSIGNMENT"]
+                    several += any(len(re.findall(r"#\d+", ents[r])) > 1 for r in psas)
+                elif typ(refs[-1]) in ("MANIFOLD_SOLID_BREP", "SHELL_BASED_SURFACE_MODEL"):
+                    parts[typ(refs[-1])] += 1
+            return parts, supplemental, several
+
+        (a, a_sup, _), (b, b_sup, b_several) = styles(original), styles(written)
+        self.assertEqual(sorted((a - b).items()), [])
+        self.assertEqual(b_several, 0)
+        self.assertGreaterEqual(b_sup, min(a_sup, 1) if a_sup else 0)
 
     def assertSameGraphics(self, original, written):
         """The graphics written are the file's, kind and name, each as many

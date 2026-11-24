@@ -1300,6 +1300,15 @@ hidden desktop takes real input: QTest events reach the widgets, the system
 pointer and `SetCursorPos` do not, and a modal box nobody sweeps waits for
 the guard's timeout. `GT_DESKTOP=screen` puts the window on the user's
 screen; `GT_DESKTOP=offscreen` is for a test that needs no pixels.
+Nor can the screen be read there (2026-11-24): nothing is composed for a
+window on a desktop not on display, and `QScreen::grabWindow()`, `BitBlt`
+from its DC and `PrintWindow` all hand out the pixels of the desktop that
+is -- the user's own screen, title bar aside. A widget's `grab()` and a
+view's `saveRenderDump` are unaffected. A test that reads the screen has
+to check that the screen shows its window, as
+`view-cell-close-keeps-the-picture.py` does with the menu bar, and say
+SKIP where it does not; that one had passed and failed on what the user
+had open.
 
 **A Windows run is shaped like the xvfb one** (2026-11-24): the tests count
 pixels, pick and measure widgets against `gui-test.sh`'s screen, and a

@@ -107,12 +107,12 @@ def run():
     premeshed = curves()
     stl = os.path.join(tempfile.mkdtemp(dir=OUT), "coarse.stl")
     premeshed.exportStl(stl, 60.0)
-    # Shape.BoundBox is BRepBndLib::Add with the mesh: off the polygons it
-    # is smaller than the geometry's box. That difference is what the old
-    # deflection inherited.
-    bm, bg = premeshed.BoundBox, curves().BoundBox
+    # The box off the mesh (optimalBoundingBox(True); Shape.BoundBox reads
+    # the geometry since a13782b00f) is far from the geometry's: by the
+    # coarse deflection, which is what the old deflection inherited.
+    bm, bg = premeshed.optimalBoundingBox(True), curves().optimalBoundingBox()
     check("the premeshed shape carries its coarse polygons",
-          bm.YLength < 0.9 * bg.YLength,
+          abs(bm.YLength - bg.YLength) > 0.1 * bg.YLength,
           "box off the polygons %.3f x %.3f, geometry %.3f x %.3f"
           % (bm.XLength, bm.YLength, bg.XLength, bg.YLength))
     a = doc.addObject("Part::Feature", "Premeshed")

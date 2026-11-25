@@ -72,9 +72,10 @@ def check(name, cond, detail=""):
 
 
 def excess(obj):
-    """How far the sphere's box is from its diameter: nothing for a shape
-    without a mesh."""
-    return obj.Shape.BoundBox.XLength - 2.0 * RADIUS
+    """How far the sphere's box off its mesh is from its diameter: nothing
+    for a shape without a mesh (optimalBoundingBox(True); Shape.BoundBox
+    reads the geometry since a13782b00f)."""
+    return obj.Shape.optimalBoundingBox(True).XLength - 2.0 * RADIUS
 
 
 def meshed(obj):

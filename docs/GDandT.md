@@ -1941,6 +1941,15 @@ compares; it took our curves for none.
   STC-06's placeholders); a part with per-face colours keeps FreeCAD's default colour for
   itself (STC-09's brep and shells); the products of documents a file cites (FTC-10's
   'ASME Y14.41') are not read.
+- **SFA p20 (dwin): the contains line.** Item by item it equals NIST's in 13 files. 'Properties'
+  (CTC-03, CTC-05, FTC-08 -e4-tg; user decision 2026-11-25: do it): a product's user defined
+  attributes, read by OCCT into XCAF named data, are kept on its object (`StepAttributes`, and
+  `StepIntegerAttributes`, `StepRealAttributes` for numbers) and given back on export; a part
+  the file gave geometric validation properties is marked `StepValidation` and written with
+  them, computed of the shape written (OCCT names them its way: 'surface area measure', one
+  property each). Not written yet: the attribute validation property (counts of them), PMI
+  validation properties (each graphic's length, area, facets; NIST's of its own graphics) and
+  tessellated validation properties.
 
 ## 11. Decisions (made 2026-11-19)
 

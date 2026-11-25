@@ -53,6 +53,12 @@
 # include <Image_Texture.hxx>
 #endif
 #include <NCollection_IndexedMap.hxx>
+#include <NCollection_DataMap.hxx>
+#include <TCollection_ExtendedString.hxx>
+#include <TDataStd_NamedData.hxx>
+#include <XCAFDoc_Area.hxx>
+#include <XCAFDoc_Centroid.hxx>
+#include <XCAFDoc_Volume.hxx>
 #include <NCollection_Sequence.hxx>
 #include <TopTools_ShapeMapHasher.hxx>
 #include <XCAFDoc_DimTolTool.hxx>
@@ -1227,6 +1233,7 @@ App::DocumentObject* ImportOCAF2::loadShapes()
     // Merged, the objects the passes would refer to are gone
     if (!options.merge) {
         hideInvisible(false);
+        applyMetadata(false);
         runPostImport(false);
     }
     for (auto doc : myNewDocuments)
@@ -2197,6 +2204,7 @@ App::DocumentObject* ImportOCAF2::finishOps()
         markFreeShapes(ret);
     }
     hideInvisible(true);
+    applyMetadata(true);
     runPostImport(true);
     return ret;
 }
@@ -2213,6 +2221,116 @@ void ImportOCAF2::markFreeShapes(App::DocumentObject* group)
         "Written to STEP as the file's several free shapes it holds, not as an assembly"));
     if (prop) {
         prop->setValue(true);
+    }
+}
+
+namespace
+{
+std::string utf8(const TCollection_ExtendedString& s)
+{
+    std::string out(s.LengthOfCString(), '\0');
+    char* buf = out.data();
+    out.resize(s.ToUTF8CString(buf));
+    return out;
+}
+}  // namespace
+
+void ImportOCAF2::applyMetadata(bool progressive)
+{
+    // A product's attributes (STEP: its user defined attributes -- NIST CTC-03's 'CAGE Code',
+    // CTC-05's 'FILESIZE') kept on its object, as text, integers and reals; and whether the
+    // file gave it validation properties, written again for it (docs/GDandT.md sec 10.26)
+    TDF_LabelSequence labels;
+    aShapeTool->GetShapes(labels);
+    for (int i = 1; i <= labels.Length(); ++i) {
+        const TDF_Label& label = labels.Value(i);
+        TopoDS_Shape base = aShapeTool->GetShape(label);
+        if (base.IsNull()) {
+            continue;
+        }
+        base = base.Located(TopLoc_Location());
+        App::DocumentObject* obj = nullptr;
+        if (progressive) {
+            auto it = myShapeNodes.find(base);
+            obj = it == myShapeNodes.end() ? nullptr : progObject(it->second);
+        }
+        else {
+            auto it = myShapes.find(base);
+            obj = it == myShapes.end() ? nullptr : it->second.obj;
+        }
+        if (!obj) {
+            continue;
+        }
+        Handle(TDataStd_NamedData) data;
+        if (label.FindAttribute(TDataStd_NamedData::GetID(), data)) {
+            if (data->HasDeferredData()) {
+                data->LoadDeferredData();
+            }
+            auto map = [obj](const char* name, const char* doc) {
+                auto prop = freecad_cast<App::PropertyMap*>(obj->getPropertyByName(name));
+                if (!prop) {
+                    prop = freecad_cast<App::PropertyMap*>(
+                        obj->addDynamicProperty("App::PropertyMap", name, "STEP", doc));
+                }
+                return prop;
+            };
+            std::map<std::string, std::string> strings, integers, reals;
+            if (data->HasStrings()) {
+                using Map = NCollection_DataMap<TCollection_ExtendedString,
+                                                TCollection_ExtendedString>;
+                for (Map::Iterator it(data->GetStringsContainer()); it.More(); it.Next()) {
+                    strings[utf8(it.Key())] = utf8(it.Value());
+                }
+            }
+            if (data->HasIntegers()) {
+                using Map = NCollection_DataMap<TCollection_ExtendedString, int>;
+                for (Map::Iterator it(data->GetIntegersContainer()); it.More(); it.Next()) {
+                    integers[utf8(it.Key())] = std::to_string(it.Value());
+                }
+            }
+            if (data->HasReals()) {
+                using Map = NCollection_DataMap<TCollection_ExtendedString, double>;
+                for (Map::Iterator it(data->GetRealsContainer()); it.More(); it.Next()) {
+                    char buf[64];
+                    std::snprintf(buf, sizeof(buf), "%.17g", it.Value());
+                    reals[utf8(it.Key())] = buf;
+                }
+            }
+            if (!strings.empty()) {
+                if (auto prop = map(ExportOCAF2::AttributesProperty,
+                                    "The product's attributes in the STEP file, as text")) {
+                    prop->setValues(strings);
+                }
+            }
+            if (!integers.empty()) {
+                if (auto prop = map(ExportOCAF2::IntegerAttributesProperty,
+                                    "The product's integer attributes in the STEP file")) {
+                    prop->setValues(integers);
+                }
+            }
+            if (!reals.empty()) {
+                if (auto prop = map(ExportOCAF2::RealAttributesProperty,
+                                    "The product's real attributes in the STEP file")) {
+                    prop->setValues(reals);
+                }
+            }
+        }
+        if (label.IsAttribute(XCAFDoc_Volume::GetID()) || label.IsAttribute(XCAFDoc_Area::GetID())
+            || label.IsAttribute(XCAFDoc_Centroid::GetID())) {
+            auto prop = freecad_cast<App::PropertyBool*>(
+                obj->getPropertyByName(ExportOCAF2::ValidationProperty));
+            if (!prop) {
+                prop = freecad_cast<App::PropertyBool*>(obj->addDynamicProperty(
+                    "App::PropertyBool",
+                    ExportOCAF2::ValidationProperty,
+                    "STEP",
+                    "Written to STEP with its geometric validation properties (volume, area, "
+                    "centroid), as the file it was read from had them"));
+            }
+            if (prop) {
+                prop->setValue(true);
+            }
+        }
     }
 }
 

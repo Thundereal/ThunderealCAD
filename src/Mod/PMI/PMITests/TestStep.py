@@ -1032,6 +1032,41 @@ class TestNistSet(Base):
         self.assertEqual(supplemental(self.write_and_read(doc)), supplemental(doc))
 
 
+    def test_a_products_attributes_and_validation(self):
+        """A product's user defined attributes (CTC-03's 'CAGE Code', CTC-05's
+        'FILESIZE', FTC-08's 'PartNumber') are kept on its object and written
+        again, each by name; a part the file gives geometric validation
+        properties is written with them, computed of its shape (SFA's 'This
+        file contains: Properties', dwin p20)"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def properties(path):
+            with open(path, errors="replace") as f:
+                text = f.read()
+            return collections.Counter(
+                re.findall(r"PROPERTY_DEFINITION\s*\(\s*'([^']*)'", text))
+
+        for name in ("nist_ctc_03_asme1_ap242-e2.stp", "nist_ctc_05_asme1_ap242-e1.stp",
+                     "nist_ftc_08_asme1_ap242-e4-tg.stp"):
+            path = edition(os.path.join(nist, name))
+            with self.subTest(os.path.basename(path)):
+                want = properties(path)
+                attributes = {k for k in want if k.strip() and "validation" not in k
+                              and k != "semantic text"}
+                self.assertTrue(attributes)
+                doc = self.read(path)
+                kept = set()
+                for o in doc.Objects:
+                    for prop in ("StepAttributes", "StepIntegerAttributes",
+                                 "StepRealAttributes"):
+                        kept |= set(getattr(o, prop, {}).keys())
+                self.assertEqual(kept, attributes)
+                self.write_and_read(doc)
+                got = properties(self.written)
+                self.assertEqual({k for k in got if k in attributes}, attributes)
+                self.assertEqual("geometric validation property" in got,
+                                 "geometric validation property" in want)
+
     def test_what_the_file_hides_is_hidden(self):
         """What a file does not show -- PMI graphics an INVISIBILITY lists
         (STC-08's 29, STC-09's 75), a surface beside the solid whose styles

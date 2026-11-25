@@ -176,6 +176,14 @@ public:
     /// FTC-09's four products, of no assembly): written as they were, each a
     /// free shape, not an assembly of them -- a PropertyBool of this name, true
     static constexpr const char* FreeShapesProperty = "ExportAsFreeShapes";
+    /// A product's user defined attributes, written to STEP as such: PropertyMap
+    /// of text values, of integers, of reals (as their text)
+    static constexpr const char* AttributesProperty = "StepAttributes";
+    static constexpr const char* IntegerAttributesProperty = "StepIntegerAttributes";
+    static constexpr const char* RealAttributesProperty = "StepRealAttributes";
+    /// Written with geometric validation properties computed of its shape: a
+    /// PropertyBool of this name, true
+    static constexpr const char* ValidationProperty = "StepValidation";
     //@}
 
 private:
@@ -190,6 +198,8 @@ private:
                      const char* name = nullptr,
                      bool force = false);
     void setName(TDF_Label label, App::DocumentObject* obj, const char* name = nullptr);
+    /// The STEP attributes and validation properties of \a obj on \a label
+    void setupMetadata(TDF_Label label, App::DocumentObject* obj, const Part::TopoShape& shape);
     void setInvisible(TDF_Label label);
     TDF_Label findComponent(const char* subname, TDF_Label label, TDF_LabelSequence& labels);
     /// Run the passes added by addPostExport()

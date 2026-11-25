@@ -36,6 +36,13 @@
 #include <TDF_Label.hxx>
 #include <TDF_LabelSequence.hxx>
 #include <TDataStd_Name.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <TCollection_ExtendedString.hxx>
+#include <TDataStd_NamedData.hxx>
+#include <XCAFDoc_Area.hxx>
+#include <XCAFDoc_Centroid.hxx>
+#include <XCAFDoc_Volume.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_GraphNode.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
@@ -265,6 +272,62 @@ ExportOCAF2::findComponent(const char* subname, TDF_Label label, TDF_LabelSequen
     return {};
 }
 
+void ExportOCAF2::setupMetadata(TDF_Label label,
+                                App::DocumentObject* obj,
+                                const Part::TopoShape& shape)
+{
+    if (!obj) {
+        return;
+    }
+    auto toExtended = [](const std::string& s) {
+        return TCollection_ExtendedString(s.c_str(), Standard_True);
+    };
+    Handle(TDataStd_NamedData) data;
+    auto named = [&]() {
+        if (data.IsNull() && !label.FindAttribute(TDataStd_NamedData::GetID(), data)) {
+            data = TDataStd_NamedData::Set(label);
+        }
+        return data;
+    };
+    if (auto prop = freecad_cast<App::PropertyMap*>(obj->getPropertyByName(AttributesProperty))) {
+        for (auto& [key, value] : prop->getValues()) {
+            named()->SetString(toExtended(key), toExtended(value));
+        }
+    }
+    if (auto prop =
+            freecad_cast<App::PropertyMap*>(obj->getPropertyByName(IntegerAttributesProperty))) {
+        for (auto& [key, value] : prop->getValues()) {
+            named()->SetInteger(toExtended(key), std::atoi(value.c_str()));
+        }
+    }
+    if (auto prop =
+            freecad_cast<App::PropertyMap*>(obj->getPropertyByName(RealAttributesProperty))) {
+        for (auto& [key, value] : prop->getValues()) {
+            named()->SetReal(toExtended(key), std::atof(value.c_str()));
+        }
+    }
+    // Computed of the shape written: the file's were of the shape it had
+    auto valid = freecad_cast<App::PropertyBool*>(obj->getPropertyByName(ValidationProperty));
+    if (!valid || !valid->getValue() || shape.isNull()) {
+        return;
+    }
+    TopoDS_Shape s = aShapeTool->GetShape(label);
+    if (s.IsNull()) {
+        return;
+    }
+    GProp_GProps volume, area;
+    bool solid = TopExp_Explorer(s, TopAbs_SOLID).More();
+    if (solid) {
+        BRepGProp::VolumeProperties(s, volume);
+        XCAFDoc_Volume::Set(label, volume.Mass());
+    }
+    BRepGProp::SurfaceProperties(s, area);
+    if (area.Mass() > 0) {
+        XCAFDoc_Area::Set(label, area.Mass());
+    }
+    XCAFDoc_Centroid::Set(label, solid ? volume.CentreOfMass() : area.CentreOfMass());
+}
+
 void ExportOCAF2::setupObject(TDF_Label label,
                               App::DocumentObject* obj,
                               const Part::TopoShape& shape,
@@ -294,6 +357,12 @@ void ExportOCAF2::setupObject(TDF_Label label,
         // Finally, the subname reference allows to use the label for naming
         // with preceding '$'
         names.push_back(prefix + "$" + obj->Label.getValue() + ".");
+    }
+
+    // Its attributes and validation properties, the STEP file's it came from (as
+    // ImportOCAF2::applyMetadata keeps them): of the product, not of its instances
+    if (!aShapeTool->IsComponent(label) && !aShapeTool->IsReference(label)) {
+        setupMetadata(label, obj, shape);
     }
 
     if (!getShapeColors || (!force && !mySetups.emplace(obj, name ? name : "").second)) {

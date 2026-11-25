@@ -164,6 +164,10 @@ void BGFXView::submitShadowGround(const float bmin[3], const float bmax[3],
         bgfx::setTexture(7, s_texShadowTint,
                          bgfx::isValid(shadowTintTex) ? shadowTintTex
                                                       : m_whiteTex);
+    if (bgfx::isValid(s_texShadowNear))
+        bgfx::setTexture(11, s_texShadowNear,
+                         bgfx::isValid(shadowNearTex) ? shadowNearTex
+                                                      : m_whiteTex);
     // The ground is a main-pass opaque draw of the mesh program:
     // bind the screen AO like any other (the ground stays out of
     // the AO prepass, so its own pixels read ~1 — matching the
@@ -433,6 +437,10 @@ bool BGFXView::submitShadowGroundPlane(const float bmin[3],
         bgfx::setTexture(7, s_texShadowTint,
                          bgfx::isValid(shadowTintTex) ? shadowTintTex
                                                       : m_whiteTex);
+    if (bgfx::isValid(s_texShadowNear))
+        bgfx::setTexture(11, s_texShadowNear,
+                         bgfx::isValid(shadowNearTex) ? shadowNearTex
+                                                      : m_whiteTex);
     // Multiplied like the quad -- a shadow darkens what is behind it
     // whatever that is. Depth is TESTED (the shader states the plane's
     // own, so geometry in front of it occludes the shadow) and not
@@ -501,7 +509,7 @@ void BGFXView::submitBulbShadowCaster(const Render::DrawCall &draw, int tile)
     ++drawcount;
 }
 
-void BGFXView::submitShadowTint(const Render::DrawCall &draw)
+void BGFXView::submitShadowTint(const Render::DrawCall &draw, bool translucent)
 {
     if (!draw.mesh || !draw.mesh->triangleIndices
             || !bgfx::isValid(m_progShadowTint))
@@ -512,13 +520,29 @@ void BGFXView::submitShadowTint(const Render::DrawCall &draw)
 
     const Render::Material &mat = draw.material;
     float color[4];
-    float tint[4];
-    // The body's colour as the glass pass reads it, so the shadow
-    // carries the tint the body absorbs or tints with -- whichever a
-    // MaterialX glass states, the product is both.
-    glassBodyColors(mat, color, tint);
-    for (int c = 0; c < 3; ++c)
-        color[c] *= tint[c];
+    if (translucent) {
+        // A translucent part lets (1 - opacity) of the light through
+        // untouched, and of that a share by its colour as deep as it is
+        // opaque: clear glass-like grey at four fifths clear passes
+        // 0.73, a red half clear passes red, an opaque one nothing. The
+        // alpha below zero says to the shader it is the transmittance
+        // as it stands.
+        unpackAuthoredColor(mat.diffuse, color, colorManaged());
+        const float opacity = std::clamp(color[3], 0.0f, 1.0f);
+        for (int c = 0; c < 3; ++c)
+            color[c] = (1.0f - opacity)
+                * ((1.0f - opacity) + opacity * std::clamp(color[c], 0.0f, 1.0f));
+        color[3] = -1.0f;
+    }
+    else {
+        float tint[4];
+        // The body's colour as the glass pass reads it, so the shadow
+        // carries the tint the body absorbs or tints with -- whichever a
+        // MaterialX glass states, the product is both.
+        glassBodyColors(mat, color, tint);
+        for (int c = 0; c < 3; ++c)
+            color[c] *= tint[c];
+    }
     bgfx::setUniform(u_matColor, color);
     setDrawTransform(draw, autozoomScale, viewMatrix, projMatrix, (float)height);
     bgfx::setVertexBuffer(0, gpu->geom->vbh);
@@ -527,12 +551,45 @@ void BGFXView::submitShadowTint(const Render::DrawCall &draw)
                              uint32_t(draw.indexCount));
     else
         bgfx::setIndexBuffer(gpu->geom->tri);
+    // One face of a body: the light crosses a wall of it once, not
+    // once a face. Against the opaque casters' depth, written by none
+    // of these.
     bgfx::setState(BGFX_STATE_WRITE_RGB
+                   | BGFX_STATE_DEPTH_TEST_LESS
                    | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ZERO,
                                            BGFX_STATE_BLEND_SRC_COLOR)
                    | (mat.ccw ? BGFX_STATE_CULL_CW
                               : BGFX_STATE_CULL_CCW));
     bgfx::submit(vid(ViewShadowTint), m_progShadowTint);
+    ++drawcount;
+}
+
+void BGFXView::submitShadowNear(const Render::DrawCall &draw)
+{
+    if (!draw.mesh || !draw.mesh->triangleIndices
+            || !bgfx::isValid(shadowNearFbo))
+        return;
+    GpuMesh *gpu = getMesh(*draw.mesh);
+    if (!bgfx::isValid(gpu->geom->vbh) || !bgfx::isValid(gpu->geom->tri))
+        return;
+    const Render::Material &mat = draw.material;
+    const bool clipped = mat.numclipplanes > 0;
+    setClipUniforms(mat);
+    setDrawTransform(draw, autozoomScale, viewMatrix, projMatrix, (float)height);
+    bgfx::setVertexBuffer(0, gpu->geom->vbh);
+    if (draw.indexCount > 0)
+        bgfx::setIndexBuffer(gpu->geom->tri, uint32_t(draw.indexStart),
+                             uint32_t(draw.indexCount));
+    else
+        bgfx::setIndexBuffer(gpu->geom->tri);
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_Z
+                   | BGFX_STATE_DEPTH_TEST_LESS);
+    // the caster program unwarped: (z, z^2), z the light window depth
+    // a receiver compares its own with
+    const float plain[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    bgfx::setUniform(u_evsm, plain);
+    bgfx::submit(vid(ViewShadowNear),
+                 clipped ? m_progShadowClip : m_progShadow);
     ++drawcount;
 }
 
@@ -542,14 +599,15 @@ void BGFXView::ensureShadowTargets(uint16_t size)
         return;
     for (auto fb : {&shadowFbo, &shadowBlurFbo, &shadowBlurBackFbo,
                     &shadowTintFbo, &shadowTintBlurFbo,
-                    &shadowTintBlurBackFbo}) {
+                    &shadowTintBlurBackFbo, &shadowNearFbo}) {
         if (bgfx::isValid(*fb)) {
             bgfx::destroy(*fb);
             *fb = BGFX_INVALID_HANDLE;
         }
     }
     for (auto tex : {&shadowTex, &shadowDepth, &shadowBlurTex,
-                     &shadowTintTex, &shadowTintBlurTex}) {
+                     &shadowTintTex, &shadowTintBlurTex,
+                     &shadowNearTex, &shadowNearDepth}) {
         if (bgfx::isValid(*tex)) {
             bgfx::destroy(*tex);
             *tex = BGFX_INVALID_HANDLE;
@@ -582,14 +640,29 @@ void BGFXView::ensureShadowTargets(uint16_t size)
                                             false);
     shadowBlurBackFbo = bgfx::createFrameBuffer(1, &shadowTex,
                                                 false);
-    // Glass shadow tint map: color only (multiplicative blending
-    // needs no depth), cleared to white each caster pass.
+    // Shadow tint map: what glass and translucent casters let through
+    // of the light, multiplied in (cleared to white each caster pass).
+    // Its depth is the opaque casters' (shadowDepth, which the clear of
+    // the tint pass leaves alone): a translucent part behind an opaque
+    // one, as the light sees it, does not tint it -- nor the shadow it
+    // is in.
     shadowTintTex = bgfx::createTexture2D(size, size,
         false, 1, bgfx::TextureFormat::RGBA8,
         BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP
         | BGFX_SAMPLER_V_CLAMP);
-    shadowTintFbo = bgfx::createFrameBuffer(1, &shadowTintTex,
-                                            false);
+    bgfx::TextureHandle tintAtt[2] = {shadowTintTex, shadowDepth};
+    shadowTintFbo = bgfx::createFrameBuffer(2, tintAtt, false);
+    // The near map: the light window depth of the nearest translucent
+    // caster, in the moments' float format, point sampled -- a depth to
+    // compare, not to filter -- with a depth buffer of its own.
+    shadowNearTex = bgfx::createTexture2D(size, size,
+        false, 1, shadowFormat,
+        BGFX_TEXTURE_RT | shadowSamp | BGFX_SAMPLER_POINT);
+    shadowNearDepth = bgfx::createTexture2D(size, size,
+        false, 1, bgfx::TextureFormat::D24S8,
+        BGFX_TEXTURE_RT | BGFX_TEXTURE_RT_WRITE_ONLY);
+    bgfx::TextureHandle nearAtt[2] = {shadowNearTex, shadowNearDepth};
+    shadowNearFbo = bgfx::createFrameBuffer(2, nearAtt, false);
     // ShadowSmoothBorder blurs the tint map with the same separable
     // pass as the moments (ping texture + write-back framebuffer).
     shadowTintBlurTex = bgfx::createTexture2D(size, size,

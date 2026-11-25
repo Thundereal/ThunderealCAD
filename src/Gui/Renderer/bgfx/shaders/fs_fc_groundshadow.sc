@@ -46,7 +46,13 @@ void main()
 	// changes nothing -- rather than discarded: the quad then writes
 	// the same depth over its whole span that the solid ground does,
 	// which is what a ground reflection depth-tests EQUAL against.
-	float k = clamp(dark * u_matColor.a, 0.0, 1.0);
-	vec3 transmitted = mix(vec3_splat(1.0), u_matColor.rgb * tint, k);
+	// The share of the light that reaches the ground, per channel: a
+	// translucent or glass caster lets some through, coloured, where no
+	// opaque one darkens -- so its shadow shows on a ground that is
+	// nothing but the shadow, which scaling the tint by the opaque
+	// darkness alone never did.
+	vec3 lit = (1.0 - dark) * tint;
+	vec3 k = clamp((vec3_splat(1.0) - lit) * u_matColor.a, 0.0, 1.0);
+	vec3 transmitted = mix(vec3_splat(1.0), u_matColor.rgb, k);
 	gl_FragColor = vec4(transmitted, 1.0);
 }

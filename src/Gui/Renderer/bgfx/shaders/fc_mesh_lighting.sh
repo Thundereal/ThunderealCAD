@@ -76,6 +76,9 @@ SAMPLER2D(s_texShadow, 3);
 // multiplies the direct scene-light term beside the variance shadow
 // factor, so glass casts a softer shadow, tinted when colored.
 SAMPLER2D(s_texShadowTint, 7);
+// The light window depth of the nearest translucent caster per texel
+// (.x; 0 where there is none): the tint is what lies behind it.
+SAMPLER2D(s_texShadowNear, 11);
 uniform vec4 u_shadowParams;
 uniform vec4 u_lightDir;
 // Spot light position in view space; w = cos of the cone cutoff for a
@@ -374,6 +377,12 @@ float fcSceneShadow(vec3 vpos, vec2 fragCoord, out vec3 tint)
 		    && sp.z > 0.0 && sp.z < 1.0)
 		{
 			tint = texture2D(s_texShadowTint, sp.xy).rgb;
+			// Only behind the nearest translucent caster along the
+			// light: a translucent part does not shade itself, and a
+			// part in front of one -- standing on a glass floor, or
+			// the water over a tank's -- takes none of its shadow.
+			if (sp.z <= texture2D(s_texShadowNear, sp.xy).x + 0.002)
+				tint = vec3_splat(1.0);
 			if (u_evsm.w > 0.5 && u_evsm.z > 0.0)
 			{
 				// Coin's N-tap spread kernel (ShadowSpreadSize

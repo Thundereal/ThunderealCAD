@@ -2593,6 +2593,14 @@ fc_add_gui_test(GuiWaterFilmIsClear_tests_run
                 water-film-is-clear.py
                 --timeout 300)
 
+# A translucent part casts a translucent shadow, tinted by its colour: it
+# went into the shadow map as a solid. It casts through the tint map now,
+# against the opaque casters' depth, and a receiver takes that tint only
+# behind the nearest translucent caster along the light.
+fc_add_gui_test(GuiTranslucentShadows_tests_run
+                translucent-shadows.py
+                --timeout 300)
+
 # Std_Paste and Material_Paste asked the clipboard on every pass over the
 # commands, a call into another process each time; they read the formats
 # as remembered since the clipboard last changed. That the list follows

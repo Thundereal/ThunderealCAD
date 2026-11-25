@@ -2745,6 +2745,14 @@ bool BGFXRenderer::Private::render(const QColor &col,
             || (cloudActive && (mat.cloud || mat.fountain))
             || (fireActive && mat.fire);
     };
+    // A translucent part casts through the tint map -- as much of the
+    // light let through as it is clear, coloured by it -- and the near
+    // map, not into the moments as a solid: the clear tank of a fluid
+    // study darkened the water and the floor like a box. Glass the
+    // glass pass draws casts through the tint map already.
+    auto translucentCaster = [&](const Render::DrawCall &d) {
+        return d.material.transparent && !mediumExempt(d.material);
+    };
     // Caster-set content hash, shared by the scene shadow map and
     // the bulb shadow tiles (both re-render only when it changes).
     auto hashCasters = [&](uint64_t &h) {
@@ -2762,7 +2770,8 @@ bool BGFXRenderer::Private::render(const QColor &col,
                     || (fireActive && mat.fire)
                     || !draw.mesh)
                 continue;
-            if (glassActive && mat.glass)
+            // a translucent one's colour and opacity are its shadow too
+            if ((glassActive && mat.glass) || mat.transparent)
                 hashBytes(h, &mat.diffuse, sizeof(mat.diffuse));
             hashBytes(h, &draw.mesh->cacheId,
                       sizeof(draw.mesh->cacheId));
@@ -3608,6 +3617,25 @@ bool BGFXRenderer::Private::render(const QColor &col,
         bgfx::setViewMode(id, bgfx::ViewMode::Default);
         bgfx::touch(id);
     };
+    auto configShadowNear = [&](int i, uint16_t id) {
+        if (!bgfx::isValid(view->shadowNearFbo)) {
+            configScene(i, id);
+            return;
+        }
+        // The nearest translucent caster's light window depth: cleared
+        // to 0 (none -- every receiver is behind it, and the tint there
+        // is white or the blurred edge of one), its depth to the far
+        // plane, under the light camera.
+        bgfx::setViewFrameBuffer(id, view->shadowNearFbo);
+        bgfx::setViewClear(id,
+            uint16_t(BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH),
+            0x00000000u, 1.0f, 0);
+        bgfx::setViewRect(id, 0, 0, view->shadowSize,
+                          view->shadowSize);
+        bgfx::setViewTransform(id, lightViewMtx, lightProjMtx);
+        bgfx::setViewMode(id, bgfx::ViewMode::Default);
+        bgfx::touch(id);
+    };
     auto configShadowBlur = [&](int i, uint16_t id) {
         // Fullscreen blur passes over the shadow map size; the
         // triangle overwrites every pixel, so no clear.
@@ -4211,6 +4239,7 @@ bool BGFXRenderer::Private::render(const QColor &col,
     declPass(V::ViewShadowTint, shadowRender, configShadowTint);
     declPasses(V::ViewShadowTintBlurH, V::ViewShadowTintBlurV,
                shadowBlurActive, configShadowBlur);
+    declPass(V::ViewShadowNear, shadowRender, configShadowNear);
     for (int t = 0; t < V::kBulbShadowTiles; ++t)
         declPass(V::ViewBulbShadow0 + t, bulbShadowRender[t],
                  configBulb);
@@ -5722,7 +5751,8 @@ bool BGFXRenderer::Private::render(const QColor &col,
             // diffuse, so one shadowstyle check covers them all.
             if (shadowRender
                     && (scene[group.members[0]].material.shadowstyle
-                        & 1)) {
+                        & 1)
+                    && !translucentCaster(scene[group.members[0]])) {
                 for (int i : visOut)
                     appendInstance(i);
                 for (int i : hidden)
@@ -5800,14 +5830,18 @@ bool BGFXRenderer::Private::render(const QColor &col,
                     && isTriangle(draw)
                     && (draw.material.shadowstyle & 1)
                     && !mediumExempt(draw.material)
+                    && !translucentCaster(draw)
                     && !casterInstancedThisFrame(drawIdx))
                 view->submitShadowCaster(draw);
             // Bulb shadow tiles re-rendering this frame take every
-            // caster individually (no instanced caster path there).
+            // caster individually (no instanced caster path there);
+            // they have no tint, and a translucent part is left out of
+            // them rather than casting as a solid.
             if (anyBulbShadow && !draw.material.ontop
                     && isTriangle(draw)
                     && (draw.material.shadowstyle & 1)
-                    && !mediumExempt(draw.material)) {
+                    && !mediumExempt(draw.material)
+                    && !translucentCaster(draw)) {
                 for (int t = 0; t < BGFXView::kBulbShadowTiles; ++t)
                     if (bulbShadowRender[t])
                         view->submitBulbShadowCaster(draw, t);
@@ -5815,8 +5849,11 @@ bool BGFXRenderer::Private::render(const QColor &col,
             if (shadowRender && !draw.material.ontop
                     && isTriangle(draw)
                     && (draw.material.shadowstyle & 1)
-                    && glassActive && draw.material.glass)
-                view->submitShadowTint(draw);
+                    && ((glassActive && draw.material.glass)
+                        || translucentCaster(draw))) {
+                view->submitShadowTint(draw, translucentCaster(draw));
+                view->submitShadowNear(draw);
+            }
             // Likewise the depth+normal prepass and the debug scene
             // re-render: the replacing draw (e.g. a shader override,
             // docs/RenderDebug.md §6.5) only substitutes the beauty
@@ -5976,23 +6013,32 @@ bool BGFXRenderer::Private::render(const QColor &col,
         if (shadowRender && isTriangle(draw)
                 && (draw.material.shadowstyle & 1)
                 && !mediumExempt(draw.material)
+                && !translucentCaster(draw)
                 && !casterInstancedThisFrame(drawIdx))
             view->submitShadowCaster(draw);
         // Bulb shadow tiles re-rendering this frame take every
-        // caster individually (no instanced caster path there).
+        // caster individually (no instanced caster path there);
+        // they have no tint, and a translucent part is left out of
+        // them rather than casting as a solid.
         if (anyBulbShadow && isTriangle(draw)
                 && (draw.material.shadowstyle & 1)
-                && !mediumExempt(draw.material)) {
+                && !mediumExempt(draw.material)
+                && !translucentCaster(draw)) {
             for (int t = 0; t < BGFXView::kBulbShadowTiles; ++t)
                 if (bulbShadowRender[t])
                     view->submitBulbShadowCaster(draw, t);
         }
-        // Glass casts through the tint map instead of the moments:
-        // a softer shadow, tinted when the glass is colored.
+        // Glass and translucent parts cast through the tint map
+        // instead of the moments: as much light let through as they
+        // are clear, tinted by their colour -- and into the near map,
+        // so what is in front of them takes none of it.
         if (shadowRender && isTriangle(draw)
                 && (draw.material.shadowstyle & 1)
-                && glassActive && draw.material.glass)
-            view->submitShadowTint(draw);
+                && ((glassActive && draw.material.glass)
+                    || translucentCaster(draw))) {
+            view->submitShadowTint(draw, translucentCaster(draw));
+            view->submitShadowNear(draw);
+        }
         if (!cullDraw)
             submitSceneOutline(draw);
     }
@@ -6140,8 +6186,14 @@ bool BGFXRenderer::Private::render(const QColor &col,
             if (!cullDraw)
                 view->submit(draw, viewMat);
             if (shadowRender && (draw.material.shadowstyle & 1)
-                    && !mediumExempt(draw.material))
-                view->submitShadowCaster(draw);
+                    && !mediumExempt(draw.material)) {
+                if (translucentCaster(draw)) {
+                    view->submitShadowTint(draw, true);
+                    view->submitShadowNear(draw);
+                }
+                else
+                    view->submitShadowCaster(draw);
+            }
             if (!cullDraw)
                 submitSceneOutline(draw);
         }

@@ -40,6 +40,11 @@ SAMPLER2D(s_texVolFront, 6);
 // is a record, not a sample of a field, so there is nothing between
 // two of them to interpolate.
 SAMPLER2D(s_texImpact, 7);
+// What glass and translucent casters let through of the light, and the
+// light window depth of the nearest of them (the mesh lighting's own):
+// a tank's walls dim the water the light reaches through them.
+SAMPLER2D(s_texShadowTint, 8);
+SAMPLER2D(s_texShadowNear, 9);
 
 uniform vec4 u_matColor;   // rgb = water tint; a > 0.5 = planar refl in s_texRefl
 uniform vec4 u_lightDir;
@@ -458,6 +463,7 @@ vec4 fcWaterShadeFragment(vec3 normal, vec3 vpos, vec2 fragCoord)
 	// shadow band on the surface without doubling it to black; the sun
 	// glint below is killed outright where shadowed.
 	float shadow = 1.0;
+	vec3 tint = vec3_splat(1.0);
 	if (u_shadowParams.x > 0.5)
 	{
 		// Tap at the wave-displaced surface point, scaled by the
@@ -471,9 +477,15 @@ vec4 fcWaterShadeFragment(vec3 normal, vec3 vpos, vec2 fragCoord)
 		sp.xyz /= sp.w;  // spot lights render a perspective map
 		if (sp.x > 0.0 && sp.x < 1.0 && sp.y > 0.0 && sp.y < 1.0
 		    && sp.z > 0.0 && sp.z < 1.0)
+		{
 			shadow = fc_waterShadowTap(sp.xy, sp.z);
+			// behind the nearest translucent caster alone: the water
+			// over a tank's floor takes none of the floor's
+			if (sp.z > texture2D(s_texShadowNear, sp.xy).x + 0.002)
+				tint = texture2D(s_texShadowTint, sp.xy).rgb;
+		}
 	}
-	color *= mix(0.6, 1.0, shadow);
+	color *= mix(vec3_splat(0.6), vec3_splat(1.0), shadow * tint);
 
 	// Sun glint from the scene light on the perturbed normal (shadowed).
 	if (u_lightDir.w > 0.5)

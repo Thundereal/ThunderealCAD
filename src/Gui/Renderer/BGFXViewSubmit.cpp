@@ -757,6 +757,12 @@ void BGFXView::setTriangleFrameState(const Render::Material &mat, int pass,
         bgfx::setTexture(7, s_texShadowTint,
                          shadowFrame && bgfx::isValid(shadowTintTex)
                              ? shadowTintTex : m_whiteTex);
+    // the nearest translucent caster's depth: the tint only behind it
+    // (white -- the far plane -- leaves the tint where it is white too)
+    if (bgfx::isValid(s_texShadowNear))
+        bgfx::setTexture(11, s_texShadowNear,
+                         shadowFrame && bgfx::isValid(shadowNearTex)
+                             ? shadowNearTex : m_whiteTex);
     // Screen-space AO into the ambient/headlight/IBL terms — only
     // for main-pass opaque draws (the old fullscreen multiply ran
     // on the opaque scene before outlines/transparency; the

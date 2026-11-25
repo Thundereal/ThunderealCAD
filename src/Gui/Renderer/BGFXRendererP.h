@@ -4765,6 +4765,11 @@ public:
                             // an unblurred tint edge would stay hard
                             // inside the smoothed penumbra) ...
         ViewShadowTintBlurV, // ... and vertical back into the tint map
+        ViewShadowNear,     // the light window depth of the NEAREST
+                            // translucent or glass caster, per texel
+                            // (cleared to 0): a receiver takes the tint
+                            // only behind it, so a translucent part does
+                            // not shade itself nor what stands on it
         ViewBulbShadow0,    // shadow-map tiles of shadow-casting
         ViewBulbShadow1,    // light-source bodies (Render_LightShadow):
         ViewBulbShadow2,    // plain VSM moments of a wide downward
@@ -5466,11 +5471,14 @@ public:
         fn(shadowTintFbo, LifeSized);
         fn(shadowTintBlurFbo, LifeSized);
         fn(shadowTintBlurBackFbo, LifeSized);
+        fn(shadowNearFbo, LifeSized);
         fn(shadowTex, LifeSized);
         fn(shadowDepth, LifeSized);
         fn(shadowBlurTex, LifeSized);
         fn(shadowTintTex, LifeSized);
         fn(shadowTintBlurTex, LifeSized);
+        fn(shadowNearTex, LifeSized);
+        fn(shadowNearDepth, LifeSized);
         fn(m_progShadow, LifeProgram);
         fn(m_progShadowClip, LifeProgram);
         fn(m_progShadowInst, LifeProgram);
@@ -5478,6 +5486,7 @@ public:
         fn(m_progShadowTint, LifeProgram);
         fn(s_texShadow, LifeProgram);
         fn(s_texShadowTint, LifeProgram);
+        fn(s_texShadowNear, LifeProgram);
         fn(s_texAOScreen, LifeProgram);
         fn(u_debugParams, LifeProgram);
         fn(s_texDebugScene, LifeProgram);
@@ -6526,7 +6535,14 @@ public:
     /// Render a glass caster's light transmittance into the shadow
     /// tint map (multiplicative onto the white-cleared target; front
     /// faces only so one glass body multiplies once, no depth).
-    void submitShadowTint(const Render::DrawCall &draw);
+    /// A glass caster's, or a translucent one's: what it lets through
+    /// of the light, multiplied into the tint map; a translucent part
+    /// (\a translucent) lets (1 - opacity) x mix(white, its colour,
+    /// opacity) through. Depth-tested against the opaque casters, so a
+    /// part behind one as the light sees it casts nothing.
+    void submitShadowTint(const Render::DrawCall &draw, bool translucent = false);
+    /// Its depth into the near map (ViewShadowNear).
+    void submitShadowNear(const Render::DrawCall &draw);
 
     /// Separable gaussian blur of the shadow moments (the Shadow draw
     /// style's SmoothBorder, 0..100): horizontal into the ping texture,
@@ -7450,6 +7466,7 @@ public:
             case ViewOutline: return "outline";
             case ViewShadow: return "shadow";
             case ViewShadowTint: return "shadowtint";
+            case ViewShadowNear: return "shadownear";
             case ViewAOPrepass: return "aoprepass";
             case ViewAOGen: return "aogen";
             case ViewAOBlur: return "aoblur";
@@ -7908,6 +7925,12 @@ public:
     bgfx::FrameBufferHandle shadowTintBlurBackFbo = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_progShadowTint = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_texShadowTint = BGFX_INVALID_HANDLE;
+    // The nearest translucent caster's light window depth (.x), the
+    // moments' format, its own depth buffer.
+    bgfx::TextureHandle shadowNearTex = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle shadowNearDepth = BGFX_INVALID_HANDLE;
+    bgfx::FrameBufferHandle shadowNearFbo = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texShadowNear = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle shadowDepth = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle shadowFbo = BGFX_INVALID_HANDLE;
     // ShadowSmoothBorder blur ping texture and the two color-only
@@ -8503,6 +8526,7 @@ public:
     X(shadowBlurTex) X(shadowBlurFbo) X(shadowBlurBackFbo) \
     X(shadowTintTex) X(shadowTintFbo) X(shadowTintBlurTex) \
     X(shadowTintBlurFbo) X(shadowTintBlurBackFbo) X(shadowMapHash) \
+    X(shadowNearTex) X(shadowNearDepth) X(shadowNearFbo) \
     X(m_lineQuadVb) X(m_lineQuadIb) \
     X(camFrameHash) X(warmup) X(targetsFailed) \
     X(effectFailed) X(glassSeen)

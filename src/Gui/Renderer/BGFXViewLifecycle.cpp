@@ -694,10 +694,11 @@ void BGFXView::freeEffect(EffectGroup g)
     case EffectShadow:
         for (auto *h : {&shadowFbo, &shadowBlurFbo, &shadowBlurBackFbo,
                         &shadowTintFbo, &shadowTintBlurFbo,
-                        &shadowTintBlurBackFbo})
+                        &shadowTintBlurBackFbo, &shadowNearFbo})
             drop(*h);
         for (auto *h : {&shadowTex, &shadowDepth, &shadowBlurTex,
-                        &shadowTintTex, &shadowTintBlurTex})
+                        &shadowTintTex, &shadowTintBlurTex,
+                        &shadowNearTex, &shadowNearDepth})
             drop(*h);
         // No map, no size and no cached moments: the next allocation
         // is a first build again, at whatever precision then asks for.
@@ -1289,6 +1290,8 @@ void BGFXView::init(bool keepShared)
                       bgfx::UniformType::Mat4);
         ensureProgram(m_progShadowTint, "vs_fc_shadow", "fs_fc_shadow_tint");
         ensureUniform(s_texShadowTint, "s_texShadowTint",
+                      bgfx::UniformType::Sampler);
+        ensureUniform(s_texShadowNear, "s_texShadowNear",
                       bgfx::UniformType::Sampler);
     }
     static const uint32_t blackCube[6] = {0, 0, 0, 0, 0, 0};

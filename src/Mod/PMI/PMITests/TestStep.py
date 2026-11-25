@@ -388,6 +388,7 @@ class TestNistSet(Base):
                 self.assertSameGraphics(path, self.written)
                 self.assertPartsStyled(path, self.written)
                 self.assertSameAssembly(path, self.written)
+                self.assertSameGraphicForms(path, self.written)
 
     def assertSameAssembly(self, original, written):
         """An assembly where the file has one and none where it has none: a
@@ -400,6 +401,17 @@ class TestNistSet(Base):
                 return len(re.findall(r"NEXT_ASSEMBLY_USAGE_OCCURRENCE\s*\(", f.read()))
 
         self.assertEqual(usages(written), usages(original))
+
+    def assertSameGraphicForms(self, original, written):
+        """A graphic given as curves -- an annotation curve occurrence of
+        polylines and circles, NIST CTC-05's 22 -- written as curves again,
+        any other tessellated (SFA's 'Graphic PMI (polyline)', dwin p20)"""
+
+        def curves(path):
+            with open(path, errors="replace") as f:
+                return len(re.findall(r"ANNOTATION_CURVE_OCCURRENCE\s*\(", f.read()))
+
+        self.assertEqual(curves(written), curves(original))
 
     def assertPartsStyled(self, original, written):
         """Each solid and surface model the file gives a colour is written

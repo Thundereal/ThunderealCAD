@@ -106,6 +106,9 @@ Callout::Callout()
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
                       "The annotation placeholder the file gave it, its kind and its name: "
                       "written again");
+    ADD_PROPERTY_TYPE(ImportedAsCurves, (false), "Presentation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
+                      "The file's graphic was curves, not tessellated: written so again");
     ADD_PROPERTY_TYPE(ImportedWith, (nullptr), "Presentation",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
                       "The callout whose graphic from the file draws this one too");

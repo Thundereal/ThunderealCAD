@@ -770,6 +770,10 @@ private:
             if (mine == _labels.end()) {
                 continue;
             }
+            // Its graphic as the file had it: curves, if they were
+            if (c->ImportedAsCurves.getValue() && c->UseImported.getValue()) {
+                XCAFDoc_DimTolTool::SetPresentationCurves(mine->second, true);
+            }
             const auto& holder = c->ImportedPlaceholder.getValues();
             if (!holder.empty() && !holder.front().empty()) {
                 XCAFDoc_DimTolTool::SetPlaceholder(

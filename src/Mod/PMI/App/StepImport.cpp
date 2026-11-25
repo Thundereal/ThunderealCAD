@@ -691,6 +691,9 @@ private:
             if (c && XCAFDoc_DimTolTool::IsPresentationHidden(l)) {
                 c->Visibility.setValue(false);
             }
+            if (c && XCAFDoc_DimTolTool::IsPresentationCurves(l)) {
+                c->ImportedAsCurves.setValue(true);
+            }
         }
     }
 

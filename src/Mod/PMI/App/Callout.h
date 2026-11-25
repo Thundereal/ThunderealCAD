@@ -101,6 +101,10 @@ public:
     /// one the file links both to (STC-06's hole callout, its diameter's and
     /// its depth's). Written again with one, where its text is
     App::PropertyStringList ImportedPlaceholder;
+    /// The file's graphic was curves (STEP: an annotation curve occurrence of
+    /// polylines and circles, NIST CTC-05's), not tessellated: written so again
+    /// while drawn as the file draws it
+    App::PropertyBool ImportedAsCurves;
     /// The callout whose graphic from the file draws this one too, while
     /// both are as the file has them: a composite frame's upper segment, the
     /// PMI a graphic presents with it, a hole's size for its depth

@@ -1950,6 +1950,12 @@ compares; it took our curves for none.
   property each). Not written yet: the attribute validation property (counts of them), PMI
   validation properties (each graphic's length, area, facets; NIST's of its own graphics) and
   tessellated validation properties.
+- **Graphics as curves (CTC-05).** NIST draws CTC-05's PMI as annotation curve occurrences
+  of polylines and circles, ours were always tessellated (SFA: 'Graphic PMI (polyline)'). A
+  PMI whose graphic was curves is marked (`XCAFDoc_DimTolTool::SetPresentationCurves`,
+  `Callout.ImportedAsCurves`) and, drawn as the file drew it, written as curves again: a full
+  circle a circle, the rest polylines, a segment chained to the one before it where it starts
+  at its end (650 polylines to NIST's 556). The round trip checks as many curve occurrences.
 
 ## 11. Decisions (made 2026-11-19)
 

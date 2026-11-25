@@ -4333,3 +4333,36 @@ guest boots, as the sandbox's own tests are; run with
 their second worker is started for the timed job. TestWorkerPool 80 OK with
 the runtime (one skipped without it), TestPartApp 451, TestPartDesignApp
 1073, Document 364; ctest 1288 of 1288.
+
+## 68. A first picture at leisure lands behind every one in view (2026-11-25)
+
+From the Windows box after the Worker merge: `tests/gui/boxes-out-of-view.py`
+failed 3 runs in 4, "none of those [the out-of-view boxes' meshes] before
+the last of the ones in view". Since c5ba1fda2e the load's drain skips the
+visuals no view draws, so its closing line comes sooner (1.7 to 3.3 s
+after the open there, against 4.16 s), and the drain's end is all that held
+a first picture asked for at leisure (`docs/DocumentLoad.md` sec 18.13 item
+4): one landed while a first picture of the view was still on a runner,
+which the hand-out to the runners is free to allow.
+
+Sec 18.13 puts them "behind everything asked for in view", so the landing
+of one now waits for those too (`MeshLevelSource.cpp`): `LandingItem::held`
+holds an at-leisure item while `inViewFirstsOutstanding()` is not 0 -- the
+first pictures the camera sees still queued or in the ready line, and those
+a runner took, counted by a token (`RefineJob::inView`) taken under the
+lock the line is read with as the job leaves it, and let go with the job or
+the end of its landing's closure, so a job that fails or is dropped lets go
+too. A held item is looked at again by the pump's poll, as before.
+
+On the mini, where the test passed before: `boxes-out-of-view` 9 of 9 in
+three runs of three; `boxes-out-of-view-turn` 10, `first-picture-first` 6,
+`link-hidden-child-unbuilt` 33, `drain-waits-for-premesh` 14,
+`drain-turn-grows` 12; the SceneLadder, PreMesh, TurnBudget and MeshTwin
+unit tests. The Windows run is the one that showed the race, and is to be
+run there.
+
+Beside it, from the same report, two tests made to read what they mean:
+`sheet-metal-commands` compares a bend line's z with the solid's exact box
+(`optimalBoundingBox()`; its BoundBox is loose since a13782b00f), and
+`portrait-pick-vs-draw` waits for the camera to stand still after
+`viewFront()`, which animates (5 unchanged reads), before its pick sweep.

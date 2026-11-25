@@ -511,6 +511,29 @@ void BGFXView::submitBulbShadowCaster(const Render::DrawCall &draw, int tile)
 
 void BGFXView::submitShadowTint(const Render::DrawCall &draw, bool translucent)
 {
+    submitTintTo(draw, translucent, ViewShadowTint);
+}
+
+void BGFXView::submitShadowNear(const Render::DrawCall &draw)
+{
+    if (bgfx::isValid(shadowNearFbo))
+        submitNearTo(draw, ViewShadowNear);
+}
+
+void BGFXView::submitBulbShadowTint(const Render::DrawCall &draw, int tile, bool translucent)
+{
+    if (bgfx::isValid(bulbTintFbo))
+        submitTintTo(draw, translucent, ViewBulbTint0 + tile);
+}
+
+void BGFXView::submitBulbShadowNear(const Render::DrawCall &draw, int tile)
+{
+    if (bgfx::isValid(bulbNearFbo))
+        submitNearTo(draw, ViewBulbNear0 + tile);
+}
+
+void BGFXView::submitTintTo(const Render::DrawCall &draw, bool translucent, int pass)
+{
     if (!draw.mesh || !draw.mesh->triangleIndices
             || !bgfx::isValid(m_progShadowTint))
         return;
@@ -544,6 +567,11 @@ void BGFXView::submitShadowTint(const Render::DrawCall &draw, bool translucent)
             color[c] *= tint[c];
     }
     bgfx::setUniform(u_matColor, color);
+    // a section plane's cut-away part lets the light through
+    const bool clipped = mat.numclipplanes > 0
+        && bgfx::isValid(m_progShadowTintClip);
+    if (clipped)
+        setClipUniforms(mat);
     setDrawTransform(draw, autozoomScale, viewMatrix, projMatrix, (float)height);
     bgfx::setVertexBuffer(0, gpu->geom->vbh);
     if (draw.indexCount > 0)
@@ -560,14 +588,14 @@ void BGFXView::submitShadowTint(const Render::DrawCall &draw, bool translucent)
                                            BGFX_STATE_BLEND_SRC_COLOR)
                    | (mat.ccw ? BGFX_STATE_CULL_CW
                               : BGFX_STATE_CULL_CCW));
-    bgfx::submit(vid(ViewShadowTint), m_progShadowTint);
+    bgfx::submit(vid(pass),
+                 clipped ? m_progShadowTintClip : m_progShadowTint);
     ++drawcount;
 }
 
-void BGFXView::submitShadowNear(const Render::DrawCall &draw)
+void BGFXView::submitNearTo(const Render::DrawCall &draw, int pass)
 {
-    if (!draw.mesh || !draw.mesh->triangleIndices
-            || !bgfx::isValid(shadowNearFbo))
+    if (!draw.mesh || !draw.mesh->triangleIndices)
         return;
     GpuMesh *gpu = getMesh(*draw.mesh);
     if (!bgfx::isValid(gpu->geom->vbh) || !bgfx::isValid(gpu->geom->tri))
@@ -588,7 +616,7 @@ void BGFXView::submitShadowNear(const Render::DrawCall &draw)
     // a receiver compares its own with
     const float plain[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     bgfx::setUniform(u_evsm, plain);
-    bgfx::submit(vid(ViewShadowNear),
+    bgfx::submit(vid(pass),
                  clipped ? m_progShadowClip : m_progShadow);
     ++drawcount;
 }

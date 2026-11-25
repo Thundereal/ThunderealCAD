@@ -751,6 +751,16 @@ void BGFXView::setTriangleFrameState(const Render::Material &mat, int pass,
         bgfx::setTexture(8, s_texBulbShadow,
                          bgfx::isValid(bulbShadowTex)
                              ? bulbShadowTex : m_whiteTex);
+        // their tint (white: no tint) and near maps (white: the far
+        // plane, so the tint is never taken)
+        if (bgfx::isValid(s_texBulbTint))
+            bgfx::setTexture(12, s_texBulbTint,
+                             bgfx::isValid(bulbTintTex)
+                                 ? bulbTintTex : m_whiteTex);
+        if (bgfx::isValid(s_texBulbNear))
+            bgfx::setTexture(13, s_texBulbNear,
+                             bgfx::isValid(bulbNearTex)
+                                 ? bulbNearTex : m_whiteTex);
     }
     bgfx::setTexture(3, s_texShadow, shadow);
     if (bgfx::isValid(s_texShadowTint))

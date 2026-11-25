@@ -23,7 +23,13 @@ falls beside what casts it, on a white floor:
   - a red plate half clear: red light passes;
   - the grey plate's own top is as bright as when it receives no shadow;
   - a translucent tray with an opaque cube on its floor: the cube's top is
-    as bright as when the tray casts nothing.
+    as bright as when the tray casts nothing;
+  - a red plate half clear cut by a section plane: what is left of it
+    casts red, what is cut away nothing.
+And under a bulb (a body that is a light, Render_LightShadow), the
+scene's own light pointing up, each shadow against the same render with the
+parts casting nothing: the block's is dark, the clear plate's light and
+the red plate's red.
 """
 import os
 import time
@@ -82,6 +88,84 @@ def box(doc, name, size, at, color, transparency=0):
     return obj
 
 
+def bulb():
+    """The same casters under a bulb above them, the scene light off."""
+    doc = FreeCAD.newDocument("BulbShadows")
+    box(doc, "Floor", (400, 300, 4), (-200, -150, -4), (0.9, 0.9, 0.9))
+    parts = [
+        box(doc, "Block", (30, 30, 2), (-60, -15, HIGH), (0.6, 0.6, 0.6)),
+        box(doc, "Clear", (30, 30, 2), (30, -15, HIGH), (0.55, 0.57, 0.60), 80),
+        box(doc, "Red", (30, 30, 2), (-15, 30, HIGH), (0.9, 0.1, 0.1), 50),
+    ]
+    import Part
+
+    lamp = doc.addObject("Part::Feature", "Bulb")
+    lamp.Shape = Part.makeSphere(4, FreeCAD.Vector(0, 0, 100))
+    doc.recompute()
+    vo = lamp.ViewObject
+    for name, kind, value in (("Render_Light", "App::PropertyBool", True),
+                              ("Render_LightShadow", "App::PropertyBool", True),
+                              ("Render_LightRange", "App::PropertyFloat", 800.0),
+                              ("Render_LightIntensity", "App::PropertyFloat", 0.4)):
+        if not hasattr(vo, name):
+            vo.addProperty(kind, name)
+        setattr(vo, name, value)
+    settle(1.0)
+    view = FreeCADGui.ActiveDocument.ActiveView
+    view.setCameraType("Orthographic")
+    view.viewTop()
+    # bulb shadows run with the scene light's: it points up, lighting and
+    # shading nothing seen from above
+    view.Render_Light = True
+    view.Render_LightDirection = (0.0, 0.0, 1.0)
+    view.fitAll()
+    settle(3.0)
+    h = [0]
+
+    def shot(tag):
+        view.redraw()
+        settle(2.0)
+        path = os.path.join(OUT, tag + ".png")
+        view.saveRenderDump(path, metadata=False)
+        image = linear(pixels(path))
+        h[0] = image.shape[0]
+        return image
+
+    def spot(image, point):
+        x, y = view.getPointOnViewport(FreeCAD.Vector(*point))
+        x, y = int(x), int(h[0] - 1 - y)
+        return image[y - 3 : y + 4, x - 3 : x + 4].reshape(-1, 3).mean(axis=0)
+
+    # where each part's shadow falls: away from the bulb, past the part
+    # (the floor's point on the line from the bulb through the part's
+    # far side, a little in)
+    def under(x, y):
+        k = 100.0 / (100.0 - HIGH)
+        return (x * k, y * k, 0.0)
+
+    spots = {"block": under(-52.0, 0.0), "clear": under(52.0, 0.0), "red": under(0.0, 52.0)}
+    cast = shot("bulb")
+    for part in parts:
+        part.ViewObject.ShadowStyle = "Shadowed"
+    bare = shot("bulb-bare")
+    share = {name: spot(cast, at) / np.maximum(spot(bare, at), 1e-6) for name, at in spots.items()}
+    block = share["block"]
+    passed = lambda c: (c - block) / np.maximum(1.0 - block, 1e-6)
+    faint, tinted = passed(share["clear"]), passed(share["red"])
+    note("NOTE under the bulb: the block keeps %s of the light; the clear plate lets through %s, "
+         "the red %s" % (np.round(block, 3), np.round(faint, 3), np.round(tinted, 3)))
+    if not check("an opaque block's shadow under a bulb is drawn", float(block.max()) < 0.9,
+                 "%.2f of the light" % float(block.max())):
+        FreeCAD.closeDocument(doc.Name)
+        return
+    check("under a bulb a plate four fifths clear lets most of the light through",
+          0.5 < float(faint.mean()) < 0.95, "%.2f of it" % float(faint.mean()))
+    check("under a bulb a red plate half clear lets red through",
+          float(tinted[0]) > 1.5 * float(tinted[1]) and float(tinted[0]) > 1.5 * float(tinted[2]),
+          "red %.2f, green %.2f, blue %.2f of it" % tuple(float(v) for v in tinted))
+    FreeCAD.closeDocument(doc.Name)
+
+
 def run():
     try:
         prefs = FreeCAD.ParamGet(VIEW)
@@ -105,6 +189,13 @@ def run():
         tray.ViewObject.Transparency = 80
         tray.ViewObject.DisplayMode = "Shaded"
         cube = box(doc, "Cube", (10, 10, 4), (205, -5, 2), (0.6, 0.6, 0.6))
+        # a red plate cut by a section plane of its own: x < 20 kept
+        from pivy import coin
+
+        cut = box(doc, "Cut", (40, 30, 2), (0, 30, HIGH), (0.9, 0.1, 0.1), 50)
+        plane = coin.SoClipPlane()
+        plane.plane.setValue(coin.SbPlane(coin.SbVec3f(-1, 0, 0), coin.SbVec3f(20, 0, 0)))
+        cut.ViewObject.RootNode.insertChild(plane, 0)
         settle(1.0)
         view = FreeCADGui.ActiveDocument.ActiveView
         view.setCameraType("Orthographic")
@@ -151,6 +242,18 @@ def run():
         check("a red plate half clear lets red through",
               float(tinted[0]) > 1.5 * float(tinted[1]) and float(tinted[0]) > 1.5 * float(tinted[2]),
               "red %.2f, green %.2f, blue %.2f of it" % tuple(float(v) for v in tinted))
+        # the plate's top 2 above HIGH: its shadow HIGH + 2 along x; the
+        # kept half's from 0 to 20, the cut half's from 20 to 40
+        kept = passed(spot(shadows, (10.0 + HIGH + 2.0, 45.0, 0.0)))
+        gone = passed(spot(shadows, (30.0 + HIGH + 2.0, 45.0, 0.0)))
+        note("NOTE the cut plate lets through %s where it is kept, %s where it is cut away"
+             % (np.round(kept, 3), np.round(gone, 3)))
+        check("what a section plane leaves of a translucent part casts",
+              float(kept[0]) > 1.5 * float(kept[1]),
+              "red %.2f, green %.2f, blue %.2f of the light" % tuple(float(v) for v in kept))
+        check("what a section plane cuts away of a translucent part casts nothing",
+              float(gone.min()) > 0.9,
+              "red %.2f, green %.2f, blue %.2f of the light" % tuple(float(v) for v in gone))
         clearTop = spot(shadows, (20.0, 0.0, HIGH + 2.0))
         cubeTop = spot(shadows, (210.0, 0.0, 6.0))
         # the same, the plate not receiving and the tray not casting
@@ -169,6 +272,7 @@ def run():
               float(np.abs(cubeTop - cubeAlone).max()) < 0.03 * float(cubeAlone.max()),
               "the cube's top moved %.4f" % float(np.abs(cubeTop - cubeAlone).max()))
         FreeCAD.closeDocument(doc.Name)
+        bulb()
     except Exception:
         note("ABORT " + traceback.format_exc().replace("\n", " | "))
     finally:

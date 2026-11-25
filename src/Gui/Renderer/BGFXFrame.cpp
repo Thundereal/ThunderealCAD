@@ -3684,6 +3684,43 @@ bool BGFXRenderer::Private::render(const QColor &col,
         bgfx::setViewMode(id, bgfx::ViewMode::Default);
         bgfx::touch(id);
     };
+    // A bulb tile's tint and near passes: the moments tile's rect and
+    // camera, into the tint atlas (white; the moments' depth kept) or
+    // the near one (0, its own depth cleared).
+    auto configBulbMap = [&](int i, uint16_t id, int t, bool tint) {
+        const bgfx::FrameBufferHandle fbo =
+            tint ? view->bulbTintFbo : view->bulbNearFbo;
+        if (!bgfx::isValid(fbo)) {
+            configScene(i, id);
+            return;
+        }
+        bgfx::setViewFrameBuffer(id, fbo);
+        if (tint)
+            bgfx::setViewClear(id, uint16_t(BGFX_CLEAR_COLOR),
+                               0xffffffffu, 1.0f, 0);
+        else
+            bgfx::setViewClear(id,
+                uint16_t(BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH),
+                0x00000000u, 1.0f, 0);
+        int grid = V::kBulbShadowGrid;
+        int tileRow = bgfx::getCaps()->originBottomLeft
+            ? grid - 1 - t / grid : t / grid;
+        bgfx::setViewRect(id,
+            uint16_t((t % grid) * V::kBulbShadowTileSize),
+            uint16_t(tileRow * V::kBulbShadowTileSize),
+            V::kBulbShadowTileSize,
+            V::kBulbShadowTileSize);
+        bgfx::setViewTransform(id, view->bulbShadowViewMtx[t],
+                               view->bulbShadowProjMtx[t]);
+        bgfx::setViewMode(id, bgfx::ViewMode::Default);
+        bgfx::touch(id);
+    };
+    auto configBulbTint = [&](int i, uint16_t id) {
+        configBulbMap(i, id, i - V::ViewBulbTint0, true);
+    };
+    auto configBulbNear = [&](int i, uint16_t id) {
+        configBulbMap(i, id, i - V::ViewBulbNear0, false);
+    };
     auto configLineSdf = [&](int i, uint16_t id) {
         // Cleared to zero on purpose: the field stores
         // kLineSdfRadius - signedDistance, so an untouched texel decodes
@@ -4243,6 +4280,12 @@ bool BGFXRenderer::Private::render(const QColor &col,
     for (int t = 0; t < V::kBulbShadowTiles; ++t)
         declPass(V::ViewBulbShadow0 + t, bulbShadowRender[t],
                  configBulb);
+    for (int t = 0; t < V::kBulbShadowTiles; ++t) {
+        declPass(V::ViewBulbTint0 + t, bulbShadowRender[t],
+                 configBulbTint);
+        declPass(V::ViewBulbNear0 + t, bulbShadowRender[t],
+                 configBulbNear);
+    }
     declPass(V::ViewAOPrepass, prepassRender, configAOPrepass);
     declPass(V::ViewAOPrepassCap, prepassRender, configAOPrepassCap);
     for (int m = 0; m < 6; ++m)
@@ -5834,9 +5877,9 @@ bool BGFXRenderer::Private::render(const QColor &col,
                     && !casterInstancedThisFrame(drawIdx))
                 view->submitShadowCaster(draw);
             // Bulb shadow tiles re-rendering this frame take every
-            // caster individually (no instanced caster path there);
-            // they have no tint, and a translucent part is left out of
-            // them rather than casting as a solid.
+            // caster individually (no instanced caster path there); a
+            // translucent part casts into the tiles' tint and near maps
+            // below, not into the moments as a solid.
             if (anyBulbShadow && !draw.material.ontop
                     && isTriangle(draw)
                     && (draw.material.shadowstyle & 1)
@@ -5845,6 +5888,18 @@ bool BGFXRenderer::Private::render(const QColor &col,
                 for (int t = 0; t < BGFXView::kBulbShadowTiles; ++t)
                     if (bulbShadowRender[t])
                         view->submitBulbShadowCaster(draw, t);
+            }
+            if (anyBulbShadow && !draw.material.ontop
+                    && isTriangle(draw)
+                    && (draw.material.shadowstyle & 1)
+                    && ((glassActive && draw.material.glass)
+                        || translucentCaster(draw))) {
+                for (int t = 0; t < BGFXView::kBulbShadowTiles; ++t)
+                    if (bulbShadowRender[t]) {
+                        view->submitBulbShadowTint(draw, t,
+                                                   translucentCaster(draw));
+                        view->submitBulbShadowNear(draw, t);
+                    }
             }
             if (shadowRender && !draw.material.ontop
                     && isTriangle(draw)
@@ -6017,9 +6072,9 @@ bool BGFXRenderer::Private::render(const QColor &col,
                 && !casterInstancedThisFrame(drawIdx))
             view->submitShadowCaster(draw);
         // Bulb shadow tiles re-rendering this frame take every
-        // caster individually (no instanced caster path there);
-        // they have no tint, and a translucent part is left out of
-        // them rather than casting as a solid.
+        // caster individually (no instanced caster path there); a
+        // translucent part casts into the tiles' tint and near maps
+        // below, not into the moments as a solid.
         if (anyBulbShadow && isTriangle(draw)
                 && (draw.material.shadowstyle & 1)
                 && !mediumExempt(draw.material)
@@ -6027,6 +6082,18 @@ bool BGFXRenderer::Private::render(const QColor &col,
             for (int t = 0; t < BGFXView::kBulbShadowTiles; ++t)
                 if (bulbShadowRender[t])
                     view->submitBulbShadowCaster(draw, t);
+        }
+        // and through their tint and near maps, as for the scene light
+        if (anyBulbShadow && isTriangle(draw)
+                && (draw.material.shadowstyle & 1)
+                && ((glassActive && draw.material.glass)
+                    || translucentCaster(draw))) {
+            for (int t = 0; t < BGFXView::kBulbShadowTiles; ++t)
+                if (bulbShadowRender[t]) {
+                    view->submitBulbShadowTint(draw, t,
+                                               translucentCaster(draw));
+                    view->submitBulbShadowNear(draw, t);
+                }
         }
         // Glass and translucent parts cast through the tint map
         // instead of the moments: as much light let through as they

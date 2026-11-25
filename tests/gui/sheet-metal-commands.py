@@ -679,7 +679,8 @@ def run():
         check(
             "a down bend's line, on the blank's top, is drawn and picked from above",
             down is not None
-            and abs(down[1].BoundBox.ZMin - flat.Shape.Solids[0].BoundBox.ZMax) < 1e-6
+            # the solid's exact box: its BoundBox is loose since a13782b00f
+            and abs(down[1].BoundBox.ZMin - flat.Shape.Solids[0].optimalBoundingBox().ZMax) < 1e-6
             and hit is not None
             and hit.split(".")[-1] == "Edge%d" % down[0],
             (down and (down[0], down[1].BoundBox), flat.BendDirections, hit),

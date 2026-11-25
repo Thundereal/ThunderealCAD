@@ -68,6 +68,22 @@ def settle():
         QtCore.QCoreApplication.processEvents()
 
 
+def rest(view, seconds=5.0):
+    """Until the camera stands still: viewFront() animates, and a pick
+    sweep begun before it comes to rest misses by a few pixels (found on
+    the Windows box, 2 to 8 px from run to run). Five reads unchanged."""
+    import time
+    last, same = None, 0
+    end = time.time() + seconds
+    while same < 5 and time.time() < end:
+        settle()
+        FreeCADGui.updateGui()
+        cam = view.getCamera()
+        same = same + 1 if cam == last else 0
+        last = cam
+        time.sleep(0.02)
+
+
 def centre_of(name):
     for n, x, z, _h, _c in CUBES:
         if n == name:
@@ -207,6 +223,7 @@ def measure(view, tag):
     settle()
     FreeCADGui.updateGui()
     settle()
+    rest(view)
     w, h = view.getSize()
     note("%s view %dx%d aspect %.3f" % (tag, w, h, float(w) / h))
     check_fit(view, tag)
@@ -246,6 +263,7 @@ def measure_cell(view, tag):
     settle()
     FreeCADGui.updateGui()
     settle()
+    rest(view)
     frames, fsize = frame(view, tag, True)
     note("%s cell size %s, viewer size %s" % (tag, fsize, tuple(view.getSize())))
     if not check("%s: the canvas cell was grabbed" % tag, fsize is not None):

@@ -1130,8 +1130,25 @@ class TestNistSet(Base):
             return collections.Counter(
                 re.findall(r"PROPERTY_DEFINITION\s*\(\s*'([^']*)'", text))
 
+        def lengths(path):
+            """The attributes given as lengths (STC-06's, in inches)"""
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+            names = set()
+            for value in ents.values():
+                if not value.startswith("PROPERTY_DEFINITION_REPRESENTATION("):
+                    continue
+                pd, rep = re.findall(r"#(\d+)", value)[:2]
+                if "'userdefinedattribute'" not in ents[pd]:
+                    continue
+                for item in re.findall(r"#(\d+)", ents[rep].split("),")[0]):
+                    if "LENGTH_MEASURE(" in ents.get(item, ""):
+                        names.add(re.findall(r"'([^']*)'", ents[pd])[0])
+            return names
+
         for name in ("nist_ctc_03_asme1_ap242-e2.stp", "nist_ctc_05_asme1_ap242-e1.stp",
-                     "nist_ftc_08_asme1_ap242-e4-tg.stp"):
+                     "nist_ftc_08_asme1_ap242-e4-tg.stp", "nist_stc_06_asme1_ap242-e3.stp"):
             path = edition(os.path.join(nist, name))
             with self.subTest(os.path.basename(path)):
                 want = properties(path)
@@ -1150,6 +1167,12 @@ class TestNistSet(Base):
                 self.assertEqual({k for k in got if k in attributes}, attributes)
                 self.assertEqual("geometric validation property" in got,
                                  "geometric validation property" in want)
+                # Lengths written as lengths (STC-06's 130), in mm as the file is
+                self.assertEqual(lengths(self.written), lengths(path))
+        self.assertTrue(lengths(path))
+        part = [o for o in doc.Objects if "p1" in getattr(o, "StepRealAttributes", {})][0]
+        self.assertEqual(part.StepAttributeMeasures["p1"], "LENGTH_MEASURE")
+        self.assertAlmostEqual(float(part.StepRealAttributes["p1"]), 1.25 * 25.4)
 
     def test_what_the_file_hides_is_hidden(self):
         """What a file does not show -- PMI graphics an INVISIBILITY lists

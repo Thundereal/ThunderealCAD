@@ -1979,6 +1979,10 @@ compares; it took our curves for none.
   (representation named 'semantic text', 5 files): no attribute is kept of it, the note it is
   is written. Logged: STC-06's 130 length attributes come back as reals (OCCT's metadata
   drops a measure's kind); CTC-05's polylines carry 4.4 times NIST's points.
+- **Gaps chased after p21 (dwin down; the user: chase them all).** Length attributes: the
+  reader keeps which reals were lengths (`XCAFDoc::AttributeMeasuresGUID`, pairs of key and
+  measure), the import on the object (`StepAttributeMeasures`, the real in mm), the writer gives
+  them back as `LENGTH_MEASURE`s in the file's length unit (STC-06: 130 of 130).
 
 ## 11. Decisions (made 2026-11-19)
 

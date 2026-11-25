@@ -39,6 +39,8 @@
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <TCollection_ExtendedString.hxx>
+#include <TDataStd_ExtStringList.hxx>
+#include <XCAFDoc.hxx>
 #include <TDataStd_NamedData.hxx>
 #include <XCAFDoc_Area.hxx>
 #include <XCAFDoc_Centroid.hxx>
@@ -304,6 +306,21 @@ void ExportOCAF2::setupMetadata(TDF_Label label,
             freecad_cast<App::PropertyMap*>(obj->getPropertyByName(RealAttributesProperty))) {
         for (auto& [key, value] : prop->getValues()) {
             named()->SetReal(toExtended(key), std::atof(value.c_str()));
+        }
+        if (auto measures = freecad_cast<App::PropertyMap*>(
+                obj->getPropertyByName(AttributeMeasuresProperty))) {
+            Handle(TDataStd_ExtStringList) list;
+            for (auto& [key, measure] : measures->getValues()) {
+                if (!prop->getValues().count(key)) {
+                    continue;
+                }
+                if (list.IsNull()) {
+                    list = TDataStd_ExtStringList::Set(label, XCAFDoc::AttributeMeasuresGUID());
+                    list->Clear();
+                }
+                list->Append(toExtended(key));
+                list->Append(toExtended(measure));
+            }
         }
     }
     // Computed of the shape written: the file's were of the shape it had

@@ -181,6 +181,9 @@ public:
     static constexpr const char* AttributesProperty = "StepAttributes";
     static constexpr const char* IntegerAttributesProperty = "StepIntegerAttributes";
     static constexpr const char* RealAttributesProperty = "StepRealAttributes";
+    /// The measure a real attribute was given as (LENGTH_MEASURE: the real in mm, written in
+    /// the file's length unit): PropertyMap of the real's key and the measure
+    static constexpr const char* AttributeMeasuresProperty = "StepAttributeMeasures";
     /// Written with geometric validation properties computed of its shape: a
     /// PropertyBool of this name, true
     static constexpr const char* ValidationProperty = "StepValidation";

@@ -55,6 +55,8 @@
 #include <NCollection_IndexedMap.hxx>
 #include <NCollection_DataMap.hxx>
 #include <TCollection_ExtendedString.hxx>
+#include <TDataStd_ExtStringList.hxx>
+#include <XCAFDoc.hxx>
 #include <TDataStd_NamedData.hxx>
 #include <XCAFDoc_Area.hxx>
 #include <XCAFDoc_Centroid.hxx>
@@ -2318,6 +2320,30 @@ void ImportOCAF2::applyMetadata(bool progressive)
                 if (auto prop = map(ExportOCAF2::RealAttributesProperty,
                                     "The product's real attributes in the STEP file")) {
                     prop->setValues(reals);
+                }
+            }
+            // Which of them are lengths (NIST STC-06's, in inches), kept in mm
+            Handle(TDataStd_ExtStringList) list;
+            std::map<std::string, std::string> measures;
+            if (label.FindAttribute(XCAFDoc::AttributeMeasuresGUID(), list)) {
+                using List = NCollection_List<TCollection_ExtendedString>;
+                for (List::Iterator it(list->List()); it.More();) {
+                    std::string key = utf8(it.Value());
+                    it.Next();
+                    if (!it.More()) {
+                        break;
+                    }
+                    if (reals.count(key)) {
+                        measures[key] = utf8(it.Value());
+                    }
+                    it.Next();
+                }
+            }
+            if (!measures.empty()) {
+                if (auto prop = map(ExportOCAF2::AttributeMeasuresProperty,
+                                    "The measure each real attribute was in the STEP file "
+                                    "(LENGTH_MEASURE: the real in mm)")) {
+                    prop->setValues(measures);
                 }
             }
         }

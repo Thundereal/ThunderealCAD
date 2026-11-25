@@ -2585,6 +2585,14 @@ fc_add_gui_test(GuiCavityCreaseIsSmooth_tests_run
                 cavity-crease-is-smooth.py
                 --timeout 300)
 
+# Thin water over a part is next to clear and deep water coloured: the
+# water shader's Beer-Lambert column ends at the first opaque surface behind
+# the water, not the farthest back face of it, and the tint laid on
+# whatever the depth is left to where the depth is not known.
+fc_add_gui_test(GuiWaterFilmIsClear_tests_run
+                water-film-is-clear.py
+                --timeout 300)
+
 # Std_Paste and Material_Paste asked the clipboard on every pass over the
 # commands, a call into another process each time; they read the formats
 # as remembered since the clipboard last changed. That the list follows

@@ -340,16 +340,29 @@ vec4 fcWaterShadeFragment(vec3 normal, vec3 vpos, vec2 fragCoord)
 			}
 		}
 		refr = texture2D(s_texScene, ruv).xyz;
-		refr *= mix(vec3_splat(1.0), u_matColor.rgb, 0.2);
+		// A tint the same through any depth of water, where the depth is
+		// not known. Where it is, the absorption below is all of it: a
+		// film is next to clear, as thin water is.
+		if (u_waterSurf.w <= 1.5)
+			refr *= mix(vec3_splat(1.0), u_matColor.rgb, 0.2);
 
 		// Depth-based absorption (Beer-Lambert) over the water column from
 		// the surface to the body back face (s_texWaterBack.z; the water
 		// gains body and the floor recedes with depth). u_waterSurf.w == 2
-		// flags the back-depth target as bound.
+		// flags the back-depth target as bound, and the prepass viewZ with
+		// it. The column ends at the first opaque surface behind the entry
+		// (s_texNormalZ: opaque fills only): the back target keeps the
+		// FARTHEST back face, which behind a part standing in the water is
+		// the pool's -- a film over the part was tinted as the whole
+		// column past it.
 		if (u_waterSurf.w > 1.5)
 		{
 			vec4 wb = texture2D(s_texWaterBack, uv);
-			float thick = wb.w > 0.5 ? max(wb.z + vpos.z, 0.0) : 0.0;
+			float back = wb.z;
+			vec4 solid = texture2D(s_texNormalZ, uv);
+			if (solid.w > 0.5)
+				back = min(back, solid.z);
+			float thick = wb.w > 0.5 ? max(back + vpos.z, 0.0) : 0.0;
 			vec3 sigma = (vec3_splat(1.0) - u_matColor.rgb)
 				* u_waterAbsorb.x + vec3_splat(0.1 * u_waterAbsorb.x);
 			vec3 trans = exp(-sigma * thick);

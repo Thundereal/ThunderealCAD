@@ -1097,6 +1097,18 @@ class TestWorkerRecompute(unittest.TestCase):
     (docs/WorkerProcess.md sec 19)"""
 
     def setUp(self):
+        # Expressions evaluated natively, here and in the workers (which take
+        # this setting with the copy of the configuration their pool writes):
+        # with a Pyodide runtime installed they are routed to the sandbox,
+        # and a worker's first routed one boots its guest, 1.7 s on the mini
+        # -- what the splits' timings would then measure (WorkerProcess.md
+        # sec 66)
+        sandbox = App.ParamGet("User parameter:BaseApp/Preferences/Expression/Sandbox")
+        if "Evaluate" in sandbox.GetBools():
+            self.addCleanup(sandbox.SetBool, "Evaluate", sandbox.GetBool("Evaluate"))
+        else:
+            self.addCleanup(sandbox.RemBool, "Evaluate")
+        sandbox.SetBool("Evaluate", False)
         self.doc = App.newDocument("WorkerRecompute")
         group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
         group.SetInt("Workers", 1)

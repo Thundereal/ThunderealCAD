@@ -154,6 +154,7 @@
 #include <Gui/Renderer/Renderer.h>
 #include <Gui/Renderer/MeshSimplify.h>
 #include <Gui/Renderer/MeshSource.h>
+#include <Mod/Part/App/MeshService.h>
 #include <Mod/Part/App/ShapeDiff.h>
 #include <Mod/Part/App/Tools.h>
 
@@ -8193,7 +8194,9 @@ bool ViewProviderPartExt::captureVisualFill(const TopoDS_Shape &cShape,
                 meshParams.InParallel = Standard_True;
                 meshParams.AllowQualityDecrease = Standard_True;
 
-                BRepMesh_IncrementalMesh(cShape, meshParams);
+                // Here, or in a helper when Workers/MeshInWorker says so
+                // (Part::meshShape, docs/WorkerProcess.md sec 65)
+                Part::meshShape(cShape, meshParams, "a shape a view shows");
 #else
                 BRepMesh_IncrementalMesh(cShape, deflection, Standard_False, AngDeflectionRads, Standard_True);
 #endif

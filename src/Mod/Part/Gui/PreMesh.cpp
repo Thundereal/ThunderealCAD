@@ -42,6 +42,7 @@
 
 #include <Base/ThreadPool.h>
 #include <Gui/RenderParams.h>
+#include <Mod/Part/App/MeshService.h>
 #include <Mod/Part/App/MeshTwin.h>
 
 #include "PreMesh.h"
@@ -228,8 +229,11 @@ void meshTwin(ClaimPtr claim)
             // Exactly what the display build asks with, so the mesh
             // this leaves is the mesh that build would have made.
             params.AllowQualityDecrease = Standard_True;
-            BRepMesh_IncrementalMesh(claim->twin->shape(), params);
-            failed = false;
+            // Here, or in a helper (Part::meshShape): a shape that killed
+            // one is left as a shape the mesher failed on, and whoever
+            // builds it asks for it again, which is refused
+            failed = !Part::meshShape(claim->twin->shape(), params, "a shape pre-meshed at an open",
+                                      &claim->twin->original());
         }
         catch (const Standard_Failure &) {
             // A shape OCCT cannot mesh is not an error here: the

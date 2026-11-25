@@ -4142,3 +4142,146 @@ error: `ColorPerFaceTest.testBox`, `testBoxAndLink`,
 `SectionCutTestCases.testOpenDialog`) and `TestPartDesignGui` (1 failure,
 `testPadPanelTakesAPickOnTheSolidBody`) fail the same, in the same words, on
 a build of the sources before sec 63 and this.
+
+## 65. The views' meshes made by a helper process, for crash isolation (2026-11-25)
+
+OCCT's mesher runs in this process for every shape a view shows: the
+pre-mesh of an open (`PreMesh.cpp`, on threads), the view's own build
+(`ViewProviderPartExt::captureVisualFill`) at an open, at every recompute
+and at a change of detail, and the level builds of a served scene
+(`MeshLevelBuild.cpp`). A crash in it is this process's. With
+**`Workers/MeshInWorker`** on (off by default) the three call it through
+`Part::meshShape()` (`Mod/Part/App/MeshService.h`), which sends the shape to
+a helper process and writes what comes back onto the shape.
+
+**The helpers** (`App::ServiceWorkers`, `App/ServiceWorkers.h`) are not a
+document's pool. A WorkerPool's worker holds a copy of a document and moves
+along its log; a mesh needs nothing of a document, and the copy goes stale
+at every edit here, so a call to the pool would take a new one (0.3 to 0.6
+s) each time. These hold no document: `ThunderealCmd -c "import FreeCAD;
+FreeCAD._serveService()"` on copies of the configuration, connected by a
+local socket, a kind registered by the module the call names (`part.mesh`,
+`Part`). `call()` blocks the thread it is made on, any thread; up to
+`Workers/ServiceWorkers` (2) helpers serve several threads at once, each
+owned by a QThread here. A helper that dies making a call, or runs past the
+call's time (`Workers/MeshTimeout`, 120 s) and is ended, is told to the
+caller with how it ended and its crash's first frames (`WorkerCrash`), and
+another is started for the next call. They end at `aboutToQuit` in the GUI,
+at `Application::destruct` in the console; their directory goes with them,
+unless one died there, whose log the error names.
+
+**What goes across.** The shape in `BinTools_ShapeSet`'s form, with the mesh
+it holds, so the helper's mesher decides as it would here; then:
+
+- *Each location's transformation as it is.* BinTools writes a location's
+  matrix and reads it through `gp_Trsf::SetValues`, which takes the scale
+  out of the determinant and orthogonalizes the rest: a placement's rotation
+  came back an ulp or so away, and a face under it was meshed with other
+  nodes (`fcad-probes/worker/meshroundtrip.py`: a shape written and read
+  back here meshes as the
+  helper meshed it, not as the shape itself meshes). The gp_Trsf of each
+  elementary location goes along as its bytes, and the helper rebuilds every
+  location of what it read from them -- the placements of the sub-shapes, a
+  face's surface location, the locations of the edges' and vertices'
+  records -- checking each chain datum for datum.
+- *What each resident mesh was made for* (`Poly_TriangulationParameters`),
+  which BinTools does not keep. The mesher judges a resident mesh by it
+  (`BRepMesh_ModelPreProcessor`), and so does a view
+  (`tessellationIsRedundant`): without it the views met every mesh a helper
+  made as unmade, and called again -- 244 calls at an open of scanner where
+  there are 110.
+
+The helper meshes and sends back what changed: each face's new
+triangulation (its parameters with it), the polygons of the edges on it --
+each said by where it was put, the face met at k and its edge met at j in
+it, whose locations here give the polygon's as `BRep_Builder::UpdateEdge`
+gives the mesher's -- and the polygon of an edge on no face. They are
+written onto the shape as the mesher writes them (`UpdateFace`,
+`UpdateEdge`), the polygons on the triangulations replaced taken off under
+the fork's representation lock; so a twin's landing, a view's fill and a
+level build read what the mesher here would have left.
+
+**A shape that kills its helper** is left unmeshed and remembered, under the
+shape a twin or a copy stands for (`standsFor`): it is not sent again and
+not meshed here either, which is what the helper is for. A helper that
+cannot be had at all -- no program, no start -- meshes it here, said once.
+
+**The same meshes.** `Part.meshDigest(shape)` digests every triangulation
+(nodes, UVs, normals, triangles, deflection, parameters) and edge polygon a
+shape holds. Every shape of scanner after its recompute, copied, meshed
+here and by a helper, bare and over a coarser resident mesh: 0 of 660
+differ (`fcad-probes/worker/meshsame.py`; 88 did before the locations went
+along exactly). The GUI,
+`fcad-probes/worker/meshcost_gui.py`, the same session with the setting off
+and on: the digests of all 405 shapes the same, and the same calls (150 at
+the open, 106 for the full recompute, 24 an edit here, 20 a worker's
+put-in).
+
+**The cost** on scanner, the same probe, 2 helpers:
+
+| | off | on |
+|---|---|---|
+| open (`openDocument`) | 4.74 s | 4.78 s |
+| main thread blocked, open and 5 s after | 6.02 s | 6.34 s |
+| meshing at the open | 1.63 s, here | 4.18 s end to end: helpers 1.42, started 0.30, written 0.09, put on 0.03, the rest waiting for a helper |
+| full recompute here | 12.57 s (meshing 0.57) | 12.71 s (0.76) |
+| an edit here | 9.51, 9.48 s (0.49, 0.52) | 9.63, 9.45 s (0.64, 0.62) |
+| a worker's edit, its put-in | 0.413, 0.374 s | 0.423, 0.395 s |
+| bytes, open | -- | 9.9 MB out, 14.4 MB back |
+| helpers' resident memory | -- | 80 MB each quiet, 540 to 630 MB at their peak |
+
+The open's meshing is longer end to end -- its 40 pre-mesh twins queue for
+two helpers -- but runs beside the views' build, and the open is not longer.
+A call costs about 2 ms over its meshing (written, sent, read, put on). With
+4 helpers (before the parameters went along) the open's meshing was 4.18 s
+against 4.61 with 2, the open no shorter, and each helper as large at its
+peak.
+
+Tests: `parttests.MeshServiceTest` (TestPartApp): a helper's mesh the mesh
+made here for a box, a cylinder, a sphere, a torus, a fused solid, a solid
+met at two places, an edge on no face and a cylinder placed by a rotation
+(which a plain BinTools round trip meshes otherwise); finer, then coarser
+over a resident mesh, and a helper's over one made here; the setting sending
+it to a helper; a helper killed by a fault (the test's `crash`) costing the
+shape its mesh and nothing else -- not sent again, not meshed here, the next
+shape meshed by a new helper. TestPartApp 450, TestPartDesignApp 1073,
+TestWorkerPool 79, Document 364 OK; ctest 1288 of 1288 (`PreMesh_tests_run`
+crashed on the first try: its binary makes no application, and the setting
+was read through one -- no application now means no setting). TestPartGui
+and TestPartDesignGui with the setting on, every view's mesh a helper's (174
+calls): the four of sec 64 fail as without it, and nothing else.
+
+Not decided: the default. On, a crash of the mesher costs a helper and the
+shape's mesh rather than the session; the price above is about 0.1 to 0.2 s
+on a recompute here, nothing seen on an open or a put-in, and two processes
+of 80 MB that reach 540 to 630 MB each at an open of scanner.
+
+## 66. A worker's first routed expression boots its guest (2026-11-25)
+
+Reported from the Windows box after merging Worker into main: three tests
+of `TestWorkerRecompute` (`testARecomputeIsSplitOverTwoWorkers`,
+`...OverThreeWorkers`, `testACheapJoinIsMadeHereSoWhatItGathersSplits`)
+ran past their timings by 0.3 to 0.8 s, each part of a split its branch's
+sleep and about 1.8 s more. Traced there (a print in `_Counted.execute`):
+the 1.8 s fell, once in each process, between the first object executed
+and the first that reads an expression -- the first expression that process
+evaluated.
+
+With a Pyodide runtime installed, expressions are routed to the sandbox
+(`Expression/Sandbox:Evaluate`, on; sec 3.5 of `docs/Sandbox.md`), and the
+first routed evaluation in a process boots its guest. A worker is a new
+process: its first expression pays the boot. The mini's default profile has
+no runtime, so these tests had run native here; with one
+(`FREECAD_USER_HOME=~/works/sw/pyodide-home`) two of them fail the same way
+here, 1.7 s a part.
+
+The tests are about splitting: `TestWorkerRecompute.setUp` turns routing
+off for its pool's workers too (they take the setting with the copy of the
+configuration the pool writes). With the runtime: the class 35 OK in 76 s,
+where it was 2 failures in 129 s; without: TestWorkerPool 79 OK.
+
+Not changed: what this costs a user with a runtime installed. A worker's
+first job that evaluates an expression -- any recompute of a document with
+a spreadsheet -- is 1.7 s longer on the mini, once per worker; a worker
+lives until it has been idle `IdleSeconds` (30 s). Booting the guest beside
+the copy's open, when a worker starts, would take it off the first job.

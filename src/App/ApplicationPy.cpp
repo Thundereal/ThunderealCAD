@@ -47,6 +47,7 @@
 #include "ParamRegistry.h"
 #include "TransactionMeasure.h"
 #include "WorkerPool.h"
+#include "ServiceWorkers.h"
 #include "ExpressionSecurityRuntime.h"
 #include "FileHistory.h"
 #include "LibraryPaths.h"
@@ -85,6 +86,7 @@ static PyObject *sStopTransactionMeasure(PyObject *self, PyObject *args);
 namespace {
 PyObject* workerPoolPy(PyObject* self, PyObject* args);
 PyObject* serveWorkerPy(PyObject* self, PyObject* args);
+PyObject* serveServicePy(PyObject* self, PyObject* args);
 }
 
 PyMethodDef Application::Methods[] = {
@@ -207,6 +209,8 @@ PyMethodDef Application::Methods[] = {
      "cancel(tag), stop(reason), poll(ms), wait(seconds), info(). See freecad.worker."},
     {"_serveWorker",   (PyCFunction) serveWorkerPy, METH_VARARGS,
      "_serveWorker() -> exit code: a worker's loop, run by freecad.worker.serve()"},
+    {"_serveService",  (PyCFunction) serveServicePy, METH_VARARGS,
+     "_serveService() -> exit code: a service helper's loop (App::ServiceWorkers)"},
     {"getDocument",    (PyCFunction) Application::sGetDocument, METH_VARARGS,
      "getDocument(string) -> object\n\n"
      "Get a document by its name or raise an exception\n"
@@ -659,6 +663,15 @@ PyObject* serveWorkerPy(PyObject * /*self*/, PyObject *args)
         return nullptr;
     PY_TRY {
         return Py::new_reference_to(Py::Long(WorkerPool::serve()));
+    }PY_CATCH;
+}
+
+PyObject* serveServicePy(PyObject * /*self*/, PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        return Py::new_reference_to(Py::Long(ServiceWorkers::serve()));
     }PY_CATCH;
 }
 }  // namespace

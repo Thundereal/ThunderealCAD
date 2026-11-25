@@ -122,11 +122,19 @@ class MovedParts:
     """The parts the fluid moved, put where a frame has them: by their own
     Placement, as an assembly's simulation shows its parts, and put back
     where they stood when the frames are done with. A run takes the parts
-    where they are: put them back before one starts."""
+    where they are: put them back before one starts.
+
+    A study run with a mechanism (its Mechanism, an Assembly's simulation)
+    moves more than the parts the fluid pushes: the whole assembly is put
+    where the Assembly's run has it at each frame's time -- the parts the
+    fluid does not touch with the ones it does -- when the simulation keeps
+    the run that ends where the fluid's does."""
 
     def __init__(self, frames):
         self.frames = frames
         self.parts = []
+        self.assembly = None
+        self.placed = {}
         for index, part in enumerate(frames.bodies):
             if part is None or not hasattr(part, "Placement"):
                 continue
@@ -138,10 +146,42 @@ class MovedParts:
             # what is above it: the placement its own is in
             above = whole.multiply(own.inverse())
             self.parts.append((index, part, own, whole, above.inverse()))
+        self._mechanism()
         self.moved = False
+
+    def _mechanism(self):
+        """The assembly whose run this is, its parts' placements kept."""
+        simulation = getattr(self.frames.study, "Mechanism", None)
+        if simulation is None or not self.frames.valid:
+            return
+        assembly = None
+        for obj in simulation.InListRecursive:
+            if obj.isDerivedFrom("Assembly::AssemblyObject"):
+                assembly = obj
+                break
+        if assembly is None:
+            return
+        try:
+            import UtilsAssembly
+
+            if not assembly.loadSimulationResults(simulation):
+                return
+            times = list(assembly.getSimulationResults().get("Times", []))
+        except Exception:
+            return
+        # the same run: it ends where the fluid's does, to a frame
+        step = self.frames.times[1] - self.frames.times[0] if len(self.frames) > 1 else 0.0
+        if not times or abs(times[-1] - self.frames.times[-1]) > max(step, 1e-9):
+            return
+        self.assembly = assembly
+        self.placed = UtilsAssembly.saveAssemblyPartsPlacements(assembly)
 
     def show(self, index):
         """The parts where the frame has them."""
+        if self.assembly is not None:
+            self.assembly.updateForTime(self.frames.times[index])
+            self.moved = True
+            return
         if not self.parts:
             return
         motions = self.frames.motions(index)
@@ -153,6 +193,15 @@ class MovedParts:
     def restore(self):
         """The parts where they stood."""
         if not self.moved:
+            return
+        if self.assembly is not None:
+            import UtilsAssembly
+
+            try:
+                UtilsAssembly.restoreAssemblyPartsPlacements(self.assembly, self.placed)
+            except Exception:
+                pass
+            self.moved = False
             return
         for _at, part, own, _whole, _down in self.parts:
             try:

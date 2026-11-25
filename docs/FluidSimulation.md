@@ -1478,9 +1478,19 @@ changed, now reads a link saved as another scope variant of its kind
 PropertyXLink, which writes another format). Without it all seven of a
 test file's links came back empty, without a word.
 
-Not built yet: the two results shown as one (the panel plays the fluid's
-frames, which move the parts; the Assembly's own playback does not show
-the fluid); the lag at finer spacings.
+**The two results as one (2026-11-25).** The panel played the fluid's
+frames and moved the parts the fluid pushes by them; a part of the
+mechanism the fluid does not touch (an arm, a counterweight, a link
+fixed to a float) stood still. With a mechanism, `FluidPlayback.
+MovedParts` now loads the simulation's kept run (`loadSimulationResults`)
+and puts the whole assembly where that run has it at each frame's time
+(`updateForTime`), the Assembly's own parts' placements saved and put
+back as its panel does -- when the run ends where the fluid's does, to a
+frame; otherwise, or with no mechanism, the fluid's frames as before.
+From the file too: the simulation keeps its run (KeepResults Motion, the
+default). The Assembly's own panel still does not draw the water.
+
+Not built yet: the lag at finer spacings.
 
 ### 12.10 The host's hard hangs, and what the runs are held to (2026-11-24)
 

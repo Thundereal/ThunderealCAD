@@ -532,6 +532,9 @@ struct WorkerPool::Private
         bool ready = false;     ///< the copy is open
         bool quitting = false;  ///< told there is no more
         bool over = false;      ///< finished() ran
+        /// finished() is running: what it reads may say the socket went,
+        /// whose handler would end it again inside
+        bool ending = false;
         bool killed = false;    ///< ended by the pool (kill())
         long made = 0;
         std::size_t resident = 0;
@@ -1866,7 +1869,9 @@ WorkerPool::Private::Proc* WorkerPool::Private::making(JobId id) const
 
 void WorkerPool::Private::kill(Proc& proc)
 {
-    if (proc.over) {
+    // Being ended already: not killed by the pool, which would leave its
+    // crash unread
+    if (proc.over || proc.ending) {
         return;
     }
     if (proc.process && proc.process->state() != QProcess::NotRunning) {
@@ -2006,9 +2011,13 @@ std::string WorkerPool::Private::crashOf(const Proc& proc, JobId job, std::strin
 
 void WorkerPool::Private::finished(Proc& proc)
 {
-    if (proc.over) {
+    if (proc.over || proc.ending) {
         return;
     }
+    // The waits below deliver the socket's signals: its `disconnected`
+    // ends it (kill()), which would run all of this inside this, and leave
+    // this one to count a worker gone with no job as one that failed
+    proc.ending = true;
     // The process reaped before its socket was read: what it said last is
     // still with the system. A worker its crash handler ends goes at once,
     // and its last `at` came after the process's end (sec 35)
@@ -2107,7 +2116,7 @@ void WorkerPool::Private::finished(Proc& proc)
         }
     }
     if (!quiet) {
-        FC_LOG(doc.getName() << ": worker " << proc.number << " ended"
+        FC_LOG(doc.getName() << ": worker " << proc.number << " (pid " << proc.pid << ") ended"
                              << (lost ? " in the middle of a job" : ""));
         if (!inObject && ++failedInRow >= 3) {
             pool.stop("the workers exited");

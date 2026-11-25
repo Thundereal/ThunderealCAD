@@ -883,12 +883,16 @@ bool meshHere(const TopoDS_Shape& shape, const IMeshTools_Parameters& params)
 
 bool Part::meshInWorker()
 {
+#if defined(__EMSCRIPTEN__)
+    return false;  // a build that runs no processes
+#else
     // No application (a test's that never made one): no setting, and no
     // program to start a helper with -- meshed here
     if (App::Application::GetARGC() == 0) {
         return false;
     }
-    return workerParams()->GetBool("MeshInWorker", false);
+    return workerParams()->GetBool("MeshInWorker", true);
+#endif
 }
 
 bool Part::meshShape(const TopoDS_Shape& shape, const IMeshTools_Parameters& params,

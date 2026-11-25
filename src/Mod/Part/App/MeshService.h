@@ -38,7 +38,7 @@ namespace Part
  *
  * OCCT's mesher runs in this process for every shape a view shows: at an
  * open, at every recompute, at a change of detail. A crash in it is this
- * process's. With MeshInWorker of Preferences/Workers on, meshShape() sends
+ * process's. With MeshInWorker of Preferences/Workers on (the default), meshShape() sends
  * the shape -- with the mesh it already holds, so the mesher decides as it
  * would here -- to a helper (App::ServiceWorkers), which meshes it and sends
  * back what it changed: each face's new triangulation, the polygons of the
@@ -58,7 +58,7 @@ enum class MeshWhere
 };
 
 /// Whether meshShape() meshes in a helper: MeshInWorker of
-/// Preferences/Workers (off)
+/// Preferences/Workers (on; off in a build that runs no processes)
 PartExport bool meshInWorker();
 
 /** BRepMesh_IncrementalMesh(shape, params), in a helper or here.

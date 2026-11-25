@@ -482,6 +482,70 @@ TEST(ParticleSurface, stillWaterBesideAWallDoesNotFlicker)
     EXPECT_LT(walled, 0.5 * bare);
 }
 
+TEST(ParticleSurface, waterPastAnEdgeIsNotMirroredOverIt)
+{
+    // A bar under the water, its top a little below the water's top, its
+    // end square to the open water: the hinged bar of fluid/study/mechanism
+    // at rest. A particle out past the end, bobbing a tenth of a spacing
+    // about the plane of the top, was taken for one over the top when
+    // above that plane -- its foot on the plane within reach of the top's
+    // wall points, though past their edge -- and mirrored down across it:
+    // a ball of water heaped over the end of the bar, there in one frame
+    // and gone the next. A wall counts where the particle's foot is on it.
+    const double d = 0.01;
+    const Tank c = tank(d);
+    const double x0 = 0.03;
+    const double x1 = 0.09;
+    const double y0 = 0.04;
+    const double y1 = 0.08;
+    const double top = 0.0565;
+    std::vector<Vec3> particles;
+    for (const Vec3& p : c.particles) {
+        const bool by = p[0] > x0 - 0.5 * d && p[0] < x1 + 0.5 * d && p[1] > y0 - 0.5 * d
+            && p[1] < y1 + 0.5 * d && p[2] < top + 0.5 * d;
+        if (!by) {
+            particles.push_back(p);
+        }
+    }
+    std::vector<WallPoint> walls = c.walls;
+    Solver::Surface bar;
+    const auto square = [&](const Vec3& o, const Vec3& u, const Vec3& v) {
+        const int at = static_cast<int>(bar.points.size());
+        bar.points.push_back(o);
+        bar.points.push_back({o[0] + u[0], o[1] + u[1], o[2] + u[2]});
+        bar.points.push_back({o[0] + u[0] + v[0], o[1] + u[1] + v[1], o[2] + u[2] + v[2]});
+        bar.points.push_back({o[0] + v[0], o[1] + v[1], o[2] + v[2]});
+        bar.triangles.push_back({at, at + 1, at + 2});
+        bar.triangles.push_back({at, at + 2, at + 3});
+    };
+    const double l = x1 - x0;
+    const double w = y1 - y0;
+    square({x0, y0, top}, {l, 0.0, 0.0}, {0.0, w, 0.0});   // the top, up
+    square({x1, y0, 0.0}, {0.0, w, 0.0}, {0.0, 0.0, top});  // the end, along +x
+    square({x0, y0, 0.0}, {0.0, 0.0, top}, {0.0, w, 0.0});  // along -x
+    square({x0, y0, 0.0}, {l, 0.0, 0.0}, {0.0, 0.0, top});  // along -y
+    square({x0, y1, 0.0}, {0.0, 0.0, top}, {l, 0.0, 0.0});  // along +y
+    const auto barPoints = wallPointsOf(bar, 0.5 * d);
+    walls.insert(walls.end(), barPoints.begin(), barPoints.end());
+    // the volume the surface holds with the particle at a height
+    const auto at = [&](double x, double z) {
+        std::vector<Vec3> with = particles;
+        with.push_back({x, 0.5 * (y0 + y1), z});
+        ParticleSurface s;
+        surfaceOf(with, d, s, SprayBelow, walls);
+        return volumeOf(s);
+    };
+    const double cube = d * d * d;
+    // past the end by half a spacing, as near as the water comes to a wall
+    const double step =
+        std::abs(at(x1 + 0.5 * d, top + 0.1 * d) - at(x1 + 0.5 * d, top - 0.1 * d)) / cube;
+    // the same step in the open water, far from any wall
+    const double open = std::abs(at(0.06, top + 0.1 * d) - at(0.06, top - 0.1 * d)) / cube;
+    // measured: 0.43 of a spacing's cube when mirrored across the top,
+    // 0.053 now; 0.0001 in the open
+    EXPECT_LT(step, 0.1) << "open water " << open;
+}
+
 TEST(ParticleSurface, nothingOfNothing)
 {
     ParticleSurface surface;

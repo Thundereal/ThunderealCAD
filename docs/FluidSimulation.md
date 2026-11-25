@@ -1044,7 +1044,21 @@ bgfx renderer.
   1.23. Along the bar what is left is real at this spacing: near its tip
   its top face is within a millimetre of the water's level at 17 deg, so
   a film one particle thick comes and goes on it, and the line where the
-  two meet moves three times as far as the water does. 47 ms a frame
+  two meet moves three times as far as the water does. A foot "on" a
+  wall was first one within three quarters of a spacing of a wall point,
+  which takes in feet past the wall's edge: a particle out past the
+  bar's end, bobbing a millimetre about the plane of its top, was
+  mirrored down across the top whenever above it, and heaped water up
+  to 4 mm high over the end -- there one frame, gone the next, with a
+  glint on its side. The points are half a spacing apart on triangles
+  of at most that side, so a foot on the wall is within 0.29 of a
+  spacing of one: now the nearest point of each wall is taken, the
+  mirror image is whole to 0.3 of a spacing and fades out by 0.45, and
+  the water keeps half a spacing off a wall. In a test of that particle
+  stepping a fifth of a spacing up across the plane, the volume's change
+  went from 0.43 of a spacing's cube to 0.053. What is left at the tip
+  is the water's own: the particles past the end sit 1 to 1.5 mm above
+  the open water's top layer and bob a millimetre. 47 ms a frame
   for the bar's tank.
 - **The spacing** is kept with the results (`spacing` in index.json, mm);
   results kept before it take the study's resolution as it is now.

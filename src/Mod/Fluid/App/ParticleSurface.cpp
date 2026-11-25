@@ -229,14 +229,21 @@ void Fluid::surfaceOf(const std::vector<Vec3>& particles,
         for (std::size_t i = 0; i < walls.size(); ++i) {
             cells[keyOf(cellOf(walls[i].at))].push_back(i);
         }
-        // a wall counts where the particle's foot on its plane is on it:
-        // a wall point that near the foot (the points are half a spacing
-        // apart) -- not past an edge, where the plane goes on and the
-        // wall does not
-        const double onIt = 0.75 * spacing;
+        // A wall counts where the particle's foot on its plane is on it --
+        // not past an edge, where the plane goes on and the wall does not.
+        // The points are half a spacing apart, on triangles of at most that
+        // side: a foot on the wall is within 0.29 of a spacing of one. Past
+        // that the mirror image fades out, gone at onIt: a particle out
+        // past a bar's end, bobbing about the plane of its top, was
+        // mirrored across it whenever above it and heaped water over the
+        // end, there one frame and gone the next. The water keeps half a
+        // spacing off a wall, where none is left.
+        const double inside = 0.3 * spacing;
+        const double onIt = 0.45 * spacing;
         for (const Vec3& p : particles) {
             std::vector<const WallPoint*> near;  // one a plane, the nearest
             std::vector<double> depth;
+            std::vector<double> offs;
             const auto c = cellOf(p);
             for (std::int64_t a = -1; a <= 1; ++a) {
                 for (std::int64_t b = -1; b <= 1; ++b) {
@@ -265,12 +272,18 @@ void Fluid::surfaceOf(const std::vector<Vec3>& particles,
                                 if (o.out[0] * w.out[0] + o.out[1] * w.out[1] + o.out[2] * w.out[2]
                                     > 0.9) {
                                     known = true;
+                                    if (off < offs[k]) {
+                                        near[k] = &w;
+                                        depth[k] = d;
+                                        offs[k] = off;
+                                    }
                                     break;
                                 }
                             }
                             if (!known && near.size() < 3) {
                                 near.push_back(&w);
                                 depth.push_back(d);
+                                offs.push_back(off);
                             }
                         }
                     }
@@ -282,6 +295,7 @@ void Fluid::surfaceOf(const std::vector<Vec3>& particles,
             for (unsigned subset = 1; subset < (1U << n); ++subset) {
                 Vec3 ghost = p;
                 std::vector<const WallPoint*> planes;
+                double times = scale;
                 for (std::size_t k = 0; k < n; ++k) {
                     if ((subset & (1U << k)) == 0U) {
                         continue;
@@ -290,8 +304,11 @@ void Fluid::surfaceOf(const std::vector<Vec3>& particles,
                         ghost[x] -= 2.0 * depth[k] * near[k]->out[x];
                     }
                     planes.push_back(near[k]);
+                    times *= std::clamp((onIt - offs[k]) / (onIt - inside), 0.0, 1.0);
                 }
-                splat(ghost, reach, scale, planes);
+                if (times > 0.0) {
+                    splat(ghost, reach, times, planes);
+                }
             }
         }
     }

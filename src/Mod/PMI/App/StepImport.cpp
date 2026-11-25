@@ -90,6 +90,7 @@
 #include "Datum.h"
 #include "Dimension.h"
 #include "GeometricTolerance.h"
+#include "Hole.h"
 #include "Note.h"
 #include "Geometry.h"
 #include "StepExport.h"
@@ -171,6 +172,7 @@ public:
         notes();
         views();
         placeholders();
+        holes();
         hidden();
         oneShapes();
         supplemental();
@@ -681,6 +683,70 @@ private:
     }
 
     /// A letter as one part's: two parts of a file may each have a datum A
+    /// The holes a file defines (AP242 ed3 hole features: NIST STC-09's 8
+    /// basic_round_hole, of 25 occurrences): each occurrence a hole of the
+    /// part's set, on the faces it is of, with its definition, to be written
+    /// again (docs/GDandT.md sec 10.26)
+    void holes()
+    {
+        NCollection_Sequence<TDF_Label> defs;
+        _tool->GetHoles(defs);
+        auto vec = [](const gp_XYZ& v) { return Base::Vector3d(v.X(), v.Y(), v.Z()); };
+        auto placementOf = [&](const gp_Ax3& ax) {
+            return Base::Placement(vec(ax.Location().XYZ()),
+                                   Base::Rotation::makeRotationByAxes(vec(ax.XDirection().XYZ()),
+                                                                      vec(ax.YDirection().XYZ()),
+                                                                      vec(ax.Direction().XYZ())));
+        };
+        for (auto& d : defs) {
+            TDF_Label partL;
+            XCAFDoc_DimTolTool::HoleDefinition def;
+            if (!XCAFDoc_DimTolTool::GetHole(d, partL, def)) {
+                continue;
+            }
+            NCollection_Sequence<TDF_Label> occurrences;
+            XCAFDoc_DimTolTool::GetHoleOccurrences(d, occurrences);
+            for (auto& o : occurrences) {
+                TCollection_AsciiString name;
+                gp_Ax3 position;
+                NCollection_Sequence<TDF_Label> faceLs;
+                if (!XCAFDoc_DimTolTool::GetHoleOccurrence(o, name, position, faceLs)) {
+                    continue;
+                }
+                Faces f;
+                std::string why;
+                if (!faces(faceLs, f, why)) {
+                    _report.skipped.push_back("hole " + std::string(name.ToCString()) + ": "
+                                              + why);
+                    continue;
+                }
+                TolerancedFeature* feat = feature(f, false);
+                auto s = set(partOf(f.object));
+                auto hole = static_cast<Hole*>(_info.doc->addObject("PMI::Hole", "Hole"));
+                s->addObject(hole);
+                hole->Label.setValue(name.IsEmpty() ? def.Name.ToCString() : name.ToCString());
+                hole->OccurrenceName.setValue(name.ToCString());
+                hole->Kind.setValue(def.Kind.ToCString());
+                hole->DefinitionName.setValue(def.Name.ToCString());
+                hole->Diameter.setValue(def.Diameter);
+                hole->DiameterToleranced.setValue(def.DiameterToleranced);
+                hole->DiameterLower.setValue(def.DiameterLower);
+                hole->DiameterUpper.setValue(def.DiameterUpper);
+                hole->HasDepth.setValue(def.HasDepth);
+                hole->Depth.setValue(def.HasDepth ? def.Depth : 0.0);
+                hole->DepthToleranced.setValue(def.DepthToleranced);
+                hole->DepthLower.setValue(def.DepthLower);
+                hole->DepthUpper.setValue(def.DepthUpper);
+                hole->Through.setValue(def.Through);
+                hole->Axes.setValue(placementOf(def.Axes));
+                // In the set's coordinates, as a callout's plane is
+                hole->Position.setValue(f.object->Placement.getValue() * placementOf(position));
+                hole->Feature.setValue(feat);
+                ++_report.holes;
+            }
+        }
+    }
+
     /// A PMI whose graphic the file does not show (an INVISIBILITY lists it:
     /// NIST STC-08's 29, STC-09's 75) is hidden
     void hidden()
@@ -2258,6 +2324,8 @@ Step::Report Step::read(const Import::PostImport& info)
                         << report.dimensions << " dimensions, " << report.notes
                         << " graphic-only notes, " << report.views << " views, "
                         << report.targets << " datum targets"
+                        << (report.holes ? ", " + std::to_string(report.holes) + " holes"
+                                         : std::string())
                         << (report.duplicates ? ", " + std::to_string(report.duplicates)
                                                     + " read twice and kept once"
                                               : std::string())

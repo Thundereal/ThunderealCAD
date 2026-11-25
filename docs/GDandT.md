@@ -1956,6 +1956,16 @@ compares; it took our curves for none.
   `Callout.ImportedAsCurves`) and, drawn as the file drew it, written as curves again: a full
   circle a circle, the rest polylines, a segment chained to the one before it where it starts
   at its end (650 polylines to NIST's 556). The round trip checks as many curve occurrences.
+- **Holes (STC-09; user decision 2026-11-25).** AP242 ed3 hole features -- STC-09 -e4's 8
+  `basic_round_hole` definitions (name, depth and diameter each with a tolerance, a placement,
+  through or not) of 25 occurrences, each identified with its faces and placed by a mapped item
+  among the part's 'Positions of Holes' -- are entities OCCT does not know. OCCT's usage
+  definition select takes a hole occurrence now; the reader keeps each definition and its
+  occurrences in XCAF (`XCAFDoc_DimTolTool::AddHole`, `AddHoleOccurrence`; lengths in the units
+  of the representation they are in), the import makes each occurrence a `PMI::Hole` of the
+  set on a feature of its faces (`OccurrenceName` the file's, which need not be unique), and
+  the export and writer give them back as NIST has them. A usage of several items is written
+  as the `set_representation_item` it is (OCCT wrote a bare list). UUIDs not yet.
 
 ## 11. Decisions (made 2026-11-19)
 

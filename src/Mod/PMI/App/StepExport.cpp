@@ -97,6 +97,7 @@
 #include "Datum.h"
 #include "Dimension.h"
 #include "GeometricTolerance.h"
+#include "Hole.h"
 #include "Note.h"
 #include "StepExport.h"
 #include "TolerancedFeature.h"
@@ -708,6 +709,63 @@ private:
         }
     }
 
+    /// The set's holes (AP242 ed3 hole features) given to XCAF: each
+    /// definition once, by its name and values, each occurrence on the faces
+    /// of its feature, in the part's coordinates
+    void holes(AnnotationSet* set, Exported& ex)
+    {
+        std::map<std::string, TDF_Label> defs;
+        for (auto o : set->Group.getValues()) {
+            auto hole = freecad_cast<Hole*>(o);
+            if (!hole) {
+                continue;
+            }
+            guard(hole, [&]() {
+                auto feat = freecad_cast<TolerancedFeature*>(hole->Feature.getValue());
+                NCollection_Sequence<TDF_Label> faces;
+                std::string why;
+                if (!feat || !labels(feat, ex, faces, why)) {
+                    _report.skipped.push_back(std::string(hole->Label.getValue()) + ": "
+                                              + (feat ? why : "it has no feature"));
+                    return;
+                }
+                XCAFDoc_DimTolTool::HoleDefinition def;
+                def.Kind = hole->Kind.getValue();
+                def.Name = ascii(hole->DefinitionName.getValue())->String();
+                def.Diameter = hole->Diameter.getValue();
+                def.DiameterToleranced = hole->DiameterToleranced.getValue();
+                def.DiameterLower = hole->DiameterLower.getValue();
+                def.DiameterUpper = hole->DiameterUpper.getValue();
+                def.HasDepth = hole->HasDepth.getValue();
+                def.Depth = hole->Depth.getValue();
+                def.DepthToleranced = hole->DepthToleranced.getValue();
+                def.DepthLower = hole->DepthLower.getValue();
+                def.DepthUpper = hole->DepthUpper.getValue();
+                def.Through = hole->Through.getValue();
+                def.Axes = gp_Ax3(ax2Of(trsfOf(hole->Axes.getValue())));
+                std::ostringstream key;
+                key.precision(12);
+                key << def.Kind << '|' << def.Name << '|' << def.Diameter << '|'
+                    << def.DiameterToleranced << def.DiameterLower << '|' << def.DiameterUpper
+                    << '|' << def.HasDepth << def.Depth << '|' << def.DepthToleranced
+                    << def.DepthLower << '|' << def.DepthUpper << '|' << def.Through;
+                auto it = defs.find(key.str());
+                if (it == defs.end()) {
+                    it = defs.emplace(key.str(), _tool->AddHole(ex.label, def)).first;
+                }
+                gp_Ax3 position(ax2Of(ex.toLocal * trsfOf(hole->Position.getValue())));
+                std::string name = hole->OccurrenceName.getValue();
+                if (name.empty()) {
+                    name = hole->Label.getValue();
+                }
+                XCAFDoc_DimTolTool::AddHoleOccurrence(it->second,
+                                                      ascii(name)->String(),
+                                                      position,
+                                                      faces);
+            });
+        }
+    }
+
     void write(AnnotationSet* set, Exported& ex)
     {
         std::vector<Datum*> datums;
@@ -736,6 +794,7 @@ private:
                 views.push_back(v);
             }
         }
+        holes(set, ex);
         // The datums first: OCCT's writer writes the first label of a letter
         // with its feature, and takes the others, a frame's, as references
         for (auto d : datums) {

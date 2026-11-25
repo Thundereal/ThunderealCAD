@@ -54,6 +54,8 @@ struct Report
     int dimensions = 0;
     int views = 0;
     int targets = 0;
+    /// Hole occurrences (AP242 ed3 hole features)
+    int holes = 0;
     /// PMI the file gives only as a graphic, made a note carrying it
     int notes = 0;
     /// Read twice (a streamed import may) and kept once

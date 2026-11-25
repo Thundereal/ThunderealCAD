@@ -61,6 +61,8 @@ set(PMI_SRCS
   StepImport.h
   View.cpp
   View.h
+  Hole.cpp
+  Hole.h
   PreCompiled.cpp
   PreCompiled.h
   TolerancedFeature.cpp

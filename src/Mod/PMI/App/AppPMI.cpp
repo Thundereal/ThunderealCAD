@@ -49,6 +49,7 @@
 #include "StepExport.h"
 #include "StepImport.h"
 #include "TolerancedFeature.h"
+#include "Hole.h"
 #include "View.h"
 
 namespace PMI
@@ -393,6 +394,7 @@ PyMOD_INIT_FUNC(PMI)
     PMI::GeometricTolerance  ::init();
     PMI::Note                ::init();
     PMI::View                ::init();
+    PMI::Hole                ::init();
     // clang-format on
 
     // The GD&T of a STEP file, read after its shapes (docs/GDandT.md sec 5.1)

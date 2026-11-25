@@ -1044,6 +1044,42 @@ class TestNistSet(Base):
         self.assertEqual(supplemental(self.write_and_read(doc)), supplemental(doc))
 
 
+    def test_holes_as_the_file_defines_them(self):
+        """A file's hole features (AP242 ed3: NIST STC-09 -e4's 8 basic_round_hole
+        of 25 occurrences) read, each occurrence a hole on its faces, with its
+        definition's diameter, tolerance and whether it goes through, and where
+        it is; written again as many, and read back the same (SFA's 'This file
+        contains: Holes', dwin p20)"""
+        path = edition(os.path.join(os.environ["FC_PMI_NIST"],
+                                    "nist_stc_09_asme1_ap242-e4.stp"))
+
+        def occurrences(path):
+            with open(path, errors="replace") as f:
+                text = f.read()
+            return (len(re.findall(r"BASIC_ROUND_HOLE_OCCURRENCE\s*\(", text)),
+                    len(re.findall(r"BASIC_ROUND_HOLE\s*\(", text)))
+
+        want, defs = occurrences(path)
+        if not want:
+            self.skipTest("this edition of STC-09 defines no holes")
+        doc = self.read(path)
+
+        def holes(doc):
+            return sorted((h.OccurrenceName, h.DefinitionName, round(h.Diameter.Value, 4),
+                           round(h.DiameterLower.Value, 4), round(h.DiameterUpper.Value, 4),
+                           h.Through, tuple(round(x, 3) for x in h.Position.Base))
+                          for h in objects(doc, "Hole"))
+
+        read = holes(doc)
+        self.assertEqual(len(read), want)
+        self.assertEqual(len({h[1] for h in read}), defs)
+        for h in objects(doc, "Hole"):
+            self.assertTrue(h.Feature and h.Feature.References, h.Label)
+            self.assertEqual(h.Feature.Condition, "Ok", h.Label)
+        again = self.write_and_read(doc)
+        self.assertEqual(occurrences(self.written), (want, defs))
+        self.assertEqual(holes(again), read)
+
     def test_a_products_attributes_and_validation(self):
         """A product's user defined attributes (CTC-03's 'CAGE Code', CTC-05's
         'FILESIZE', FTC-08's 'PartNumber') are kept on its object and written

@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 
 #include <iostream>
+#include <cmath>
 #include <unordered_map>
 #include <Inventor/SbRotation.h>
 #include <Inventor/actions/SoGLRenderAction.h>
@@ -60,6 +61,7 @@
 #include <Inventor/SbBox3f.h>
 
 #include <Base/Console.h>
+#include "SoAutoZoomTranslation.h"
 #include "../InventorBase.h"
 #include "../RenderTiming.h"
 #include "../ViewParams.h"
@@ -1456,6 +1458,37 @@ SoFCRenderCache::VertexCacheEntry::getBoundingBox() const
     this->bboxfor = this->cache.get();
   }
   return this->bboxmemo;
+}
+
+SbBox3f
+SoFCRenderCache::drawBoundingBox(const Material & m, const VertexCacheEntry & v)
+{
+  SbBox3f bbox = v.getBoundingBox();
+  if (bbox.isEmpty() || m.autozoom.getNum() != 1)
+    return bbox;
+  const auto & info = m.autozoom.getData()[0];
+  auto node = info.cast<SoAutoZoomTranslation>();
+  if (!node || node->scaleFactor.getValue() != 0.0f || node->billboard.getValue()
+      || node->pixelScale.getValue() != 0.0f)
+    return bbox;
+  if (node->datumFlip.getValue()) {
+    // Turned about its local origin: the box and its mirror together
+    const SbVec3f lo = bbox.getMin(), hi = bbox.getMax();
+    bbox.extendBy(SbVec3f(-hi[0], -hi[1], lo[2]));
+    bbox.extendBy(SbVec3f(-lo[0], -lo[1], hi[2]));
+  }
+  if (!info.identity) {
+    SbMatrix mat = info.matrix;
+    for (int r = 0; r < 3; ++r) {
+      float len = std::sqrt(mat[r][0]*mat[r][0] + mat[r][1]*mat[r][1]
+                            + mat[r][2]*mat[r][2]);
+      if (len > 1e-20f)
+        for (int k = 0; k < 3; ++k)
+          mat[r][k] /= len;
+    }
+    bbox.transform(mat);
+  }
+  return bbox;
 }
 
 const SbFCVector<SoFCRenderCache::CacheEntry> &

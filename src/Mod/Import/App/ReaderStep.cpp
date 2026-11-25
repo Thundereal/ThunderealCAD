@@ -38,6 +38,7 @@
 #endif
 
 #include "ReaderStep.h"
+#include <App/Application.h>
 #include <Base/Exception.h>
 #include <Mod/Part/App/TopoShape.h>
 #include <Mod/Part/App/encodeFilename.h>
@@ -158,6 +159,7 @@ int ReaderStep::openStream()
     reader.SetNameMode(true);
     reader.SetLayerMode(true);
     reader.SetSHUOMode(true);
+    reader.SetGDTMode(readPMI());
     if (reader.ReadFile(name8bit.c_str()) != IFSelect_RetDone) {
         stream.reset();
         THROWM(Base::FileException, "Cannot read STEP file", file);
@@ -289,6 +291,15 @@ void ReaderStep::transferRootRange(Handle(TDocStd_Document) hDoc, int first, int
 #endif
 }
 
+bool ReaderStep::readPMI()
+{
+    // Preferences, Import-Export, STEP: a file's PMI (GD&T, notes, saved
+    // views) and the supplemental geometry it is on, read or left
+    return App::GetApplication()
+        .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Mod/Import")
+        ->GetBool("ReadPMI", true);
+}
+
 void ReaderStep::closeStream()
 {
     stream.reset();
@@ -303,6 +314,7 @@ void ReaderStep::read(Handle(TDocStd_Document) hDoc)  // NOLINT
     aReader.SetNameMode(true);
     aReader.SetLayerMode(true);
     aReader.SetSHUOMode(true);
+    aReader.SetGDTMode(readPMI());
     if (aReader.ReadFile(name8bit.c_str()) != IFSelect_RetDone) {
         THROWM(Base::FileException, "Cannot read STEP file", file);
     }

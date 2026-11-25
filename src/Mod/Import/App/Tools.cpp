@@ -26,6 +26,9 @@
 #include <TDataStd_Name.hxx>
 #include <TDF_ChildIterator.hxx>
 #include <TDF_Tool.hxx>
+#include <NCollection_Sequence.hxx>
+#include <XCAFDoc_DimTolTool.hxx>
+#include <XCAFDoc_DocumentTool.hxx>
 #endif
 
 #include <boost/algorithm/string.hpp>
@@ -144,4 +147,22 @@ void Tools::dumpLabels(TDF_Label label,
     for (it.Initialize(label); it.More(); it.Next()) {
         dumpLabels(it.Value(), aShapeTool, aColorTool, depth + 1);
     }
+}
+
+bool Tools::hasGDT(const Handle(TDocStd_Document) & hDoc)
+{
+    if (hDoc.IsNull() || !XCAFDoc_DocumentTool::IsXCAFDocument(hDoc)) {
+        return false;
+    }
+    TDF_Label dimTol = XCAFDoc_DocumentTool::DGTsLabel(hDoc->Main());
+    // Present only if something made it: asking the tool would make one
+    Handle(XCAFDoc_DimTolTool) tool;
+    if (!dimTol.FindAttribute(XCAFDoc_DimTolTool::GetID(), tool)) {
+        return false;
+    }
+    NCollection_Sequence<TDF_Label> dims, tols, datums;
+    tool->GetDimensionLabels(dims);
+    tool->GetGeomToleranceLabels(tols);
+    tool->GetDatumLabels(datums);
+    return !dims.IsEmpty() || !tols.IsEmpty() || !datums.IsEmpty();
 }

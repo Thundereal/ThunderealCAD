@@ -24,6 +24,7 @@
 #define IMPORT_IMPORTOCAF2_H
 
 #include <climits>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <set>
@@ -67,6 +68,18 @@ class Feature;
 namespace Import
 {
 
+/** What a pass run after an import sees (docs/GDandT.md sec 5.1): the XCAF
+ * document still open, the App document, and the object made for a simple
+ * shape's label -- the Part::Feature holding the shape as the label has it,
+ * without its location, so a sub-shape label's faces are found in it.
+ */
+struct ImportExport PostImport
+{
+    Handle(TDocStd_Document) hDoc;
+    App::Document* doc = nullptr;
+    std::function<App::DocumentObject*(const TDF_Label&)> objectOf;
+};
+
 struct ImportExport ImportOCAFOptions
 {
     ImportOCAFOptions();
@@ -90,6 +103,13 @@ public:
     ImportOCAF2(const ImportOCAF2 &) = delete;
     ImportOCAF2 & operator=(const ImportOCAF2 &) = delete;
     App::DocumentObject* loadShapes();
+
+    /** A pass run once an import has made its objects, by name: registered
+     * again, it is replaced. The PMI module reads the GD&T with one; a file
+     * with GD&T and no pass loads PMI, which registers it.
+     */
+    static void addPostImport(const std::string& name,
+                              std::function<void(const PostImport&)> pass);
 
     /** @name Progressive (two-stage) import
      *
@@ -322,6 +342,14 @@ private:
     bool hasSHUOColors(TDF_Label label);
     void applyOp(ProgOp& op, int index);
     App::DocumentObject* progObject(int node) const;
+    /// Run the passes added by addPostImport()
+    void runPostImport(bool progressive);
+    /// Hide the objects of the shapes hidden by their parts' invisibility
+    void hideInvisible(bool progressive);
+    /// Mark the container of a file's several free shapes (ExportOCAF2::FreeShapesProperty)
+    void markFreeShapes(App::DocumentObject* group);
+    /// Base shapes every face of which (every edge, of one with none) is invisible
+    std::unordered_set<TopoDS_Shape, ShapeHasher> myHiddenShapes;
 
     App::DocumentObject* loadShape(App::Document* doc,
                                    TDF_Label label,

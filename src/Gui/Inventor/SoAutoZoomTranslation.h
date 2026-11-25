@@ -29,6 +29,8 @@
 #include <Inventor/nodes/SoTransformation.h>
 #include <FCGlobal.h>
 
+class SbMatrix;
+
 
 namespace Gui {
 
@@ -58,8 +60,10 @@ public:
     static constexpr float DefaultPixelScale = 1.35f;
     /// Datum-label auto-flip: keep the glyph in its plane but mirror its local
     /// X/Y per frame so the text always reads upright from the current view
-    /// (SoDatumLabel GLRender behaviour). flipNormal is the world-space plane
-    /// normal used for the backfacing test. Default FALSE.
+    /// (SoDatumLabel GLRender behaviour): X reads to the right, or upwards
+    /// on end, and the glyph is never mirrored. flipNormal is kept for files
+    /// and the backends that carry it; the decision is made from the screen
+    /// alone (datumFlips). Default FALSE.
     SoSFBool datumFlip;
     SoSFVec3f flipNormal;
 
@@ -73,6 +77,15 @@ protected:
     void callback(SoCallbackAction * action) override;
     void pick(SoPickAction * action) override;
     float getScaleFactor(SoAction*) const;
+    /// Mirror \a m's local X and Y to read upright in the view \a v
+    void flip(SbMatrix& m, const SbMatrix& v) const;
+
+public:
+    /// The decision itself, from the local X and Y's screen directions \a x,
+    /// \a y (view x, y) and their lengths: which of the two to mirror. The
+    /// bgfx backend keeps a copy (BGFXRendererP.h); the two must agree.
+    static void datumFlips(const float x[2], const float y[2], float lx, float ly,
+                           bool& flipX, bool& flipY);
 
 private:
 

@@ -856,8 +856,8 @@ PyObject* DrawViewPartPy::getEdgeByIndex(PyObject *args)
 
     DrawViewPart* dvp = getDrawViewPartPtr();
 
-    //this is scaled and +Yup
-    //need unscaled and +Ydown
+    // Scaled and +Y down, as the page draws it; returned unscaled and +Y up,
+    // as the model is (measured: a front view's bottom edge comes out below)
     TechDraw::BaseGeomPtr geom = dvp->getGeomByIndex(edgeIndex);
     if (!geom) {
         PyErr_SetString(PyExc_ValueError, "Wrong edge index");
@@ -882,8 +882,8 @@ PyObject* DrawViewPartPy::getVertexByIndex(PyObject *args)
 
     DrawViewPart* dvp = getDrawViewPartPtr();
 
-    //this is scaled and +Yup
-    //need unscaled and +Ydown
+    // Scaled and +Y down, as the page draws it; returned unscaled and +Y up,
+    // as the model is (measured: a front view's bottom edge comes out below)
     TechDraw::VertexPtr vert = dvp->getProjVertexByIndex(vertexIndex);
     if (!vert) {
         PyErr_SetString(PyExc_ValueError, "Wrong vertex index");
@@ -910,8 +910,8 @@ PyObject* DrawViewPartPy::getEdgeBySelection(PyObject *args)
     edgeIndex = DrawUtil::getIndexFromName(std::string(selName));
     DrawViewPart* dvp = getDrawViewPartPtr();
 
-    //this is scaled and +Yup
-    //need unscaled and +Ydown
+    // Scaled and +Y down, as the page draws it; returned unscaled and +Y up,
+    // as the model is (measured: a front view's bottom edge comes out below)
     TechDraw::BaseGeomPtr geom = dvp->getGeomByIndex(edgeIndex);
     if (!geom) {
         PyErr_SetString(PyExc_ValueError, "Wrong edge index");
@@ -938,8 +938,8 @@ PyObject* DrawViewPartPy::getVertexBySelection(PyObject *args)
     vertexIndex = DrawUtil::getIndexFromName(std::string(selName));
     DrawViewPart* dvp = getDrawViewPartPtr();
 
-    //this is scaled and +Yup
-    //need unscaled and +Ydown
+    // Scaled and +Y down, as the page draws it; returned unscaled and +Y up,
+    // as the model is (measured: a front view's bottom edge comes out below)
     TechDraw::VertexPtr vert = dvp->getProjVertexByIndex(vertexIndex);
     if (!vert) {
         PyErr_SetString(PyExc_ValueError, "Wrong vertex index");

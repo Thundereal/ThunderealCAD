@@ -1072,6 +1072,18 @@ public:
 
   const SbBox3f & getBoundingBox() const;
 
+  /** What a draw of \a v under \a m covers in the scene.
+   *
+   * \a v's own box, except under one autozoom that keeps the model's size
+   * (scaleFactor 0, no billboard, no pixel size: a PMI callout's text,
+   * which only turns to read upright): there the box is in the node's
+   * frame, which is applied per frame, so it is carried through the
+   * node's matrix -- its scale reset to 1, as the node does -- and taken
+   * every way the node may turn it. What a fit frames and a cull keeps.
+   * A screen-sized autozoom has no size in the scene: its box stays.
+   */
+  static SbBox3f drawBoundingBox(const Material & m, const VertexCacheEntry & v);
+
   void checkState(SoState *state);
 
 private:

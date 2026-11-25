@@ -130,6 +130,10 @@ if(BUILD_SURFACE)
   add_subdirectory(Surface)
 endif(BUILD_SURFACE)
 
+if(BUILD_PMI)
+  add_subdirectory(PMI)
+endif(BUILD_PMI)
+
 if(BUILD_TECHDRAW)
     add_subdirectory(Measure)
     add_subdirectory(TechDraw)

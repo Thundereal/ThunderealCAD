@@ -163,6 +163,7 @@ Gui::MenuItem* Workbench::setupMenuBar() const
     *annotations << "TechDraw_RichTextAnnotation";
     *annotations << "TechDraw_Balloon";
     *annotations << "TechDraw_ImportEdgeLabels";
+    *annotations << "TechDraw_ImportModelAnnotations";
     *annotations << "TechDraw_AxoLengthDimension";
 
     // stacking
@@ -204,6 +205,7 @@ Gui::MenuItem* Workbench::setupMenuBar() const
     pages->setCommand("Page");
     *pages << "TechDraw_PageDefault";
     *pages << "TechDraw_PageTemplate";
+    *pages << "TechDraw_PageFromPMIViews";
     *pages << "TechDraw_FillTemplateFields";
     *pages << "TechDraw_RedrawPage";
     *pages << "TechDraw_Print";

@@ -2190,7 +2190,17 @@ built and again on trigger (`SceneContextMenu::allowed`):
 |---|---|
 | Host | Everything, at the host's own modal risk |
 | Edit | Edit-mode entries, which go through the `edit` op's own path (`enterClientEdit`, factored out of it); "Finish editing"; commands on the browser allowlist |
-| View | Only the camera entries |
+| View | Only the camera entries, and the view's own (below) |
+
+An entry that changes only the view it runs in and nothing of the document -- a PMI view made
+active, or let go (docs/GDandT.md 10.16) -- carries `ViewProviderDocumentObject::
+ViewerEntryProperty` and is `kind: viewer`. Every connection may run it, a view-only one
+included: it is the client's own view, as its camera is. It runs in the client's `ViewerScope`,
+so what it hides goes into that client's visibility. A camera it wants is ASKED of the browser,
+which owns its camera: `{"cmd":"camera","q":[x,y,z,w],"at":[x,y,z],"height":h}`, the browser
+keeping the camera it had before the first ask, and `{"cmd":"camera","restore":true}` taking it
+back (`ViewerContext::turnClientCamera`/`restoreClientCamera`, `wasm/main.cpp`
+`applyHostCamera`).
 
 For an Edit connection, an opaque entry -- arbitrary code, possibly modal on a
 process serving several browsers -- is sent marked refused with the reason, and

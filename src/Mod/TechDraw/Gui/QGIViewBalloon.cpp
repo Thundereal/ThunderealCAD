@@ -655,8 +655,14 @@ void QGIViewBalloon::drawBalloon(bool dragged)
     double offsetLR = 0;
     double offsetUD = 0;
     QPainterPath balloonPath;
+    double symbolHalfWidth = 0;
+    double symbolHalfHeight = 0;
 
-    if (strcmp(balloonType, "Circular") == 0) {
+    if (drawSymbol(symbolHalfWidth, symbolHalfHeight)) {
+        // Its own symbol: the leader leaves the middle of its near side
+        offsetLR = symbolHalfWidth;
+    }
+    else if (strcmp(balloonType, "Circular") == 0) {
         double balloonRadius = sqrt(pow((textHeight / 2.0), 2) + pow((textWidth / 2.0), 2));
         balloonRadius = balloonRadius * scale;
         balloonPath.moveTo(lblCenter.x, lblCenter.y);

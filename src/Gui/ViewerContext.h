@@ -603,6 +603,29 @@ public:
     {
         return false;
     }
+    /** Ask the client whose camera this view mirrors to turn it: to look
+     * along \a orientation's -Z at \a target, \a height of the model
+     * showing, or everything when \a height is 0 or less. The client keeps
+     * the camera it had before the first such ask, which
+     * restoreClientCamera() takes it back to -- a PMI view made active in a
+     * browser's view and let go (docs/GDandT.md sec 6.3). False where the
+     * camera is not remote, which is what the base answers; a view with a
+     * camera of its own sets it.
+     */
+    virtual bool turnClientCamera(const SbRotation& orientation, const SbVec3f& target,
+                                  float height)
+    {
+        (void)orientation;
+        (void)target;
+        (void)height;
+        return false;
+    }
+    /// Take the client's camera back to where it was before
+    /// turnClientCamera() first turned it
+    virtual bool restoreClientCamera()
+    {
+        return false;
+    }
     /** What a client's own interface covers of this view -- a browser's
      * tool bars -- as rectangles {x, y, width, height} in logical pixels
      * from the top left. None for a desktop view: its overlays are its
@@ -753,6 +776,15 @@ public:
     /// has a visibility table of its own. Asked before a session's views
     /// are bound, when there is nobody yet to refuse.
     virtual bool canSetEditVisibilities() const;
+    /** Replace \a owner's transient hides and shows in this view -- a PMI
+     * view's objects and annotations while it is active here -- beside the
+     * edit session's, which come first. Like those never written into the
+     * view's map, so a save sees none of them; empty takes \a owner's back.
+     * A desktop view and a served client's view each hold their own. False
+     * where the view has no table, which is what the base answers.
+     */
+    virtual bool setVisibilityLayer(const std::string& owner,
+                                    std::vector<VisibilityEntry>&& entries);
     void setEditingTransform(const Base::Matrix4D& mat);
     /** The root this view shows the edit through.
      *

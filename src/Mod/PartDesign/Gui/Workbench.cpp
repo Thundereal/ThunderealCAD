@@ -580,6 +580,19 @@ Gui::MenuItem* Workbench::setupMenuBar() const
                 << "PartDesign_SheetMetalBaseWall"
                 << "PartDesign_SheetMetalConvert";
 
+    // PMI's way in, the same: its tool bar comes with a Body's annotation set
+    // active, which the first annotation made here makes (docs/GDandT.md
+    // sec 3). The commands are PMIGui's, there when the PMI module is built
+    Gui::MenuItem* pmi = nullptr;
+    if (Gui::Application::Instance->commandManager().getCommandByName("PMI_Datum")) {
+        pmi = new Gui::MenuItem;
+        pmi->setCommand("PMI");
+        *pmi << "PMI_Datum"
+             << "PMI_GeometricTolerance"
+             << "PMI_Dimension"
+             << "PMI_Note";
+    }
+
     Gui::MenuItem* dressups = new Gui::MenuItem;
     dressups->setCommand("Apply a dress-up feature");
 
@@ -605,9 +618,13 @@ Gui::MenuItem* Workbench::setupMenuBar() const
           << "Separator"
           << transformations
           << "Separator"
-          << dressups
-          << sheetMetal
-          << "Separator"
+          << dressups
+
+          << sheetMetal;
+    if (pmi) {
+        *part << pmi;
+    }
+    *part << "Separator"
           << "Materials_InspectAppearance"
           << "Materials_InspectMaterial"
           << "Separator"

@@ -200,6 +200,7 @@ macro(InitializeFreeCADBuildOptions)
     # takes to get the module back.
     option(BUILD_WEB "Build the FreeCAD web module (needs Qt WebEngine; skipped with a warning without it)" ON)
     option(BUILD_SURFACE "Build the FreeCAD surface module" ON)
+    option(BUILD_PMI "Build the FreeCAD PMI module (GD&T on a part, docs/GDandT.md)" ON)
     option(BUILD_VR "Build the FreeCAD Oculus Rift support (need Oculus SDK 4.x or higher)" OFF)
     option(BUILD_CLOUD "Build the FreeCAD cloud module" OFF)
     option(BUILD_BGFX "Build bgfx renderer module" ON)

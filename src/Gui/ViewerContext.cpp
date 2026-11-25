@@ -912,6 +912,11 @@ bool ViewerContext::canSetEditVisibilities() const
     return false;
 }
 
+bool ViewerContext::setVisibilityLayer(const std::string&, std::vector<VisibilityEntry>&&)
+{
+    return false;
+}
+
 PyObject* ViewerContext::getPyObject()
 {
     Py_INCREF(Py_None);

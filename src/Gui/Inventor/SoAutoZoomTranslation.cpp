@@ -22,6 +22,8 @@
 
 #include "PreCompiled.h"
 
+#include <cmath>
+
 #ifndef _PreComp_
 # include <Inventor/actions/SoGetMatrixAction.h>
 # include <Inventor/actions/SoGLRenderAction.h>
@@ -30,6 +32,7 @@
 # include <Inventor/actions/SoGetBoundingBoxAction.h>
 # include <Inventor/actions/SoGetPrimitiveCountAction.h>
 # include <Inventor/elements/SoModelMatrixElement.h>
+# include <Inventor/elements/SoViewingMatrixElement.h>
 # include <Inventor/elements/SoViewportRegionElement.h>
 # include <Inventor/elements/SoViewVolumeElement.h>
 # include <Inventor/nodes/SoCamera.h>
@@ -107,7 +110,53 @@ void SoAutoZoomTranslation::doAction(SoAction * action)
     matrix.multVecMatrix(SbVec3f(0,0,0),t);
     // reset current model scale factor
     matrix.setTransform(t,r,SbVec3f(sf,sf,sf));
+    if (datumFlip.getValue()
+        && state->isElementEnabled(SoViewingMatrixElement::getClassStackIndex())) {
+        flip(matrix, SoViewingMatrixElement::get(state));
+    }
     SoModelMatrixElement::set(state,this,matrix);
+}
+
+void SoAutoZoomTranslation::flip(SbMatrix& m, const SbMatrix& v) const
+{
+    // What the screen shows decides, as the backend does (BGFXRendererP.h,
+    // datumFlip), so Coin, the GL render cache that replays this node and a
+    // pick all agree. Rows 0 and 1 of m are the local X and Y (row vectors);
+    // their screen directions are their products with the view's columns.
+    float x[2], y[2];
+    for (int c = 0; c < 2; ++c) {
+        x[c] = m[0][0]*v[0][c] + m[0][1]*v[1][c] + m[0][2]*v[2][c];
+        y[c] = m[1][0]*v[0][c] + m[1][1]*v[1][c] + m[1][2]*v[2][c];
+    }
+    const SbVec3f lx(m[0][0], m[0][1], m[0][2]);
+    const SbVec3f ly(m[1][0], m[1][1], m[1][2]);
+    bool flipX = false, flipY = false;
+    datumFlips(x, y, lx.length(), ly.length(), flipX, flipY);
+    for (int k = 0; k < 3; ++k) {
+        if (flipX)
+            m[0][k] = -m[0][k];
+        if (flipY)
+            m[1][k] = -m[1][k];
+    }
+}
+
+void SoAutoZoomTranslation::datumFlips(const float x[2], const float y[2], float lx, float ly,
+                                       bool& flipX, bool& flipY)
+{
+    // Text reads along X: to the right, or upwards when it stands on end --
+    // X anywhere from 80 deg below the screen's x to 100 deg above it. The
+    // cut lies off the vertical, where views and the text often sit exactly
+    flipX = x[0]*0.98480775f + x[1]*0.17364818f < 0.f;
+    const float sx0 = flipX ? -x[0] : x[0];
+    const float sx1 = flipX ? -x[1] : x[1];
+    // and is not mirrored: Y to the left of X on the screen. Seen edge on X
+    // and Y lie on one line and Y just points up (or left when level)
+    const float cross = sx0*y[1] - sx1*y[0];
+    const float ey = 1e-3f*ly;
+    if (std::fabs(cross) > 1e-3f*lx*ly)
+        flipY = cross < 0.f;
+    else
+        flipY = y[1] < -ey || (y[1] <= ey && y[0] > ey);
 }
 
 // set the auto scale factor.

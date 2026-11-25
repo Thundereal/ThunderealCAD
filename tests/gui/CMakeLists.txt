@@ -2771,3 +2771,43 @@ fc_add_gui_test(GuiFemWorkbench_tests_run
 # property editor's marks and I key, Record of a property and of a view's,
 # none of it marking the document modified.
 fc_add_gui_test(GuiAnimationTimeline_tests_run animation-timeline.py --timeout 240)
+
+# The PMI workbench driven as a user drives it (docs/GDandT.md sec 3, 5-8):
+# picks on the Body's tip become solid references, the commands make a
+# tolerance, datums and dimensions, the callouts are drawn, PartDesign
+# offers the PMI tool bar while the set is active, undo takes one away.
+fc_add_gui_test(GuiPMIWorkbench_tests_run pmi-workbench.py --timeout 300)
+
+# The 3D model's PMI on a TechDraw page (docs/GDandT.md sec 9, P4): Import
+# Model Annotations makes linked callouts, drawn on the page, in its SVG and
+# by the vg renderer; the 3D value changed, the drawing follows.
+fc_add_gui_test(GuiPMITechDrawCallouts_tests_run pmi-techdraw-callouts.py --timeout 240)
+
+# A TechDraw page from PMI views (docs/GDandT.md sec 9 item 6): the command
+# makes a view per PMI view, a section for a clipped one; once projected,
+# each gets what its PMI view shows.
+fc_add_gui_test(GuiPMITechDrawPageFromViews_tests_run pmi-techdraw-page-from-views.py --timeout 240)
+
+# PMI views (docs/GDandT.md sec 6.3): activated, a view sets the camera, shows
+# only its members and clips; an annotation made in it joins it, in its plane;
+# let go, the camera and clipping come back; the command makes one.
+fc_add_gui_test(GuiPMIViews_tests_run pmi-views.py --timeout 300)
+
+# A PMI view made active in a browser's own view, from a callout's menu: its
+# hides in that client's visibility, the client asked to take its camera and
+# to restore it, on a view-only connection, no 3D view opened on the host.
+# The browser leg (serve-pmi-view-browser.py: the page's camera turned and
+# put back) is not registered: it needs node, puppeteer-core and a Chrome.
+fc_add_gui_test(GuiServePMIView_tests_run serve-pmi-view.py --timeout 200)
+
+# What applies to a face (sec 6.5): a callout selected outlines its faces, a face
+# picked or preselected lights what applies; the query panel lists it.
+fc_add_gui_test(GuiPMIQuery_tests_run pmi-query.py --timeout 300)
+
+# The GD&T of a STEP file (sec 5.1): NIST CTC-01 through ImportGui, at once and
+# progressively, gives what the headless import gives, none invalid, drawn.
+fc_add_gui_test(GuiPMIStep_tests_run pmi-step.py --timeout 300)
+
+# Datum targets (sec 10.11): PMI_DatumTarget on a datum and a face, its symbol
+# and its mark on the part.
+fc_add_gui_test(GuiPMITargets_tests_run pmi-targets.py --timeout 300)

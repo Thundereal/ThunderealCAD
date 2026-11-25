@@ -57,6 +57,7 @@ void DlgImportStep::saveSettings()
     // (h)STEP of Import module
     ui->checkBoxMergeCompound->onSave();
     ui->checkBoxImportHiddenObj->onSave();
+    ui->checkBoxReadPMI->onSave();
     ui->checkBoxUseAppPart->onSave();
     ui->checkBoxUseBaseName->onSave();
     ui->checkBoxReduceObjects->onSave();
@@ -70,6 +71,7 @@ void DlgImportStep::loadSettings()
     // (h)STEP of Import module
     ui->checkBoxMergeCompound->onRestore();
     ui->checkBoxImportHiddenObj->onRestore();
+    ui->checkBoxReadPMI->onRestore();
     ui->checkBoxUseAppPart->onRestore();
     ui->checkBoxUseBaseName->onRestore();
     ui->checkBoxReduceObjects->onRestore();

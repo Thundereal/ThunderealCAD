@@ -4150,9 +4150,11 @@ pre-mesh of an open (`PreMesh.cpp`, on threads), the view's own build
 (`ViewProviderPartExt::captureVisualFill`) at an open, at every recompute
 and at a change of detail, and the level builds of a served scene
 (`MeshLevelBuild.cpp`). A crash in it is this process's. With
-**`Workers/MeshInWorker`** on (off by default) the three call it through
+**`Workers/MeshInWorker`** on (the default; it was off until the user's
+ruling below) the three call it through
 `Part::meshShape()` (`Mod/Part/App/MeshService.h`), which sends the shape to
-a helper process and writes what comes back onto the shape.
+a helper process and writes what comes back onto the shape. On by default
+since the same day (below).
 
 **The helpers** (`App::ServiceWorkers`, `App/ServiceWorkers.h`) are not a
 document's pool. A WorkerPool's worker holds a copy of a document and moves
@@ -4251,10 +4253,13 @@ was read through one -- no application now means no setting). TestPartGui
 and TestPartDesignGui with the setting on, every view's mesh a helper's (174
 calls): the four of sec 64 fail as without it, and nothing else.
 
-Not decided: the default. On, a crash of the mesher costs a helper and the
-shape's mesh rather than the session; the price above is about 0.1 to 0.2 s
+**On by default** (the user, 2026-11-25): a crash of the mesher costs a
+helper and the shape's mesh rather than the session, for about 0.1 to 0.2 s
 on a recompute here, nothing seen on an open or a put-in, and two processes
-of 80 MB that reach 540 to 630 MB each at an open of scanner.
+of 80 MB that reach 540 to 630 MB each at an open of scanner. Off in a build
+that runs no processes (`__EMSCRIPTEN__`) and where there is no application
+(a test binary's). `MeshServiceTest.testItIsOnByDefault`; ctest 1288 of 1288
+with it on, the GUI tests' views meshed by helpers.
 
 ## 66. A worker's first routed expression boots its guest (2026-11-25)
 
@@ -4280,8 +4285,51 @@ off for its pool's workers too (they take the setting with the copy of the
 configuration the pool writes). With the runtime: the class 35 OK in 76 s,
 where it was 2 failures in 129 s; without: TestWorkerPool 79 OK.
 
-Not changed: what this costs a user with a runtime installed. A worker's
+What this costs a user with a runtime installed, and what sec 67 took off
+it: A worker's
 first job that evaluates an expression -- any recompute of a document with
 a spreadsheet -- is 1.7 s longer on the mini, once per worker; a worker
-lives until it has been idle `IdleSeconds` (30 s). Booting the guest beside
-the copy's open, when a worker starts, would take it off the first job.
+lives until it has been idle `IdleSeconds` (30 s). Sec 67 boots it while a
+worker waits for work, which takes it off the first job of a worker started
+ahead of need, not of one started for that job.
+
+## 67. A worker boots its guest while it waits for work (2026-11-25)
+
+The user's ruling on sec 66: the guest started in the background. A worker
+now starts a thread as it connects (`WorkerPool::serve()`) that asks
+`ExpressionSandbox::evaluationRouted()` -- the preference, then the host's
+`available()`, which boots the guest -- where `Workers/BootSandbox` (on)
+says so; with no runtime, or routing off, it returns at once.
+
+Two things had to change for that thread to get anywhere:
+
+- **The worker lets Python's lock go while it waits for a message**
+  (`serve()`'s `receive`, around `waitForReadyRead`). It runs inside a call
+  from Python and held the GIL throughout; the boot takes it for what it
+  asks of the host (the bridge's ops, `tellGuiUp`), and got it never.
+- **The host's lock is not waited for holding Python's**
+  (`ExpressionImageHost.cpp`, `HostLock`, at all 26 of its entries). The
+  boot holds the host's lock and takes the GIL; an evaluation meanwhile on a
+  thread that holds the GIL would wait for the host's lock with it. A thread
+  that finds the lock taken lets the GIL go while it waits.
+
+What it does not do: boot beside the copy's open or a job. The worker holds
+the GIL while it opens its copy and while it makes a job, and the boot waits
+for it there. So a worker started for a job that comes at once still pays
+the boot in that job; one the pool started ahead of need -- it grows by one
+after a job (sec 44) -- or one that waited between jobs has its guest up.
+Measured on the mini with a runtime installed, a worker's first job asking
+for the guest:
+
+| | started and sent the job at once | waited 3 s first |
+|---|---|---|
+| `BootSandbox` on | 1.50 s | 0.000 s |
+| `BootSandbox` off | 1.50 s | 1.52 s |
+
+`TestWorkerPool.testAWorkerWaitingForWorkHasItsGuestUp` (skipped where no
+guest boots, as the sandbox's own tests are; run with
+`FREECAD_USER_HOME=~/works/sw/pyodide-home`): under 0.3 s with it on, over
+0.3 s with it off. The split tests of sec 66 still pin evaluation native:
+their second worker is started for the timed job. TestWorkerPool 80 OK with
+the runtime (one skipped without it), TestPartApp 451, TestPartDesignApp
+1073, Document 364; ctest 1288 of 1288.

@@ -98,6 +98,7 @@
 #include "Document.h"
 #include "DocumentObject.h"
 #include "DocumentObjectPy.h"
+#include "ExpressionEvaluator.h"
 #include "ExpressionSecurityRuntime.h"
 #include "FileBlobManager.h"
 #include "FileHistory.h"
@@ -3018,6 +3019,36 @@ int WorkerPool::serve()
     send(socket, json {{"type", "hello"},
                        {"token", token.toStdString()},
                        {"pid", static_cast<long>(QCoreApplication::applicationPid())}});
+    // The sandbox's guest booted beside the copy's open rather than by the
+    // first expression of the first job, which waited 1.7 s for it on the
+    // mini (docs/WorkerProcess.md sec 66, 67): nothing where expressions are
+    // not routed. The host's lock lets an evaluation meanwhile wait for the
+    // boot without holding Python's (ExpressionImageHost.cpp, HostLock)
+    struct Boot
+    {
+        std::thread thread;
+        ~Boot()
+        {
+            if (thread.joinable()) {
+                if (Py_IsInitialized() && PyGILState_Check()) {
+                    Base::PyGILStateRelease unlock;
+                    thread.join();
+                }
+                else {
+                    thread.join();
+                }
+            }
+        }
+    } boot;
+    if (params()->GetBool("BootSandbox", true)) {
+        boot.thread = std::thread([] {
+            try {
+                ExpressionSandbox::evaluationRouted();
+            }
+            catch (...) {
+            }
+        });
+    }
     // What it says through the Console goes to the pool too (sec 27), until
     // the socket goes: retired before it, last in first out
     auto relay = new Relay(socket);
@@ -3071,7 +3102,18 @@ int WorkerPool::serve()
                 if (socket.state() != QLocalSocket::ConnectedState) {
                     return -2;
                 }
-                if (!socket.waitForReadyRead(1000)) {
+                bool ready = false;
+                // Python's lock let go while nothing comes: the guest's
+                // boot on its own thread takes it for what it asks of the
+                // host
+                if (Py_IsInitialized() && PyGILState_Check()) {
+                    Base::PyGILStateRelease unlock;
+                    ready = socket.waitForReadyRead(1000);
+                }
+                else {
+                    ready = socket.waitForReadyRead(1000);
+                }
+                if (!ready) {
                     continue;
                 }
             }

@@ -126,6 +126,15 @@ def _indexed(doc, inputs, out):
     return {"Indexed": doc.Hasher.IndexedNames}
 
 
+def _guest(doc, inputs, out):
+    """How long the worker's sandbox guest took to be there: booted while
+    the worker waited for work, or by this (docs/WorkerProcess.md sec 67)"""
+    began = time.time()
+    up = App.ExpressionSandbox.available()
+    return {"Up": up, "Waited": time.time() - began,
+            "Boots": App.ExpressionSandbox.bootCount()}
+
+
 def _table(doc, inputs, out):
     """The strings of the worker's table spelled inputs["Spelled"], by that
     spelling: None for one it lacks"""
@@ -266,6 +275,7 @@ for _kind, _handler in (
     ("test.names", _names),
     ("test.indexed", _indexed),
     ("test.table", _table),
+    ("test.guest", _guest),
 ):
     worker.register(_kind, _handler)
 
@@ -302,6 +312,31 @@ class TestWorkerPool(unittest.TestCase):
                 return True
             self.pool.poll(50)
         return condition()
+
+    def testAWorkerWaitingForWorkHasItsGuestUp(self):
+        """With a sandbox runtime installed a worker boots its guest as it
+        starts, while it waits for work: its first job finds it up. With
+        Workers/BootSandbox off the first job boots it (docs/WorkerProcess.md
+        sec 67)"""
+        if not App.ExpressionSandbox.available():
+            self.skipTest("no sandbox guest in this build or profile")
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        self.addCleanup(group.RemBool, "BootSandbox")
+        waited = {}
+        for boot in (True, False):
+            group.SetBool("BootSandbox", boot)
+            self.pool.stop("the next one starts with the setting")
+            self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+            # it waits for work meanwhile
+            self.assertFalse(self.waitFor(lambda: False, 4))
+            job = self.submit("test.guest")
+            self.assertTrue(self.pool.wait(120), self.pool.info())
+            out = self.pool.result(job)["Output"]
+            self.assertTrue(out["Up"], out)
+            self.assertEqual(out["Boots"], 1, out)
+            waited[boot] = out["Waited"]
+        self.assertLess(waited[True], 0.3, waited)
+        self.assertGreater(waited[False], 0.3, waited)
 
     def testJobsComeBackOnce(self):
         self.assertTrue(self.pool.start(), self.pool.info()["Reason"])

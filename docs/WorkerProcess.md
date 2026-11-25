@@ -3980,3 +3980,58 @@ OCCT the same: one worker 0 of 587 differ; split and one worker again
 `Part012`'s area 24940.2409 -> 24940.2408; split again `Helix`'s volume
 978.5405 -> 978.5404. The same rows and values as sec 60, so a value the
 old writer read back as another double does not make them.
+
+## 62. The fourth-place differences are the sketch solver's history (2026-11-25)
+
+The GUI comparison's last differences (sec 59, 60, 61: `Part012`'s area,
+`Helix`'s volume in the fourth place) are not a worker's. The probe
+alternates `hole_radius` between 5.5 and 5.511 mm and compares each run
+with the run here at the same value, but not from the same history: the
+reference and the worker each came to the value from a different previous
+solution. Probes in `fcad-probes/worker/`.
+
+**Here differs from here.** `fourth.py`, at 5.5 mm, shapes compared at 1e-9
+relative: the file's own full recompute (A0) against a recompute here after
+a trip to 5.511 and back (A1), against a worker after the same trip (A2),
+against here after a second trip (A3). Each of A1, A2, A3 differs from A0,
+and from each other, in `Helix` and `Helix001` only, by about 3e-8:
+
+| | Helix volume |
+|---|---|
+| A0, full recompute | 978.1430212651425 |
+| A1, here after a trip | 978.1430561870327 |
+| A2, worker after a trip | 978.1430335472254 |
+| A3, here after a second trip | 978.1430264757187 |
+
+`Part012` is not among them at 1e-9; its area's fourth-place step in the GUI
+is about 1e-5 absolute, `Helix`'s own (`Part012` holds the body). Touching
+the whole chain and recomputing three times changes nothing
+(`helixrepeat.py`), and one shape measures the same twice: the result
+depends on where the solve starts, not on chance.
+
+**Sketch034.** The first object of the chain to differ after a trip
+(`helixtrip.py`), and in it one point (`sk034.py`): the start of arc 8 and
+the end of line 10 on it move 1.87e-6 mm, where everything else moves about
+1e-12. The sketch is fully constrained, but c21 puts that point on line 6,
+to which the arc is (all but) tangent: the point is a circle meeting a line
+that touches it, a double root. DogLeg stops when every residual is below
+1e-10 (`DL_tolf`); along a double root the residual grows with the square
+of the displacement, so the point is fixed only to about sqrt(1e-10), and
+where it stops is where it came from -- the previous solution.
+
+**From the same start a worker gives what here gives.** `samestart.py`: two
+copies of the file, each recomputed in full and taken to 5.511 here (the
+two then the same, every BRep); then back to 5.5, one here and one by a
+worker. No vertex of any shape moves (Sketch034's at most 1.45e-15);
+volume or area differ in the last digit for 2 of 269 (`Helix`
+978.1430561870327 against ...329). The BRep text differs for 55, in form
+only: a worker's shape has come through a BRep file, which keeps one
+location where here a sketch holds a chain of 12, and one copy of a pcurve
+that here is there twice (`ss_*.brep`).
+
+Nothing to mend in the worker. A comparison of a worker with here holds only
+from the same history; the GUI probe's does not, and its fourth-place rows
+are this. Making the solver history-free here would need the point fixed
+past the double root's square-root precision, which a tighter tolerance
+narrows (1e-16 residual: about 1e-8) but does not close; the sketch itself
+would be exact with c21 a tangency.

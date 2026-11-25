@@ -1490,7 +1490,23 @@ frame; otherwise, or with no mechanism, the fluid's frames as before.
 From the file too: the simulation keeps its run (KeepResults Motion, the
 default). The Assembly's own panel still does not draw the water.
 
-Not built yet: the lag at finer spacings.
+**The lag, at 5 mm (2026-11-25).** A partitioned coupling like this one
+-- the force of a stretch from the fluid moved along the parts' motion at
+its start, held through it -- is unstable in theory where the water that
+moves with a part outweighs the part. Not seen at 5 mm, on 4 threads:
+the hinged bar at 0.3, 0.2 and 0.15 of the water's density settles, the
+lighter the sooner (swinging 0.55, 0.33 and 0.24 deg at the end, 0.5 to
+0.7 deg low as the skin above says); a paddle 45 x 60 x 10 at 1.5 times
+the water's density swinging broadside under water, some four times its
+mass of water moving with it, creeps to hanging, overdamped. The water at
+5 mm damps far more than the lag feeds. The growth seen at 2.5 mm is for
+the attended run of sec 12.10 to settle: first whether it follows the
+stretch (the runner's longest step divided, a diagnostic knob kept out of
+the tree), then, if it does, the remedies by cost -- the walls on a
+parabola over a stretch (the accelerations in the move line), an
+added-mass correction, shorter stretches.
+
+Not built yet: whatever the 2.5 mm runs call for.
 
 ### 12.10 The host's hard hangs, and what the runs are held to (2026-11-24)
 

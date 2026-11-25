@@ -526,8 +526,10 @@ void Helix::proposeParameters(bool force)
 Base::Vector3d Helix::getProfileCenterPoint()
 {
     auto profileshape = getVerifiedFace();
+    // From the geometry: a profile that is a shown solid's face carries its
+    // mesh, which would move the centre
     Bnd_Box box;
-    BRepBndLib::Add(profileshape.getShape(), box);
+    BRepBndLib::Add(profileshape.getShape(), box, false);
     box.SetGap(0.0);
     double xmin, ymin, zmin, xmax, ymax, zmax;
     box.Get(xmin, ymin, zmin, xmax, ymax, zmax);

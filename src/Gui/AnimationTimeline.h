@@ -110,6 +110,8 @@ private:
     QTimer timer;
     QElapsedTimer clock;
     App::DocumentObjectT anim;
+    /// A selection while playing: the document put as it is at Time
+    fastsignals::scoped_connection selected;
     double startTime = 0;
     int direction = 1;
     bool held = false;

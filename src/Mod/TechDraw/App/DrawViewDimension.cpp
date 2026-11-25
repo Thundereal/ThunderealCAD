@@ -36,6 +36,7 @@
 # include <QStringList>
 
 # include <TopTools_IndexedMapOfShape.hxx>
+# include <Standard_Failure.hxx>
 # include <BRep_Tool.hxx>
 # include <BRepAdaptor_Curve.hxx>
 # include <BRepBuilderAPI_MakeEdge.hxx>
@@ -684,6 +685,12 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
         // below is the fallback for a reference this cannot place.
         fixByName();
 
+        // before the comparison: a null entry matches nothing, and the
+        // reference it stands for would never be found again by geometry
+        if (!isRestoring()) {
+            fillNullSavedGeometry();
+        }
+
         const std::vector<TopoShape> savedGeometry = SavedGeometry.getValues();
         if (!savedGeometry.empty()) {
             // we can only correct references if we have saved geometry for comparison
@@ -711,6 +718,17 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
         std::string why =
             References3D.getValues().empty() ? whyReferences2DInvalid(this) : std::string();
         return described(why.empty() ? std::string(e.what()) : why);
+    }
+    catch (const Standard_Failure& e) {
+        // OCCT's, from the geometry of a reference: no further than this
+        // dimension, and said with its kind -- its message is often empty
+        // (docs/WorkerProcess.md sec 46)
+        references = getEffectiveReferences();
+        std::string why = e.ExceptionType();
+        if (e.GetMessageString() && *e.GetMessageString()) {
+            why += std::string(": ") + e.GetMessageString();
+        }
+        return described(why);
     }
 
     //we have either or both valid References3D and References2D
@@ -1688,6 +1706,58 @@ void DrawViewDimension::replaceReferenceSubElement2d(int iRef, std::string& newS
     setReferences2d(refs);
 }
 
+//! Repoint the references `fixes` names, keeping what is saved of every other
+//! one.  A change of the references saves each one's geometry and name as it
+//! stands: a reference not found again yet -- the vertex of a dimension whose
+//! edge was found by name -- would have the element its stale number names
+//! now saved as what it means, and pass every later comparison
+//! (docs/WorkerProcess.md sec 46).
+void DrawViewDimension::repointReferences(const std::vector<std::pair<int, std::string>>& fixes,
+                                          bool is3d)
+{
+    if (fixes.empty()) {
+        return;
+    }
+    const std::vector<TopoShape> oldGeometry = SavedGeometry.getValues();
+    const std::vector<std::string> oldNames = SavedNames.getValues();
+    ReferenceVector refs = is3d ? getReferences3d() : getReferences2d();
+    std::vector<bool> fixed(refs.size(), false);
+    for (auto& fix : fixes) {
+        refs.at(fix.first).setSubName(fix.second);
+        fixed.at(fix.first) = true;
+    }
+    if (is3d) {
+        setReferences3d(refs);
+    }
+    else {
+        setReferences2d(refs);
+    }
+
+    // the saved geometry is of the effective references, one entry each
+    // while none is a view alone
+    const bool effective = is3d || References3D.getValues().empty();
+    std::vector<TopoShape> geometry = SavedGeometry.getValues();
+    if (effective && geometry.size() == refs.size() && oldGeometry.size() == refs.size()) {
+        for (size_t i = 0; i < refs.size(); i++) {
+            if (!fixed.at(i)) {
+                geometry.at(i) = oldGeometry.at(i);
+            }
+        }
+        SavedGeometry.setValues(geometry);
+    }
+    std::vector<std::string> names = SavedNames.getValues();
+    if (!is3d && names.size() == refs.size() && oldNames.size() == refs.size()) {
+        for (size_t i = 0; i < refs.size(); i++) {
+            if (!fixed.at(i)) {
+                names.at(i) = oldNames.at(i);
+            }
+        }
+        if (names != SavedNames.getValues()) {
+            SavedNames.setValues(names);
+        }
+    }
+}
+
 void DrawViewDimension::replaceReferenceSubElement3d(int iRef, std::string& newSubelement)
 {
     ReferenceVector refs = getReferences3d();
@@ -1904,9 +1974,7 @@ bool DrawViewDimension::fixByName()
         fixes.emplace_back(int(iRef), subName);
     }
 
-    for (auto& fix : fixes) {
-        replaceReferenceSubElement2d(fix.first, fix.second);
-    }
+    repointReferences(fixes, false);
     if (!fixes.empty()) {
         Base::Console().Log("%s - %d 2d reference(s) found again by name\n",
                             getNameInDocument(), int(fixes.size()));
@@ -2088,14 +2156,48 @@ bool DrawViewDimension::fixExactMatch()
         }
     }
 
-    for (auto& fix : refsToFix2d) {
-        replaceReferenceSubElement2d(fix.first, fix.second);
-    }
-    for (auto& fix : refsToFix3d) {
-        replaceReferenceSubElement3d(fix.first, fix.second);
-    }
+    repointReferences(refsToFix2d, false);
+    repointReferences(refsToFix3d, true);
 
     return success;
+}
+
+//! A saved entry is null where its reference was set before its view had drawn
+//! the element -- a dimension made in the same recompute as its view, as a
+//! script makes them. Nothing filled it later: every recompute compared the
+//! null entry with the element, said "no exact match", and accepted the
+//! reference as it stood, so it was never found again by its geometry. What
+//! the reference names once the view has drawn is what it was made against:
+//! there was nothing else (docs/WorkerProcess.md sec 54). The entries stand
+//! for the references with a subname, as updateSavedGeometry() makes them.
+bool DrawViewDimension::fillNullSavedGeometry()
+{
+    std::vector<TopoShape> saved = SavedGeometry.getValues();
+    if (saved.empty()) {
+        return false;
+    }
+    bool filled = false;
+    std::size_t index = 0;
+    for (auto& entry : getEffectiveReferences()) {
+        if (entry.getSubName().empty()) {
+            continue;
+        }
+        if (index >= saved.size()) {
+            break;
+        }
+        if (saved[index].isNull() && entry.isValid()) {
+            TopoShape now = entry.asCanonicalTopoShape();
+            if (!now.isNull()) {
+                saved[index] = now;
+                filled = true;
+            }
+        }
+        ++index;
+    }
+    if (filled) {
+        SavedGeometry.setValues(saved);
+    }
+    return filled;
 }
 
 // deal with situation where the current geometry does not match the saved geometry,

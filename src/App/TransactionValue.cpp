@@ -81,8 +81,7 @@ public:
         else {
             setPreferBinary(false);
         }
-        _xml.precision(std::numeric_limits<double>::digits10 + 1);
-        _xml.setf(std::ios::fixed, std::ios::floatfield);
+        Base::setSaveNumberFormat(_xml);
     }
 
     std::ostream& Stream() override { return _current ? *_current : _xml; }
@@ -95,8 +94,7 @@ public:
         while (index < FileList.size()) {
             FileEntry entry = FileList[index++];
             std::ostringstream out;
-            out.precision(std::numeric_limits<double>::digits10 + 1);
-            out.setf(std::ios::fixed, std::ios::floatfield);
+            Base::setSaveNumberFormat(out);
             _current = &out;
             putNextEntry(entry.FileName.c_str());
             indent = 0;
@@ -407,8 +405,22 @@ long App::RestoreStrings::id(long id)
     return here.value();
 }
 
+namespace {
+thread_local int valueRestores = 0;
+}
+
+bool App::restoringValue()
+{
+    return valueRestores > 0;
+}
+
 void App::restoreValue(Property& prop, const CapturedValue& value)
 {
+    struct Depth
+    {
+        Depth() { ++valueRestores; }
+        ~Depth() { --valueRestores; }
+    } depth;
     // The value's element maps read by the ids it wrote, not the ones some
     // earlier restore left (sec 27.67).
     Data::ElementMapIdScope mapIds;

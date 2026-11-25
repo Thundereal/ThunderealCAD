@@ -21,6 +21,12 @@
  ***************************************************************************/
 
 #include "PreCompiled.h"
+
+#include <memory>
+
+#include <QPointer>
+
+#include <nlohmann/json.hpp>
 #ifndef _PreComp_
 # include <QCheckBox>
 # include <QCoreApplication>
@@ -30,6 +36,7 @@
 # include <QTextEdit>
 # include <QTextStream>
 # include <QThread>
+# include <QTimer>
 # include <QTreeView>
 # include <Standard_Version.hxx>
 # include <Bnd_Box.hxx>
@@ -56,14 +63,19 @@
 # include <Inventor/nodes/SoTransform.h>
 #endif //_PreComp_
 
+#include <App/Application.h>
+#include <App/Document.h>
 #include <App/UnitsParams.h>
+#include <App/WorkerPool.h>
 #include <Base/Interpreter.h>
+#include <Base/Tools.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/WaitCursor.h>
+#include <Mod/Part/App/GeometryCheck.h>
 #include <Mod/Part/App/PartFeature.h>
 
 #include "TaskCheckGeometry.h"
@@ -71,6 +83,8 @@
 
 
 using namespace PartGui;
+
+FC_LOG_LEVEL_INIT("Part", true, true)
 
 QVector<QString> buildShapeEnumVector()
 {
@@ -380,6 +394,7 @@ TaskCheckGeometryResults::TaskCheckGeometryResults(QWidget *parent) : QWidget(pa
 
 TaskCheckGeometryResults::~TaskCheckGeometryResults()
 {
+    cancelWorker();
     try {
         Gui::Selection().clearSelection();
     }
@@ -407,94 +422,118 @@ void TaskCheckGeometryResults::setupInterface()
     this->setLayout(layout);
 }
 
+namespace
+{
+
+Part::GeometryCheck::Options checkOptions()
+{
+    Part::GeometryCheck::Options o;
+    o.bop = PartParams::getCheckGeometryRunBOPCheck();
+    // The Single-threaded box of the panel stores RunSingleThreaded. This
+    // read a key of another name, RunBOPCheckSingleThreaded, which nothing
+    // writes: the box did nothing.
+    o.singleThreaded = PartParams::getCheckGeometryRunSingleThreaded();
+    o.argumentType = PartParams::getCheckGeometryArgumentTypeMode();
+    o.selfInter = PartParams::getCheckGeometrySelfInterMode();
+    o.smallEdge = PartParams::getCheckGeometrySmallEdgeMode();
+    o.rebuildFace = PartParams::getCheckGeometryRebuildFaceMode();
+    o.continuity = PartParams::getCheckGeometryContinuityMode();
+    o.tangent = PartParams::getCheckGeometryTangentMode();
+    o.mergeVertex = PartParams::getCheckGeometryMergeVertexMode();
+    o.mergeEdge = PartParams::getCheckGeometryMergeEdgeMode();
+    o.curveOnSurface = PartParams::getCheckGeometryCurveOnSurfaceMode();
+    return o;
+}
+
+nlohmann::json optionsJson(const Part::GeometryCheck::Options& o)
+{
+    return nlohmann::json {{"bop", o.bop},
+                           {"singleThreaded", o.singleThreaded},
+                           {"argumentType", o.argumentType},
+                           {"selfInter", o.selfInter},
+                           {"smallEdge", o.smallEdge},
+                           {"rebuildFace", o.rebuildFace},
+                           {"continuity", o.continuity},
+                           {"tangent", o.tangent},
+                           {"mergeVertex", o.mergeVertex},
+                           {"mergeEdge", o.mergeEdge},
+                           {"curveOnSurface", o.curveOnSurface}};
+}
+
+}  // namespace
+
 void TaskCheckGeometryResults::goCheck()
 {
     Gui::WaitCursor wc;
     auto selection = Gui::Selection().getSelection();
+    cancelWorker();
+    items.clear();
 
-    int selectedCount(0), checkedCount(0), invalidShapes(0);
-    ResultEntry *theRoot = new ResultEntry();
-
-    std::string scopeName {tr("Boolean operation check...").toStdString()};
-#if OCC_VERSION_HEX < 0x070500
-    Handle(Message_ProgressIndicator) theProgress = new BOPProgressIndicator(tr("Check geometry"),
-                                                                             Gui::getMainWindow());
-    theProgress->NewScope(scopeName.c_str());
-    theProgress->Show();
-#else
-    Handle(Message_ProgressIndicator) theProgress = new BOPProgressIndicator(tr("Check geometry"),
-                                                                             Gui::getMainWindow());
-    Message_ProgressRange theRange(theProgress->Start());
-    Message_ProgressScope theScope(theRange,
-                                   TCollection_AsciiString(scopeName.c_str()),
-                                   selection.size());
-    theScope.Show();
-#endif // 0x070500
-
+    int selectedCount(0);
     for(const auto &sel :  selection) {
         selectedCount++;
         TopoDS_Shape shape = Part::Feature::getShape(sel.pObject,sel.SubName,true);
         if (shape.IsNull())
             continue;
-        currentSeparator = Gui::Application::Instance->getViewProvider(sel.pObject)->getRoot();
-        if (!currentSeparator)
+        auto vp = Gui::Application::Instance->getViewProvider(sel.pObject);
+        if (!vp || !vp->getRoot())
             continue;
-        QString baseName;
-        QTextStream baseStream(&baseName);
+        Item item;
+        item.object = sel.pObject;
+        item.sub = sel.SubName ? sel.SubName : "";
+        item.shape = shape;
+        item.separator = vp->getRoot();
+        QTextStream baseStream(&item.baseName);
         baseStream << QString::fromUtf8(sel.DocName);
         baseStream << "." << QString::fromUtf8(sel.FeatName);
-        checkedCount++;
-        checkedMap.Clear();
-
-        buildShapeContent(sel.pObject, baseName, shape);
-
-        BRepCheck_Analyzer shapeCheck(shape);
-        if (!shapeCheck.IsValid())
-        {
-            invalidShapes++;
-            ResultEntry *entry = new ResultEntry();
-            entry->parent = theRoot;
-            entry->shape = shape;
-            entry->name = baseName;
-            entry->type = shapeEnumToString(shape.ShapeType());
-            entry->error = tr("Invalid");
-            entry->viewProviderRoot = currentSeparator;
-            entry->viewProviderRoot->ref();
-            goSetupResultBoundingBox(entry);
-            theRoot->children.push_back(entry);
-            recursiveCheck(shapeCheck, shape, entry);
-            continue; //don't run BOPAlgo_ArgumentAnalyzer if BRepCheck_Analyzer finds something.
-        }
-        else
-        {
-          //BOPAlgo_ArgumentAnalyzer can be really slow!
-          //so only run it when the shape seems valid to BRepCheck_Analyzer And
-          //when the option is set.
-
-          ParameterGrp::handle group = App::GetApplication().GetUserParameter().
-          GetGroup("BaseApp")->GetGroup("Preferences")->GetGroup("Mod")->GetGroup("Part")->GetGroup("CheckGeometry");
-          bool runSignal = PartParams::getCheckGeometryRunBOPCheck();
-          if (runSignal) {
-            std::string label = tr("Checking").toStdString() + " ";
-            label += sel.pObject->Label.getStrValue();
-            label += "...";
-#if OCC_VERSION_HEX < 0x070500
-            theProgress->NewScope(label.c_str());
-            invalidShapes += goBOPSingleCheck(shape, theRoot, baseName, theProgress);
-            theProgress->EndScope();
-            if (theProgress->UserBreak())
-              break;
-#else
-            Message_ProgressScope theInnerScope(theScope.Next(), TCollection_AsciiString(label.c_str()), 1);
-            theInnerScope.Show();
-            invalidShapes += goBOPSingleCheck(shape, theRoot, baseName, theInnerScope);
-            theInnerScope.Close();
-            if (theScope.UserBreak())
-              break;
-#endif
-          }
-        }
+        buildShapeContent(sel.pObject, item.baseName, shape);
+        items.push_back(item);
     }
+    this->selectedCount = selectedCount;
+    const Part::GeometryCheck::Options options = checkOptions();
+    if (checkInWorkers(options)) {
+        message->setText(tr("Checking %n shape(s) in a worker process...", "",
+                            static_cast<int>(items.size())));
+        model->setResults(new ResultEntry());
+        return;
+    }
+
+    std::string scopeName {tr("Boolean operation check...").toStdString()};
+    Handle(Message_ProgressIndicator) theProgress = new BOPProgressIndicator(tr("Check geometry"),
+                                                                             Gui::getMainWindow());
+    Message_ProgressRange theRange(theProgress->Start());
+    Message_ProgressScope theScope(theRange,
+                                   TCollection_AsciiString(scopeName.c_str()),
+                                   static_cast<int>(items.size()));
+    theScope.Show();
+    ResultEntry *theRoot = new ResultEntry();
+    int invalidShapes = 0;
+    int checkedCount = 0;
+    for (const auto& item : items) {
+        std::string label = tr("Checking").toStdString() + " ";
+        label += item.object->Label.getStrValue();
+        label += "...";
+        Message_ProgressScope theInnerScope(theScope.Next(), TCollection_AsciiString(label.c_str()), 1);
+        theInnerScope.Show();
+        std::vector<Part::GeometryCheck::Finding> found;
+        try {
+            found = Part::GeometryCheck::check(item.shape, options, theInnerScope.Next());
+        }
+        catch (const Standard_Failure& e) {
+            FC_ERR(item.baseName.toStdString() << ": " << e.GetMessageString());
+        }
+        theInnerScope.Close();
+        ++checkedCount;
+        invalidShapes += putFindings(found, item, theRoot);
+        if (theScope.UserBreak())
+            break;
+    }
+    showResults(theRoot, checkedCount, invalidShapes);
+}
+
+void TaskCheckGeometryResults::showResults(ResultEntry* theRoot, int checkedCount,
+                                           int invalidShapes)
+{
     model->setResults(theRoot);
     treeView->expandAll();
     treeView->header()->resizeSections(QHeaderView::ResizeToContents);
@@ -503,78 +542,187 @@ void TaskCheckGeometryResults::goCheck()
     message->setText(aMessage);
 }
 
-void TaskCheckGeometryResults::recursiveCheck(const BRepCheck_Analyzer &shapeCheck, const TopoDS_Shape &shape,
-                                              ResultEntry *parent)
+int TaskCheckGeometryResults::putFindings(const std::vector<Part::GeometryCheck::Finding>& found,
+                                          const Item& item, ResultEntry* theRoot)
 {
-    ResultEntry *branchNode = parent;
-    BRepCheck_ListIteratorOfListOfStatus listIt;
-    if (!shapeCheck.Result(shape).IsNull() && !checkedMap.Contains(shape))
-    {
-        listIt.Initialize(shapeCheck.Result(shape)->Status());
-        if (listIt.Value() != BRepCheck_NoError)
-        {
-            ResultEntry *entry = new ResultEntry();
-            entry->parent = parent;
-            entry->shape = shape;
-            entry->buildEntryName();
-            entry->type = shapeEnumToString(shape.ShapeType());
-            entry->error = checkStatusToString(listIt.Value());
-            entry->viewProviderRoot = currentSeparator;
-            entry->viewProviderRoot->ref();
-            dispatchError(entry, listIt.Value());
-            parent->children.push_back(entry);
-            branchNode = entry;
+    // The entries the findings name, on the shape this process holds: each
+    // by its type and index among the checked shape's
+    using Source = Part::GeometryCheck::Source;
+    const bool logErrors = PartParams::getCheckGeometryLogErrors();
+    std::vector<ResultEntry*> made;
+    made.reserve(found.size());
+    int invalid = 0;
+    for (const auto& f : found) {
+        ResultEntry* entry = new ResultEntry();
+        entry->viewProviderRoot = item.separator;
+        entry->viewProviderRoot->ref();
+        const auto type = static_cast<TopAbs_ShapeEnum>(f.type);
+        if (f.parent < 0 || f.parent >= static_cast<int>(made.size())) {
+            ++invalid;
+            entry->parent = theRoot;
+            entry->shape = item.shape;
+            entry->name = item.baseName;
+            entry->type = shapeEnumToString(type);
+            entry->error = tr("Invalid");
+            goSetupResultBoundingBox(entry);
+            theRoot->children.push_back(entry);
+            made.push_back(entry);
+            continue;
         }
-    }
-    checkedMap.Add(shape);
-
-    if (shape.ShapeType() == TopAbs_SOLID)
-        checkSub(shapeCheck, shape, TopAbs_SHELL, branchNode);
-    if (shape.ShapeType() == TopAbs_EDGE)
-        checkSub(shapeCheck, shape, TopAbs_VERTEX, branchNode);
-    if (shape.ShapeType() == TopAbs_FACE)
-    {
-        checkSub(shapeCheck, shape, TopAbs_WIRE, branchNode);
-        checkSub(shapeCheck, shape, TopAbs_EDGE, branchNode);
-        checkSub(shapeCheck, shape, TopAbs_VERTEX, branchNode);
-    }
-
-    for (TopoDS_Iterator it(shape); it.More(); it.Next())
-        recursiveCheck(shapeCheck, it.Value(), branchNode);
-}
-
-void TaskCheckGeometryResults::checkSub(const BRepCheck_Analyzer &shapeCheck, const TopoDS_Shape &shape,
-                                        const TopAbs_ShapeEnum subType, ResultEntry *parent)
-{
-    BRepCheck_ListIteratorOfListOfStatus itl;
-    TopExp_Explorer exp;
-    for (exp.Init(shape,subType); exp.More(); exp.Next())
-    {
-        const Handle(BRepCheck_Result)& res = shapeCheck.Result(exp.Current());
-        const TopoDS_Shape& sub = exp.Current();
-        for (res->InitContextIterator(); res->MoreShapeInContext(); res->NextShapeInContext())
-        {
-            if (res->ContextualShape().IsSame(shape))
-            {
-                for (itl.Initialize(res->StatusOnShape()); itl.More(); itl.Next())
-                {
-                     if (itl.Value() == BRepCheck_NoError)
-                         break;
-                     checkedMap.Add(sub);
-                     ResultEntry *entry = new ResultEntry();
-                     entry->parent = parent;
-                     entry->shape = sub;
-                     entry->buildEntryName();
-                     entry->type = shapeEnumToString(sub.ShapeType());
-                     entry->error = checkStatusToString(itl.Value());
-                     entry->viewProviderRoot = currentSeparator;
-                     entry->viewProviderRoot->ref();
-                     dispatchError(entry, itl.Value());
-                     parent->children.push_back(entry);
-                }
+        ResultEntry* parent = made[f.parent];
+        TopTools_IndexedMapOfShape map;
+        TopExp::MapShapes(item.shape, type, map);
+        if (f.index >= 1 && f.index <= map.Extent()) {
+            entry->shape = map.FindKey(f.index);
+        }
+        else {
+            entry->shape = item.shape;
+        }
+        entry->parent = parent;
+        entry->buildEntryName();
+        entry->type = shapeEnumToString(type);
+        if (f.source == Source::Brep) {
+            entry->error = checkStatusToString(f.status);
+            dispatchError(entry, static_cast<BRepCheck_Status>(f.status));
+        }
+        else {
+            entry->error = getBOPCheckString(static_cast<BOPAlgo_CheckStatus>(f.status));
+            goSetupResultBoundingBox(entry);
+            if (type == TopAbs_FACE || type == TopAbs_EDGE || type == TopAbs_VERTEX) {
+                goSetupResultTypedSelection(entry, entry->shape, type);
+            }
+            /*log BOPCheck errors to report view*/
+            if (logErrors) {
+                std::clog << parent->name.toStdString().c_str() << " : "
+                          << entry->name.toStdString().c_str() << " : "
+                          << entry->type.toStdString().c_str() << " : "
+                          << entry->error.toStdString().c_str() << std::endl;
             }
         }
+        parent->children.push_back(entry);
+        made.push_back(entry);
     }
+    return invalid;
+}
+
+bool TaskCheckGeometryResults::checkInWorkers(const Part::GeometryCheck::Options& options)
+{
+    // docs/WorkerProcess.md sec 25: the window free while a worker checks,
+    // CheckCommand of Preferences/Workers ("Check geometry in a worker
+    // process" in the Document preferences), on unless set off
+    auto group = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/Workers");
+    if (items.empty() || checkHere || !group->GetBool("CheckCommand", true)
+        || !App::WorkerPool::supported()) {
+        return false;
+    }
+    App::Document* doc = items.front().object->getDocument();
+    nlohmann::json list = nlohmann::json::array();
+    std::vector<std::string> reads;
+    for (const auto& item : items) {
+        if (item.object->getDocument() != doc) {
+            return false;  // a pool is a document's
+        }
+        list.push_back({{"object", item.object->getNameInDocument()}, {"sub", item.sub}});
+        reads.emplace_back(item.object->getNameInDocument());
+    }
+    App::WorkerPool* pool = App::WorkerPool::of(*doc);
+    if (!pool || !pool->start()) {
+        return false;
+    }
+    static long serial = 0;
+    App::WorkerPool::Job job;
+    job.kind = "part.check";
+    job.tag = "part.check." + std::to_string(++serial);
+    // What it reads: an edit of one of them, or of what they are made from,
+    // drops it, and the check is to be run again
+    job.reads = reads;
+    job.inputs = nlohmann::json {{"items", list}, {"options", optionsJson(options)}}.dump();
+    QPointer<TaskCheckGeometryResults> self(this);
+    auto timer = std::make_shared<QElapsedTimer>();
+    timer->start();
+    job.done = [self, timer](App::WorkerPool::Result& r) {
+        if (!self) {
+            return;
+        }
+        self->workerDone(r, timer->elapsed() / 1000.0);
+    };
+    const std::string tag = job.tag;
+    if (!pool->submit(std::move(job))) {
+        return false;
+    }
+    workerTag = tag;
+    workerDocument = doc->getName();
+    return true;
+}
+
+void TaskCheckGeometryResults::workerDone(App::WorkerPool::Result& r, double seconds)
+{
+    workerTag.clear();
+    workerDocument.clear();
+    using Status = App::WorkerPool::Result::Status;
+    if (r.status != Status::Done) {
+        if (r.status == Status::Cancelled) {
+            message->setText(tr("The design changed while a worker checked it: %1. Check again.")
+                                 .arg(QString::fromUtf8(r.error.c_str())));
+            return;
+        }
+        if (r.died) {
+            message->setText(tr("The worker process checking it ended before it was done: "
+                                "an OCCT failure on this geometry. Not tried here, where it "
+                                "could end this session too."));
+            return;
+        }
+        // Failed or unfit: here, as it was asked for
+        FC_LOG("checked here: " << r.error);
+        QTimer::singleShot(0, this, [this]() {
+            Base::StateLocker here(checkHere);
+            goCheck();
+        });
+        return;
+    }
+    nlohmann::json output = nlohmann::json::parse(r.output, nullptr, false);
+    const nlohmann::json results = output.is_object() ? output.value("results", nlohmann::json())
+                                                      : nlohmann::json();
+    ResultEntry* theRoot = new ResultEntry();
+    int invalidShapes = 0;
+    int checkedCount = 0;
+    for (std::size_t i = 0; i < items.size() && results.is_array() && i < results.size(); ++i) {
+        std::vector<Part::GeometryCheck::Finding> found;
+        for (const auto& f : results[i].value("findings", nlohmann::json::array())) {
+            if (!f.is_array() || f.size() != 5) {
+                continue;
+            }
+            Part::GeometryCheck::Finding finding;
+            finding.parent = f[0].get<int>();
+            finding.type = f[1].get<int>();
+            finding.index = f[2].get<int>();
+            finding.source = static_cast<Part::GeometryCheck::Source>(f[3].get<int>());
+            finding.status = f[4].get<int>();
+            found.push_back(finding);
+        }
+        ++checkedCount;
+        invalidShapes += putFindings(found, items[i], theRoot);
+    }
+    showResults(theRoot, checkedCount, invalidShapes);
+    if (auto mw = Gui::getMainWindow()) {
+        mw->showMessage(tr("Geometry checked by a worker in %1 s").arg(seconds, 0, 'f', 1), 8000);
+    }
+}
+
+void TaskCheckGeometryResults::cancelWorker()
+{
+    if (workerTag.empty()) {
+        return;
+    }
+    if (auto doc = App::GetApplication().getDocument(workerDocument.c_str())) {
+        if (auto pool = App::WorkerPool::of(*doc, false)) {
+            const std::string tag = workerTag;
+            pool->cancel([tag](const std::string& t) { return t == tag; });
+        }
+    }
+    workerTag.clear();
+    workerDocument.clear();
 }
 
 void TaskCheckGeometryResults::buildShapeContent(App::DocumentObject *pObject, const QString &baseName, const TopoDS_Shape &shape)
@@ -613,142 +761,6 @@ QString TaskCheckGeometryResults::getShapeContentString()
 {
   return QString::fromStdString(shapeContentString);
 }
-
-#if OCC_VERSION_HEX < 0x070500
-int TaskCheckGeometryResults::goBOPSingleCheck(const TopoDS_Shape& shapeIn, ResultEntry *theRoot, const QString &baseName,
-                                               const Handle(Message_ProgressIndicator)& theProgress)
-#else
-int TaskCheckGeometryResults::goBOPSingleCheck(const TopoDS_Shape& shapeIn, ResultEntry *theRoot, const QString &baseName,
-                                               const Message_ProgressScope& theScope)
-#endif
-{
-    ParameterGrp::handle group = App::GetApplication().GetUserParameter().
-    GetGroup("BaseApp")->GetGroup("Preferences")->GetGroup("Mod")->GetGroup("Part")->GetGroup("CheckGeometry");
-    // The Single-threaded box of the panel stores RunSingleThreaded. This
-    // read a key of another name, RunBOPCheckSingleThreaded, which nothing
-    // writes: the box did nothing.
-    bool runSingleThreaded = PartParams::getCheckGeometryRunSingleThreaded();
-    bool logErrors = PartParams::getCheckGeometryLogErrors();
-    bool argumentTypeMode = PartParams::getCheckGeometryArgumentTypeMode();
-    bool selfInterMode = PartParams::getCheckGeometrySelfInterMode();
-    bool smallEdgeMode = PartParams::getCheckGeometrySmallEdgeMode();
-    bool rebuildFaceMode = PartParams::getCheckGeometryRebuildFaceMode();
-    bool continuityMode = PartParams::getCheckGeometryContinuityMode();
-    bool tangentMode = PartParams::getCheckGeometryTangentMode();
-    bool mergeVertexMode = PartParams::getCheckGeometryMergeVertexMode();
-    bool mergeEdgeMode = PartParams::getCheckGeometryMergeEdgeMode();
-    bool curveOnSurfaceMode = PartParams::getCheckGeometryCurveOnSurfaceMode();
-
-  //Reference use: src/BOPTest/BOPTest_CheckCommands.cxx
-
-  //I don't why we need to make a copy, but it doesn't work without it.
-  //BRepAlgoAPI_Check also makes a copy of the shape.
-
-  //didn't use BRepAlgoAPI_Check because it calls BRepCheck_Analyzer itself and
-  //doesn't give us access to it. so I didn't want to run BRepCheck_Analyzer twice to get invalid results.
-
-  //BOPAlgo_ArgumentAnalyzer can check 2 objects with respect to a boolean op.
-  //this is left for another time.
-  TopoDS_Shape BOPCopy = BRepBuilderAPI_Copy(shapeIn).Shape();
-  BOPAlgo_ArgumentAnalyzer BOPCheck;
-
-#if OCC_VERSION_HEX < 0x070500
-  BOPCheck.SetProgressIndicator(theProgress);
-#elif OCC_VERSION_HEX < 0x070600
-  BOPCheck.SetProgressIndicator(theScope);
-#else
-  Q_UNUSED(theScope)
-#endif // 0x070500
-
-
-  BOPCheck.SetShape1(BOPCopy);
-  //all settings are false by default. so only turn on what we want.
-  BOPCheck.ArgumentTypeMode() = argumentTypeMode;
-  BOPCheck.SelfInterMode() = selfInterMode;
-  BOPCheck.SmallEdgeMode() = smallEdgeMode;
-  BOPCheck.RebuildFaceMode() = rebuildFaceMode;
-  BOPCheck.ContinuityMode() = continuityMode;
-
-  BOPCheck.SetParallelMode(!runSingleThreaded); //this doesn't help for speed right now(occt 6.9.1).
-  BOPCheck.SetRunParallel(!runSingleThreaded); //performance boost, use all available cores
-  BOPCheck.TangentMode() = tangentMode; //these 4 new tests add about 5% processing time.
-  BOPCheck.MergeVertexMode() = mergeVertexMode;
-  BOPCheck.MergeEdgeMode() = mergeEdgeMode;
-  BOPCheck.CurveOnSurfaceMode() = curveOnSurfaceMode;
-
-#ifdef FC_DEBUG
-  Base::TimeInfo start_time;
-#endif
-
-  BOPCheck.Perform();
-
-#ifdef FC_DEBUG
-  float bopAlgoTime = Base::TimeInfo::diffTimeF(start_time,Base::TimeInfo());
-  std::cout << std::endl << "BopAlgo check time is: " << bopAlgoTime << std::endl << std::endl;
-#endif
-
-  if (!BOPCheck.HasFaulty())
-      return 0;
-
-  ResultEntry *entry = new ResultEntry();
-  entry->parent = theRoot;
-  entry->shape = BOPCopy; //this will cause a problem, with existing entry. i.e. entry is true.
-  entry->name = baseName;
-  entry->type = shapeEnumToString(shapeIn.ShapeType());
-  entry->error = QObject::tr("Invalid");
-  entry->viewProviderRoot = currentSeparator;
-  entry->viewProviderRoot->ref();
-  goSetupResultBoundingBox(entry);
-  theRoot->children.push_back(entry);
-
-  const BOPAlgo_ListOfCheckResult &BOPResults = BOPCheck.GetCheckResult();
-  BOPAlgo_ListIteratorOfListOfCheckResult BOPResultsIt(BOPResults);
-  for (; BOPResultsIt.More(); BOPResultsIt.Next())
-  {
-    const BOPAlgo_CheckResult &current = BOPResultsIt.Value();
-    const TopTools_ListOfShape &faultyShapes1 = current.GetFaultyShapes1();
-    TopTools_ListIteratorOfListOfShape faultyShapes1It(faultyShapes1);
-
-    for (;faultyShapes1It.More(); faultyShapes1It.Next())
-    {
-      const TopoDS_Shape &faultyShape = faultyShapes1It.Value();
-      ResultEntry *faultyEntry = new ResultEntry();
-      faultyEntry->parent = entry;
-      faultyEntry->shape = faultyShape;
-      faultyEntry->buildEntryName();
-      faultyEntry->type = shapeEnumToString(faultyShape.ShapeType());
-      faultyEntry->error = getBOPCheckString(current.GetCheckStatus());
-      faultyEntry->viewProviderRoot = currentSeparator;
-      entry->viewProviderRoot->ref();
-      goSetupResultBoundingBox(faultyEntry);
-
-      if (faultyShape.ShapeType() == TopAbs_FACE)
-      {
-        goSetupResultTypedSelection(faultyEntry, faultyShape, TopAbs_FACE);
-      }
-      else if (faultyShape.ShapeType() == TopAbs_EDGE)
-      {
-        goSetupResultTypedSelection(faultyEntry, faultyShape, TopAbs_EDGE);
-      }
-      else if (faultyShape.ShapeType() == TopAbs_VERTEX)
-      {
-        goSetupResultTypedSelection(faultyEntry, faultyShape, TopAbs_VERTEX);
-      }
-      entry->children.push_back(faultyEntry);
-
-      /*log BOPCheck errors to report view*/
-      if (logErrors){
-          std::clog << faultyEntry->parent->name.toStdString().c_str() << " : "
-                    << faultyEntry->name.toStdString().c_str() << " : "
-                    << faultyEntry->type.toStdString().c_str() << " : "
-                    << faultyEntry->error.toStdString().c_str()
-                    << std::endl;
-      }
-    }
-  }
-  return 1;
-}
-
 
 void TaskCheckGeometryResults::dispatchError(ResultEntry *entry, const BRepCheck_Status &stat)
 {
@@ -1169,6 +1181,15 @@ bool TaskCheckGeometryDialog::accept()
 bool TaskCheckGeometryDialog::reject()
 {
     return true;
+}
+
+void TaskCheckGeometryDialog::closed()
+{
+    // Now, not when the panel is deleted later
+    if (widget) {
+        widget->cancelWorker();
+    }
+    TaskDialog::closed();
 }
 
 void TaskCheckGeometryDialog::onClicked(QAbstractButton *btn)

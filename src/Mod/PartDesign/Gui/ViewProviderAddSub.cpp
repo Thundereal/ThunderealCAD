@@ -156,8 +156,22 @@ void ViewProviderAddSub::finishRestoring()
 void ViewProviderAddSub::updateAddSubShapeIndicator()
 {
     auto view = getAddSubView();
-    if (view)
-        view->updateVisual();
+    if (!view)
+        return;
+    // Meshed when the preview goes up, not at each change of its shape while
+    // it is down: every feature's preview was meshed at every recompute,
+    // drawn nowhere, 0.4 s of a worker's put-in of scanner on the main
+    // thread (docs/WorkerProcess.md sec 53)
+    if (!previewShown()) {
+        view->touchVisual();
+        return;
+    }
+    view->updateVisual();
+}
+
+bool ViewProviderAddSub::previewShown() const
+{
+    return previewActive || isPreviewMode() || isPreviewInSession();
 }
 
 void ViewProviderAddSub::checkAddSubColor()
@@ -526,6 +540,9 @@ void ViewProviderAddSub::setPreviewDisplayMode(bool on, const App::SubObjectT &o
     }
 
     if (on) {
+        // What its shape's changes left to be made when shown
+        if (pAddSubView)
+            pAddSubView->ensureVisual();
         checkAddSubColor();
 
         if (showPreviewInSession(occurrence)) {
@@ -628,6 +645,8 @@ bool ViewProviderAddSub::getDetailPath(const char *subname,
         auto view = const_cast<ViewProviderAddSub*>(this)->getAddSubView();
         if (!view)
             return false;
+        // A path into it is to a face of it, which there is once it is made
+        view->ensureVisual();
         subname += prefix.size();
         if(append) {
             pPath->append(pcRoot);

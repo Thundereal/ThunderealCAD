@@ -266,9 +266,11 @@ App::DocumentObjectExecReturn* Extend::extendEdges(const Part::TopoShape& input)
         if (upTo.isNull() || upTo.countSubShapes(TopAbs_FACE) == 0) {
             return new App::DocumentObjectExecReturn("UpTo is not a face");
         }
+        // From the geometry: a shown face's mesh would make the length,
+        // and so a natural extension's surface, the GUI's own
         Bnd_Box box;
-        BRepBndLib::Add(face, box);
-        BRepBndLib::Add(upTo.getShape(), box);
+        BRepBndLib::Add(face, box, false);
+        BRepBndLib::Add(upTo.getShape(), box, false);
         length = std::sqrt(box.SquareExtent());
     }
     // Up to a face, the shortest of these that crosses it: far enough past

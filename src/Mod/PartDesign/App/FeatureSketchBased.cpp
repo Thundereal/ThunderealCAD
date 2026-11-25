@@ -1184,9 +1184,11 @@ double ProfileBased::getThroughAllLength() const
     if (profileshape.isNull())
         profileshape = getProfileShape();
     auto base = getBaseShape();
+    // From the geometry: a shown base's mesh would make the length, and the
+    // depth a hole writes from it, the GUI's own
     Bnd_Box box;
-    BRepBndLib::Add(base.getShape(), box);
-    BRepBndLib::Add(profileshape.getShape(), box);
+    BRepBndLib::Add(base.getShape(), box, false);
+    BRepBndLib::Add(profileshape.getShape(), box, false);
     box.SetGap(0.0);
     // The diagonal of the bounding box, plus 1%  extra to eliminate risk of
     // co-planar issues, gives a length that is guaranteed to go through all.

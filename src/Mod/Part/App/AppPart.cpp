@@ -252,6 +252,15 @@ PyMOD_INIT_FUNC(Part)
     // Retained base shapes let go of a released referrer once the recompute
     // that released it is over (docs/TopoNamingEnhance.md section 7).
     App::GetApplication().signalRecomputed.connect(&Part::Feature::releasePendingShapeVersions);
+    // A shape kept for an object that is made of others' -- a link group's --
+    // goes when the object is recomputed. Its own execute() clears it too
+    // (_LinkTouched), but a worker's result put in is a recompute with no
+    // execute() here, which left the group the shape of the edit before
+    // (docs/WorkerProcess.md sec 44).
+    App::GetApplication().signalRecomputedObject.connect(
+            [](const App::Document&, const App::DocumentObject& obj) {
+                Part::PropertyShapeCache::clearShapes(&obj);
+            });
     // A document keeps the sub-shapes its element references into other
     // documents resolved against, rebuilt at every save (section 7.13).
     App::GetApplication().signalStartSaveDocument.connect(

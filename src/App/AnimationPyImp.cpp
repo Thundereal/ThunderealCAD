@@ -766,6 +766,33 @@ PyObject* AnimationPy::stop(PyObject* args)
     PY_CATCH
 }
 
+PyObject* AnimationPy::showAt(PyObject* args)
+{
+    double t = 0;
+    if (!PyArg_ParseTuple(args, "d", &t)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        getAnimationPtr()->showAt(t);
+        Py_Return;
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::settle(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        getAnimationPtr()->settle();
+        Py_Return;
+    }
+    PY_CATCH
+}
+
 PyObject* AnimationPy::evaluate(PyObject* args)
 {
     if (!PyArg_ParseTuple(args, "")) {
@@ -804,6 +831,12 @@ PyObject* AnimationPy::cacheInfo(PyObject* args)
         dict.setItem("Replayed", Py::Long(info.replayed));
         dict.setItem("Spilled", Py::Long(info.spilled));
         dict.setItem("Loaded", Py::Long(info.loaded));
+        dict.setItem("Prepared", Py::Long(info.prepared));
+        dict.setItem("StringsById", Py::Long(info.byId));
+        dict.setItem("StringsByContent", Py::Long(info.byContent));
+        dict.setItem("Deferred", Py::Long(info.deferred));
+        dict.setItem("Settled", Py::Long(info.settled));
+        dict.setItem("Owed", Py::Long(static_cast<long>(info.owed)));
         return Py::new_reference_to(dict);
     }
     PY_CATCH
@@ -818,6 +851,119 @@ PyObject* AnimationPy::clearCache(PyObject* args)
     {
         getAnimationPtr()->clearCache();
         Py_Return;
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::prepareFrames(PyObject* args, PyObject* kwds)
+{
+    PyObject* pyTimes = Py_None;
+    PyObject* force = Py_False;
+    static const std::array<const char*, 3> kwlist {"times", "force", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "|OO!", kwlist, &pyTimes, &PyBool_Type,
+                                             &force)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        std::vector<double> times;
+        if (pyTimes != Py_None) {
+            Py::Sequence seq(pyTimes);
+            for (Py::Sequence::iterator it = seq.begin(); it != seq.end(); ++it) {
+                times.push_back(static_cast<double>(Py::Float(*it)));
+            }
+            if (times.empty()) {
+                return Py::new_reference_to(Py::Long(0));
+            }
+        }
+        int n = getAnimationPtr()->prepareFrames(times, PyObject_IsTrue(force) != 0);
+        return Py::new_reference_to(Py::Long(n));
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::stopWorkers(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        getAnimationPtr()->stopWorkers();
+        Py_Return;
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::workerInfo(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto info = getAnimationPtr()->workerInfo();
+        Py::Dict dict;
+        Py::List busy;
+        for (double t : info.busy) {
+            busy.append(Py::Float(t));
+        }
+        dict.setItem("Running", Py::Boolean(info.running));
+        dict.setItem("Workers", Py::Long(info.workers));
+        dict.setItem("Limit", Py::Long(info.limit));
+        dict.setItem("Queued", Py::Long(static_cast<long>(info.queued)));
+        dict.setItem("Busy", busy);
+        dict.setItem("Prepared", Py::Long(info.prepared));
+        dict.setItem("Failed", Py::Long(info.failed));
+        dict.setItem("Resident", Py::Long(static_cast<long>(info.resident)));
+        dict.setItem("Reason", Py::String(info.reason));
+        return Py::new_reference_to(dict);
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::waitWorkers(PyObject* args)
+{
+    double seconds = -1;
+    if (!PyArg_ParseTuple(args, "|d", &seconds)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        // With the lock held: a frame taken in may push another out to
+        // disk, and a Python value is written with Python
+        bool done = getAnimationPtr()->waitWorkers(seconds);
+        return Py::new_reference_to(Py::Boolean(done));
+    }
+    PY_CATCH
+}
+
+PyObject* AnimationPy::writeFrame(PyObject* args)
+{
+    long index = 0;
+    const char* file = nullptr;
+    const char* tables = nullptr;
+    PyObject* hints = nullptr;
+    if (!PyArg_ParseTuple(args, "lss|O!", &index, &file, &tables, &PyDict_Type, &hints)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        std::map<std::string, std::string> display;
+        if (hints) {
+            Py::Dict dict(hints);
+            for (auto item : dict) {
+                display[Py::String(item.first).as_std_string("utf-8")] =
+                    Py::String(item.second).as_std_string("utf-8");
+            }
+        }
+        auto written = getAnimationPtr()->writeFrame(index, file, tables, display);
+        Py::Dict dict;
+        dict.setItem("Bytes", Py::Long(static_cast<long>(written.bytes)));
+        dict.setItem("Cost", Py::Float(written.cost));
+        dict.setItem("Table", Py::String(written.table));
+        dict.setItem("Resident", Py::Long(static_cast<long>(written.resident)));
+        return Py::new_reference_to(dict);
     }
     PY_CATCH
 }

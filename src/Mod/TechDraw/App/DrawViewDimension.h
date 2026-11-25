@@ -232,11 +232,15 @@ protected:
     bool compareSavedGeometry();
     bool fixExactMatch();
     void handleNoExactMatch();
+    /// Saved entries left null, filled from what their references name now
+    /// (docs/WorkerProcess.md sec 54); true if one was
+    bool fillNullSavedGeometry();
     std::string recoverChangedEdge2d(int iReference);
     std::string recoverChangedEdge3d(int iReference);
     std::string recoverChangedVertex2d(int iReference);
     std::string recoverChangedVertex3d(int iReference);
     void replaceReferenceSubElement2d(int iRef, std::string &newSubelement);
+    void repointReferences(const std::vector<std::pair<int, std::string>>& fixes, bool is3d);
     void replaceReferenceSubElement3d(int iRef, std::string &newSubelement);
 
     std::vector<Part::TopoShape> getEdges(const Part::TopoShape& inShape);

@@ -143,7 +143,7 @@ int hexValue(char c)
 }
 
 /// "#id" or "#id:index" at \a pos, as StringID::toString() writes it
-bool parseId(const std::string& text, std::size_t pos, long& id, int& index, std::size_t& end)
+bool parseId(const std::string& text, std::size_t pos, std::int64_t& id, int& index, std::size_t& end)
 {
     std::size_t i = pos + 1;
     std::size_t digits = i;
@@ -242,7 +242,7 @@ public:
                 break;
             }
             out.append(text, i, at - i);
-            long id = 0;
+            std::int64_t id = 0;
             int index = 0;
             std::size_t end = 0;
             if (!_hasher || !parseId(text, at, id, index, end)) {
@@ -250,7 +250,7 @@ public:
                 i = at + 1;
                 continue;
             }
-            App::StringIDRef sid = _hasher->getID(id, index);
+            App::StringIDRef sid = _hasher->getIDBySpelling(id, index);
             if (!sid || sid.isHashed() || sid.isBinary()) {
                 out.append(text, at, end - at);
             }
@@ -284,7 +284,7 @@ public:
                 }
             }
             else if (text[i] == '#' && _hasher) {
-                long id = 0;
+                std::int64_t id = 0;
                 int index = 0;
                 std::size_t end = 0;
                 if (parseId(text, i, id, index, end)) {
@@ -299,7 +299,7 @@ public:
     }
 
 private:
-    const std::vector<long>& tagsOfId(long id, int depth)
+    const std::vector<long>& tagsOfId(std::int64_t id, int depth)
     {
         auto it = _tags.find(id);
         if (it != _tags.end()) {
@@ -308,7 +308,7 @@ private:
         // In before the walk, so that a table that refers to itself ends
         _tags[id];
         std::set<long> found;
-        App::StringIDRef sid = _hasher->getID(id);
+        App::StringIDRef sid = _hasher->getIDBySpelling(id);
         if (sid && !sid.isHashed() && !sid.isBinary()) {
             tags(sid.dataToText(), found, depth + 1);
         }
@@ -318,7 +318,7 @@ private:
     }
 
     App::StringHasherRef _hasher;
-    std::unordered_map<long, std::vector<long>> _tags;
+    std::unordered_map<std::int64_t, std::vector<long>> _tags;
 };
 
 std::string withoutSteps(const std::string& text, const std::set<long>& tags, int depth);

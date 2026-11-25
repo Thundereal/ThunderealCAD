@@ -115,6 +115,7 @@ void PropertyTopoShapeList::afterRestore()
     hasSetValue();
 
     m_restorePointers.clear();
+    m_restoreFiles.clear();
     App::PropertyLists::afterRestore();
 }
 
@@ -213,6 +214,7 @@ void PropertyTopoShapeList::Restore(Base::XMLReader &reader)
     int count = reader.getAttributeAsInteger("count");
     m_restorePointers.clear();      // just in case
     m_restorePointers.reserve(count);
+    m_restoreFiles.clear();
     for (int i = 0; i < count; i++) {
         auto newShape = std::make_shared<TopoShape>();
         reader.readElement("TopoShape");
@@ -226,6 +228,9 @@ void PropertyTopoShapeList::Restore(Base::XMLReader &reader)
             std::string file (reader.getAttribute("file") );
             if (!file.empty()) {
                 reader.addFile(file.c_str(),this);
+                // by its own name: a directory project hands the reader the
+                // folder it is in too
+                m_restoreFiles[Base::FileInfo(file).fileName()] = i;
             }
         } else if(reader.getAttributeAsInteger("binary","")) {
             newShape->importBinary(reader.beginBase64Stream());
@@ -245,7 +250,20 @@ void PropertyTopoShapeList::RestoreDocFile(Base::Reader& reader)
 {
     Base::FileInfo finfo(reader.getFileName());
     bool binary = finfo.hasExtension("bin");
-    int index = atoi(Base::FileInfo(finfo.fileNamePure()).extension().c_str());
+    // The entry the file was named for in Restore. Not read from the name
+    // alone: `<object>.<property>.<index>.<ext>` as Save writes it, but a
+    // version of the document read by a worker names each file by its content
+    // as well, `<object>.<property>.<index>.<hash>.<ext>`, whose hash the
+    // number was read from -- each entry out of range, restored null
+    // (docs/WorkerProcess.md sec 46)
+    int index = -1;
+    auto known = m_restoreFiles.find(finfo.fileName());
+    if (known != m_restoreFiles.end()) {
+        index = known->second;
+    }
+    else {
+        index = atoi(Base::FileInfo(finfo.fileNamePure()).extension().c_str());
+    }
     if (index < 0 || index >= static_cast<int>(m_restorePointers.size()))
         return;
     if (binary) {
@@ -260,6 +278,13 @@ App::Property *PropertyTopoShapeList::Copy() const
     PropertyTopoShapeList *p = new PropertyTopoShapeList();
     std::vector<TopoShape> copiedShapes;
     for (auto& shape : _lValueList) {
+        // a null entry is a value of the list (a TechDraw dimension keeps one
+        // for a reference with no geometry), which BRepBuilderAPI_Copy throws
+        // Standard_NullObject over (docs/WorkerProcess.md sec 46)
+        if (shape.getShape().IsNull()) {
+            copiedShapes.emplace_back();
+            continue;
+        }
         BRepBuilderAPI_Copy copy(shape.getShape());
         copiedShapes.emplace_back(copy.Shape());
     }

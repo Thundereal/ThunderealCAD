@@ -911,8 +911,9 @@ double Hole::throughAllLength(const TopoShape& base, const TopoShape& profilesha
     toHoleFrame.SetTransformation(gp_Ax3(gp::Origin(), holeDirection));
     const TopLoc_Location loc(toHoleFrame);
     Bnd_Box baseBox, profileBox;
-    BRepBndLib::Add(base.getShape().Moved(loc), baseBox);
-    BRepBndLib::Add(profileshape.getShape().Moved(loc), profileBox);
+    // From the geometry, not a shown base's mesh
+    BRepBndLib::Add(base.getShape().Moved(loc), baseBox, false);
+    BRepBndLib::Add(profileshape.getShape().Moved(loc), profileBox, false);
     if (baseBox.IsVoid() || profileBox.IsVoid())
         return getThroughAllLength();
     baseBox.SetGap(0.0);
@@ -1583,6 +1584,10 @@ void Hole::findClosestDesignation()
 
 void Hole::onChanged(const App::Property* prop)
 {
+    {
+        std::lock_guard<std::mutex> lock(threadsLock);
+        threadsMade.reset();
+    }
     if (prop == &StartType) {
         const std::string type = StartType.getValueAsString();
         StartOffset.setReadOnly(type == "Profile plane");
@@ -2154,6 +2159,10 @@ bool Hole::isLegacyThread() const
 
 void Hole::onDocumentRestored()
 {
+    {
+        std::lock_guard<std::mutex> lock(threadsLock);
+        threadsMade.reset();
+    }
     ProfileBased::onDocumentRestored();
     restoreThreadSize();
     updateProps();
@@ -2628,6 +2637,21 @@ void Hole::forEachHoleCenter(
 }
 
 std::vector<Hole::CosmeticThreadBore> Hole::getCosmeticThreads() const
+{
+    // The view asks for the threads of every hole before a feature at every
+    // change of that feature's shape (PartDesignGui's threadsReaching()), and
+    // making them takes the profile's normal from its surface: made once,
+    // until a property of the hole changes -- its Shape, when it is made
+    // again or a worker's is put in. A profile edited since shows the threads
+    // of the hole as it was made, which is the hole shown.
+    std::lock_guard<std::mutex> lock(threadsLock);
+    if (!threadsMade) {
+        threadsMade = makeCosmeticThreads();
+    }
+    return *threadsMade;
+}
+
+std::vector<Hole::CosmeticThreadBore> Hole::makeCosmeticThreads() const
 {
     std::vector<CosmeticThreadBore> bores;
     if (!Threaded.getValue() || !CosmeticThread.getValue() || ModelThread.getValue()

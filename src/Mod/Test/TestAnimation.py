@@ -15,6 +15,7 @@
 
 import math
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -1162,6 +1163,145 @@ class TestAnimation(unittest.TestCase):
         self.assertGreater(self.anim.cacheInfo()["Replayed"], 0)
         self.assertGreater(proxy.count, 0)
 
+    def showHideScene(self):
+        """A plate cut by a chain: a hole, a hole, then a group of two holes
+        (an App::Part, whose shape is gathered from its shown children); a
+        feature whose expression reads the second hole's Visibility; the
+        plate's thickness keyed. Every frame recomputes all of them"""
+        import Part  # noqa: F401
+
+        def hole(name, x, y):
+            cyl = self.doc.addObject("Part::Cylinder", name)
+            cyl.Radius = 2
+            cyl.Height = 40
+            cyl.Placement.Base = App.Vector(x, y, -5)
+            return cyl
+
+        box = self.doc.addObject("Part::Box", "Plate")
+        box.Length = box.Width = 40
+        first, second = hole("First", 5, 5), hole("Second", 15, 5)
+        cut1 = self.doc.addObject("Part::Cut", "Cut1")
+        cut1.Base, cut1.Tool = box, first
+        cut2 = self.doc.addObject("Part::Cut", "Cut2")
+        cut2.Base, cut2.Tool = cut1, second
+        group = self.doc.addObject("App::Part", "Holes")
+        grouped = [hole("Third", 25, 5), hole("Fourth", 35, 5)]
+        group.addObjects(grouped)
+        cut3 = self.doc.addObject("Part::Cut", "Cut3")
+        cut3.Base, cut3.Tool = cut2, group
+        reader = self.doc.addObject("App::FeatureTest", "Reader")
+        reader.setExpression("Float", "Plate.Height * (Second.Visibility ? 1 : 2)")
+        self.doc.recompute()
+        self.anim.FrameRate = 10
+        self.anim.addKey("Plate.Height", 0.0, 5.0)
+        self.anim.addKey("Plate.Height", 1.0, 15.0)
+        self.anim.Cache = True
+        self.anim.activate()
+        for t in self.anim.frames():
+            self.anim.Time = t
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        return first, second, grouped, cut3, reader
+
+    def testCacheKeepsItsFramesWhenAStepIsShownOrHidden(self):
+        """docs/WorkerProcess.md sec 17: showing or hiding a step of a chain
+        changes no frame; what reads a Visibility -- an expression naming
+        it, a group gathering its shown children -- drops what it reaches"""
+        first, second, grouped, cut3, reader = self.showHideScene()
+        times = self.anim.frames()
+        self.anim.Time = times[3]
+        volume = cut3.Shape.Volume
+        stored = self.anim.cacheInfo()["Stored"]
+        # A step of the chain: no result reads it
+        first.Visibility = False
+        first.Visibility = True
+        first.Visibility = False
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        self.anim.Time = times[3]
+        self.assertEqual(self.anim.cacheInfo()["Stored"], stored)  # put back, not made again
+        self.assertAlmostEqual(cut3.Shape.Volume, volume)
+        # An expression reading it: the frames with the reader go, and are
+        # made again with what it reads now
+        second.Visibility = False
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+        self.anim.Time = times[5]  # Time at times[3] already sets nothing
+        self.anim.Time = times[3]
+        self.assertAlmostEqual(reader.Float, 2 * (5.0 + 10.0 * times[3]))
+        self.assertAlmostEqual(cut3.Shape.Volume, volume)  # the shape no different
+        for t in times:
+            self.anim.Time = t
+        # A child of a group whose shape is gathered from what it shows: the
+        # cut taking the group goes, and has one hole fewer made again
+        grouped[0].Visibility = False
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+        self.anim.Time = times[3]
+        self.assertGreater(cut3.Shape.Volume, volume + 1.0)
+
+    def testCacheKeepsABodysFramesWhenAFeatureIsShownOrHidden(self):
+        """A Body keeps its own shape, its tip's: a feature shown or hidden in
+        it changes nothing a frame holds (docs/WorkerProcess.md sec 17)"""
+        import PartDesign  # noqa: F401
+
+        body = self.doc.addObject("PartDesign::Body", "Body")
+        box = body.newObject("PartDesign::AdditiveBox", "Pad")
+        box.Length = box.Width = 20
+        hole = body.newObject("PartDesign::SubtractiveCylinder", "Hole")
+        hole.Radius = 3
+        hole.Height = 40
+        hole.Placement.Base = App.Vector(10, 10, -5)
+        self.doc.recompute()
+        self.anim.FrameRate = 10
+        self.anim.addKey("Pad.Height", 0.0, 5.0)
+        self.anim.addKey("Pad.Height", 1.0, 15.0)
+        self.anim.Cache = True
+        self.anim.activate()
+        for t in self.anim.frames():
+            self.anim.Time = t
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        box.Visibility = False
+        box.Visibility = True
+        hole.Visibility = False
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), 11)
+        stored = self.anim.cacheInfo()["Stored"]
+        self.anim.Time = self.anim.frames()[4]
+        self.assertEqual(self.anim.cacheInfo()["Stored"], stored)
+        self.assertTrue(body.Shape.isValid())
+
+    def testShowAtWithNoViewIsTimeSet(self):
+        # docs/WorkerProcess.md sec 16: showAt() holds back the geometry no
+        # view draws. With no GUI no module says what a view draws, so
+        # nothing is held back: a frame shown is a frame put back whole
+        try:
+            import Part  # noqa: F401
+        except ImportError:
+            self.skipTest("shapes are Part's")
+        box = self.doc.addObject("Part::Box", "Box")
+        cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = box
+        cut.Tool = cyl
+        self.doc.recompute()
+        self.anim.FrameRate = 5
+        self.anim.addKey("Box.Height", 0.0, 10.0)
+        self.anim.addKey("Box.Height", 1.0, 20.0)
+        self.anim.Cache = True
+        self.anim.activate()
+        volumes = {}
+        for t in self.anim.frames():
+            self.anim.Time = t
+            volumes[t] = (box.Shape.Volume, cut.Shape.Volume)
+        for t in reversed(self.anim.frames()[:-1]):
+            self.anim.showAt(t)
+            self.assertAlmostEqual(box.Shape.Volume, volumes[t][0], 6)
+            self.assertAlmostEqual(cut.Shape.Volume, volumes[t][1], 6)
+        info = self.anim.cacheInfo()
+        self.assertEqual(info["Owed"], 0)
+        self.assertEqual(info["Deferred"], 0)
+        # The last on show already; the first the design as it rests, with
+        # nothing recomputed to keep
+        self.assertEqual(info["Replayed"], len(self.anim.frames()) - 2)
+        self.anim.settle()  # nothing to put in
+        self.assertEqual(self.anim.cacheInfo()["Settled"], 0)
+
     def testCacheKeepsAShapeWithItsMesh(self):
         try:
             import Part  # noqa: F401
@@ -1357,6 +1497,376 @@ class TestAnimation(unittest.TestCase):
         # times what its property counts, and the cache counts that
         self.assertGreater(info["Bytes"], 10 * 5 * own)
         self.assertLess(info["Bytes"], 10 * 2000 * own)
+
+    def workerSettings(self, workers, idle=0):
+        """At most `workers` worker processes, each let go as soon as it has
+        nothing to do (or after `idle` seconds): a test's share of the
+        machine"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetInt("Workers", workers)
+        group.SetFloat("IdleSeconds", idle)
+        self.addCleanup(group.RemInt, "Workers")
+        self.addCleanup(group.RemFloat, "IdleSeconds")
+
+    def workerScene(self, workers=2):
+        """A plate with holes whose thickness and one hole's radius are
+        keyed: frames worth handing to worker processes (docs/Animation.md
+        sec 4.2), two of them at most"""
+        import Part  # noqa: F401
+
+        self.workerSettings(workers)
+        box = self.doc.addObject("Part::Box", "Box")
+        box.Length = 30
+        box.Width = 30
+        tools = []
+        for i in range(9):
+            cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+            cyl.Radius = 2
+            cyl.Height = 40
+            cyl.Placement.Base = App.Vector(5 + 10 * (i % 3), 5 + 10 * (i // 3), -5)
+            tools.append(cyl)
+        tool = self.doc.addObject("Part::Compound", "Tool")
+        tool.Links = tools
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base = box
+        cut.Tool = tool
+        self.doc.recompute()
+        self.anim.FrameRate = 10
+        self.anim.addKey("Box.Height", 0.0, 10.0)
+        self.anim.addKey("Box.Height", 1.0, 20.0)
+        self.anim.addKey("%s.Radius" % tools[4].Name, 0.0, 1.0)
+        self.anim.addKey("%s.Radius" % tools[4].Name, 1.0, 4.0)
+        return box, cut
+
+    @staticmethod
+    def frameFacts(cut):
+        shape = cut.Shape
+        names = [shape.getElementName("Face%d" % (i + 1)) for i in range(len(shape.Faces))]
+        return round(shape.Volume, 6), len(shape.Faces), names
+
+    def framesHere(self, cut):
+        """Each frame made in this process: what it is, with its shape kept
+        so the strings its names use stay under the ids they have"""
+        kept = []
+        for t in self.anim.frames():
+            self.anim.Time = t
+            kept.append((cut.Shape, self.frameFacts(cut)))
+        return kept
+
+    def workerFiles(self):
+        frames = os.path.join(self.doc.TransientDir, "AnimationCache", "Anim")
+        names = os.listdir(frames) if os.path.isdir(frames) else []
+        return [n for n in names if n.endswith(".wframe") or n.endswith(".part")]
+
+    def testWorkersMakeTheFramesTheCacheTakes(self):
+        box, cut = self.workerScene()
+        self.anim.Cache = True
+        self.anim.activate()
+        times = self.anim.frames()
+        kept = self.framesHere(cut)
+        self.anim.Time = times[0]
+        self.anim.clearCache()
+        stored = self.anim.cacheInfo()["Stored"]
+        started = self.anim.prepareFrames(force=True)
+        self.assertGreater(started, 0, self.anim.workerInfo()["Reason"])
+        # The copy the workers open is a version of the log: the design,
+        # with nothing put back and nothing made again here
+        self.assertGreater(App.workerPool(self.doc).info()["Version"], 0)
+        self.assertEqual(self.anim.cacheInfo()["Stored"], stored)
+        self.assertTrue(self.anim.waitWorkers(300))
+        info = self.anim.workerInfo()
+        self.assertEqual(info["Failed"], 0, info["Reason"])
+        self.assertGreater(info["Limit"], 0)
+        cache = self.anim.cacheInfo()
+        # Every frame, the one on show too: nothing made it again here
+        self.assertEqual(cache["Prepared"], len(times), info)
+        self.assertEqual(cache["Times"], times)
+        self.assertEqual(cache["OnDisk"], times)  # in files, read when shown
+        self.assertEqual(len(self.workerFiles()), len(times))
+        # Let go of once they had nothing to do; the pool's copy of the
+        # document stands for the next, and goes when the pool stops
+        pool = App.workerPool(self.doc)
+        for _ in range(200):  # told to go, and gone once they have exited
+            if pool.info()["Workers"] == 0:
+                break
+            pool.poll(50)
+        self.assertEqual(pool.info()["Workers"], 0)
+        copy = pool.info()["Copy"]
+        self.assertTrue(os.path.isdir(copy))
+        pool.stop()
+        self.assertFalse(os.path.exists(copy))
+        for (_shape, facts), t in zip(kept, times):
+            self.anim.Time = t
+            self.assertEqual(self.frameFacts(cut), facts)
+            self.assertTrue(cut.Shape.isValid())
+            self.assertAlmostEqual(box.Height.Value, 10 + 10 * t)
+            self.assertNotIn("Touched", cut.State)
+        cache = self.anim.cacheInfo()
+        self.assertEqual(cache["Stored"], stored)  # none made here
+        self.assertGreaterEqual(cache["Loaded"], len(times) - 2)
+        # A save writes the design, and keeps the workers' frames: they name
+        # their strings in tables of their own, not the file's
+        path = os.path.join(tempfile.gettempdir(), "TestAnimationWorkers.FCStd")
+        self.files.append(path)
+        self.doc.saveAs(path)
+        self.assertEqual(len(self.anim.cacheInfo()["Times"]), len(times))
+        for (_shape, facts), t in list(zip(kept, times))[1:]:
+            self.anim.Time = t
+            self.assertEqual(self.frameFacts(cut)[:2], facts[:2])
+        self.assertEqual(self.anim.cacheInfo()["Stored"], stored)
+        self.anim.clearCache()
+        self.assertEqual(self.workerFiles(), [])
+
+    def testWorkersFromAVersionTakenMidPose(self):
+        """The log records a posed property as its rest value: a version
+        taken while the Animation shows a frame is the design, and every
+        frame made from it is the frame made here (docs/WorkerProcess.md
+        sec 3)"""
+        box, cut = self.workerScene()
+        self.anim.Cache = True
+        self.anim.activate()
+        times = self.anim.frames()
+        kept = self.framesHere(cut)
+        self.anim.clearCache()
+        middle = times[len(times) // 2]
+        self.anim.Time = middle
+        self.assertAlmostEqual(box.Height.Value, 10 + 10 * middle)  # posed
+        self.assertGreater(self.anim.prepareFrames(force=True), 0, self.anim.workerInfo())
+        self.assertGreater(App.workerPool(self.doc).info()["Version"], 0)
+        self.assertTrue(self.anim.waitWorkers(300))
+        self.assertEqual(self.anim.workerInfo()["Failed"], 0, self.anim.workerInfo())
+        self.assertEqual(self.anim.cacheInfo()["Prepared"], len(times) - 1)
+        for (_shape, facts), t in zip(kept, times):
+            self.anim.Time = t
+            self.assertEqual(self.frameFacts(cut), facts, t)
+        self.anim.stop()
+        self.assertAlmostEqual(box.Height.Value, 10)  # the design, untouched
+
+    def testWorkersStringsComeBackUnderTheirIds(self):
+        """A worker gives its new strings ids this file's table leased it,
+        and the cache takes them in under those ids: no frame is read by
+        content. Leases kept small, so a worker runs out in a frame and asks
+        for more (docs/WorkerProcess.md sec 15)"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetInt("IdBlock", 16)
+        self.addCleanup(group.RemInt, "IdBlock")
+        # One worker: two would each give their own ids to a string both
+        # make, and the second frame read would go by content
+        box, cut = self.workerScene(workers=1)
+        # Past the tools' tops the holes are blind, their bottoms faces the
+        # version never had: strings the worker makes
+        self.anim.addKey("Box.Height", 2.0, 50.0)
+        self.anim.Cache = True
+        self.anim.activate()
+        times = self.anim.frames()
+        self.anim.Time = times[0]
+        self.anim.clearCache()
+        self.assertGreater(self.anim.prepareFrames(force=True), 0, self.anim.workerInfo())
+        self.assertTrue(self.anim.waitWorkers(300))
+        info = self.anim.workerInfo()
+        self.assertEqual(info["Failed"], 0, info["Reason"])
+        pool = App.workerPool(self.doc).info()
+        self.assertGreater(pool["LeasesAsked"], 0, pool)
+        made = []
+        for t in times[1:]:
+            self.anim.Time = t
+            self.assertTrue(cut.Shape.isValid())
+            made.append(self.frameFacts(cut))
+        cache = self.anim.cacheInfo()
+        self.assertGreaterEqual(cache["Loaded"], len(times) - 2)
+        self.assertEqual(cache["StringsByContent"], 0, cache)
+        self.assertEqual(cache["StringsById"], cache["Loaded"], cache)
+        # The same frames made here find those strings, not make others: the
+        # names are the names the workers gave
+        App.workerPool(self.doc).stop()
+        self.anim.clearCache()
+        self.anim.Cache = False
+        for facts, t in zip(made, times[1:]):
+            self.anim.Time = t
+            self.assertEqual(self.frameFacts(cut), facts, t)
+        # And they are the file's: saved, and back as they were
+        self.anim.stop()
+        path = os.path.join(tempfile.gettempdir(), "TestAnimationWorkerIds.FCStd")
+        self.files.append(path)
+        self.doc.saveAs(path)
+        cutName = cut.Name
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.anim = self.doc.getObject("Anim")
+        cut = self.doc.getObject(cutName)
+        self.anim.Time = times[-1]
+        self.anim.activate()
+        self.assertEqual(self.frameFacts(cut), made[-1])
+
+    def testWorkersAndThisProcessMakeEachFrameOnce(self):
+        _box, cut = self.workerScene()
+        self.anim.FrameRate = 30
+        self.anim.Cache = True
+        self.anim.activate()
+        times = self.anim.frames()
+        kept = self.framesHere(cut)
+        self.anim.Time = times[0]
+        self.anim.clearCache()
+        stored = self.anim.cacheInfo()["Stored"]
+        self.assertGreater(self.anim.prepareFrames(force=True), 0)
+        # Shown at once: a frame still queued is made here and taken off
+        # the queue, one a worker is making is waited for
+        for (_shape, facts), t in zip(kept, times):
+            self.anim.Time = t
+            self.assertEqual(self.frameFacts(cut), facts)
+        self.anim.waitWorkers(300)
+        cache = self.anim.cacheInfo()
+        self.assertEqual(cache["Times"], times)
+        self.assertEqual(cache["Stored"] - stored + cache["Prepared"], len(times))
+        self.assertEqual(len(self.workerFiles()), cache["Prepared"])
+
+    def testAnEditDropsTheFramesItReachesAndTheWorkersMove(self):
+        """An edit of what the frames are made from drops them and the jobs
+        for them; the workers stay, and the next pass is made by them on
+        the design as it is now, moved there along the log
+        (docs/WorkerProcess.md sec 4)"""
+        box, cut = self.workerScene()
+        self.workerSettings(2, idle=60)
+        self.anim.Cache = True
+        self.anim.activate()
+        self.assertGreater(self.anim.prepareFrames(force=True), 0)
+        self.assertTrue(self.anim.waitWorkers(300))
+        self.assertEqual(self.anim.cacheInfo()["Times"], self.anim.frames())
+        pool = App.workerPool(self.doc)
+        workers = pool.info()["Pids"]
+        self.assertTrue(workers)
+        self.doc.openTransaction("Edit")
+        box.Length = 40  # what every frame is made from
+        self.doc.commitTransaction()
+        info = self.anim.workerInfo()
+        self.assertFalse(info["Running"])
+        self.assertTrue(pool.info()["Started"])
+        self.assertTrue(pool.info()["Stale"])
+        self.assertEqual(pool.info()["Pids"], workers)  # they stay
+        self.assertEqual(self.anim.cacheInfo()["Times"], [])
+        self.assertEqual(self.workerFiles(), [])
+        self.doc.recompute()
+        self.assertGreater(self.anim.prepareFrames(force=True), 0, self.anim.workerInfo())
+        self.assertTrue(self.anim.workerInfo()["Running"])
+        self.assertTrue(self.anim.waitWorkers(300))
+        self.assertEqual(self.anim.workerInfo()["Failed"], 0, self.anim.workerInfo())
+        info = pool.info()
+        self.assertGreaterEqual(info["Moves"], 1, info)
+        self.assertEqual(info["Reopens"], 0, info)
+        self.assertGreater(self.anim.cacheInfo()["Prepared"], 0)
+        times = self.anim.frames()
+        theirs = []
+        for t in times:
+            self.anim.Time = t
+            theirs.append(self.frameFacts(cut))
+            self.assertAlmostEqual(cut.Shape.BoundBox.XLength, 40)
+        # Each the frame made here
+        self.anim.Cache = False
+        for facts, t in zip(theirs, times):
+            self.anim.Time = t
+            self.assertEqual(self.frameFacts(cut), facts, t)
+        self.anim.stop()
+        self.assertAlmostEqual(box.Length.Value, 40)
+
+    def testAFrameMeshedAsTheViewMeshesIt(self):
+        """A worker told how the view meshes an object writes its shape with
+        that mesh (docs/WorkerProcess.md sec 14): the view taking the frame
+        finds it made. Here the file is the proof, near three times the size;
+        the pictures are tests/gui/animation-workers.py's"""
+        _box, cut = self.workerScene()
+        self.anim.activate()
+        tables = tempfile.mkdtemp(prefix="TestAnimationTables")
+        self.addCleanup(shutil.rmtree, tables, True)
+        sizes = {}
+        for kind, display in (("plain", {}), ("meshed", {"Cut": "mesh 0.5 28.5"}),
+                              ("unknown", {"Cut": "something else"})):
+            path = os.path.join(tables, kind + ".wframe")
+            # From another frame: one written again where it stands
+            # recomputes nothing, and writes nothing
+            self.anim.writeFrame(0, os.path.join(tables, "between.wframe"), tables)
+            written = self.anim.writeFrame(3, path, tables, display)
+            self.assertEqual(written["Bytes"], os.path.getsize(path))
+            sizes[kind] = written["Bytes"]
+        self.assertGreater(sizes["meshed"], 2 * sizes["plain"], sizes)
+        self.assertEqual(sizes["unknown"], sizes["plain"], sizes)
+        self.assertTrue(cut.Shape.isValid())
+
+    def testAnEditBesideTheFramesLeavesThem(self):
+        """An edit of what no frame is made from drops nothing: the jobs
+        run on, on the copy they were queued for"""
+        _box, cut = self.workerScene()
+        beside = self.doc.addObject("App::FeatureTest", "Beside")
+        self.doc.recompute()
+        self.anim.Cache = True
+        self.anim.activate()
+        self.assertGreater(self.anim.prepareFrames(force=True), 0)
+        self.doc.openTransaction("Edit")
+        beside.Integer = 3
+        self.doc.commitTransaction()
+        self.assertTrue(self.anim.workerInfo()["Running"])
+        self.assertTrue(App.workerPool(self.doc).info()["Stale"])
+        self.assertTrue(self.anim.waitWorkers(300))
+        info = self.anim.workerInfo()
+        self.assertEqual(info["Failed"], 0, info)
+        self.assertEqual(self.anim.cacheInfo()["Times"], self.anim.frames())
+        self.assertGreater(self.anim.cacheInfo()["Prepared"], 0)
+        self.assertTrue(cut.Shape.isValid())
+
+    def testAStepShownOrHiddenLeavesTheJobs(self):
+        """What no result reads, the Visibility of a step of the chain,
+        drops no job and no frame (docs/WorkerProcess.md sec 17)"""
+        box, cut = self.workerScene()
+        self.anim.Cache = True
+        self.anim.activate()
+        self.assertGreater(self.anim.prepareFrames(force=True), 0)
+        box.Visibility = False
+        self.assertTrue(self.anim.workerInfo()["Running"])
+        self.assertTrue(self.anim.waitWorkers(300))
+        info = self.anim.workerInfo()
+        self.assertEqual(info["Failed"], 0, info)
+        self.assertEqual(self.anim.cacheInfo()["Times"], self.anim.frames())
+        box.Visibility = True
+        self.assertEqual(self.anim.cacheInfo()["Times"], self.anim.frames())
+        self.assertTrue(cut.Shape.isValid())
+
+    def testWorkersRefuseWhatTheyCannotRecompute(self):
+        # A Python feature of a class only this process has
+        self.cacheScene()
+        self.workerSettings(1)
+        self.anim.Cache = True
+        self.anim.activate()
+        self.assertEqual(self.anim.prepareFrames(force=True), 1)
+        self.anim.waitWorkers(120)
+        info = self.anim.workerInfo()
+        self.assertFalse(info["Running"])
+        self.assertIn("no Python class here", info["Reason"])
+        self.assertEqual(self.anim.cacheInfo()["Prepared"], 0)
+        for t in self.anim.frames():
+            self.anim.Time = t
+            self.assertAlmostEqual(self.obj.G, 2 * self.obj.F)
+
+    def testWorkersOnlyWhereTheyPay(self):
+        _box, cut = self.workerScene()
+        self.anim.activate()
+        self.assertEqual(self.anim.prepareFrames(force=True), 0)
+        self.assertIn("Cache is off", self.anim.workerInfo()["Reason"])
+        self.anim.Cache = True
+        self.framesHere(cut)
+        kept = self.anim.cacheInfo()["Times"]
+        self.assertEqual(self.anim.prepareFrames(kept, force=True), 0)
+        self.assertEqual(self.anim.workerInfo()["Reason"], "every frame is kept")
+        # Frames this quick are made here sooner than a process starts
+        keep = self.anim.cacheInfo()["Times"][0]
+        self.anim.Time = keep
+        self.anim.clearCache()
+        self.anim.Time = keep + 0.1
+        self.assertEqual(self.anim.prepareFrames(), 0)
+        self.assertIn("quicker", self.anim.workerInfo()["Reason"])
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetInt("Workers", 0)
+        self.assertEqual(self.anim.prepareFrames(force=True), 0)
+        self.assertIn("workers are off", self.anim.workerInfo()["Reason"])
+        self.assertEqual(self.anim.prepareFrames([], force=True), 0)
 
     def testVideoFormats(self):
         from freecad import videoexport

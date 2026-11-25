@@ -214,6 +214,17 @@ public:
 
     App::DocumentObjectExecReturn* execute() override;
 
+    /** False: what execute() makes, each cell's value, is in properties
+     * that are not saved (Prop_NoPersist). A worker's result has no
+     * values for them, so the sheet is made here when one is put in, and
+     * an undo of its cells leaves it touched (docs/WorkerProcess.md sec
+     * 44).
+     */
+    bool resultInProperties() const override
+    {
+        return false;
+    }
+
     bool getCellAddress(const App::Property* prop, App::CellAddress& address);
 
     App::CellAddress getCellAddress(const char* name, bool silent = false) const;

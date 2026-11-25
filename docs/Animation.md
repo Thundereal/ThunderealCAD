@@ -814,7 +814,12 @@ back took 88 ms and 1.9 MB, without it 80 ms and 0.21 MB, and in the
 text form a save writes 85 ms and 0.33 MB. Headless a read-back is 38 ms
 of parsing; the rest is the view taking the shape, as it does for a frame
 from memory (39 ms the whole), so the mesh made again at the view's
-deflection is not where the time goes. The cache writes binary. A frame that is quicker to
+deflection is not where the time goes. (Corrected 2026-11-16,
+`docs/WorkerProcess.md` sec 14: it is. A triangulation read back keeps
+its measured deflection, not the one it was built at, so the view meshed
+it again either way; profiled, the mesh is most of a frame's replay, and
+a worker now writes its frames meshed as the view meshes, kept so.) The
+cache writes binary. A frame that is quicker to
 recompute than its trip to disk has been costing, a byte, is dropped
 instead; so is every frame over the second budget, oldest first, and
 every one on disk at a save, whose string table its element maps name by
@@ -865,7 +870,8 @@ in that format for the cache to load, would make a first pass -- an
 export, the browser's bake, the cache filled -- about as many times
 faster as there are workers that fit in memory. That is the first, and
 easiest, use of the workers docs/ComputeBoundaries.md plans (Boundary
-B): no cut set to find, frames instead of sub-graphs. Not built.
+B): no cut set to find, frames instead of sub-graphs. Built 2026-11-16:
+section 4.2.
 
 The timeline draws a line under its ruler, a piece a frame: green for a
 frame in memory, blue for one on disk. Python: `anim.Cache`,
@@ -874,6 +880,149 @@ Spilled, Loaded), `anim.clearCache()`. Tests: `TestAnimation`
 (`testCache*`, nine) and `tests/gui/animation-cache.py`.
 
 Not done: a bake command (playing or exporting once is the bake).
+
+### 4.2 Frames made by workers, as built
+
+(2026-11-16; `App/AnimationWorkers.*`. Since phase 1 of
+`docs/WorkerProcess.md` the processes are the document's
+`App::WorkerPool`, and a frame is a job of the kind `animation.frame`
+in it.) With Cache on, `Animation::prepareFrames()` hands the frames the
+cache has not got to worker processes, and what they make comes into the
+cache as frames on disk.
+
+- **A worker** is one of the pool's (WorkerProcess.md sec 2): a
+  ThunderealCmd running `freecad.worker` on its own copy of the settings,
+  holding a copy of the document -- a version of its transaction log,
+  which records a posed property as its rest value, so the design
+  (WorkerProcess.md sec 11; `saveCopy()`, a save, only while a
+  transaction is open) -- and
+  talking to this process over a local socket of the pool's. Each frame is
+  a job; the worker sets Time and recomputes as the cache does
+  (`Animation::writeFrame`), and writes what the recompute wrote into the
+  file the pool gives it, the way the disk tier writes a frame (4.1),
+  behind a header naming each value's object and property, the frame's
+  scope and the clean part of it, and the seconds the recompute took. The
+  file is moved into the cache's directory when the result comes.
+- **The strings.** An element map names its strings by the ids of the
+  file's string table, and a worker's table is its own: its ids are other
+  strings here, or none. A frame names the worker's table by its hash;
+  the worker writes the table beside the frames when it is not there yet
+  (`StringHasher::saveTable()`), and it is read here once. A worker's
+  frame is read through `App::RestoreStrings`, which takes each string
+  into this file's table by content -- how the transaction log reads a
+  value of another copy of the file. Object ids are the file's, so the
+  tags in element names need no map. Such a frame stays through a save,
+  where one this process put on disk is dropped: it does not name this
+  file's table. A frame's file is kept by its name and found in the cache
+  directory, which moves with the document's transient directory when
+  the document is saved under another name.
+- **Into the cache**, as a frame on disk, as new as the frame on show
+  (the timeline's blue; amber for a frame a worker is making). In the GUI
+  as each comes, through the event loop; in a console when the cache is
+  asked: the next frame shown, or `waitWorkers()`. One that comes while a
+  recompute runs waits for the next evaluation.
+- **Each frame made once.** A frame shown while a worker is making it is
+  waited for -- not for ever: past 30 s, or twenty times a frame's mean
+  recompute, the worker is let go and the frame made here; one still
+  queued is taken off the queue and made here. A pass that outruns the
+  workers loses nothing to them.
+- **How many.** One first, then one more each time every worker has made
+  a frame -- by then what one holds is known (its footprint as the
+  system counts it: `phys_footprint` on macOS, the working set on
+  Windows, the resident set on Linux) -- while the memory available
+  (`MemAvailable`; `ullAvailPhys`; free, inactive and purgeable pages on
+  macOS) leaves a seventh of the machine, 1 GB at least, after another
+  and a quarter -- and, with a client taking the results as they come (a
+  claim in the last two seconds), only when it had to wait for a worker
+  or make a queued frame itself; with none, while more is queued than
+  there are workers. At most `Workers` of Preferences/Workers: -1, the
+  default, the cores less one, up to 8; 0 none.
+- **When not.** When the frames are quicker made here than a worker
+  starts: the mean recompute of the frames kept, times the frames wanted,
+  under `WorkerMinSeconds` (2) -- `force` overrides it. With Cache off,
+  with no disk for the cache (`CacheDiskLimitMB` 0), and for a document
+  linking to others, which the copy's links would not find. A Python
+  feature whose class a worker cannot import -- one defined in a macro --
+  would recompute to nothing there: the job names every object with a
+  Python class here, and a worker missing one answers `unfit`, which
+  stops them all.
+- **An edit** (since 2026-11-16, `docs/WorkerProcess.md` sec 13) drops
+  the frames it reaches, as before, and the jobs for them: each job says
+  what its frame is made from (what the tracks write, what reads Time,
+  what is touched, and everything depending on those), and an edit of
+  anything else leaves them to run. The workers stay: the pool's copy is
+  stale, and the next pass moves them to the design along the log. A new
+  or deleted object, a key moved, drop every frame and job as before;
+  three failures in a row stop the pool. Cache or Active off, `clearCache()`,
+  `stopWorkers()` and the end of an export take back only the Animation's
+  own jobs; the workers stay, idle, for `IdleSeconds` of
+  Preferences/Workers (30), on a copy that is still the design. What the
+  cache took stays.
+- **Who asks.** Play (the timeline's player), an export
+  (`videoexport.exportAnimation`: the frames after the first, the workers
+  stopped when it ends) and the browser's bake (9.1: the samples after
+  the first). Each only where it pays, as above.
+- **What starting costs.** The copy is a version of the log: nothing is
+  put back or made again here, and the workers read it from this
+  process's store. On the 64-hole filleted plate, posed,
+  `prepareFrames()` takes 27 ms on the main thread, where the saved copy
+  of phase 0 took 420 -- the design put back, recomputed, and the frame on
+  show made again after it, as at any save (3.8).
+
+Measured 2026-11-16 (mini: 8 cores, 8 GB, Metal; OCCT 357a41bfc6), in
+the GUI, a frame stepped as an export steps it -- Time set, the view
+waited for -- over 60 frames of the 64-hole plate, the frame before the
+first made here; "auto" is `Workers` -1:
+
+| Scene | Made here | 1 worker | 2 workers | auto |
+|---|---|---|---|---|
+| 64 holes, filleted (218 faces) | 18.5 s (307 ms) | 13.5 s | 9.5 s | 9.7 s (7 at the peak) |
+| 64 holes (70 faces) | 6.1 s (102 ms) | 3.8 s | 3.5 s | 3.7 s (5) |
+
+Two workers make the filleted plate's frames faster than this process
+shows them: past that, what bounds a pass is the frame read back from
+disk and drawn, 150 ms filleted and 60 ms without (`Loaded`; a frame
+from memory is 56 and 29 ms). The gain is so at most what a frame's
+recompute costs over what its read-back costs -- 2x here, and as large
+as the recompute is long against it. In a console, with nothing drawn,
+three workers made 20 filleted frames in 2.5 s, where 20 made here at
+265 ms are 5.3 s; the
+manual's plate (36 holes filleted, 134 faces) 40 frames in 2.5 s with
+five, against 5.6 s made here. A worker holding the plate held 55 to
+76 MB, and was ready in about 0.3 s. Every frame made exactly once: of the 60,
+the workers made 59 or 57, this process the rest, none twice. Each
+worker started grows the pool by one only once every worker has made a
+frame, so one that pays nothing more still starts; `Workers` caps it.
+
+What it took to see the stall the first measurement showed (frames
+waited for 30 s, then made here): a worker's console prints a
+recompute's progress count to its standard output, ending in a carriage
+return and no newline, and an answer written after it came into this
+process glued to the end of that line. Phase 0 answered on a copy of
+the descriptor; the pool now talks over a socket and never reads what a
+worker prints (WorkerProcess.md sec 10).
+
+```python
+anim.prepareFrames()         # every frame not kept; -> workers running
+anim.prepareFrames(times, force=True)
+anim.workerInfo()            # Running, Workers, Limit, Queued, Busy, Prepared, Failed,
+                             # Resident, Reason
+anim.waitWorkers(60)         # take in what they made, waiting up to 60 s; True when done
+anim.stopWorkers()
+anim.cacheInfo()["Prepared"] # frames a worker made, taken in
+```
+
+Tests: `TestAnimation` (`testWorkers*`, five: the frames the same shape,
+faces and element names as made here, none made here, kept through a
+save; each frame made once with the pass outrunning the workers; stopped
+by an edit, no file left, the workers moved to the edited design and
+their frames those made here; an edit beside the frames leaving them;
+refused for a class the worker has not got;
+refused without the cache, with every frame kept, for frames too quick,
+with `Workers` 0), `TestWorkerPool` (the pool alone) and `tests/gui/animation-workers.py` (frames through
+the event loop with nothing asking, the timeline's amber and blue, the
+pictures of the frames made here, an export handing its frames over, an
+edit dropping them and the next pass made by the workers moved to it).
 
 ## 5. Playing does not edit the design
 
@@ -1407,6 +1556,8 @@ anim.stop()                      # rest values back, Active off
 anim.Cache = True                # keep what each frame recomputes to (4.1)
 anim.cacheInfo()                 # dict: Times, OnDisk, Bytes, DiskBytes, Stored, Replayed ...
 anim.clearCache()
+anim.prepareFrames()             # worker processes make the frames not kept (4.2)
+anim.workerInfo()                # dict: Running, Workers, Busy, Prepared, Failed, Reason ...
 anim.handles("Obj.F", 1.0)       # ((type, dt, (dv, ...)), (type, dt, (dv, ...))) as the curve has them
 anim.setHandles("Obj.F", 1.0, left=("Aligned", -0.25, -1.0))  # the right follows onto its line
 anim.setHandles("Obj.F", 1.0, left="Free", right="Free")      # by name: from where the curve is
@@ -1654,6 +1805,12 @@ Phase 5, built so far (2026-11-12):
   while frames are kept or saved: section 4.1.
 - The manual (thundereal-manual `core/animation`, "Exporting", with
   `export.py` and its media) and the help page have the export.
+- Frames made by worker processes (2026-11-16, section 4.2): the lever
+  4.1's measurement named, the first use of Boundary B of
+  `docs/ComputeBoundaries.md` -- whole-document workers, frames for
+  sub-graphs. 2x on the filleted plate, bounded by the frame read back
+  here. The manual's "Frames made ahead" (`workers.py`, two pictures) and
+  the help page have it.
 
 ## 12. Decided, and still open
 

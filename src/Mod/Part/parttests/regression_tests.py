@@ -24,6 +24,53 @@ class RegressionTests(unittest.TestCase):
         with self.assertRaises(IndexError):
             result.pop()
 
+    def test_refine_does_not_depend_on_display_meshes(self):
+        """
+        Refine compared the box of a merged face with the boxes of the faces
+        it replaces; a face carrying a display mesh gave the mesh's box grown
+        by its deflection, and the merge was refused. So a GUI, whose shown
+        faces carry meshes, refined to more faces than the console.
+        """
+
+        def stacked():
+            return Part.makeCylinder(5, 10).fuse(Part.makeCylinder(5, 10, Vector(0, 0, 10)))
+
+        bare = stacked().removeSplitter()
+        for deflection in (1.0, 0.1, 0.01):
+            shape = stacked()
+            shape.tessellate(deflection)
+            meshed = shape.removeSplitter()
+            self.assertEqual(len(meshed.Faces), len(bare.Faces), deflection)
+            self.assertAlmostEqual(meshed.Area, bare.Area, places=6)
+        shape = stacked()
+        for i, face in enumerate(shape.Faces):
+            if i % 2 == 0:
+                face.tessellate(0.1)
+        self.assertEqual(len(shape.removeSplitter().Faces), len(bare.Faces))
+        # The cylinder's sides are one face again
+        self.assertEqual(len(bare.Faces), 3)
+
+    def test_bound_boxes_do_not_depend_on_display_meshes(self):
+        """
+        Shape.BoundBox and optimalBoundingBox() boxed a face by the mesh it
+        carried, grown by its deflection: a shown shape -- in the GUI --
+        answered otherwise than the same shape in the console.
+        """
+
+        def shape():
+            return Part.makeCylinder(5, 10).fuse(Part.makeSphere(4, Vector(0, 0, 10)))
+
+        bare = shape()
+        meshed = shape()
+        meshed.tessellate(0.5)
+        for got, want in ((meshed.BoundBox, bare.BoundBox),
+                          (meshed.optimalBoundingBox(), bare.optimalBoundingBox())):
+            for a in ("XMin", "YMin", "ZMin", "XMax", "YMax", "ZMax"):
+                self.assertAlmostEqual(getattr(got, a), getattr(want, a), places=9, msg=a)
+        # Asked for, the mesh still counts
+        self.assertGreater(meshed.optimalBoundingBox(True).ZMax,
+                           bare.optimalBoundingBox(True).ZMax + 1e-6)
+
     def test_joinWires_tight_bound_tiles_the_region(self):
         """
         Part.joinWires(tighten=True) must return the minimal cycles of an

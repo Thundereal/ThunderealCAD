@@ -23,6 +23,9 @@
 
 #include "PreCompiled.h"
 
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <map>
 #include <locale>
@@ -47,6 +50,63 @@
 using namespace Base;
 using namespace std;
 using namespace zipios;
+
+namespace
+{
+
+/** Where the stream asks for the save format, a double as its shortest
+ * round-trip text.
+ *
+ * The fixed format at digits10 + 1 decimals wrote 0.1 as 0.1000000000000000,
+ * 1e-20 as 0.0000000000000000 and 12345.678 as 12345.6779999999998836, and
+ * what it read back was not always the double written: 16 decimals is one
+ * significant digit short of max_digits10 at magnitude 0.1 to 1, and more
+ * below (of 100000 random values in (-1, 1), 31426 came back another double;
+ * in (-1e-3, 1e-3), 99915). %.15g, %.16g, %.17g in turn, the first that
+ * strtod reads back as the value: 17 significant digits always do.
+ */
+class ShortestNumPut: public std::num_put<char>
+{
+protected:
+    iter_type do_put(iter_type out, std::ios_base& str, char_type fill, double value) const override
+    {
+        const auto field = str.flags() & std::ios_base::floatfield;
+        if (str.precision() != std::numeric_limits<double>::digits10 + 1
+            || (field != std::ios_base::fixed && field != std::ios_base::fmtflags(0))
+            || str.width() != 0 || !std::isfinite(value)) {
+            return std::num_put<char>::do_put(out, str, fill, value);
+        }
+        char buf[40];
+        int len = 0;
+        // 15 digits read back as the double they were rounded from, except
+        // below DBL_MIN, where a double has fewer
+        const int fewest = std::fpclassify(value) == FP_SUBNORMAL ? 1 : 15;
+        for (int digits = fewest; digits <= 17; ++digits) {
+            len = std::snprintf(buf, sizeof(buf), "%.*g", digits, value);
+            if (digits == 17 || std::strtod(buf, nullptr) == value) {
+                break;
+            }
+        }
+        // snprintf and strtod agree on the C locale's decimal point, which
+        // need not be '.'; the file's is
+        for (int i = 0; i < len; ++i) {
+            *out++ = buf[i] == ',' ? '.' : buf[i];
+        }
+        return out;
+    }
+};
+
+}  // namespace
+
+void Base::setSaveNumberFormat(std::ios& stream)
+{
+    // Never destroyed: the transaction log's thread can still make a writer
+    // while the process exits, after a static here would have gone
+    static const auto* locale = new std::locale(std::locale::classic(), new ShortestNumPut);
+    stream.imbue(*locale);
+    stream.precision(std::numeric_limits<double>::digits10 + 1);
+    stream.setf(ios::fixed, ios::floatfield);
+}
 
 bool Base::writerAlphaIsOpacity()
 {
@@ -117,7 +177,7 @@ std::ostream& Writer::beginCharStream(CharStreamFormat format, unsigned line_siz
         auto* filteredStream = dynamic_cast<boost::iostreams::filtering_ostream*>(CharStream.get());
         filteredStream->push(cdata_filter());
         filteredStream->push(Stream());
-        *filteredStream << std::setprecision(std::numeric_limits<double>::digits10 + 1);
+        setSaveNumberFormat(*filteredStream);
     }
     return *CharStream;
 }
@@ -675,25 +735,13 @@ Writer::~Writer() = default;
 ZipWriter::ZipWriter(const char* FileName)
     : ZipStream(FileName)
 {
-#ifdef _MSC_VER
-    ZipStream.imbue(std::locale::empty());
-#else
-    ZipStream.imbue(std::locale::classic());
-#endif
-    ZipStream.precision(std::numeric_limits<double>::digits10 + 1);
-    ZipStream.setf(ios::fixed, ios::floatfield);
+    setSaveNumberFormat(ZipStream);
 }
 
 ZipWriter::ZipWriter(std::ostream& os)
     : ZipStream(os)
 {
-#ifdef _MSC_VER
-    ZipStream.imbue(std::locale::empty());
-#else
-    ZipStream.imbue(std::locale::classic());
-#endif
-    ZipStream.precision(std::numeric_limits<double>::digits10 + 1);
-    ZipStream.setf(ios::fixed, ios::floatfield);
+    setSaveNumberFormat(ZipStream);
 }
 
 std::size_t Writer::progressBase() const
@@ -758,8 +806,7 @@ StringWriter::StringWriter() {
     setForceXML(9999);
     setSplitXML(false);
     setPreferBinary(false);
-    this->StrStream << std::setprecision(std::numeric_limits<double>::digits10 + 1);
-    this->StrStream.setf(ios::fixed, ios::floatfield);
+    setSaveNumberFormat(this->StrStream);
 }
 
 void StringWriter::writeFiles() {
@@ -782,8 +829,7 @@ NullWriter::NullWriter()
     , _stream(nullptr)
 {
     _stream.rdbuf(_buf.get());
-    _stream.precision(std::numeric_limits<double>::digits10 + 1);
-    _stream.setf(ios::fixed, ios::floatfield);
+    setSaveNumberFormat(_stream);
 }
 
 NullWriter::~NullWriter()
@@ -836,8 +882,7 @@ void FileWriter::putNextEntry(const char* file, const char *obj)
     // value has to serialise to the same bytes whichever writer it goes
     // through, or the log cannot hold one copy of it (TransactionLogJournal.md
     // 23.3).
-    this->FileStream << std::setprecision(std::numeric_limits<double>::digits10 + 1);
-    this->FileStream.setf(ios::fixed, ios::floatfield);
+    setSaveNumberFormat(this->FileStream);
 }
 
 void FileWriter::dropFile(const std::string& name)

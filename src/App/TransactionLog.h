@@ -739,10 +739,30 @@ class AppExport TransactionLogCore
 {
 public:
     explicit TransactionLogCore(FileHistory& history);
+    /** A reader of another process's live store (docs/WorkerProcess.md sec
+     * 3): `store` its log.db, read through its WAL and never written -- no
+     * session, no environment row, no worker. A blob whose bytes that
+     * process keeps in its own files is read from `blobs/<hash>`, where it
+     * put them.
+     */
+    TransactionLogCore(FileHistory& history, const std::string& store, const std::string& blobs);
     ~TransactionLogCore();
+    /// Whether it is a reader of another process's store
+    bool isReader() const { return _readsOther; }
+    /** A lease on version `num` (docs/WorkerProcess.md sec 3): while one
+     * stands, retention does not let the version go, which another
+     * process reads. Leases count; `hold` false gives one back.
+     */
+    void holdVersion(int64_t num, bool hold);
 
     /// Open the store in the history's directory; the counters follow it.
     void openStore();
+    /** A reader's view of the other process's store brought up to date
+     * (docs/WorkerProcess.md sec 4): its counters, names and the strings it
+     * holds that the file's hasher lacks, read again. Nothing for a log
+     * that is not a reader.
+     */
+    void refreshReader();
     /// The core of `history`'s log, made on first use (sec 27.7).
     static TransactionLogCore& of(FileHistory& history);
     /** Continue from an embedded copy (sec 16.4): the store replaced by
@@ -850,9 +870,12 @@ public:
     /// version's composite of the same entry, for supersession. Returns
     /// the composite's hash; `full` gets the SHA-1 of the entry's bytes
     /// when they are all in hand (record mode), else the composite hash.
+    /// `files`, the other entries of the same save: what a part it stores
+    /// names as a file of its own (`file="..."`) is attached to that part.
     /// Worker thread.
     std::string putComposite(const std::string& entry, const Base::EntryCapture& capture,
-                             const std::string& previous, std::string& full);
+                             const std::string& previous, std::string& full,
+                             const TransactionLog::Captures* files = nullptr);
     /// Compose an entry's bytes from its composite's `data`. Worker or
     /// flushed caller.
     bool composeEntry(const std::string& data, std::string& out);
@@ -926,6 +949,8 @@ public:
      * Main thread.
      */
     void loadStrings();
+    /// What openStore() reads of a store once it is open.
+    void readState();
     /** Every string id a retained version or value uses (sec 27.50 item 4,
      * 27.51 Q4), merged into ranges: what a compaction keeps besides what
      * memory holds. Main thread; waits for the worker.
@@ -970,6 +995,10 @@ public:
 
     FileHistory& _history;
     std::string _path;
+    bool _readsOther {false};
+    std::mutex _leaseMutex;
+    std::multiset<int64_t> _leases;  ///< versions held for readers
+    std::string _blobDir;  ///< a reader's: the blobs its store's owner put out
     std::string _envJson;
     /// The desktop user's name as recorded: `host` unless the privacy
     /// preference names them (sec 30.4 P3), and the machine's with it.

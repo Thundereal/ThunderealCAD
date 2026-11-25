@@ -137,9 +137,11 @@ namespace ModelRefine
     public:
         bool operator() (const TopoDS_Wire& wire1, const TopoDS_Wire& wire2)
         {
+            // From the geometry, never a display mesh the edges may carry:
+            // what is made must not depend on what was shown
             Bnd_Box box1, box2;
-            BRepBndLib::Add(wire1, box1);
-            BRepBndLib::Add(wire2, box2);
+            BRepBndLib::Add(wire1, box1, false);
+            BRepBndLib::Add(wire2, box2, false);
             // Note: This works because we can be sure that the wires do not intersect
             return box2.SquareExtent() < box1.SquareExtent();
         }
@@ -1111,8 +1113,13 @@ bool FaceUniter::process()
                 TopoDS_Face newFace = (*typeIt)->buildFace(adjacencySplitter.getGroup(adjacentIndex));
                 if (!newFace.IsNull())
                 {
+                    // Both boxes from the geometry: a face that carries a
+                    // display mesh gives the mesh's box grown by its
+                    // deflection, far past the tolerance this compares
+                    // against, and a merge was refused or not by whether
+                    // its faces had been shown (sec 20 of WorkerProcess.md)
                     Bnd_Box newBounds;
-                    BRepBndLib::AddOptimal(newFace, newBounds);
+                    BRepBndLib::AddOptimal(newFace, newBounds, false);
                     newBounds.SetGap(0.0);
                     Standard_Real xMin, yMin, zMin, xMax, yMax, zMax;
                     newBounds.Get(xMin, yMin, zMin, xMax, yMax, zMax);
@@ -1120,7 +1127,7 @@ bool FaceUniter::process()
                     Bnd_Box oldBounds;
                     const FaceVectorType &temp = adjacencySplitter.getGroup(adjacentIndex);
                     for (auto &s : temp)
-                        BRepBndLib::AddOptimal(s, oldBounds);
+                        BRepBndLib::AddOptimal(s, oldBounds, false);
 
                     oldBounds.SetGap(0.0);
                     Standard_Real xMin1, yMin1, zMin1, xMax1, yMax1, zMax1;

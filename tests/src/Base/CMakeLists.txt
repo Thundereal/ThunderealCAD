@@ -10,6 +10,7 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/CoordinateSystem.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/DualNumber.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/DualQuaternion.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/FileRetry.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Handle.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Matrix.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Placement.cpp

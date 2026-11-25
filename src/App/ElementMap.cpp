@@ -697,7 +697,7 @@ public:
                         prefixid = App::StringID::fromString(r->name.dataBytes());
                         if (prefixid.id) {
                             for (auto & sid : r->sids) {
-                                if (sid.value() == prefixid.id
+                                if (sid.spelled() == prefixid.id
                                         && App::StringIDCollector::take(sid)) {
                                     s << '$' << r->name.dataBytes();
                                     printName = false;
@@ -720,7 +720,7 @@ public:
                         s << '.' << it->second;
                     }
                     for (auto & sid : r->sids) {
-                        if (sid.value() != prefixid.id && App::StringIDCollector::take(sid))
+                        if (sid.spelled() != prefixid.id && App::StringIDCollector::take(sid))
                             s << '.' << sid.value();
                     }
 
@@ -959,7 +959,8 @@ public:
 
                     ref->sids.reserve(tokens.size()-offset-1 + (prefixid.id?1:0));
                     if (prefixid.id) {
-                        auto sid = hasher->getID(prefixid.id);
+                        // Read from the name's text: the number it spells
+                        auto sid = hasher->getIDBySpelling(prefixid.id);
                         if (!sid)
                             hasherIDWarn = "Missing element name prefix id";
                         else
@@ -1001,7 +1002,7 @@ public:
      * the other table's ids as text. `legacy` holds such strings of the
      * shape's table.
      */
-    bool hasLegacyCrossing(const App::StringHasher *hasher, const std::unordered_set<long> &legacy,
+    bool hasLegacyCrossing(const App::StringHasher *hasher, const std::unordered_set<std::int64_t> &legacy,
                            std::set<const ElementMap*> &visited) const;
 
     /// The pool's buffer for `postfix`, which takes it in if it has none.
@@ -1766,7 +1767,7 @@ std::mutex translationLock;
 std::map<std::pair<const Data::ElementMap*, std::uint64_t>, Translation> translations;
 
 /// The ids `text` names by `#hex`, in order.
-void textIds(const QByteArray &text, std::vector<long> &ids)
+void textIds(const QByteArray &text, std::vector<std::int64_t> &ids)
 {
     for (int pos = text.indexOf('#'); pos >= 0; pos = text.indexOf('#', pos + 1)) {
         int end = pos + 1;
@@ -1775,7 +1776,7 @@ void textIds(const QByteArray &text, std::vector<long> &ids)
         if (end == pos + 1)
             continue;
         bool ok = false;
-        long id = text.mid(pos + 1, end - pos - 1).toLong(&ok, 16);
+        const std::int64_t id = text.mid(pos + 1, end - pos - 1).toLongLong(&ok, 16);
         if (ok && id > 0)
             ids.push_back(id);
     }
@@ -1788,15 +1789,15 @@ bool hasLegacyMarker(const QByteArray &text)
     return text.contains(marker);
 }
 
-bool namesLegacy(const QByteArray &text, const std::unordered_set<long> &legacy)
+bool namesLegacy(const QByteArray &text, const std::unordered_set<std::int64_t> &legacy)
 {
     if (hasLegacyMarker(text))
         return true;
     if (legacy.empty())
         return false;
-    std::vector<long> ids;
+    std::vector<std::int64_t> ids;
     textIds(text, ids);
-    for (long id : ids) {
+    for (std::int64_t id : ids) {
         if (legacy.count(id))
             return true;
     }
@@ -1805,29 +1806,37 @@ bool namesLegacy(const QByteArray &text, const std::unordered_set<long> &legacy)
 
 /// The strings of `hasher` that carry the old marker, or name one that does:
 /// computed once per table as read (sec 27.76 item 4).
-std::shared_ptr<const std::unordered_set<long>> legacyStrings(const App::StringHasher *hasher)
+std::shared_ptr<const std::unordered_set<std::int64_t>> legacyStrings(const App::StringHasher *hasher)
 {
     static std::mutex lock;
     static const App::StringHasher *lastHasher = nullptr;
     static std::size_t lastSize = 0;
     static long lastId = 0;
-    static std::shared_ptr<const std::unordered_set<long>> last;
+    static std::shared_ptr<const std::unordered_set<std::int64_t>> last;
     std::lock_guard<std::mutex> guard(lock);
     if (last && hasher == lastHasher && hasher->size() == lastSize && hasher->lastID() == lastId)
         return last;
-    auto res = std::make_shared<std::unordered_set<long>>();
+    auto res = std::make_shared<std::unordered_set<std::int64_t>>();
     // In id order: what a string refers to is below it.
     for (const auto &v : hasher->getIDMap()) {
         const auto &sid = v.second.deref();
         bool tainted = !sid.isBinary() && !sid.isHashed()
             && (namesLegacy(sid.data(), *res) || namesLegacy(sid.postfix(), *res));
-        for (const auto &r : sid.relatedIDs()) {
-            if (tainted)
-                break;
-            tainted = res->count(r.value()) != 0;
-        }
+        // Through the ids the string is made of -- its postfix, its prefix --
+        // and not the rest: those are the ids the name held when the string
+        // was first asked for, and a string asked for again by its text
+        // keeps them (StringHasher::getID). A recompute makes no name that
+        // reads a legacy id, yet its strings, found by text, held the old
+        // run's, and a re-saved file asked for the recompute at every open
+        // (docs/WorkerProcess.md sec 60).
+        const int made = (sid.isPostfixEncoded() ? 1 : 0)
+            + (sid.isIndexed() || sid.isPrefixID() || sid.isPrefixIDIndex() ? 1 : 0);
+        const auto &related = sid.relatedIDs();
+        for (int i = 0; !tainted && i < made && i < related.size(); ++i)
+            tainted = res->count(related[i].spelled()) != 0;
+        // By the numbers names spell, as namesLegacy() reads them
         if (tainted)
-            res->insert(v.first);
+            res->insert(sid.spelled());
     }
     lastHasher = hasher;
     lastSize = hasher->size();
@@ -1931,7 +1940,7 @@ ElementMapPtr ElementMap::translate(App::StringHasher &to, const App::StringHash
 }
 
 bool ElementMap::hasLegacyCrossing(const App::StringHasher *hasher,
-                                   const std::unordered_set<long> &legacy,
+                                   const std::unordered_set<std::int64_t> &legacy,
                                    std::set<const ElementMap*> &visited) const
 {
     if (!visited.insert(this).second)
@@ -1944,7 +1953,7 @@ bool ElementMap::hasLegacyCrossing(const App::StringHasher *hasher,
         for (auto &names : v.second.names) {
             for (const MappedNameRef *r = &names; r; r = r->next.get()) {
                 for (auto &sid : r->sids) {
-                    if (sid.isFromHasher(hasher) && legacy.count(sid.value()))
+                    if (sid.isFromHasher(hasher) && legacy.count(sid.spelled()))
                         return true;
                 }
             }
@@ -1979,10 +1988,10 @@ bool ComplexGeoData::hasLegacyCrossing() const
     flushElementMap();
     if (!_elementMap)
         return false;
-    std::shared_ptr<const std::unordered_set<long>> legacy;
+    std::shared_ptr<const std::unordered_set<std::int64_t>> legacy;
     if (Hasher)
         legacy = legacyStrings(Hasher.get());
-    static const std::unordered_set<long> none;
+    static const std::unordered_set<std::int64_t> none;
     std::set<const ElementMap*> visited;
     return _elementMap->hasLegacyCrossing(Hasher.get(), legacy ? *legacy : none, visited);
 }
@@ -1990,11 +1999,19 @@ bool ComplexGeoData::hasLegacyCrossing() const
 } // namespace Data
 
 std::string ComplexGeoData::getElementMapVersion() const {
+    // Names spelling digests (docs/StringTableContentIds.md sec 11): a
+    // version an older build does not know, which regenerates the names
+    // with ids of its own; one of this build reads them as they are
+    if (Hasher && Hasher->getContentIds())
+        return "4.C";
     return "4";
 }
 
 bool ComplexGeoData::checkElementMapVersion(const char * ver) const
 {
+    // True: the names are to be made again
+    if (Hasher && Hasher->getContentIds())
+        return !boost::equals(ver, "4.C");
     return !boost::equals(ver, "3")
         && !boost::equals(ver, "4")
         && !boost::starts_with(ver, "3.");

@@ -170,19 +170,19 @@ Data::ElementIDRefs GeoFeature::getElementIDs(const char *element) const
     if (geo->Hasher) {
         for (const char *p = strchr(element, '#'); p; p = strchr(p + 1, '#')) {
             char *end = nullptr;
-            long id = std::strtol(p + 1, &end, 16);
+            const std::int64_t id = std::strtoll(p + 1, &end, 16);
             if (end == p + 1 || id <= 0)
                 continue;
             bool held = false;
             for (const auto &sid : sids) {
-                if (sid.value() == id && sid.isFromSameHasher(geo->Hasher)) {
+                if (sid.spelled() == id && sid.isFromSameHasher(geo->Hasher)) {
                     held = true;
                     break;
                 }
             }
             if (held)
                 continue;
-            if (auto sid = geo->Hasher->getID(id))
+            if (auto sid = geo->Hasher->getIDBySpelling(id))
                 sids.push_back(sid);
         }
     }

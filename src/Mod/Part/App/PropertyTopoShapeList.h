@@ -25,6 +25,8 @@
 
 #include <Mod/Part/PartGlobal.h>
 
+#include <map>
+#include <string>
 #include <vector>
 
 #include <App/Property.h>
@@ -108,6 +110,10 @@ private:
     // inserted into _lValueList;
     using TopoShapePtr = std::shared_ptr<TopoShape>;
     std::vector<TopoShapePtr> m_restorePointers;
+    // the entry each file named in Restore is: the name is not parsed for it,
+    // as a version of the document names its files by content too
+    // (docs/WorkerProcess.md sec 46)
+    std::map<std::string, int> m_restoreFiles;
 };
 
 } // namespace Part

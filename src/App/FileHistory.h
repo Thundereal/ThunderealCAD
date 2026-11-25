@@ -74,6 +74,16 @@ public:
      */
     static std::shared_ptr<FileHistory> openFile(const std::string& path,
                                                  std::string* reason = nullptr);
+    /** A history read from another process's live store (docs/WorkerProcess.md
+     * sec 3), in a directory of its own: `store` that process's log.db,
+     * read through its WAL and never written; a blob's bytes from
+     * `blobs/<hash>`, where that process put them out. Its strings are the
+     * store's, under the store's ids. Not registered under any file. Null,
+     * with `reason` set, when the store cannot be read.
+     */
+    static std::shared_ptr<FileHistory> openReader(const std::string& store,
+                                                   const std::string& blobs,
+                                                   std::string* reason = nullptr);
     ~FileHistory();
 
     FileHistory(const FileHistory&) = delete;

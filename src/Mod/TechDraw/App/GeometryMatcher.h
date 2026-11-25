@@ -54,7 +54,7 @@ public:
     bool compareEllipseArcs(TopoDS_Edge& edge1, TopoDS_Edge& edge2);
 
 private:
-    bool compareEndPoints(TopoDS_Edge& edge1, TopoDS_Edge& edge2);
+    bool compareEndPoints(TopoDS_Edge& edge1, TopoDS_Edge& edge2, bool middle = true);
 
     DrawViewDimension* m_dimension;
 };

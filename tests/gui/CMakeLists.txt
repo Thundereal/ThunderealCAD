@@ -2811,3 +2811,9 @@ fc_add_gui_test(GuiPMIStep_tests_run pmi-step.py --timeout 300)
 # Datum targets (sec 10.11): PMI_DatumTarget on a datum and a face, its symbol
 # and its mark on the part.
 fc_add_gui_test(GuiPMITargets_tests_run pmi-targets.py --timeout 300)
+
+# Frames of an Animation made by worker processes (docs/Animation.md 4.2):
+# taken in through the event loop, marked on the timeline, the pictures of
+# the frames made here, an export handing its frames to them, an edit
+# stopping them.
+fc_add_gui_test(GuiAnimationWorkers_tests_run animation-workers.py --timeout 600)

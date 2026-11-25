@@ -43,6 +43,8 @@ configure_file(${CMAKE_SOURCE_DIR}/src/Tools/params_utils.py ${NAMESPACE_DIR}/pa
 configure_file(videoexport.py ${NAMESPACE_DIR}/videoexport.py COPYONLY)
 configure_file(gltfscene.py ${NAMESPACE_DIR}/gltfscene.py COPYONLY)
 configure_file(animationgltf.py ${NAMESPACE_DIR}/animationgltf.py COPYONLY)
+# Worker processes and the kinds of job written in Python (docs/WorkerProcess.md)
+configure_file(worker.py ${NAMESPACE_DIR}/worker.py COPYONLY)
 
 # MCP debug console (pure-Python; requires the 'mcp' package at runtime)
 configure_file(mcp_console/__init__.py ${NAMESPACE_DIR}/mcp_console/__init__.py COPYONLY)
@@ -80,6 +82,7 @@ INSTALL(
         videoexport.py
         gltfscene.py
         animationgltf.py
+        worker.py
     DESTINATION
         ${SITE_PACKAGE_DIR}
 )

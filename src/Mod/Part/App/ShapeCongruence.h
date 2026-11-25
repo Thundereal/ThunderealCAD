@@ -24,6 +24,7 @@
 #define PART_SHAPECONGRUENCE_H
 
 #include <cstddef>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -83,6 +84,9 @@ public:
      */
     struct Invariants
     {
+        /// shapeCongruenceKey(), which no rigid motion changes either.
+        std::size_t key = 0;
+        bool keyKnown = false;
         double length = 0.;
         double area = 0.;
         double volume = 0.;
@@ -108,8 +112,16 @@ public:
     bool find(const TopoDS_Shape& shape, Match& match, Invariants* own = nullptr,
               const Match* last = nullptr) const;
 
-    /// Remember \a shape under the caller's \a slot.
-    void add(const TopoDS_Shape& shape, int slot);
+    /** Remember \a shape under the caller's \a slot.
+     *
+     * \a kept, when given, is where the caller keeps \a shape's invariants
+     * across saves -- the \a own it passes to find(). The entry computes
+     * into it, so a stored shape that is the same as at the last save is
+     * not integrated again when a later shape compares against it: on a
+     * snapshot after a one-property edit of scanner.FCStd that was 72% of
+     * the snapshot (docs/WorkerProcess.md sec 22).
+     */
+    void add(const TopoDS_Shape& shape, int slot, std::shared_ptr<Invariants> kept = {});
 
     void clear();
 
@@ -128,13 +140,27 @@ public:
      */
     static CongruenceIndex* forSave(std::uint64_t generation);
 
+    /** What has been computed in this process, never reset: the keys and
+     * the invariants. A save of shapes saved before computes none of them
+     * (docs/WorkerProcess.md sec 22); Python `Part.congruenceWork()`.
+     */
+    struct Work
+    {
+        std::size_t keys = 0;
+        std::size_t lengths = 0;
+        std::size_t areas = 0;
+        std::size_t volumes = 0;
+    };
+    static Work work();
+
 private:
 
     struct Entry
     {
         TopoDS_Shape shape;
         int slot = 0;
-        mutable Invariants invariants;
+        /// Never null: the caller's kept ones, or the entry's own.
+        std::shared_ptr<Invariants> invariants;
     };
 
     /** The two invariants, each computed on the first question that needs it.
@@ -145,6 +171,7 @@ private:
      * nobody asked. Each is still computed at most once per shape.
      */
     static double lengthOf(const TopoDS_Shape& shape, Invariants& cache);
+    std::size_t keyOf(const TopoDS_Shape& shape, Invariants* cache) const;
     static double areaOf(const TopoDS_Shape& shape, Invariants& cache);
     static double volumeOf(const TopoDS_Shape& shape, Invariants& cache);
 

@@ -1053,7 +1053,9 @@ Returns True if at least one tolerance of the sub-shape has been modified
     <Methode Name="optimalBoundingBox" Const="true">
       <Documentation>
         <UserDocu>Get the optimal bounding box
-optimalBoundingBox([useTriangulation = True, useShapeTolerance = False]) -> bound box
+optimalBoundingBox([useTriangulation = False, useShapeTolerance = False]) -> bound box
+useTriangulation: box a face by the mesh it carries, if any (a shown
+shape carries its display mesh), instead of by its geometry
         </UserDocu>
       </Documentation>
       <Sandbox tier="call"/>

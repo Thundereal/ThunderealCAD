@@ -26,6 +26,7 @@
 # include <algorithm>
 # include <chrono>
 # include <cstdlib>
+# include <iterator>
 # include <map>
 # include <set>
 # include <sstream>
@@ -39,6 +40,7 @@
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
 #include <Base/Interpreter.h>
+#include <Base/Stream.h>
 #include <Base/Uuid.h>
 
 #include "Animation.h"
@@ -561,6 +563,18 @@ TransactionLogCore::TransactionLogCore(FileHistory& history)
     FC_LOG("transaction log " << _path << " session " << _session);
 }
 
+TransactionLogCore::TransactionLogCore(FileHistory& history, const std::string& store,
+                                       const std::string& blobs)
+    : _history(history)
+    , _path(store)
+    , _readsOther(true)
+    , _blobDir(blobs)
+{
+    // What it reads only: the counters, the names, the strings
+    openStore();
+    FC_LOG("transaction log reader of " << _path);
+}
+
 TransactionLogCore::~TransactionLogCore()
 {
     liveLogs(this, false);
@@ -669,10 +683,26 @@ bool TransactionLogCore::closeLogin(const Actor& actor)
 
 void TransactionLogCore::openStore()
 {
-    std::string dir = _history.directory() + "/history";
-    Base::FileInfo(dir).createDirectories();
-    _path = dir + "/log.db";
-    _store = TransactionStore::openSQLite(_path);
+    if (_readsOther) {
+        _store = TransactionStore::openSQLiteReader(_path);
+    }
+    else {
+        std::string dir = _history.directory() + "/history";
+        Base::FileInfo(dir).createDirectories();
+        _path = dir + "/log.db";
+        _store = TransactionStore::openSQLite(_path);
+    }
+    readState();
+}
+
+void TransactionLogCore::refreshReader()
+{
+    if (_readsOther && _store)
+        readState();
+}
+
+void TransactionLogCore::readState()
+{
     _anchors.clear();
     _anchorsLoaded = false;
     _nextSeq = _store->lastSeq();
@@ -728,7 +758,12 @@ void TransactionLogCore::syncStrings(bool all)
         loadStrings();
         all = true;
     }
-    const auto rows = hasher->rows(all ? 0 : _storedMax,
+    // Past the highest stored, and back to what a worker's result brought in
+    // below it under ids leased to that worker (docs/WorkerProcess.md sec 15)
+    long after = all ? 0 : _storedMax;
+    if (const long low = hasher->takeLowTaken())
+        after = std::min(after, low - 1);
+    const auto rows = hasher->rows(after,
                                    [this](long id) { return _storedStrings.count(id) == 0; });
     if (rows.empty())
         return;
@@ -941,6 +976,12 @@ void TransactionLogCore::releaseRetired()
 
 void TransactionLogCore::post(std::function<void()> job)
 {
+    if (_readsOther) {
+        // Never written, and no worker would take it: a wait for the queue
+        // would never end
+        FC_WARN("transaction log reader of " << _path << ": a write refused");
+        return;
+    }
     releaseRetired();   // every post is the main thread's
     _deltaHops = DocumentParams::getTransactionLogDeltaHops();
     _deltaRatio = DocumentParams::getTransactionLogDeltaRatio();
@@ -1173,7 +1214,8 @@ void TransactionLogCore::writeVersion(LogVersion& v, LogTransaction& t,
                 auto it = previous.find(e.first);
                 std::string full;
                 const std::string hash = putComposite(
-                    e.first, e.second, it != previous.end() ? it->second : std::string(), full);
+                    e.first, e.second, it != previous.end() ? it->second : std::string(), full,
+                    &entries);
                 // Document.xml, first by contract: matched to a file on
                 // disk by the SHA-1 of the bytes (sec 11) when they were
                 // all in hand, else named by its composite.
@@ -1289,7 +1331,8 @@ TransactionLog::TransactionLog(Document& doc, const LogVersion* at)
     , _doc(doc)
 {
     _c._cursors.insert(this);
-    if (_c._store->getMeta("document").empty())
+    // A reader's store is another process's, and never written
+    if (!_c._readsOther && _c._store->getMeta("document").empty())
         _c._store->setMeta("document", _doc.Uid.getValueStr());
     if (at) {
         _branch = 0;
@@ -2824,6 +2867,17 @@ int64_t TransactionLog::snapshot(const char* kind, const std::string& path,
     return 0;
 }
 
+void TransactionLogCore::holdVersion(int64_t num, bool hold)
+{
+    std::lock_guard<std::mutex> lock(_leaseMutex);
+    if (hold) {
+        _leases.insert(num);
+    }
+    else if (auto it = _leases.find(num); it != _leases.end()) {
+        _leases.erase(it);
+    }
+}
+
 void TransactionLogCore::evictVersions(long keep)
 {
     // Sec 16.3: unnamed versions over the limit go, oldest first; named
@@ -2842,6 +2896,11 @@ void TransactionLogCore::evictVersions(long keep)
     std::set<int64_t> kept;
     for (const auto& kv : newest)
         kept.insert(kv.second);
+    // And one another process reads (docs/WorkerProcess.md sec 3)
+    {
+        std::lock_guard<std::mutex> lock(_leaseMutex);
+        kept.insert(_leases.begin(), _leases.end());
+    }
     std::vector<int64_t> unnamed;
     for (const auto& v : versions) {
         if (v.kind == "unnamed" && !kept.count(v.num))
@@ -3028,6 +3087,12 @@ std::string TransactionLogCore::putValue(const CapturedValue& value, const std::
 std::string TransactionLogCore::putBlob(const FileBlobHandle& blob)
 {
     const std::string& hash = blob->hash();
+    if (_readsOther) {
+        // Another process's store says what the blob is, and is not
+        // written: the blob is only held here, for what reads it
+        _blobs[hash] = blob;
+        return hash;
+    }
     // The row below names the blob, so its bytes go to the disk first
     // (docs/FileBlobsManager.md sec 15.8). A commit made its blobs durable
     // in one go already; this catches whatever path did not.
@@ -3198,7 +3263,8 @@ bool TransactionLog::Composite::decode(const std::string& data)
 
 std::string TransactionLogCore::putComposite(const std::string& entry,
                                          const Base::EntryCapture& capture,
-                                         const std::string& previous, std::string& full)
+                                         const std::string& previous, std::string& full,
+                                         const TransactionLog::Captures* files)
 {
     using Segment = Base::EntryCapture::Segment;
     const auto& segs = capture.segments;
@@ -3254,7 +3320,37 @@ std::string TransactionLogCore::putComposite(const std::string& entry,
             }
         }
         else {
-            hash = putBytes(s.text, "prop", "durable");
+            // Held from here on, and claimed by the next snapshot, whose
+            // save of it is then skipped: a file the part names -- a list's
+            // `Fillet.Edges.bin`, which the save wrote as an entry of its
+            // own -- goes with it as its attachment, as a commit's capture
+            // has it, or a version after this one names a file it lacks
+            CapturedValue value;
+            if (files) {
+                static const std::string open = "file=\"";
+                for (size_t at = s.text.find(open); at != std::string::npos;
+                     at = s.text.find(open, at + open.size())) {
+                    const size_t from = at + open.size();
+                    const size_t to = s.text.find('"', from);
+                    if (to == std::string::npos || to == from)
+                        break;
+                    const std::string name = s.text.substr(from, to - from);
+                    for (const auto& f : *files) {
+                        if (f.first == name && f.second.keepFrom <= 0) {
+                            value.attachments.push_back({name, f.second.bytes()});
+                            break;
+                        }
+                    }
+                }
+            }
+            if (value.attachments.empty()) {
+                hash = putBytes(s.text, "prop", "durable");
+            }
+            else {
+                value.fragment = s.text;
+                value.ok = true;
+                hash = putValue(value, "durable");
+            }
             _hashById[s.key] = hash;
         }
         hashes[i] = hash;
@@ -3580,6 +3676,15 @@ bool TransactionLogCore::readBytes(const std::string& hash, std::string& out, Lo
         FileBlobHandle blob =
             it != _blobs.end() ? it->second : _history.blobs().find(hash);
         ok = blob && blob->read(out);
+        if (!ok && _readsOther && !_blobDir.empty()) {
+            // Another process's store: where it put the blob out
+            Base::ifstream in(Base::FileInfo(_blobDir + "/" + hash),
+                              std::ios::in | std::ios::binary);
+            if (in) {
+                out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+                ok = !in.bad();
+            }
+        }
     }
     else if (e.enc == "delta" && depth < 1024) {
         std::string base;

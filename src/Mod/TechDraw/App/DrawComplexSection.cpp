@@ -108,6 +108,7 @@
 #include <sstream>
 
 #include <App/Application.h>
+#include <App/ShuttingDown.h>
 #include <App/MaterialAppearance.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>
@@ -120,6 +121,7 @@
 #include <Mod/Part/App/ProgressIndicator.h>
 
 #include "DrawComplexSection.h"
+#include "StartMaking.h"
 #include "DrawUtil.h"
 #include "GeometryObject.h"
 #include "ShapeUtils.h"
@@ -355,7 +357,6 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
                        .toStdString())
         }
 
-        m_alignWatcher.reset(new QFutureWatcher<void>());
         std::shared_ptr<TopoDS_Shape> output(new TopoDS_Shape());
         params.output = output;
 
@@ -368,9 +369,7 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
         // the worker's failure, the view's recompute error once it is back
         // on this thread (docs/TechDrawErrors.md 3.1)
         auto failure = std::make_shared<std::string>();
-        m_alignWatcher.reset(new QFutureWatcher<void>());
-        QObject::connect(m_alignWatcher.get(), &QFutureWatcherBase::finished, m_alignWatcher.get(),
-            [=] {
+        auto finished = [=] {
                 if (m_progress && !m_progress->wasCanceled()) {
                     onMakeAlignedPiecedFinished(output);
                     return;
@@ -381,7 +380,7 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
                         "TechDraw", "The aligned complex section failed: %1")
                         .arg(QString::fromStdString(*failure)).toStdString());
                 }
-            });
+            };
 
         params.featureName = getFullName();
         params.rawShape = BRepBuilderAPI_Copy(baseShape.getShape()).Shape();
@@ -398,9 +397,11 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
         params.sectionNormal = SectionNormal.getValue();
         params.shapeSize = m_shapeSize;
 
-        waitingForAlign(true);
-        m_alignWatcher->setFuture(QtConcurrent::run(
-            [params, failure] {
+        auto work = [params, failure] {
+                if (App::isShuttingDown()) {
+                    params.progress->setCanceled(true);
+                    return;
+                }
                 try {
                     makeAlignedPieces(params);
                     return;
@@ -418,7 +419,9 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
                     }
                 }
                 params.progress->setCanceled(true);
-            }));
+            };
+        waitingForAlign(true);
+        startMaking(m_alignWatcher, work, finished);
     }
     // What was thrown above says why ("Profile is parallel to Section
     // Normal"); a catch-all that only logged lost it (docs/TechDrawErrors.md)

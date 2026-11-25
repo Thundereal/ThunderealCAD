@@ -44,6 +44,7 @@
 #include "Document.h"
 #include "DocumentParams.h"
 #include "DocumentObject.h"
+#include "RecomputeHook.h"
 #include "TransactionValue.h"
 #include "DocumentObjectExtension.h"
 #include "DocumentObjectGroup.h"
@@ -232,6 +233,18 @@ App::DocumentObjectExecReturn *DocumentObject::recompute()
 
     // mark the object to recompute its extensions
     this->setStatus(App::RecomputeExtension, true);
+
+    // Made by a worker: its values put in instead of executing, and all else
+    // of the recompute -- what a class does around its execute(), the error,
+    // the touched state, the signals -- the recompute's own
+    // (docs/WorkerProcess.md sec 19, 20)
+    RecomputeHook::Made made;
+    auto doc = getDocument();
+    auto hook = doc ? RecomputeHook::of(*doc) : nullptr;
+    if (hook && hook->make(*this, made)) {
+        this->setStatus(App::RecomputeExtension, false);
+        return made.ok ? StdReturn : new DocumentObjectExecReturn(made.error, this);
+    }
 
     auto ret = this->execute();
     if (ret == StdReturn) {

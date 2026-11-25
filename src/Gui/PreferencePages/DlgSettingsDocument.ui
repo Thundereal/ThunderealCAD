@@ -167,6 +167,90 @@ This feature may slightly increase recomputation time.</string>
         </property>
        </widget>
       </item>
+      <item row="10" column="0">
+       <widget class="Gui::PrefCheckBox" name="prefRecomputeByWorker">
+        <property name="toolTip">
+         <string>The Refresh command and the recompute after loading a legacy document
+recompute in a worker process: the window stays usable meanwhile, and the
+result is put in when it is ready</string>
+        </property>
+        <property name="text">
+         <string>Recompute in a worker process</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>RecomputeCommand</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Workers</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="11" column="0">
+       <widget class="Gui::PrefCheckBox" name="prefExportByWorker">
+        <property name="toolTip">
+         <string>The Export command writes STEP, IGES, BREP and mesh files in a worker
+process, from the design as it is when asked for: the window stays usable
+meanwhile, and the status bar tells when the file is written</string>
+        </property>
+        <property name="text">
+         <string>Export in a worker process</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>ExportCommand</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Workers</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="12" column="0">
+       <widget class="Gui::PrefCheckBox" name="prefCheckByWorker">
+        <property name="toolTip">
+         <string>Check Geometry runs its checks in a worker process: the window stays usable
+meanwhile, and the results are shown when they are ready</string>
+        </property>
+        <property name="text">
+         <string>Check geometry in a worker process</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>CheckCommand</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Workers</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="13" column="0">
+       <widget class="Gui::PrefCheckBox" name="prefRecomputeEditsByWorker">
+        <property name="toolTip">
+         <string>An edit in the property editor whose recompute took half a second or more
+when last made recomputes in a worker process: the window stays usable
+meanwhile, and the result is put in when it is ready. A shorter one is
+made at once, as before</string>
+        </property>
+        <property name="text">
+         <string>Recompute long edits in a worker process</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+        <property name="prefEntry" stdset="0">
+         <cstring>RecomputeEdits</cstring>
+        </property>
+        <property name="prefPath" stdset="0">
+         <cstring>Workers</cstring>
+        </property>
+       </widget>
+      </item>
       <item row="6" column="0">
        <layout class="QHBoxLayout">
         <property name="spacing">

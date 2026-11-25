@@ -183,6 +183,9 @@ struct ElementName {
 };
 
 void Part::FaceMaker::postBuild() {
+    // The faces named by the first of their edges' names, by the age of
+    // their strings where the table spells digests
+    Data::ElementNameOrder nameOrder(this->MyHasher.get());
     this->myTopoShape.setShape(this->myShape);
     this->myTopoShape.Hasher = this->MyHasher;
     this->myTopoShape.mapSubElement(this->mySourceShapes);

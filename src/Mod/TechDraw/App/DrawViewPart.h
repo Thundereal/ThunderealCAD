@@ -26,6 +26,8 @@
 #define DrawViewPart_h_
 
 #include <QFuture>
+#include <chrono>
+
 #include <QFutureWatcher>
 
 #include <TopoDS_Edge.hxx>
@@ -152,6 +154,9 @@ public:
     /// The projection is in ProjectedGeometry, unless the preference keeps it out
     bool resultInProperties() const override;
     App::DocumentObjectExecReturn* execute() override;
+    /// A worker's result put in for its execute(): its stored projection
+    /// installed, as after an undo (docs/WorkerProcess.md sec 39)
+    App::DocumentObjectExecReturn* recompute() override;
     const char* getViewProviderName() const override { return "TechDrawGui::ViewProviderViewPart"; }
     PyObject* getPyObject() override;
 
@@ -361,6 +366,14 @@ private:
     //! before the page that has to make the decision is reached.
     bool m_restoredOutOfDate = false;
     bool m_geometryFromStore = false;
+    /// ProjectedGeometry written by a worker's result being put in
+    bool m_resultPutIn = false;
+    /// When its last recompute began, and the time from then noted once it
+    /// is complete
+    std::chrono::steady_clock::time_point m_madeSince;
+    void noteMade();
+    /// The stored projection drawn: true if there was one to install
+    bool installStored();
     bool m_waitingForFaces = false;
     bool m_waitingForHlr = false;
 

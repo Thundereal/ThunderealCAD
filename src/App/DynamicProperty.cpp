@@ -33,12 +33,30 @@
 #include "Application.h"
 #include "Property.h"
 #include "PropertyContainer.h"
+#include "TransactionalObject.h"
 
 
 FC_LOG_LEVEL_INIT("Property",true,true)
 
 
 using namespace App;
+
+// The document whose table holds a dynamic property's documentation: that
+// of the document itself, of its objects and of their view providers.
+// Another container of the document -- a 3D view, which the GUI makes
+// before an open reads the file -- keeps the text: a string it put in the
+// table ahead of the file's took an id the file's table has for another,
+// and the open kept the document's table apart from the file's, the one
+// the transaction log and the workers read (docs/StringTableContentIds.md
+// sec 13)
+static Document* documentationTable(const PropertyContainer& pc)
+{
+    if (!pc.isDerivedFrom(Document::getClassTypeId())
+        && !pc.isDerivedFrom(TransactionalObject::getClassTypeId())) {
+        return nullptr;
+    }
+    return pc.getOwnerDocument();
+}
 
 
 DynamicProperty::DynamicProperty() = default;
@@ -205,7 +223,7 @@ Property* DynamicProperty::_addDynamicProperty(PropertyContainer &pc, const char
 
 
     if(!docID && doc && doc[0]) {
-        auto document = pc.getOwnerDocument();
+        auto document = documentationTable(pc);
         if(document)
             docID = document->getHasher()->getID(doc);
     }
@@ -410,8 +428,9 @@ bool DynamicProperty::changeDynamicProperty(const Property *prop, const char *gr
         it->group = group;
     if(doc) {
         auto container = prop->getContainer();
-        if(container && container->getOwnerDocument()) {
-            it->docID = container->getOwnerDocument()->getHasher()->getID(doc);
+        auto document = container ? documentationTable(*container) : nullptr;
+        if(document) {
+            it->docID = document->getHasher()->getID(doc);
             it->doc.clear();
         } else {
             it->docID = StringIDRef();

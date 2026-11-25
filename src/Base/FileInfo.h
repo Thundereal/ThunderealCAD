@@ -26,6 +26,7 @@
 #define BASE_FILEINFO_H
 
 #include <boost/filesystem.hpp>
+#include <functional>
 #include <string>
 #include <vector>
 #include <Base/TimeInfo.h>
@@ -152,6 +153,34 @@ public:
     bool renameFile(const char* NewName);
     /// Rename the file
     bool copyTo(const char* NewName) const;
+
+    /** @name A refusal for a moment
+     * A rename or a delete the file system refuses because something has the
+     * file open -- a file monitor, an antivirus, an indexer, a slow share,
+     * none of them ours -- is tried again, waiting longer each time, for as
+     * long as such holds have lasted: a second until one is seen, then four
+     * times the longest that cleared, never more than the limit. Any other
+     * refusal fails at once (docs/WorkerProcess.md sec 47).
+     */
+    //@{
+    struct RetryStats
+    {
+        long retried = 0;     ///< operations refused at first
+        long recovered = 0;   ///< of those, the ones that went through
+        long failed = 0;      ///< and the ones still refused at the end
+        double longest = 0;   ///< seconds, the longest hold that cleared
+        double budget = 0;    ///< seconds an operation refused now waits
+    };
+    static RetryStats retryStats();
+    /// The most one operation waits, in seconds; 0 tries once
+    static void setRetryLimit(double seconds);
+    static double retryLimit();
+    /** For tests: what each attempt meets before it runs -- 0 nothing, 1 a
+     * hold for a moment, 2 a refusal of another kind -- and the statistics
+     * started again. An empty function lets the operations run as they are
+     */
+    static void setRetryFault(std::function<int(const char* operation)> fault);
+    //@}
 
     /** @name Tools */
     //@{

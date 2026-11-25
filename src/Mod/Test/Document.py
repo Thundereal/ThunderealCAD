@@ -29,6 +29,20 @@ import math
 # ---------------------------------------------------------------------------
 
 
+def spelledIds(hasher, text):
+    """The ids of the strings `text` names by '#' and hex digits: the numbers
+    a name spells them by, which a table that spells digests
+    (docs/StringTableContentIds.md) does not number its strings by. One it
+    does not hold comes back negative."""
+    import re
+
+    out = set()
+    for x in re.findall(r"#([0-9a-f]+)", text):
+        sid = hasher.getIDBySpelling(int(x, 16))
+        out.add(sid.Value if sid else -int(x, 16))
+    return out
+
+
 def consoleExe():
     """The console program beside this build: named after the running one,
     which a branded build renames (ThunderealCmd), else FreeCADCmd."""
@@ -1541,6 +1555,8 @@ class UndoRedoCases(unittest.TestCase):
         exe = consoleExe()
         if not exe:
             self.skipTest("no FreeCADCmd beside this build")
+        import shutil
+
         script = os.path.join(tempfile.gettempdir(), "FreeCADTestEndedFromAScript.py")
         with open(script, "w") as f:
             f.write(
@@ -1556,6 +1572,7 @@ class UndoRedoCases(unittest.TestCase):
                 "obj.Label = 'changed'\n"
                 "doc.commitTransaction()\n"
                 "doc.recompute()\n"
+                "print('dir', doc.TransientDir, flush=True)\n"
                 "print('before the end', flush=True)\n"
                 "os._exit(0)\n"
             )
@@ -1563,8 +1580,58 @@ class UndoRedoCases(unittest.TestCase):
             done = subprocess.run([exe, script], capture_output=True, timeout=300)
         finally:
             os.remove(script)
+        # What the process left in the cache, ended as it was: a crash's
+        # (docs/WorkerProcess.md sec 50)
+        for line in done.stdout.decode("utf-8", "replace").splitlines():
+            if line.startswith("dir "):
+                shutil.rmtree(line[4:].strip(), ignore_errors=True)
         self.assertIn(b"before the end", done.stdout)
         self.assertEqual(done.returncode, 0)
+
+    def testAScriptEndingWithThreadPoolWorkWaitsForIt(self):
+        # TechDraw finds a view's hidden lines and faces on the shared thread
+        # pool, and the work reads the parameters when it is done. A script
+        # that ended with such work running had the application let go of
+        # the parameters, the console and the interpreter under it: the
+        # process died in ParameterGrp::GetGroup(), or freeing OpenCASCADE's
+        # types in the statics' destructors (8 of 10 runs of a drawing
+        # reopened by a script that then ended, 2026-11-20). The exit waits
+        # for what the pool runs. A task that ends after the script is the
+        # case: without the wait it was let go of half done.
+        import subprocess
+
+        exe = consoleExe()
+        if not exe:
+            self.skipTest("no FreeCADCmd beside this build")
+        folder = tempfile.mkdtemp(prefix="fc-poolexit-")
+        script = os.path.join(folder, "script.py")
+        done = os.path.join(folder, "done.txt")
+        with open(script, "w") as f:
+            f.write(
+                "import time\n"
+                "import FreeCAD\n"
+                "from PySide import QtCore\n"
+                "class Late(QtCore.QRunnable):\n"
+                "    def run(self):\n"
+                "        time.sleep(1.0)\n"
+                "        group = FreeCAD.ParamGet('User parameter:BaseApp/Preferences/Document')\n"
+                "        group.GetBool('ContentStringIds', True)\n"
+                "        with open(%r, 'w') as out:\n"
+                "            out.write('done')\n"
+                "late = Late()\n"
+                "late.setAutoDelete(False)\n"
+                "QtCore.QThreadPool.globalInstance().start(late)\n"
+                "print('before the end', flush=True)\n" % done
+            )
+        try:
+            ended = subprocess.run([exe, script], capture_output=True, timeout=300)
+            self.assertIn(b"before the end", ended.stdout)
+            self.assertEqual(ended.returncode, 0, ended.stderr[-2000:])
+            self.assertTrue(os.path.exists(done), "the pool's task was not waited for")
+        finally:
+            import shutil
+
+            shutil.rmtree(folder, True)
 
     def tearDown(self):
         # closing doc
@@ -4068,6 +4135,15 @@ class TransactionBranchCases(unittest.TestCase):
             FreeCAD.closeDocument(asm.Name)
             self.assertNotIn(name, FreeCAD.listDocuments())
             self.assertIn(part.Name, FreeCAD.listDocuments())
+            # Each version took its directory with it: one the undo opened
+            # again had its Uid only once frozen, held till the undo was
+            # applied, and the write naming its directory was refused
+            # (docs/WorkerProcess.md sec 50)
+            cache = FreeCAD.getUserCachePath()
+            own = os.path.basename(part.TransientDir.rstrip("/\\"))
+            left = [n for n in os.listdir(cache)
+                    if part.Uid in n and n.endswith("_%d" % os.getpid()) and n != own]
+            self.assertEqual(left, [])
         finally:
             self.param.SetInt("ClosePinnedVersion", 0)
 
@@ -5088,6 +5164,49 @@ class TransactionBranchCases(unittest.TestCase):
         doc = self.track(FreeCAD.openDocument(path))
         self.assertGreater(doc.Hasher.getID("a new string").Value, dropped)
 
+    def testAnAcceptedMigrationSpellsAnOldFileByDigests(self):
+        # docs/StringTableContentIds.md sec 12: a file counting its ids opens
+        # counting them; the migration recompute its user accepts switches
+        # the table, and every name of the file is made again spelling
+        # digests. Nothing else does.
+        group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        group.SetBool("ContentStringIds", False)
+        try:
+            doc = self.cutDocument("Counted")
+        finally:
+            group.RemBool("ContentStringIds")
+        self.assertFalse(doc.Hasher.ContentIds)
+        old = doc.getObject("Cut").Shape.ElementMap
+        self.assertTrue(any("#" in k for k in old))
+        path = os.path.join(self.dir, "counted.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertFalse(doc.Hasher.ContentIds)
+        cut = doc.getObject("Cut")
+        self.assertEqual(cut.Shape.ElementMap, old)
+        self.assertNotIn("Touched", cut.State)
+
+        # The cut: the boxes name their elements without the table
+        self.assertEqual(doc.spellNamesByContent(), 1)
+        self.assertTrue(doc.Hasher.ContentIds)
+        self.assertEqual([o.Name for o in doc.Objects if "Touched" in o.State], ["Cut"])
+        self.assertEqual(doc.spellNamesByContent(), 0)
+        doc.recompute()
+        new = cut.Shape.ElementMap
+        self.assertNotEqual(new, old)
+        self.assertEqual(sorted(new.values()), sorted(old.values()))
+        for k in new:
+            self.assertTrue(all(i > 0 for i in spelledIds(doc.Hasher, k)), k)
+
+        doc.save()
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertTrue(doc.Hasher.ContentIds)
+        self.assertEqual(doc.getObject("Cut").Shape.ElementMap, new)
+        self.assertNotIn("Touched", doc.getObject("Cut").State)
+
     def cutDocument(self, name):
         doc = self.track(FreeCAD.newDocument(name))
         doc.UndoMode = 1
@@ -5119,7 +5238,10 @@ class TransactionBranchCases(unittest.TestCase):
             table = z.read("StringTable.txt").decode("latin-1")
         self.assertEqual(xml.count("<StringHasher2"), 1)
         self.assertIn('<StringHasher2 table="StringTable.txt" hash="', xml)
+        # The same head whatever the table spells by: one an older build
+        # reads (docs/StringTableContentIds.md sec 11)
         self.assertTrue(table.startswith("StringTableStart v1 %d\n" % doc.Hasher.Size))
+        self.assertEqual("StringTableContent" in table, doc.Hasher.ContentIds)
         versions = doc.getTransactionVersions()
         for v in versions:
             self.assertNotIn("StringTable.txt", [e for e, h in v["manifest"]])
@@ -5975,7 +6097,8 @@ class TransactionBranchCases(unittest.TestCase):
         hidden = [
             (n, e)
             for n, e in sorted(shape.ElementMap.items())
-            if ids(shape, n) - {int(x, 16) for x in re.findall(r"#([0-9a-f]+)", n)}
+            # An edge: what the tests measure it by is its length
+            if e.startswith("Edge") and ids(shape, n) - spelledIds(doc.Hasher, n)
         ]
         self.assertTrue(hidden)
         name, element = hidden[0]
@@ -6148,7 +6271,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -6165,7 +6288,7 @@ class TransactionBranchCases(unittest.TestCase):
             self.assertTrue(said.startswith(expand(B.Hasher, source[element])), (element, said))
             marker = re.search(r";:X#([0-9a-f]+)", name)
             self.assertTrue(marker, name)
-            self.assertEqual(A.Hasher.getID(int(marker.group(1), 16)).Data, B.Uid)
+            self.assertEqual(A.Hasher.getIDBySpelling(int(marker.group(1), 16)).Data, B.Uid)
 
         def said(doc):
             return {
@@ -6651,7 +6774,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -6707,7 +6830,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def stored(doc):
             attrs = saved(doc)
-            named = {int(x, 16) for x in re.findall(r"#([0-9a-f]+)", attrs["stored"])}
+            named = spelledIds(doc.Hasher, attrs["stored"])
             self.assertTrue(named)
             self.assertEqual(attrs["ids"], named)
             self.assertEqual({i for i in named if doc.Hasher.getID(i)}, named)
@@ -6729,7 +6852,12 @@ class TransactionBranchCases(unittest.TestCase):
         B.recompute()
         B.save()
         new = nameOf(B, element)
-        self.assertNotEqual(new, old)
+        if B.Hasher.ContentIds:
+            # Spelled by its digest: made again, the same name
+            # (docs/StringTableContentIds.md)
+            self.assertEqual(new, old)
+        else:
+            self.assertNotEqual(new, old)
         self.assertEqual(expand(B.Hasher, new), said)
         FreeCAD.closeDocument(B.Name)
 
@@ -6762,6 +6890,52 @@ class TransactionBranchCases(unittest.TestCase):
         doc = self.track(FreeCAD.openDocument(os.path.join(self.dir, "oldcrossing.FCStd")))
         self.assertIn("Touched", doc.Old.State)
 
+    def testAShapeTheMigrationKeepsAsksOnce(self):
+        # docs/WorkerProcess.md sec 60: a plain feature's shape, of an older
+        # naming, is asked for its recompute at the open, and the recompute
+        # keeps it as it is. Saved again, the file asks no more: the shape
+        # took this build's version, and kept its names.
+        import re
+        import zipfile
+
+        self.param.SetInt("TransactionLog", 0)
+        doc = self.track(FreeCAD.newDocument("KeptNames"))
+        doc.BlobCompression = "Deflate"  # entries Python's zipfile reads
+        box = doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        plain = doc.addObject("Part::Feature", "Plain")
+        plain.Shape = box.Shape
+        doc.recompute()
+        names = sorted(plain.Shape.ElementMap.items())
+        self.assertTrue(names)
+        path = os.path.join(self.dir, "keptnames.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+
+        older = os.path.join(self.dir, "keptnames-older.FCStd")
+        with zipfile.ZipFile(path) as src, zipfile.ZipFile(older, "w") as dst:
+            for item in src.infolist():
+                data = src.read(item.filename)
+                if item.filename == "Document.xml":
+                    data, count = re.subn(
+                        rb'ElementMap="([01])\.\d+\.', rb'ElementMap="\1.15.', data
+                    )
+                    self.assertEqual(count, 2)
+                dst.writestr(item, data)
+
+        doc = self.track(FreeCAD.openDocument(older))
+        self.assertIn("MigrationPending", doc.Plain.State)
+        doc.recompute()
+        self.assertNotIn("MigrationPending", doc.Plain.State)
+        again = os.path.join(self.dir, "keptnames-again.FCStd")
+        doc.saveAs(again)
+        FreeCAD.closeDocument(doc.Name)
+
+        doc = self.track(FreeCAD.openDocument(again))
+        self.assertEqual([o.Name for o in doc.Objects if "MigrationPending" in o.State], [])
+        self.assertNotIn("Touched", doc.Plain.State)
+        self.assertEqual(sorted(doc.Plain.Shape.ElementMap.items()), names)
+
     def testABinderCrossingDocumentsTakesTheIdsOfItsTable(self):
         # Sec 27.76 item 4, 27.78: a SubShapeBinder bound to another
         # document's shape, as a link is: its names in its own table, the
@@ -6788,7 +6962,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -6799,7 +6973,7 @@ class TransactionBranchCases(unittest.TestCase):
         for name in shape.ElementMap:
             marker = re.search(r";:X#([0-9a-f]+)", name)
             self.assertTrue(marker, name)
-            self.assertEqual(A.Hasher.getID(int(marker.group(1), 16)).Data, B.Uid)
+            self.assertEqual(A.Hasher.getIDBySpelling(int(marker.group(1), 16)).Data, B.Uid)
         before = {e: expand(A.Hasher, n) for n, e in shape.ElementMap.items()}
         for text in before.values():
             self.assertNotIn("<missing>", text)
@@ -6849,7 +7023,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -6889,7 +7063,7 @@ class TransactionBranchCases(unittest.TestCase):
             # The stored name, in the owner's table, reads as the target's.
             attrs = saved(doc)
             self.assertEqual(attrs["stored"].split(".")[-1], attrs["shadow"].split(".")[-1])
-            named = {int(x, 16) for x in re.findall(r"#([0-9a-f]+)", attrs["stored"])}
+            named = spelledIds(doc.Hasher, attrs["stored"])
             self.assertTrue(named)
             self.assertEqual(attrs["ids"], named)
             self.assertEqual({i for i in named if doc.Hasher.getID(i)}, named)
@@ -6917,7 +7091,12 @@ class TransactionBranchCases(unittest.TestCase):
         B.recompute()
         B.save()
         new = nameOf(B, element)
-        self.assertNotEqual(new, old)
+        if B.Hasher.ContentIds:
+            # Spelled by its digest: made again, the same name
+            # (docs/StringTableContentIds.md)
+            self.assertEqual(new, old)
+        else:
+            self.assertNotEqual(new, old)
         self.assertEqual(expand(B.Hasher, new), said)
         A = self.track(FreeCAD.openDocument(pathA))
         self.assertEqual(A.Ref.S[1], [element])
@@ -9010,7 +9189,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -9073,7 +9252,7 @@ class TransactionBranchCases(unittest.TestCase):
         theirText = dict(expr.ExpressionEngine)["T"]
         theirHeld = heldBy(expr)
         self.assertTrue(theirHeld)
-        saidHeld = sorted(expand(fork.Hasher, "#%x" % i) for i in theirHeld)
+        saidHeld = sorted(expand(fork.Hasher, "#%x" % fork.Hasher.getID(i).Spelled) for i in theirHeld)
         for text in saidHeld:
             self.assertNotIn("<missing>", text)
         theirIds = {o.Name: o.ID for o in fork.Objects}
@@ -9133,12 +9312,12 @@ class TransactionBranchCases(unittest.TestCase):
         held = heldBy(doc.Expr)
         self.assertEqual({i for i in held if doc.Hasher.getID(i)}, held)
         self.assertEqual(
-            sorted(expand(doc.Hasher, "#%x" % i) for i in held),
+            sorted(expand(doc.Hasher, "#%x" % doc.Hasher.getID(i).Spelled) for i in held),
             sorted(retag(text, tags) for text in saidHeld),
         )
         # Which are the strings the edge's name here is made of.
         self.assertEqual(
-            {int(x, 16) for x in re.findall(r"#([0-9a-f]+)", byElement(doc.Theirs2.Shape)[edge])},
+            spelledIds(doc.Hasher, byElement(doc.Theirs2.Shape)[edge]),
             held,
         )
         self.assertTrue(doc.Mine.Shape.isValid())
@@ -10816,7 +10995,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         def expand(hasher, text):
             def one(m):
-                sid = hasher.getID(int(m.group(1), 16))
+                sid = hasher.getIDBySpelling(int(m.group(1), 16))
                 return expand(hasher, sid.Data) if sid else "<missing>"
 
             return re.sub(r"#([0-9a-f]+)", one, text)
@@ -14206,6 +14385,8 @@ class TransactionTwoProcessCases(unittest.TestCase):
             "doc.commitTransaction()\n"
             "doc.saveToLog('theirs')\n"
             "print('saved', flush=True)\n"
+            # its folder goes with it; os._exit() only skips the save
+            "FreeCAD.closeDocument(doc.Name)\n"
             "import os\n"
             "os._exit(0)",
         )
@@ -14959,8 +15140,11 @@ class XLinkIntoUnsavedCases(unittest.TestCase):
         self.src.saveAs(os.path.join(self.dir, "src", "src.FCStd"))
 
     def tearDown(self):
-        for name in list(FreeCAD.listDocuments()):
-            if name.startswith("XUnsaved"):
+        # And what was opened from the folder by its file: the reopened copy
+        # and the part its link opened, named after their files and left
+        # open past the test (docs/WorkerProcess.md sec 50)
+        for name, doc in list(FreeCAD.listDocuments().items()):
+            if name.startswith("XUnsaved") or (doc.FileName and isUnder(doc.FileName, self.dir)):
                 FreeCAD.closeDocument(name)
 
     def same(self, a, b):

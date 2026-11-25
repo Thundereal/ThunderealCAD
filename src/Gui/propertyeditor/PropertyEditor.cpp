@@ -59,6 +59,7 @@
 #include "PropertyModel.h"
 #include "PropertyView.h"
 #include "ViewProviderDocumentObject.h"
+#include "WorkerRecomputeGui.h"
 #include "AnimationTimeline.h"
 #include "BitmapFactory.h"
 #include <App/Animation.h>
@@ -458,10 +459,28 @@ void PropertyEditor::closeTransaction()
     int tid = 0;
     if (App::GetApplication().getActiveTransaction(&tid) && tid == transactionID) {
         transactionID = 0;
-        if (autoupdate) {
-            App::Document* doc = App::GetApplication().getActiveDocument();
-            recomputeDocument(doc);
+        App::Document* doc = autoupdate ? App::GetApplication().getActiveDocument() : nullptr;
+        // One expected to be long goes to a worker once the edit is
+        // committed: a transaction open would have the workers take a saved
+        // copy. Its result goes into the edit's step all the same
+        // (docs/WorkerProcess.md sec 28)
+        if (doc && !doc->isTransactionEmpty() && !doc->testStatus(App::Document::Recomputing)
+                && doc->mustExecute() && Gui::editRecomputeIsLong(*doc)) {
+            const std::string name = doc->getName();
+            App::GetApplication().closeActiveTransaction();
+            doc = App::GetApplication().getDocument(name.c_str());
+            if (doc && !Gui::recomputeEditByWorkers(*doc) && doc->mustExecute()) {
+                try {
+                    doc->recompute();
+                }
+                catch (const Base::Exception& e) {
+                    e.ReportException();
+                }
+            }
+            return;
         }
+        if (doc)
+            recomputeDocument(doc);
         App::GetApplication().closeActiveTransaction();
     }
 }

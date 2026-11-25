@@ -436,6 +436,12 @@ public:
 
     Part::TopoShape getShape() const;
     virtual void updateVisual();
+    /// The visual made when it is next asked for, not now: for a view that
+    /// draws nothing until its owner shows it (a PartDesign feature's
+    /// preview, docs/WorkerProcess.md sec 53)
+    void touchVisual() { VisualTouched = true; }
+    /// The visual made now if it was left touched
+    void ensureVisual() { if (VisualTouched) updateVisual(); }
     /// Draw the shape as its 12-triangle bounding box: the stand-in of
     /// an oversized part during a progressive import (the coarse mesh
     /// follows from the refine pool), or -- \a underPressure -- the

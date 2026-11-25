@@ -59,6 +59,7 @@
 #include "BitmapFactory.h"
 #include "ClipboardFormats.h"
 #include "Command.h"
+#include "WorkerRecomputeGui.h"
 #include "Control.h"
 #include "FileDialog.h"
 #include "MainWindow.h"
@@ -1755,6 +1756,12 @@ void StdCmdRefresh::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
     if (getActiveGuiDocument()) {
+        // Made by a worker while the window stays free, where the user
+        // asked for it (docs/WorkerProcess.md sec 19)
+        if (auto doc = getActiveGuiDocument()->getDocument()) {
+            if (Gui::recomputeByWorkers(*doc))
+                return;
+        }
         App::AutoTransaction trans(App::DocumentParams::getTransactionOnRecompute() ? "Recompute" : nullptr);
         try {
             doCommand(Doc,"App.activeDocument().recompute(None,True,True)");

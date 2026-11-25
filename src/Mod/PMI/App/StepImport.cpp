@@ -73,6 +73,7 @@
 #include <XCAFView_Object.hxx>
 
 #include <App/Document.h>
+#include <App/ElementNamingUtils.h>
 #include <App/DocumentObjectGroup.h>
 #include <App/GeoFeatureGroupExtension.h>
 #include <App/PropertyLinks.h>
@@ -128,6 +129,10 @@ struct Faces
     gp_Dir dir;
     /// The object, all of it: no element named
     bool whole = false;
+    /// The elements of other objects beside the solid object is, each object's: surfaces or
+    /// curves in the part's shape beside its solid (NIST FTC-10's extracted faces, STC-10's
+    /// wires), kept for the file to be written so again
+    std::vector<std::pair<Part::Feature*, std::vector<std::string>>> beside;
 };
 
 class Reader
@@ -226,7 +231,7 @@ private:
             solid = solid || hasSolid(feat);
         }
         // Faces on a solid and on surfaces beside it (supplemental geometry,
-        // NIST FTC-10): the solid is the part
+        // NIST FTC-10): the solid is the part, those beside it kept beside
         bool several = std::any_of(refs.begin(), refs.end(), [&](const auto& r) {
             return r.second != refs.front().second;
         });
@@ -234,14 +239,25 @@ private:
             if (exact && tessellated(_shapes->GetShape(l))) {
                 continue;
             }
-            if (several && solid && !hasSolid(feat)) {
-                continue;
-            }
-            if (out.object && out.object != feat) {
+            const bool isBeside = several && solid && !hasSolid(feat);
+            if (!isBeside && out.object && out.object != feat) {
                 why = "it refers to faces of two objects";
                 return false;
             }
-            out.object = feat;
+            std::vector<std::string>* names = &out.names;
+            if (isBeside) {
+                auto at = std::find_if(out.beside.begin(), out.beside.end(), [&](const auto& b) {
+                    return b.first == feat;
+                });
+                if (at == out.beside.end()) {
+                    out.beside.emplace_back(feat, std::vector<std::string>());
+                    at = std::prev(out.beside.end());
+                }
+                names = &at->second;
+            }
+            else {
+                out.object = feat;
+            }
             auto& base = _bases[feat];
             if (base.isNull()) {
                 TopoDS_Shape shape = feat->Shape.getShape().getShape();
@@ -263,11 +279,10 @@ private:
                         return false;
                     }
                     std::string name = typeName + std::to_string(idx);
-                    if (std::find(out.names.begin(), out.names.end(), name)
-                        == out.names.end()) {
-                        out.names.push_back(name);
+                    if (std::find(names->begin(), names->end(), name) == names->end()) {
+                        names->push_back(name);
                     }
-                    if (!any && out.names.size() == 1) {
+                    if (!isBeside && !any && out.names.size() == 1) {
                         Primitive first = Geom::ofElement(xp.Current());
                         out.type = first.type;
                         out.dir = first.dir;
@@ -282,6 +297,9 @@ private:
                 why = "it refers to " + entry(l) + ", which has no face, edge or vertex";
                 return false;
             }
+        }
+        if (!out.object) {
+            out.beside.clear();
         }
         return true;
     }
@@ -453,8 +471,46 @@ private:
         }
         bool axial = f.type == Primitive::Cylinder || f.type == Primitive::Cone
             || f.type == Primitive::Circle;
-        return Api::feature(set(partOf(f.object)), f.object, f.names,
-                            axis && axial ? "Axis" : nullptr);
+        const char* kind = axis && axial ? "Axis" : nullptr;
+        if (f.beside.empty()) {
+            return Api::feature(set(partOf(f.object)), f.object, f.names, kind);
+        }
+        // The solid's elements and those beside it: one feature of them all, the solid's
+        // first (AnnotationSet::solidOf)
+        std::vector<App::PropertyLinkSubList::SubSet> want {{f.object, f.names}};
+        for (auto& [obj, names] : f.beside) {
+            want.emplace_back(obj, names);
+        }
+        auto key = [](const std::vector<App::PropertyLinkSubList::SubSet>& refs) {
+            std::set<std::pair<App::DocumentObject*, std::string>> out;
+            for (auto& [obj, subs] : refs) {
+                for (auto& sub : subs) {
+                    out.emplace(obj, Data::oldElementName(sub.c_str()));
+                }
+            }
+            return out;
+        };
+        auto aset = set(partOf(f.object));
+        if (!aset) {
+            return nullptr;
+        }
+        const auto wanted = key(want);
+        for (auto feat : aset->features()) {
+            auto refs = feat->References.getSubListValues();
+            if (!refs.empty() && refs.front().first == f.object && key(refs) == wanted
+                && (!kind || std::string(feat->Kind.getValueAsString()) == kind)) {
+                return feat;
+            }
+        }
+        // Made as any other is, then given those beside it too
+        auto feat = static_cast<TolerancedFeature*>(_info.doc->addObject(
+            TolerancedFeature::getClassTypeId().getName(), "Feature"));
+        aset->addObject(feat);
+        feat->References.setSubListValues(want);
+        if (kind) {
+            feat->Kind.setValue(kind);
+        }
+        return feat;
     }
 
     /// The part an object's PMI is of: its own, or -- supplemental geometry
@@ -615,6 +671,9 @@ private:
         _anyOf.emplace(letter, d);
         d->Letter.setValue(letter);
         d->Feature.setValue(feature(f, true));
+        // How its feature groups its shapes (NIST STC-09's datum E: a hole's faces and a hole
+        // occurrence), and its name
+        aspects(d, l, {d->Feature.getValue()});
         place(d, f.object, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
               obj->GetPointTextAttach());
         graphic(d, f.object, obj);

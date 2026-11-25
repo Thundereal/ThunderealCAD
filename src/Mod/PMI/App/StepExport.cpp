@@ -1026,8 +1026,9 @@ private:
             return;
         }
         NCollection_Sequence<TDF_Label> shapes;
+        std::vector<std::string> names;
         std::string why;
-        if (!labels(feature, ex, shapes, why)) {
+        if (!labels(feature, ex, shapes, why, &names)) {
             return skip(d, why);
         }
         TDF_Label l = _tool->AddDatum();
@@ -1039,6 +1040,7 @@ private:
         present(d, ex, obj);
         attr->SetObject(obj);
         _tool->SetDatum(shapes, l);
+        setAspects(d, l, false, shapes, names);
         ++_report.datums;
     }
 

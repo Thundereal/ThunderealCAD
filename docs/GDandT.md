@@ -2028,12 +2028,20 @@ compares; it took our curves for none.
   read once supplemental geometry is objects of its own: a thread's cylinder is
   `Curves001.Edge1`), the export as labels again, and the writer writes it so -- one
   composite to PMI that shared one, if it still covers each one's shapes, else flat as
-  before. Ten of the sixteen files as NIST has them (`assertSameAspects`, in the every-file
-  round trip). Not yet: a PMI on a datum feature itself (FTC-07, FTC-10, STC-06), on
-  centres of symmetry (STC-07), on hole occurrences -- whose faces OCCT does not read, as the
-  occurrence is an entity it does not know (STC-09) -- and on curves beside the solid
-  (STC-10). Found on the way: a feature named a face and an edge lost its edge, an edge
-  taken for a tessellated copy of the face (FTC-11's arc length).
+  before. A PMI on a datum's feature itself (FTC-07's sizes on datum B's, STC-06's flatness
+  on D's) is on the feature written for that datum again, named as the file named it; a
+  datum's feature is written as the file grouped it (STC-09's datum E: a group of a hole's two
+  faces and a hole occurrence; a group, 'F', where the file's is one). A hole occurrence is
+  an entity OCCT now knows (`StepRepr_BasicRoundHoleOccurrence`): before, its faces were lost
+  from the PMI on it. Shapes of the part beside its solid -- FTC-10's extracted surfaces,
+  STC-10's wires -- stay in the feature, after the solid's, where they were dropped. Fifteen
+  of the sixteen files as NIST has them (`assertSameAspects`, in the every-file round trip).
+  Not yet: STC-07's centres of symmetry (a derived shape aspect, its axis a curve of the
+  supplemental geometry) and its sizes that are their own datum features; a datum feature's
+  own form -- its faces on its own usage or on members, one shape aspect of several faces,
+  the geometry on the datum and not its feature (CTC-02) -- is not kept. Found on the way: a
+  feature named a face and an edge lost its edge, an edge taken for a tessellated copy of the
+  face (FTC-11's arc length).
   Cited documents: the standards a file says its PMI follows (FTC-10 'ASME Y14.41', STC-07's
   four; CTC-05, FTC-07, STC-09 too) -- a product of its own with a DOCUMENT, a document
   product equivalence and an applied document reference to the part's definition with a

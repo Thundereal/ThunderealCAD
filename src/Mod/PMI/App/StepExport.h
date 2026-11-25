@@ -26,6 +26,7 @@
 #define PMI_STEPEXPORT_H
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -99,7 +100,7 @@ std::string renameAspects(const std::string& structure, F rename)
             out += structure.substr(i, end - i);
             i = end;
         }
-        else if ((c == 'C' || c == 'G') && i + 1 < structure.size()
+        else if (c && std::strchr("CGDFH", c) && i + 1 < structure.size()
                  && structure[i + 1] == '{') {
             out += c;
             ++i;

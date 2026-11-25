@@ -401,12 +401,12 @@ class TestNistSet(Base):
         file has them: a pattern of features a composite group shape aspect
         'pattern of features' of a composite shape aspect 'unified geometric
         item' a hole, named as the annotation (NIST CTC-04's 'Position.2', 6
-        holes of 2 faces each) -- kind, name, description and members, each
-        leaf counted by its faces"""
-        # Not yet as the file has them: a PMI on a datum feature itself (FTC-07, FTC-10,
-        # STC-06), on centres of symmetry (STC-07), on hole occurrences (STC-09), on curves
-        # beside the solid (STC-10)
-        known = r"nist_(ftc_07|ftc_10|stc_06|stc_07|stc_09|stc_10)_"
+        holes of 2 faces each), or a datum's feature itself (FTC-07's sizes on
+        datum B's) -- kind, name, description and members, each leaf counted
+        by its faces"""
+        # Not yet as the file has them: a PMI on centres of symmetry, a size that is its own
+        # datum feature (STC-07); a datum's own feature grouped, of hole occurrences (STC-09)
+        known = r"nist_(stc_07|stc_09)_"
         if re.match(known, os.path.basename(original)):
             return
 
@@ -416,8 +416,27 @@ class TestNistSet(Base):
             text = text[text.index("DATA;"):]
             ents = dict(re.findall(r"#(\d+) ?= ?([A-Z_(][^;]*?(?:'[^']*'[^;']*?)*);", text))
             ref = lambda v: re.findall(r"#(\d+)", v)
-            kinds = {"COMPOSITE_SHAPE_ASPECT": "C", "COMPOSITE_GROUP_SHAPE_ASPECT": "G"}
-            kind = lambda v: kinds.get(re.match(r"[A-Z_]*", v).group(0))
+            kinds = {
+                "COMPOSITE_SHAPE_ASPECT": "C",
+                "COMPOSITE_GROUP_SHAPE_ASPECT": "G",
+                "DATUM_FEATURE": "D",
+                "BASIC_ROUND_HOLE_OCCURRENCE": "H",
+            }
+
+            def kind(v):
+                # a datum feature of several shapes is a complex one: a composite too
+                if v.startswith("("):
+                    if "DATUM_FEATURE()" in v and "COMPOSITE_GROUP_SHAPE_ASPECT()" in v:
+                        return "F"
+                    for part, k in (
+                        ("DATUM_FEATURE()", "D"),
+                        ("COMPOSITE_GROUP_SHAPE_ASPECT()", "G"),
+                        ("COMPOSITE_SHAPE_ASPECT()", "C"),
+                    ):
+                        if part in v:
+                            return k
+                    return None
+                return kinds.get(re.match(r"[A-Z_]*", v).group(0))
             members, faces = collections.defaultdict(list), collections.Counter()
             users = collections.defaultdict(set)
             for k, v in ents.items():
@@ -1153,7 +1172,11 @@ class TestNistSet(Base):
             for o in objects(doc, "Dimension") + objects(doc, "GeometricTolerance"):
                 feats = o.Features if hasattr(o, "Features") else [o.Feature]
                 refs = [(r[0], sub) for f in feats if f for r in f.References for sub in r[1]]
-                if all(on_solid(obj, sub) for obj, sub in refs):
+                # surfaces beside the solid, on a PMI on the solid (FTC-10's extracted
+                # surfaces, beside the solid's faces they copy), are not curves
+                solid = [on_solid(obj, sub) for obj, sub in refs]
+                if all(solid) or any(solid) and all(
+                        ok or obj.Shape.Faces for ok, (obj, sub) in zip(solid, refs)):
                     continue
                 self.assertEqual(o.Condition, "Ok", (o.Label, o.ConditionMessage))
                 sets = [s for s in o.InList if s.TypeId == "PMI::AnnotationSet"]

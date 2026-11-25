@@ -4004,7 +4004,8 @@ and from each other, in `Helix` and `Helix001` only, by about 3e-8:
 | A3, here after a second trip | 978.1430264757187 |
 
 `Part012` is not among them at 1e-9; its area's fourth-place step in the GUI
-is about 1e-5 absolute, `Helix`'s own (`Part012` holds the body). Touching
+is about 1e-5 absolute, `Helix`'s own (`Part012`, an `App::Part`,
+reaches `Helix` and `Helix001` through its links). Touching
 the whole chain and recomputing three times changes nothing
 (`helixrepeat.py`), and one shape measures the same twice: the result
 depends on where the solve starts, not on chance.

@@ -32,6 +32,11 @@ SET(FluidIcons_SRCS
     Resources/icons/Fluid_RunStudy.svg
 )
 
+# The package a type Fluid::... loads by its prefix when a file is opened
+SET(FluidPackage_SRCS
+    Fluid/__init__.py
+)
+
 SET(FluidTests_SRCS
     FluidTests/__init__.py
     FluidTests/TestStudy.py
@@ -48,6 +53,7 @@ SET(FluidTests_SRCS
 
 SET(all_files
     ${Fluid_Scripts}
+    ${FluidPackage_SRCS}
     ${FluidTests_SRCS}
     ${FluidIcons_SRCS}
 )
@@ -70,6 +76,13 @@ INSTALL(
     ${FluidTests_SRCS}
     DESTINATION
     Mod/Fluid/FluidTests
+)
+
+INSTALL(
+    FILES
+    ${FluidPackage_SRCS}
+    DESTINATION
+    Mod/Fluid/Fluid
 )
 
 INSTALL(

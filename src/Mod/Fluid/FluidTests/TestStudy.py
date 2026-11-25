@@ -322,6 +322,36 @@ class TestResults(FluidCase):
         self.assertEqual(pointsOf(study.getFrame(4)), before)
         self.assertFalse(study.isStale())
 
+    def test_opened_in_a_fresh_session(self):
+        # Opening a file loads a type's module by the type's prefix: Fluid,
+        # not FluidApp. With no module of that name, a session that had not
+        # imported FluidApp itself lost every Fluid object in the file
+        import subprocess
+
+        from Document import consoleExe
+
+        exe = consoleExe()
+        if not exe:
+            self.skipTest("no FreeCADCmd beside this build")
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "FluidFresh.FCStd")
+        self.doc.saveAs(path)
+        found = os.path.join(folder, "types.txt")
+        script = os.path.join(folder, "open.py")
+        with open(script, "w") as f:
+            f.write(
+                "import FreeCAD\n"
+                f"doc = FreeCAD.openDocument({path!r})\n"
+                f"with open({found!r}, 'w') as out:\n"
+                "    out.write(' '.join(sorted({o.TypeId for o in doc.Objects})))\n"
+            )
+        subprocess.run([exe, script], capture_output=True, timeout=300)
+        with open(found) as f:
+            types = f.read().split()
+        self.assertIn("Fluid::Study", types)
+        self.assertIn("Fluid::InitialFluid", types)
+
     def test_archive_reads_as_numpy(self):
         try:
             import numpy

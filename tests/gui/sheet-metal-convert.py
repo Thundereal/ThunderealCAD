@@ -153,7 +153,7 @@ def run():
             and sorted(convert.RipEdges[1]) == sorted(upright),
             convert and (convert.FixedFace, convert.OpenFaces, convert.RipEdges),
         )
-        bb = convert.Shape.BoundBox
+        bb = convert.Shape.optimalBoundingBox()  # the geometry, exactly
         check(
             "it is good, a solid, the box's size",
             "Invalid" not in convert.State
@@ -176,7 +176,7 @@ def run():
         check("Side offers Inside and Outside", items == ["Inside", "Outside"], items)
         side.setCurrentIndex(1)
         settle(doc)
-        bb = convert.Shape.BoundBox
+        bb = convert.Shape.optimalBoundingBox()  # the geometry, exactly
         check(
             "Outside set there is the convert's, a thickness larger every way",
             convert.Side == "Outside"

@@ -1982,7 +1982,14 @@ compares; it took our curves for none.
 - **Gaps chased after p21 (dwin down; the user: chase them all).** Length attributes: the
   reader keeps which reals were lengths (`XCAFDoc::AttributeMeasuresGUID`, pairs of key and
   measure), the import on the object (`StepAttributeMeasures`, the real in mm), the writer gives
-  them back as `LENGTH_MEASURE`s in the file's length unit (STC-06: 130 of 130).
+  them back as `LENGTH_MEASURE`s in the file's length unit (STC-06: 130 of 130). OCCT's
+  `StepRepr_PropertyDefinition::SetDescription` set no flag: every attribute had been written
+  with description `$`, not 'user defined attribute' -- fixed. Polylines: the export cut the
+  file's curves into segments and the writer chained them (CTC-05: 4.7 times NIST's points);
+  a graphic given as curves goes to the writer as it is, a polyline read (a degree 1 B-spline)
+  written with its own points, only segments chained: 573 polylines, 6965 points, 77 circles,
+  NIST's. Logged: NIST overrides the colour of two lines of each of CTC-05's rectangular
+  regions (an over-riding styled item of a curve set of them); not read.
 
 ## 11. Decisions (made 2026-11-19)
 

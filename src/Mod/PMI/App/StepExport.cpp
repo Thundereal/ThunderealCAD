@@ -645,6 +645,13 @@ private:
             return {};
         }
         TopoDS_Shape s = BRepBuilderAPI_Transform(in, toLocal, true).Shape();
+        // The file's curves, written as curves again (SetPresentationCurves): as they are, a
+        // polyline its own points, a circle a circle (NIST CTC-05: 4.7 times its points when
+        // cut into segments here)
+        if (c->ImportedAsCurves.getValue() && c->UseImported.getValue()
+            && !TopExp_Explorer(s, TopAbs_FACE).More()) {
+            return s;
+        }
         Bnd_Box box;
         BRepBndLib::Add(s, box);
         double size = box.IsVoid() ? 1.0 : std::sqrt(box.SquareExtent());

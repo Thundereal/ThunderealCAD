@@ -415,7 +415,30 @@ class TestNistSet(Base):
             with open(path, errors="replace") as f:
                 return len(re.findall(r"ANNOTATION_CURVE_OCCURRENCE\s*\(", f.read()))
 
+        def drawn(path):
+            """The polylines, their points, and the circles of the curve sets
+            annotations draw (CTC-05: 573, 6965, 77; ours had 4.7 times the
+            points). Not of the two sets NIST overrides a style of (a part of
+            its rectangular regions, logged)"""
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+            lines = points = circles = 0
+            for v in ents.values():
+                if not v.startswith("ANNOTATION_CURVE_OCCURRENCE("):
+                    continue
+                v = ents[re.findall(r"#(\d+)", v)[-1]]
+                for i in re.findall(r"#(\d+)", v):
+                    if ents[i].startswith("POLYLINE("):
+                        lines += 1
+                        points += len(re.findall(r"#\d+", ents[i]))
+                    elif ents[i].startswith("CIRCLE("):
+                        circles += 1
+            return lines, points, circles
+
         self.assertEqual(curves(written), curves(original))
+        if curves(original):
+            self.assertEqual(drawn(written), drawn(original))
 
     def assertPartsStyled(self, original, written):
         """Each solid and surface model the file gives a colour is written
@@ -1167,6 +1190,12 @@ class TestNistSet(Base):
                 self.assertEqual({k for k in got if k in attributes}, attributes)
                 self.assertEqual("geometric validation property" in got,
                                  "geometric validation property" in want)
+                # Each described as NIST does (OCCT wrote '$': SetDescription set no flag)
+                with open(self.written, errors="replace") as f:
+                    described = set(re.findall(
+                        r"PROPERTY_DEFINITION\s*\(\s*'([^']*)'\s*,\s*'user defined attribute'",
+                        f.read()))
+                self.assertEqual(attributes - described, set())
                 # Lengths written as lengths (STC-06's 130), in mm as the file is
                 self.assertEqual(lengths(self.written), lengths(path))
         self.assertTrue(lengths(path))

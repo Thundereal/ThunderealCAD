@@ -434,6 +434,71 @@ class Mechanism:
         self.assertEqual(after, before)
         self.assertNotIn(None, before.values())
 
+    def test_the_playback_moves_the_whole_mechanism(self):
+        # The fluid's frames say where the parts it moved are; a part of the
+        # mechanism the fluid does not touch -- here a block fixed on the
+        # bar's top, out of the water -- is in the Assembly's frames alone.
+        # The playback puts the whole mechanism where the Assembly's run
+        # has it, on the fluid's frames' times, and back after.
+        import JointObject
+
+        self.bar_on_a_hinge(500.0, 0.0, 0.2)
+        rider = self.assembly.newObject("Part::Box", "Rider")
+        rider.Length, rider.Width, rider.Height = 10, 10, 10
+        rider.Placement = self.bar.Placement.multiply(
+            App.Placement(App.Vector(5, 5, 20), App.Rotation())
+        )
+        self.doc.recompute()
+        fixed = self.joints.newObject("App::FeaturePython", "Fixed")
+        JointObject.Joint(fixed, JointObject.JointTypes.index("Fixed"))
+        fixed.Detach1 = True
+        fixed.Detach2 = True
+        fixed.Reference1 = (self.bar, ["Face6"])
+        fixed.Reference2 = (rider, ["Face5"])
+        fixed.Placement1 = App.Placement(App.Vector(5, 5, 20), App.Rotation())
+        fixed.Placement2 = App.Placement(App.Vector(0, 0, 0), App.Rotation())
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        barAt = App.Placement(self.bar.Placement)
+        riderAt = App.Placement(rider.Placement)
+        self.assertEqual(self.study.run(), 0, self.study.Status)
+        frames = FluidPlayback.Frames(self.study)
+        last = len(frames) - 1
+        # where the Assembly's run has them at the last frame
+        self.assembly.updateForTime(frames.times[last])
+        barThere = App.Placement(self.bar.Placement)
+        riderThere = App.Placement(rider.Placement)
+        self.bar.Placement = barAt
+        rider.Placement = riderAt
+        self.assertGreater(riderThere.Base.distanceToPoint(riderAt.Base), 5.0)
+
+        moved = FluidPlayback.MovedParts(frames)
+        moved.show(last)
+        for part, there in ((self.bar, barThere), (rider, riderThere)):
+            self.assertLess(part.Placement.Base.distanceToPoint(there.Base), 1e-6, part.Name)
+            self.assertTrue(part.Placement.Rotation.isSame(there.Rotation, 1e-9), part.Name)
+        moved.restore()
+        for part, at in ((self.bar, barAt), (rider, riderAt)):
+            self.assertLess(part.Placement.Base.distanceToPoint(at.Base), 1e-9, part.Name)
+            self.assertTrue(part.Placement.Rotation.isSame(at.Rotation, 1e-12), part.Name)
+        # and from the file, the Assembly's run read from its simulation
+        import shutil
+        import tempfile
+
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "Whole.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.study = self.doc.getObject("FluidStudy")
+        rider = self.doc.getObject("Rider")
+        moved = FluidPlayback.MovedParts(FluidPlayback.Frames(self.study))
+        moved.show(last)
+        self.assertLess(rider.Placement.Base.distanceToPoint(riderThere.Base), 1e-6)
+        moved.restore()
+        self.assertLess(rider.Placement.Base.distanceToPoint(riderAt.Base), 1e-9)
+
     def test_linking_a_mechanism(self):
         self.float_on_a_slider(500.0, 40.0, 0.1)
         self.study.Mechanism = None

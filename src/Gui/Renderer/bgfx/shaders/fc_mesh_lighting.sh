@@ -76,6 +76,9 @@ SAMPLER2D(s_texShadow, 3);
 // multiplies the direct scene-light term beside the variance shadow
 // factor, so glass casts a softer shadow, tinted when colored.
 SAMPLER2D(s_texShadowTint, 7);
+// The light window depth of the nearest translucent caster per texel
+// (.x; 0 where there is none): the tint is what lies behind it.
+SAMPLER2D(s_texShadowNear, 11);
 uniform vec4 u_shadowParams;
 uniform vec4 u_lightDir;
 // Spot light position in view space; w = cos of the cone cutoff for a
@@ -321,6 +324,10 @@ uniform mat4 u_bulbShadowMtx[BULB_SHADOW_TILES];
 uniform vec4 u_bulbShadowConf[BULB_SLOTS];
 uniform mat4 u_bulbShadowRot;
 SAMPLER2D(s_texBulbShadow, 8);
+// The bulb tiles' tint and near maps: what translucent and glass casters
+// let through of a bulb's light, and the nearest of them, tile for tile.
+SAMPLER2D(s_texBulbTint, 12);
+SAMPLER2D(s_texBulbNear, 13);
 // Screen-space ambient occlusion (the SSAO/GTAO chain result, its own
 // resolution, normalized uv): folded into the ambient / IBL terms
 // only. The directional scene light and the local effect lights carry
@@ -374,6 +381,12 @@ float fcSceneShadow(vec3 vpos, vec2 fragCoord, out vec3 tint)
 		    && sp.z > 0.0 && sp.z < 1.0)
 		{
 			tint = texture2D(s_texShadowTint, sp.xy).rgb;
+			// Only behind the nearest translucent caster along the
+			// light: a translucent part does not shade itself, and a
+			// part in front of one -- standing on a glass floor, or
+			// the water over a tank's -- takes none of its shadow.
+			if (sp.z <= texture2D(s_texShadowNear, sp.xy).x + 0.002)
+				tint = vec3_splat(1.0);
 			if (u_evsm.w > 0.5 && u_evsm.z > 0.0)
 			{
 				// Coin's N-tap spread kernel (ShadowSpreadSize
@@ -793,6 +806,7 @@ vec4 fcShadeFragment(vec4 base, vec3 n, vec3 geoN, vec3 vpos,
 				ndl = abs(ndl);
 			ndl = max(ndl, 0.0);
 			float att = 1.0 / (1.0 + d2 * u_localLight[fi].w);
+			vec3 btint = vec3_splat(1.0);
 			// Bulb shadow tiles (upper-half slots with the flag):
 			// perspective plain-VSM tap. A plain bulb has one
 			// downward tile (outside its cone the light stays
@@ -847,6 +861,12 @@ vec4 fcShadeFragment(vec4 base, vec3 n, vec3 geoN, vec3 vpos,
 					    && sp.y > b0.y && sp.y < b1.y
 					    && sp.z > 0.0 && sp.z < 1.0)
 					{
+						// what translucent casters let through, behind
+						// the nearest of them alone
+						if (sp.z > texture2D(s_texBulbNear, sp.xy).x
+						           + 0.002)
+							btint = texture2D(s_texBulbTint,
+							                  sp.xy).rgb;
 						// 2x2 spread of bilinear taps = a 3x3
 						// tent over the moments — the tiles skip
 						// the scene map's smooth-border blur, so
@@ -913,9 +933,9 @@ vec4 fcShadeFragment(vec4 base, vec3 n, vec3 geoN, vec3 vpos,
 			// lobe -- these lights are already self-occluded by the
 			// geoN test above.
 			color += base.rgb * u_localLightColor[fi].rgb
-					* (ndl * att)
+					* (btint * (ndl * att))
 				+ matSpec.rgb * u_localLightColor[fi].rgb
-					* (spec * att * 0.75);
+					* (btint * (spec * att * 0.75));
 		}
 	}
 

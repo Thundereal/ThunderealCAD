@@ -1391,6 +1391,53 @@ class TestNistSet(Base):
                 self.write_and_read(doc)
                 self.assertEqual(layered(self.written), want)
 
+    def test_cited_documents_as_the_file_has_them(self):
+        """The documents a part's GD&T cites -- the standards it follows: an
+        applied document reference of an additional context of its product
+        definition, its role, the product or formation the document is
+        equivalent to (FTC-10's 'ASME Y14.41-2003', STC-07's four, CTC-05's
+        'ISO 16792'; SFA lists the file's standards by them) -- read
+        (StepDocuments) and written again as they were"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def cited(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", " ", f.read())
+            ents = dict(re.findall(r"#(\d+)\s*=\s*([^;]*);", text))
+            ref = lambda v: re.findall(r"#(\d+)", v)
+            words = lambda v: tuple(w.strip() for w in re.findall(r"'([^']*)'", v))
+            got = collections.Counter()
+            for k, v in ents.items():
+                if not v.startswith("APPLIED_DOCUMENT_REFERENCE("):
+                    continue
+                doc = ref(v)[0]
+                role = [words(ents[ref(w)[0]]) for w in ents.values()
+                        if w.startswith("ROLE_ASSOCIATION(") and ref(w)[1] == k]
+                equal = [ents[ref(w)[1]] for w in ents.values()
+                         if w.startswith("DOCUMENT_PRODUCT_EQUIVALENCE(") and ref(w)[0] == doc]
+                # A formation's product too: SFA takes the standards from both ids
+                equal += [ents[ref(e)[-1]] for e in equal
+                          if e.startswith("PRODUCT_DEFINITION_FORMATION(")]
+                contexts = [words(ents[ref(ents[i])[0]]) + words(ents[i])
+                            for i in ref(v)[1:]]
+                got[words(ents[doc]) + words(ents[ref(ents[doc])[-1]]) + words(v),
+                    tuple(role), tuple(words(e)[:2] for e in equal), tuple(contexts)] += 1
+            return got
+
+        for name in ("nist_ctc_05_asme1_ap242-e1.stp", "nist_stc_07_asme1_ap242-e3.stp",
+                     "nist_ftc_07_asme1_ap242-e2.stp", "nist_ftc_10_asme1_ap242-e2.stp",
+                     "nist_stc_09_asme1_ap242-e4.stp"):
+            path = edition(os.path.join(nist, name))
+            with self.subTest(os.path.basename(path)):
+                want = cited(path)
+                if not want:  # an edition citing none
+                    continue
+                doc = self.read(path)
+                self.assertEqual(sum(len(getattr(o, "StepDocuments", [])) for o in doc.Objects),
+                                 sum(want.values()))
+                self.write_and_read(doc)
+                self.assertEqual(cited(self.written), want)
+
     def test_basic_as_the_file_gives_it(self):
         """CTC-04's 75 and 10 are basic -- a 'dimensional note' that is
         'theoretical' -- read so and written so (SFA's [75], [dia10])"""

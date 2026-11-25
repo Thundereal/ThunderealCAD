@@ -2363,6 +2363,30 @@ void ImportOCAF2::applyMetadata(bool progressive)
                 prop->setValue(true);
             }
         }
+        // The documents its GD&T cites, the standards it follows (NIST FTC-10's 'ASME
+        // Y14.41-2003'): written again as they were, each its fields one a line
+        Handle(TDataStd_ExtStringList) documents;
+        if (label.FindAttribute(XCAFDoc::CitedDocumentsGUID(), documents)) {
+            std::vector<std::string> values;
+            using List = NCollection_List<TCollection_ExtendedString>;
+            for (List::Iterator it(documents->List()); it.More(); it.Next()) {
+                values.push_back(utf8(it.Value()));
+            }
+            auto prop = freecad_cast<App::PropertyStringList*>(
+                obj->getPropertyByName(ExportOCAF2::DocumentsProperty));
+            if (!prop) {
+                prop = freecad_cast<App::PropertyStringList*>(obj->addDynamicProperty(
+                    "App::PropertyStringList",
+                    ExportOCAF2::DocumentsProperty,
+                    "STEP",
+                    "The documents the STEP file cites for its GD&T, the standards it follows: "
+                    "each the document's context, id, name, description, type, source, role, "
+                    "and the product it is equivalent to, one a line"));
+            }
+            if (prop) {
+                prop->setValues(values);
+            }
+        }
     }
 }
 

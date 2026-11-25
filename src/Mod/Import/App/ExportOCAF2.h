@@ -187,6 +187,9 @@ public:
     /// Written with geometric validation properties computed of its shape: a
     /// PropertyBool of this name, true
     static constexpr const char* ValidationProperty = "StepValidation";
+    /// The documents its GD&T cites (the standards it follows): PropertyStringList, each
+    /// its fields one a line, as STEPCAFControl_Reader keeps them (XCAFDoc::CitedDocumentsGUID)
+    static constexpr const char* DocumentsProperty = "StepDocuments";
     //@}
 
 private:

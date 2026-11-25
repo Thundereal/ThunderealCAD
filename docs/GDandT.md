@@ -2010,6 +2010,15 @@ compares; it took our curves for none.
   NIST hides member by member (STC-09, FTC-10, CTC-04: one object in FreeCAD, which hides no
   part of one); which supplemental items each saved view shows (STC-06's 12 'supplemental
   geometry subset's).
+  Cited documents: the standards a file says its PMI follows (FTC-10 'ASME Y14.41', STC-07's
+  four; CTC-05, FTC-07, STC-09 too) -- a product of its own with a DOCUMENT, a document
+  product equivalence and an applied document reference to the part's definition with a
+  role, under a context association. SFA reads them, unlike the rest of this list: its
+  'Standards:' line and the standard rows of its coverage come from their ids. The reader
+  keeps each, field by field (`XCAFDoc::CitedDocumentsGUID`, one string of '\n'-joined
+  fields per document: context, document, role, the equivalent product), the import on the
+  object (`StepDocuments`), the writer writes them again: entity for entity NIST's in the
+  five files (`test_cited_documents_as_the_file_has_them`).
 
 ## 11. Decisions (made 2026-11-19)
 

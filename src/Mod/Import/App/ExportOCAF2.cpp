@@ -323,6 +323,17 @@ void ExportOCAF2::setupMetadata(TDF_Label label,
             }
         }
     }
+    if (auto prop =
+            freecad_cast<App::PropertyStringList*>(obj->getPropertyByName(DocumentsProperty))) {
+        if (!prop->getValues().empty()) {
+            Handle(TDataStd_ExtStringList) list =
+                TDataStd_ExtStringList::Set(label, XCAFDoc::CitedDocumentsGUID());
+            list->Clear();
+            for (auto& value : prop->getValues()) {
+                list->Append(toExtended(value));
+            }
+        }
+    }
     // Computed of the shape written: the file's were of the shape it had
     auto valid = freecad_cast<App::PropertyBool*>(obj->getPropertyByName(ValidationProperty));
     if (!valid || !valid->getValue() || shape.isNull()) {

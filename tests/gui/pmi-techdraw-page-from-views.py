@@ -30,7 +30,7 @@ V = FreeCAD.Vector
 
 
 def note(msg):
-    with open(RESULT, "a") as f:
+    with open(RESULT, "a", encoding="utf-8") as f:
         f.write(str(msg) + "\n")
         f.flush()
 

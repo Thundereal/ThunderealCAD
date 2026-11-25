@@ -40,7 +40,7 @@ state = {"done": False}
 
 
 def note(msg):
-    with open(RESULT, "a") as f:
+    with open(RESULT, "a", encoding="utf-8") as f:
         f.write(str(msg) + "\n")
         f.flush()
 
@@ -203,7 +203,13 @@ def run():
 
         # The command
         view.viewTop()
-        pump(20)
+        # The turn is animated: the camera is read once it is there, not
+        # partway (0.2 s was partway on Windows, 7 degrees off)
+        for _ in range(300):
+            pump(1)
+            if view.getViewDirection().isEqual(V(0, 0, -1), 1e-9):
+                break
+        pump(5)
         Gui.Selection.clearSelection()
         Gui.Selection.addSelection(pmi)
         Gui.runCommand("PMI_View")

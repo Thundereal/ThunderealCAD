@@ -4424,9 +4424,25 @@ Std_Refresh, the pool's workers ended, Std_Refresh again): with a runtime
 standing; without one 0.34 s and 0.16 s -- the start of the process and its
 imports, which the standby saves too.
 
-The cost is the process standing: 357 MB resident with the guest up, 67 MB
-without a runtime (a pool's own worker is 331 MB and 72 MB), for as long as
-a document has a pool -- where the workers themselves are gone after 30 s.
+The cost is the process standing, for as long as a document has a pool --
+where the workers themselves are gone after 30 s. What it costs is its
+physical footprint (`vmmap -summary`, the figure Activity Monitor shows as
+Memory: dirty pages, compressed or not), not its resident size, most of which
+is clean pages of the libraries and the runtime's files that every worker
+and the host share (`fcad-probes/worker/standbyfoot.py`, two documents, so
+two pool workers and the standby, on the mini):
+
+| process | resident | footprint |
+|---|---|---|
+| host, no pool yet | 68 MB | 31 MB |
+| worker or standby, with a runtime | 378-427 MB | 140-182 MB |
+| worker or standby, no runtime | 68-73 MB | 30-31 MB |
+
+The peak footprint is within 0.1 MB of the standing one, so the guest's boot
+does not leave a higher high-water mark behind; the spread with a runtime is
+from run to run and between processes of the same run, the standby among
+them. About half of a worker's footprint with a runtime is one region kind
+(`footprint`: "app-specific tag 16", 72-82 MB dirty), the rest malloc.
 
 Two things the tests found on the way:
 

@@ -442,10 +442,11 @@ private:
                 // Its colour, as the file drew it; its layer, and whether it is shown -- the
                 // curves as they are, reference geometry (hidden until asked for) as the file
                 // had it
-                auto colored = [item](const TDF_Label& l) {
+                auto colored = [this, item](const TDF_Label& l) {
                     if (l.IsNull()) {
                         return;
                     }
+                    _supplementalItems[item] = l;
                     auto prop =
                         freecad_cast<App::PropertyColor*>(item->getPropertyByName("StepColor"));
                     if (prop) {
@@ -1565,16 +1566,27 @@ private:
                 gdts.Append(it->second);
             }
         }
+        // The supplemental geometry it shows: the items of what it lists
+        NCollection_Sequence<TDF_Label> supplementals;
+        for (auto o : v->Objects.getValues()) {
+            auto it = _supplementalItems.find(o);
+            if (it != _supplementalItems.end()) {
+                supplementals.Append(it->second);
+            }
+        }
         Handle(XCAFDoc_ViewTool) tool = XCAFDoc_DocumentTool::ViewTool(_info.hDoc->Main());
         TDF_Label l = tool->AddView();
         XCAFDoc_View::Set(l)->SetObject(obj);
         tool->SetView(shapes, gdts, planes, l);
+        XCAFDoc_DimTolTool::SetViewSupplemental(l, supplementals);
         ++_report.views;
     }
 
     std::map<App::DocumentObject*, Exported> _parts;
     /// The supplemental curves written: each object's item
     std::map<const App::DocumentObject*, TDF_Label> _supplementals;
+    /// Every item of supplemental geometry written, by its object: what a view lists of them
+    std::map<const App::DocumentObject*, TDF_Label> _supplementalItems;
     /// The views of the sets written, each with its set's part
     std::vector<std::pair<View*, Exported*>> _views;
     /// The label each callout was written as: what a view lists

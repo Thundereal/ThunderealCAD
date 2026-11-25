@@ -176,6 +176,7 @@ public:
         hidden();
         oneShapes();
         supplemental();
+        viewSupplementals();
         return _report;
     }
 
@@ -1069,6 +1070,7 @@ private:
                     obj->Visibility.setValue(false);
                 }
                 groupExt->addObject(obj);
+                _supplementalOf[entry(item)] = obj;
             }
         }
         takeOut(curves);
@@ -2239,9 +2241,30 @@ private:
             && std::all_of(solids.begin(), solids.end(), [&shown](Part::Feature* f) {
                    return std::find(shown.begin(), shown.end(), f) != shown.end();
                });
-        if (!all && std::any_of(shown.begin(), shown.end(), [this](App::DocumentObject* o) {
+        const bool solid =
+            std::any_of(shown.begin(), shown.end(), [this](App::DocumentObject* o) {
                 return hasSolid(static_cast<Part::Feature*>(o));
-            })) {
+            });
+        // The supplemental geometry it shows (STEP: a 'supplemental geometry subset' in it,
+        // NIST STC-06's twelve views): listed beside the solids once it is read
+        // (viewSupplementals), the rest of it not shown
+        NCollection_Sequence<TDF_Label> items;
+        XCAFDoc_DimTolTool::GetViewSupplemental(l, items);
+        if (!items.IsEmpty()) {
+            ViewSubset subset;
+            subset.view = v;
+            if (solid) {
+                subset.listed = shown;
+            }
+            else {
+                subset.listed.assign(solids.begin(), solids.end());
+            }
+            for (auto& item : items) {
+                subset.items.push_back(entry(item));
+            }
+            _viewSubsets.push_back(std::move(subset));
+        }
+        if (!all && solid) {
             v->Objects.setValues(shown);
         }
         for (auto c : members) {
@@ -2250,6 +2273,25 @@ private:
             c->Views.setValues(views);
         }
         ++_report.views;
+    }
+
+    /// The views showing some of the supplemental geometry, read after them: what each lists
+    void viewSupplementals()
+    {
+        for (auto& subset : _viewSubsets) {
+            std::vector<App::DocumentObject*> listed = subset.listed;
+            const size_t base = listed.size();
+            for (auto& item : subset.items) {
+                auto it = _supplementalOf.find(item);
+                if (it != _supplementalOf.end()
+                    && std::find(listed.begin(), listed.end(), it->second) == listed.end()) {
+                    listed.push_back(it->second);
+                }
+            }
+            if (listed.size() > base) {
+                subset.view->Objects.setValues(listed);
+            }
+        }
     }
 
 public:
@@ -2265,6 +2307,18 @@ public:
     /// The kind of annotation placeholder the file gives each
     std::map<Callout*, std::vector<std::string>> _placeholderKinds;
     std::vector<Callout*> _placeholders;
+    /// The object each item of supplemental geometry was read as, by its label's entry: what
+    /// a view showing some of them lists
+    std::map<std::string, App::DocumentObject*> _supplementalOf;
+    /// A view showing some of the supplemental geometry: what it lists besides, the entries of
+    /// the items
+    struct ViewSubset
+    {
+        View* view = nullptr;
+        std::vector<App::DocumentObject*> listed;
+        std::vector<std::string> items;
+    };
+    std::vector<ViewSubset> _viewSubsets;
     Part::Feature* _lastObject = nullptr;
     std::vector<Pending> _pending;
 

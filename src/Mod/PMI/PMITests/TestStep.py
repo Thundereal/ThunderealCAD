@@ -1483,6 +1483,54 @@ class TestNistSet(Base):
                 self.write_and_read(doc)
                 self.assertEqual(cited(self.written), want)
 
+    def test_view_supplemental_geometry_as_the_file_has_it(self):
+        """The supplemental geometry each saved view shows -- a 'supplemental
+        geometry subset' mapped into its draughting model, STC-06's twelve --
+        read as the view's objects beside the part's solids and written so
+        again, item for item, with the part the view maps"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def subsets(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+            ref = lambda v: re.findall(r"#(\d+)", v)
+            described = {ref(v)[-1] for v in ents.values()
+                         if v.startswith("DESCRIPTION_ATTRIBUTE('supplementalgeometrysubset'")}
+            got = {}
+            for v in ents.values():
+                if "DRAUGHTING_MODEL" not in v:
+                    continue
+                m = re.search(r"(?:DRAUGHTING_MODEL|REPRESENTATION)\('([^']*)',\(([^)]*)\)", v)
+                if not m or not any(ents[i].startswith("CAMERA_MODEL") for i in ref(m.group(2))):
+                    continue
+                items, shapes = collections.Counter(), 0
+                for i in ref(m.group(2)):
+                    if not ents[i].startswith("MAPPED_ITEM("):
+                        continue
+                    rep = ref(ents[ref(ents[i])[0]])[-1]
+                    if rep not in described:
+                        shapes += 1
+                        continue
+                    for j in ref(ents[rep])[:-1]:
+                        items[ents[j].split("(")[0],
+                              (re.findall(r"'([^']*)'", ents[j]) or [""])[0]] += 1
+                got[m.group(1)] = (shapes, sorted(items.items()))
+            return got
+
+        path = edition(os.path.join(nist, "nist_stc_06_asme1_ap242-e3.stp"))
+        want = subsets(path)
+        self.assertEqual(sum(1 for s, i in want.values() if i), 12)
+        doc = self.read(path)
+        listed = {v.Label: v.Objects for v in objects(doc, "View")}
+        for name, (_, items) in want.items():
+            if items:
+                supplemental = [o for o in listed[name] if not getattr(o, "Shape", None)
+                                or not o.Shape.Solids]
+                self.assertEqual(len(supplemental), sum(n for _, n in items), name)
+        self.write_and_read(doc)
+        self.assertEqual(subsets(self.written), want)
+
     def test_basic_as_the_file_gives_it(self):
         """CTC-04's 75 and 10 are basic -- a 'dimensional note' that is
         'theoretical' -- read so and written so (SFA's [75], [dia10])"""

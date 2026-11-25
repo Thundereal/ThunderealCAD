@@ -2008,8 +2008,16 @@ compares; it took our curves for none.
   hidden, item for item, NIST's in all seven files (`test_supplemental_layers_...`). Not done:
   members of a curve set hidden alone (STC-06's 12), and the part's own sketches and surfaces
   NIST hides member by member (STC-09, FTC-10, CTC-04: one object in FreeCAD, which hides no
-  part of one); which supplemental items each saved view shows (STC-06's 12 'supplemental
-  geometry subset's).
+  part of one).
+  Which supplemental items a saved view shows: STC-06's twelve views each map, beside the
+  part, a shape representation 'supplemental geometry' of some of the items, described
+  'supplemental geometry subset' (a description attribute), as a mapped item of the camera
+  model. The reader took its items for shapes; it now finds them among the items read
+  (`XCAFDoc_DimTolTool::SetViewSupplemental`, a reference list on the view), the import lists
+  them in the view's `Objects` beside the part -- so the rest is not shown in it -- once the
+  supplemental geometry is read, and the writer writes the subset again, each item the one it
+  wrote for the group: kind and name, view for view, NIST's
+  (`test_view_supplemental_geometry_as_the_file_has_it`).
   Cited documents: the standards a file says its PMI follows (FTC-10 'ASME Y14.41', STC-07's
   four; CTC-05, FTC-07, STC-09 too) -- a product of its own with a DOCUMENT, a document
   product equivalence and an applied document reference to the part's definition with a

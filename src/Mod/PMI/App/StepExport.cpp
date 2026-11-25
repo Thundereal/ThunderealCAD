@@ -305,6 +305,17 @@ public:
             if (obj && !obj->Visibility.getValue()) {
                 XCAFDoc_DimTolTool::SetPresentationHidden(l, true);
             }
+            giveUUID(obj, l);
+        }
+        // A product's, on its label: its object's, or its container's (one shape of it)
+        for (auto& [part, ex] : _parts) {
+            if (ex.label.IsNull()) {
+                continue;
+            }
+            giveUUID(part, ex.label);
+            if (auto group = App::GeoFeatureGroupExtension::getGroupOfObject(part)) {
+                giveUUID(group, ex.label);
+            }
         }
         return _report;
     }
@@ -709,6 +720,22 @@ private:
         }
     }
 
+    /// The UUID an object was read with (its StepUUID) given to its label
+    static void giveUUID(const App::DocumentObject* obj, const TDF_Label& l,
+                         const char* name = "StepUUID")
+    {
+        auto prop = obj ? freecad_cast<App::PropertyStringList*>(obj->getPropertyByName(name))
+                        : nullptr;
+        TCollection_AsciiString type, uuid;
+        if (!prop || prop->getValues().size() < 2 || l.IsNull()
+            || XCAFDoc_DimTolTool::GetUUID(l, type, uuid)) {
+            return;
+        }
+        XCAFDoc_DimTolTool::SetUUID(l,
+                                    ascii(prop->getValues()[0])->String(),
+                                    ascii(prop->getValues()[1])->String());
+    }
+
     /// The set's holes (AP242 ed3 hole features) given to XCAF: each
     /// definition once, by its name and values, each occurrence on the faces
     /// of its feature, in the part's coordinates
@@ -752,16 +779,18 @@ private:
                 auto it = defs.find(key.str());
                 if (it == defs.end()) {
                     it = defs.emplace(key.str(), _tool->AddHole(ex.label, def)).first;
+                    giveUUID(hole, it->second, "StepDefinitionUUID");
                 }
                 gp_Ax3 position(ax2Of(ex.toLocal * trsfOf(hole->Position.getValue())));
                 std::string name = hole->OccurrenceName.getValue();
                 if (name.empty()) {
                     name = hole->Label.getValue();
                 }
-                XCAFDoc_DimTolTool::AddHoleOccurrence(it->second,
-                                                      ascii(name)->String(),
-                                                      position,
-                                                      faces);
+                giveUUID(hole,
+                         XCAFDoc_DimTolTool::AddHoleOccurrence(it->second,
+                                                               ascii(name)->String(),
+                                                               position,
+                                                               faces));
             });
         }
     }

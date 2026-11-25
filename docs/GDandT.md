@@ -1965,7 +1965,20 @@ compares; it took our curves for none.
   of the representation they are in), the import makes each occurrence a `PMI::Hole` of the
   set on a feature of its faces (`OccurrenceName` the file's, which need not be unique), and
   the export and writer give them back as NIST has them. A usage of several items is written
-  as the `set_representation_item` it is (OCCT wrote a bare list). UUIDs not yet.
+  as the `set_representation_item` it is (OCCT wrote a bare list).
+- **UUIDs (STC-09; user decision 2026-11-25: product, PMI and holes, not faces and edges).**
+  AP242 ed4 `uuid_attribute`s (STC-09's 615 `v5_uuid_attribute`, about 630 of them on faces and
+  edges): the reader keeps the UUID of each GD&T label, product and hole occurrence
+  (`XCAFDoc_DimTolTool::SetUUID`), the import on its object (`StepUUID`: type and UUID), the
+  export and writer give it back, one attribute each (SFA: two on one item, or one UUID
+  twice, are errors). STC-09: 79 read, 79 written, read back the same (`test_uuids_kept`).
+  The faces' and edges' are not kept: an element's identity does not survive an edit.
+- **SFA p21 (dwin).** The contains line equals NIST's in 15 of 17 files (CTC-03, CTC-05,
+  FTC-08 -e4-tg 'Properties'; CTC-05 'Graphic PMI (polyline)'). New: a product's semantic
+  text, read by OCCT as a user attribute too, was written as one as well -- invalid to SFA
+  (representation named 'semantic text', 5 files): no attribute is kept of it, the note it is
+  is written. Logged: STC-06's 130 length attributes come back as reals (OCCT's metadata
+  drops a measure's kind); CTC-05's polylines carry 4.4 times NIST's points.
 
 ## 11. Decisions (made 2026-11-19)
 

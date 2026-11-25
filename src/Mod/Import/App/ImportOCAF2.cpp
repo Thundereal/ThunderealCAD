@@ -2279,7 +2279,13 @@ void ImportOCAF2::applyMetadata(bool progressive)
                 using Map = NCollection_DataMap<TCollection_ExtendedString,
                                                 TCollection_ExtendedString>;
                 for (Map::Iterator it(data->GetStringsContainer()); it.More(); it.Next()) {
-                    strings[utf8(it.Key())] = utf8(it.Value());
+                    // A product's semantic text is a note's words (the PMI module's),
+                    // written as one: no attribute (as one it is invalid to SFA, dwin p21)
+                    std::string key = utf8(it.Key());
+                    if (key == "semantic text") {
+                        continue;
+                    }
+                    strings[key] = utf8(it.Value());
                 }
             }
             if (data->HasIntegers()) {

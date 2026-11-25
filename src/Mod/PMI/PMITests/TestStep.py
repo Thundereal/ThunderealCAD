@@ -389,6 +389,10 @@ class TestNistSet(Base):
                 self.assertPartsStyled(path, self.written)
                 self.assertSameAssembly(path, self.written)
                 self.assertSameGraphicForms(path, self.written)
+                # A product's semantic text written as a note's, not as an attribute
+                # (SFA: invalid representation.name 'semantic text', dwin p21)
+                with open(self.written, errors="replace") as f:
+                    self.assertNotIn("REPRESENTATION('semantic text'", f.read())
 
     def assertSameAssembly(self, original, written):
         """An assembly where the file has one and none where it has none: a
@@ -1079,6 +1083,38 @@ class TestNistSet(Base):
         again = self.write_and_read(doc)
         self.assertEqual(occurrences(self.written), (want, defs))
         self.assertEqual(holes(again), read)
+
+    def test_uuids_kept(self):
+        """The UUIDs a file identifies its product, GD&T and holes by (AP242
+        ed4 uuid_attribute: NIST STC-09 -e4's v5_uuid_attribute) kept on their
+        objects and written again, one each, none twice; its faces' and edges'
+        are not kept (docs/GDandT.md sec 10.26; SFA's 'contains UUIDs')"""
+        path = edition(os.path.join(os.environ["FC_PMI_NIST"],
+                                    "nist_stc_09_asme1_ap242-e4.stp"))
+        with open(path, errors="replace") as f:
+            if "UUID_ATTRIBUTE" not in f.read():
+                self.skipTest("this edition of STC-09 has no UUIDs")
+
+        def kept(doc):
+            return {(o.TypeId, v[1]) for o in doc.Objects
+                    for v in [getattr(o, "StepUUID", None)] if v}
+
+        doc = self.read(path)
+        read = kept(doc)
+        types = {t for t, _ in read}
+        for t in ("PMI::Hole", "PMI::GeometricTolerance", "PMI::Dimension"):
+            self.assertIn(t, types)
+        again = self.write_and_read(doc)
+        with open(self.written, errors="replace") as f:
+            text = re.sub(r"\s+", "", f.read())
+        ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+        targets = collections.Counter()
+        for v in ents.values():
+            if re.match(r"\w*UUID_ATTRIBUTE\(", v):
+                targets.update(re.findall(r"#(\d+)", v))
+        self.assertEqual(sum(targets.values()), len(read))
+        self.assertEqual([t for t, n in targets.items() if n > 1], [])
+        self.assertEqual(kept(again), read)
 
     def test_a_products_attributes_and_validation(self):
         """A product's user defined attributes (CTC-03's 'CAGE Code', CTC-05's

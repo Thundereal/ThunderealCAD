@@ -683,6 +683,27 @@ private:
     }
 
     /// A letter as one part's: two parts of a file may each have a datum A
+    /// The UUID a label was read with (XCAFDoc_DimTolTool::SetUUID) kept on
+    /// \a obj: its type and identifier, written again (STEP AP242 ed4
+    /// uuid_attribute, NIST STC-09's)
+    static void keepUUID(App::DocumentObject* obj, const TDF_Label& l,
+                         const char* name = "StepUUID")
+    {
+        TCollection_AsciiString type, uuid;
+        if (!obj || !XCAFDoc_DimTolTool::GetUUID(l, type, uuid)) {
+            return;
+        }
+        auto prop = freecad_cast<App::PropertyStringList*>(obj->getPropertyByName(name));
+        if (!prop) {
+            prop = freecad_cast<App::PropertyStringList*>(obj->addDynamicProperty(
+                "App::PropertyStringList", name, "STEP",
+                "The UUID the STEP file identifies it by: its attribute's type, the UUID"));
+        }
+        if (prop) {
+            prop->setValues(std::vector<std::string>{type.ToCString(), uuid.ToCString()});
+        }
+    }
+
     /// The holes a file defines (AP242 ed3 hole features: NIST STC-09's 8
     /// basic_round_hole, of 25 occurrences): each occurrence a hole of the
     /// part's set, on the faces it is of, with its definition, to be written
@@ -742,6 +763,8 @@ private:
                 // In the set's coordinates, as a callout's plane is
                 hole->Position.setValue(f.object->Placement.getValue() * placementOf(position));
                 hole->Feature.setValue(feat);
+                keepUUID(hole, o);
+                keepUUID(hole, d, "StepDefinitionUUID");
                 ++_report.holes;
             }
         }
@@ -759,6 +782,9 @@ private:
             }
             if (c && XCAFDoc_DimTolTool::IsPresentationCurves(l)) {
                 c->ImportedAsCurves.setValue(true);
+            }
+            if (c && !c->getPropertyByName("StepUUID")) {
+                keepUUID(c, l);
             }
         }
     }
@@ -798,6 +824,10 @@ private:
     {
         NCollection_Sequence<TDF_Label> labels;
         _shapes->GetShapes(labels);
+        // A product's UUID, on its object
+        for (auto& l : labels) {
+            keepUUID(containerOf(l), l);
+        }
         for (auto& l : labels) {
             if (!l.IsAttribute(XCAFDoc::ProductRepresentationsGUID())) {
                 continue;

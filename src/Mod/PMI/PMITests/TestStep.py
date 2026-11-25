@@ -387,6 +387,7 @@ class TestNistSet(Base):
                 self.assertWrittenClean(os.path.basename(path))
                 self.assertSameGraphics(path, self.written)
                 self.assertPartsStyled(path, self.written)
+                self.assertBodyColoured(path, self.written)
                 self.assertSameAssembly(path, self.written)
                 self.assertSameGraphicForms(path, self.written)
                 # A product's semantic text written as a note's, not as an attribute
@@ -473,6 +474,50 @@ class TestNistSet(Base):
         self.assertEqual(sorted((a - b).items()), [])
         self.assertEqual(b_several, 0)
         self.assertGreaterEqual(b_sup, min(a_sup, 1) if a_sup else 0)
+
+    def assertBodyColoured(self, original, written):
+        """A solid written in the colour the file gives it, and no more of its
+        faces styled than the file styles: a part read with a colour per face
+        had kept the default grey as its own, and every face then differed
+        from it (STC-09: 163 face colours written where the file has 5)"""
+
+        def colours(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+
+            def fill(ref):
+                seen, todo = set(), [ref]
+                while todo:
+                    k = todo.pop()
+                    v = ents.get(k, "")
+                    if k in seen or v.startswith("CURVE_STYLE("):
+                        continue
+                    seen.add(k)
+                    if v.startswith("FILL_AREA_STYLE_COLOUR("):
+                        c = ents[re.findall(r"#(\d+)", v)[-1]]
+                        rgb = re.findall(r"[-0-9.E+]+(?=[,)])", c.split(",", 1)[-1])
+                        # In steps of 1/255: what a colour of 8 bits a channel can say
+                        return tuple(round(float(x) * 255) for x in rgb) if rgb else c
+                    todo += re.findall(r"#(\d+)", v)
+
+            solids, faces = [], 0
+            for v in ents.values():
+                if not re.match(r"(OVER_RIDING_)?STYLED_ITEM\(", v):
+                    continue
+                refs = re.findall(r"#(\d+)", v)
+                item = refs[-2] if v.startswith("OVER") else refs[-1]
+                kind = ents.get(item, "").split("(")[0]
+                if kind == "MANIFOLD_SOLID_BREP":
+                    solids.append(fill(refs[0]))
+                elif kind == "ADVANCED_FACE":
+                    faces += 1
+            return sorted(solids, key=str), faces
+
+        (a, a_faces), (b, b_faces) = colours(original), colours(written)
+        if a:  # FTC-09 styles each face and not the solid
+            self.assertEqual(b, a)
+        self.assertLessEqual(b_faces, a_faces)
 
     def assertSameGraphics(self, original, written):
         """The graphics written are the file's, kind and name, each as many

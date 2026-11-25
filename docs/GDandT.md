@@ -2019,6 +2019,15 @@ compares; it took our curves for none.
   fields per document: context, document, role, the equivalent product), the import on the
   object (`StepDocuments`), the writer writes them again: entity for entity NIST's in the
   five files (`test_cited_documents_as_the_file_has_them`).
+  A part coloured face by face: the import gave it its faces' colours and kept the default
+  grey as its own, which no face has, so every face differed from it and was written as a
+  colour of its own (STC-09: 163 where NIST has a body colour and 5). Its own colour is now
+  the one most of its area has, as for materials -- and the looks of a face given a colour
+  copied from the default look lose its material card: two looks naming one card compare
+  equal whatever their colours, which had made the 163 one. The other files' face styles
+  NIST writes and we do not are each face of a solid styled as the solid is, or a face of a
+  surface model as its model is (`assertBodyColoured`). Not done: the five surfaces of
+  STC-09 are written in the body's colour, their face each in its own (drawn the same).
 
 ## 11. Decisions (made 2026-11-19)
 

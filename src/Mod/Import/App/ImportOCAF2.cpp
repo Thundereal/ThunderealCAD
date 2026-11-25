@@ -2853,8 +2853,23 @@ void ImportOCAF2::applyFaceColors(Part::Feature* part, const std::vector<App::Co
     }
     else {
         // Each face what it says, held by its number: an import's faces
-        // have no names
-        part->ShapeAppearance.setDiffuseColors(colors);
+        // have no names -- and the object the colour most of its area has.
+        // The list alone left it the default grey, which no face has, and
+        // every face then differed from the object: NIST STC-09 went out
+        // with 163 face colours where it came in with a body colour and 5.
+        App::MaterialAppearance look =
+            part->ElementAppearance.getBase(App::PropertyElementAppearance::Face);
+        // A colour of the file's, not the material card's: looks naming one
+        // card compare equal whatever their colours, and would be one look
+        look.uuid.clear();
+        std::vector<App::MaterialAppearance> mats;
+        mats.reserve(colors.size());
+        for (const App::Color& color : colors) {
+            look.diffuseColor = color;
+            look.transparency = color.transparency();
+            mats.push_back(look);
+        }
+        ImportOCAF2::applyFaceMaterials(part, mats, false);
     }
 }
 

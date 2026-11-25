@@ -642,16 +642,43 @@ void ExportOCAF2::setInvisible(TDF_Label label)
     aColorTool->SetVisibility(label, Standard_False);
 }
 
+namespace
+{
+bool markedBy(const App::DocumentObject* obj, const char* name)
+{
+    auto prop = obj ? freecad_cast<App::PropertyBool*>(obj->getPropertyByName(name)) : nullptr;
+    return prop && prop->getValue();
+}
+}  // namespace
+
 void ExportOCAF2::exportObjects(std::vector<App::DocumentObject*>& objs, const char* name)
 {
     if (objs.empty()) {
         return;
     }
+    // A file's several free shapes, imported in one container: free shapes again
+    std::vector<App::DocumentObject*> roots;
+    if (objs.size() == 1 && markedBy(objs.front(), FreeShapesProperty)) {
+        for (auto& sub : objs.front()->getSubObjects()) {
+            auto child = objs.front()->getSubObject(sub.c_str());
+            if (child && !isSupplemental(child)
+                && (options.exportHidden || child->Visibility.getValue())) {
+                roots.push_back(child);
+            }
+        }
+    }
     myObjects.clear();
     myNames.clear();
     mySetups.clear();
     bool exported = false;
-    if (objs.size() == 1) {
+    if (!roots.empty()) {
+        for (auto obj : roots) {
+            if (!exportObject(obj, nullptr, TDF_Label()).IsNull()) {
+                exported = true;
+            }
+        }
+    }
+    else if (objs.size() == 1) {
         exported = !exportObject(objs.front(), nullptr, TDF_Label()).IsNull();
     }
     else {
@@ -1045,15 +1072,6 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
     }
     return label;
 }
-
-namespace
-{
-bool markedBy(const App::DocumentObject* obj, const char* name)
-{
-    auto prop = obj ? freecad_cast<App::PropertyBool*>(obj->getPropertyByName(name)) : nullptr;
-    return prop && prop->getValue();
-}
-}  // namespace
 
 bool ExportOCAF2::isSupplemental(const App::DocumentObject* obj)
 {

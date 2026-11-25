@@ -387,6 +387,19 @@ class TestNistSet(Base):
                 self.assertWrittenClean(os.path.basename(path))
                 self.assertSameGraphics(path, self.written)
                 self.assertPartsStyled(path, self.written)
+                self.assertSameAssembly(path, self.written)
+
+    def assertSameAssembly(self, original, written):
+        """An assembly where the file has one and none where it has none: a
+        product of several shapes is one product (CTC-02 nested its surfaces),
+        several free products are free again (FTC-09's four; SFA's 'contains
+        Assemblies', dwin p19)"""
+
+        def usages(path):
+            with open(path, errors="replace") as f:
+                return len(re.findall(r"NEXT_ASSEMBLY_USAGE_OCCURRENCE\s*\(", f.read()))
+
+        self.assertEqual(usages(written), usages(original))
 
     def assertPartsStyled(self, original, written):
         """Each solid and surface model the file gives a colour is written

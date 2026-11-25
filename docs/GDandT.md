@@ -1930,8 +1930,17 @@ compares; it took our curves for none.
   (`test_what_the_file_hides_is_hidden`). SFA ignores invisibility (dwin): its counts are as
   they were, its transparency note stays. A container in a one-shape App::Part (CTC-02's group
   of its two surfaces) is one shape with it: CTC-02 is one product now, as NIST's. Open: part
-  of one object hidden (STC-09's shells, in one compound with others) is shown; FTC-09's four
-  products are written as an assembly (NIST relates them by no NAUO).
+  of one object hidden (STC-09's shells, in one compound with others) is shown.
+- **SFA p19 (dwin).** Every SFA message equal to NIST's in all 17 files; invisibility moves
+  no count. The one difference left, FTC-09's 'contains Assemblies': NIST's file is four free
+  products, no assembly; read, they were an App::Part, written an assembly of them. The
+  container an import makes of several free shapes is marked `ExportAsFreeShapes` and written
+  as those free shapes again (`ExportOCAF2::FreeShapesProperty`); the round trip checks the
+  file's assembly usages are as many (`assertSameAssembly`). Not done, SFA showing none of it:
+  NIST hides more than PMI graphics and parts' styles (whole layers, FTC-09's 44 callouts,
+  STC-06's placeholders); a part with per-face colours keeps FreeCAD's default colour for
+  itself (STC-09's brep and shells); the products of documents a file cites (FTC-10's
+  'ASME Y14.41') are not read.
 
 ## 11. Decisions (made 2026-11-19)
 

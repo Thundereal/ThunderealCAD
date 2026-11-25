@@ -172,6 +172,10 @@ public:
     static bool isSupplemental(const App::DocumentObject* obj);
     /// Whether \a obj is written as one shape (OneShapeProperty)
     static bool isOneShape(const App::DocumentObject* obj);
+    /// The container an import made of a file's several free shapes (NIST
+    /// FTC-09's four products, of no assembly): written as they were, each a
+    /// free shape, not an assembly of them -- a PropertyBool of this name, true
+    static constexpr const char* FreeShapesProperty = "ExportAsFreeShapes";
     //@}
 
 private:

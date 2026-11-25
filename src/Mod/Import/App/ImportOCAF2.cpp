@@ -84,6 +84,7 @@
 #include <Mod/Part/App/Interface.h>
 #include <Mod/Part/App/OCAF/ImportExportSettings.h>
 
+#include "ExportOCAF2.h"
 #include "ImportOCAF2.h"
 
 
@@ -1197,6 +1198,7 @@ App::DocumentObject* ImportOCAF2::loadShapes()
         Info info;
         if (createGroup(pDocument, info, TopoDS_Shape(), objs, vis)) {
             ret = info.obj;
+            markFreeShapes(ret);
         }
     }
     if (ret) {
@@ -2190,9 +2192,28 @@ App::DocumentObject* ImportOCAF2::finishOps()
     if (ret) {
         ret->recomputeFeature(true);
     }
+    if (ret && myProgRoot >= 0 && myProgRoot < int(myProgOps.size())
+        && myProgOps[myProgRoot].type == ProgOp::Group) {
+        markFreeShapes(ret);
+    }
     hideInvisible(true);
     runPostImport(true);
     return ret;
+}
+
+void ImportOCAF2::markFreeShapes(App::DocumentObject* group)
+{
+    if (!group || !group->hasExtension(App::GeoFeatureGroupExtension::getExtensionClassTypeId())) {
+        return;
+    }
+    auto prop = freecad_cast<App::PropertyBool*>(group->addDynamicProperty(
+        "App::PropertyBool",
+        ExportOCAF2::FreeShapesProperty,
+        "Export",
+        "Written to STEP as the file's several free shapes it holds, not as an assembly"));
+    if (prop) {
+        prop->setValue(true);
+    }
 }
 
 void ImportOCAF2::hideInvisible(bool progressive)

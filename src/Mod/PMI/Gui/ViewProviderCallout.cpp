@@ -583,7 +583,7 @@ void ViewProviderCallout::refresh()
         _drawing.setColor(c.r, c.g, c.b);
     }
     _drawing.setLineWidth(float(LineWidth.getValue()));
-    const TopoDS_Shape& shape = callout->Presentation.getShape().getShape();
+    const TopoDS_Shape shape = callout->Presentation.getShape().getShape();
     const std::vector<Base::Vector3d>& at = callout->UprightAt.getValues();
     // What stays, then each part that turns; a shape not so made (a file's
     // graphic) is drawn as it is

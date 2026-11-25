@@ -52,7 +52,9 @@
 # include <XCAFDoc_VisMaterialTool.hxx>
 # include <Image_Texture.hxx>
 #endif
+#include <NCollection_IndexedMap.hxx>
 #include <NCollection_Sequence.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
 #include <XCAFDoc_DimTolTool.hxx>
 
 #include <algorithm>
@@ -452,6 +454,43 @@ void ImportOCAF2::scanElementColors(TDF_Label label,
 {
     Part::TopoShape &tshape = colors.tshape;
     TDF_LabelSequence seq;
+    if (!label.IsNull() && aShapeTool->GetSubShapes(label, seq)) {
+        // Hidden whole by its own parts' invisibility (STEP: a style each of them
+        // is shown with, listed by an INVISIBILITY -- NIST STC-08's and CTC-02's
+        // shells): every face of it, or every edge of one with none
+        TopoDS_Shape base = tshape.getShape().Located(TopLoc_Location());
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces, edges, hidden;
+        TopExp::MapShapes(base, TopAbs_FACE, faces);
+        TopExp::MapShapes(base, TopAbs_EDGE, edges);
+        bool whole = false;
+        for (int i = 1; i <= seq.Length(); ++i) {
+            if (aColorTool->IsVisible(seq.Value(i))) {
+                continue;
+            }
+            TopoDS_Shape sub = aShapeTool->GetShape(seq.Value(i));
+            if (sub.IsNull()) {
+                continue;
+            }
+            whole = whole || sub.TShape() == base.TShape();
+            for (auto type : {TopAbs_FACE, TopAbs_EDGE}) {
+                for (TopExp_Explorer xp(sub, type); xp.More(); xp.Next()) {
+                    hidden.Add(xp.Current());
+                }
+            }
+        }
+        using Map = NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>;
+        auto covered = [&](const Map& m) {
+            for (int i = 1; i <= m.Extent(); ++i) {
+                if (!hidden.Contains(m(i))) {
+                    return false;
+                }
+            }
+            return m.Extent() > 0;
+        };
+        if (whole || (faces.Extent() ? covered(faces) : covered(edges))) {
+            myHiddenShapes.insert(base);
+        }
+    }
     if(!label.IsNull() && aShapeTool->GetSubShapes(label,seq)) {
         colors.faceColors.assign(tshape.countSubShapes(TopAbs_FACE),info.faceColor);
         colors.edgeColors.assign(tshape.countSubShapes(TopAbs_EDGE),info.edgeColor);
@@ -1185,6 +1224,7 @@ App::DocumentObject* ImportOCAF2::loadShapes()
     sequencer = nullptr;
     // Merged, the objects the passes would refer to are gone
     if (!options.merge) {
+        hideInvisible(false);
         runPostImport(false);
     }
     for (auto doc : myNewDocuments)
@@ -2150,8 +2190,27 @@ App::DocumentObject* ImportOCAF2::finishOps()
     if (ret) {
         ret->recomputeFeature(true);
     }
+    hideInvisible(true);
     runPostImport(true);
     return ret;
+}
+
+void ImportOCAF2::hideInvisible(bool progressive)
+{
+    for (auto& base : myHiddenShapes) {
+        App::DocumentObject* obj = nullptr;
+        if (progressive) {
+            auto it = myShapeNodes.find(base);
+            obj = it == myShapeNodes.end() ? nullptr : progObject(it->second);
+        }
+        else {
+            auto it = myShapes.find(base);
+            obj = it == myShapes.end() ? nullptr : it->second.obj;
+        }
+        if (obj && obj->isDerivedFrom<Part::Feature>()) {
+            obj->Visibility.setValue(false);
+        }
+    }
 }
 
 namespace

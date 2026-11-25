@@ -171,6 +171,7 @@ public:
         notes();
         views();
         placeholders();
+        hidden();
         oneShapes();
         supplemental();
         return _report;
@@ -680,6 +681,19 @@ private:
     }
 
     /// A letter as one part's: two parts of a file may each have a datum A
+    /// A PMI whose graphic the file does not show (an INVISIBILITY lists it:
+    /// NIST STC-08's 29, STC-09's 75) is hidden
+    void hidden()
+    {
+        for (auto& [e, c] : _byLabel) {
+            TDF_Label l;
+            TDF_Tool::Label(_info.hDoc->GetData(), e.c_str(), l);
+            if (c && XCAFDoc_DimTolTool::IsPresentationHidden(l)) {
+                c->Visibility.setValue(false);
+            }
+        }
+    }
+
     /// The object a part's label was made into: its own; or -- an assembly
     /// label, a product's several representations -- the container its
     /// components' objects are in
@@ -725,14 +739,35 @@ private:
                     App::GeoFeatureGroupExtension::getExtensionClassTypeId())) {
                 continue;
             }
-            auto prop = freecad_cast<App::PropertyBool*>(
+            mark(part);
+        }
+    }
+
+    /// \a part and the containers in it -- a group of the product's
+    /// representations, not a product (NIST CTC-02's two surfaces) -- one shape
+    void mark(App::DocumentObject* part)
+    {
+        auto ext = part->getExtensionByType<App::GeoFeatureGroupExtension>(true);
+        if (!ext) {
+            return;
+        }
+        auto prop = freecad_cast<App::PropertyBool*>(
+            part->getPropertyByName(Import::ExportOCAF2::OneShapeProperty));
+        if (!prop) {
+            prop = freecad_cast<App::PropertyBool*>(
                 part->addDynamicProperty("App::PropertyBool",
                                          Import::ExportOCAF2::OneShapeProperty,
                                          "Export",
                                          "Written to STEP as one product, each child a shape "
                                          "representation of it, not as an assembly of them"));
-            if (prop) {
-                prop->setValue(true);
+        }
+        if (!prop || prop->getValue()) {
+            return;
+        }
+        prop->setValue(true);
+        for (auto o : ext->Group.getValues()) {
+            if (o->hasExtension(App::GeoFeatureGroupExtension::getExtensionClassTypeId())) {
+                mark(o);
             }
         }
     }

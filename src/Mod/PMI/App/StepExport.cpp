@@ -299,6 +299,12 @@ public:
         for (auto& [v, ex] : _views) {
             guard(v, [&, v = v, ex = ex]() { view(v, *ex); });
         }
+        // A PMI hidden is written not shown (STEP: its graphic listed by an invisibility)
+        for (auto& [obj, l] : _labels) {
+            if (obj && !obj->Visibility.getValue()) {
+                XCAFDoc_DimTolTool::SetPresentationHidden(l, true);
+            }
+        }
         return _report;
     }
 

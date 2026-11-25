@@ -344,6 +344,10 @@ private:
     App::DocumentObject* progObject(int node) const;
     /// Run the passes added by addPostImport()
     void runPostImport(bool progressive);
+    /// Hide the objects of the shapes hidden by their parts' invisibility
+    void hideInvisible(bool progressive);
+    /// Base shapes every face of which (every edge, of one with none) is invisible
+    std::unordered_set<TopoDS_Shape, ShapeHasher> myHiddenShapes;
 
     App::DocumentObject* loadShape(App::Document* doc,
                                    TDF_Label label,

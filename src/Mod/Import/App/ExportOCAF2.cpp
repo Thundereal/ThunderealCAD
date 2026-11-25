@@ -792,26 +792,39 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
     // A container written as one shape: the compound of its children's,
     // each in its coordinates, as a shape's of no container is
     std::vector<App::DocumentObject*> within;
+    std::vector<bool> withinShown;
     if (!subs.empty() && isOneShape(obj)) {
         std::vector<TopoDS_Shape> shapes;
+        // Its children, and those of a container in it written as one shape too (a group
+        // of the product's representations: NIST CTC-02's two surfaces), each in its
+        // coordinates; hidden in one, hidden
+        std::function<void(const std::string&, App::DocumentObject*, bool)> gather =
+            [&](const std::string& path, App::DocumentObject* sobj, bool shown) {
+                if (!sobj || isSupplemental(sobj)) {
+                    return;
+                }
+                shown = shown && sobj->Visibility.getValue();
+                if (!options.exportHidden && !shown) {
+                    return;
+                }
+                if (isOneShape(sobj)) {
+                    for (auto& s : sobj->getSubObjects()) {
+                        gather(path + s, sobj->getSubObject(s.c_str()), shown);
+                    }
+                    return;
+                }
+                auto child =
+                    Part::Feature::getTopoShape(obj, path.c_str(), false, nullptr, nullptr, true,
+                                                false);
+                if (child.isNull()) {
+                    return;
+                }
+                shapes.push_back(child.getShape());
+                within.push_back(sobj);
+                withinShown.push_back(shown);
+            };
         for (auto& subobj : subs) {
-            auto sobj = obj->getSubObject(subobj.c_str());
-            if (!sobj || isSupplemental(sobj)
-                || (!options.exportHidden && !sobj->Visibility.getValue())) {
-                continue;
-            }
-            auto child = Part::Feature::getTopoShape(obj,
-                                                     subobj.c_str(),
-                                                     false,
-                                                     nullptr,
-                                                     nullptr,
-                                                     true,
-                                                     false);
-            if (child.isNull()) {
-                continue;
-            }
-            shapes.push_back(child.getShape());
-            within.push_back(sobj);
+            gather(subobj, obj->getSubObject(subobj.c_str()), true);
         }
         if (!shapes.empty()) {
             TopoDS_Compound comp;
@@ -907,6 +920,11 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
                 myObjectColorsOnly = true;
                 setupObject(sub, within[i], Part::TopoShape(it.Value()), prefix, nullptr, true);
                 myObjectColorsOnly = false;
+                // Hidden, a part of the shape written hidden (STEP: its style listed by an
+                // invisibility; NIST STC-08's surface beside its solid)
+                if (!withinShown[i]) {
+                    aColorTool->SetVisibility(sub, Standard_False);
+                }
                 // Its faces' and edges' own colours: sub-shapes of the shape, where the
                 // writer reads them -- a sub-shape of the child's sub-shape is none XCAF
                 // takes (NIST STC-09's 163 face colours were lost so)

@@ -1917,10 +1917,21 @@ compares; it took our curves for none.
   SFA no colour: it colours a trimmed curve by its basis curve and any other member by itself,
   so those are what is styled now. STC-09's 163 face colours were lost with one shape: a
   child's elements' colours are given to the shape's own sub-shapes (XCAF takes none of a
-  sub-shape's). Open: a style INVISIBILITY hides (STC-08's and CTC-02's shell face, black and
-  half transparent) is read as the face's colour, so the shell is written black -- read right,
-  its colour is NIST's yellow, and the transparency SFA notes, only in that hidden style, is
-  gone until invisibility is written.
+  sub-shape's).
+- **What a file hides (user decision 2026-11-25: keep it, hidden).** STEP's `invisibility`
+  lists what is not shown: STC-08 its surface beside the solid (both its styles, the shell's
+  yellow and its face's black half transparent), its wireframe and 29 PMI graphics; CTC-02 its
+  two surfaces and 32 graphics; STC-09 40 graphics. Read, every one was shown -- the surface in
+  its hidden face's black. Now an object every face of which (every edge, of one with none) is
+  hidden is hidden (`ImportOCAF2::hideInvisible`), and a PMI whose graphic is listed is hidden
+  (`XCAFDoc_DimTolTool::SetPresentationHidden`, `XCAFDoc::GDTHiddenGUID`). Written, a hidden
+  part of a one-shape App::Part has its styles listed by an invisibility (OCCT's writer listed
+  only a label hidden whole), and a hidden PMI its graphic's occurrences: NIST's counts
+  (`test_what_the_file_hides_is_hidden`). SFA ignores invisibility (dwin): its counts are as
+  they were, its transparency note stays. A container in a one-shape App::Part (CTC-02's group
+  of its two surfaces) is one shape with it: CTC-02 is one product now, as NIST's. Open: part
+  of one object hidden (STC-09's shells, in one compound with others) is shown; FTC-09's four
+  products are written as an assembly (NIST relates them by no NAUO).
 
 ## 11. Decisions (made 2026-11-19)
 

@@ -147,10 +147,12 @@ class Base(unittest.TestCase):
         parts = []
         for s in objects(doc, "AnnotationSet"):
             part = s.Part
-            if part:
+            # Its outermost App::Part: a user exports the whole (CTC-02's surfaces are a
+            # group in it)
+            group = part.getParentGeoFeatureGroup() if part else None
+            while group and group.TypeId == "App::Part":
+                part = group
                 group = part.getParentGeoFeatureGroup()
-                if group and group.TypeId == "App::Part":
-                    part = group
             if part and part not in parts:
                 parts.append(part)
         # Gone when the test is: 11 MB a NIST file, 3.7 GB of /tmp in two days
@@ -1016,6 +1018,53 @@ class TestNistSet(Base):
                          + [("Position", 0.8)] * 3)
         self.assertEqual(supplemental(self.write_and_read(doc)), supplemental(doc))
 
+
+    def test_what_the_file_hides_is_hidden(self):
+        """What a file does not show -- PMI graphics an INVISIBILITY lists
+        (STC-08's 29, STC-09's 75), a surface beside the solid whose styles
+        it lists (STC-08's, CTC-02's) -- is read hidden and written hidden
+        again, each graphic as NIST hides it"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def hidden(path):
+            """The annotation occurrences an invisibility lists, and how many
+            styles of surface models"""
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+            typ = lambda i: ents.get(i, "").split("(")[0]
+            graphics, surfaces = 0, 0
+            for v in ents.values():
+                if not v.startswith("INVISIBILITY("):
+                    continue
+                for r in re.findall(r"#(\d+)", v):
+                    if "ANNOTATION" in typ(r) and "OCCURRENCE" in typ(r):
+                        graphics += 1
+                    elif "STYLED_ITEM" in typ(r):
+                        refs = re.findall(r"#(\d+)", ents[r])
+                        surfaces += typ(refs[-1]) == "SHELL_BASED_SURFACE_MODEL"
+            return graphics, surfaces
+
+        for name in ("nist_stc_08_asme1_ap242-e3.stp", "nist_stc_09_asme1_ap242-e4.stp",
+                     "nist_ctc_02_asme1_ap242-e2.stp"):
+            path = edition(os.path.join(nist, name))
+            with self.subTest(os.path.basename(path)):
+                graphics, surfaces = hidden(path)
+                doc = self.read(path)
+                if graphics:
+                    self.assertTrue([o for o in doc.Objects if o.isDerivedFrom("PMI::Callout")
+                                     and not o.Visibility])
+                shells = [o for o in doc.Objects if o.TypeId == "Part::Feature"
+                          and not o.Shape.Solids and o.Shape.Faces and not supplemental_group(o)]
+                # A surface model of its own: hidden whole (STC-09's are one compound
+                # with others, of which an object hides no part)
+                if surfaces and shells:
+                    self.assertFalse(shells[0].Visibility)
+                self.write_and_read(doc)
+                got_graphics, got_surfaces = hidden(self.written)
+                self.assertEqual(got_graphics, graphics)
+                if shells:
+                    self.assertEqual(bool(got_surfaces), bool(surfaces))
 
     def test_supplemental_geometry_as_the_file_has_it(self):
         """A part's supplemental geometry -- its constructive geometry

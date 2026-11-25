@@ -97,6 +97,7 @@
 #include "Annotation.h"
 #include "Application.h"
 #include "ServiceWorkers.h"
+#include "WorkerPool.h"
 #include "ShuttingDown.h"
 #include "BrandText.h"
 #include "CacheSweep.h"
@@ -2211,6 +2212,8 @@ void Application::destruct()
     // The service helpers ended before what they hold of this process goes
     // (in the GUI they were at aboutToQuit)
     ServiceWorkers::stop();
+    // And the worker standing for a pool (docs/WorkerProcess.md sec 69)
+    WorkerPool::stopStandby();
     constexpr int mostSeconds = 120;
     QThreadPool* pool = QThreadPool::globalInstance();
     if (pool && !pool->waitForDone(mostSeconds * 1000)) {

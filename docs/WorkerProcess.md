@@ -4366,3 +4366,90 @@ Beside it, from the same report, two tests made to read what they mean:
 (`optimalBoundingBox()`; its BoundBox is loose since a13782b00f), and
 `portrait-pick-vs-draw` waits for the camera to stand still after
 `viewFront()`, which animates (5 unchanged reads), before its pick sweep.
+
+## 69. A worker standing for the next one a pool needs (2026-11-25)
+
+Sec 67's boot helps only a worker that waits before its first job. The
+one that does not is the common one: the GUI's Recompute goes to a pool
+(`Workers/RecomputeCommand`), which starts its first worker for that job,
+and a worker quits after `Workers/IdleSeconds` (30) without work, so the
+next recompute after a pause starts one again. Measured on the mini with a
+runtime installed (`fcad-probes/worker/coldstart.py`, a pool stopped and
+started, one `test.guest` job at once): 1.68 s from submit to result, of
+which the guest's boot is 1.50 s and the start and copy open 0.18 s. The
+boot cannot overlap the open or the job (sec 67), and there is little of
+them to overlap with.
+
+So one worker is started ahead of need, for the whole process
+(`WorkerPool.cpp`, `Standby`): no document's yet, its guest booting while
+it waits on a socket of its own. A pool that needs a worker
+(`Private::spawn()`) takes it (`adopt()`): the process and its socket
+become one of the pool's, and the setup it is sent opens the copy as for
+any other. Once a pool's worker says it is ready, another is started to
+stand for the next -- after the start rather than beside it, which would
+share the cores with the boot the job may be waiting for.
+
+What a taken worker has that a started one would not:
+
+- **Settings from earlier.** It was started with its own copy of them. The
+  setup names the pool's copy (`settings`), and the worker brings its own
+  to it one value at a time (`syncParameters`), so an observer is told of
+  what changed and nothing else. What a worker reads as it starts cannot be
+  brought along that way -- `Workers/BootSandbox`, the sandbox's settings
+  under `Preferences/Expression` -- so a change under either retires the one
+  standing, and it is not taken.
+- **Its log elsewhere,** in the standby's own directory
+  (`Workers-<pid>-standby`), not the pool's. A crash's report is read from
+  where it is (`Proc::log`).
+
+`Workers/Standby` (on) turns it off. The one standing ends when the last
+pool goes (its document closed) and at exit.
+
+Measured as above, a pool stopped and started each round:
+
+| | submit to result | guest waited |
+|---|---|---|
+| no standby (round 0, or `Standby` off) | 1.68-1.86 s | 1.50-1.66 s |
+| standby up for 5 s | 0.062-0.063 s | 0.000 s |
+| standby started 0.2 s before (rounds back to back) | 1.64 s | 1.61 s |
+
+The last row is the limit: a worker taken as soon as the one before it was
+ready has just begun its boot, and the job waits for it as before. One that
+stood for 1.8 s (the round before took that long) waited 0.15 s.
+
+In the GUI, where the event loop takes the standby's connection
+(`fcad-probes/worker/standby_gui.py`: a document with an expression,
+Std_Refresh, the pool's workers ended, Std_Refresh again): with a runtime
+1.86 s for the first recompute and 0.155 s for the one on the worker taken
+standing; without one 0.34 s and 0.16 s -- the start of the process and its
+imports, which the standby saves too.
+
+The cost is the process standing: 357 MB resident with the guest up, 67 MB
+without a runtime (a pool's own worker is 331 MB and 72 MB), for as long as
+a document has a pool -- where the workers themselves are gone after 30 s.
+
+Two things the tests found on the way:
+
+- **A text setting's value is not where `GetAttributeMap()` looks.** It
+  reads the `Value` attribute, which bools, numbers and unsigned have; a
+  text's value is its element's text. The first sync took every text
+  setting of a taken worker to an empty string. Texts go through
+  `GetASCIIMap()`.
+- **A worker could be ended twice, the second time counted as a failure.**
+  `finished()` waits on the socket for what the worker said last, and that
+  wait delivers the socket's `disconnected`, whose handler ends the worker
+  (`kill()`, then `finished()` again). The inner call did it all -- the job
+  tried again, the next worker taken -- and the outer one went on with the
+  job cleared, so counted a worker gone with no job: three of those and the
+  pool stops ("the workers exited"). Older than the standby; taking one
+  only moved the timing onto it (the crash tests of sec 37, after the other
+  classes of `TestWorkerPool`). `Proc::ending` keeps the inner `finished()`
+  and `kill()` out -- `kill()` would also have marked the worker killed by
+  the pool, and its crash report gone unread.
+
+Tests (`TestWorkerPool`): `testAStandingWorkerIsTakenForTheNextJob` (the
+job's worker is the one standing; with a runtime its guest is up, under
+0.3 s), `testATakenWorkerHasThePoolsSettings` (a setting made since is
+there, one removed since is not),
+`testAStandingWorkerIsRetiredByWhatAWorkerReadsAsItStarts`,
+`testNoWorkerStandsWithStandbyOff`.

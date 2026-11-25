@@ -135,6 +135,14 @@ def _guest(doc, inputs, out):
             "Boots": App.ExpressionSandbox.bootCount()}
 
 
+def _param(doc, inputs, out):
+    """A parameter as the worker has it: None for one it lacks"""
+    group = App.ParamGet(inputs["Group"])
+    name = inputs["Name"]
+    return {"Pid": os.getpid(),
+            "Value": group.GetString(name) if name in group.GetStrings() else None}
+
+
 def _table(doc, inputs, out):
     """The strings of the worker's table spelled inputs["Spelled"], by that
     spelling: None for one it lacks"""
@@ -276,6 +284,7 @@ for _kind, _handler in (
     ("test.indexed", _indexed),
     ("test.table", _table),
     ("test.guest", _guest),
+    ("test.param", _param),
 ):
     worker.register(_kind, _handler)
 
@@ -337,6 +346,101 @@ class TestWorkerPool(unittest.TestCase):
             waited[boot] = out["Waited"]
         self.assertLess(waited[True], 0.3, waited)
         self.assertGreater(waited[False], 0.3, waited)
+
+    def standing(self, guest=False):
+        """The standing worker (docs/WorkerProcess.md sec 69), once it said
+        who it is -- and, with `guest`, has had the seconds its guest takes
+        to boot"""
+        self.assertTrue(self.waitFor(lambda: self.pool.standby()["Connected"], 30),
+                        self.pool.standby())
+        if guest:
+            self.assertFalse(self.waitFor(lambda: False, 4))
+        return self.pool.standby()
+
+    def newWorker(self):
+        """The pool's workers ended: the next job meets a new one"""
+        self.pool.stop("a new worker for the next job")
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+
+    def testAStandingWorkerIsTakenForTheNextJob(self):
+        """Once a pool's worker is up another is started, standing for the
+        next worker any pool needs: that one is taken, and has its guest up
+        for a job that comes at once (docs/WorkerProcess.md sec 69)"""
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        guest = App.ExpressionSandbox.available()
+        standing = self.standing(guest)
+        self.assertGreater(standing["Pid"], 0)
+        self.assertNotIn(standing["Pid"], self.pool.info()["Pids"])
+        before = self.pool.info()["Adopted"]
+        self.newWorker()
+        jobs = [self.submit("test.echo"), self.submit("test.guest")]
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        echo, booted = (self.pool.result(job) for job in jobs)
+        self.assertEqual(echo["Status"], "Done", echo)
+        self.assertEqual(echo["Output"]["Pid"], standing["Pid"])
+        self.assertEqual(self.pool.info()["Adopted"], before + 1)
+        self.assertEqual(self.pool.standby()["HandedOver"], standing["HandedOver"] + 1)
+        if guest:
+            self.assertTrue(booted["Output"]["Up"], booted)
+            self.assertLess(booted["Output"]["Waited"], 0.3, booted)
+        # and another stands for the one after
+        self.assertNotEqual(self.standing()["Pid"], standing["Pid"])
+
+    def testATakenWorkerHasThePoolsSettings(self):
+        """Started before them, it has the settings the pool's copy was
+        taken with: one set since is there, one removed since is not"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/WorkerPoolTest")
+        self.addCleanup(App.ParamGet("User parameter:BaseApp/Preferences").RemGroup,
+                        "WorkerPoolTest")
+        group.SetString("Removed", "before")
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        standing = self.standing()
+        group.SetString("Set", "after")
+        group.RemString("Removed")
+        self.newWorker()
+        path = "User parameter:BaseApp/Preferences/WorkerPoolTest"
+        jobs = [self.submit("test.param", {"Group": path, "Name": n}) for n in ("Set", "Removed")]
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        set, removed = (self.pool.result(job)["Output"] for job in jobs)
+        self.assertEqual(set["Pid"], standing["Pid"])
+        self.assertEqual(set["Value"], "after")
+        self.assertIsNone(removed["Value"])
+
+    def testAStandingWorkerIsRetiredByWhatAWorkerReadsAsItStarts(self):
+        """Preferences/Workers changed after it started -- BootSandbox, read
+        as a worker starts -- it is not taken, and one is started anew"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        self.addCleanup(group.RemFloat, "StandbyTest")
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        standing = self.standing()
+        group.SetFloat("StandbyTest", 1.0)
+        self.newWorker()
+        job = self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertNotEqual(self.pool.result(job)["Output"]["Pid"], standing["Pid"])
+        self.assertEqual(self.pool.standby()["HandedOver"], standing["HandedOver"])
+        self.assertGreater(self.pool.standby()["Retired"], standing["Retired"])
+        self.assertNotEqual(self.standing()["Pid"], standing["Pid"])
+
+    def testNoWorkerStandsWithStandbyOff(self):
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("Standby", False)
+        self.addCleanup(group.RemBool, "Standby")
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertFalse(self.waitFor(lambda: self.pool.standby()["Pid"] > 0, 2))
+        before = self.pool.info()["Adopted"]
+        self.newWorker()
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertEqual(self.pool.info()["Adopted"], before)
 
     def testJobsComeBackOnce(self):
         self.assertTrue(self.pool.start(), self.pool.info()["Reason"])

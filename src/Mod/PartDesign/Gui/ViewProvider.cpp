@@ -690,7 +690,10 @@ void ViewProvider::cosmeticThreadFinishes(const PartDesign::Feature *last,
         double radius = -1.0;
         double semiAngle = 0.0;
         try {
-            BRepAdaptor_Surface adapt(TopoDS::Face(faces(i)));
+            // Unrestricted: the type and the axis are the surface's, and the
+            // face's UV bounds, which a restricted adaptor makes from every
+            // pcurve, are not needed for them
+            BRepAdaptor_Surface adapt(TopoDS::Face(faces(i)), false);
             switch (adapt.GetType()) {
             case GeomAbs_Cylinder:
                 axis = adapt.Cylinder().Axis();

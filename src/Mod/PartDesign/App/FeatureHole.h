@@ -25,6 +25,7 @@
 #define PARTDESIGN_Hole_H
 
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <vector>
 #include <App/PropertyUnits.h>
@@ -178,6 +179,11 @@ protected:
     static const App::PropertyAngle::Constraints floatAngle;
 
 private:
+    std::vector<CosmeticThreadBore> makeCosmeticThreads() const;
+    /// getCosmeticThreads()'s answer until a property of the hole changes
+    mutable std::mutex threadsLock;
+    mutable std::optional<std::vector<CosmeticThreadBore>> threadsMade;
+
     static const char* DepthTypeEnums[];
     static const char* ThreadDepthTypeEnums[];
     static const char* ThreadTypeEnums[];

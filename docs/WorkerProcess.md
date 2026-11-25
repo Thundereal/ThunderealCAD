@@ -4036,3 +4036,63 @@ are this. Making the solver history-free here would need the point fixed
 past the double root's square-root precision, which a tighter tolerance
 narrows (1e-16 residual: about 1e-8) but does not close; the sketch itself
 would be exact with c21 a tangency.
+
+## 63. A put-in makes each hole's cosmetic threads once (2026-11-25)
+
+The put-in (`Apply`) was 0.73 to 0.88 s of the main thread's 1.3 to 1.9 s
+in sec 53's GUI probe (`times_gui.py`, scanner, `hole_radius` by one
+worker). A `sample` of a warm run (`PROBE_SAMPLE="one worker 2"`, the tree
+by `fcad-probes/worker/sampletree.py`) put 578 samples under the put-in,
+316 of them in the views the new shapes update, and 125 of those in one
+place: `PartDesignGui::ViewProvider::refreshImpliedFinishes()`.
+
+Every PartDesign feature whose shape changes asks for the cosmetic threads
+that reach it (`threadsReaching()`): it walks its body up to itself and
+asks each hole before it, and each pattern's originals, for their bores --
+twice, once to know whether there are any and once to place them.
+`Hole::getCosmeticThreads()` made them afresh each time: the profile, its
+normal from the profile's face (`getProfileNormal()`, whose
+`BRepTools::UVBounds` was most of it), the start offset, the depth. A put-in
+of 165 shapes in a body of holes paid that for every hole times every
+feature after it.
+
+**The threads made once.** `Hole::getCosmeticThreads()` keeps what
+`makeCosmeticThreads()` made until a property of the hole changes
+(`onChanged`, `onDocumentRestored`); a put-in sets the hole's `Shape`, so
+its threads are made again once. A profile edited and not yet recomputed
+shows the threads of the hole as it was made, which is the hole shown.
+
+**The faces matched without their bounds.** What was left, 63 samples, was
+`cosmeticThreadFinishes()` matching the bores against the feature's faces:
+a `BRepAdaptor_Surface` of each face, restricted, which makes the face's UV
+bounds from every pcurve. Only its type and axis are used, and those are
+the surface's (`GeomAdaptor_Surface::load` takes the type from the
+surface's class; the bounds are only kept): it is unrestricted now.
+
+| warm run | Apply before | threads once | and unrestricted | blocked before | after |
+|---|---|---|---|---|---|
+| warm-up | 0.88 s | 0.75 s | 0.46 s | 1.87 s | 1.49 s |
+| one worker 1 | 0.88 s | 0.77 s | 0.47 s | 1.49 s | 1.15 s |
+| one worker 2 | 0.75 s | 0.56 s | 0.46 s | 1.46 s | 1.11 s |
+| one worker 3 | 0.73 s | 0.49 s | 0.41 s | 1.34 s | 1.06 s |
+
+A recompute here pays it too: 9.66 s before, 9.53 to 9.57 s after.
+
+The same finishes, A/B on two builds: `threadfinish_gui.py` dumps every
+PartDesign view's render material (finish palette, extents, threaded
+faces) in scanner after the file's recompute and after a worker's put-in
+of 5.511 and back -- 21 views with finishes, the same in both builds; and
+`scripts/demo-thread.py` with `THREAD_DUMP=1` the same palette, extents and
+faces. Its four pictures: the overview the same byte for byte, the three
+close ones 2 to 4 pixels apart by at most 5 of 255.
+
+Test: `HoleThreadsTest.madeOnceKeptUntilTheHoleChanges` (PartDesign
+C++, its first test of a document): two threads, asked twice the same,
+Depth and CosmeticThread changed without a recompute followed, one circle
+of the profile taken away and recomputed, one thread.
+TestPartDesignApp 1073, TestWorkerPool 79, Document 364, TestPartApp 446
+OK; ctest 1288 of 1288.
+
+What is left of the put-in, 407 samples: the views' meshes of the shapes
+shown (`buildVisualNodes`, 108), reading the result's string table (56),
+and the links' element references made again (44).

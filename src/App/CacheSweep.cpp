@@ -7,6 +7,7 @@
 
 #include <cerrno>
 #include <cstdlib>
+#include <thread>
 
 #ifdef _WIN32
 # include <windows.h>
@@ -154,11 +155,14 @@ void App::CacheSweep::start()
     const std::string cache = Application::getUserCachePath();
     const std::string exe = Application::getExecutableName();
     const double before = static_cast<double>(QDateTime::currentMSecsSinceEpoch()) / 1000.0;
-    QThreadPool::globalInstance()->start([cache, exe, before]() {
+    auto sweep = [cache, exe, before]() {
         Counts counts;
         try {
             counts = run(cache, exe, before, []() {
-                return App::isShuttingDown() || QCoreApplication::closingDown();
+                // closingDown() says so only of an application there is:
+                // with none (yet) it is the flag a gone one left
+                return App::isShuttingDown()
+                    || (QCoreApplication::instance() && QCoreApplication::closingDown());
             });
         }
         catch (...) {
@@ -171,5 +175,16 @@ void App::CacheSweep::start()
                                 counts.documents,
                                 counts.failed);
         }
-    });
+    };
+    // No global pool where a QCoreApplication has come and gone before this
+    // one: the Windows GUI's main makes one only to read its arguments,
+    // before App::Application::init, and Qt gives no pool from then until
+    // the QApplication is made. Every start crashed on the null pool. The
+    // sweep needs nothing of Qt's threads: a thread of its own, then.
+    if (QThreadPool* pool = QThreadPool::globalInstance()) {
+        pool->start(sweep);
+    }
+    else {
+        std::thread(sweep).detach();
+    }
 }

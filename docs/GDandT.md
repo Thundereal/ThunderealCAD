@@ -1913,6 +1913,14 @@ compares; it took our curves for none.
   supplemental curves is styled as well, where SFA takes their colour from. A tessellated part's
   supplemental geometry (FTC-08 -e4-tg) is written; its tessellated constructive geometry (one
   triangulated face) is not read.
+- **SFA p18 (dwin).** Part styles as at p14, no colour error left. FTC-10's thread curves gave
+  SFA no colour: it colours a trimmed curve by its basis curve and any other member by itself,
+  so those are what is styled now. STC-09's 163 face colours were lost with one shape: a
+  child's elements' colours are given to the shape's own sub-shapes (XCAF takes none of a
+  sub-shape's). Open: a style INVISIBILITY hides (STC-08's and CTC-02's shell face, black and
+  half transparent) is read as the face's colour, so the shell is written black -- read right,
+  its colour is NIST's yellow, and the transparency SFA notes, only in that hidden style, is
+  gone until invisibility is written.
 
 ## 11. Decisions (made 2026-11-19)
 

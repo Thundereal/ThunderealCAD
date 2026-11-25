@@ -554,6 +554,9 @@ void ExportOCAF2::setupObject(TDF_Label label,
                 aColorTool->SetColor(nodeLabel, color, colorType);
                 continue;
             }
+            if (myObjectColorsOnly) {
+                continue;
+            }
 
             if (nodeLabel != label || aShapeTool->IsComponent(label)) {
                 // OCCT 7 seems to only support "Recommended practices for
@@ -897,8 +900,41 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
                  it.More() && i < within.size();
                  it.Next(), ++i) {
                 TDF_Label sub = aShapeTool->AddSubShape(shapeL, it.Value());
-                if (!sub.IsNull()) {
-                    setupObject(sub, within[i], Part::TopoShape(it.Value()), prefix, nullptr, true);
+                if (sub.IsNull()) {
+                    continue;
+                }
+                // Its own colours on its sub-shape; its elements' below
+                myObjectColorsOnly = true;
+                setupObject(sub, within[i], Part::TopoShape(it.Value()), prefix, nullptr, true);
+                myObjectColorsOnly = false;
+                // Its faces' and edges' own colours: sub-shapes of the shape, where the
+                // writer reads them -- a sub-shape of the child's sub-shape is none XCAF
+                // takes (NIST STC-09's 163 face colours were lost so)
+                if (!getShapeColors) {
+                    continue;
+                }
+                Part::TopoShape child(it.Value());
+                for (const char* kind : {"Face*", "Edge*"}) {
+                    for (auto& [element, color] : getShapeColors(within[i], kind)) {
+                        if (element.find('.') != std::string::npos || element == "Face"
+                            || element == "Edge") {
+                            continue;
+                        }
+                        TopoDS_Shape el = child.getSubShape(element.c_str(), true);
+                        if (el.IsNull()) {
+                            continue;
+                        }
+                        TDF_Label up;
+                        if (!aShapeTool->FindSubShape(shapeL, el, up)) {
+                            up = aShapeTool->AddSubShape(shapeL, el);
+                        }
+                        if (!up.IsNull()) {
+                            aColorTool->SetColor(up,
+                                                 Tools::convertColor(color),
+                                                 kind[0] == 'F' ? XCAFDoc_ColorSurf
+                                                                : XCAFDoc_ColorCurv);
+                        }
+                    }
                 }
             }
         }

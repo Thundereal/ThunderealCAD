@@ -199,6 +199,8 @@ private:
     std::unordered_map<App::DocumentObject*, TDF_Label> myObjects;
     /// The children of a container written as one shape (OneShapeProperty): its label
     std::unordered_map<App::DocumentObject*, TDF_Label> myWithin;
+    /// setupObject() gives an object's own colours only, not its elements'
+    bool myObjectColorsOnly = false;
 
     std::unordered_map<TDF_Label, std::vector<std::string>, LabelHasher> myNames;
 

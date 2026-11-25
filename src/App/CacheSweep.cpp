@@ -5,6 +5,8 @@
 
 #include "PreCompiled.h"
 
+#include <thread>
+
 #include <cerrno>
 #include <cstdlib>
 
@@ -154,11 +156,15 @@ void App::CacheSweep::start()
     const std::string cache = Application::getUserCachePath();
     const std::string exe = Application::getExecutableName();
     const double before = static_cast<double>(QDateTime::currentMSecsSinceEpoch()) / 1000.0;
-    QThreadPool::globalInstance()->start([cache, exe, before]() {
+    auto sweep = [cache, exe, before]() {
         Counts counts;
         try {
             counts = run(cache, exe, before, []() {
-                return App::isShuttingDown() || QCoreApplication::closingDown();
+                // Between Windows' MainGui reading its arguments through a
+                // QCoreApplication of its own and the QApplication made
+                // after init, closingDown() still says that first one went
+                return App::isShuttingDown()
+                    || (QCoreApplication::instance() && QCoreApplication::closingDown());
             });
         }
         catch (...) {
@@ -171,5 +177,13 @@ void App::CacheSweep::start()
                                 counts.documents,
                                 counts.failed);
         }
-    });
+    };
+    // Qt has no global pool while it is closing down, and in that same
+    // window on Windows (above) globalInstance() is null: a thread of its own
+    if (QThreadPool* pool = QThreadPool::globalInstance()) {
+        pool->start(sweep);
+    }
+    else {
+        std::thread(sweep).detach();
+    }
 }

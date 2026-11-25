@@ -1343,6 +1343,54 @@ class TestNistSet(Base):
                 self.assertGreaterEqual(got_usages, nist_usages)
                 self.assertEqual(bool(got_usages), bool(nist_usages))
                 self.assertEqual(read(again), want)
+    def test_supplemental_layers_as_the_file_has_them(self):
+        """Each item of supplemental geometry on the layer the file puts it on,
+        and hidden where the file hides it -- by its layer (FTC-07's 13,
+        STC-06's 16) or its style -- read so (StepLayer, StepHidden; a set of
+        curves not shown) and written so again, item for item"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def layered(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+            items, hidden, layers, styles = [], set(), {}, {}
+            for k, v in ents.items():
+                if v.startswith("CONSTRUCTIVE_GEOMETRY_REPRESENTATION("):
+                    items += re.findall(r"#(\d+)", v)[:-1]
+                elif v.startswith("INVISIBILITY("):
+                    hidden |= set(re.findall(r"#(\d+)", v))
+            for k, v in ents.items():
+                if v.startswith("PRESENTATION_LAYER_ASSIGNMENT("):
+                    for i in re.findall(r"#(\d+)", v):
+                        layers[i] = (tuple(re.findall(r"'([^']*)'", v)[:2]), k in hidden)
+                elif v.startswith("STYLED_ITEM("):
+                    i = re.findall(r"#(\d+)", v)[-1]
+                    styles[i] = styles.get(i, False) or k in hidden
+            got = collections.Counter()
+            for i in items:
+                layer = layers.get(i)
+                got[ents[i].split("(")[0], (re.findall(r"'([^']*)'", ents[i]) or [""])[0],
+                    layer[0] if layer else None,
+                    bool(layer and layer[1]) or bool(styles.get(i))] += 1
+            return got
+
+        for name in ("nist_ctc_04_asme1_ap242-e1.stp", "nist_ftc_07_asme1_ap242-e2.stp",
+                     "nist_ftc_10_asme1_ap242-e2.stp", "nist_stc_06_asme1_ap242-e3.stp",
+                     "nist_stc_09_asme1_ap242-e4.stp"):
+            path = edition(os.path.join(nist, name))
+            with self.subTest(os.path.basename(path)):
+                want = layered(path)
+                if not want:  # STC-09 -e3 (2021) has no supplemental geometry
+                    continue
+                doc = self.read(path)
+                hidden = [o for o in doc.Objects if getattr(o, "StepHidden", False)]
+                self.assertEqual(len(hidden), sum(n for k, n in want.items() if k[3]))
+                for o in hidden:
+                    self.assertFalse(o.Visibility)
+                self.write_and_read(doc)
+                self.assertEqual(layered(self.written), want)
+
     def test_basic_as_the_file_gives_it(self):
         """CTC-04's 75 and 10 are basic -- a 'dimensional note' that is
         'theoretical' -- read so and written so (SFA's [75], [dia10])"""

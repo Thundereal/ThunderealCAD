@@ -1999,6 +1999,17 @@ compares; it took our curves for none.
   Not taken: the styles NIST gives the surfaces under faces and hides (CTC-01's 117, a styled
   item of a bare plane or cylinder: FreeCAD has no object of them); one INVISIBILITY written
   where NIST writes one an item (FTC-07, FTC-10, STC-06, STC-09: the same items hidden).
+  Supplemental geometry on layers: NIST puts items on a layer each (a presentation layer
+  assignment of one item, '-1' 'Layer-1') and hides most by it (FTC-07 13, STC-06 16, CTC-04,
+  FTC-10, STC-09), some by their style. The reader keeps each item's layer
+  (`XCAFDoc_DimTolTool::SetSupplementalLayer`) and whether it is hidden; the import puts them
+  on the object (`StepLayer`: name, description; `StepHidden`), a set of curves not shown; the
+  writer gives each its layer again and hides it as it was hidden: kind, name, layer and
+  hidden, item for item, NIST's in all seven files (`test_supplemental_layers_...`). Not done:
+  members of a curve set hidden alone (STC-06's 12), and the part's own sketches and surfaces
+  NIST hides member by member (STC-09, FTC-10, CTC-04: one object in FreeCAD, which hides no
+  part of one); which supplemental items each saved view shows (STC-06's 12 'supplemental
+  geometry subset's).
 
 ## 11. Decisions (made 2026-11-19)
 

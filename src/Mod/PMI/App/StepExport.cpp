@@ -439,15 +439,38 @@ private:
                     ex->placedToLabel * trsfOf(geo->globalPlacement());
                 gp_Ax3 pos = gp_Ax3(ax2Of(toLabel));
                 TCollection_AsciiString name = ascii(stepName(item))->String();
-                // Its colour, as the file drew it
+                // Its colour, as the file drew it; its layer, and whether it is shown -- the
+                // curves as they are, reference geometry (hidden until asked for) as the file
+                // had it
                 auto colored = [item](const TDF_Label& l) {
+                    if (l.IsNull()) {
+                        return;
+                    }
                     auto prop =
                         freecad_cast<App::PropertyColor*>(item->getPropertyByName("StepColor"));
-                    if (prop && !l.IsNull()) {
+                    if (prop) {
                         App::Color c = prop->getValue();
                         XCAFDoc_DimTolTool::SetSupplementalColor(
                             l,
                             Quantity_Color(c.r, c.g, c.b, Quantity_TOC_RGB));
+                    }
+                    auto layer =
+                        freecad_cast<App::PropertyStringList*>(item->getPropertyByName("StepLayer"));
+                    if (layer && !layer->getValues().empty()) {
+                        const auto& v = layer->getValues();
+                        XCAFDoc_DimTolTool::SetSupplementalLayer(
+                            l,
+                            ascii(v[0])->String(),
+                            v.size() > 1 ? ascii(v[1])->String() : TCollection_AsciiString());
+                    }
+                    auto stepHidden =
+                        freecad_cast<App::PropertyBool*>(item->getPropertyByName("StepHidden"));
+                    auto feat = freecad_cast<Part::Feature*>(item);
+                    bool curves = feat && feat->Shape.getShape().countSubShapes(TopAbs_FACE) == 0;
+                    bool hidden = curves ? !item->Visibility.getValue()
+                                         : stepHidden && stepHidden->getValue();
+                    if (hidden) {
+                        XCAFDoc_DimTolTool::SetPresentationHidden(l, true);
                     }
                 };
                 if (item->isDerivedFrom<App::Plane>()) {

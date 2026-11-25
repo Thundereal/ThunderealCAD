@@ -1048,9 +1048,24 @@ private:
                                               float(color.Green()),
                                               float(color.Blue())));
                 }
+                // Its layer, and whether the file shows it (NIST FTC-07 hides 13 by their
+                // layer): written so again
+                TCollection_AsciiString layer, layerDescription;
+                if (XCAFDoc_DimTolTool::GetSupplementalLayer(item, layer, layerDescription)) {
+                    property<App::PropertyStringList>(
+                        obj, "StepLayer", "The layer the STEP file puts it on: name, description")
+                        ->setValues(std::vector<std::string> {layer.ToCString(),
+                                                              layerDescription.ToCString()});
+                }
+                const bool hidden = XCAFDoc_DimTolTool::IsPresentationHidden(item);
+                if (hidden) {
+                    property<App::PropertyBool>(obj, "StepHidden",
+                                                "The STEP file does not show it")
+                        ->setValue(true);
+                }
                 // Reference geometry is shown when asked for; the curves are drawn, as
-                // the part's are
-                if (kind != "curves") {
+                // the part's are, unless the file hides them
+                if (kind != "curves" || hidden) {
                     obj->Visibility.setValue(false);
                 }
                 groupExt->addObject(obj);

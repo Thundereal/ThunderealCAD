@@ -4255,3 +4255,33 @@ Not decided: the default. On, a crash of the mesher costs a helper and the
 shape's mesh rather than the session; the price above is about 0.1 to 0.2 s
 on a recompute here, nothing seen on an open or a put-in, and two processes
 of 80 MB that reach 540 to 630 MB each at an open of scanner.
+
+## 66. A worker's first routed expression boots its guest (2026-11-25)
+
+Reported from the Windows box after merging Worker into main: three tests
+of `TestWorkerRecompute` (`testARecomputeIsSplitOverTwoWorkers`,
+`...OverThreeWorkers`, `testACheapJoinIsMadeHereSoWhatItGathersSplits`)
+ran past their timings by 0.3 to 0.8 s, each part of a split its branch's
+sleep and about 1.8 s more. Traced there (a print in `_Counted.execute`):
+the 1.8 s fell, once in each process, between the first object executed
+and the first that reads an expression -- the first expression that process
+evaluated.
+
+With a Pyodide runtime installed, expressions are routed to the sandbox
+(`Expression/Sandbox:Evaluate`, on; sec 3.5 of `docs/Sandbox.md`), and the
+first routed evaluation in a process boots its guest. A worker is a new
+process: its first expression pays the boot. The mini's default profile has
+no runtime, so these tests had run native here; with one
+(`FREECAD_USER_HOME=~/works/sw/pyodide-home`) two of them fail the same way
+here, 1.7 s a part.
+
+The tests are about splitting: `TestWorkerRecompute.setUp` turns routing
+off for its pool's workers too (they take the setting with the copy of the
+configuration the pool writes). With the runtime: the class 35 OK in 76 s,
+where it was 2 failures in 129 s; without: TestWorkerPool 79 OK.
+
+Not changed: what this costs a user with a runtime installed. A worker's
+first job that evaluates an expression -- any recompute of a document with
+a spreadsheet -- is 1.7 s longer on the mini, once per worker; a worker
+lives until it has been idle `IdleSeconds` (30 s). Booting the guest beside
+the copy's open, when a worker starts, would take it off the first job.

@@ -4096,3 +4096,49 @@ OK; ctest 1288 of 1288.
 What is left of the put-in, 407 samples: the views' meshes of the shapes
 shown (`buildVisualNodes`, 108), reading the result's string table (56),
 and the links' element references made again (44).
+
+## 64. A put-in's view build without the faces' bounds; the meshing in it (2026-11-25)
+
+Sec 63 left 108 of the put-in's 407 samples in the views' build
+(`ViewProviderPartExt::buildVisualNodes`). Of them (`sampletree.py`):
+
+| | samples |
+|---|---|
+| `faceProjectionFrame`: a restricted `BRepAdaptor_Surface` per face, its UV bounds | 35 |
+| `BRepMesh_IncrementalMesh` (`captureVisualFill`) | 18 |
+| the fill's maps, edge polygons, point normals and the rest | 55 |
+
+`faceProjectionFrame` states each face's frame for a surface finish, for
+every face of every shape built, a finish or not. It used the adaptor for
+the type and the frame, which are the surface's, and a cone's V range, for
+the radius at the middle of the face. The adaptor is unrestricted now, and
+the cone takes its face's bounds itself (`BRepTools::UVBounds`, what the
+restricted adaptor loaded).
+
+A/B on two builds: `framedump_gui.py` dumps every view's frame palette and
+frame indices in scanner after the file's recompute and after a worker's
+put-in of 5.511 and back, compared as floats unrounded: 15 views with
+frames, the same in both. Those views hold 192 cone faces.
+
+| warm run | Apply before | after | blocked after |
+|---|---|---|---|
+| warm-up | 0.46 s | 0.43 s | 1.43 s |
+| one worker 1 | 0.47 s | 0.44 s | 1.02 s |
+| one worker 2 | 0.46 s | 0.41 s | 1.14 s |
+| one worker 3 | 0.41 s | 0.36 s | 0.97 s |
+
+The view build is 73 samples of 367 now. The meshing itself is 14 of them,
+about 16 ms: `BRepMesh_IncrementalMesh` on shapes the worker sent meshed.
+Whether those calls rebuild or only validate is what the mesh-call probe
+(`MeshCallProbe`, the level debug flag) would say; not chased, for 16 ms.
+The rest of the fill is about 0.5 ms per shape over some 165 small shapes.
+The pooled fill (`Render/VisualFillOnPool`) takes a shape of 2000 faces or
+more and only in a landing; a put-in's shapes are small, so moving their
+fill to the pool is not done.
+
+Tests: ctest 1288 with `FormWidgets_Tests_run` and `TurnBudget_tests_run`
+failing under `-j 4`, both passing alone. `TestPartGui` (2 failures, 1
+error: `ColorPerFaceTest.testBox`, `testBoxAndLink`,
+`SectionCutTestCases.testOpenDialog`) and `TestPartDesignGui` (1 failure,
+`testPadPanelTakesAPickOnTheSolidBody`) fail the same, in the same words, on
+a build of the sources before sec 63 and this.

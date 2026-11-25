@@ -7216,9 +7216,10 @@ bool faceProjectionFrame(const TopoDS_Face &face, SbVec4f out[3])
     float radius = 0.0f;
     float kind = 0.0f;
     try {
-        // Restricted to the face, so a cone's radius below is measured
-        // over the part of it this face actually is.
-        BRepAdaptor_Surface adapt(face);
+        // Unrestricted: a restricted adaptor makes the face's UV bounds
+        // from every pcurve, which only a cone's radius below needs (the
+        // part of the cone this face is); the cone takes them itself.
+        BRepAdaptor_Surface adapt(face, false);
         switch (adapt.GetType()) {
         case GeomAbs_Plane: {
             // Held, as the cylinder and the cone are: Plane() returns by
@@ -7253,8 +7254,9 @@ bool faceProjectionFrame(const TopoDS_Face &face, SbVec4f out[3])
             // period is fitted to. A cone's is not constant, so the
             // pattern stretches a little toward the wide end -- which is
             // what a knurl rolled onto a taper actually does.
-            const double v = 0.5 * (adapt.FirstVParameter()
-                                    + adapt.LastVParameter());
+            double umin, umax, vmin, vmax;
+            BRepTools::UVBounds(face, umin, umax, vmin, vmax);
+            const double v = 0.5 * (vmin + vmax);
             radius = float(std::fabs(cone.RefRadius()
                                      + v * std::sin(cone.SemiAngle())));
             kind = 2.0f;

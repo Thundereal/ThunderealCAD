@@ -305,6 +305,183 @@ TEST(ParticleSurface, particlesOutOfOrder)
     EXPECT_NEAR(volumeOf(surface), 0.12 * 0.12 * 0.12, 0.06 * 0.12 * 0.12 * 0.12);
 }
 
+namespace
+{
+
+// Water 60 deep in a tank 120 x 120 inside -- its floor z = 0, its walls
+// x = 0, x = 0.12, y = 0 and y = 0.12 -- its particles each a third of a
+// spacing off their places (as in particlesOutOfOrder), and the tank as
+// wall points.
+struct Tank
+{
+    std::vector<Vec3> particles;
+    std::vector<WallPoint> walls;
+};
+
+Tank tank(double d)
+{
+    Tank c;
+    c.particles = block({0.0, 0.0, 0.0}, 12, 12, 6, d);
+    std::uint32_t state = 12345;
+    const auto next = [&]() {
+        state = state * 1664525U + 1013904223U;
+        return (static_cast<double>(state >> 8U) / 16777216.0 - 0.5) * 2.0;
+    };
+    for (Vec3& p : c.particles) {
+        for (std::size_t k = 0; k < 3; ++k) {
+            p[k] += 0.33 * d * next();
+        }
+        // and none past a wall
+        for (std::size_t k = 0; k < 3; ++k) {
+            p[k] = std::max(p[k], 0.2 * d);
+        }
+        for (std::size_t k = 0; k < 2; ++k) {
+            p[k] = std::min(p[k], 0.12 - 0.2 * d);
+        }
+    }
+    // each wall a square, two triangles wound out of the solid: into the
+    // tank
+    Solver::Surface solid;
+    const double l = 0.12;
+    const double h = 0.2;
+    const auto square = [&](const Vec3& o, const Vec3& u, const Vec3& v) {
+        const int at = static_cast<int>(solid.points.size());
+        solid.points.push_back(o);
+        solid.points.push_back({o[0] + u[0], o[1] + u[1], o[2] + u[2]});
+        solid.points.push_back({o[0] + u[0] + v[0], o[1] + u[1] + v[1], o[2] + u[2] + v[2]});
+        solid.points.push_back({o[0] + v[0], o[1] + v[1], o[2] + v[2]});
+        solid.triangles.push_back({at, at + 1, at + 2});
+        solid.triangles.push_back({at, at + 2, at + 3});
+    };
+    square({0.0, 0.0, 0.0}, {l, 0.0, 0.0}, {0.0, l, 0.0});  // the floor, up
+    square({0.0, 0.0, 0.0}, {0.0, l, 0.0}, {0.0, 0.0, h});  // x = 0, along +x
+    square({0.0, 0.0, 0.0}, {0.0, 0.0, h}, {l, 0.0, 0.0});  // y = 0, along +y
+    square({l, 0.0, 0.0}, {0.0, 0.0, h}, {0.0, l, 0.0});    // x = l, along -x
+    square({0.0, l, 0.0}, {l, 0.0, 0.0}, {0.0, 0.0, h});    // y = l, along -y
+    c.walls = wallPointsOf(solid, 0.5 * d);
+    return c;
+}
+
+// How high the water's top is, in the mean: in the open, and along the
+// walls within a spacing of them.
+std::pair<double, double> topOf(const ParticleSurface& s, double d)
+{
+    double open = 0.0;
+    double along = 0.0;
+    int opens = 0;
+    int alongs = 0;
+    for (std::size_t i = 0; i < s.points.size(); ++i) {
+        const Vec3& p = s.points[i];
+        if (s.normals[i][2] < 0.7 || p[2] < 0.04) {
+            continue;
+        }
+        const double wall = std::min({p[0], p[1], 0.12 - p[0], 0.12 - p[1]});
+        if (wall > 3 * d) {
+            open += p[2];
+            ++opens;
+        }
+        else if (wall < d) {
+            along += p[2];
+            ++alongs;
+        }
+    }
+    return {open / std::max(opens, 1), along / std::max(alongs, 1)};
+}
+
+}  // namespace
+
+TEST(ParticleSurface, wallPointsFaceOutOfTheSolid)
+{
+    const Tank c = tank(0.01);
+    ASSERT_FALSE(c.walls.empty());
+    for (const WallPoint& w : c.walls) {
+        EXPECT_NEAR(std::sqrt(w.out[0] * w.out[0] + w.out[1] * w.out[1] + w.out[2] * w.out[2]),
+                    1.0,
+                    1e-9);
+        // into the tank: from the middle of the floor, the point is behind
+        // its face
+        const Vec3 to {0.06 - w.at[0], 0.06 - w.at[1], 0.03 - w.at[2]};
+        EXPECT_GT(to[0] * w.out[0] + to[1] * w.out[1] + to[2] * w.out[2], 0.0);
+    }
+    // half a spacing apart or nearer: a square 0.12 across has 25 rows
+    EXPECT_GE(c.walls.size(), 5U * 25U * 25U);
+}
+
+TEST(ParticleSurface, waterAgainstAWall)
+{
+    // Beside a wall half of a particle's surroundings is the wall's, and
+    // the field the surface is cut from read low there: the surface dipped
+    // to the particles, and the ones at the top counted as drops or spray,
+    // flipping from one frame to the next. Given the walls, the particles
+    // near one have their mirror images across it in the field.
+    const double d = 0.01;
+    const Tank c = tank(d);
+    ParticleSurface bare;
+    surfaceOf(c.particles, d, bare, SprayBelow);
+    ParticleSurface walled;
+    surfaceOf(c.particles, d, walled, SprayBelow, c.walls);
+    EXPECT_TRUE(walled.spray.empty());
+    EXPECT_TRUE(closed(walled));
+    const auto [bareOpen, bareAlong] = topOf(bare, d);
+    const auto [open, along] = topOf(walled, d);
+    // the open top where the particles say, half a spacing past them
+    EXPECT_NEAR(open, 0.06, 0.25 * d);
+    // measured: 0.09 mm off the open top along the walls, 1.2 without
+    // them, and 9 of the particles spray without them
+    EXPECT_NEAR(along, open, 0.1 * d);
+    EXPECT_GT(bareOpen - bareAlong, open - along);
+    // nothing of it in the walls more than a node of the grid deep
+    for (const Vec3& p : walled.points) {
+        EXPECT_GT(std::min({p[0], p[1], p[2], 0.12 - p[0], 0.12 - p[1]}), -0.5 * d);
+    }
+}
+
+TEST(ParticleSurface, stillWaterBesideAWallDoesNotFlicker)
+{
+    // Frame after frame of still water: each particle a twentieth of a
+    // spacing from where it was, at random. The water's volume barely
+    // changes from one to the next -- unless particles beside a wall flip
+    // between the body, a drop and the spray, each adding or taking a
+    // ball of its own at once: what played as popping along the walls.
+    const double d = 0.01;
+    const Tank c = tank(d);
+    const auto worstStep = [&](const std::vector<WallPoint>& walls) {
+        std::vector<Vec3> particles = c.particles;
+        std::uint32_t state = 777;
+        const auto next = [&]() {
+            state = state * 1664525U + 1013904223U;
+            return (static_cast<double>(state >> 8U) / 16777216.0 - 0.5) * 2.0;
+        };
+        double worst = 0.0;
+        double before = -1.0;
+        for (int frame = 0; frame < 20; ++frame) {
+            ParticleSurface s;
+            surfaceOf(particles, d, s, SprayBelow, walls);
+            const double volume = volumeOf(s);
+            if (before >= 0.0) {
+                worst = std::max(worst, std::abs(volume - before));
+            }
+            before = volume;
+            for (Vec3& p : particles) {
+                for (std::size_t k = 0; k < 3; ++k) {
+                    p[k] += 0.05 * d * next();
+                }
+                for (std::size_t k = 0; k < 3; ++k) {
+                    p[k] = std::max(p[k], 0.2 * d);
+                }
+                for (std::size_t k = 0; k < 2; ++k) {
+                    p[k] = std::min(p[k], 0.12 - 0.2 * d);
+                }
+            }
+        }
+        return worst / (d * d * d);
+    };
+    // measured: 3.77 of a spacing's cube without the walls, 1.23 with
+    const double bare = worstStep({});
+    const double walled = worstStep(c.walls);
+    EXPECT_LT(walled, 0.5 * bare);
+}
+
 TEST(ParticleSurface, nothingOfNothing)
 {
     ParticleSurface surface;

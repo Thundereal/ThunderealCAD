@@ -15,6 +15,7 @@
 
 #include <Mod/Fluid/FluidGlobal.h>
 
+#include "ParticleSurface.h"
 #include "ResultsArchive.h"
 #include "Solver/Backend.h"
 
@@ -93,6 +94,15 @@ public:
     const ArchiveReader* results() const;
     /// Whether the kept results are of another model than the study is now.
     bool isStale() const;
+    /// The walls as a frame's particle surface is told of them
+    /// (ParticleSurface.h): points on each half the spacing apart, in mm,
+    /// the ones the fluid moved where the frame's motions put them. Taken
+    /// from the study as it is when first asked -- the parts where they
+    /// were modelled, which the playback puts back before it shows a run's
+    /// first frame -- and kept until the results or the spacing change.
+    /// None when the study's walls cannot be taken.
+    std::vector<WallPoint> wallPointsAt(const std::vector<Solver::Motion>& bodies,
+                                        double spacing) const;
 
     static const char* AnalysisEnums[];
 
@@ -111,6 +121,8 @@ private:
     std::unique_ptr<Run> active;
     mutable std::unique_ptr<ArchiveReader> reader;
     mutable std::string readerPath;
+    struct WallCache;
+    mutable std::shared_ptr<WallCache> wallCache;
 };
 
 /// A volume full of fluid when the run starts: the solid of Volume, where it

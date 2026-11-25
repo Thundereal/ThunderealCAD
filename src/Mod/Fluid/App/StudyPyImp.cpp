@@ -383,7 +383,12 @@ PyObject* StudyPy::getSurface(PyObject* args) const
             particles[i] = {frame.points[3 * i], frame.points[3 * i + 1], frame.points[3 * i + 2]};
         }
         ParticleSurface surface;
-        surfaceOf(particles, spacing, surface, SprayBelow);
+        // the walls given: beside one the field would hover about the level
+        surfaceOf(particles,
+                  spacing,
+                  surface,
+                  SprayBelow,
+                  getStudyPtr()->wallPointsAt(frame.bodies, spacing));
         std::vector<float> spray(surface.spray.size() * 3);
         for (std::size_t i = 0; i < surface.spray.size(); ++i) {
             for (std::size_t x = 0; x < 3; ++x) {
@@ -409,6 +414,47 @@ PyObject* StudyPy::getSurface(PyObject* args) const
         ret.setItem("Points", bytesOf(points.data(), points.size() * sizeof(float)));
         ret.setItem("Normals", bytesOf(normals.data(), normals.size() * sizeof(float)));
         ret.setItem("Triangles", bytesOf(triangles.data(), triangles.size() * sizeof(std::int32_t)));
+        return Py::new_reference_to(ret);
+    }
+    PY_CATCH
+}
+
+PyObject* StudyPy::getWallPoints(PyObject* args) const
+{
+    long at = 0;
+    if (!PyArg_ParseTuple(args, "l", &at)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        const auto* results = getStudyPtr()->results();
+        if (!results) {
+            THROWM(Base::RuntimeError, "the study keeps no results");
+        }
+        if (at < 0) {
+            THROWM(Base::IndexError, "a frame's index is not negative");
+        }
+        double spacing = results->index().spacing;
+        if (!(spacing > 0.0)) {
+            spacing = getStudyPtr()->buildModel().resolution * 1000.0;
+        }
+        const auto walls = getStudyPtr()->wallPointsAt(results->bodies(static_cast<std::size_t>(at)),
+                                                       spacing);
+        std::vector<float> points(walls.size() * 3);
+        std::vector<float> normals(walls.size() * 3);
+        for (std::size_t i = 0; i < walls.size(); ++i) {
+            for (std::size_t x = 0; x < 3; ++x) {
+                points[3 * i + x] = static_cast<float>(walls[i].at[x]);
+                normals[3 * i + x] = static_cast<float>(walls[i].out[x]);
+            }
+        }
+        const auto bytesOf = [](const std::vector<float>& data) {
+            return Py::asObject(PyBytes_FromStringAndSize(reinterpret_cast<const char*>(data.data()),
+                                                          static_cast<Py_ssize_t>(data.size() * sizeof(float))));
+        };
+        Py::Dict ret;
+        ret.setItem("Points", bytesOf(points));
+        ret.setItem("Normals", bytesOf(normals));
         return Py::new_reference_to(ret);
     }
     PY_CATCH

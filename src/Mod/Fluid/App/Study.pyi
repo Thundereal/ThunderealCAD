@@ -126,6 +126,18 @@ class Study(DocumentObject):
         ...
 
     @constmethod
+    def getWallPoints(self, index: int, /) -> dict:
+        """
+        The walls as getSurface() is told of them at one kept frame: Points
+        (bytes: float32 x, y, z each, mm), points on the walls half the
+        run's resolution apart, the parts the fluid moved where the frame
+        has them; and Normals (bytes: float32, one a point, out of the
+        solid). Beside a wall each particle's mirror image across it is in
+        the field the surface is cut from.
+        """
+        ...
+
+    @constmethod
     def isStale(self) -> bool:
         """
         Whether the kept results are of another model than the study is now.

@@ -28,6 +28,7 @@
 #include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
+#include <Base/Rotation.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/TopoShape.h>
 
@@ -68,7 +69,7 @@ Part::TopoShape solidOf(const App::DocumentObject* obj, const char* role)
 }
 
 // mm to m
-Solver::Surface surfaceOf(const Part::TopoShape& shape, double accuracy)
+Solver::Surface meshOf(const Part::TopoShape& shape, double accuracy)
 {
     std::vector<Base::Vector3d> points;
     std::vector<Data::ComplexGeoData::Facet> facets;
@@ -749,7 +750,7 @@ Solver::Model Study::buildModel() const
     for (const auto& wall : walls) {
         model.walls.emplace_back();
         model.walls.back().source = sourceOf(wall.source, getDocument());
-        model.walls.back().surface = surfaceOf(wall.shape, accuracy);
+        model.walls.back().surface = meshOf(wall.shape, accuracy);
         if (wall.density > 0.0) {
             // a mechanism's part where the study runs with one
             model.walls.back().motion = Mechanism.getValue() ? Solver::WallMotion::Driven
@@ -779,7 +780,7 @@ Solver::Model Study::buildModel() const
     for (const auto& fed : inlets) {
         Solver::Inlet inlet;
         inlet.source = sourceOf(fed.source, getDocument());
-        inlet.surface = surfaceOf(fed.face, accuracy);
+        inlet.surface = meshOf(fed.face, accuracy);
         // Out of the solid the face is of: the way its triangles face
         Base::Vector3d out;
         for (const auto& t : inlet.surface.triangles) {
@@ -815,7 +816,7 @@ Solver::Model Study::buildModel() const
     for (const auto& let : outlets) {
         Solver::Outlet outlet;
         outlet.source = sourceOf(let.source, getDocument());
-        outlet.surface = surfaceOf(let.face, accuracy);
+        outlet.surface = meshOf(let.face, accuracy);
         Base::Vector3d out;
         bool hasArea = false;
         if (!flatOf(outlet.surface, out, hasArea)) {
@@ -829,7 +830,7 @@ Solver::Model Study::buildModel() const
     }
     for (const auto& fluid : fluids) {
         model.fluids.push_back(
-            {sourceOf(fluid.source, getDocument()), surfaceOf(fluid.shape, accuracy), fluid.material});
+            {sourceOf(fluid.source, getDocument()), meshOf(fluid.shape, accuracy), fluid.material});
     }
     if (space.IsValid()) {
         model.space.min = {space.MinX * 1.0e-3, space.MinY * 1.0e-3, space.MinZ * 1.0e-3};
@@ -1005,6 +1006,82 @@ Solver::Status Study::start(std::string& why)
     }
 #endif
     return Solver::Status::Ok;
+}
+
+struct Study::WallCache
+{
+    double spacing = 0.0;
+    std::uint64_t signature = 0;
+    std::vector<WallPoint> fixed;
+    std::vector<std::vector<WallPoint>> moved;  // as a frame's bodies come
+};
+
+std::vector<WallPoint> Study::wallPointsAt(const std::vector<Solver::Motion>& bodies,
+                                           double spacing) const
+{
+    std::uint64_t signature = 0;
+    try {
+        if (const auto* kept = results()) {
+            signature = kept->index().signature;
+        }
+    }
+    catch (const Base::Exception&) {
+        signature = 0;
+    }
+    if (!wallCache || wallCache->spacing != spacing || wallCache->signature != signature) {
+        auto cache = std::make_shared<WallCache>();
+        cache->spacing = spacing;
+        cache->signature = signature;
+        try {
+            const Solver::Model model = buildModel();
+            const auto moved = Solver::freeWalls(model);
+            for (std::size_t i = 0; i < model.walls.size(); ++i) {
+                // the model's metres to the particles' mm
+                Solver::Surface surface = model.walls[i].surface;
+                for (auto& point : surface.points) {
+                    for (double& x : point) {
+                        x *= 1000.0;
+                    }
+                }
+                auto points = wallPointsOf(surface, 0.5 * spacing);
+                if (std::ranges::find(moved, i) != moved.end()) {
+                    cache->moved.push_back(std::move(points));
+                }
+                else {
+                    cache->fixed.insert(cache->fixed.end(), points.begin(), points.end());
+                }
+            }
+        }
+        catch (const Base::Exception&) {
+            cache->fixed.clear();
+            cache->moved.clear();
+        }
+        wallCache = cache;
+    }
+    std::vector<WallPoint> points = wallCache->fixed;
+    // a frame of another model's run moves other parts: then the fixed
+    // walls alone
+    if (bodies.size() != wallCache->moved.size()) {
+        return points;
+    }
+    for (std::size_t k = 0; k < bodies.size(); ++k) {
+        const Solver::Motion& motion = bodies[k];
+        const Base::Rotation turn(motion.rotation[0],
+                                  motion.rotation[1],
+                                  motion.rotation[2],
+                                  motion.rotation[3]);
+        for (const WallPoint& point : wallCache->moved[k]) {
+            Base::Vector3d at(point.at[0], point.at[1], point.at[2]);
+            Base::Vector3d out(point.out[0], point.out[1], point.out[2]);
+            at = turn.multVec(at);
+            out = turn.multVec(out);
+            points.push_back({{at.x + motion.translation[0],
+                               at.y + motion.translation[1],
+                               at.z + motion.translation[2]},
+                              {out.x, out.y, out.z}});
+        }
+    }
+    return points;
 }
 
 Study::Progress Study::progress() const

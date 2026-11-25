@@ -1019,6 +1019,33 @@ bgfx renderer.
   the end and said Done). The runner has the force itself, less the wall
   part (twelve runs of twelve whole), and now stops with an error at the
   first step whose particles are not numbers.
+- **The walls** (2026-11-25). The user, of the mechanism's video: "Water
+  near surface looks discontinuously poping." Measured on the hinged
+  bar's frames 10 ms apart, as height maps of the top on a 2.5 mm raster:
+  2.5% of the cells within 5 mm of the tank's walls changed by more than
+  2 mm from one frame to the next, 2% along the bar (up to 22 mm), 0.01%
+  in the open water; and 21 to 28 particles of the still water were spray,
+  all at the waterline against a wall or the bar. Beside a wall half of
+  what is about a particle is the wall's, so the field read low there and
+  hovered about the level: the surface dipped to the particles, and the
+  ones at the top flipped between body, drop and spray as they jiggled.
+  Now `surfaceOf` is given the walls, as points half a spacing apart with
+  the normal out of the solid (`wallPointsOf`), and a particle within
+  reach of a wall whose foot is on it has its mirror image across it in
+  the field -- across two or three at once in a corner -- on the water's
+  side of those walls alone, so nothing grows inside a solid or leaks
+  through a thin one. `Study::wallPointsAt` takes them from the model
+  once per results and spacing, a moved part's where the frame has it
+  (`Study.getWallPoints(index)`). Against the tank's walls the cells
+  changing by more than 2 mm went to 0.01%, the spray of still water from
+  about 26 particles to 1; in a test tank the top along the walls came
+  from 1.2 mm below the open top to 0.09, and the volume's worst change
+  between frames of jiggled still water from 3.77 of a spacing's cube to
+  1.23. Along the bar what is left is real at this spacing: near its tip
+  its top face is within a millimetre of the water's level at 17 deg, so
+  a film one particle thick comes and goes on it, and the line where the
+  two meet moves three times as far as the water does. 47 ms a frame
+  for the bar's tank.
 - **The spacing** is kept with the results (`spacing` in index.json, mm);
   results kept before it take the study's resolution as it is now.
 - **Cost**, the dam break of sec 12.5 at 5 mm: 0.4 to 0.6 s a frame, 450000

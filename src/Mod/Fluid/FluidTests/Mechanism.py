@@ -458,7 +458,9 @@ class Mechanism:
         lost; and the volume of water the fluid has (mm^3)."""
         self.bar_on_a_hinge(density, start, end)
         tip = self.bar.Placement.multVec(App.Vector(BAR[0], BAR[1] / 2, BAR[2] / 2))
+        modelled = App.Placement(self.bar.Placement)
         self.assertEqual(self.study.run(), 0, self.study.Status)
+        self.wallPointsOnTheBar(modelled)
         angles, counts = self.angles()
         frames = round(end / 0.05) + 1
         self.assertEqual(len(angles), frames)
@@ -484,6 +486,40 @@ class Mechanism:
         spacing = self.study.Resolution.Value
         App.Console.PrintLog(f"bar {density}: {mean:.2f} deg, swing {swing:.2f}\n")
         return mean, swing, counts[0] * spacing**3
+
+    def wallPointsOnTheBar(self, modelled):
+        """The walls the water's surface is told of at the last frame: the
+        bar's points, taken back by the frame's motion, are on the bar as
+        it was modelled, facing out of it."""
+        import numpy
+
+        last = self.study.getResults()["Frames"] - 1
+        walls = self.study.getWallPoints(last)
+        points = numpy.frombuffer(walls["Points"], dtype=numpy.float32).reshape(-1, 3)
+        normals = numpy.frombuffer(walls["Normals"], dtype=numpy.float32).reshape(-1, 3)
+        (motion,) = self.study.getFrame(last)["Bodies"]
+        back = modelled.inverse().multiply(motion.inverse())
+        matrix = numpy.array(back.toMatrix().A).reshape(4, 4)
+        local = points @ matrix[:3, :3].T + matrix[:3, 3]
+        turned = normals @ matrix[:3, :3].T
+        size = numpy.array(BAR)
+        inside = numpy.all((local > -1e-2) & (local < size + 1e-2), axis=1)
+        on = local[inside]
+        out = turned[inside]
+        # the bar's faces: 2 x (100 x 20) twice and 2 x (20 x 20), a point
+        # each half the spacing at most
+        self.assertGreater(len(on), 2 * (2 * 100 * 20 + 20 * 20) / 2.5**2 * 0.9)
+        # off the edges, where a point is two faces' and has its triangle's
+        faces = (numpy.abs(on) < 1e-2) | (numpy.abs(on - size) < 1e-2)
+        one = faces.sum(axis=1) == 1
+        for face in range(3):
+            at_low = one & (numpy.abs(on[:, face]) < 1e-2)
+            at_high = one & (numpy.abs(on[:, face] - size[face]) < 1e-2)
+            self.assertTrue(numpy.any(at_low) and numpy.any(at_high), face)
+            self.assertTrue(numpy.all(out[at_low, face] < -0.99), face)
+            self.assertTrue(numpy.all(out[at_high, face] > 0.99), face)
+        # and every one of them on a face
+        self.assertTrue(numpy.all(faces.any(axis=1)))
 
     def test_a_bar_on_a_hinge_let_go_level(self):
         # Where it rests is where the buoyancy's moment about the hinge is

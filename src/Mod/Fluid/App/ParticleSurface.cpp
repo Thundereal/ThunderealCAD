@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <unordered_map>
@@ -95,10 +96,49 @@ struct Grid
 
 }  // namespace
 
+std::vector<WallPoint> Fluid::wallPointsOf(const Solver::Surface& solid, double step)
+{
+    std::vector<WallPoint> points;
+    if (!(step > 0.0)) {
+        return points;
+    }
+    for (const auto& t : solid.triangles) {
+        const Vec3& a = solid.points[static_cast<std::size_t>(t[0])];
+        const Vec3& b = solid.points[static_cast<std::size_t>(t[1])];
+        const Vec3& c = solid.points[static_cast<std::size_t>(t[2])];
+        const Vec3 u {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const Vec3 v {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+        Vec3 n {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
+        const double twice = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (!(twice > 0.0)) {
+            continue;
+        }
+        n = {n[0] / twice, n[1] / twice, n[2] / twice};
+        const auto length = [](const Vec3& e) {
+            return std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+        };
+        const Vec3 w {c[0] - b[0], c[1] - b[1], c[2] - b[2]};
+        const double longest = std::max({length(u), length(v), length(w)});
+        const int m = std::max(1, static_cast<int>(std::ceil(longest / step)));
+        for (int i = 0; i <= m; ++i) {
+            for (int j = 0; i + j <= m; ++j) {
+                const double s = static_cast<double>(i) / m;
+                const double r = static_cast<double>(j) / m;
+                points.push_back({{a[0] + s * u[0] + r * v[0],
+                                   a[1] + s * u[1] + r * v[1],
+                                   a[2] + s * u[2] + r * v[2]},
+                                  n});
+            }
+        }
+    }
+    return points;
+}
+
 void Fluid::surfaceOf(const std::vector<Vec3>& particles,
                       double spacing,
                       ParticleSurface& surface,
-                      double sprayBelow)
+                      double sprayBelow,
+                      const std::vector<WallPoint>& walls)
 {
     surface = ParticleSurface();
     if (particles.empty() || !(spacing > 0.0)) {
@@ -129,8 +169,14 @@ void Fluid::surfaceOf(const std::vector<Vec3>& particles,
     const double pi = 3.14159265358979323846;
     const double whole = 4.0 * pi * 16.0 / 315.0;
     const double scale = spacing * spacing * spacing / (reach * reach * reach * whole);
-    // a particle's weights onto the nodes within a reach of it
-    const auto splat = [&](const Vec3& p, double within, double times) {
+    // a particle's weights onto the nodes within a reach of it -- for a
+    // particle's mirror image, only on the water's side of the walls it is
+    // mirrored across
+    std::vector<const WallPoint*> noPlanes;
+    const auto splat = [&](const Vec3& p,
+                           double within,
+                           double times,
+                           const std::vector<const WallPoint*>& planes) {
         const long span = static_cast<long>(std::ceil(within / grid.h));
         const std::array<long, 3> c {
             static_cast<long>(std::floor((p[0] - grid.origin[0]) / grid.h)),
@@ -146,7 +192,16 @@ void Fluid::surfaceOf(const std::vector<Vec3>& particles,
                      ++i) {
                     const double dx = grid.origin[0] + static_cast<double>(i) * grid.h - p[0];
                     const double w = weight((dx * dx + dy * dy + dz * dz) / (within * within));
-                    if (w > 0.0) {
+                    if (!(w > 0.0)) {
+                        continue;
+                    }
+                    const bool solid = std::ranges::any_of(planes, [&](const WallPoint* wall) {
+                        return (p[0] + dx - wall->at[0]) * wall->out[0]
+                            + (p[1] + dy - wall->at[1]) * wall->out[1]
+                            + (p[2] + dz - wall->at[2]) * wall->out[2]
+                            < 0.0;
+                    });
+                    if (!solid) {
                         grid.value[grid.at(i, j, k)] += static_cast<float>(times * w);
                     }
                 }
@@ -154,7 +209,91 @@ void Fluid::surfaceOf(const std::vector<Vec3>& particles,
         }
     };
     for (const Vec3& p : particles) {
-        splat(p, reach, scale);
+        splat(p, reach, scale, noPlanes);
+    }
+    // the mirror images of the particles near a wall
+    if (!walls.empty()) {
+        std::unordered_map<std::uint64_t, std::vector<std::size_t>> cells;
+        const auto cellOf = [&](const Vec3& p) {
+            std::array<std::int64_t, 3> c {};
+            for (std::size_t k = 0; k < 3; ++k) {
+                c[k] = static_cast<std::int64_t>(std::floor(p[k] / reach));
+            }
+            return c;
+        };
+        const auto keyOf = [](const std::array<std::int64_t, 3>& c) {
+            return (static_cast<std::uint64_t>(c[0] & 0x1FFFFF) << 42U)
+                | (static_cast<std::uint64_t>(c[1] & 0x1FFFFF) << 21U)
+                | static_cast<std::uint64_t>(c[2] & 0x1FFFFF);
+        };
+        for (std::size_t i = 0; i < walls.size(); ++i) {
+            cells[keyOf(cellOf(walls[i].at))].push_back(i);
+        }
+        // a wall counts where the particle's foot on its plane is on it:
+        // a wall point that near the foot (the points are half a spacing
+        // apart) -- not past an edge, where the plane goes on and the
+        // wall does not
+        const double onIt = 0.75 * spacing;
+        for (const Vec3& p : particles) {
+            std::vector<const WallPoint*> near;  // one a plane, the nearest
+            std::vector<double> depth;
+            const auto c = cellOf(p);
+            for (std::int64_t a = -1; a <= 1; ++a) {
+                for (std::int64_t b = -1; b <= 1; ++b) {
+                    for (std::int64_t e = -1; e <= 1; ++e) {
+                        const auto found = cells.find(keyOf({c[0] + a, c[1] + b, c[2] + e}));
+                        if (found == cells.end()) {
+                            continue;
+                        }
+                        for (std::size_t index : found->second) {
+                            const WallPoint& w = walls[index];
+                            const Vec3 to {p[0] - w.at[0], p[1] - w.at[1], p[2] - w.at[2]};
+                            const double d = to[0] * w.out[0] + to[1] * w.out[1] + to[2] * w.out[2];
+                            if (d < 0.0 || d >= reach) {
+                                continue;
+                            }
+                            const Vec3 aside {to[0] - d * w.out[0], to[1] - d * w.out[1],
+                                              to[2] - d * w.out[2]};
+                            const double off =
+                                std::sqrt(aside[0] * aside[0] + aside[1] * aside[1] + aside[2] * aside[2]);
+                            if (off > onIt) {
+                                continue;
+                            }
+                            bool known = false;
+                            for (std::size_t k = 0; k < near.size(); ++k) {
+                                const WallPoint& o = *near[k];
+                                if (o.out[0] * w.out[0] + o.out[1] * w.out[1] + o.out[2] * w.out[2]
+                                    > 0.9) {
+                                    known = true;
+                                    break;
+                                }
+                            }
+                            if (!known && near.size() < 3) {
+                                near.push_back(&w);
+                                depth.push_back(d);
+                            }
+                        }
+                    }
+                }
+            }
+            // across each wall, and across two or three at once in a
+            // corner of them: exact where they are square to each other
+            const std::size_t n = near.size();
+            for (unsigned subset = 1; subset < (1U << n); ++subset) {
+                Vec3 ghost = p;
+                std::vector<const WallPoint*> planes;
+                for (std::size_t k = 0; k < n; ++k) {
+                    if ((subset & (1U << k)) == 0U) {
+                        continue;
+                    }
+                    for (std::size_t x = 0; x < 3; ++x) {
+                        ghost[x] -= 2.0 * depth[k] * near[k]->out[x];
+                    }
+                    planes.push_back(near[k]);
+                }
+                splat(ghost, reach, scale, planes);
+            }
+        }
     }
     // the drops: found all before any is added, by the long field alone
     std::vector<std::size_t> drops;
@@ -172,7 +311,7 @@ void Fluid::surfaceOf(const std::vector<Vec3>& particles,
     const double dropScale = (Level - scale * weight(DropRadius * DropRadius / (Reach * Reach)))
         / weight(DropRadius * DropRadius / (DropReach * DropReach));
     for (std::size_t i : drops) {
-        splat(particles[i], DropReach * spacing, dropScale);
+        splat(particles[i], DropReach * spacing, dropScale, noPlanes);
     }
 
     // The field's slope at a node, by its neighbours either side.

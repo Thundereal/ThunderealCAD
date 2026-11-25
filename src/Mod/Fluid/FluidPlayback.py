@@ -14,7 +14,11 @@ import FluidApp  # noqa: F401 -- the study's object types are its
 
 translate = App.Qt.translate
 
-WATER = (0.10, 0.45, 0.80)
+# The water's colour: what it lets through, and what it scatters back, by
+# depth (the renderer's Beer-Lambert absorption). Pale, so that a film is
+# next to clear and 100 mm a light blue; (0.10, 0.45, 0.80) before, toned
+# down at the user's word (2026-11-25).
+WATER = (0.40, 0.70, 0.90)
 
 
 def iconPath(name):

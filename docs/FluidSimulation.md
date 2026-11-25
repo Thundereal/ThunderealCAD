@@ -1075,7 +1075,28 @@ bgfx renderer.
   `RenderShadow_Transparency` 0.75) with the light from nearly overhead
   (`Render_LightDirection` (-0.25, 0.35, -1)) -- the tank is drawn four
   fifths clear and still casts a whole shadow, which was the heaviest
-  thing in the picture; the water (0.10, 0.45, 0.80) at absorption 0.012.
+  thing in the picture; the water (0.10, 0.45, 0.80) at absorption 0.012
+  -- (0.40, 0.70, 0.90) at 0.008 and in-scatter 0.8 since 2026-11-25, below.
+- **The colour by depth** (2026-11-25). The user: "tune down the water
+  color and if possible, make color follow absorption law so that thuinner
+  file is nearly transparent". The renderer's water shader did follow
+  Beer-Lambert, over the column from the surface to the water's back face,
+  but a film over a part was tinted as much as the open water: it laid a
+  fifth of the water's colour on whatever the depth, and its back face is
+  the FARTHEST of the water along the ray -- behind a part standing in
+  the water, the pool's floor. The column now ends at the first opaque
+  surface behind the water (the prepass depth, which holds opaque fills
+  only), and the fixed tint is left to where the depth is not known
+  (tests/gui/water-film-is-clear.py: a plate 2 under the surface of 56 of
+  water moved a channel 0.411 of the 0.506 the open water did; now
+  0.041). Tried at the hinged bar's frames, the same settings first, then
+  less absorption at the old colour (the water went grey: less of it
+  absorbed lets the dark floor and the shadow through, and the in-scatter
+  fell with it), then paler colours: (0.40, 0.70, 0.90) at absorption
+  0.008 and in-scatter 0.8 kept for the manual, light blue and the parts
+  in it seen; (0.55, 0.80, 0.95) at 0.010 and 0.6 drifted grey-green.
+  `FluidPlayback.WATER` is the new colour; the absorption and in-scatter
+  stay the user's settings, which the manual's scripts set.
   Tried and dropped: the water as a glass body of index 1.33 (grey, no
   colour by depth), the tank as glass (the block behind it is displaced
   out of recognition), bloom and the sun's disc (no visible change).

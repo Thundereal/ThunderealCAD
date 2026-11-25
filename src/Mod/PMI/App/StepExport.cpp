@@ -304,6 +304,10 @@ public:
         for (auto& [obj, l] : _labels) {
             if (obj && !obj->Visibility.getValue()) {
                 XCAFDoc_DimTolTool::SetPresentationHidden(l, true);
+                auto c = freecad_cast<Callout*>(obj);
+                if (c && c->ImportedHiddenCallout.getValue()) {
+                    XCAFDoc_DimTolTool::SetPresentationHiddenCallout(l, true);
+                }
             }
             giveUUID(obj, l);
         }
@@ -875,6 +879,9 @@ private:
                     mine->second, holder.front().c_str(),
                     holder.size() > 1 ? ascii(holder[1])->String() : TCollection_AsciiString(),
                     holder.size() > 2 && holder[2] == "shared");
+                if (std::find(holder.begin() + 2, holder.end(), "hidden") != holder.end()) {
+                    XCAFDoc_DimTolTool::SetPlaceholderHidden(mine->second, true);
+                }
             }
         }
         // Drawn in another's graphic: linked to it as what it presents too

@@ -1205,7 +1205,8 @@ class TestNistSet(Base):
 
     def test_what_the_file_hides_is_hidden(self):
         """What a file does not show -- PMI graphics an INVISIBILITY lists
-        (STC-08's 29, STC-09's 75), a surface beside the solid whose styles
+        (STC-08's 29, STC-09's 75), their callouts (FTC-09's 44) and
+        placeholders (STC-06's 19), a surface beside the solid whose styles
         it lists (STC-08's, CTC-02's) -- is read hidden and written hidden
         again, each graphic as NIST hides it"""
         nist = os.environ["FC_PMI_NIST"]
@@ -1217,20 +1218,28 @@ class TestNistSet(Base):
                 text = re.sub(r"\s+", "", f.read())
             ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
             typ = lambda i: ents.get(i, "").split("(")[0]
-            graphics, surfaces = 0, 0
+            name = lambda i: (re.findall(r"'([^']*)'", ents[i]) or [""])[0]
+            graphics, surfaces = collections.Counter(), 0
             for v in ents.values():
                 if not v.startswith("INVISIBILITY("):
                     continue
                 for r in re.findall(r"#(\d+)", v):
-                    if "ANNOTATION" in typ(r) and "OCCURRENCE" in typ(r):
-                        graphics += 1
+                    # A placeholder hidden with its PMI (STC-06's 19), a callout hidden
+                    # whole (FTC-09's 44), each by name
+                    if "PLACEHOLDER_OCCURRENCE" in typ(r):
+                        graphics["placeholder", name(r)] += 1
+                    elif typ(r) == "DRAUGHTING_CALLOUT":
+                        graphics["callout", name(r)] += 1
+                    elif "ANNOTATION" in typ(r) and "OCCURRENCE" in typ(r):
+                        graphics["graphic", ""] += 1
                     elif "STYLED_ITEM" in typ(r):
                         refs = re.findall(r"#(\d+)", ents[r])
                         surfaces += typ(refs[-1]) == "SHELL_BASED_SURFACE_MODEL"
             return graphics, surfaces
 
         for name in ("nist_stc_08_asme1_ap242-e3.stp", "nist_stc_09_asme1_ap242-e4.stp",
-                     "nist_ctc_02_asme1_ap242-e2.stp"):
+                     "nist_ctc_02_asme1_ap242-e2.stp", "nist_ftc_09_asme1_ap242-e1.stp",
+                     "nist_stc_06_asme1_ap242-e3.stp"):
             path = edition(os.path.join(nist, name))
             with self.subTest(os.path.basename(path)):
                 graphics, surfaces = hidden(path)

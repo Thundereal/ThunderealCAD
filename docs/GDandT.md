@@ -1990,6 +1990,15 @@ compares; it took our curves for none.
   written with its own points, only segments chained: 573 polylines, 6965 points, 77 circles,
   NIST's. Logged: NIST overrides the colour of two lines of each of CTC-05's rectangular
   regions (an over-riding styled item of a curve set of them); not read.
+  What NIST hides: FTC-09 hides 44 PMI by their callouts (an INVISIBILITY of the draughting
+  callout, which OCCT's invisible item select did not take: read as nothing), STC-06 the
+  placeholders of 19 hidden PMI (a placeholder: no class, an undefined entity; the select takes
+  both now). Read hidden, kept how (`XCAFDoc_DimTolTool::SetPresentationHiddenCallout`,
+  `SetPlaceholderHidden`; `Callout.ImportedHiddenCallout`, 'hidden' in `ImportedPlaceholder`;
+  STC-08 and CTC-02 hide their PMI's graphics, not their placeholders) and written so again.
+  Not taken: the styles NIST gives the surfaces under faces and hides (CTC-01's 117, a styled
+  item of a bare plane or cylinder: FreeCAD has no object of them); one INVISIBILITY written
+  where NIST writes one an item (FTC-07, FTC-10, STC-06, STC-09: the same items hidden).
 
 ## 11. Decisions (made 2026-11-19)
 

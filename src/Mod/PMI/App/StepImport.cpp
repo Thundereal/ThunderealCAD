@@ -678,6 +678,10 @@ private:
                 if (shared) {
                     _placeholderKinds[c].emplace_back("shared");
                 }
+                // Not shown while it is hidden (NIST STC-06's 19)
+                if (XCAFDoc_DimTolTool::IsPlaceholderHidden(l)) {
+                    _placeholderKinds[c].emplace_back("hidden");
+                }
             }
         }
     }
@@ -779,6 +783,10 @@ private:
             TDF_Tool::Label(_info.hDoc->GetData(), e.c_str(), l);
             if (c && XCAFDoc_DimTolTool::IsPresentationHidden(l)) {
                 c->Visibility.setValue(false);
+                // By its callout (NIST FTC-09's 44)
+                if (XCAFDoc_DimTolTool::IsPresentationHiddenCallout(l)) {
+                    c->ImportedHiddenCallout.setValue(true);
+                }
             }
             if (c && XCAFDoc_DimTolTool::IsPresentationCurves(l)) {
                 c->ImportedAsCurves.setValue(true);

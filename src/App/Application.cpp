@@ -96,6 +96,7 @@
 
 #include "Annotation.h"
 #include "Application.h"
+#include "ServiceWorkers.h"
 #include "ShuttingDown.h"
 #include "BrandText.h"
 #include "CacheSweep.h"
@@ -2207,6 +2208,9 @@ void Application::destruct()
     // deleted it as that went, and there is none left to ask for: only the
     // console, which has no QCoreApplication, gets here with work in it.
     shuttingDown = true;
+    // The service helpers ended before what they hold of this process goes
+    // (in the GUI they were at aboutToQuit)
+    ServiceWorkers::stop();
     constexpr int mostSeconds = 120;
     QThreadPool* pool = QThreadPool::globalInstance();
     if (pool && !pool->waitForDone(mostSeconds * 1000)) {

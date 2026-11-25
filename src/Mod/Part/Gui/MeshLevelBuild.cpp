@@ -73,6 +73,7 @@
 #include <set>
 #include <vector>
 
+#include <Mod/Part/App/MeshService.h>
 #include <Mod/Part/App/Tools.h>
 #include <Gui/Renderer/SceneDump.h>
 #include <Gui/Renderer/SceneLadder.h>
@@ -112,7 +113,8 @@ double angleForLevel(uint32_t level)
 }
 
 /// The mesher's call for a level, on a shape that is the caller's alone.
-void meshForLevel(const TopoDS_Shape &copy, double deflection, double angle)
+void meshForLevel(const TopoDS_Shape &copy, double deflection, double angle,
+                  const TopoDS_Shape *standsFor = nullptr)
 {
 #if OCC_VERSION_HEX >= 0x070500
     IMeshTools_Parameters meshParams;
@@ -123,7 +125,8 @@ void meshForLevel(const TopoDS_Shape &copy, double deflection, double angle)
     // The copied display mesh is far finer than any level wants; this
     // is what lets the re-mesh replace it instead of keeping it.
     meshParams.AllowQualityDecrease = Standard_True;
-    BRepMesh_IncrementalMesh(copy, meshParams);
+    // Here, or in a helper (Part::meshShape, docs/WorkerProcess.md sec 65)
+    Part::meshShape(copy, meshParams, "a level's copy", standsFor);
 #else
     BRepMesh_IncrementalMesh(copy, deflection, Standard_False, angle,
                              Standard_True);
@@ -168,7 +171,7 @@ TopoDS_Shape meshedCopy(const TopoDS_Shape &shape, double deflection,
         builder.UpdateEdge(edge, Handle(Poly_Polygon3D)());
     }
 
-    meshForLevel(copy, deflection, angle);
+    meshForLevel(copy, deflection, angle, &shape);
     return copy;
 }
 

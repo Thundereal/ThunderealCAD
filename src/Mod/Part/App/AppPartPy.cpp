@@ -104,6 +104,8 @@
 #include "FeatureElement.h"
 #include "ShapeDiff.h"
 #include "OCCTFork.h"
+#include "MeshService.h"
+#include <App/ServiceWorkers.h>
 #include "PartPyCXX.h"
 #include "SubShapeBinder.h"
 #include "Tools.h"
@@ -436,6 +438,21 @@ public:
         );
         add_varargs_method("getFacets",&Module::getFacets,
             "getFacets(shape): simplified mesh generation"
+        );
+        add_varargs_method("meshShape",&Module::meshShape,
+            "meshShape(shape, deflection, angle, where='setting', crash=False) -> bool\n"
+            "The shape meshed as a view meshes it, here or in a helper process\n"
+            "(where 'here', 'worker', or 'setting': Workers/MeshInWorker);\n"
+            "False where it is not meshed: its helper died over it, or one did\n"
+            "before. crash makes the helper die of a fault making it (a test's)."
+        );
+        add_varargs_method("meshDigest",&Module::meshDigest,
+            "meshDigest(shape) -> str: every triangulation and edge polygon the\n"
+            "shape holds, counted and as a digest"
+        );
+        add_varargs_method("meshServiceInfo",&Module::meshServiceInfo,
+            "meshServiceInfo() -> dict: the meshes made here and by helpers, and\n"
+            "what they cost (Part::meshServiceInfo, App::ServiceWorkers::info)"
         );
         add_varargs_method("makeCompound",&Module::makeCompound,
             "makeCompound(list) -- Create a compound out of a list of shapes."
@@ -1080,6 +1097,70 @@ private:
         pcFeature->updateAppearance(pcSrcDoc, true);
         pcFeature->purgeTouched();
         return Py::asObject(pcFeature->getPyObject());
+    }
+    Py::Object meshShape(const Py::Tuple& args)
+    {
+        PyObject *shape;
+        double deflection, angle;
+        const char *where = "setting";
+        PyObject *crash = Py_False;
+        if (!PyArg_ParseTuple(args.ptr(), "O!dd|sO!", &(TopoShapePy::Type), &shape, &deflection,
+                              &angle, &where, &PyBool_Type, &crash))
+            throw Py::Exception();
+        IMeshTools_Parameters params;
+        params.Deflection = deflection;
+        params.Angle = angle;
+        params.Relative = Standard_False;
+        params.InParallel = Standard_True;
+        params.AllowQualityDecrease = Standard_True;
+        const std::string w(where);
+        MeshWhere at = w == "here" ? MeshWhere::Here
+            : w == "worker" ? MeshWhere::Worker : MeshWhere::Setting;
+        auto theShape = static_cast<Part::TopoShapePy*>(shape)->getTopoShapePtr()->getShape();
+        return Py::Boolean(Part::meshShape(theShape, params, "a shape from Python", nullptr, at,
+                                           PyObject_IsTrue(crash) != 0));
+    }
+    Py::Object meshDigest(const Py::Tuple& args)
+    {
+        PyObject *shape;
+        if (!PyArg_ParseTuple(args.ptr(), "O!", &(TopoShapePy::Type), &shape))
+            throw Py::Exception();
+        auto theShape = static_cast<Part::TopoShapePy*>(shape)->getTopoShapePtr()->getShape();
+        return Py::String(Part::meshDigest(theShape));
+    }
+    Py::Object meshServiceInfo(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), ""))
+            throw Py::Exception();
+        const MeshServiceInfo i = Part::meshServiceInfo();
+        const App::ServiceWorkers::Info s = App::ServiceWorkers::info();
+        Py::Dict d;
+        d.setItem("Here", Py::Long(i.here));
+        d.setItem("Worker", Py::Long(i.worker));
+        d.setItem("Died", Py::Long(i.died));
+        d.setItem("Refused", Py::Long(i.refused));
+        d.setItem("FellBack", Py::Long(i.fellBack));
+        d.setItem("Faces", Py::Long(i.faces));
+        d.setItem("Seconds", Py::Float(i.seconds));
+        d.setItem("Write", Py::Float(i.write));
+        d.setItem("Apply", Py::Float(i.apply));
+        d.setItem("Helper", Py::Float(i.helper));
+        d.setItem("Started", Py::Float(i.started));
+        d.setItem("HereSeconds", Py::Float(i.hereSeconds));
+        d.setItem("Sent", Py::Long(static_cast<long>(i.sent)));
+        d.setItem("Received", Py::Long(static_cast<long>(i.received)));
+        d.setItem("Helpers", Py::Long(s.helpers));
+        d.setItem("Spawned", Py::Long(s.spawned));
+        Py::List pids;
+        for (long pid : s.pids)
+            pids.append(Py::Long(pid));
+        d.setItem("Pids", pids);
+        d.setItem("Directory", Py::String(s.directory));
+        Py::Dict calls;
+        for (auto& [what, n] : i.calls)
+            calls.setItem(what, Py::Long(n));
+        d.setItem("Calls", calls);
+        return d;
     }
     Py::Object getFacets(const Py::Tuple& args)
     {

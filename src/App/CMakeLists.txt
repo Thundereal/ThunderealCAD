@@ -553,6 +553,7 @@ SET(Document_CPP_SRCS
     AnimationWorkers.cpp
     WorkerCrash.cpp
     WorkerPool.cpp
+    ServiceWorkers.cpp
     WorkerRecompute.cpp
     CacheSweep.cpp
     License.h
@@ -647,6 +648,7 @@ SET(Document_HPP_SRCS
     AnimationWorkers.h
     WorkerCrash.h
     WorkerPool.h
+    ServiceWorkers.h
     CacheSweep.h
     WorkerRecompute.h
     RecomputeHook.h

@@ -589,6 +589,8 @@ SET(Part_SRCS
     edgecluster.h
     modelRefine.cpp
     modelRefine.h
+    MeshService.cpp
+    MeshService.h
     MeshTwin.cpp
     MeshTwin.h
     Tools.cpp

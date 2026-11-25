@@ -2018,6 +2018,22 @@ compares; it took our curves for none.
   supplemental geometry is read, and the writer writes the subset again, each item the one it
   wrote for the group: kind and name, view for view, NIST's
   (`test_view_supplemental_geometry_as_the_file_has_it`).
+  How a PMI's shapes are grouped: NIST gives a pattern of holes as a composite group shape
+  aspect 'pattern of features', named as the annotation, of a composite shape aspect 'unified
+  geometric item' per hole (CTC-04's 'Position.2': 6 holes of 2 faces), 169 groups in 10
+  files, one shared by the position and the size of its holes; we wrote one flat composite,
+  unnamed. The reader keeps the tree (`XCAFDoc_DimTolTool::SetAspectStructure`: kinds, names,
+  descriptions, each leaf its shapes' label entries, the composite's entity number to say
+  which PMI share it), the import as the elements of the feature's objects (`StepAspects`,
+  read once supplemental geometry is objects of its own: a thread's cylinder is
+  `Curves001.Edge1`), the export as labels again, and the writer writes it so -- one
+  composite to PMI that shared one, if it still covers each one's shapes, else flat as
+  before. Ten of the sixteen files as NIST has them (`assertSameAspects`, in the every-file
+  round trip). Not yet: a PMI on a datum feature itself (FTC-07, FTC-10, STC-06), on
+  centres of symmetry (STC-07), on hole occurrences -- whose faces OCCT does not read, as the
+  occurrence is an entity it does not know (STC-09) -- and on curves beside the solid
+  (STC-10). Found on the way: a feature named a face and an edge lost its edge, an edge
+  taken for a tessellated copy of the face (FTC-11's arc length).
   Cited documents: the standards a file says its PMI follows (FTC-10 'ASME Y14.41', STC-07's
   four; CTC-05, FTC-07, STC-09 too) -- a product of its own with a DOCUMENT, a document
   product equivalence and an applied document reference to the part's definition with a

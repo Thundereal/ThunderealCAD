@@ -177,6 +177,7 @@ public:
         oneShapes();
         supplemental();
         viewSupplementals();
+        aspectsAll();
         return _report;
     }
 
@@ -285,6 +286,105 @@ private:
         return true;
     }
 
+    /// The elements of object a shape of an annotation is, by its label's entry; none when it
+    /// is not of object
+    /// The element names of the shapes a label holds, in the objects a feature refers to: as
+    /// they are in the first, else qualified by their object's name ("Curves001.Edge1": a
+    /// thread's cylinder, supplemental geometry an object of its own). None if one is in none
+    std::vector<std::string> namesOf(const std::string& e,
+                                     const std::vector<Part::Feature*>& objects)
+    {
+        TDF_Label l;
+        TDF_Tool::Label(_shapes->Label().Data(), e.c_str(), l);
+        if (l.IsNull() || objects.empty()) {
+            return {};
+        }
+        TopoDS_Shape sub = _shapes->GetShape(l);
+        for (auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
+            const char* typeName = type == TopAbs_FACE ? "Face"
+                : type == TopAbs_EDGE                  ? "Edge"
+                                                       : "Vertex";
+            std::vector<std::string> names;
+            for (TopExp_Explorer xp(sub, type); xp.More(); xp.Next()) {
+                std::string name;
+                for (std::size_t k = 0; k < objects.size() && name.empty(); ++k) {
+                    auto& index = _elementIndex[{objects[k], type}];
+                    if (index.empty()) {
+                        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
+                        TopExp::MapShapes(objects[k]->Shape.getShape().getShape(), type, map);
+                        for (int i = 1; i <= map.Extent(); ++i) {
+                            // A shape there twice, elsewhere: not one element to name
+                            auto [at, fresh] = index.emplace(map(i).TShape().get(), i);
+                            if (!fresh) {
+                                at->second = 0;
+                            }
+                        }
+                    }
+                    auto it = index.find(xp.Current().TShape().get());
+                    if (it != index.end() && it->second > 0) {
+                        name = (k ? std::string(objects[k]->getNameInDocument()) + "." : "")
+                            + typeName + std::to_string(it->second);
+                    }
+                }
+                if (name.empty()) {
+                    return {};
+                }
+                names.push_back(name);
+            }
+            if (!names.empty()) {
+                return names;
+            }
+        }
+        return {};
+    }
+
+    /// How the file groups the shapes of an annotation, its first and its second ones (a
+    /// pattern of features: a composite group shape aspect of a composite shape aspect a
+    /// hole): kept on it by their elements, for the export to group them so again. Read once
+    /// the supplemental geometry is objects of its own (aspectsAll)
+    void aspects(App::DocumentObject* annotation, const TDF_Label& l,
+                 std::vector<App::DocumentObject*> sides)
+    {
+        _aspects.push_back({annotation, l, std::move(sides)});
+    }
+
+    void aspectsAll()
+    {
+        for (auto& pending : _aspects) {
+            std::vector<std::string> values;
+            bool any = false;
+            for (std::size_t side = 0; side < 2; ++side) {
+                TCollection_AsciiString structure;
+                std::string named;
+                auto tf = side < pending.sides.size()
+                    ? freecad_cast<TolerancedFeature*>(pending.sides[side])
+                    : nullptr;
+                if (tf && XCAFDoc_DimTolTool::GetAspectStructure(pending.label, side == 1,
+                                                                 structure)) {
+                    std::vector<Part::Feature*> objects;
+                    for (auto& [obj, subs] : tf->References.getSubListValues()) {
+                        if (auto feat = freecad_cast<Part::Feature*>(obj)) {
+                            objects.push_back(feat);
+                        }
+                    }
+                    named = Step::renameAspects(structure.ToCString(), [&](const std::string& e) {
+                        return namesOf(e, objects);
+                    });
+                }
+                any = any || !named.empty();
+                values.push_back(named);
+            }
+            if (any) {
+                property<App::PropertyStringList>(pending.annotation,
+                                                  "StepAspects",
+                                                  "How the STEP file groups the shapes of its "
+                                                  "features, first and second: a pattern of "
+                                                  "features, a feature of several faces")
+                    ->setValues(values);
+            }
+        }
+    }
+
     /// A tolerance all over, on the part's own shape (NIST's general
     /// profile, 'Geometrical Tolerance.1' of STC-08 and FTC-06, -07, -10): of
     /// the whole part, no face of it
@@ -327,16 +427,18 @@ private:
         return xp.More();
     }
 
-    /// Faces with no surface, only triangles
+    /// Faces with no surface, only triangles -- not an edge, which has none (NIST FTC-11's arc
+    /// length along a face and an edge lost its edge)
     static bool tessellated(const TopoDS_Shape& shape)
     {
-        TopExp_Explorer xp(shape, TopAbs_FACE);
-        for (; xp.More(); xp.Next()) {
+        bool any = false;
+        for (TopExp_Explorer xp(shape, TopAbs_FACE); xp.More(); xp.Next()) {
             if (!BRep_Tool::Surface(TopoDS::Face(xp.Current())).IsNull()) {
                 return false;
             }
+            any = true;
         }
-        return !shape.IsNull();
+        return any;
     }
 
     AnnotationSet* set(Part::Feature* obj)
@@ -1521,6 +1623,7 @@ private:
         made(k.str(), l, gt);
         gt->Characteristic.setValue(ch);
         gt->Feature.setValue(feature(f, axis));
+        aspects(gt, l, {gt->Feature.getValue()});
         gt->ZoneShape.setValue(zone);
         gt->Value.setValue(obj->GetValue());
         switch (obj->GetMaterialRequirementModifier()) {
@@ -1859,6 +1962,7 @@ private:
             feats.push_back(feature(f2, !rims(f2, f1)));
         }
         dim->Features.setValues(feats);
+        aspects(dim, l, feats);
         double value = obj->GetValue();
         // The file's, until the model is measured: kept where it cannot be
         // (a curve length along faces, a width of what is not two planes)
@@ -2319,6 +2423,17 @@ public:
         std::vector<std::string> items;
     };
     std::vector<ViewSubset> _viewSubsets;
+    /// The annotations whose shapes the file groups, read last (aspects)
+    struct PendingAspects
+    {
+        App::DocumentObject* annotation;
+        TDF_Label label;
+        std::vector<App::DocumentObject*> sides;
+    };
+    std::vector<PendingAspects> _aspects;
+    /// Each element of an object by its TShape, its index; 0 if there twice
+    std::map<std::pair<Part::Feature*, TopAbs_ShapeEnum>, std::map<const TopoDS_TShape*, int>>
+        _elementIndex;
     Part::Feature* _lastObject = nullptr;
     std::vector<Pending> _pending;
 

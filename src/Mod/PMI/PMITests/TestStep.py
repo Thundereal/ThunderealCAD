@@ -390,10 +390,68 @@ class TestNistSet(Base):
                 self.assertBodyColoured(path, self.written)
                 self.assertSameAssembly(path, self.written)
                 self.assertSameGraphicForms(path, self.written)
+                self.assertSameAspects(path, self.written)
                 # A product's semantic text written as a note's, not as an attribute
                 # (SFA: invalid representation.name 'semantic text', dwin p21)
                 with open(self.written, errors="replace") as f:
                     self.assertNotIn("REPRESENTATION('semantic text'", f.read())
+
+    def assertSameAspects(self, original, written):
+        """The composite shape aspects a tolerance or a dimension is on, as the
+        file has them: a pattern of features a composite group shape aspect
+        'pattern of features' of a composite shape aspect 'unified geometric
+        item' a hole, named as the annotation (NIST CTC-04's 'Position.2', 6
+        holes of 2 faces each) -- kind, name, description and members, each
+        leaf counted by its faces"""
+        # Not yet as the file has them: a PMI on a datum feature itself (FTC-07, FTC-10,
+        # STC-06), on centres of symmetry (STC-07), on hole occurrences (STC-09), on curves
+        # beside the solid (STC-10)
+        known = r"nist_(ftc_07|ftc_10|stc_06|stc_07|stc_09|stc_10)_"
+        if re.match(known, os.path.basename(original)):
+            return
+
+        def trees(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", " ", f.read())
+            text = text[text.index("DATA;"):]
+            ents = dict(re.findall(r"#(\d+) ?= ?([A-Z_(][^;]*?(?:'[^']*'[^;']*?)*);", text))
+            ref = lambda v: re.findall(r"#(\d+)", v)
+            kinds = {"COMPOSITE_SHAPE_ASPECT": "C", "COMPOSITE_GROUP_SHAPE_ASPECT": "G"}
+            kind = lambda v: kinds.get(re.match(r"[A-Z_]*", v).group(0))
+            members, faces = collections.defaultdict(list), collections.Counter()
+            users = collections.defaultdict(set)
+            for k, v in ents.items():
+                for r in ref(v):
+                    users[r].add(k)
+                if re.match(r"SHAPE_ASPECT_RELATIONSHIP ?\(", v):
+                    members[ref(v)[-2]].append(ref(v)[-1])
+                elif re.match(r"(GEOMETRIC_ITEM_SPECIFIC|ITEM_IDENTIFIED_REPRESENTATION)_USAGE", v):
+                    faces[ref(v)[0]] += len(ref(v)) - 2
+
+            def tree(k):
+                own, subs = 0, []
+                for m in members[k]:
+                    if kind(ents.get(m, "")):
+                        subs.append(tree(m))
+                    else:
+                        own += faces[m]
+                s = re.findall(r"'([^']*)'", ents[k]) + ["", ""]
+                return (kind(ents[k]), s[0], s[1], own, tuple(sorted(subs)))
+
+            def annotation(u):
+                v = ents[u]
+                head = v if v.startswith("(") else v.split("(")[0]
+                if "TOLERANCE" in head:
+                    return True
+                # a dimension given no value is read as a graphic alone
+                valued = (ents[c].startswith("DIMENSIONAL_CHARACTERISTIC_REP") for c in users[u])
+                return re.search(r"DIMENSIONAL_|ANGULAR_", head) is not None and any(valued)
+
+            return collections.Counter(
+                tree(k) for k, v in ents.items()
+                if kind(v) and any(annotation(u) for u in users[k]))
+
+        self.assertEqual(trees(written), trees(original))
 
     def assertSameAssembly(self, original, written):
         """An assembly where the file has one and none where it has none: a

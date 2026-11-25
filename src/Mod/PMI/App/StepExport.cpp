@@ -53,6 +53,7 @@
 #include <Standard_Failure.hxx>
 #include <TCollection_HAsciiString.hxx>
 #include <TDF_Label.hxx>
+#include <TDF_Tool.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_ShapeMapHasher.hxx>
@@ -85,6 +86,7 @@
 #include <Mod/Import/App/ExportOCAF2.h>
 #include <App/Datums.h>
 #include <App/DocumentObjectGroup.h>
+#include <App/ElementNamingUtils.h>
 #include <App/GeoFeature.h>
 #include <App/GeoFeatureGroupExtension.h>
 #include <App/PropertyLinks.h>
@@ -592,9 +594,13 @@ private:
     /// The labels of the elements \a feature refers to, added to the part's
     /// shape as its sub-shapes; false with \a why if one is not in it
     bool labels(const TolerancedFeature* feature, Exported& ex,
-                NCollection_Sequence<TDF_Label>& out, std::string& why)
+                NCollection_Sequence<TDF_Label>& out, std::string& why,
+                std::vector<std::string>* names = nullptr)
     {
         out.Clear();
+        if (names) {
+            names->clear();
+        }
         if (!feature) {
             why = "it has no feature";
             return false;
@@ -608,11 +614,25 @@ private:
             out.Append(ex.label);
             return true;
         }
+        bool first = true;
         for (auto& [obj, subs] : feature->References.getSubListValues()) {
-            // On supplemental curves: on their set, as a whole
+            // Its elements named as the import names them: as they are on the first object,
+            // else qualified by theirs (StepImport namesOf)
+            const std::string qualifier =
+                first ? std::string() : std::string(obj->getNameInDocument()) + ".";
+            first = false;
+            // On supplemental curves: on their set, as a whole, every element of it
             auto supplemental = _supplementals.find(obj);
             if (supplemental != _supplementals.end()) {
                 out.Append(supplemental->second);
+                if (names) {
+                    std::string all;
+                    for (auto& sub : subs) {
+                        all += (all.empty() ? "" : "+") + qualifier
+                            + Data::oldElementName(sub.c_str());
+                    }
+                    names->push_back(all);
+                }
                 continue;
             }
             for (auto& sub : subs) {
@@ -653,6 +673,9 @@ private:
                     return false;
                 }
                 out.Append(l);
+                if (names) {
+                    names->push_back(qualifier + Data::oldElementName(sub.c_str()));
+                }
             }
         }
         if (out.IsEmpty()) {
@@ -660,6 +683,43 @@ private:
             return false;
         }
         return true;
+    }
+
+    /// How the file the annotation was read from grouped the shapes of one of its features
+    /// (`StepAspects`: a pattern of features, a feature of several faces), by the labels they
+    /// are now: told the writer, which groups them so again when it names them all
+    void setAspects(App::DocumentObject* annotation, const TDF_Label& l, bool second,
+                    const NCollection_Sequence<TDF_Label>& shapes,
+                    const std::vector<std::string>& names)
+    {
+        auto prop =
+            freecad_cast<App::PropertyStringList*>(annotation->getPropertyByName("StepAspects"));
+        const std::size_t side = second ? 1 : 0;
+        if (!prop || prop->getSize() <= int(side) || prop->getValues()[side].empty()) {
+            return;
+        }
+        // Each name of an element to its label's entry: a set of supplemental curves, all
+        // its names to its one label
+        std::map<std::string, std::string> entries;
+        for (int i = 1; i <= shapes.Length() && i <= int(names.size()); ++i) {
+            TCollection_AsciiString e;
+            TDF_Tool::Entry(shapes.Value(i), e);
+            const std::string& all = names[i - 1];
+            for (std::size_t at = 0; at < all.size();) {
+                std::size_t end = std::min(all.find('+', at), all.size());
+                if (end > at) {
+                    entries[all.substr(at, end - at)] = e.ToCString();
+                }
+                at = end + 1;
+            }
+        }
+        std::string structure =
+            Step::renameAspects(prop->getValues()[side], [&](const std::string& name) {
+                auto it = entries.find(name);
+                return it == entries.end() ? std::vector<std::string>()
+                                           : std::vector<std::string> {it->second};
+            });
+        XCAFDoc_DimTolTool::SetAspectStructure(l, second, structure.c_str());
     }
 
     /// The callout's graphic, for STEP: in the part's coordinates, every
@@ -1145,8 +1205,9 @@ private:
         }
         auto feature = freecad_cast<TolerancedFeature*>(gt->Feature.getValue());
         NCollection_Sequence<TDF_Label> shapes;
+        std::vector<std::string> names;
         std::string why;
-        if (!labels(feature, ex, shapes, why)) {
+        if (!labels(feature, ex, shapes, why, &names)) {
             return skip(gt, why);
         }
         // The frame's compartments, each a datum or a common datum
@@ -1236,6 +1297,7 @@ private:
         present(gt, ex, obj);
         attr->SetObject(obj);
         _tool->SetGeomTolerance(shapes, l);
+        setAspects(gt, l, false, shapes, names);
 
         // Each compartment's datums, at its position: a frame's own labels,
         // as OCCT reads them
@@ -1367,12 +1429,14 @@ private:
             return skip(dim, "it has not the features it measures");
         }
         NCollection_Sequence<TDF_Label> first, second;
+        std::vector<std::string> firstNames, secondNames;
         std::string why;
-        if (!labels(freecad_cast<TolerancedFeature*>(feats[0]), ex, first, why)) {
+        if (!labels(freecad_cast<TolerancedFeature*>(feats[0]), ex, first, why, &firstNames)) {
             return skip(dim, why);
         }
         if (location
-            && !labels(freecad_cast<TolerancedFeature*>(feats[1]), ex, second, why)) {
+            && !labels(freecad_cast<TolerancedFeature*>(feats[1]), ex, second, why,
+                       &secondNames)) {
             return skip(dim, "its second feature: " + why);
         }
         TDF_Label l = _tool->AddDimension();
@@ -1429,11 +1493,13 @@ private:
         attr->SetObject(obj);
         if (location) {
             _tool->SetDimension(first, second, l);
+            setAspects(dim, l, true, second, secondNames);
         }
         else {
             NCollection_Sequence<TDF_Label> none;
             _tool->SetDimension(first, none, l);
         }
+        setAspects(dim, l, false, first, firstNames);
         ++_report.dimensions;
     }
 

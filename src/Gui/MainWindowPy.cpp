@@ -26,6 +26,7 @@
 # include <algorithm>
 # include <array>
 # include <list>
+# include <QMenuBar>
 #endif
 
 #include <Base/TypePy.h>
@@ -74,6 +75,10 @@ void MainWindowPy::init_type()
     add_varargs_method("statusBarItem",
                        &MainWindowPy::statusBarItem,
                        "statusBarItem(id) -> widget or None");
+    add_varargs_method("menuBar",
+                       &MainWindowPy::menuBar,
+                       "menuBar() -> QMenuBar\n"
+                       "The menu bar the user sees, in the custom title bar too.");
 }
 
 PyObject *MainWindowPy::extension_object_new(struct _typeobject * /*type*/, PyObject * /*args*/, PyObject * /*kwds*/)
@@ -109,7 +114,7 @@ Py::Object MainWindowPy::createWrapper(MainWindow *mw)
                                    "getActiveWindow", "addWindow", "removeWindow",
                                    "showHint", "hideHint",
                                    "addStatusBarItem", "removeStatusBarItem",
-                                   "statusBarItem"};
+                                   "statusBarItem", "menuBar"};
 
     Py::Object py = wrap.fromQWidget(mw, "QMainWindow");
     Py::ExtensionObject<MainWindowPy> inst(create(mw));
@@ -378,4 +383,25 @@ Py::Object MainWindowPy::statusBarItem(const Py::Tuple& args)
     PythonWrapper wrap;
     wrap.loadWidgetsModule();
     return wrap.fromQWidget(widget);
+}
+
+// The window's own menu bar, wherever it is. CustomTitleBarWindow::menuBar()
+// hides QMainWindow's without being virtual, and PySide binds the base class:
+// getMainWindow().menuBar() reached Qt's, which in the custom title bar --
+// the menu-widget slot holding the kit's spacer, the menus in the title bar --
+// made an empty, hidden QMenuBar of its own and returned that. A script then
+// found no Part Design menu, and its addMenu() landed on a bar nobody sees
+// (the kit's guard carries such entries over, but only later). The wrapper
+// gets this method in place of Qt's (createWrapper() above).
+Py::Object MainWindowPy::menuBar(const Py::Tuple& args)
+{
+    if (!PyArg_ParseTuple(args.ptr(), "")) {
+        throw Py::Exception();
+    }
+    if (!_mw) {
+        throw Py::RuntimeError("The main window is gone");
+    }
+    PythonWrapper wrap;
+    wrap.loadWidgetsModule();
+    return wrap.fromQWidget(_mw->menuBar(), "QMenuBar");
 }

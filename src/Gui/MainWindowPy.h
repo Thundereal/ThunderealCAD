@@ -58,6 +58,7 @@ public:
     Py::Object addStatusBarItem(const Py::Tuple&, const Py::Dict&);
     Py::Object removeStatusBarItem(const Py::Tuple&);
     Py::Object statusBarItem(const Py::Tuple&);
+    Py::Object menuBar(const Py::Tuple&);
 
 private:
     QPointer<MainWindow> _mw;

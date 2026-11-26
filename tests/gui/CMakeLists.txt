@@ -2900,3 +2900,6 @@ fc_add_gui_test(GuiTooltipWidgetGone_tests_run tooltip-widget-gone.py --timeout 
 # record at every start; SmokeTesting step 1).
 fc_add_gui_test(GuiWorkbenchInitCommandRecord_tests_run workbench-init-command-record.py
                 --timeout 300)
+# getMainWindow().menuBar() is the bar the user sees, in the custom title bar
+# too: not an empty hidden one Qt makes (SmokeTesting step 1).
+fc_add_gui_test(GuiMenuBarInTitleBar_tests_run menubar-in-title-bar.py --timeout 300)

@@ -185,6 +185,17 @@ void put(const char* text)
 #else  // FC_OS_WIN32
 
 volatile LONG entered = 0;
+// Room kept back on a thread's stack for the report when the stack itself
+// overflowed: Windows' way to an alternate stack
+constexpr ULONG Guarantee = 64 * 1024;
+// Every thread that room (docs/WorkerProcess.md sec 76), as a thread on
+// macOS is given its own stack: with the installing thread's alone, a
+// thread of OCCT's pool, Qt's or Python's that ran out of stack had the
+// guard page's few KiB for the handler, and faulted again in it. A thread
+// started once install() has run is given it as it starts, by the TLS
+// callback at the end of this file; a process that is no worker is given
+// nothing
+std::atomic<bool> threadGuarantees {false};
 // The worker's stderr, its log: taken at install, written with WriteFile
 HANDLE errors = INVALID_HANDLE_VALUE;
 // An image's path, for a frame: not on the heap, which a crash may have broken
@@ -674,9 +685,11 @@ void WorkerCrash::install()
         }
     }
     // Room for the report when the stack itself overflowed: kept back on the
-    // thread that makes the jobs, this one
-    ULONG reserve = 64 * 1024;
+    // thread that makes the jobs, this one, and on every thread started from
+    // now on
+    ULONG reserve = Guarantee;
     ::SetThreadStackGuarantee(&reserve);
+    threadGuarantees = true;
     // Not a vectored handler: that one hears first-chance exceptions too,
     // which something may yet catch (ctypes does, for one)
     ::SetUnhandledExceptionFilter(unhandled);
@@ -1233,3 +1246,29 @@ __attribute__((used)) const Interpose interposed[] __attribute__((section("__DAT
 }  // namespace
 
 #endif  // FC_OS_MACOSX
+
+#if defined(FC_OS_WIN32) && defined(_MSC_VER) && defined(_WIN64)
+
+namespace
+{
+/// Called by the loader on each thread as it starts, before the thread's
+/// routine, on that thread: the place to keep its room back
+/// (docs/WorkerProcess.md sec 76)
+void NTAPI threadStarted(PVOID /*image*/, DWORD reason, PVOID /*reserved*/)
+{
+    if (reason == DLL_THREAD_ATTACH && threadGuarantees.load(std::memory_order_relaxed)) {
+        ULONG reserve = Guarantee;
+        ::SetThreadStackGuarantee(&reserve);
+    }
+}
+}  // namespace
+
+// The image's TLS directory, and this callback kept in it: neither is
+// referred to, so each is named to the linker
+#pragma comment(linker, "/INCLUDE:_tls_used")
+#pragma comment(linker, "/INCLUDE:fcWorkerCrashThreadStarted")
+#pragma const_seg(".CRT$XLF")
+extern "C" const PIMAGE_TLS_CALLBACK fcWorkerCrashThreadStarted = threadStarted;
+#pragma const_seg()
+
+#endif  // FC_OS_WIN32

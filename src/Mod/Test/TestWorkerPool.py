@@ -146,8 +146,23 @@ def _param(doc, inputs, out):
 
 def _threadAltStack():
     """The size of the alternate signal stack a thread started now has, 0
-    for none (macOS's stack_t; SS_DISABLE is 4 there)"""
+    for none (macOS's stack_t; SS_DISABLE is 4 there). On Windows the room
+    its stack keeps back for the handler, its stack guarantee"""
     import ctypes
+
+    if sys.platform == "win32":
+        got = []
+
+        def guarantee():
+            size = ctypes.c_ulong(0)
+            # 0 asks what it is and changes nothing
+            ctypes.windll.kernel32.SetThreadStackGuarantee(ctypes.byref(size))
+            got.append(size.value)
+
+        thread = threading.Thread(target=guarantee)
+        thread.start()
+        thread.join()
+        return got[0]
 
     class Stack(ctypes.Structure):
         _fields_ = [("sp", ctypes.c_void_p), ("size", ctypes.c_size_t), ("flags", ctypes.c_int)]
@@ -350,20 +365,26 @@ class TestWorkerPool(unittest.TestCase):
             self.pool.poll(50)
         return condition()
 
-    @unittest.skipUnless(sys.platform == "darwin",
-                         "a thread is given the handler's stack on macOS only (sec 75)")
+    @unittest.skipUnless(sys.platform in ("darwin", "win32"),
+                         "a thread is given the handler's stack on macOS and Windows only"
+                         " (secs 75, 76)")
     def testAThreadAWorkerStartsHasTheCrashHandlersStack(self):
         """A thread a worker starts has a stack for the crash handler of its
-        own: one that runs out of stack is reported, not taken down again
-        in the handler. A process that is no worker gives none
-        (docs/WorkerProcess.md sec 75)"""
-        self.assertEqual(_threadAltStack(), 0)
+        own -- on Windows, room kept back on its stack: one that runs out of
+        stack is reported, not taken down again in the handler. A process
+        that is no worker gives none (docs/WorkerProcess.md secs 75, 76)"""
+        want = 64 * 1024 if sys.platform == "win32" else 256 * 1024
+        if sys.platform == "win32":
+            # what Windows keeps back of its own is not said to be none
+            self.assertLess(_threadAltStack(), want)
+        else:
+            self.assertEqual(_threadAltStack(), 0)
         self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
         job = self.submit("test.altstack")
         self.assertTrue(self.pool.wait(120), self.pool.info())
         out = self.pool.result(job)["Output"]
         self.assertNotEqual(out["Pid"], os.getpid())
-        self.assertEqual(out["Size"], 256 * 1024, out)
+        self.assertEqual(out["Size"], want, out)
 
     def testAWorkerWaitingForWorkHasItsGuestUp(self):
         """With a sandbox runtime installed a worker boots its guest as it

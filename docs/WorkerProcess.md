@@ -4443,6 +4443,8 @@ does not leave a higher high-water mark behind; the spread with a runtime is
 from run to run and between processes of the same run, the standby among
 them. About half of a worker's footprint with a runtime is one region kind
 (`footprint`: "app-specific tag 16", 72-82 MB dirty), the rest malloc.
+(That region is V8's own, and 18 MB of a worker's footprint was garbage
+the boot left: sec 76.)
 
 Two things the tests found on the way:
 
@@ -4924,3 +4926,80 @@ it. That checks the copy is made where it now is; a race is not a thing a
 test shows. Not tested: a message past 4 GiB, a put-in that threw.
 
 Nothing is left of sec 72's list.
+
+## 76. What sec 75 left open (2026-11-26)
+
+**A put-in the user stops, tested.** Sec 75 counted a put-in that threw
+an abort as a drop, untested: a Python feature's `execute()` cannot throw
+one (its `FreeCADAbort` is reported and rethrown as a `Base::PyException`
+by the hook's error policy, `ReportThrow`, so `_recomputeFeature()` takes
+it for the object's failure), and the abort comes from the progress bar.
+So the test presses the progress bar's key: `tests/gui/putin-stopped-by-worker.py`
+hands a cut's recompute to a worker with Std_Refresh, and a document
+observer, as the first `Shape` of the put-in goes in, sends Escape to the
+main window -- through the progress bar's event filter, which asks to
+cancel -- and answers the question that follows ("Do you really want to
+abort the operation?") Yes. The recompute's next step throws the abort.
+Seen: the question asked once, the put-in counted `Cancelled` 1, `Applied`
+0, its reason "putting it in was stopped"; the pool's `Spoiled` 1; the GUI
+ran nothing here after it (`Started` still 1, what was left touched still
+touched); the next Std_Refresh made by a new worker (pid 59764 before,
+59765 after), put in, nothing touched, the cut's volume that of the edited
+box, nothing executed here. A failure other than an abort (`Failed`) is
+still untested: what `Document::recompute()` lets out is an abort, and
+anything else in it is caught there.
+
+**Windows threads have the handler's room too.** Sec 75 gave each thread
+a worker starts on macOS a stack of its own for the crash handler. On
+Windows the handler, the unhandled-exception filter, runs on the faulting
+thread, and what it has left after a stack overflow is what
+`SetThreadStackGuarantee()` kept back; `install()` kept 64 KiB on its own
+thread only, so a thread of OCCT's pool, Qt's or Python's that overflowed
+had the guard page's few KiB to write the report in. Now `install()` sets
+a flag, and a TLS callback in FreeCADApp (`.CRT$XLF`, called by the loader
+on each thread as it starts, on that thread) keeps the same 64 KiB on
+every thread started after it. A process that is no worker keeps nothing
+more. The test, `testAThreadAWorkerStartsHasTheCrashHandlersStack`, now
+runs on Windows too: a thread started in a worker reports a guarantee of
+64 KiB (`SetThreadStackGuarantee` given 0 says what it is), one in the
+test's process less. Written on the mini, not built here: MSVC x64 only
+(`_WIN64`), for the Windows box to build and run. Linux is still as it
+was: it would take interposing `pthread_create()` in an ELF library, and
+there is no Linux box here to prove that on.
+
+**What "app-specific tag 16" is** (sec 69). The application-specific VM
+tags are 240 to 255, which `footprint` numbers 1 to 16
+(`VM_MEMORY_APPLICATION_SPECIFIC_1` is 240 and `_16` 255 in the SDK's
+`mach/vm_statistics.h`): tag 16 is 255. The runtime is V8
+(`libv8.14.6.202.34.dylib`), and V8's `mmap()` calls pass `0xff000000`
+(`VM_MAKE_TAG(255)`) as the descriptor of an anonymous map (`otool -tV`:
+`mov w4, #-0x1000000` before three of its thirteen calls; eight pass -1). A worker whose
+guest has not booted has none of that tag; one whose guest has, 250
+regions, 72.4 MB dirty -- a 4 GiB reservation in 128 MiB pieces (the size of
+V8's pointer-compression cage) and many 256 KiB pieces at scattered addresses.
+The runtime's own count (`ExpressionSandbox.memoryInfo()`, in a worker
+job): the guest's linear memory 36.0 MiB, V8's heap 26.3 MiB used, and
+30.4 MiB of array buffers, which come from the host's allocator and so
+count as malloc (`fcad-probes/worker/tag16.py`, `tag16mod.py`).
+
+**And 18 MB of it was garbage.** What the boot makes and lets go stays
+until V8 collects it, and a worker waiting for work runs nothing that
+would make it. `isolate->LowMemoryNotification()` after the boot, before
+the runtime is live, collects it. Measured on the mini, a pool worker with
+its guest booted, twice each way: footprint 145 MB -> 127 MB, the tag's
+dirty 72.4 -> 54.3 MB, V8's heap 26.3 -> 17.7 MiB, the buffers 30.4 ->
+24.9 MiB, the linear memory 36.0 either way. Its cost, the guest booted in
+the console process three times each way (`fcad-probes/worker/bootgc.py`):
+the boot 1.494-1.501 s without, 1.501-1.513 s with; the first four
+expressions after it 7.4-8.0, 3.0-3.2, 2.4, 0.05 ms either way. A worker
+boots while it waits for work (sec 67), so that is mostly not waited for.
+The standby and every worker with a runtime stand that much lighter; the
+GUI's own guest boots through the same code.
+
+Tests, on the mini: `TestWorkerPool` 97 OK with the runtime
+(`FREECAD_USER_HOME=~/works/sw/pyodide-home`, nothing skipped) and 97 OK,
+1 skipped, without; `TestPartApp` 453 OK with it; `SandboxProgram` 47 OK,
+`SandboxModelDump` 6 OK and the ten `ExpressionPyodide*` ctest entries
+pass with it; the new GUI test 9 of 9. The worker with the final build:
+footprint 124 MB, V8's heap 17.7 MiB. Not run here: the Windows code
+(the TLS callback and the test's Windows half).

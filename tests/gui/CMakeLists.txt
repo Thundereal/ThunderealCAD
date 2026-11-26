@@ -2909,3 +2909,6 @@ fc_add_gui_test(GuiDocksFitTheScreen_tests_run docks-fit-the-screen.py --timeout
 # bgfx on OpenGL at MSAA 4x shows the view, PBR and volumetrics on too; a
 # refused depth framebuffer no longer drops the colour blit (SmokeTesting step 1).
 fc_add_gui_test(GuiBgfxGlMsaaViewDrawn_tests_run bgfx-gl-msaa-view-drawn.py --timeout 300)
+# Entering and leaving a sketch does not restyle the whole task view: the
+# panels set their style sheet only when it changes (SmokeTesting step 1).
+fc_add_gui_test(GuiTaskViewNoRestyle_tests_run task-view-no-restyle.py --timeout 300)

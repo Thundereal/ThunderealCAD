@@ -111,7 +111,9 @@ void TaskHeader::setScheme(ActionPanelScheme *scheme)
   if (scheme) {
     myScheme = scheme;
     //myLabelScheme = &(scheme->headerLabelScheme);
-    setStyleSheet(myScheme->actionStyle);
+    // only a sheet that differs (ActionPanel::setScheme says why)
+    if (styleSheet() != myScheme->actionStyle)
+        setStyleSheet(myScheme->actionStyle);
 
     if (myExpandable) {
       //setCursor(myLabelScheme->cursorOver ? Qt::PointingHandCursor : cursor());

@@ -1573,6 +1573,20 @@ kept; the tests need PartDesign. And one for a decision: supplemental geometry i
 every file since sec 10.24 K, whatever `read.step.constructivegeom.relationship` says -- a
 plain part with construction curves comes in with them beside its solid.
 
+Closed 2026-11-26 (audit leftovers): the opposed blind holes are a hole each (a bore's runs
+apart on one axis); `autoSlot` keeps where each callout lands through one recompute (400
+self-placed tolerances 1.70 s -> 0.20 s); a composite frame's rows turn upright as one, about
+the middle of the stack; a width on two faces facing the same way is refused as a step;
+`Datum.Shape` and `DatumTarget.Shape` are made again on restore; a perspective view keeps the
+height it shows at its focal distance; the Body-based tests skip without PartDesign.
+`SavedGeometry` keeps a reference resolved to nothing in its place (an empty compound): the
+ones after it were read onto the one before. The import guards each stage over the whole
+file (a failure loses that stage, said in the report), and says when a file's datum frame is
+one FreeCAD does not write (a letter not A to Z, more than three compartments, a datum
+twice): kept as read, shown invalid. A datum feature symbol linked to its size's
+`dimensional_size_with_datum_feature` only, not its `datum`, was feared lost (B6): probed on
+STC-07 with datum B's link moved so, it is not.
+
 SFA pass 12 (dwin) on that: STC-06 and STC-10 equal NIST's graphics table, and two things it
 found. A value's format was written with the digits of the millimetres a value is kept in, in a
 file in inches ('NR2 3.2' for 12 in): the writer counts those of the value it writes. And one

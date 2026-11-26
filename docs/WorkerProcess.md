@@ -4513,7 +4513,7 @@ Whether one may be kept is judged as it would go, and again every
 | `KeepOpenMemoryUse` | 85 | the machine's memory in use, 100 * (1 - available / total), is below this percent |
 | `KeepOpenPressure` | 1 | the system's own word on its memory is below this level: 1 low, 2 critical; 0 does not ask |
 
-Available memory is what `grow()` already reads (sec 40): free, inactive
+Available memory is what `grow()` already reads before it starts a second worker: free, inactive
 and purgeable pages on macOS, `MemAvailable` on Linux, `ullAvailPhys` on
 Windows. The system's word: the kernel's `memorystatus_vm_pressure_level`
 on macOS (warn 1, critical 2); on Linux the pressure stall information, 10 %

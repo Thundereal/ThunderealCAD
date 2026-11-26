@@ -335,9 +335,16 @@ void DrawViewDimension::onChanged(const App::Property* prop)
         syncFromSource();
     }
 
+    // an undo or redo puts what was saved of the references back itself: saving
+    // it again from the references it restores would throw that away -- a
+    // Cancel of the edit that took a reference by its name left the file's
+    // name recorded over with the element it was left on
+    const bool undoing = getDocument() && getDocument()->isPerformingTransaction();
     if (prop == &References2D) {
-        updateSavedGeometry();
-        updateSavedNames();
+        if (!undoing) {
+            updateSavedGeometry();
+            updateSavedNames();
+        }
     } else if (prop == &References3D) {
         // remove the old measurement object
         clear3DMeasurements();
@@ -348,7 +355,9 @@ void DrawViewDimension::onChanged(const App::Property* prop)
         else if (MeasureType.isValue("True")) {//empty 3dRefs, but True
             MeasureType.touch();               //run MeasureType logic for this case
         }
-        updateSavedGeometry();
+        if (!undoing) {
+            updateSavedGeometry();
+        }
         return;
     }
     else if (prop == &Type) {//why??
@@ -680,8 +689,9 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
 
     try {
         // the first rung of the recovery ladder: an element that still carries the
-        // name the reference was made against is the element the reference means,
-        // whatever number the projection gives it now.  the geometry comparison
+        // name the reference was made against, and has its saved geometry, is the
+        // element the reference means, whatever number the projection gives it
+        // now -- the name tells it from a coincident copy.  the geometry search
         // below is the fallback for a reference this cannot place.
         fixByName();
 
@@ -701,6 +711,15 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
                     handleNoExactMatch();
                 }
             }
+        }
+
+        // a reference neither rung found, whose name is another element's now:
+        // the user's to settle.  its saved name is kept for their edit, not
+        // recorded over with the element it is left on.
+        std::string moved = isRestoring() ? std::string() : whyNameMoved();
+        if (!moved.empty()) {
+            references = getEffectiveReferences();
+            return described(moved);
         }
 
         // record the names of the references we believe in.  that is what gives a
@@ -1938,25 +1957,25 @@ void DrawViewDimension::updateSavedNames()
     }
 }
 
-//! Repoint any 2D reference whose stored name belongs to a different element
-//! now.  Nothing here remembers whether it has run: while the view has not
-//! projected there is no name to find and the answer is simply no, and the
+//! Each 2D reference whose stored name belongs to a different element now.
+//! Nothing here remembers whether it has run: while the view has not
+//! projected there is no name to find and the answer is simply none, and the
 //! next execute asks again (sec 3.7).
-bool DrawViewDimension::fixByName()
+std::vector<DrawViewDimension::NameMatch> DrawViewDimension::findByName() const
 {
+    std::vector<NameMatch> found;
     const std::vector<std::string> savedNames = SavedNames.getValues();
     if (savedNames.empty()) {
-        return false;
+        return found;
     }
 
     ReferenceVector references = getReferences2d();
     if (references.size() != savedNames.size()) {
         // out of step with the references, so we can not tell which name
         // belongs to which.  updateSavedNames puts them back in step.
-        return false;
+        return found;
     }
 
-    std::vector<std::pair<int, std::string>> fixes;
     for (size_t iRef = 0; iRef < references.size(); iRef++) {
         if (savedNames.at(iRef).empty()) {
             continue;
@@ -1971,16 +1990,97 @@ bool DrawViewDimension::fixByName()
             // or the reference already points where it should
             continue;
         }
-        fixes.emplace_back(int(iRef), subName);
+        found.push_back({int(iRef), references.at(iRef).getSubName(), subName,
+                         hasSavedGeometry(int(iRef), dvp, subName)});
+    }
+    return found;
+}
+
+//! The saved geometry is of the effective references, one entry each; it
+//! speaks for the 2D references only while there are no 3D ones.
+bool DrawViewDimension::hasSavedGeometry(int iRef, DrawViewPart* dvp,
+                                         const std::string& subName) const
+{
+    if (!References3D.getValues().empty() || !dvp) {
+        return false;
+    }
+    const std::vector<TopoShape> saved = SavedGeometry.getValues();
+    if (saved.size() != getReferences2d().size() || iRef < 0 || iRef >= int(saved.size())
+        || saved.at(iRef).isNull()) {
+        return false;
+    }
+    ReferenceEntry now(dvp, subName);
+    if (!now.isValid()) {
+        return false;
+    }
+    return m_matcher->compareGeometry(saved.at(iRef), now.asCanonicalTopoShape());
+}
+
+//! In a recompute a reference is repointed by its name only where the
+//! element that carries the name now is also what was saved of it: a name
+//! can land on another element altogether -- the line a distance was on
+//! named a B-spline after the projection was made again, and the dimension
+//! failed ("Edge21 is a BSpline, not a straight line"). The reporter: "the
+//! auto reference fix should only be done if geometry search found the match
+//! instead of pure naming match". A pure name match is the user's to take,
+//! on their edit of the dimension (repointByName()).
+bool DrawViewDimension::fixByName()
+{
+    std::vector<std::pair<int, std::string>> fixes;
+    for (auto& match : findByName()) {
+        if (match.sameGeometry) {
+            fixes.emplace_back(match.index, match.now);
+        }
     }
 
     repointReferences(fixes, false);
     if (!fixes.empty()) {
-        Base::Console().Log("%s - %d 2d reference(s) found again by name\n",
+        Base::Console().Log("%s - %d 2d reference(s) found again by name and geometry\n",
                             getNameInDocument(), int(fixes.size()));
     }
 
     return !fixes.empty();
+}
+
+std::vector<DrawViewDimension::NameMatch> DrawViewDimension::repointByName()
+{
+    std::vector<NameMatch> moved = findByName();
+    std::vector<std::pair<int, std::string>> fixes;
+    for (auto& match : moved) {
+        fixes.emplace_back(match.index, match.now);
+    }
+    repointReferences(fixes, false);
+    return moved;
+}
+
+//! A reference the ladder left where it was, on an element that does not
+//! have its saved geometry, while its saved name is another element's now:
+//! which of the two it means is not for a recompute to guess. Said, and the
+//! dimension left in error until the user's edit takes the name's element or
+//! reattaches the reference (TaskDimension).
+std::string DrawViewDimension::whyNameMoved() const
+{
+    std::string why;
+    ReferenceVector references = getReferences2d();
+    for (auto& match : findByName()) {
+        auto dvp = dynamic_cast<TechDraw::DrawViewPart*>(references.at(match.index).getObject());
+        if (match.sameGeometry || hasSavedGeometry(match.index, dvp, match.was)) {
+            continue;
+        }
+        QString text = QCoreApplication::translate(
+                           "TechDraw", "the reference on %1 has a name that is %2's now, and "
+                                       "neither has the geometry it was made on")
+                           .arg(QString::fromStdString(match.was),
+                                QString::fromStdString(match.now));
+        why += (why.empty() ? std::string() : std::string("; ")) + text.toStdString();
+    }
+    if (!why.empty()) {
+        why += QCoreApplication::translate(
+                   "TechDraw", ". Not repointed: edit the dimension to take the element by its "
+                               "name, or reattach the reference")
+                   .toStdString();
+    }
+    return why;
 }
 
 // routines related to detecting that references no longer point to the same geometry as

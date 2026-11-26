@@ -23,6 +23,9 @@
 #include "PreCompiled.h"
 #ifndef _PreComp_
 # include <cmath>
+# include <QBoxLayout>
+# include <QGroupBox>
+# include <QTimer>
 #endif // #ifndef _PreComp_
 
 #include <App/Application.h>
@@ -30,12 +33,15 @@
 #include <Base/Console.h>
 #include <Base/Vector3D.h>
 #include <Gui/BitmapFactory.h>
+#include <Gui/Command.h>
 #include <Gui/CommandT.h>
 #include <Gui/ViewProvider.h>
 #include <Mod/TechDraw/App/DrawGeomHatch.h>
 #include <Mod/TechDraw/App/DrawView.h>
+#include <Mod/TechDraw/App/DrawViewPart.h>
 
 #include "TaskGeomHatch.h"
+#include "TaskReferenceList.h"
 #include "ui_TaskGeomHatch.h"
 #include "ViewProviderGeomHatch.h"
 
@@ -56,6 +62,62 @@ TaskGeomHatch::TaskGeomHatch(TechDraw::DrawGeomHatch* inHatch, TechDrawGui::View
     m_source = m_hatch->Source.getValue();
     getParameters();
     initUi();
+    if (!m_createMode) {
+        addReferences();
+        // once the dialog has opened its transaction ("Edit hatch"), which
+        // Cancel aborts
+        QTimer::singleShot(0, this, [this]() { takeByName(); });
+    }
+}
+
+void TaskGeomHatch::addReferences()
+{
+    auto dvp = dynamic_cast<TechDraw::DrawViewPart*>(m_source);
+    if (!dvp) {
+        return;
+    }
+    auto box = new QGroupBox(tr("Faces"), this);
+    auto boxLayout = new QVBoxLayout(box);
+    TechDraw::DrawGeomHatch* hatch = m_hatch;
+    m_refs = new TaskReferenceList(
+        dvp, QStringList {QStringLiteral("Face")},
+        [hatch]() { return hatch->Source.getSubValues(); },
+        [hatch, dvp](int index, const std::string& subName) {
+            std::vector<std::string> subs = hatch->Source.getSubValues();
+            if (index < 0 || index >= int(subs.size())) {
+                return false;
+            }
+            subs.at(index) = subName;
+            hatch->Source.setValue(dvp, subs);
+            Gui::Command::updateActive();
+            return true;
+        },
+        [hatch]() {
+            const char* status = hatch->isError() ? hatch->getStatusString() : nullptr;
+            return std::string(status ? status : "");
+        },
+        box);
+    boxLayout->addWidget(m_refs);
+    if (auto vbox = qobject_cast<QBoxLayout*>(layout())) {
+        vbox->insertWidget(0, box);
+    }
+}
+
+void TaskGeomHatch::takeByName()
+{
+    if (!m_hatch || m_hatch->findByName().empty()) {
+        return;
+    }
+    std::vector<TechDraw::ReferenceNameMatch> taken = m_hatch->repointByName();
+    Gui::Command::updateActive();
+    for (auto& found : taken) {
+        Base::Console().Warning("%s: face %s taken by its name, now %s; check it, then OK keeps "
+                                "it, Cancel leaves the face as it was\n",
+                                m_hatch->Label.getValue(), found.was.c_str(), found.now.c_str());
+    }
+    if (m_refs) {
+        m_refs->setRefound(taken);
+    }
 }
 
 void TaskGeomHatch::initUi()

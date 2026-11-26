@@ -50,6 +50,7 @@ class QGIPrimPath;
 class MDIViewPage;
 class ViewProviderViewPart;
 class Ui_TaskCenterLine;
+class TaskReferenceList;
 
 class TaskCenterLine : public QWidget
 {
@@ -109,6 +110,12 @@ private:
     int m_type;
     int m_mode;
     bool m_editMode;
+
+    /// The references listed, with Reattach; what was found by name alone
+    /// taken once the panel is up (the reporter, 2026-11-26)
+    void addReferences();
+    void takeByName();
+    TaskReferenceList* m_refs = nullptr;
 
 private Q_SLOTS:
     void onOrientationChanged();

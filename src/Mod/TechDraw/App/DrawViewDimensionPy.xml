@@ -43,6 +43,16 @@
         <UserDocu>getArrowPositions() - returns list of locations or Dimension Arrowheads. Locations are in unscaled coordinates of parent View </UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="findByName">
+      <Documentation>
+        <UserDocu>findByName() - the 2D references whose saved name another element carries now: a list of (index, was, now, sameGeometry), sameGeometry True where that element has the geometry saved for the reference. A recompute repoints only those.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="repointByName">
+      <Documentation>
+        <UserDocu>repointByName() - every reference findByName() lists repointed to the element that carries its name, whatever its geometry, as the dimension's edit does. Returns the list of (index, was, now, sameGeometry) moved.</UserDocu>
+      </Documentation>
+    </Methode>
     <CustomAttributes />
   </PythonExport>
 </GenerateModel>

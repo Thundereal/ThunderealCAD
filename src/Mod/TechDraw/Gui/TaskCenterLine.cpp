@@ -21,6 +21,11 @@
  ***************************************************************************/
 
 #include "PreCompiled.h"
+#ifndef _PreComp_
+# include <QBoxLayout>
+# include <QGroupBox>
+# include <QTimer>
+#endif
 
 #include <Mod/TechDraw/App/TechDrawParams.h>
 
@@ -40,6 +45,7 @@
 #include <Mod/TechDraw/App/LineGroup.h>
 
 #include "TaskCenterLine.h"
+#include "TaskReferenceList.h"
 #include "ui_TaskCenterLine.h"
 #include "PreferencesGui.h"
 #include "QGIView.h"
@@ -84,6 +90,54 @@ TaskCenterLine::TaskCenterLine(TechDraw::DrawViewPart* partFeat,
     setUiConnect();
     // save the existing centerline to restore in case the user rejects the changes
     orig_cl = *m_cl;
+    addReferences();
+    QTimer::singleShot(0, this, [this]() { takeByName(); });
+}
+
+void TaskCenterLine::addReferences()
+{
+    if (!m_cl || !m_partFeat) {
+        return;
+    }
+    auto box = new QGroupBox(tr("References"), this);
+    auto boxLayout = new QVBoxLayout(box);
+    TechDraw::CenterLine* cl = m_cl;
+    TechDraw::DrawViewPart* dvp = m_partFeat;
+    m_refs = new TaskReferenceList(
+        dvp, QStringList {QStringLiteral("Face"), QStringLiteral("Edge"), QStringLiteral("Vertex")},
+        [cl]() { return cl->allReferences(); },
+        [cl, dvp](int index, const std::string& subName) {
+            // a face's place is a face's, and so on (CenterLine::replaceReference())
+            if (!cl->replaceReference(dvp, index, subName)) {
+                return false;
+            }
+            dvp->recomputeFeature();
+            return true;
+        },
+        [cl]() { return cl->whyNameMoved(); },
+        box);
+    boxLayout->addWidget(m_refs);
+    if (auto vbox = qobject_cast<QBoxLayout*>(layout())) {
+        vbox->insertWidget(0, box);
+    }
+}
+
+void TaskCenterLine::takeByName()
+{
+    if (!m_cl || !m_partFeat || m_cl->findByName(m_partFeat).empty()) {
+        return;
+    }
+    std::vector<TechDraw::ReferenceNameMatch> taken = m_cl->repointByName(m_partFeat);
+    m_partFeat->recomputeFeature();
+    for (auto& found : taken) {
+        Base::Console().Warning("%s: centre line reference %s taken by its name, now %s; check "
+                                "it, then OK keeps it, Cancel leaves it as it was\n",
+                                m_partFeat->Label.getValue(), found.was.c_str(),
+                                found.now.c_str());
+    }
+    if (m_refs) {
+        m_refs->setRefound(taken);
+    }
 }
 
 //ctor for creation
@@ -567,6 +621,17 @@ bool TaskCenterLine::reject()
         m_cl->m_hShift = (&orig_cl)->m_hShift;
         m_cl->m_extendBy = (&orig_cl)->m_extendBy;
         m_cl->m_type = (&orig_cl)->m_type;
+        // and its references, as they were before the panel took any by name
+        // or reattached one
+        m_cl->m_faces = orig_cl.m_faces;
+        m_cl->m_edges = orig_cl.m_edges;
+        m_cl->m_verts = orig_cl.m_verts;
+        m_cl->m_faceNames = orig_cl.m_faceNames;
+        m_cl->m_edgeNames = orig_cl.m_edgeNames;
+        m_cl->m_vertNames = orig_cl.m_vertNames;
+        m_cl->m_faceGeometry = orig_cl.m_faceGeometry;
+        m_cl->m_edgeGeometry = orig_cl.m_edgeGeometry;
+        m_cl->m_vertGeometry = orig_cl.m_vertGeometry;
     }
 
     if (m_partFeat)

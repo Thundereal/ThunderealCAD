@@ -15,6 +15,51 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout_4">
    <item>
+    <widget class="QGroupBox" name="gbReferences">
+     <property name="title">
+      <string>References</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayoutReferences">
+      <item>
+       <widget class="QLabel" name="lMessage">
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+        <property name="textFormat">
+         <enum>Qt::RichText</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QListWidget" name="lwReferences">
+        <property name="toolTip">
+         <string>The elements the dimension measures. Select one and press Reattach to put it on another element.</string>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>90</height>
+         </size>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pbReattach">
+        <property name="toolTip">
+         <string>Select a reference above, press this, then pick the edge or vertex in the view it should be on.</string>
+        </property>
+        <property name="text">
+         <string>Reattach</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="gbTolerancing">
      <property name="title">
       <string>Tolerancing</string>

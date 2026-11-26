@@ -482,6 +482,13 @@ void CosmeticExtension::addCenterLinesToGeom()
         //elements that carry their names before the line is rebuilt
         cl->fixByName(getOwner());
         cl->updateSavedNames(getOwner());
+        // one its name has left, its geometry no help: left, and said, for
+        // the user's edit of the centre line to settle
+        std::string why = cl->whyNameMoved();
+        if (!why.empty()) {
+            Base::Console().Warning("%s: centre line %s: %s\n", getOwner()->Label.getValue(),
+                                    cl->getTagAsString().c_str(), why.c_str());
+        }
 //        TechDraw::BaseGeomPtr scaledGeom = cl->scaledGeometry(getOwner());
         TechDraw::BaseGeomPtr scaledGeom = cl->scaledAndRotatedGeometry(getOwner());
         if (!scaledGeom) {

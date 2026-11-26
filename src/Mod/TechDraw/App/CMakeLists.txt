@@ -113,6 +113,7 @@ SET(Draw_SRCS
     DimensionGeometry.h
     DimensionReferences.cpp
     DimensionReferences.h
+    ReferenceNameMatch.h
     DimensionFormatter.cpp
     DimensionFormatter.h
     GeometryMatcher.cpp

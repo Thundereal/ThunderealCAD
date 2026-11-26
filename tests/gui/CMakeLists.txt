@@ -455,6 +455,14 @@ fc_add_gui_test(GuiTechDrawTreeHoverLightsLabel_tests_run techdraw-tree-hover-li
 fc_add_gui_test(GuiTechDrawDimensionEditEndsGroupEdit_tests_run techdraw-dimension-edit-ends-group-edit.py
                 --timeout 200)
 
+# 2026-11-26: a reference found again by its name alone is not taken in a
+# recompute; the edit's panel takes it, says so, Cancel restores it, and
+# Reattach puts it on another element -- dimensions, hatches, centre lines.
+fc_add_gui_test(GuiTechDrawDimensionReattach_tests_run techdraw-dimension-reattach.py
+                --timeout 200)
+fc_add_gui_test(GuiTechDrawHatchCenterLineReattach_tests_run techdraw-hatch-centerline-reattach.py
+                --timeout 200)
+
 # Entry 215: every change in a chamfer's panel an undo step of its own, as
 # the fillet's (entry 136); Cancel takes the edit back.
 fc_add_gui_test(GuiChamferUndoSteps_tests_run chamfer-undo-steps.py

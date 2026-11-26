@@ -78,6 +78,39 @@ PyObject* DrawHatchPy::translateLabel(PyObject *args)
     Py_Return;
 }
 
+namespace
+{
+Py::List nameMatchesToPy(const std::vector<ReferenceNameMatch>& matches)
+{
+    Py::List ret;
+    for (auto& match : matches) {
+        Py::Tuple item(4);
+        item.setItem(0, Py::Long(match.index));
+        item.setItem(1, Py::String(match.was));
+        item.setItem(2, Py::String(match.now));
+        item.setItem(3, Py::Boolean(match.sameGeometry));
+        ret.append(item);
+    }
+    return ret;
+}
+}  // namespace
+
+PyObject* DrawHatchPy::findByName(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    return Py::new_reference_to(nameMatchesToPy(getDrawHatchPtr()->findByName()));
+}
+
+PyObject* DrawHatchPy::repointByName(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    return Py::new_reference_to(nameMatchesToPy(getDrawHatchPtr()->repointByName()));
+}
+
 PyObject *DrawHatchPy::getCustomAttributes(const char* /*attr*/) const
 {
     return nullptr;

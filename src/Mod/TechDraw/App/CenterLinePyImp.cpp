@@ -30,6 +30,8 @@
 
 #include "CenterLinePy.h"
 #include "DrawUtil.h"
+#include "DrawViewPart.h"
+#include "DrawViewPartPy.h"
 
 
 using namespace TechDraw;
@@ -311,6 +313,77 @@ Py::List CenterLinePy::getFaceNames() const
 Py::List CenterLinePy::getPointNames() const
 {
     return getGeom(this->getCenterLinePtr()->m_vertNames);
+}
+
+Py::List CenterLinePy::getEdgeGeometry() const
+{
+    return getGeom(this->getCenterLinePtr()->m_edgeGeometry);
+}
+
+void CenterLinePy::setEdgeGeometry(Py::List arg)
+{
+    this->getCenterLinePtr()->m_edgeGeometry = setGeom(arg);
+}
+
+Py::List CenterLinePy::getFaceGeometry() const
+{
+    return getGeom(this->getCenterLinePtr()->m_faceGeometry);
+}
+
+void CenterLinePy::setFaceGeometry(Py::List arg)
+{
+    this->getCenterLinePtr()->m_faceGeometry = setGeom(arg);
+}
+
+Py::List CenterLinePy::getPointGeometry() const
+{
+    return getGeom(this->getCenterLinePtr()->m_vertGeometry);
+}
+
+void CenterLinePy::setPointGeometry(Py::List arg)
+{
+    this->getCenterLinePtr()->m_vertGeometry = setGeom(arg);
+}
+
+static Py::List nameMatchesToPy(const std::vector<ReferenceNameMatch>& matches)
+{
+    Py::List ret;
+    for (auto& match : matches) {
+        Py::Tuple item(4);
+        item.setItem(0, Py::Long(match.index));
+        item.setItem(1, Py::String(match.was));
+        item.setItem(2, Py::String(match.now));
+        item.setItem(3, Py::Boolean(match.sameGeometry));
+        ret.append(item);
+    }
+    return ret;
+}
+
+static DrawViewPart* viewArgument(PyObject* args)
+{
+    PyObject* pView = nullptr;
+    if (!PyArg_ParseTuple(args, "O!", &(DrawViewPartPy::Type), &pView)) {
+        return nullptr;
+    }
+    return static_cast<DrawViewPartPy*>(pView)->getDrawViewPartPtr();
+}
+
+PyObject* CenterLinePy::findByName(PyObject* args) const
+{
+    DrawViewPart* dvp = viewArgument(args);
+    if (!dvp) {
+        return nullptr;
+    }
+    return Py::new_reference_to(nameMatchesToPy(getCenterLinePtr()->findByName(dvp)));
+}
+
+PyObject* CenterLinePy::repointByName(PyObject* args)
+{
+    DrawViewPart* dvp = viewArgument(args);
+    if (!dvp) {
+        return nullptr;
+    }
+    return Py::new_reference_to(nameMatchesToPy(getCenterLinePtr()->repointByName(dvp)));
 }
 
 PyObject *CenterLinePy::getCustomAttributes(const char* /*attr*/) const

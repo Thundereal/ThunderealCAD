@@ -23,9 +23,11 @@
 #ifndef GUI_TASKVIEW_TASKDIMENSION_H
 #define GUI_TASKVIEW_TASKDIMENSION_H
 
+#include <Gui/Selection.h>
 #include <Gui/TaskView/TaskDialog.h>
 #include <Gui/TaskView/TaskView.h>
 #include <Mod/TechDraw/TechDrawGlobal.h>
+#include <Mod/TechDraw/App/DrawViewDimension.h>
 
 namespace Gui
 {
@@ -38,7 +40,7 @@ namespace TechDrawGui
 class QGIViewDimension;
 class ViewProviderDimension;
 class Ui_TaskDimension;
-class TaskDimension : public QWidget
+class TaskDimension : public QWidget, public Gui::SelectionObserver
 {
     Q_OBJECT
 
@@ -75,8 +77,23 @@ private Q_SLOTS:
     void onDimUseSelectionClicked();
     void onExtUseDefaultClicked();
     void onExtUseSelectionClicked();
+    void onReattachToggled(bool checked);
 
 private:
+    /// A reference found again by its name only, which a recompute does not
+    /// take: taken here, as the panel opens, and said (the reporter, 2026-11-26:
+    /// "naming match auto fix should only be done when double click editing
+    /// with warning to user"). Cancel leaves the references as they were.
+    void takeByName();
+    /// The references listed, those taken by name marked
+    void fillReferences();
+    /// The recompute's error, and what was taken by name
+    void showMessage();
+    /// The element picked while Reattach is down replaces the reference selected
+    void onSelectionChanged(const Gui::SelectionChanges& msg) override;
+    TechDraw::DrawViewDimension* getDim() const;
+
+    std::vector<TechDraw::DrawViewDimension::NameMatch> m_refound;
     std::unique_ptr<Ui_TaskDimension> ui;
     QGIViewDimension *m_parent;
     ViewProviderDimension *m_dimensionVP;

@@ -93,6 +93,104 @@ class DimensionReferenceTest(unittest.TestCase):
         self.assertEqual(dim.References2D[0][1], ("Vertex0", "Edge1"))
         self.assertAlmostEqual(dim.getRawValue(), 10.0)
 
+    def lineAndSpline(self):
+        """A view of a line and a B-spline beside it, facing the view: the
+        line's edge and the spline's, by index"""
+        a, b, c = FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(10, 0, 0), FreeCAD.Vector(20, 0, 0)
+        spline = Part.BSplineCurve()
+        spline.interpolate([b, FreeCAD.Vector(15, 0, 5), c])
+        view = self.view(Part.Compound([Part.Edge(Part.LineSegment(a, b)), spline.toShape()]))
+        line = curve = None
+        n = 0
+        while True:
+            try:
+                e = view.getEdgeByIndex(n)
+            except Exception:
+                break
+            kind = e.Curve.__class__.__name__
+            if kind == "Line" and line is None:
+                line = "Edge%d" % n
+            elif kind == "BSplineCurve" and curve is None:
+                curve = "Edge%d" % n
+            n += 1
+        self.assertTrue(line and curve, (line, curve))
+        return view, line, curve
+
+    def testANameOnAnotherKindOfEdgeIsNotTakenInARecompute(self):
+        """The reporter's (2026-11-26, scanner.FCStd): a distance on a line
+        whose saved name a B-spline carried after the view was made again
+        was repointed onto it by the name alone, and failed: "Edge21 is a
+        BSpline, not a straight line". In a recompute a name is taken only
+        where the geometry agrees; otherwise the dimension is left as it was,
+        in error, saying so, and the name's element is the user's to take on
+        edit (repointByName())"""
+        view, line, curve = self.lineAndSpline()
+        dim = self.dimension(view, "Distance", (line,))
+        self.assertAlmostEqual(dim.getRawValue(), 10.0)
+        splineName = view.getGeometryName(curve)
+        self.assertTrue(splineName)
+        # the line it was made on is elsewhere now: its saved geometry is
+        # nothing in the view, and its name is the spline's
+        moved = Part.Edge(Part.LineSegment(FreeCAD.Vector(0, 0, 40), FreeCAD.Vector(10, 0, 40)))
+        self.misplace(dim, view, (line,), [moved], [splineName])
+        self.assertEqual(dim.References2D[0][1], (line,))
+        self.assertIn("Invalid", dim.State)
+        self.assertEqual(dim.findByName(), [(0, line, curve, False)])
+        # the name kept for the user's edit, not recorded over
+        self.assertEqual(list(dim.SavedNames), [splineName])
+        # the edit's: taken, and said what it moved
+        self.doc.UndoMode = 1
+        self.doc.openTransaction("take by name")
+        self.assertEqual(dim.repointByName(), [(0, line, curve, False)])
+        self.doc.commitTransaction()
+        self.assertEqual(dim.References2D[0][1], (curve,))
+        # taken back, as the edit's Cancel does: what was saved comes back
+        # with the reference, not saved again from the element it is on
+        self.doc.undo()
+        self.assertEqual(dim.References2D[0][1], (line,))
+        self.assertEqual(list(dim.SavedNames), [splineName])
+        self.assertEqual(dim.findByName(), [(0, line, curve, False)])
+
+    def testANameWithItsGeometryIsTakenInARecompute(self):
+        """The element that carries the saved name and has the saved
+        geometry is the reference's, taken in a recompute"""
+        view, line, curve = self.lineAndSpline()
+        dim = self.dimension(view, "Distance", (line,))
+        geometry = list(dim.SavedGeometry)
+        names = list(dim.SavedNames)
+        # on the spline, the line's name and geometry saved
+        dim.References2D = [(view, (curve,))]
+        dim.SavedGeometry = geometry
+        dim.SavedNames = names
+        self.assertEqual(dim.findByName(), [(0, curve, line, True)])
+        dim.touch()
+        self.doc.recompute()
+        self.assertEqual(dim.References2D[0][1], (line,))
+        self.assertIn("Up-to-date", dim.State)
+        self.assertAlmostEqual(dim.getRawValue(), 10.0)
+
+    def testAnEdgeChangedInTheModelKeepsItsDimension(self):
+        """An edge whose name it still carries, changed by the model: no
+        geometry matches any more, and nothing else has the name -- the
+        dimension measures it as it is, not in error"""
+        view = self.view()
+        box = self.doc.getObject("Box")
+        dim = None
+        n = 0
+        while dim is None:
+            e = view.getEdgeByIndex(n)
+            a, b = e.Vertexes[0].Point, e.Vertexes[-1].Point
+            # along the box's length, as the front view draws it
+            if abs(b.x - a.x) > 1e-6 and abs(b.y - a.y) < 1e-6:
+                dim = self.dimension(view, "Distance", ("Edge%d" % n,))
+            n += 1
+        self.assertAlmostEqual(dim.getRawValue(), 10.0)
+        box.Length = 30
+        self.doc.recompute()
+        self.assertIn("Up-to-date", dim.State)
+        self.assertEqual(dim.findByName(), [])
+        self.assertAlmostEqual(dim.getRawValue(), 30.0)
+
     def testTheHalvesOfACircleAreToldApart(self):
         """Each half of a circle has the other's ends, the other way round:
         the half a radius was on is found, not the other"""

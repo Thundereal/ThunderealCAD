@@ -4469,3 +4469,23 @@ job's worker is the one standing; with a runtime its guest is up, under
 there, one removed since is not),
 `testAStandingWorkerIsRetiredByWhatAWorkerReadsAsItStarts`,
 `testNoWorkerStandsWithStandbyOff`.
+
+**What is left once a document's workers have gone, scanner in the GUI**
+(`times_gui.py`, `PROBE_ONEHERE=1 PROBE_GONE=3`: `IdleSeconds` 3, and each
+job waits until the pool has no worker; the `hole_radius` edit of sec 53,
+recomputed here and then by one worker, three rounds; the mini's default
+profile, no runtime):
+
+| `Workers/Standby` | `Start` | `Queued` (the open of the copy in it) | job's recompute | read + apply | total |
+|---|---|---|---|---|---|
+| on | 0.42-0.46 s | 1.16-1.17 s (1.16-1.17 s) | 9.79-9.85 s | 0.51-0.53 s | 11.95-11.99 s |
+| off | 0.44 s | 1.32-1.35 s (1.14-1.15 s) | 9.83-9.99 s | 0.50-0.51 s | 12.11-12.30 s |
+
+Without a runtime the standby saves the process's start and imports,
+0.16 s. What waits after it is the worker's open of the copy, 1.16 s, and
+`Start`'s snapshot, 0.44 s on the main thread. Both are small beside the
+recompute the job is for. A worker that kept the copy open would save the
+1.16 s, at the memory of holding it (`fcad-probes/worker/docfoot.py`,
+scanner opened, one job, in the console): a worker holding the document
+has a footprint of 158 MB without a runtime and 250 MB with one, against
+the standby's 30 MB and 146 MB -- before any recompute adds its shapes.

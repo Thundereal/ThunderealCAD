@@ -81,6 +81,7 @@
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
 
+#include "ControlRow.h"
 #include "TransactionLogView.h"
 #include "Application.h"
 #include "Document.h"
@@ -1020,7 +1021,12 @@ TransactionLogView::TransactionLogView(Gui::Document* pcDocument, QWidget* paren
 
     // Branches (sec 26): the one the document is on, switched here; a new
     // one from the head; and whether rows of other branches show.
-    auto branchBar = new QHBoxLayout();
+    // scrolled sideways when the dock is narrower than the row (ControlRow.h):
+    // laid out flat it was the dock's minimum width, 1045 px
+    auto branchRow = new ControlRow(this);
+    auto branchWidget = new QWidget(branchRow);
+    auto branchBar = new QHBoxLayout(branchWidget);
+    branchBar->setContentsMargins(0, 0, 0, 0);
     branchBar->addWidget(new QLabel(tr("Branch:"), this));
     _branch = new QComboBox(this);
     _branch->setToolTip(tr("The branch the document is on; choosing another switches to its "
@@ -1075,10 +1081,15 @@ TransactionLogView::TransactionLogView(Gui::Document* pcDocument, QWidget* paren
                                "shared session (sec 30.6)"));
     branchBar->addWidget(_showLogins);
     branchBar->addStretch(1);
-    layout->addLayout(branchBar);
+    branchRow->setWidget(branchWidget);
+    layout->addWidget(branchRow);
 
     _status = new QLabel(this);
     _status->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // Wrapped: a long status line (a comparison's summary runs to 1330 px)
+    // was the dock's minimum width, and docked beside the timeline it made
+    // the main window ask for 3000 px on a 1920 screen
+    _status->setWordWrap(true);
     layout->addWidget(_status);
 
     // The requests (sec 30.20 H2): what someone else has done to a copy of

@@ -2903,3 +2903,6 @@ fc_add_gui_test(GuiWorkbenchInitCommandRecord_tests_run workbench-init-command-r
 # getMainWindow().menuBar() is the bar the user sees, in the custom title bar
 # too: not an empty hidden one Qt makes (SmokeTesting step 1).
 fc_add_gui_test(GuiMenuBarInTitleBar_tests_run menubar-in-title-bar.py --timeout 300)
+# The Animation timeline and the Transaction log, docked side by side, leave
+# the main window narrow enough for a 1920 screen (SmokeTesting step 1).
+fc_add_gui_test(GuiDocksFitTheScreen_tests_run docks-fit-the-screen.py --timeout 300)

@@ -41,10 +41,18 @@ def shapes():
 class MeshServiceTest(unittest.TestCase):
     def setUp(self):
         self.params = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
-        self.was = self.params.GetBool("MeshInWorker", False)
+        # The user's setting as it was, set or not
+        if "MeshInWorker" in self.params.GetBools():
+            self.addCleanup(self.params.SetBool, "MeshInWorker",
+                            self.params.GetBool("MeshInWorker"))
+        else:
+            self.addCleanup(self.params.RemBool, "MeshInWorker")
 
-    def tearDown(self):
-        self.params.SetBool("MeshInWorker", self.was)
+    def testItIsOnByDefault(self):
+        self.params.RemBool("MeshInWorker")
+        before = Part.meshServiceInfo()
+        self.assertTrue(Part.meshShape(Part.makeBox(1, 1, 1), 0.1, 0.5))
+        self.assertEqual(Part.meshServiceInfo()["Worker"], before["Worker"] + 1)
 
     def meshBoth(self, shape, steps):
         """A copy meshed here and one by a helper, through the same steps"""

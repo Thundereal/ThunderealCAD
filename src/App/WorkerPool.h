@@ -179,6 +179,7 @@ public:
         int workers = 0;   ///< alive
         int limit = 0;
         int spawned = 0;   ///< ever, this pool
+        int adopted = 0;   ///< of them, taken standing (docs/WorkerProcess.md sec 69)
         int busy = 0;      ///< running a job
         std::size_t queued = 0;
         std::size_t resident = 0;  ///< the most a worker said it held
@@ -225,6 +226,20 @@ public:
     static bool supported(std::string* why = nullptr);
     /// What this process holds in memory as the system counts it
     static std::size_t residentBytes();
+
+    /// The worker started ahead of need for any pool to take
+    /// (Preferences/Workers: Standby, docs/WorkerProcess.md sec 69)
+    struct StandbyInfo
+    {
+        long pid = 0;            ///< 0 for none standing
+        bool connected = false;  ///< it said who it is
+        long started = 0;
+        long handedOver = 0;     ///< taken by a pool
+        long retired = 0;        ///< ended standing: settings it read changed, or exit
+    };
+    static StandbyInfo standby();
+    /// The one standing ended (at exit)
+    static void stopStandby();
 
     ~WorkerPool();
     WorkerPool(const WorkerPool&) = delete;

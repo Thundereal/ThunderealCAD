@@ -30,7 +30,9 @@
 //
 // The pool says:   setup {document, proxies, ids,      open the copy, or
 //                         store, version, blobs,       move to a newer one
-//                         from, fromSeq, toSeq}        (sec 4)
+//                         from, fromSeq, toSeq,        (sec 4); settings:
+//                         settings}                    the pool's, for one
+//                                                      taken standing (sec 69)
 //                  job {job, kind, inputs, module, out}
 //                  ids {first, count}                  the answer to ids
 //                  quit
@@ -40,8 +42,8 @@
 //                                                      a job (sec 15)
 //                  result {job, ok, unfit, error, output, seconds, resident}
 //
-// What a worker prints goes to its log in the pool's directory and is
-// never read.
+// What a worker prints goes to its log in the pool's directory -- one taken
+// standing, the standby's (sec 69) -- and is read only for a crash's report.
 
 #include "PreCompiled.h"
 
@@ -98,6 +100,7 @@
 #include "Document.h"
 #include "DocumentObject.h"
 #include "DocumentObjectPy.h"
+#include "ExpressionEvaluator.h"
 #include "ExpressionSecurityRuntime.h"
 #include "FileBlobManager.h"
 #include "FileHistory.h"
@@ -511,6 +514,383 @@ void removeLeftovers(long pid)
     }
 }
 
+/** A worker started ahead of need, no document's yet (docs/WorkerProcess.md
+ * sec 69): started, its sandbox guest booting or up, waiting to be told
+ * what to open. A pool that needs a worker takes it rather than start one,
+ * and one more is started for the next once that worker is ready. One for
+ * the whole process: the pools take turns at it.
+ *
+ * It was started with the settings as they were then; a pool taking it
+ * brings it to the pool's (the setup's "settings"). What a worker reads as
+ * it starts -- Preferences/Workers (BootSandbox), the sandbox's
+ * Preferences/Expression -- is not brought along: a change there retires it.
+ */
+class Standby
+{
+public:
+    static Standby& instance()
+    {
+        // Its process ended at exit (stop()), the object never destroyed
+        if (!slot()) {
+            slot() = new Standby();
+        }
+        return *slot();
+    }
+    /// The one standing ended, if there ever was one
+    static void stopAny()
+    {
+        if (slot()) {
+            slot()->stop();
+        }
+    }
+
+    struct Taken
+    {
+        std::unique_ptr<QProcess> process;
+        std::unique_ptr<QLocalSocket> socket;
+        std::string buffer;  ///< what it said after its hello, not yet read
+        long pid = 0;
+        std::string log;
+    };
+
+    /// One started, if none stands and Standby of Preferences/Workers wants one
+    void want(const std::string& exe)
+    {
+        if (App::isShuttingDown() || exe.empty()) {
+            return;
+        }
+        if (stale || (process && process->state() == QProcess::NotRunning)) {
+            retire();
+        }
+        if (process || !params()->GetBool("Standby", true)) {
+            return;
+        }
+        start(exe);
+    }
+
+    /// The one standing, if `exe` started it, it runs and it said who it is
+    bool handOver(const std::string& exe, Taken& taken)
+    {
+        if (!process) {
+            return false;
+        }
+        if (stale || exe != program || process->state() == QProcess::NotRunning
+            || !params()->GetBool("Standby", true)) {
+            retire();
+            return false;
+        }
+        settle(noEventLoop() ? 5000 : 0);
+        if (!socket || socket->state() != QLocalSocket::ConnectedState) {
+            // Not connected yet with an event loop to take it: it stays for
+            // the next. Without one it had its seconds
+            if (noEventLoop()) {
+                retire();
+            }
+            return false;
+        }
+        QObject::disconnect(process.get(), nullptr, &context, nullptr);
+        QObject::disconnect(socket.get(), nullptr, &context, nullptr);
+        taken.process = std::move(process);
+        taken.socket = std::move(socket);
+        taken.buffer = std::move(buffer);
+        taken.pid = pid;
+        taken.log = log;
+        buffer.clear();
+        pid = 0;
+        ++handedOver;
+        return true;
+    }
+
+    /// The one standing ended, its directory gone unless KeepJob says not
+    void stop()
+    {
+        retire();
+        strangers.clear();
+        said.clear();
+        server.reset();
+        if (!dir.empty() && !params()->GetBool("KeepJob", false)) {
+            Base::FileInfo(dir).deleteDirectoryRecursive();
+        }
+        dir.clear();
+    }
+
+    long started = 0;
+    long handedOver = 0;
+    long retired = 0;
+    long standing() const
+    {
+        return process && process->state() != QProcess::NotRunning ? pid : 0;
+    }
+    bool connected() const
+    {
+        return socket && socket->state() == QLocalSocket::ConnectedState;
+    }
+    /// Its connection and hello taken in, as far as they came
+    void look()
+    {
+        settle(0);
+    }
+
+private:
+    static Standby*& slot()
+    {
+        static Standby* one = nullptr;
+        return one;
+    }
+
+    Standby()
+    {
+        // What a worker reads as it starts, changed: this one read otherwise
+        changed = GetApplication().GetUserParameter().signalParamChanged.connect(
+            [this](ParameterGrp* grp, ParameterGrp::ParamType, const char*, const char*) {
+                if (!process || !grp) {
+                    return;
+                }
+                const std::string path = grp->GetPath();
+                if (path.find("BaseApp/Preferences/Workers") != std::string::npos
+                    || path.find("BaseApp/Preferences/Expression") != std::string::npos) {
+                    stale = true;
+                }
+            });
+        if (auto app = QCoreApplication::instance()) {
+            QObject::connect(app, &QCoreApplication::aboutToQuit, &context, [this] { stop(); });
+        }
+    }
+
+    bool listen()
+    {
+        if (server && server->isListening()) {
+            return true;
+        }
+        ensureCore();
+        server = std::make_unique<QLocalServer>();
+        server->setSocketOptions(QLocalServer::UserAccessOption);
+        token = randomToken();
+        const QString name = QStringLiteral("thundereal-%1-standby-%2")
+                                 .arg(QCoreApplication::applicationPid())
+                                 .arg(QString::fromStdString(token.substr(0, 8)));
+        QLocalServer::removeServer(name);
+        if (!server->listen(name)) {
+            FC_LOG("cannot listen for a standing worker: " << server->errorString().toStdString());
+            server.reset();
+            return false;
+        }
+        QObject::connect(server.get(), &QLocalServer::newConnection, &context, [this]() {
+            accept();
+        });
+        return true;
+    }
+
+    void start(const std::string& exe)
+    {
+        if (!listen()) {
+            return;
+        }
+        if (dir.empty()) {
+            std::string base = Application::getTempPath();
+            if (!base.empty() && base.back() != '/' && base.back() != '\\') {
+                base += '/';
+            }
+            dir = base + "Workers-" + std::to_string(QCoreApplication::applicationPid())
+                + "-standby";
+            Base::FileInfo old(dir);
+            if (old.exists()) {
+                old.deleteDirectoryRecursive();
+            }
+            if (!Base::FileInfo(dir).createDirectories()) {
+                dir.clear();
+                return;
+            }
+        }
+        ++serial;
+        const std::string n = std::to_string(serial);
+        // Its own copy of the settings, as a pool's worker has (takeCopy())
+        const std::string user = dir + "/user" + n + ".cfg";
+        const std::string system = dir + "/system" + n + ".cfg";
+        GetApplication().GetUserParameter().SaveDocument(user.c_str());
+        GetApplication().GetSystemParameter().SaveDocument(system.c_str());
+        log = dir + "/worker" + n + ".log";
+        auto proc = std::make_unique<QProcess>();
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QString::fromLatin1(ServerVariable), server->fullServerName());
+        env.insert(QString::fromLatin1(TokenVariable), QString::fromStdString(token));
+        proc->setProcessEnvironment(env);
+        proc->setProcessChannelMode(QProcess::MergedChannels);
+        proc->setStandardOutputFile(QString::fromStdString(log));
+        proc->setStandardInputFile(QProcess::nullDevice());
+        QStringList args;
+        args << QStringLiteral("-u") << QString::fromStdString(user) << QStringLiteral("-s")
+             << QString::fromStdString(system) << QStringLiteral("-c")
+             << QStringLiteral("from freecad import worker; worker.serve()");
+        proc->start(QString::fromStdString(exe), args);
+        if (!proc->waitForStarted(10000)) {
+            FC_LOG("cannot start a standing worker: " << exe);
+            return;
+        }
+        program = exe;
+        pid = static_cast<long>(proc->processId());
+        stale = false;
+        process = std::move(proc);
+        ++started;
+    }
+
+    /// Its connection taken, and its hello read, as far as they came; for
+    /// up to `ms` without an event loop
+    void settle(int ms)
+    {
+        QElapsedTimer timer;
+        timer.start();
+        do {
+            if (!server) {
+                return;
+            }
+            if (noEventLoop()) {
+                server->waitForNewConnection(ms > 0 ? 20 : 0);
+            }
+            accept();
+            std::vector<QLocalSocket*> list;
+            for (auto& s : strangers) {
+                list.push_back(s.get());
+            }
+            for (QLocalSocket* s : list) {
+                if (!socket && (s->waitForReadyRead(ms > 0 ? 20 : 0) || s->bytesAvailable() > 0)) {
+                    hello(s);
+                }
+            }
+        } while (!socket && ms > 0 && timer.elapsed() < ms && process
+                 && process->state() != QProcess::NotRunning);
+    }
+
+    void accept()
+    {
+        while (server && server->hasPendingConnections()) {
+            QLocalSocket* s = server->nextPendingConnection();
+            if (!s) {
+                break;
+            }
+            s->setParent(nullptr);
+            strangers.emplace_back(s);
+            QObject::connect(s, &QLocalSocket::readyRead, &context, [this, s]() { hello(s); });
+        }
+    }
+
+    /// `s` said who it is: the one standing, or a stranger, closed
+    void hello(QLocalSocket* s)
+    {
+        auto it = std::find_if(strangers.begin(), strangers.end(),
+                               [s](auto& one) { return one.get() == s; });
+        if (it == strangers.end()) {
+            return;
+        }
+        QByteArray bytes = s->readAll();
+        std::string& got = said[s];
+        got.append(bytes.constData(), static_cast<std::size_t>(bytes.size()));
+        json header;
+        std::string body;
+        const int n = take(got, header, body);
+        if (n == 0) {
+            return;
+        }
+        std::unique_ptr<QLocalSocket> held = std::move(*it);
+        strangers.erase(it);
+        std::string rest = std::move(got);
+        said.erase(s);
+        QObject::disconnect(held.get(), nullptr, &context, nullptr);
+        if (n > 0 && header.value("type", "") == "hello" && header.value("token", "") == token
+            && process && header.value("pid", 0L) == pid && !socket) {
+            socket = std::move(held);
+            buffer = std::move(rest);
+            return;
+        }
+        FC_WARN("a connection to the standing worker's socket that is not it, closed");
+        held->abort();
+        gone.push_back(std::move(held));  // not deleted inside its own signal
+    }
+
+    /// The one standing ended, whatever state it is in
+    void retire()
+    {
+        gone.clear();
+        if (socket) {
+            QObject::disconnect(socket.get(), nullptr, &context, nullptr);
+            socket->abort();
+            socket.reset();
+        }
+        if (process) {
+            QObject::disconnect(process.get(), nullptr, &context, nullptr);
+            if (process->state() != QProcess::NotRunning) {
+                process->kill();
+                process->waitForFinished(2000);
+                ++retired;
+            }
+            if (process->state() == QProcess::NotRunning) {
+                removeLeftovers(pid);
+            }
+            process.reset();
+        }
+        buffer.clear();
+        pid = 0;
+        stale = false;
+    }
+
+    QObject context;
+    std::unique_ptr<QLocalServer> server;
+    std::string token;
+    std::string dir;
+    std::string program;
+    std::unique_ptr<QProcess> process;
+    std::unique_ptr<QLocalSocket> socket;  ///< its own, once it said who it is
+    std::vector<std::unique_ptr<QLocalSocket>> strangers;
+    std::vector<std::unique_ptr<QLocalSocket>> gone;
+    std::map<const QLocalSocket*, std::string> said;
+    std::string buffer;
+    std::string log;
+    long pid = 0;
+    int serial = 0;
+    bool stale = false;
+    fastsignals::scoped_connection changed;
+};
+
+/** The parameters of `to` made those of `from`: values changed, added and
+ * removed one by one, so that an observer is told of each that differs and
+ * of none that does not (a standing worker taken by a pool, sec 69)
+ */
+void syncParameters(ParameterGrp& to, ParameterGrp& from)
+{
+    using Type = ParameterGrp::ParamType;
+    // A text's value is its element's text, which GetAttributeMap() does not
+    // read (it reads a Value attribute only the other types have)
+    auto values = [](ParameterGrp& grp, Type type) {
+        return type == Type::FCText ? grp.GetASCIIMap() : grp.GetAttributeMap(type);
+    };
+    for (Type type : {Type::FCText, Type::FCBool, Type::FCInt, Type::FCUInt, Type::FCFloat}) {
+        std::map<std::string, std::string> want;
+        for (auto& [name, value] : values(from, type)) {
+            want[name] = value;
+        }
+        for (auto& [name, value] : values(to, type)) {
+            if (!want.count(name)) {
+                to.RemoveAttribute(type, name.c_str());
+            }
+        }
+        for (auto& [name, value] : want) {
+            to.SetAttribute(type, name.c_str(), value.c_str());
+        }
+    }
+    std::set<std::string> groups;
+    for (auto& grp : from.GetGroups()) {
+        groups.insert(grp->GetGroupName());
+    }
+    for (auto& grp : to.GetGroups()) {
+        if (!groups.count(grp->GetGroupName())) {
+            to.RemoveGrp(grp->GetGroupName());
+        }
+    }
+    for (auto& grp : from.GetGroups()) {
+        syncParameters(*to.GetGroup(grp->GetGroupName()), *grp);
+    }
+}
+
 }  // namespace
 
 // --------------------------------------------------------------------------
@@ -526,11 +906,15 @@ struct WorkerPool::Private
         long pid = 0;
         JobId job = 0;          ///< running, 0 for none
         double began = 0;       ///< when it was handed the job
-        double spawnedAt = 0;   ///< when it was started
+        double spawnedAt = 0;   ///< when it was started, or taken standing
+        std::string log;        ///< where what it says goes
         double idleSince = 0;   ///< when it last had nothing, 0 while busy
         bool ready = false;     ///< the copy is open
         bool quitting = false;  ///< told there is no more
         bool over = false;      ///< finished() ran
+        /// finished() is running: what it reads may say the socket went,
+        /// whose handler would end it again inside (sec 69)
+        bool ending = false;
         bool killed = false;    ///< ended by the pool (kill())
         long made = 0;
         std::size_t resident = 0;
@@ -679,6 +1063,7 @@ struct WorkerPool::Private
     JobId next = 1;
     int limit = 1;
     int spawned = 0;
+    int adopted = 0;  ///< of them, taken standing (sec 69)
     int failedInRow = 0;
     long done = 0;
     long failed = 0;
@@ -710,6 +1095,10 @@ struct WorkerPool::Private
     bool exportBlobs(TransactionLogCore& core, int64_t num);
     void dropCopy();
     bool spawn();
+    /// The standing worker taken as one of these (sec 69): false for none
+    bool adopt();
+    /// `proc`'s socket read here, and the setup sent
+    void attach(Proc& proc, json setup);
     void accept();
     void readStranger(Stranger& s);
     void read(Proc& proc);
@@ -1499,8 +1888,12 @@ bool WorkerPool::Private::spawn()
     if (!listen()) {
         return false;
     }
+    if (adopt()) {
+        return true;
+    }
     auto proc = std::make_unique<Proc>();
     proc->number = spawned;
+    proc->log = root + "/worker" + std::to_string(spawned) + ".log";
     auto process = std::make_unique<QProcess>();
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QString::fromLatin1(ServerVariable), server->fullServerName());
@@ -1508,8 +1901,7 @@ bool WorkerPool::Private::spawn()
     process->setProcessEnvironment(env);
     // What it says goes to its log, kept with the pool for when one fails
     process->setProcessChannelMode(QProcess::MergedChannels);
-    process->setStandardOutputFile(
-        QString::fromStdString(root + "/worker" + std::to_string(spawned) + ".log"));
+    process->setStandardOutputFile(QString::fromStdString(proc->log));
     process->setStandardInputFile(QProcess::nullDevice());
     QStringList args;
     args << QStringLiteral("-u") << QString::fromStdString(root + "/user.cfg")
@@ -1534,6 +1926,67 @@ bool WorkerPool::Private::spawn()
     ++spawned;
     changedNotice();
     return true;
+}
+
+bool WorkerPool::Private::adopt()
+{
+    Standby::Taken taken;
+    if (!Standby::instance().handOver(program, taken)) {
+        return false;
+    }
+    auto proc = std::make_unique<Proc>();
+    proc->number = spawned;
+    proc->pid = taken.pid;
+    proc->log = taken.log;
+    // Its start is what it takes from here to its copy open
+    proc->spawnedAt = now();
+    proc->process = std::move(taken.process);
+    proc->socket = std::move(taken.socket);
+    proc->buffer = std::move(taken.buffer);
+    Proc* raw = proc.get();
+    QObject::connect(raw->process.get(), qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+                     &context, [this, raw](int, QProcess::ExitStatus) {
+                         Depth guard(*this);
+                         finished(*raw);
+                     });
+    procs.push_back(std::move(proc));
+    ++spawned;
+    ++adopted;
+    FC_LOG(doc.getName() << ": worker " << raw->number << " taken standing (pid " << raw->pid
+                         << ")");
+    // Brought to this pool's settings, which it was started before
+    json setup = setupFor(*raw);
+    setup["settings"] = {{"user", root + "/user.cfg"}, {"system", root + "/system.cfg"}};
+    attach(*raw, std::move(setup));
+    changedNotice();
+    return true;
+}
+
+void WorkerPool::Private::attach(Proc& proc, json setup)
+{
+    Proc* raw = &proc;
+    QLocalSocket* socket = proc.socket.get();
+    QObject::connect(socket, &QLocalSocket::readyRead, &context, [this, raw]() {
+        Depth guard(*this);
+        read(*raw);
+    });
+    QObject::connect(socket, &QLocalSocket::disconnected, &context, [this, raw]() {
+        Depth guard(*this);
+        if (!raw->quitting) {
+            // Gone without being told: what it was doing is not coming. A
+            // process that died closed its socket on the way out: a moment
+            // for it to be reaped, so that how it ended is known (sec 34)
+            if (raw->process && raw->process->state() != QProcess::NotRunning) {
+                raw->process->waitForFinished(1000);
+            }
+            kill(*raw);
+        }
+    });
+    if (!send(*socket, setup)) {
+        kill(proc);
+        return;
+    }
+    read(proc);
 }
 
 void WorkerPool::Private::accept()
@@ -1596,25 +2049,7 @@ void WorkerPool::Private::readStranger(Stranger& s)
     proc->socket = std::move(held->socket);
     proc->buffer = std::move(held->buffer);
     strangersGone.push_back(std::move(held));
-    QLocalSocket* socket = proc->socket.get();
-    QObject::connect(socket, &QLocalSocket::readyRead, &context, [this, proc]() {
-        Depth guard(*this);
-        read(*proc);
-    });
-    QObject::connect(socket, &QLocalSocket::disconnected, &context, [this, proc]() {
-        Depth guard(*this);
-        if (!proc->quitting) {
-            // Gone without being told: what it was doing is not coming. A
-            // process that died closed its socket on the way out: a moment
-            // for it to be reaped, so that how it ended is known (sec 34)
-            if (proc->process && proc->process->state() != QProcess::NotRunning) {
-                proc->process->waitForFinished(1000);
-            }
-            kill(*proc);
-        }
-    });
-    send(*socket, setupFor(*proc));
-    read(*proc);
+    attach(*proc, setupFor(*proc));
 }
 
 void WorkerPool::Private::read(Proc& proc)
@@ -1674,6 +2109,9 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         proc.copyDir = proc.nextCopyDir;
         pruneCopies();
         dispatch(proc);
+        // One standing for the next worker any pool needs, started once
+        // this one is up rather than beside its start (sec 69)
+        Standby::instance().want(program);
         changedNotice();
     }
     else if (type == "at") {
@@ -1865,7 +2303,9 @@ WorkerPool::Private::Proc* WorkerPool::Private::making(JobId id) const
 
 void WorkerPool::Private::kill(Proc& proc)
 {
-    if (proc.over) {
+    // Being ended already: not killed by the pool, which would leave its
+    // crash unread
+    if (proc.over || proc.ending) {
         return;
     }
     if (proc.process && proc.process->state() != QProcess::NotRunning) {
@@ -1939,7 +2379,7 @@ std::string WorkerPool::Private::endedHow(const Proc& proc)
 std::string WorkerPool::Private::crashOf(const Proc& proc, JobId job, std::string& how,
                                         std::string& crashLog)
 {
-    const std::string path = root + "/worker" + std::to_string(proc.number) + ".log";
+    const std::string& path = proc.log;
     std::string log;
     {
         Base::ifstream in(Base::FileInfo(path), std::ios::in | std::ios::binary);
@@ -2005,9 +2445,13 @@ std::string WorkerPool::Private::crashOf(const Proc& proc, JobId job, std::strin
 
 void WorkerPool::Private::finished(Proc& proc)
 {
-    if (proc.over) {
+    if (proc.over || proc.ending) {
         return;
     }
+    // The waits below deliver the socket's signals: its `disconnected`
+    // ends it (kill()), which would run all of this inside this, and leave
+    // this one to count a worker gone with no job as one that failed
+    proc.ending = true;
     // The process reaped before its socket was read: what it said last is
     // still with the system. A worker its crash handler ends goes at once,
     // and its last `at` came after the process's end (sec 35)
@@ -2106,7 +2550,7 @@ void WorkerPool::Private::finished(Proc& proc)
         }
     }
     if (!quiet) {
-        FC_LOG(doc.getName() << ": worker " << proc.number << " ended"
+        FC_LOG(doc.getName() << ": worker " << proc.number << " (pid " << proc.pid << ") ended"
                              << (lost ? " in the middle of a job" : ""));
         if (!inObject && ++failedInRow >= 3) {
             pool.stop("the workers exited");
@@ -2394,8 +2838,13 @@ WorkerPool* WorkerPool::of(Document& doc, bool create)
     static bool watching = false;
     if (!watching) {
         watching = true;
-        GetApplication().signalDeleteDocument.connect(
-            [](const Document& d) { pools().erase(&d); });
+        GetApplication().signalDeleteDocument.connect([](const Document& d) {
+            pools().erase(&d);
+            // No pool left to take it: its memory back (sec 69)
+            if (pools().empty()) {
+                Standby::stopAny();
+            }
+        });
     }
     auto pool = std::unique_ptr<WorkerPool>(new WorkerPool(doc));
     auto raw = pool.get();
@@ -2884,6 +3333,7 @@ WorkerPool::Info WorkerPool::info() const
     info.workers = static_cast<int>(d->procs.size());
     info.limit = started() ? d->limit : workerLimit();
     info.spawned = d->spawned;
+    info.adopted = d->adopted;
     for (auto& proc : d->procs) {
         if (proc->job) {
             ++info.busy;
@@ -2910,6 +3360,24 @@ WorkerPool::Info WorkerPool::info() const
     info.leasesAsked = d->leasesAsked;
     info.readStore = !d->store.empty();
     info.blobs = d->blobs;
+    return info;
+}
+
+void WorkerPool::stopStandby()
+{
+    Standby::stopAny();
+}
+
+WorkerPool::StandbyInfo WorkerPool::standby()
+{
+    StandbyInfo info;
+    Standby& one = Standby::instance();
+    one.look();
+    info.pid = one.standing();
+    info.connected = one.connected();
+    info.started = one.started;
+    info.handedOver = one.handedOver;
+    info.retired = one.retired;
     return info;
 }
 
@@ -3018,6 +3486,36 @@ int WorkerPool::serve()
     send(socket, json {{"type", "hello"},
                        {"token", token.toStdString()},
                        {"pid", static_cast<long>(QCoreApplication::applicationPid())}});
+    // The sandbox's guest booted beside the copy's open rather than by the
+    // first expression of the first job, which waited 1.7 s for it on the
+    // mini (docs/WorkerProcess.md sec 66, 67): nothing where expressions are
+    // not routed. The host's lock lets an evaluation meanwhile wait for the
+    // boot without holding Python's (ExpressionImageHost.cpp, HostLock)
+    struct Boot
+    {
+        std::thread thread;
+        ~Boot()
+        {
+            if (thread.joinable()) {
+                if (Py_IsInitialized() && PyGILState_Check()) {
+                    Base::PyGILStateRelease unlock;
+                    thread.join();
+                }
+                else {
+                    thread.join();
+                }
+            }
+        }
+    } boot;
+    if (params()->GetBool("BootSandbox", true)) {
+        boot.thread = std::thread([] {
+            try {
+                ExpressionSandbox::evaluationRouted();
+            }
+            catch (...) {
+            }
+        });
+    }
     // What it says through the Console goes to the pool too (sec 27), until
     // the socket goes: retired before it, last in first out
     auto relay = new Relay(socket);
@@ -3071,7 +3569,18 @@ int WorkerPool::serve()
                 if (socket.state() != QLocalSocket::ConnectedState) {
                     return -2;
                 }
-                if (!socket.waitForReadyRead(1000)) {
+                bool ready = false;
+                // Python's lock let go while nothing comes: the guest's
+                // boot on its own thread takes it for what it asks of the
+                // host
+                if (Py_IsInitialized() && PyGILState_Check()) {
+                    Base::PyGILStateRelease unlock;
+                    ready = socket.waitForReadyRead(1000);
+                }
+                else {
+                    ready = socket.waitForReadyRead(1000);
+                }
+                if (!ready) {
                     continue;
                 }
             }
@@ -3166,6 +3675,31 @@ int WorkerPool::serve()
             const double began = now();
             long kept = 0;
             relay->bLog = header.value("relayLog", false);
+            if (auto settings = header.find("settings");
+                settings != header.end() && settings->is_object()) {
+                // Taken standing by a pool (sec 69): started with the
+                // settings as they were then, brought to the pool's
+                auto bring = [](ParameterManager& mine, const std::string& path) {
+                    if (path.empty()) {
+                        return;
+                    }
+                    auto theirs = ParameterManager::Create();
+                    if (theirs->LoadDocument(path.c_str()) != 1) {
+                        FC_WARN("cannot read the pool's settings " << path);
+                        return;
+                    }
+                    syncParameters(mine, *theirs);
+                };
+                try {
+                    bring(GetApplication().GetUserParameter(),
+                          settings->value("user", std::string()));
+                    bring(GetApplication().GetSystemParameter(),
+                          settings->value("system", std::string()));
+                }
+                catch (Base::Exception& e) {
+                    FC_WARN("taking the pool's settings: " << e.what());
+                }
+            }
             try {
                 adoptSecurity(header);
                 const std::string file = header.value("document", std::string());
@@ -3503,6 +4037,8 @@ public:
         add_varargs_method("wait", &WorkerPoolPy::wait,
                            "wait(seconds=-1) -> bool: no job queued or running");
         add_varargs_method("info", &WorkerPoolPy::info, "info() -> dict");
+        add_varargs_method("standby", &WorkerPoolPy::standby,
+                           "standby() -> dict: the worker standing for any pool to take");
         add_varargs_method("recompute", &WorkerPoolPy::recompute,
                            "recompute(objs=None) -> bool: hand the recompute of objs, or of what\n"
                            "is touched, and of what depends on them, to a worker; its result\n"
@@ -3723,6 +4259,7 @@ public:
         dict.setItem("Workers", Py::Long(i.workers));
         dict.setItem("Limit", Py::Long(i.limit));
         dict.setItem("Spawned", Py::Long(i.spawned));
+        dict.setItem("Adopted", Py::Long(i.adopted));
         dict.setItem("Busy", Py::Long(i.busy));
         dict.setItem("Queued", Py::Long(static_cast<unsigned long>(i.queued)));
         dict.setItem("Resident", Py::Long(static_cast<unsigned long>(i.resident)));
@@ -3749,6 +4286,18 @@ public:
             pids.append(Py::Long(pid));
         }
         dict.setItem("Pids", pids);
+        return dict;
+    }
+
+    Py::Object standby(const Py::Tuple&)
+    {
+        WorkerPool::StandbyInfo i = WorkerPool::standby();
+        Py::Dict dict;
+        dict.setItem("Pid", Py::Long(i.pid));
+        dict.setItem("Connected", Py::Boolean(i.connected));
+        dict.setItem("Started", Py::Long(i.started));
+        dict.setItem("HandedOver", Py::Long(i.handedOver));
+        dict.setItem("Retired", Py::Long(i.retired));
         return dict;
     }
 

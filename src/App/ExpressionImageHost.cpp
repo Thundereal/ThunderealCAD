@@ -562,6 +562,46 @@ struct ImageHost::Private: public ParameterGrp::ObserverType
     }
 };
 
+namespace
+{
+/** The host's lock, not waited for holding Python's.
+ *
+ * A guest booting on a thread of its own -- a worker's, as it starts
+ * (docs/WorkerProcess.md sec 67) -- holds this lock for the boot, and takes
+ * the GIL for what the boot asks of the host. A call made meanwhile by a
+ * thread holding the GIL would wait for the lock with it, and the boot for
+ * the GIL: so a thread that holds it lets it go while it waits.
+ */
+class HostLock
+{
+public:
+    explicit HostLock(std::recursive_mutex& m)
+        : m(m)
+    {
+        if (m.try_lock()) {
+            return;
+        }
+        if (Py_IsInitialized() && PyGILState_Check()) {
+            PyThreadState* state = PyEval_SaveThread();
+            m.lock();
+            PyEval_RestoreThread(state);
+        }
+        else {
+            m.lock();
+        }
+    }
+    ~HostLock()
+    {
+        m.unlock();
+    }
+    HostLock(const HostLock&) = delete;
+    HostLock& operator=(const HostLock&) = delete;
+
+private:
+    std::recursive_mutex& m;
+};
+}  // namespace
+
 ImageHost::ImageHost()
     : d(new Private)
 {}
@@ -579,33 +619,33 @@ ImageHost& ImageHost::instance()
 
 bool ImageHost::available()
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     return d->initialize();
 }
 
 ImageHost::Location ImageHost::location()
 {
-    std::lock_guard<std::recursive_mutex> lock(d->mutex);
+    HostLock lock(d->mutex);
     ImageRuntime::Paths where = d->paths();
     return Location {where.image, where.stdlib, where.cache, where.packages};
 }
 
 void ImageHost::scheduleReset()
 {
-    std::lock_guard<std::recursive_mutex> lock(d->mutex);
+    HostLock lock(d->mutex);
     d->resetPending = true;
 }
 
 std::string ImageHost::runtime()
 {
-    std::lock_guard<std::recursive_mutex> lock(d->mutex);
+    HostLock lock(d->mutex);
     return d->rt ? std::string(d->rt->name()) : runtimeChoice();
 }
 
 void ImageHost::configure(const std::string& imagePath,
                           const std::string& stdlibPath)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     d->teardown();
     d->triedInit = false;
     d->configured = true;
@@ -615,20 +655,20 @@ void ImageHost::configure(const std::string& imagePath,
 
 uint64_t ImageHost::exportObject(PyObject* obj)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     Base::PyGILStateLocker lock;
     return d->handles.add(obj);
 }
 
 void ImageHost::setPrefetch(bool on)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     d->handles.setPrefetch(on);
 }
 
 void ImageHost::clearHandles()
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     // Nested inside a round trip -- an expression recomputed by a guest
     // hook's write (a Schedule filling its Result sheet: every numeric
     // cell is an expression) -- the table is the OUTER transaction's,
@@ -643,19 +683,19 @@ void ImageHost::clearHandles()
 
 std::size_t ImageHost::evalCount() const
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     return d->evals;
 }
 
 std::size_t ImageHost::handleCount() const
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     return d->handles.size();
 }
 
 ImageHost::Stats ImageHost::stats() const
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     Stats s;
     s.evals = d->evals;
     s.handles = d->handles.created();
@@ -667,7 +707,7 @@ ImageHost::Stats ImageHost::stats() const
 
 void ImageHost::resetStats()
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     d->evals = 0;
     d->proxyCalls = 0;
     d->ops.clear();
@@ -677,7 +717,7 @@ void ImageHost::resetStats()
 
 ImageHost::MemoryInfo ImageHost::memoryInfo() const
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     MemoryInfo info;
     if (!d->rt || !d->live)
         return info;
@@ -694,25 +734,25 @@ ImageHost::MemoryInfo ImageHost::memoryInfo() const
 
 void ImageHost::reset()
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     d->requestReset();
 }
 
 int ImageHost::bootCount() const
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     return d->boots;
 }
 
 void ImageHost::addBootListener(std::function<void(int)> listener)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     d->bootListeners.push_back(std::move(listener));
 }
 
 PyObject* ImageHost::decodeResult(const ImageResult& result)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     if (!result.ok)
         return nullptr;
     try {
@@ -739,7 +779,7 @@ PyObject* ImageHost::decodeResult(const ImageResult& result)
 bool ImageHost::rawCall(const std::vector<unsigned char>& requestCbor,
                         std::vector<unsigned char>& replyCbor)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     if (!d->initialize())
         return false;
     json reply;
@@ -757,7 +797,7 @@ ImageResult ImageHost::eval(const std::string& source,
                             const std::vector<unsigned char>& bindingsCbor,
                             const App::DocumentObject* owner)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     ImageResult res;
     if (!d->initialize()) {
         res.excType = "ImageUnavailable";
@@ -826,7 +866,7 @@ ImageResult ImageHost::eval(const std::string& source,
 
 ImageResult ImageHost::exec(const std::string& source, const std::string& module)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     ImageResult res;
     if (!d->initialize()) {
         res.excType = "ImageUnavailable";
@@ -933,7 +973,7 @@ ImageResult ImageHost::evalExpressionImpl(const App::DocumentObject* owner,
                                           PyObject* callKwargs,
                                           const App::DocumentObject* runAs)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     ImageResult res;
     if (!isCall && owner) {
         // a function value in the reply is made again from these
@@ -1200,7 +1240,7 @@ ImageResult ImageHost::proxyCall(uint64_t id,
                                  PyObject* kwargs,
                                  const App::DocumentObject* owner)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     return d->proxyRoundTrip(owner, [&](json& req, ImageResult&) {
         req["op"] = FcxWire::OpProxyCall;
         req["id"] = id;
@@ -1214,7 +1254,7 @@ ImageResult ImageHost::proxyCall(uint64_t id,
 
 ImageResult ImageHost::proxyGet(uint64_t id, const std::string& name)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     return d->proxyRoundTrip(nullptr, [&](json& req, ImageResult&) {
         req["op"] = FcxWire::OpProxyGet;
         req["id"] = id;
@@ -1225,7 +1265,7 @@ ImageResult ImageHost::proxyGet(uint64_t id, const std::string& name)
 
 ImageResult ImageHost::proxySet(uint64_t id, const std::string& name, PyObject* value)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     return d->proxyRoundTrip(nullptr, [&](json& req, ImageResult& res) {
         json v = encodeHostValue(d->handles, value);
         if (carriesHandle(v)) {
@@ -1246,14 +1286,14 @@ ImageResult ImageHost::proxySet(uint64_t id, const std::string& name, PyObject* 
 
 void ImageHost::dropProxy(uint64_t id, int boot)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     if (boot == d->boots)
         d->proxyDrops.push_back(id);
 }
 
 void ImageHost::dropLibrary(const std::string& key, const std::string& module)
 {
-    std::lock_guard<std::recursive_mutex> guard(d->mutex);
+    HostLock guard(d->mutex);
     if (d->live)
         d->libraryDrops.emplace_back(key, module);
 }

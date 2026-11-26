@@ -401,6 +401,9 @@ public:
         /// What of FreeCADGui or a view object it used, which the worker
         /// only stands in for (sec 72): made by the other process instead
         std::vector<std::string> faked;
+        /// What it did to views, in order (JSON each), done again to the
+        /// view providers where it is put in (sec 73)
+        std::vector<std::string> views;
     };
 
     /// The one recording, for noteFaked()
@@ -573,6 +576,36 @@ public:
     std::vector<fastsignals::scoped_connection> conns;
 };
 
+/// How a job taken back for a fake says so, and that the code is the
+/// install's (docs/WorkerProcess.md sec 72, 73)
+constexpr const char* FakedPrefix = "a stand-in was used: ";
+constexpr const char* BuiltInSuffix = " [built-in]";
+
+/// Whose code an object's recompute is: its Python class, and whether it is
+/// the install's (freecad.worker_gui.origin); an object with no proxy is
+/// its C++ type's, the install's
+std::pair<std::string, bool> codeOf(const DocumentObject& obj)
+{
+    Base::PyGILStateLocker lock;
+    try {
+        auto proxy = freecad_cast<PropertyPythonObject*>(obj.getPropertyByName("Proxy"));
+        Py::Object value = proxy ? proxy->getValue() : Py::None();
+        if (!value.isNone()) {
+            Py::Module gui(PyImport_ImportModule("freecad.worker_gui"), true);
+            Py::Callable origin(gui.getAttr("origin"));
+            Py::Tuple args(1);
+            args.setItem(0, value);
+            Py::Tuple answer(origin.apply(args));
+            return {Py::String(answer[0]).as_std_string(), Py::Boolean(answer[1]).isTrue()};
+        }
+    }
+    catch (Py::Exception&) {
+        Base::PyException e;
+        e.ReportException();
+    }
+    return {obj.getTypeId().getName(), true};
+}
+
 WorkerPool::Reply unfit(const std::string& why)
 {
     WorkerPool::Reply reply;
@@ -669,19 +702,26 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
         return unfit(why);
     }
     // What used a part of FreeCADGui or a view object the worker only
-    // stands in for -- Ray.execute writing fp.ViewObject.LineColor -- is
+    // stands in for -- Ray.execute writing fp.ViewObject.LineWidth -- is
     // made by the other process itself, which has them (sec 72). Its value
     // here was made without what it asked for: one that another object of
     // the job read, or one inside another's execute(), takes the whole job
-    // back
+    // back. Each says whose code it is: the install's is to be made here,
+    // and a test fails on it (sec 73)
     json faked = json::array();
     {
-        std::set<DocumentObject*> fakers;
+        std::map<DocumentObject*, std::pair<std::string, bool>> fakers;  // class, built-in
         for (auto& e : recorder.entries) {
             if (!e.here && !e.faked.empty()) {
-                fakers.insert(e.obj);
+                fakers[e.obj] = codeOf(*e.obj);
             }
         }
+        // The reply of a job taken back for a fake: said so, and whose code
+        auto back = [&fakers](DocumentObject* obj, const std::string& why) {
+            const auto& origin = fakers[obj];
+            return unfit(std::string(FakedPrefix) + why + " (" + origin.first + ")"
+                         + (origin.second ? BuiltInSuffix : ""));
+        };
         for (std::size_t i = 0; !fakers.empty() && i < recorder.entries.size(); ++i) {
             auto& e = recorder.entries[i];
             if (e.here) {
@@ -689,18 +729,18 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             }
             const bool faker = fakers.count(e.obj) > 0;
             if (faker && e.outer) {
-                return unfit(std::string(e.obj->getFullName()) + " used "
-                             + e.faked.front() + ", which a worker has not got, inside "
-                             + recorder.entries[e.outer - 1].obj->getFullName());
+                return back(e.obj, std::string(e.obj->getFullName()) + " used " + e.faked.front()
+                                       + ", which a worker has not got, inside "
+                                       + recorder.entries[e.outer - 1].obj->getFullName());
             }
             if (faker) {
                 continue;
             }
             for (auto dep : e.obj->getOutListRecursive()) {
                 if (fakers.count(dep)) {
-                    return unfit(std::string(dep->getFullName())
-                                 + " used what a worker has not got, and "
-                                 + e.obj->getFullName() + " reads it");
+                    return back(dep, std::string(dep->getFullName())
+                                         + " used what a worker has not got, and "
+                                         + e.obj->getFullName() + " reads it");
                 }
             }
         }
@@ -710,28 +750,19 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             }
             for (auto& inner : recorder.entries) {
                 if (inner.outer && &recorder.entries[inner.outer - 1] == &e) {
-                    return unfit(std::string(e.obj->getFullName()) + " used " + e.faked.front()
-                                 + ", which a worker has not got, and recomputed "
-                                 + inner.obj->getFullName() + " itself");
+                    return back(e.obj, std::string(e.obj->getFullName()) + " used "
+                                           + e.faked.front()
+                                           + ", which a worker has not got, and recomputed "
+                                           + inner.obj->getFullName() + " itself");
                 }
             }
             e.here = true;
             ++recorder.left;
-            std::string cls;
-            {
-                Base::PyGILStateLocker lock;
-                auto proxy =
-                    freecad_cast<PropertyPythonObject*>(e.obj->getPropertyByName("Proxy"));
-                Py::Object value = proxy ? proxy->getValue() : Py::None();
-                if (!value.isNone()) {
-                    Py::Object type = value.type();
-                    cls = type.getAttr("__module__").as_string() + "."
-                        + type.getAttr("__qualname__").as_string();
-                }
-            }
+            const auto& origin = fakers[e.obj];
             faked.push_back(json {{"object", e.obj->getNameInDocument()},
                                   {"label", e.obj->Label.getValue()},
-                                  {"class", cls},
+                                  {"class", origin.first},
+                                  {"builtin", origin.second},
                                   {"used", e.faked}});
         }
     }
@@ -758,6 +789,22 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
     recorder.entries.erase(std::remove_if(recorder.entries.begin(), recorder.entries.end(),
                                           [](const Recorder::Entry& e) { return e.here; }),
                            recorder.entries.end());
+    // What the objects sent did to their views, in the order they did it:
+    // done again to the view providers where they are put in (sec 73)
+    json views = json::array();
+    for (auto& e : recorder.entries) {
+        if (e.views.empty() || !e.obj->isAttachedToDocument()) {
+            continue;
+        }
+        json ops = json::array();
+        for (auto& v : e.views) {
+            json op = json::parse(v, nullptr, false);
+            if (!op.is_discarded()) {
+                ops.push_back(std::move(op));
+            }
+        }
+        views.push_back(json {{"object", e.obj->getNameInDocument()}, {"ops", ops}});
+    }
     // The numbers objects gave things here, each from what the other
     // process had given: taken there as they are if it gave none since
     // (sec 36). Only those of an object whose values go back -- one made
@@ -900,7 +947,8 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
                          {"table", hash},
                          {"byId", byId},
                          {"numbers", numbers},
-                         {"faked", faked}}
+                         {"faked", faked},
+                         {"views", views}}
                        .dump();
     return reply;
 }
@@ -926,6 +974,18 @@ void WorkerRecompute::noteFaked(const std::string& what)
         return;
     }
     entry.faked.push_back(what);
+}
+
+void WorkerRecompute::noteViewWrite(const std::string& what)
+{
+    Recorder* recorder = Recorder::active();
+    if (!recorder || recorder->running.empty()) {
+        return;
+    }
+    auto& entry = recorder->entries[recorder->running.back()];
+    if (!entry.here) {
+        entry.views.push_back(what);
+    }
 }
 
 namespace
@@ -1449,6 +1509,8 @@ struct State
         std::string file;
         WorkerPool::JobId fileJob = 0;
         json numbers;
+        /// What its objects did to their views there (sec 73)
+        json views;
         /// Its result's times (WorkerPool::Result::queued, ...)
         double queued = 0;
         double setup = 0;
@@ -1748,6 +1810,37 @@ void apply(State& s)
             e.ReportException();
         }
     }
+    // What the objects the worker made did to their views there, done to
+    // their view providers here as their execute() would have, in the order
+    // it was done: a view property set, a view provider's method called
+    // (freecad.worker_gui.replay, docs/WorkerProcess.md sec 73)
+    {
+        json views = json::array();
+        for (auto& p : s.parts) {
+            for (auto& v : p.views) {
+                if (v.is_object()
+                    && supplier->fromWorker.count(v.value("object", std::string()))) {
+                    views.push_back(v);
+                }
+            }
+            p.views = json::array();
+        }
+        if (!views.empty()) {
+            Base::PyGILStateLocker lock;
+            try {
+                Py::Module gui(PyImport_ImportModule("freecad.worker_gui"), true);
+                Py::Callable replay(gui.getAttr("replay"));
+                Py::Tuple args(2);
+                args.setItem(0, Py::String(s.doc.getName()));
+                args.setItem(1, Py::String(views.dump()));
+                replay.apply(args);
+            }
+            catch (Py::Exception&) {
+                Base::PyException e;
+                e.ReportException();
+            }
+        }
+    }
     s.info.applySeconds = now() - began;
     times.apply = s.info.applySeconds;
     times.total = s.startedAt > 0 ? now() - s.startedAt : 0;
@@ -1929,28 +2022,36 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
                         if (!f.is_object()) {
                             continue;
                         }
-                        const std::string cls = f.value("class", std::string());
-                        const std::string object = f.value("object", std::string());
-                        if (!told.insert(name + "#" + (cls.empty() ? object : cls)).second) {
-                            continue;
-                        }
-                        std::string used;
+                        WorkerRecompute::Info::Faked one;
+                        one.object = f.value("object", std::string());
+                        one.label = f.value("label", std::string());
+                        one.cls = f.value("class", std::string());
+                        one.builtin = f.value("builtin", true);
                         for (auto& u : f.value("used", json::array())) {
                             if (u.is_string()) {
-                                used += (used.empty() ? "" : ", ") + u.get<std::string>();
+                                one.used += (one.used.empty() ? "" : ", ") + u.get<std::string>();
                             }
                         }
+                        s->info.faked.push_back(one);
+                        if (!told.insert(name + "#" + (one.cls.empty() ? one.object : one.cls))
+                                 .second) {
+                            continue;
+                        }
+                        // The install's own code is a worker's to make: one
+                        // made here is a fault to fix (sec 73), not an addon's
                         Base::Console().warning(
                             "%s#%s (%s)%s is recomputed in this process, not by a worker: its "
-                            "execute() uses %s, which a worker process has not got\n",
-                            name.c_str(), object.c_str(),
-                            f.value("label", std::string()).c_str(),
-                            cls.empty() ? "" : (", of " + cls).c_str(), used.c_str());
+                            "execute() uses %s, which a worker process has not got%s\n",
+                            name.c_str(), one.object.c_str(), one.label.c_str(),
+                            one.cls.empty() ? "" : (", of " + one.cls).c_str(), one.used.c_str(),
+                            one.builtin ? " (built-in code: a fault, please report it)" : "");
                     }
                 }
                 part->file = r.file;
                 part->fileJob = id;
                 part->numbers = std::move(numbers);
+                part->views =
+                    output.is_object() ? output.value("views", json::array()) : json::array();
                 part->queued = r.queued;
                 part->setup = r.setup;
                 part->handler = r.seconds;
@@ -1968,6 +2069,15 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
         case WorkerPool::Result::Status::Unfit:
             ++s->info.unfit;
             s->info.reason = r.error;
+            if (r.error.rfind(FakedPrefix, 0) == 0) {
+                // Taken back whole for a fake (sec 72): whose code it was
+                WorkerRecompute::Info::Faked one;
+                one.used = r.error.substr(std::strlen(FakedPrefix));
+                const std::string tail(BuiltInSuffix);
+                one.builtin = r.error.size() >= tail.size()
+                    && r.error.compare(r.error.size() - tail.size(), tail.size(), tail) == 0;
+                s->info.faked.push_back(one);
+            }
             FC_LOG(name << ": a worker cannot recompute: " << r.error);
             break;
         case WorkerPool::Result::Status::Cancelled:
@@ -2724,6 +2834,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         s.joined.insert(obj->getNameInDocument());
     }
     s.info.reason.clear();
+    s.info.faked.clear();
     s.startedAt = began;
     s.startSeconds = now() - began;
     s.resultAt = 0;

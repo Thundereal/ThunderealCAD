@@ -31,6 +31,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <map>
+#include <sstream>
 
 #include <Base/Console.h>
 #include <Base/Exception.h>
@@ -38,13 +40,16 @@
 #include <Base/Interpreter.h>
 #include <Base/Parameter.h>
 #include <Base/PyWrapParseTupleAndKeywords.h>
+#include <Base/Reader.h>
 #include <Base/Sequencer.h>
+#include <Base/Writer.h>
 
 #include "Application.h"
 #include "DocumentPy.h"
 #include "DocumentObserverPython.h"
 #include "DocumentObjectPy.h"
 #include "ParamRegistry.h"
+#include "Property.h"
 #include "TransactionMeasure.h"
 #include "WorkerPool.h"
 #include "WorkerRecompute.h"
@@ -89,6 +94,9 @@ PyObject* workerPoolPy(PyObject* self, PyObject* args);
 PyObject* serveWorkerPy(PyObject* self, PyObject* args);
 PyObject* serveServicePy(PyObject* self, PyObject* args);
 PyObject* workerFakedPy(PyObject* self, PyObject* args);
+PyObject* workerViewWritePy(PyObject* self, PyObject* args);
+PyObject* propertyValuePy(PyObject* self, PyObject* args);
+PyObject* propertyXmlPy(PyObject* self, PyObject* args);
 }
 
 PyMethodDef Application::Methods[] = {
@@ -216,6 +224,15 @@ PyMethodDef Application::Methods[] = {
     {"_workerFaked",   (PyCFunction) workerFakedPy, METH_VARARGS,
      "_workerFaked(what): in a worker, the object being executed used `what`, which\n"
      "the worker only stands in for (freecad.worker_gui): made by the asking process"},
+    {"_workerViewWrite", (PyCFunction) workerViewWritePy, METH_VARARGS,
+     "_workerViewWrite(json): in a worker, what the object being executed did to its\n"
+     "view, to be done again to its view provider where the result is put in"},
+    {"_propertyValue", (PyCFunction) propertyValuePy, METH_VARARGS,
+     "_propertyValue(type, xml) -> value: a saved property's value, its <Property>\n"
+     "element read by a property of its type (a view provider's, in a worker)"},
+    {"_propertyXml", (PyCFunction) propertyXmlPy, METH_VARARGS,
+     "_propertyXml(type, value) -> str: the <Property> element a property of that\n"
+     "type saves holding value"},
     {"getDocument",    (PyCFunction) Application::sGetDocument, METH_VARARGS,
      "getDocument(string) -> object\n\n"
      "Get a document by its name or raise an exception\n"
@@ -668,6 +685,89 @@ PyObject* serveWorkerPy(PyObject * /*self*/, PyObject *args)
         return nullptr;
     PY_TRY {
         return Py::new_reference_to(Py::Long(WorkerPool::serve()));
+    }PY_CATCH;
+}
+
+/// A saved property's type as this process can make it. A view provider's
+/// colour and appearance properties are GUI types over App's, which save as
+/// App's do: read by those (docs/WorkerProcess.md sec 73)
+std::unique_ptr<App::Property> makeSavedProperty(const char* type)
+{
+    static const std::map<std::string, std::string> gui {
+        {"Gui::_PropertyShapeColor", "App::PropertyColor"},
+        {"Gui::PropertyShapeColor", "App::PropertyColor"},
+        {"PartGui::_PropertyDiffuseColor", "App::PropertyColorList"},
+        {"PartGui::PropertyDiffuseColor", "App::PropertyColorList"},
+        {"Gui::_PropertyShapeAppearance", "App::PropertyAppearance"},
+        {"Gui::PropertyShapeAppearance", "App::PropertyAppearance"},
+    };
+    std::string name(type ? type : "");
+    if (auto it = gui.find(name); it != gui.end()) {
+        name = it->second;
+    }
+    Base::Type t = Base::Type::fromName(name.c_str());
+    if (t.isBad() || !t.isDerivedFrom(App::Property::getClassTypeId())) {
+        return {};
+    }
+    return std::unique_ptr<App::Property>(static_cast<App::Property*>(t.createInstance()));
+}
+
+PyObject* propertyValuePy(PyObject * /*self*/, PyObject *args)
+{
+    const char* type = nullptr;
+    const char* xml = nullptr;
+    if (!PyArg_ParseTuple(args, "ss", &type, &xml))
+        return nullptr;
+    PY_TRY {
+        auto prop = makeSavedProperty(type);
+        if (!prop) {
+            PyErr_Format(PyExc_ValueError, "no property type %s here", type);
+            return nullptr;
+        }
+        const std::string text(xml);
+        if (text.find(" file=\"") != std::string::npos) {
+            // Its value is in a file of the archive, which is not here
+            PyErr_SetString(PyExc_ValueError, "the value is in a file of its own");
+            return nullptr;
+        }
+        std::istringstream in(text);
+        Base::XMLReader reader("property", in);
+        reader.readElement("Property");
+        prop->Restore(reader);
+        return prop->getPyObject();
+    }PY_CATCH;
+}
+
+PyObject* propertyXmlPy(PyObject * /*self*/, PyObject *args)
+{
+    const char* type = nullptr;
+    PyObject* value = nullptr;
+    if (!PyArg_ParseTuple(args, "sO", &type, &value))
+        return nullptr;
+    PY_TRY {
+        auto prop = makeSavedProperty(type);
+        if (!prop) {
+            PyErr_Format(PyExc_ValueError, "no property type %s here", type);
+            return nullptr;
+        }
+        prop->setPyObject(value);
+        Base::StringWriter writer;
+        writer.setForceXML(true);
+        writer.Stream() << "<Property name=\"value\" type=\"" << type << "\">\n";
+        prop->Save(writer);
+        writer.Stream() << "</Property>\n";
+        return Py::new_reference_to(Py::String(writer.getString()));
+    }PY_CATCH;
+}
+
+PyObject* workerViewWritePy(PyObject * /*self*/, PyObject *args)
+{
+    const char* what = nullptr;
+    if (!PyArg_ParseTuple(args, "s", &what))
+        return nullptr;
+    PY_TRY {
+        WorkerRecompute::noteViewWrite(what);
+        Py_Return;
     }PY_CATCH;
 }
 

@@ -7,6 +7,8 @@ SET(Test_SRCS
     TestAnimation.py
     TestWorkerPool.py
     WorkerGuiProbe.py
+    WorkerViewProbe.py
+    TestWorkerBuiltIns.py
     ArchiveMembers.py
     FileBlobs.py
     InputProperty.py

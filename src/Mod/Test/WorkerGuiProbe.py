@@ -4,8 +4,8 @@ tests (tests/gui/addon-gui-by-worker.py, docs/WorkerProcess.md sec 72).
 
 It does what OpticsWorkbench does (OpticalObject.py, Ray.py): it calls
 FreeCADGui at import -- a command registered, an icon path added -- with no
-`FreeCAD.GuiUp` guard, and two of its features write their view in their
-execute(): a look, and the view's own line width. Imported in the GUI and in a worker, never in a plain console
+`FreeCAD.GuiUp` guard, and three of its features use their view in their
+execute(): a look, the view's own line width, and the scene graph. Imported in the GUI and in a worker, never in a plain console
 (FreeCADGui there has no addCommand).
 """
 
@@ -14,6 +14,11 @@ import os
 import FreeCAD
 import FreeCADGui as Gui
 import Part
+
+# Installed with the Test module, it stands for an addon's: a worker leaves
+# what it cannot make of it to the asking process, as it would an addon's
+# (freecad.worker_gui.origin, docs/WorkerProcess.md sec 73)
+__freecad_addon__ = True
 
 
 class Plain:
@@ -50,11 +55,21 @@ class Colored(Plain):
 
 class Wide(Plain):
     """Writes what is the view's alone, its line width by its size: a worker
-    has no value of it, and the object is made in the GUI's process"""
+    has it as the copy saved it, and the write is done again to the view
+    provider where the result is put in"""
 
     def execute(self, obj):
         Plain.execute(self, obj)
         obj.ViewObject.LineWidth = float(obj.Size) / 10.0
+
+
+class Scener(Plain):
+    """Reaches its view's scene graph, which no worker has: made in the GUI's
+    process"""
+
+    def execute(self, obj):
+        Plain.execute(self, obj)
+        obj.ViewObject.RootNode.getNumChildren()
 
 
 class _Make:

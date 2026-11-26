@@ -2103,6 +2103,16 @@ fc_add_gui_test(GuiHoldPerDocument_tests_run hold-per-document.py
 fc_add_gui_test(GuiAddonGuiByWorker_tests_run addon-gui-by-worker.py
                 --timeout 300)
 
+# What built-in code does to views in its execute() is the same made by a
+# worker as made here (docs/WorkerProcess.md sec 73): Mod/Test/
+# WorkerViewProbe.py shows and hides a base, takes its size from a view
+# property, redraws its view and calls its view proxy. The census -- App
+# and view Visibility, the mode switch, display mode, per-view entries --
+# compared after the same recompute here and by a worker, with a per-view
+# hide and a TempoVis hide in each.
+fc_add_gui_test(GuiViewsByWorker_tests_run views-by-worker.py
+                --timeout 300)
+
 # A slice of a progressive load is not charged for the frame drawn inside
 # it, and grows with what the event loop costs (docs/DocumentLoad.md sec
 # 18.16). Both drains worked a fixed budget and then gave the thread back

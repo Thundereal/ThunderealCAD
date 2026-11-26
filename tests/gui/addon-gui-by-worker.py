@@ -9,9 +9,10 @@ module calls Gui.addCommand at import, failed to restore in the worker's
 copy, and the worker recomputed the document without their code.
 
 Mod/Test/WorkerGuiProbe.py is such a module (addCommand and addIconPath at
-import, unguarded), with three features: Plain, a box of Size; Colored,
-whose execute() writes its ViewObject.LineColor as Ray.execute does; and
-Wide, whose execute() writes its ViewObject.LineWidth. Saved, closed and
+import, unguarded), with four features: Plain, a box of Size; Colored,
+whose execute() writes its ViewObject.LineColor as Ray.execute does; Wide,
+whose execute() writes its ViewObject.LineWidth; and Scener, which reaches
+its view's scene graph. Saved, closed and
 opened again (the restore that failed), an edit is recomputed by Std_Refresh,
 which hands it to a worker. Claims:
   - the worker had the module: Plain is made there, to its new size;
@@ -20,9 +21,13 @@ which hands it to a worker. Claims:
     back with the result -- the view's colour by the new size (the
     reporter, 2026-11-26: "most of the view object appearance property is
     actually a stand in for app namespace property");
-  - Wide, whose execute wrote what is the view's alone, is made here, its
-    line width by the new size, and the Report view names it and what it
-    touched;
+  - Wide, whose execute wrote what is the view's alone, is made there too:
+    a worker has its view's properties as the copy saved them, and the
+    write is done again to the view provider here (sec 73) -- its line
+    width by the new size;
+  - Scener, which reached the scene graph no worker has, is made here,
+    the one object so, an addon's, and the Report view names it and what
+    it touched;
   - the result is whole: nothing touched, each size the edited one.
 With OpticsWorkbench installed (GT_ADDONS), a ray on a mirror, its length
 and wavelength edited: made by the worker, its colour that of the new
@@ -106,9 +111,12 @@ def probe():
     wide = doc.addObject("Part::FeaturePython", "Wide")
     WorkerGuiProbe.Wide(wide)
     wide.setExpression("Size", "Base.Height")
+    scener = doc.addObject("Part::FeaturePython", "Scener")
+    WorkerGuiProbe.Scener(scener)
+    scener.setExpression("Size", "Base.Length")
     doc.recompute()
     doc = reopened(doc)
-    base, plain, colored, wide = doc.Base, doc.Plain, doc.Colored, doc.Wide
+    base, plain, colored, wide, scener = doc.Base, doc.Plain, doc.Colored, doc.Wide, doc.Scener
     check("reopened here with the module's classes",
           None not in (plain.Proxy, colored.Proxy, wide.Proxy),
           (plain.Proxy, colored.Proxy, wide.Proxy))
@@ -130,14 +138,18 @@ def probe():
           and abs(colored.LineColor[0] - 0.11) < 0.01,
           (colored.MadeBy, colored.Shape.Volume, colored.ViewObject.LineColor,
            colored.LineColor, info))
-    check("Wide, which writes the view's own line width, made here, its width written",
-          wide.MadeBy == here and abs(wide.Shape.Volume - 13 ** 3) < 1e-6
+    check("Wide, which writes the view's own line width, made there, the width done here",
+          wide.MadeBy not in (0, here) and abs(wide.Shape.Volume - 13 ** 3) < 1e-6
           and abs(wide.ViewObject.LineWidth - 1.3) < 1e-6,
           (wide.MadeBy, wide.Shape.Volume, wide.ViewObject.LineWidth, info))
-    check("... and only Wide", info["ExecutedHereNames"] == ["Wide"], info)
+    check("Scener, which reaches the scene graph, made here",
+          scener.MadeBy == here and abs(scener.Shape.Volume - 12 ** 3) < 1e-6,
+          (scener.MadeBy, scener.Shape.Volume, info))
+    check("... and only Scener, an addon's", info["ExecutedHereNames"] == ["Scener"]
+          and [(f["Object"], f["BuiltIn"]) for f in info["Faked"]] == [("Scener", False)], info)
     check("... the Report view names it and what it touched",
-          "Wide" in said and "ViewObject.LineWidth" in said and "Colored" not in said,
-          said[-600:])
+          "Scener" in said and "ViewObject.RootNode" in said and "Wide" not in said
+          and "Colored" not in said, said[-600:])
     check("the result is whole: nothing touched", touched(doc) == [], touched(doc))
     FreeCAD.closeDocument(doc.Name)
 

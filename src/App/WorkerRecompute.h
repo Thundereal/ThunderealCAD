@@ -74,6 +74,20 @@ public:
         long inner = 0;
         /// The first of those executed here, by name, for a look
         std::vector<std::string> executedHereNames;
+        /// Of the last one started: each object a worker left to be made
+        /// here because its code used what the worker only stands in for
+        /// (docs/WorkerProcess.md sec 72) -- or, `object` empty, the reason
+        /// that took the whole job back for it. `builtin`: the code is the
+        /// install's, which a worker is to make itself (sec 73)
+        struct Faked
+        {
+            std::string object;
+            std::string label;
+            std::string cls;
+            std::string used;
+            bool builtin = true;
+        };
+        std::vector<Faked> faked;
         bool byId = false;     ///< its strings taken in under their ids
         std::string byContentWhy;  ///< why not, when they were read by content
         double workerSeconds = 0;  ///< the worker's recompute
@@ -175,6 +189,13 @@ public:
      * Nothing outside an execute
      */
     static void noteFaked(const std::string& what);
+    /** In a worker: the object being executed did `what` (JSON, from
+     * freecad.worker_gui) to a view the worker has only the saved values
+     * of -- set a view property, called a view provider's method. Sent with
+     * its values, done again to the view provider where they are put in
+     * (docs/WorkerProcess.md sec 73). Nothing outside an execute
+     */
+    static void noteViewWrite(const std::string& what);
 
     /// Started, made, put in, dropped
     static fastsignals::signal<void(const Document&)> signalChanged;

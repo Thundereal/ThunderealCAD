@@ -1839,7 +1839,9 @@ class TestAnimation(unittest.TestCase):
         self.anim.waitWorkers(120)
         info = self.anim.workerInfo()
         self.assertFalse(info["Running"])
-        self.assertIn("no Python class here", info["Reason"])
+        # The copy's restore names the class it could not make
+        # (docs/WorkerProcess.md sec 72)
+        self.assertIn("TestAnimation.Twice) cannot be restored in a worker", info["Reason"])
         self.assertEqual(self.anim.cacheInfo()["Prepared"], 0)
         for t in self.anim.frames():
             self.anim.Time = t

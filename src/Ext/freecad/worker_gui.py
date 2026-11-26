@@ -31,8 +31,12 @@ which has the real thing and says so in its Report view; and a job of a
 Python kind that used one is answered unfit (freecad.worker._run).
 """
 
+import json
+import os
+import re
 import sys
 import types
+import zipfile
 
 import FreeCAD as App
 
@@ -51,6 +55,42 @@ def _fake(what):
 def faked():
     """How many fakes were used since the worker started"""
     return _count
+
+
+def _under(path, root):
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:  # another drive
+        return False
+
+
+def origin(proxy):
+    """(class, built-in) of an object's Python proxy: whether its code is the
+    install's, which a worker is to make itself, or an addon's or a macro's,
+    which may be made by the asking process (docs/WorkerProcess.md sec 73).
+    By where its module's file is: under the install's home (its Mod, Ext
+    and lib) it is built-in; under the user's data or macro directory, or
+    anywhere else, it is not. A module may say it stands for an addon's
+    (`__freecad_addon__ = True`), as a test's does"""
+    cls = type(proxy)
+    name = "%s.%s" % (cls.__module__, cls.__qualname__)
+    module = sys.modules.get(cls.__module__)
+    if module is None or getattr(module, "__freecad_addon__", False):
+        return name, False
+    path = getattr(module, "__file__", None)
+    if not path:
+        return name, True  # compiled in
+    path = os.path.normcase(os.path.realpath(path))
+    roots = []
+    for get in ("getUserAppDataDir", "getUserMacroDir"):
+        try:
+            roots.append(os.path.normcase(os.path.realpath(getattr(App, get)())))
+        except Exception:  # pylint: disable=broad-except
+            pass
+    if any(_under(path, r) for r in roots):
+        return name, False
+    home = os.path.normcase(os.path.realpath(App.getHomePath()))
+    return name, _under(path, home)
 
 
 class _Inert:
@@ -112,49 +152,249 @@ _LOOK_NAMES = frozenset(("LineColor", "PointColor", "ShapeColor", "Transparency"
                          "ShapeAppearance", "MapFaceColor", "MapLineColor", "MapPointColor",
                          "MapTransparency", "ForceMapColors"))
 # - no name on the object: written as the view provider writes the store
-#   (Part._writeViewLook); a read is a fake
+#   (Part._writeViewLook)
 _LOOK_WRITES = frozenset(("LineMaterial", "PointMaterial", "LineColorArray", "PointColorArray"))
-# Everything else is the view's own -- LineWidth, DisplayMode, Deviation,
-# the Render_* properties, the view provider's Proxy -- or goes through an
-# accessor of the GUI's own (DiffuseColor, ShapeMaterial): a fake, and the
-# object is made by the asking process
+# What a view provider is asked that is not a property: the scene's and the
+# GUI's, which a worker has not got -- a fake
+_VIEW_API = frozenset(("RootNode", "SwitchNode", "Annotation", "TypeId", "Document",
+                       "getElementColors", "setElementColors", "getDisplayModes",
+                       "claimChildren", "signalChangeIcon", "addProperty", "removeProperty",
+                       "addDisplayMode", "setTransformation", "toString", "startEditing",
+                       "finishEditing", "isEditing", "getActiveView", "getBoundingBox",
+                       "getDetailPath", "getElementPicked", "Icon", "DropPrefix",
+                       "CanRemoveChildrenFromRoot", "Visibility", "isVisible", "hide", "show",
+                       "update", "Proxy", "Object", "Extensions"))
+
+
+class _SavedViews:
+    """A document's GuiDocument.xml as the worker's copy has it: each view
+    provider's saved properties, its class's shared defaults under them
+    (App::SharedDefaults), read when an object's are first asked for"""
+
+    _element = re.compile(r'<Property name="([^"]+)" type="([^"]+)"[^>]*?(?:/>|>.*?</Property>)',
+                          re.S)
+
+    def __init__(self, text):
+        self.text = text
+        self.index = {}
+        for m in re.finditer(r'<ViewProvider name="([^"]+)"', text):
+            end = text.find("</ViewProvider>", m.end())
+            self.index[m.group(1)] = (m.start(), end if end >= 0 else len(text))
+        self.defaults = None
+        self.cache = {}
+
+    def _props(self, segment):
+        return {m.group(1): (m.group(2), m.group(0)) for m in self._element.finditer(segment)}
+
+    def _defaultsOf(self, vptype):
+        if self.defaults is None:
+            self.defaults = {}
+            a = self.text.find("<Defaults")
+            b = self.text.find("</Defaults>")
+            if a >= 0 and b > a:
+                block = self.text[a:b]
+                for m in re.finditer(r'<Default type="([^"]+)">(.*?)</Default>', block, re.S):
+                    self.defaults[m.group(1)] = self._props(m.group(2))
+        return self.defaults.get(vptype, {})
+
+    def props(self, name, vptype):
+        """{property: (type, xml)} of an object's view provider, None if it
+        saved none"""
+        if name in self.cache:
+            return self.cache[name]
+        span = self.index.get(name)
+        props = None
+        if span is not None:
+            props = dict(self._defaultsOf(vptype))
+            props.update(self._props(self.text[span[0]:span[1]]))
+        self.cache[name] = props
+        return props
+
+
+_views = {}
+
+
+def load_views(doc_name, data, path):
+    """The saved views of a worker's copy (WorkerPool.cpp, attachViewStandIns):
+    the version's GuiDocument.xml from the store, or the copy's file"""
+    text = None
+    try:
+        if data:
+            text = bytes(data).decode("utf-8", "replace")
+        elif path and os.path.isfile(path):
+            if zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as z:
+                    if "GuiDocument.xml" in z.namelist():
+                        text = z.read("GuiDocument.xml").decode("utf-8", "replace")
+            else:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    text = f.read()
+    except Exception:  # pylint: disable=broad-except
+        text = None
+    if text:
+        _views[doc_name] = _SavedViews(text)
+    else:
+        _views.pop(doc_name, None)
+
+
+class _Unreadable(Exception):
+    pass
+
+
+def _record(obj, op):
+    """What an execute did to a view, for the asking process to do again"""
+    op["object"] = obj.Name
+    try:
+        App._workerViewWrite(json.dumps(op))
+    except Exception:  # pylint: disable=broad-except
+        pass
+
+
+def _token(value, view):
+    """A call's argument as it crosses: JSON, a view object or an object by
+    name; anything else cannot be sent"""
+    if value is view or isinstance(value, ViewObject):
+        return {"__view__": value._object.Name if value is not view else None}
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_token(v, view) for v in value]
+    if hasattr(value, "isDerivedFrom") and hasattr(value, "Name"):
+        return {"__object__": value.Name}
+    raise _Unreadable(type(value).__name__)
+
+
+class _ProxyStandIn:
+    """A view provider's Python proxy in a worker: its state read from the
+    restored instance, where there is one; a method called is done by the
+    asking process, on the real one, and gives None here"""
+
+    __slots__ = ("_view", "_real")
+
+    def __init__(self, view, real):
+        object.__setattr__(self, "_view", view)
+        object.__setattr__(self, "_real", real)
+
+    def __getattr__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        real = self._real
+        if real is not None:
+            try:
+                value = getattr(real, name)
+            except AttributeError:
+                raise
+            except Exception:  # pylint: disable=broad-except
+                value = None
+            if not callable(value):
+                return value
+        view = self._view
+
+        def call(*args, **kwargs):
+            try:
+                tokens = [_token(a, view) for a in args]
+                if kwargs:
+                    raise _Unreadable("keyword arguments")
+            except _Unreadable:
+                _fake("ViewObject.Proxy.%s()" % name)
+                return None
+            _record(view._object, {"op": "proxy", "name": name, "args": tokens})
+            return None
+
+        return call
+
+    def __setattr__(self, name, value):
+        _fake("ViewObject.Proxy.%s" % name)
+
+    def __bool__(self):
+        return True
 
 
 class ViewObject:
     """What obj.ViewObject is in a worker: a view provider without a GUI.
-    What it has of the object's -- Visibility on any object, the looks on a
-    Part::Feature -- is real: read from the object and written to it, the
-    value then sent back with the object's others. Anything else asked of
-    it or given to it is a fake. It is true, so that `if obj.ViewObject:`
-    takes the path it takes in the GUI"""
+    - What it has of the object's -- the looks on a Part::Feature -- is
+      read from the object and written to it as the view provider does.
+    - Its own properties -- Visibility, LineWidth, DisplayLength, its
+      Python-added ones -- are read as the copy's GuiDocument.xml saved
+      them; a write is kept, and done again to the real view provider where
+      the result is put in (replay()), as is a call of update(), hide(),
+      show() or of its Python proxy's methods. Visibility is the view
+      provider's own, which can differ from the object's; a write of it
+      is the object's too, as the view provider's onChanged makes it.
+    - A name it has not, with its saved views to say so, is an
+      AttributeError, as on the real one.
+    Anything else -- the scene, a property of a type this process cannot
+    read -- is a fake. It is true, so that `if obj.ViewObject:` takes the
+    path it takes in the GUI"""
 
-    __slots__ = ("_object", "_looks", "_kept")
+    __slots__ = ("_object", "_looks", "_kept", "_props", "_values")
 
-    def __init__(self, obj, looks):
+    def __init__(self, obj, looks, props=None):
         object.__setattr__(self, "_object", obj)
         object.__setattr__(self, "_looks", looks)
         object.__setattr__(self, "_kept", {})
+        object.__setattr__(self, "_props", props)
+        object.__setattr__(self, "_values", {})
 
-    def _real(self, name):
-        if name == "Visibility":
-            return True
+    def _look(self, name):
         return self._looks and name in _LOOK_NAMES and name in self._object.PropertiesList
+
+    def _saved(self, name):
+        """The saved value of a view property, or _Unreadable"""
+        if name in self._values:
+            return self._values[name]
+        props = self._props
+        if props is None or name not in props:
+            raise _Unreadable(name)
+        ptype, xml = props[name]
+        try:
+            value = App._propertyValue(ptype, xml)
+        except Exception as e:  # pylint: disable=broad-except
+            raise _Unreadable(str(e)) from e
+        self._values[name] = value
+        return value
+
+    def _visible(self):
+        try:
+            return bool(self._saved("Visibility"))
+        except _Unreadable:
+            return bool(self._object.Visibility)
 
     def __getattr__(self, name):
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
         if name == "Object":
             return self._object
-        if self._real(name):
+        if name == "Visibility":
+            return self._visible()
+        if self._look(name):
             return getattr(self._object, name)
         if self._looks and name == "MappedColors" and name in self._kept:
             return self._kept[name]
+        if name == "Proxy":
+            try:
+                real = self._saved("Proxy")
+            except _Unreadable:
+                real = None
+            return _ProxyStandIn(self, real)
+        try:
+            return self._saved(name)
+        except _Unreadable:
+            pass
+        if self._props is not None and name not in self._props and name not in _VIEW_API \
+                and name not in _LOOK_WRITES and name != "MappedColors":
+            # Saved views say what it has: one it has not is not there
+            raise AttributeError("view provider of %s has no attribute '%s'"
+                                 % (self._object.Name, name))
         what = "ViewObject.%s" % name
         _fake(what)
         return _Inert(what)
 
     def __setattr__(self, name, value):
-        if self._real(name):
+        if name == "Visibility":
+            self._setVisible(bool(value))
+            return
+        if self._look(name):
             setattr(self._object, name, value)
             return
         if self._looks and name in _LOOK_WRITES:
@@ -167,16 +407,41 @@ class ViewObject:
             # a write there does nothing to the object
             self._kept[name] = value
             return
+        props = self._props
+        if props is not None and name in props:
+            ptype = props[name][0]
+            try:
+                xml = App._propertyXml(ptype, value)
+                kept = App._propertyValue(ptype, xml)
+            except Exception:  # pylint: disable=broad-except
+                _fake("ViewObject.%s" % name)
+                return
+            self._values[name] = kept
+            _record(self._object, {"op": "set", "name": name, "type": ptype, "xml": xml})
+            return
         _fake("ViewObject.%s" % name)
 
+    def _setVisible(self, visible):
+        # The view provider's, and the object's as its onChanged makes it;
+        # done again to the real one, whose Visibility may not be the
+        # object's (an open reads each from its own file)
+        self._values["Visibility"] = visible
+        self._object.Visibility = visible
+        _record(self._object, {"op": "set", "name": "Visibility", "type": "App::PropertyBool",
+                               "xml": App._propertyXml("App::PropertyBool", visible)})
+
     def hide(self):
-        self._object.Visibility = False
+        self._setVisible(False)
 
     def show(self):
-        self._object.Visibility = True
+        self._setVisible(True)
 
     def isVisible(self):
-        return self._object.Visibility
+        # The mode switch, which follows Visibility outside an updateData
+        return self._visible()
+
+    def update(self):
+        _record(self._object, {"op": "call", "name": "update"})
 
     def __bool__(self):
         return True
@@ -189,14 +454,68 @@ class ViewObject:
         return "<view object of %s, standing in in a worker process>" % name
 
 
-def view_object(obj):
+def view_object(obj, vptype=""):
     """The view object a worker's object is given (WorkerPool.cpp,
-    attachViewStandIns)"""
+    attachViewStandIns), with its saved view properties where the copy has
+    them"""
     try:
         looks = obj.isDerivedFrom("Part::Feature")
     except Exception:  # pylint: disable=broad-except
         looks = False
-    return ViewObject(obj, looks)
+    props = None
+    try:
+        saved = _views.get(obj.Document.Name)
+        if saved is not None:
+            props = saved.props(obj.Name, vptype)
+    except Exception:  # pylint: disable=broad-except
+        props = None
+    return ViewObject(obj, looks, props)
+
+
+def replay(doc_name, text):
+    """In the process the result is put in: what the objects a worker made
+    did to their views there, done to their view providers here, in order
+    (WorkerRecompute.cpp, apply)"""
+    try:
+        doc = App.getDocument(doc_name)
+    except Exception:  # pylint: disable=broad-except
+        return
+    for entry in json.loads(text):
+        made = doc.getObject(entry.get("object", ""))
+        if made is None:
+            continue
+
+        def arg(a, view=None):
+            if isinstance(a, dict) and "__view__" in a:
+                if a["__view__"] is None:
+                    return view
+                other = doc.getObject(a["__view__"])
+                return other.ViewObject if other is not None else None
+            if isinstance(a, dict) and "__object__" in a:
+                return doc.getObject(a["__object__"])
+            if isinstance(a, list):
+                return [arg(x, view) for x in a]
+            return a
+
+        for op in entry.get("ops", []):
+            # The view it was done to: the executed object's own, or another's
+            # (ArchWall's execute shows its base)
+            obj = doc.getObject(op.get("object", "")) or made
+            view = getattr(obj, "ViewObject", None)
+            if view is None or isinstance(view, ViewObject):
+                continue  # no view provider here: nothing to do again
+            try:
+                kind = op.get("op")
+                if kind == "set":
+                    setattr(view, op["name"], App._propertyValue(op["type"], op["xml"]))
+                elif kind == "call":
+                    getattr(view, op["name"])()
+                elif kind == "proxy":
+                    getattr(view.Proxy, op["name"])(*[arg(a, view) for a in op.get("args", [])])
+            except Exception as e:  # pylint: disable=broad-except
+                App.Console.PrintWarning("%s: what a worker did to its view not done here: "
+                                         "%s %s: %s\n" % (obj.FullName, op.get("op"),
+                                                          op.get("name"), e))
 
 
 # --- what is real --------------------------------------------------------
@@ -540,8 +859,44 @@ def _make():
     return module
 
 
+class _GuiUpNoted:
+    """FreeCAD.GuiUp under Workers/NoteGuiUp, a diagnostic: false, as in any
+    worker, and each read inside an execute told as a fake. An execute that
+    skips work when there is no GUI sends a result without it; the sweep of
+    sec 73 finds those this way"""
+
+    def _read(self):
+        _fake("FreeCAD.GuiUp")
+        return 0
+
+    def __bool__(self):
+        return bool(self._read())
+
+    def __int__(self):
+        return self._read()
+
+    __index__ = __int__
+
+    def __eq__(self, other):
+        return self._read() == other
+
+    def __ne__(self, other):
+        return self._read() != other
+
+    def __hash__(self):
+        return hash(0)
+
+    def __repr__(self):
+        return "0"
+
+
 def install():
     """FreeCADGui is this, in this process; once"""
+    try:
+        if App.ParamGet("User parameter:BaseApp/Preferences/Workers").GetBool("NoteGuiUp", False):
+            App.GuiUp = _GuiUpNoted()
+    except Exception:  # pylint: disable=broad-except
+        pass
     current = sys.modules.get("FreeCADGui")
     if current is not None and getattr(current, "_worker_stand_in", False):
         return current

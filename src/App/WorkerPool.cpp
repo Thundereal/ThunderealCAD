@@ -111,6 +111,8 @@
 #include "StringHasher.h"
 #include "LogMoveKeep.h"
 #include "TransactionLog.h"
+#include "TransactionStore.h"
+#include "TransactionValue.h"
 #include "WorkerPool.h"
 #include "WriteScope.h"
 
@@ -3677,7 +3679,7 @@ WorkerPool::Reply runPython(const WorkerPool::Request& request, const std::strin
  * says the object is made by the asking process (docs/WorkerProcess.md
  * sec 72). ViewObject is never saved, and does not touch its object
  */
-void attachViewStandIns(Document& doc)
+void attachViewStandIns(Document& doc, const std::string& views, const std::string& viewFile)
 {
     Base::PyGILStateLocker lock;
     try {
@@ -3689,13 +3691,26 @@ void attachViewStandIns(Document& doc)
         if (!module.hasAttr("view_object")) {
             return;
         }
+        // What the copy's view providers saved (sec 73): read as asked for
+        {
+            Py::Callable load(module.getAttr("load_views"));
+            Py::Tuple args(3);
+            args.setItem(0, Py::String(doc.getName()));
+            args.setItem(1, Py::Bytes(views.data(), static_cast<int>(views.size())));
+            args.setItem(2, Py::String(viewFile));
+            load.apply(args);
+        }
         Py::Callable make(module.getAttr("view_object"));
         for (auto obj : doc.getObjects()) {
-            if (!obj->ViewObject.getValue().isNone()) {
-                continue;
+            // Again at each setup: a move along the log reads the version's
+            // saved views anew, and the stand-in reads what they say
+            const char* type = obj->getViewProviderNameStored();
+            if (!type || !type[0]) {
+                type = obj->getViewProviderNameOverride();
             }
-            Py::Tuple args(1);
+            Py::Tuple args(2);
             args.setItem(0, Py::asObject(obj->getPyObject()));
+            args.setItem(1, Py::String(type ? type : ""));
             obj->ViewObject.setValue(make.apply(args));
         }
     }
@@ -3988,11 +4003,16 @@ int WorkerPool::serve()
                     PropertyPythonObject::setRestoreFailed({});
                 }
             } unobserve;
+            // Where the copy was read from, for its saved views (sec 73)
+            std::string fromStore;
+            std::string fromFile;
             try {
                 adoptSecurity(header);
                 const std::string file = header.value("document", std::string());
                 const std::string store = header.value("store", std::string());
                 const int64_t num = header.value("version", int64_t(0));
+                fromStore = store;
+                fromFile = file;
                 if (auto ids = header.find("ids"); ids != header.end()) {
                     startLease(*ids);
                 }
@@ -4135,7 +4155,34 @@ int WorkerPool::serve()
                 why = std::string("cannot open the document: ") + e.what();
             }
             if (why.empty()) {
-                attachViewStandIns(*doc);
+                // The views as the version saved them: the store's entry of
+                // it, which a move along the log reads anew; or the copy's
+                // own file -- the saved copy, or the folder it was read from
+                std::string views;
+                std::string viewFile;
+                if (reader && !fromStore.empty() && held > 0) {
+                    try {
+                        TransactionLogCore& core = *reader->logCore();
+                        for (const auto& e : core.store().manifest(held)) {
+                            if (e.entry == "GuiDocument.xml") {
+                                CapturedValue v;
+                                if (core.readValue(e.hash, v)) {
+                                    views = std::move(v.fragment);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    catch (Base::Exception& e) {
+                        FC_LOG("the version's views not read: " << e.what());
+                    }
+                }
+                if (views.empty()) {
+                    viewFile = !fromStore.empty() && !folder.empty()
+                        ? folder + "/GuiDocument.xml"
+                        : fromFile;
+                }
+                attachViewStandIns(*doc, views, viewFile);
                 json ready {{"type", "ready"},
                             {"resident", residentBytes()},
                             {"seconds", now() - began}};
@@ -4708,6 +4755,17 @@ public:
             here.append(Py::String(n));
         }
         dict.setItem("ExecutedHereNames", here);
+        Py::List faked;
+        for (auto& f : i.faked) {
+            Py::Dict d;
+            d.setItem("Object", Py::String(f.object));
+            d.setItem("Label", Py::String(f.label));
+            d.setItem("Class", Py::String(f.cls));
+            d.setItem("Used", Py::String(f.used));
+            d.setItem("BuiltIn", Py::Boolean(f.builtin));
+            faked.append(d);
+        }
+        dict.setItem("Faked", faked);
         dict.setItem("ById", Py::Boolean(i.byId));
         dict.setItem("ByContentWhy", Py::String(i.byContentWhy));
         dict.setItem("WorkerSeconds", Py::Float(i.workerSeconds));

@@ -327,6 +327,72 @@ for _kind, _handler in (
     worker.register(_kind, _handler)
 
 
+class TestWorkerViewObject(unittest.TestCase):
+    """A worker's view object (freecad.worker_gui.view_object): what a view
+    provider has of its object's is written to the object as the view
+    provider writes it, the rest is a fake (docs/WorkerProcess.md sec 72).
+    Made here: it needs no worker"""
+
+    def setUp(self):
+        self.doc = App.newDocument("WorkerViewObject")
+        self.box = self.doc.addObject("Part::Box", "Box")
+        self.doc.recompute()
+        from freecad import worker_gui
+
+        self.gui = worker_gui
+        self.view = worker_gui.view_object(self.box)
+
+    def tearDown(self):
+        App.closeDocument(self.doc.Name)
+
+    def same(self, a, b):
+        return all(abs(x - y) < 1e-3 for x, y in zip(a[:3], b[:3]))
+
+    def testALookIsTheObjects(self):
+        before = self.gui.faked()
+        self.view.LineColor = (1.0, 0.0, 0.0)
+        self.view.ShapeColor = (0.0, 0.5, 0.0)
+        self.view.PointColor = (0.0, 0.0, 1.0)
+        self.view.Transparency = 40
+        self.assertTrue(self.same(self.box.LineColor, (1.0, 0.0, 0.0)), self.box.LineColor)
+        self.assertTrue(self.same(self.box.ShapeColor, (0.0, 0.5, 0.0)), self.box.ShapeColor)
+        self.assertTrue(self.same(self.box.PointColor, (0.0, 0.0, 1.0)), self.box.PointColor)
+        self.assertEqual(self.box.Transparency, 40)
+        # read back from the object
+        self.assertTrue(self.same(self.view.LineColor, (1.0, 0.0, 0.0)))
+        self.view.MapFaceColor = not self.box.MapFaceColor
+        self.assertEqual(self.view.MapFaceColor, self.box.MapFaceColor)
+        self.assertIs(self.view.Object, self.box)
+        self.view.hide()
+        self.assertFalse(self.box.Visibility)
+        self.view.show()
+        self.assertTrue(self.box.Visibility and self.view.isVisible())
+        self.assertEqual(self.gui.faked(), before)
+
+    def testALookWithNoNameOnTheObjectIsWrittenAsTheViewWritesIt(self):
+        before = self.gui.faked()
+        self.view.LineMaterial = App.Material(DiffuseColor=(0.0, 0.0, 1.0))
+        self.assertTrue(self.same(self.box.ElementAppearance.Edge.DiffuseColor, (0.0, 0.0, 1.0)),
+                        self.box.ElementAppearance.Edge.DiffuseColor)
+        self.view.PointMaterial = App.Material(DiffuseColor=(1.0, 1.0, 0.0))
+        self.assertTrue(self.same(self.box.ElementAppearance.Vertex.DiffuseColor, (1.0, 1.0, 0.0)))
+        self.view.LineColorArray = [(0.0, 1.0, 0.0)]
+        self.assertTrue(self.same(self.box.LineColor, (0.0, 1.0, 0.0)), self.box.LineColor)
+        self.assertEqual(self.gui.faked(), before)
+
+    def testWhatIsTheViewsOwnIsAFake(self):
+        before = self.gui.faked()
+        self.view.LineWidth = 3.0
+        self.assertFalse(self.view.DisplayMode)
+        self.view.DiffuseColor = [(1.0, 0.0, 0.0)]
+        self.assertEqual(self.gui.faked(), before + 3)
+        feature = self.doc.addObject("App::FeaturePython", "Plain")
+        view = self.gui.view_object(feature)
+        view.LineColor = (1.0, 0.0, 0.0)  # not a Part::Feature: none of its own
+        self.assertEqual(self.gui.faked(), before + 4)
+        self.assertTrue(view)
+
+
 class TestWorkerPool(unittest.TestCase):
     def setUp(self):
         self.doc = App.newDocument("WorkerPool")

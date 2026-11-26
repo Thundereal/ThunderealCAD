@@ -4657,7 +4657,27 @@ the same names.
   never saved and does not touch its object, and a worker's was None, on
   which `Ray.execute` failed -- it writes `fp.ViewObject.LineColor` after it
   sets its shape. The stand-in is true, so that `if obj.ViewObject:` takes
-  the GUI's path, and whatever is read or written of it is a fake.
+  the GUI's path. What a view provider has of its object's is real (the
+  reporter: "most of the view object appearance property is actually a
+  stand in for app namespace property"). Where the looks are the object's
+  -- a `Part::Feature` -- `ViewProviderPartExt::onChanged` gives a write of
+  these to the object, through the functions the object's own names call
+  (ShapeAppearanceDesign.md sec 14.6.1), and so does the stand-in:
+  - the same name on the object, read and written there: `LineColor`,
+    `PointColor` (`Feature::writeColors`), `ShapeColor` (`writeOwnColor`),
+    `Transparency`, `ShapeAppearance`, the five `Map*` flags; `Visibility`
+    on any object, with `hide()`, `show()`, `isVisible()`; `Object`;
+  - no name on the object, written as the view provider writes the store
+    (`Part._writeViewLook`, the value read by the view property's own App
+    type): `LineMaterial`, `PointMaterial` (`ElementAppearance.setBase`),
+    `LineColorArray`, `PointColorArray` (`writeColors`); a read is a fake;
+  - `MappedColors`, which does nothing to the object where its looks are
+    the object's: kept by the stand-in.
+  So `Ray.execute`'s colour is the object's look, made by the worker and
+  sent back with the rest. Everything else -- the view's own (`LineWidth`,
+  `DisplayMode`, `Deviation`, the `Render_*` properties), the view
+  provider's Proxy, `ShapeMaterial` and `DiffuseColor` (written through
+  accessors of the GUI's own types) -- is a fake.
 
 The two addons here call, at import: `addCommand` (22 times),
 `addWorkbench`, `addLanguagePath`, `updateLocale`, `getMainWindow`.
@@ -4666,9 +4686,10 @@ The two addons here call, at import: `addCommand` (22 times),
 object being executed. After the recompute, such an object's entry is made
 the other process's (`here`): its values are not sent, and the recompute
 here executes it, with the view it has. The Report view says so, once a
-session for each class of a document: "OpticsByWorker#Ray (Ray), of
-Ray.RayWorker is recomputed in this process, not by a worker: its execute()
-uses ViewObject.LineColor, which a worker process has not got". Its value
+session for each class of a document: "AddonByWorker#Wide (Wide), of
+WorkerGuiProbe.Wide is recomputed in this process, not by a worker: its
+execute() uses ViewObject.LineWidth, which a worker process has not got".
+Its value
 there was made without what it asked for, so the whole job is unfit instead
 when another object of the job reads it, when it ran inside another's
 execute(), or when it recomputed another itself. A job of a Python kind
@@ -4710,8 +4731,14 @@ through.
 
 Not done:
 
-- The view writes a worker recorded put in here, so that the worker's
-  value stands (Ray made there): the reporter's call.
+- The view's own properties, which only GuiDocument.xml has: the
+  reporter asked for a general way (2026-11-26, "dig deep to see what are
+  and aren't possible to expose without FreeCADGui module"); the findings
+  are with the reporter -- the copy's GuiDocument.xml is current by both
+  copy paths, every saved type but Sketcher's layer list is an App type or
+  one, its `<Defaults>` block gives what a save elides, a view provider's
+  Python proxy imports; an enumeration is saved as its index alone; 71 ms
+  to parse 1.84 MB of 2400 view providers.
 - An addon that guards its view writes with `FreeCAD.GuiUp`, which is
   false in a worker, skips them there, and the worker's value is sent
   without them. Not seen in the two addons.
@@ -4720,8 +4747,13 @@ Not done:
 
 Tests: `tests/gui/addon-gui-by-worker.py` (`Mod/Test/WorkerGuiProbe.py`, an
 addon module calling `addCommand` and `addIconPath` at import, with a
-feature writing its view in its execute(); and, with OpticsWorkbench under
-`GT_ADDONS`, a ray on a mirror). On the tree before: 5 of 6 of the probe's
-claims failed. Now 11 of 11, the ray included. TestWorkerPool:
-`testAnAddonsGuiCallsAreThereInAWorker`, `testAJobThatUsedAStandInIsUnfit`,
-`testAClassAWorkerCannotRestoreMakesTheRecomputeUnfit`.
+feature writing its view's `LineColor` and one writing its `LineWidth` in
+their execute(); and, with OpticsWorkbench under `GT_ADDONS`, a ray on a
+mirror, its length and wavelength edited). On the tree before: 5 of 6 of
+the probe's claims failed. Now 13 of 13: the ray made by the worker, its
+colour that of the new wavelength; the line width's feature alone made
+here. TestWorkerPool: `testAnAddonsGuiCallsAreThereInAWorker`,
+`testAJobThatUsedAStandInIsUnfit`,
+`testAClassAWorkerCannotRestoreMakesTheRecomputeUnfit`, and
+`TestWorkerViewObject` (the looks and Visibility through the stand-in, the
+view's own a fake).

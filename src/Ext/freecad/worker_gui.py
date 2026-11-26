@@ -14,11 +14,16 @@ listCommands, a command runs nothing), icons, languages, preference pages
 and workbenches registered and listed, translate(), doCommand() run in
 __main__, an empty Selection whose observers are kept, a Control with no
 dialog, updateGui() doing nothing. Each of the worker's objects has a view
-object standing in for its view provider (view_object), so that an
-execute() writing its view does not fail on None.
+object standing in for its view provider (view_object): what a view
+provider's property is of its object's -- Visibility, and on a
+Part::Feature the looks (LineColor, ShapeColor, the Map* flags, ...) -- is
+read from the object and written to it as the view provider writes it, so
+Ray.execute's fp.ViewObject.LineColor is the object's look, made by the
+worker and sent back with the rest.
 
-Everything else -- getMainWindow(), a view object's properties, a name
-this module does not know -- is faked: it answers an inert object that
+Everything else -- getMainWindow(), what is the view's own (LineWidth,
+DisplayMode), a name this module does not know -- is faked: it answers an
+inert object that
 takes any call and any attribute, and never raises. A fake is told
 (FreeCAD._workerFaked) to the recompute being made: an object whose
 execute() used one is not made by the worker but by the asking process,
@@ -97,42 +102,101 @@ class _Inert:
         return "<stand-in for %s in a worker process>" % self._what
 
 
+# What a view provider's property is of its object's (docs/WorkerProcess.md
+# sec 72, ShapeAppearanceDesign.md sec 14.6.1). Where the looks are the
+# object's -- a Part::Feature's -- ViewProviderPartExt gives a write of these
+# to the object, through the functions the object's own names call:
+# - the same name on the object, the same write (LineColor and
+#   Feature::writeColors, ShapeColor and writeOwnColor, ...); read there too
+_LOOK_NAMES = frozenset(("LineColor", "PointColor", "ShapeColor", "Transparency",
+                         "ShapeAppearance", "MapFaceColor", "MapLineColor", "MapPointColor",
+                         "MapTransparency", "ForceMapColors"))
+# - no name on the object: written as the view provider writes the store
+#   (Part._writeViewLook); a read is a fake
+_LOOK_WRITES = frozenset(("LineMaterial", "PointMaterial", "LineColorArray", "PointColorArray"))
+# Everything else is the view's own -- LineWidth, DisplayMode, Deviation,
+# the Render_* properties, the view provider's Proxy -- or goes through an
+# accessor of the GUI's own (DiffuseColor, ShapeMaterial): a fake, and the
+# object is made by the asking process
+
+
 class ViewObject:
-    """What obj.ViewObject is in a worker: a view provider stands in for
-    nothing here. Any attribute it is asked for or given is a fake; it is
-    true, so that `if obj.ViewObject:` takes the path it takes in the GUI,
-    whose writes are then made there"""
+    """What obj.ViewObject is in a worker: a view provider without a GUI.
+    What it has of the object's -- Visibility on any object, the looks on a
+    Part::Feature -- is real: read from the object and written to it, the
+    value then sent back with the object's others. Anything else asked of
+    it or given to it is a fake. It is true, so that `if obj.ViewObject:`
+    takes the path it takes in the GUI"""
 
-    __slots__ = ("_name",)
+    __slots__ = ("_object", "_looks", "_kept")
 
-    def __init__(self, name):
-        object.__setattr__(self, "_name", name)
+    def __init__(self, obj, looks):
+        object.__setattr__(self, "_object", obj)
+        object.__setattr__(self, "_looks", looks)
+        object.__setattr__(self, "_kept", {})
+
+    def _real(self, name):
+        if name == "Visibility":
+            return True
+        return self._looks and name in _LOOK_NAMES and name in self._object.PropertiesList
 
     def __getattr__(self, name):
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
+        if name == "Object":
+            return self._object
+        if self._real(name):
+            return getattr(self._object, name)
+        if self._looks and name == "MappedColors" and name in self._kept:
+            return self._kept[name]
         what = "ViewObject.%s" % name
         _fake(what)
         return _Inert(what)
 
     def __setattr__(self, name, value):
+        if self._real(name):
+            setattr(self._object, name, value)
+            return
+        if self._looks and name in _LOOK_WRITES:
+            import Part
+
+            Part._writeViewLook(self._object, name, value)
+            return
+        if self._looks and name == "MappedColors":
+            # The view provider's alone where the looks are the object's:
+            # a write there does nothing to the object
+            self._kept[name] = value
+            return
         _fake("ViewObject.%s" % name)
+
+    def hide(self):
+        self._object.Visibility = False
+
+    def show(self):
+        self._object.Visibility = True
+
+    def isVisible(self):
+        return self._object.Visibility
 
     def __bool__(self):
         return True
 
     def __repr__(self):
-        return "<view object of %s, standing in in a worker process>" % self._name
+        try:
+            name = self._object.FullName
+        except Exception:  # pylint: disable=broad-except
+            name = "an object"
+        return "<view object of %s, standing in in a worker process>" % name
 
 
 def view_object(obj):
     """The view object a worker's object is given (WorkerPool.cpp,
     attachViewStandIns)"""
     try:
-        name = obj.FullName
+        looks = obj.isDerivedFrom("Part::Feature")
     except Exception:  # pylint: disable=broad-except
-        name = "an object"
-    return ViewObject(name)
+        looks = False
+    return ViewObject(obj, looks)
 
 
 # --- what is real --------------------------------------------------------

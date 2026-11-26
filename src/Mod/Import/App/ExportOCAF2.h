@@ -32,6 +32,7 @@
 
 #include <TDF_LabelSequence.hxx>
 #include <TDocStd_Document.hxx>
+#include <XCAFDoc_LayerTool.hxx>
 
 #include <App/MaterialAppearance.h>
 #include <Mod/Import/ImportGlobal.h>
@@ -176,6 +177,16 @@ public:
     /// FTC-09's four products, of no assembly): written as they were, each a
     /// free shape, not an assembly of them -- a PropertyBool of this name, true
     static constexpr const char* FreeShapesProperty = "ExportAsFreeShapes";
+    /// The layers the file put an object and its parts on, written again
+    /// each as it was (two of one name stay two: NIST STC-06's layer '1'):
+    /// a PropertyStringList of this name, each "element<TAB>ordinal<TAB>
+    /// hidden<TAB>name<TAB>description", the element empty for the whole
+    static constexpr const char* StepLayersProperty = "StepLayers";
+    /// One entry of StepLayersProperty: its element (empty for the whole)
+    /// and its layer; false when it is no such entry
+    static bool parseStepLayer(const std::string& entry,
+                               std::string& element,
+                               XCAFDoc_LayerTool::ItemLayer& layer);
     /// A product's user defined attributes, written to STEP as such: PropertyMap
     /// of text values, of integers, of reals (as their text)
     static constexpr const char* AttributesProperty = "StepAttributes";
@@ -214,6 +225,13 @@ private:
 private:
     Handle(TDocStd_Document) pDoc;
     Handle(XCAFDoc_ShapeTool) aShapeTool;
+    /// The layers \a obj's property of them puts \a shape (\a ownL's) and its
+    /// elements on (StepLayersProperty), on \a ownL and sub-shape labels of
+    /// \a shapeL, where the writer finds them
+    void setItemLayers(TDF_Label shapeL,
+                       TDF_Label ownL,
+                       const Part::TopoShape& shape,
+                       App::DocumentObject* obj);
     Handle(XCAFDoc_ColorTool) aColorTool;
 
     std::unordered_map<App::DocumentObject*, TDF_Label> myObjects;

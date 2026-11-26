@@ -534,6 +534,31 @@ private:
                 if (!l.IsNull()) {
                     colored(l);
                     _supplementals[feat] = l;
+                    // Its curves and points on layers of their own, as the file had them
+                    // (NIST STC-06's trimmed curves; StepLayers, by element)
+                    auto layers = freecad_cast<App::PropertyStringList*>(
+                        feat->getPropertyByName(Import::ExportOCAF2::StepLayersProperty));
+                    Part::TopoShape own(feat->Shape.getShape().getShape());
+                    for (const std::string& entry :
+                         layers ? layers->getValues() : std::vector<std::string>()) {
+                        std::string element;
+                        XCAFDoc_LayerTool::ItemLayer layer;
+                        if (!Import::ExportOCAF2::parseStepLayer(entry, element, layer)
+                            || element.empty()) {
+                            continue;
+                        }
+                        TopoDS_Shape el;
+                        try {
+                            el = own.getSubShape(element.c_str(), true);
+                        }
+                        catch (const Base::Exception&) {
+                        }
+                        if (!el.IsNull()) {
+                            XCAFDoc_LayerTool::AddItemLayer(
+                                XCAFDoc_DimTolTool::SupplementalMember(l, el),
+                                layer);
+                        }
+                    }
                 }
             }
         }

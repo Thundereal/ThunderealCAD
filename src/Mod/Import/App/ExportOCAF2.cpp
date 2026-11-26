@@ -47,6 +47,7 @@
 #include <XCAFDoc_Volume.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_GraphNode.hxx>
+#include <XCAFDoc_LayerTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
 #include <XCAFDoc_VisMaterial.hxx>
 #include <XCAFDoc_VisMaterialTool.hxx>
@@ -822,6 +823,68 @@ void ExportOCAF2::exportObjects(std::vector<App::DocumentObject*>& objs, const c
     aShapeTool->UpdateAssemblies();
 }
 
+bool ExportOCAF2::parseStepLayer(const std::string& entry,
+                                 std::string& element,
+                                 XCAFDoc_LayerTool::ItemLayer& layer)
+{
+    // element, ordinal, hidden, name, description: by position, an empty one a field still
+    std::vector<std::string> fields(1);
+    for (char c : entry) {
+        if (c == '\t' && fields.size() < 5) {
+            fields.emplace_back();
+        }
+        else {
+            fields.back() += c;
+        }
+    }
+    if (fields.size() < 3) {
+        return false;
+    }
+    fields.resize(5);
+    try {
+        layer.Ordinal = std::stoi(fields[1]);
+    }
+    catch (...) {
+        return false;
+    }
+    element = fields[0];
+    layer.Hidden = fields[2] == "1";
+    layer.Name = fields[3].c_str();
+    layer.Description = fields[4].c_str();
+    return true;
+}
+
+void ExportOCAF2::setItemLayers(TDF_Label shapeL,
+                                TDF_Label ownL,
+                                const Part::TopoShape& shape,
+                                App::DocumentObject* obj)
+{
+    auto prop = obj ? freecad_cast<App::PropertyStringList*>(
+                          obj->getPropertyByName(StepLayersProperty))
+                    : nullptr;
+    if (!prop || shapeL.IsNull() || ownL.IsNull()) {
+        return;
+    }
+    for (const std::string& entry : prop->getValues()) {
+        std::string element;
+        XCAFDoc_LayerTool::ItemLayer layer;
+        if (!parseStepLayer(entry, element, layer)) {
+            continue;
+        }
+        TDF_Label target = ownL;
+        if (!element.empty()) {
+            TopoDS_Shape el = shape.getSubShape(element.c_str(), true);
+            if (el.IsNull()) {
+                continue;
+            }
+            if (!aShapeTool->FindSubShape(shapeL, el, target)) {
+                target = aShapeTool->AddSubShape(shapeL, el);
+            }
+        }
+        XCAFDoc_LayerTool::AddItemLayer(target, layer);
+    }
+}
+
 TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
                                     const char* sub,
                                     TDF_Label parent,
@@ -979,6 +1042,9 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
                 label = aShapeTool->NewShape();
                 aShapeTool->SetShape(label, baseShape.getShape());
                 setupObject(label, linked, baseShape, prefix);
+                // Its layers, and its elements', as the file had them: on the shape, as
+                // STEP has no layer of an instance
+                setItemLayers(label, label, baseShape, linked);
             }
 
             label = aShapeTool->AddComponent(parent, shape.getShape(), Standard_False);
@@ -1022,6 +1088,11 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
                 setupObject(label, linked, shape, prefix, nullptr, true);
             }
             setupObject(label, o, shape, prefix, name, true);
+            // Its layers, and its elements', as the file had them
+            setItemLayers(label, label, shape, linked);
+            if (o != linked) {
+                setItemLayers(label, label, shape, o);
+            }
         }
 
         myObjects.emplace(obj, label);
@@ -1052,6 +1123,9 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
                 if (!withinShown[i]) {
                     aColorTool->SetVisibility(sub, Standard_False);
                 }
+                // Its layers, and its elements', as the file had them (NIST STC-06's trimmed
+                // curves): sub-shapes of the shape, where the writer finds them
+                setItemLayers(shapeL, sub, Part::TopoShape(it.Value()), within[i]);
                 // Its faces' and edges' own colours: sub-shapes of the shape, where the
                 // writer reads them -- a sub-shape of the child's sub-shape is none XCAF
                 // takes (NIST STC-09's 163 face colours were lost so)

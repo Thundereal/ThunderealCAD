@@ -1587,6 +1587,24 @@ twice): kept as read, shown invalid. A datum feature symbol linked to its size's
 `dimensional_size_with_datum_feature` only, not its `datum`, was feared lost (B6): probed on
 STC-07 with datum B's link moved so, it is not.
 
+Closed 2026-11-26 (gaps the audit's comparisons found, I14-I16). A datum of targets alone
+(CTC-02, CTC-05, FTC-06) was written a datum feature of nothing: it has none now, as NIST's.
+FTC-10's supplemental axes, hidden by their one line's style each, are read hidden and written
+so; their colour is their line's. A callout's slot follows the ones before it in its set,
+which it does not depend on: one of those edited or gone now touches the auto-placed ones
+after it (moving the first of a stack had left the second a slot up). The layers of the
+part's own geometry are kept: each item's layers as the file has them, by the layer's entity
+(OCCT `XCAFDoc_LayerTool::AddItemLayer`; FreeCAD `StepLayers`, by element) -- XCAF's layers
+merge by name, and STC-06's layer '1' is a hidden one and a shown one. A member of a curve set
+the part shares with its supplemental geometry keeps its layers on the supplemental object
+(`XCAFDoc_DimTolTool::SupplementalMember`: STC-06's 36 trimmed curves). Two OCCT writer
+fixes came with it: a point of its own in a compound beside other shapes was not written at
+all (CTC-05's, STC-06's 12), and a written point is now found as its vertex (STC-09 -e3's
+hidden points written hidden). Not matched: the part's curve sets are written one per curve
+(the AsIs writer explodes a compound into its edges), so a layer of NIST's one curve set
+holds our several (`test_part_layers_as_the_file_has_them` compares the layers, not how many
+items each holds).
+
 SFA pass 12 (dwin) on that: STC-06 and STC-10 equal NIST's graphics table, and two things it
 found. A value's format was written with the digits of the millimetres a value is kept in, in a
 file in inches ('NR2 3.2' for 12 in): the writer counts those of the value it writes. And one

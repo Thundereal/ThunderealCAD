@@ -1617,6 +1617,53 @@ class TestNistSet(Base):
                 self.write_and_read(doc)
                 self.assertEqual(layered(self.written), want)
 
+    def test_part_layers_as_the_file_has_them(self):
+        """The layers the file puts the part's own geometry on -- its solid,
+        curves, points and surfaces, not its supplemental geometry -- each
+        layer as it is: its name, description, and whether it is hidden; two
+        of one name stay two (STC-06's layer '1', a hidden one and a shown
+        one; CTC-04's 24 '-1's) -- read (StepLayers) and written so again.
+        Not how many items each holds: a curve set of the part is written a
+        curve set of each of its curves (FTC-10's sketches), its layer
+        holding them all"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def layered(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+            supplemental, hidden = set(), set()
+            for k, v in ents.items():
+                if v.startswith("CONSTRUCTIVE_GEOMETRY_REPRESENTATION("):
+                    supplemental |= set(re.findall(r"#(\d+)", v)[:-1])
+                elif v.startswith("INVISIBILITY("):
+                    hidden |= set(re.findall(r"#(\d+)", v))
+            got, kinds = collections.Counter(), collections.Counter()
+            for k, v in ents.items():
+                if not v.startswith("PRESENTATION_LAYER_ASSIGNMENT("):
+                    continue
+                own = [i for i in re.findall(r"#(\d+)", v) if i not in supplemental]
+                if own:
+                    got[tuple(re.findall(r"'([^']*)'", v)[:2]), k in hidden] += 1
+                    kinds.update(ents[i].split("(")[0] for i in own)
+            return got, kinds
+
+        for name in ("nist_ctc_04_asme1_ap242-e1.stp", "nist_ctc_05_asme1_ap242-e1.stp",
+                     "nist_ftc_07_asme1_ap242-e2.stp", "nist_ftc_10_asme1_ap242-e2.stp",
+                     "nist_stc_06_asme1_ap242-e3.stp", "nist_stc_09_asme1_ap242-e4.stp"):
+            path = edition(os.path.join(nist, name))
+            with self.subTest(os.path.basename(path)):
+                want, want_kinds = layered(path)
+                if not want:
+                    continue
+                doc = self.read(path)
+                read = [o for o in doc.Objects if getattr(o, "StepLayers", None)]
+                self.assertTrue(read, "no object keeps its layers")
+                self.write_and_read(doc)
+                got, kinds = layered(self.written)
+                self.assertEqual(got, want, "written %s, the file %s" % (dict(kinds),
+                                                                        dict(want_kinds)))
+
     def test_cited_documents_as_the_file_has_them(self):
         """The documents a part's GD&T cites -- the standards it follows: an
         applied document reference of an additional context of its product

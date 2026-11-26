@@ -64,6 +64,8 @@
 #include <NCollection_Sequence.hxx>
 #include <TopTools_ShapeMapHasher.hxx>
 #include <XCAFDoc_DimTolTool.hxx>
+#include <XCAFDoc_LayerTool.hxx>
+#include <sstream>
 
 #include <algorithm>
 #include <cmath>
@@ -940,6 +942,98 @@ static std::vector<bool> hiddenMembers(const TopoDS_Shape& shape,
     return out;
 }
 
+/// The layers the file puts \a shape and its parts on, as the reader keeps them
+/// (XCAFDoc_LayerTool::AddItemLayer): the sub-shape labels of \a top inside \a shape, and
+/// \a top itself when \a withTop. One string each, "element<TAB>ordinal<TAB>hidden<TAB>name
+/// <TAB>description", the element empty for the whole (ExportOCAF2::StepLayersProperty)
+static std::vector<std::string> itemLayers(const Handle(XCAFDoc_ShapeTool)& tool,
+                                           const TDF_Label& top,
+                                           const TopoDS_Shape& shape,
+                                           bool withTop)
+{
+    std::vector<std::string> out;
+    if (top.IsNull() || shape.IsNull()) {
+        return out;
+    }
+    auto add = [&](const TDF_Label& l, const std::string& element) {
+        NCollection_Sequence<XCAFDoc_LayerTool::ItemLayer> layers;
+        if (!XCAFDoc_LayerTool::GetItemLayers(l, layers)) {
+            return;
+        }
+        for (const auto& layer : layers) {
+            std::ostringstream ss;
+            ss << element << '\t' << layer.Ordinal << '\t' << (layer.Hidden ? 1 : 0) << '\t'
+               << layer.Name.ToCString() << '\t' << layer.Description.ToCString();
+            out.push_back(ss.str());
+        }
+    };
+    if (withTop) {
+        add(top, std::string());
+    }
+    NCollection_Sequence<TDF_Label> subs;
+    if (!tool->GetSubShapes(top, subs)) {
+        return out;
+    }
+    for (const TDF_Label& l : subs) {
+        TopoDS_Shape sub = XCAFDoc_ShapeTool::GetShape(l);
+        if (sub.IsNull()) {
+            continue;
+        }
+        if (sub.IsPartner(shape)) {
+            add(l, std::string());
+            continue;
+        }
+        // Its element, by its TShape; a compound of the shape's elements that is none of
+        // them itself (XCAF's label of a curve set of the part's curves: NIST CTC-04's), each
+        // element of it -- the one layer all the same (the ordinal)
+        auto nameOf = [&](const TopoDS_Shape& el) -> std::string {
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
+            TopExp::MapShapes(shape, el.ShapeType(), map);
+            for (int i = 1; i <= map.Extent(); ++i) {
+                if (map(i).IsPartner(el)) {
+                    return Part::TopoShape::shapeName(el.ShapeType()) + std::to_string(i);
+                }
+            }
+            return {};
+        };
+        std::string name = nameOf(sub);
+        if (!name.empty()) {
+            add(l, name);
+            continue;
+        }
+        if (sub.ShapeType() == TopAbs_COMPOUND) {
+            for (TopoDS_Iterator it(sub); it.More(); it.Next()) {
+                std::string member = nameOf(it.Value());
+                if (!member.empty()) {
+                    add(l, member);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+/// Its layers as the file has them, on \a obj (ExportOCAF2::StepLayersProperty)
+static void setItemLayers(App::DocumentObject* obj, const std::vector<std::string>& layers)
+{
+    if (!obj || layers.empty()) {
+        return;
+    }
+    auto prop = freecad_cast<App::PropertyStringList*>(
+        obj->getPropertyByName(ExportOCAF2::StepLayersProperty));
+    if (!prop) {
+        prop = static_cast<App::PropertyStringList*>(obj->addDynamicProperty(
+            "App::PropertyStringList",
+            ExportOCAF2::StepLayersProperty,
+            "Export",
+            "The STEP file's layers it and its parts are on, each: element, ordinal, hidden, "
+            "name, description (tab separated; the element empty for the whole)"));
+    }
+    if (prop) {
+        prop->setValues(layers);
+    }
+}
+
 bool ImportOCAF2::createObject(App::Document* doc,
                                TDF_Label label,
                                const TopoDS_Shape& shape,
@@ -1104,6 +1198,8 @@ bool ImportOCAF2::createObject(App::Document* doc,
             if (hasRenderMaterial) {
                 applyRenderMaterial(child, rmat);
             }
+            // Its layers as the file has them (NIST STC-06's trimmed curves)
+            setItemLayers(child, itemLayers(aShapeTool, label, member, false));
             children.push_back(child);
             visibilities.push_back(!hidden[index]);
         }
@@ -1135,6 +1231,9 @@ bool ImportOCAF2::createObject(App::Document* doc,
     RenderMaterial rmat;
     if (getRenderMaterial(label, rmat))
         applyRenderMaterial(feature, rmat);
+
+    // Its layers, and its parts', as the file has them (NIST STC-06, CTC-04)
+    setItemLayers(feature, itemLayers(aShapeTool, label, shape, true));
 
     info.propPlacement = &feature->Placement;
     info.obj = feature;

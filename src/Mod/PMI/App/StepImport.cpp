@@ -1362,6 +1362,95 @@ private:
     /// The supplemental curves \a curves out of every other object holding
     /// them: the GD&T on them refers to their own objects, on what is left
     /// to it by its new index
+    /// The name of element \a el of \a in (same TShape): "Edge3", "Compound2"; empty when
+    /// it is \a in itself or none of it
+    static std::string elementIn(const TopoDS_Shape& in, const TopoDS_Shape& el)
+    {
+        if (in.IsNull() || el.IsNull() || in.TShape() == el.TShape()) {
+            return {};
+        }
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
+        TopExp::MapShapes(in, el.ShapeType(), map);
+        for (int i = 1; i <= map.Extent(); ++i) {
+            if (map(i).TShape() == el.TShape()) {
+                return Part::TopoShape::shapeName(el.ShapeType()) + std::to_string(i);
+            }
+        }
+        return {};
+    }
+
+    /// \a feat's layers by element (StepLayers) after the curves \a curves holds are taken
+    /// out of its shape \a s, \a left remaining: each on the object its element is in now
+    static void moveLayers(Part::Feature* feat,
+                           const TopoDS_Shape& s,
+                           const TopoDS_Shape& left,
+                           const std::map<const TopoDS_TShape*, Part::Feature*>& curves)
+    {
+        const char* name = Import::ExportOCAF2::StepLayersProperty;
+        auto layers = freecad_cast<App::PropertyStringList*>(feat->getPropertyByName(name));
+        if (!layers) {
+            return;
+        }
+        Part::TopoShape old(s);
+        std::vector<std::string> kept;
+        std::map<Part::Feature*, std::vector<std::string>> moved;
+        for (const std::string& entry : layers->getValues()) {
+            const auto tab = entry.find('\t');
+            if (tab == std::string::npos) {
+                continue;
+            }
+            const std::string element = entry.substr(0, tab), rest = entry.substr(tab);
+            TopoDS_Shape el;
+            try {
+                el = element.empty() ? s : old.getSubShape(element.c_str(), true);
+            }
+            catch (const Base::Exception&) {
+            }
+            if (el.IsNull()) {
+                continue;
+            }
+            auto found = curves.find(el.TShape().get());
+            if (found != curves.end()) {
+                const TopoDS_Shape to = found->second->Shape.getShape().getShape();
+                const std::string at = elementIn(to, el);
+                if (!at.empty() || to.TShape() == el.TShape()) {
+                    moved[found->second].push_back(at + rest);
+                }
+                continue;
+            }
+            const std::string at = elementIn(left, el);
+            if (!left.IsNull() && (!at.empty() || el.TShape() == s.TShape())) {
+                kept.push_back(at + rest);
+                continue;
+            }
+            // Gone, and its curves and points with the curves objects: on each of them there
+            // (NIST CTC-04's curve sets of the part, of the curves of its supplemental ones)
+            for (auto type : {TopAbs_EDGE, TopAbs_VERTEX}) {
+                for (TopExp_Explorer xp(el, type, type == TopAbs_VERTEX ? TopAbs_EDGE : TopAbs_SHAPE);
+                     xp.More();
+                     xp.Next()) {
+                    auto leaf = curves.find(xp.Current().TShape().get());
+                    if (leaf == curves.end()) {
+                        continue;
+                    }
+                    const std::string to =
+                        elementIn(leaf->second->Shape.getShape().getShape(), xp.Current());
+                    if (!to.empty()) {
+                        moved[leaf->second].push_back(to + rest);
+                    }
+                }
+            }
+        }
+        layers->setValues(kept);
+        for (auto& [to, entries] : moved) {
+            auto prop = property<App::PropertyStringList>(
+                to, name, "The STEP file's layers it and its parts are on (ExportOCAF2)");
+            std::vector<std::string> values = prop->getValues();
+            values.insert(values.end(), entries.begin(), entries.end());
+            prop->setValues(values);
+        }
+    }
+
     void takeOut(const std::map<const TopoDS_TShape*, Part::Feature*>& curves)
     {
         if (curves.empty()) {
@@ -1388,6 +1477,11 @@ private:
                 continue;
             }
             TopoDS_Shape left = without(s, curves);
+            // Its layers as the file has them (ImportOCAF2: StepLayers, by element): an
+            // element taken out on the curves object it went to (NIST STC-06's trimmed curves
+            // of its supplemental geometry, each a layer of its own), the rest renamed in
+            // what is left
+            moveLayers(feat, s, left, curves);
             // Where each element of the old shape is now
             auto nameIn = [](const TopoDS_Shape& in, const TopoDS_Shape& el) -> std::string {
                 const char* type = el.ShapeType() == TopAbs_FACE ? "Face"

@@ -4783,8 +4783,8 @@ What sec 73 left of sec 72's list, by what each could cost:
 **A write that stood for 2 s ended the worker.** `send()` waited 2 s for
 the bytes to go and took a write still standing for the other end gone. A
 worker in a long job does not read: sent a setup larger than what the
-socket holds (the workers are "told in turn, after whatever job each is
-on", sec 4), it was ended in the middle of the job, and this process stood
+socket holds (`takeCopy()` tells every worker of a new copy, one in a
+job too), it was ended in the middle of the job, and this process stood
 2 s for each. The other way round, a worker sending a result while this
 process is busy gave up on it and left. Now `send()` waits a quarter of a
 second, and what has not gone stays with the socket, which writes it in

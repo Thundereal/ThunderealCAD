@@ -4775,3 +4775,58 @@ Left of sec 72's list: `send()`'s 2 s, the temp directories' names, a
 header of the wrong shape in a slot, sizes past 4 GiB, a split part
 dropped for an edit made here, a put-in that threw counted as applied, the
 crash handler's stack and the helpers' unlocked parameter reads.
+
+## 74. The rest of what the reading found (2026-11-26)
+
+What sec 73 left of sec 72's list, by what each could cost:
+
+**A write that stood for 2 s ended the worker.** `send()` waited 2 s for
+the bytes to go and took a write still standing for the other end gone. A
+worker in a long job does not read: sent a setup larger than what the
+socket holds (the workers are "told in turn, after whatever job each is
+on", sec 4), it was ended in the middle of the job, and this process stood
+2 s for each. The other way round, a worker sending a result while this
+process is busy gave up on it and left. Now `send()` waits a quarter of a
+second, and what has not gone stays with the socket, which writes it in
+its next wait and with the event loop; only a socket that is no longer
+connected is a failed send. A worker writes out what is left before it
+closes (`flush()`, 30 s at most). No test: the sizes that stand are the
+system's, and were not measured.
+
+**The directories in the system's temporary files** were
+`Workers-<pid>-<serial>` and `ThunderealService-<pid>`, and one found
+there was used: on a machine whose temporary files are shared, another
+user who made it first held the copies of the design and the
+configuration the workers are started with. They are made by
+`WorkerPool::privateDirectory()` now: `<kind>-<pid>-<what>-<8 random hex
+digits>`, made new (one that exists is not used), for the user alone. Its
+first call in a process removes those whose process no longer runs
+(`CacheSweep::processGone()`): what a crash of this process left, a
+document's whole copy among it, was never removed before, and the helpers'
+own sweep went by the directory's age alone, which could take a running
+session's after a day. Seen on the mini: two `Workers-*` directories of
+earlier runs that were killed, gone after the first run with this.
+
+**What a connection says before it is told apart** is read with nothing
+taken for granted (`saidText()`, `saidLong()`): `value()` of a key of
+another type throws, in the socket's slot, and anything of this user can
+connect. One that announces more than 64 KiB is closed, not gathered. A
+worker's own message that does not read as what it is taken for lets the
+worker go rather than leave through the slot.
+
+**Timer intervals** from `IdleSeconds`, `MoveWhenIdleSeconds` and
+`KeepOpenCheckSeconds` are held to what an int of milliseconds takes
+(`timerMs()`): 1e9 set for "never" overflowed.
+
+The helpers connect to the application's `aboutToQuit` once, not once
+more each time they are prepared again after a stop.
+
+Tests: `TestWorkerPool` 95 OK (new: `testThePoolsDirectoryIsItsOwn`),
+`parttests.MeshServiceTest` 7 OK, `TestAnimation` 78 OK, the eleven worker
+GUI tests.
+
+Still as it was: sizes past 4 GiB narrowed in a message; a split
+recompute's part dropped for an edit made here as the other is put in; a
+put-in that threw counted as applied; the crash handler's other stack on
+the installing thread only; the helpers reading the parameters from their
+threads with no lock.

@@ -32,6 +32,10 @@ AppExport Counts run(const std::string& cache,
                      double before,
                      const std::function<bool()>& stopped = {});
 
+/// Whether no process of the id \a pid runs. One that cannot be asked
+/// about counts as running.
+AppExport bool processGone(long long pid);
+
 /// The sweep of this application's user cache, on the shared thread pool,
 /// ending at the next folder when the application goes. Not in a worker:
 /// its pool removes its folders (sec 48), and a pool starts many.

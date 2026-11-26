@@ -539,6 +539,23 @@ class TestWorkerPool(unittest.TestCase):
             self.assertEqual(result["Status"], "Cancelled", result)
             self.assertEqual(result["Error"], "the workers exited", result)
 
+    def testThePoolsDirectoryIsItsOwn(self):
+        """What the workers are given and write is in a directory made for
+        this pool, under a name not to be told beforehand, the user's alone
+        (docs/WorkerProcess.md sec 74)"""
+        import re
+
+        self.settings(1)
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        where = self.pool.info()["Directory"]
+        self.assertTrue(os.path.isdir(where), where)
+        self.assertRegex(os.path.basename(where),
+                         r"^Workers-%d-\d+-[0-9a-f]{8}$" % os.getpid())
+        if os.name != "nt":
+            self.assertEqual(os.stat(where).st_mode & 0o777, 0o700)
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+
     def testOnlyTheLastIdleWorkerIsKept(self):
         self.settings(2, idle=0.3)
         self.keepOpen()

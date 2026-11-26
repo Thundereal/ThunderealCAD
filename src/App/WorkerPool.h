@@ -237,6 +237,15 @@ public:
     /// Whether workers can be had: a build with processes, and Workers of
     /// Preferences/Workers not 0. `why` says why not
     static bool supported(std::string* why = nullptr);
+    /** A directory of this process's own in the system's temporary files,
+     * for what its helper processes are given and write: `<kind>-<pid>-
+     * <what>-<random>`, made here and for the user alone. Never one found
+     * there: the name cannot be told beforehand, and one that exists is
+     * not used (docs/WorkerProcess.md sec 74). Empty when none can be
+     * made. The first call removes those that processes no longer running
+     * left behind.
+     */
+    static std::string privateDirectory(const std::string& kind, const std::string& what);
     /// What this process holds in memory as the system counts it
     static std::size_t residentBytes();
 

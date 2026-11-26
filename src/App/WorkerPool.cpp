@@ -97,6 +97,7 @@
 
 #include "Animation.h"
 #include "Application.h"
+#include "CacheSweep.h"
 #include "Document.h"
 #include "DocumentObject.h"
 #include "DocumentObjectPy.h"
@@ -344,6 +345,13 @@ int workerLimit()
 /// with an event loop running, its server takes them itself, and taking one
 /// here first leaves the server's notifier to block in accept() for one
 /// that is not there
+/// Seconds of a setting as a timer's interval: one set past what an int
+/// of milliseconds holds (1e9 for "never") is a long time, not an overflow
+int timerMs(double seconds)
+{
+    return static_cast<int>(std::min(std::max(seconds, 0.0), 1.0e6) * 1000);
+}
+
 bool noEventLoop()
 {
     return QThread::currentThread()->loopLevel() == 0;
@@ -409,6 +417,29 @@ int take(std::string& buffer, json& header, std::string& body)
     return header.is_object() ? 1 : -1;
 }
 
+/// What a connection not told apart yet says, read with nothing taken for
+/// granted: a key of another type would throw from value(), in a socket's
+/// slot, and anything of this user can connect
+std::string saidText(const json& header, const char* key)
+{
+    auto it = header.find(key);
+    return it != header.end() && it->is_string() ? it->get<std::string>() : std::string();
+}
+
+long saidLong(const json& header, const char* key)
+{
+    auto it = header.find(key);
+    return it != header.end() && it->is_number_integer() ? it->get<long>() : 0L;
+}
+
+/// Whether what a connection not told apart yet has sent announces more
+/// than a hello is: not gathered, however much it says is coming
+bool saysTooMuch(const std::string& buffer)
+{
+    return buffer.size() >= 8
+        && std::uint64_t(get32(buffer.data())) + get32(buffer.data() + 4) > 65536;
+}
+
 /// Out now: with an event loop a socket writes when the loop next runs,
 /// and a job waited for inside an evaluation would wait for a worker
 /// never told it
@@ -421,12 +452,35 @@ bool send(QLocalSocket& socket, const json& header)
     if (socket.write(bytes) != bytes.size()) {
         return false;
     }
+    // Not waited for past a moment: the other end may be in a job, or in
+    // a recompute of its own, and reads when that is over. What is left
+    // stays with the socket, which writes it in its next wait, here or for
+    // something to read, and with the event loop. A write that stood for
+    // 2 s used to count as the other end gone, which ended a worker in a
+    // long job that was sent a large setup (docs/WorkerProcess.md sec 74)
+    QElapsedTimer waited;
+    waited.start();
     while (socket.bytesToWrite() > 0) {
-        if (!socket.waitForBytesWritten(2000)) {
+        if (!socket.waitForBytesWritten(50)
+            && socket.state() != QLocalSocket::ConnectedState) {
             return false;
+        }
+        if (waited.elapsed() >= 250) {
+            break;
         }
     }
     return true;
+}
+
+/// What send() left with the socket, out before it is closed
+void flush(QLocalSocket& socket, int ms)
+{
+    QElapsedTimer waited;
+    waited.start();
+    while (socket.bytesToWrite() > 0 && socket.state() == QLocalSocket::ConnectedState
+           && waited.elapsed() < ms) {
+        socket.waitForBytesWritten(100);
+    }
 }
 
 /// What a worker says through the Console, sent to its pool as it is said
@@ -586,6 +640,36 @@ std::string randomToken()
     std::snprintf(text, sizeof(text), "%016llx%016llx",
                   static_cast<unsigned long long>(gen()), static_cast<unsigned long long>(gen()));
     return text;
+}
+
+/// Directories of privateDirectory()'s naming, `<kind>-<pid>-...`, whose
+/// process no longer runs: what a process that crashed left behind, a
+/// document's whole copy among it
+void sweepPrivateDirectories(const std::string& base)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(fs::u8path(base), ec)) {
+        const std::string name = entry.path().filename().string();
+        for (const char* kind : {"Workers-", "ThunderealService-"}) {
+            const std::size_t at = std::strlen(kind);
+            if (name.compare(0, at, kind) != 0) {
+                continue;
+            }
+            std::size_t end = at;
+            while (end < name.size() && name[end] >= '0' && name[end] <= '9') {
+                ++end;
+            }
+            if (end == at || end - at > 10) {
+                continue;
+            }
+            std::error_code ignored;
+            if (CacheSweep::processGone(std::stoll(name.substr(at, end - at)))
+                && entry.is_directory(ignored) && !entry.is_symlink(ignored)) {
+                fs::remove_all(entry.path(), ignored);
+            }
+        }
+    }
 }
 
 /** What an ended worker leaves in the user cache: the transient directory of
@@ -786,18 +870,8 @@ private:
             return;
         }
         if (dir.empty()) {
-            std::string base = Application::getTempPath();
-            if (!base.empty() && base.back() != '/' && base.back() != '\\') {
-                base += '/';
-            }
-            dir = base + "Workers-" + std::to_string(QCoreApplication::applicationPid())
-                + "-standby";
-            Base::FileInfo old(dir);
-            if (old.exists()) {
-                old.deleteDirectoryRecursive();
-            }
-            if (!Base::FileInfo(dir).createDirectories()) {
-                dir.clear();
+            dir = WorkerPool::privateDirectory("Workers", "standby");
+            if (dir.empty()) {
                 return;
             }
         }
@@ -886,7 +960,7 @@ private:
         got.append(bytes.constData(), static_cast<std::size_t>(bytes.size()));
         json header;
         std::string body;
-        const int n = take(got, header, body);
+        const int n = saysTooMuch(got) ? -1 : take(got, header, body);
         if (n == 0) {
             return;
         }
@@ -895,8 +969,8 @@ private:
         std::string rest = std::move(got);
         said.erase(s);
         QObject::disconnect(held.get(), nullptr, &context, nullptr);
-        if (n > 0 && header.value("type", "") == "hello" && header.value("token", "") == token
-            && process && header.value("pid", 0L) == pid && !socket) {
+        if (n > 0 && saidText(header, "type") == "hello" && saidText(header, "token") == token
+            && process && saidLong(header, "pid") == pid && !socket) {
             socket = std::move(held);
             buffer = std::move(rest);
             return;
@@ -1387,15 +1461,10 @@ bool WorkerPool::Private::takeCopy()
         // blobs put out for the workers, by content, their logs, their
         // results
         static int serial = 0;
-        std::string base = Application::getTempPath();
-        if (!base.empty() && base.back() != '/' && base.back() != '\\') {
-            base += '/';
-        }
-        root = base + "Workers-" + std::to_string(QCoreApplication::applicationPid()) + "-"
-            + std::to_string(++serial);
-        Base::FileInfo old(root);
-        if (old.exists()) {
-            old.deleteDirectoryRecursive();
+        root = WorkerPool::privateDirectory("Workers", std::to_string(++serial));
+        if (root.empty()) {
+            reason = "cannot make a directory for the workers in " + Application::getTempPath();
+            return false;
         }
     }
     if (!Base::FileInfo(root + "/out").createDirectories()) {
@@ -1760,7 +1829,7 @@ void WorkerPool::Private::armMove()
         live = live || (!proc->over && !proc->quitting && proc->socket);
     }
     if (live) {
-        moveTimer.start(static_cast<int>(delay * 1000));
+        moveTimer.start(timerMs(delay));
     }
 }
 
@@ -2156,13 +2225,13 @@ void WorkerPool::Private::readStranger(Stranger& s)
     s.buffer.append(bytes.constData(), static_cast<std::size_t>(bytes.size()));
     json header;
     std::string body;
-    int got = take(s.buffer, header, body);
+    int got = saysTooMuch(s.buffer) ? -1 : take(s.buffer, header, body);
     if (got == 0) {
         return;
     }
     Proc* proc = nullptr;
-    if (got > 0 && header.value("type", "") == "hello" && header.value("token", "") == token) {
-        const long pid = header.value("pid", 0L);
+    if (got > 0 && saidText(header, "type") == "hello" && saidText(header, "token") == token) {
+        const long pid = saidLong(header, "pid");
         for (auto& p : procs) {
             if (p->pid == pid && !p->socket && !p->over) {
                 proc = p.get();
@@ -2216,7 +2285,19 @@ void WorkerPool::Private::read(Proc& proc)
             kill(proc);
             return;
         }
-        handle(proc, header);
+        try {
+            handle(proc, header);
+        }
+        catch (const json::exception& e) {
+            // A key of a type it is not read as: thrown here it would
+            // leave through the socket's slot
+            FC_WARN("worker " << proc.number << " said a message that does not read ("
+                              << e.what() << "); let go");
+            if (!proc.over) {
+                kill(proc);
+            }
+            return;
+        }
     }
 }
 
@@ -2778,7 +2859,7 @@ void WorkerPool::Private::dispatch(Proc& proc)
         checkIdle();
     }
     else if (!idleTimer.isActive()) {
-        idleTimer.start(static_cast<int>(idle * 1000) + 50);
+        idleTimer.start(timerMs(idle) + 50);
     }
 }
 
@@ -2921,7 +3002,7 @@ void WorkerPool::Private::checkIdle()
         }
     }
     if (soonest >= 0) {
-        idleTimer.start(static_cast<int>(soonest * 1000) + 50);
+        idleTimer.start(timerMs(soonest) + 50);
     }
 }
 
@@ -3066,7 +3147,7 @@ void WorkerPool::Private::watchMemory()
         QObject::connect(timer, &QTimer::timeout, [] { checkMemory(); });
     }
     const double seconds = std::max(0.05, params()->GetFloat("KeepOpenCheckSeconds", 2.0));
-    timer->setInterval(static_cast<int>(seconds * 1000));
+    timer->setInterval(timerMs(seconds));
     if (!timer->isActive()) {
         timer->start();
     }
@@ -3314,6 +3395,31 @@ WorkerPool::State WorkerPool::state(JobId id) const
         return State::Unknown;
     }
     return it->second.running ? State::Running : State::Queued;
+}
+
+std::string WorkerPool::privateDirectory(const std::string& kind, const std::string& what)
+{
+    namespace fs = std::filesystem;
+    std::string base = Application::getTempPath();
+    if (!base.empty() && base.back() != '/' && base.back() != '\\') {
+        base += '/';
+    }
+    // Asked from the helpers' threads too (ServiceWorkers)
+    static std::once_flag swept;
+    std::call_once(swept, [&base] { sweepPrivateDirectories(base); });
+    for (int tries = 0; tries < 8; ++tries) {
+        const std::string dir = base + kind + "-"
+            + std::to_string(QCoreApplication::applicationPid()) + "-" + what + "-"
+            + randomToken().substr(0, 8);
+        std::error_code ec;
+        // False for one that is there already, whoever made it: not used
+        if (!fs::create_directory(fs::u8path(dir), ec) || ec) {
+            continue;
+        }
+        fs::permissions(fs::u8path(dir), fs::perms::owner_all, fs::perm_options::replace, ec);
+        return dir;
+    }
+    return {};
 }
 
 WorkerPool::Claim WorkerPool::claim(JobId id, Result* death)
@@ -4372,6 +4478,7 @@ int WorkerPool::serve()
     if (lease) {
         lease->more = nullptr;  // what it reaches goes now
     }
+    flush(socket, 30000);
     socket.disconnectFromServer();
     return 0;
 }

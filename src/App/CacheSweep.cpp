@@ -101,6 +101,11 @@ long long pidOf(const QString& name)
 
 }  // namespace
 
+bool App::CacheSweep::processGone(long long pid)
+{
+    return pid > 0 && startOf(pid) < 0;
+}
+
 App::CacheSweep::Counts App::CacheSweep::run(const std::string& cache,
                                               const std::string& exe,
                                               double before,

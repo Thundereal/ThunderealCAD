@@ -54,6 +54,7 @@
 #include "Application.h"
 #include "ServiceWorkers.h"
 #include "WorkerCrash.h"
+#include "WorkerPool.h"
 
 FC_LOG_LEVEL_INIT("ServiceWorkers", true, true)
 
@@ -406,37 +407,24 @@ private:
     {
         prepared = true;
         ensureCore();
-        const std::string temp = Application::getTempPath();
-        sweep(temp);
-        root = temp + "ThunderealService-" + std::to_string(QCoreApplication::applicationPid());
-        Base::FileInfo(root).createDirectories();
+        // Its own, made here: not one found there, and those of processes
+        // gone removed by whether they run, not by their age -- one a day
+        // old may be a session's still (docs/WorkerProcess.md sec 74)
+        root = WorkerPool::privateDirectory("ThunderealService", "helpers");
         // Their own copies: a helper saving its parameters at its exit
         // must not write over this process's
-        GetApplication().GetUserParameter().SaveDocument((root + "/user.cfg").c_str());
-        GetApplication().GetSystemParameter().SaveDocument((root + "/system.cfg").c_str());
-        if (auto app = QCoreApplication::instance()) {
+        if (!root.empty()) {
+            GetApplication().GetUserParameter().SaveDocument((root + "/user.cfg").c_str());
+            GetApplication().GetSystemParameter().SaveDocument((root + "/system.cfg").c_str());
+        }
+        // Once: prepared again after a stop(), it would be told to stop
+        // once more for each
+        static bool connected = false;
+        if (auto app = connected ? nullptr : QCoreApplication::instance()) {
+            connected = true;
             QObject::connect(app, &QCoreApplication::aboutToQuit, [] {
                 Service::instance().stop();
             });
-        }
-    }
-
-    /// The directories of processes that are gone, a day after they went
-    static void sweep(const std::string& temp)
-    {
-        namespace fs = std::filesystem;
-        std::error_code ec;
-        const std::string prefix = "ThunderealService-";
-        for (const auto& entry : fs::directory_iterator(fs::u8path(temp), ec)) {
-            const std::string name = entry.path().filename().string();
-            if (name.compare(0, prefix.size(), prefix) != 0) {
-                continue;
-            }
-            const auto age = fs::file_time_type::clock::now() - fs::last_write_time(entry, ec);
-            if (ec || age < std::chrono::hours(24)) {
-                continue;
-            }
-            fs::remove_all(entry.path(), ec);
         }
     }
 
@@ -465,6 +453,10 @@ private:
         const std::string exe = program();
         if (exe.empty()) {
             why = "no console program found to run the helpers";
+            return false;
+        }
+        if (root.empty()) {
+            why = "no directory could be made for the helpers in " + Application::getTempPath();
             return false;
         }
         std::string token = randomToken();

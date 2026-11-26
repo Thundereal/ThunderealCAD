@@ -4757,3 +4757,108 @@ here. TestWorkerPool: `testAnAddonsGuiCallsAreThereInAWorker`,
 `testAClassAWorkerCannotRestoreMakesTheRecomputeUnfit`, and
 `TestWorkerViewObject` (the looks and Visibility through the stand-in, the
 view's own a fake).
+
+## 73. Every built-in object made by a worker (2026-11-26)
+
+The reporter: "fix the code to make any built-in objects to recompute in
+worker, the fallback is only for external addon code"; and, of the view
+object, "let's find a more general way to expose those property as well
+... simple property read write should able to pass through"; and "be
+careful about view vs app space visibility discrepency problem".
+
+**Whose code.** A fake (sec 72) is told with the class of the object that
+used it and whether it is built-in (`freecad.worker_gui.origin`): the
+proxy's module under the install's home (`App.getHomePath()`: its Mod,
+Ext, lib) and not under the user's data or macro directory; an object
+with no proxy is its C++ type's, built-in. A module may say it stands for
+an addon's (`__freecad_addon__ = True`, `Mod/Test/WorkerGuiProbe.py`).
+`recomputeInfo()["Faked"]` lists each made-here or taken-back object --
+`Object`, `Class`, `Used` (with the file and line that used it),
+`BuiltIn` -- and the Report view calls a built-in one a fault. A built-in
+fake still falls back to made-here, so that nothing is made wrong, and
+the tests fail on it.
+
+**The view provider's saved properties.** A worker reads its copy's
+GuiDocument.xml: the version's entry in the store at each setup (a move
+along the log reads it anew), or the copy's file. Both are current: a
+probe set a view's LineWidth after the save, and both copy paths had the
+new value. An object's view properties are its class's `<Defaults>`
+(`App::SharedDefaults`, which a save elides against) with its own over
+them, by its stored view provider type, made when first asked.
+
+- A read is the saved value (`FreeCAD._propertyValue(type, xml)`, the
+  value read by a property of its type; the GUI's colour and appearance
+  types are App's underneath and read as those). A name the view provider
+  has not is an AttributeError, as on the real one, so `hasattr(obj.
+  ViewObject, "DisplayLength")` is right.
+- A write is kept for what reads it later in the job, and done again to
+  the real view provider where the result is put in, after the put-in's
+  recompute, in the worker's order (`freecad.worker_gui.replay`), as are
+  `update()`, `signalChangeIcon()`, `hide()`, `show()` and a call of the
+  view provider proxy's methods (its plain state read from the instance
+  the saved views restore; a method called returns None there).
+- Sec 72's looks (A) and their store writes (B) stay as they were: the
+  object's own look written there, which another object of the job may
+  read, and sent as the object's data.
+- What stays a fake: the scene (RootNode and the rest), an enumeration's
+  names (a save writes the index alone), a value held in an archive file
+  of its own, Sketcher's layer list, a view property no save writes.
+
+**Visibility.** `ViewProviderDocumentObject::onChanged` of Visibility
+calls show() or hide() and writes the object's Visibility -- under
+NoModify unless TouchDocument, not for a secondary view, not under the
+User1 guard. A restore reads each from its own file under that guard, so
+an object's and its view provider's can differ after an open; updateData
+runs under it too. `vp.isVisible()` is the mode switch, which follows
+Visibility outside updateData. So a worker reads the view provider's
+saved Visibility, not the object's (the object's where the copy has no
+saved views), and a write of it -- `obj.Base.ViewObject.show()` -- is
+the object's too, as onChanged makes it, and done again to the view
+provider, even where the object's does not change. Per-view visibility
+(`ObjectVisibilities`, CoinRetirement.md sec 5.18) changes neither
+Visibility nor the mode switch: an execute reading the view object sees
+the same in both processes, a view asked directly is a fake, and the
+entries stay the views'. A TempoVis hide in an edit with per-view tables
+is such an entry; outside one it writes Visibility, which the copy has.
+`tests/gui/views-by-worker.py` holds the census.
+
+**The camera.** Draft's `get_normal` turns a plane's normal toward the
+active 3D view's camera, and ArchComponent extrudes a structure's base by
+it: in the GUI a structure's direction depends on where the camera looks
+when it is recomputed. The GUI says its active view's direction with each
+recompute job (`WorkerRecompute::setViewState`), and a worker's
+`gui_utils.get_3d_view()` answers a view of that direction
+(`FreeCADGui.worker_active_view`), its other methods fakes.
+
+**The sweep.** `Mod/Test/TestWorkerBuiltIns.py` opens every FCStd under
+the install's home, touches every object, and has a worker recompute it
+with `Workers/NoteGuiUp` on, a diagnostic: `FreeCAD.GuiUp` read inside an
+execute is a fake, as an execute that skips work without a GUI sends a
+result without it. `tests/gui/builtins-by-worker.py` runs it in the GUI,
+where the copies carry the views as the GUI saves them; the console's
+own copies have none (a console session writes no GuiDocument.xml), so
+there view reads are fakes the GUI does not have.
+
+What it found, and what was done (built-in code fixed, none faked):
+
+| | found | done |
+|---|---|---|
+| Draft Dimension, `App.GuiUp and obj.ViewObject: update()` | skipped in a worker | `if obj.ViewObject:`, the update replayed |
+| Draft WorkingPlaneProxy, ArchSectionPlane, Shape2DView: a size from a view property | a fake | the saved value |
+| BIM Site, `if GuiUp:` its view proxy's terrain switches | skipped | `if vobj and vobj.Proxy`, the call replayed |
+| BIM components, `hideSubobjects` read GuiUp at every onChanged | skipped | by the property first, `o.ViewObject.hide()` replayed |
+| ArchStructure through Draft `get_normal`, the camera | the normal unturned | the asking process's camera |
+| CAM `waiting_effects`, GuiUp for a wait cursor | a fake, nothing different | asks Qt for a widget application |
+| CAM LeadInOut, `ViewObject.signalChangeIcon()` | a fake | replayed |
+| Sketcher sketches of CAM's tool bits (console only) | a view read with no saved views | none in the GUI |
+
+**And a crash the sweep met.** Opening `draft_test_objects.FCStd` or
+`EngineBlock.FCStd` -- any document with a Draft BSpline -- ended the GUI
+in a stack overflow, worker or none: `RotationPy.xml` did not mark
+`inverted()` and `isSame()` const, so `obj.Placement.Rotation.inverted()`
+in the wire view's updateData of Shape wrote the placement back, which
+moved the shape, which called updateData of Shape again. Both const now
+(`tests/gui/draft-bspline-reopen.py`).
+
+Left out of the sweep: four Addon Manager fixtures that are not
+documents, and one that links to another (refused, sec 2).

@@ -370,7 +370,10 @@ class LinearDimension(DimensionBase):
 
         # The lines and text are created in the viewprovider, so we should
         # update it whenever the object is recomputed
-        if App.GuiUp and obj.ViewObject:
+        # Not under GuiUp: a worker's view object takes the call, and the
+        # view provider where the result is put in redraws (docs/WorkerProcess.md
+        # sec 73); with no view provider ViewObject is None
+        if obj.ViewObject:
             obj.ViewObject.update()
 
 
@@ -619,7 +622,10 @@ class AngularDimension(DimensionBase):
         # The viewprovider should modify visual properties only, not real
         # properties. It can react to real properties by using the 'updateData'
         # method.
-        if App.GuiUp and obj.ViewObject:
+        # Not under GuiUp: a worker's view object takes the call, and the
+        # view provider where the result is put in redraws (docs/WorkerProcess.md
+        # sec 73); with no view provider ViewObject is None
+        if obj.ViewObject:
             obj.ViewObject.update()
 
     def onChanged(self, obj, prop):

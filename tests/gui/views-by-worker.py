@@ -70,6 +70,10 @@ def build(name):
     sized = doc.addObject("Part::FeaturePython", "Sized")
     P.Sized(sized)
     P.SizedView(sized.ViewObject)
+    plane = doc.addObject("Part::Plane", "Plane")
+    facing = doc.addObject("Part::FeaturePython", "Facing")
+    P.Facing(facing)
+    facing.Base = plane
     refresher = doc.addObject("Part::FeaturePython", "Refresher")
     P.Refresher(refresher)
     P.RefresherView(refresher.ViewObject)
@@ -99,6 +103,10 @@ def edit(doc):
     doc.Hider.Show = False
     doc.Sized.Input = 3
     doc.Refresher.Input = 2
+    doc.Plane.Length = 12
+    # The camera below the plane: Draft turns its normal toward it
+    FreeCADGui.getDocument(doc.Name).activeView().viewBottom()
+    pump(0.3)
 
 
 def census(doc):
@@ -136,9 +144,9 @@ def run():
         pump(0.5)
         info = pool.recomputeInfo()
         check("handed to a worker", handed, info)
-        made = [n for n in ("Hider", "Sized", "Refresher")
+        made = [n for n in ("Hider", "Sized", "Refresher", "Facing")
                 if there.getObject(n).MadeBy not in (0, os.getpid())]
-        check("the worker made every object", made == ["Hider", "Sized", "Refresher"]
+        check("the worker made every object", made == ["Hider", "Sized", "Refresher", "Facing"]
               and info["ExecutedHere"] == 0 and info["Unfit"] == 0, (made, info))
         check("... none faked", info["Faked"] == [], info["Faked"])
         check("nothing touched", touched(there) == [], touched(there))
@@ -157,6 +165,10 @@ def run():
               and abs(there.Sized.Shape.BoundBox.XLength - 7) < 1e-6
               and abs(there.Sized.Shape.BoundBox.ZLength - 10) < 1e-6,
               (here.Sized.Shape.BoundBox, there.Sized.Shape.BoundBox))
+        check("Facing's normal turned toward the camera the same, in both",
+              here.Facing.NormalZ == there.Facing.NormalZ and abs(there.Facing.NormalZ) > 0.5
+              and here.Facing.MadeBy == os.getpid(),
+              (here.Facing.NormalZ, there.Facing.NormalZ))
         # "made 0" by the first recompute, before the save; "made 2" by the
         # edit's -- here directly, there done again from the worker's call
         check("Refresher's view proxy told the same, in both",

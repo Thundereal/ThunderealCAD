@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <sstream>
 # include <boost/interprocess/sync/file_lock.hpp>
 # include <Inventor/errors/SoDebugError.h>
 # include <Inventor/errors/SoError.h>
@@ -534,6 +535,22 @@ Application::Application(bool GUIenabled)
     // recompute expected to be long goes to a worker (docs/WorkerProcess.md
     // sec 28)
     App::WorkerRecompute::trackTimes();
+    // The active 3D view, for a worker's execute that reads it: Draft's
+    // get_normal turns a plane's normal toward the camera (docs/WorkerProcess.md
+    // sec 73). What gui_utils.get_3d_view() would find: the main window's
+    // active window, where it is a 3D view
+    App::WorkerRecompute::setViewState([]() -> std::string {
+        auto mw = getMainWindow();
+        auto view = mw ? qobject_cast<View3DInventor*>(mw->activeWindow()) : nullptr;
+        if (!view || !view->getViewer()) {
+            return {};
+        }
+        const SbVec3f d = view->getViewer()->getViewDirection();
+        std::ostringstream s;
+        s.precision(17);
+        s << "{\"direction\": [" << d[0] << ", " << d[1] << ", " << d[2] << "]}";
+        return s.str();
+    });
     // obj.ViewObject asked for before a progressive load has made it: what
     // the load parked is made now (App/ViewObjectRequest.h)
     App::setViewObjectRequest([](const App::DocumentObject &obj) {

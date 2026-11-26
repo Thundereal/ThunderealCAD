@@ -2103,6 +2103,14 @@ fc_add_gui_test(GuiHoldPerDocument_tests_run hold-per-document.py
 fc_add_gui_test(GuiAddonGuiByWorker_tests_run addon-gui-by-worker.py
                 --timeout 300)
 
+# Every built-in object of the install's documents is recomputed by a worker
+# (docs/WorkerProcess.md sec 73): Mod/Test/TestWorkerBuiltIns.py's sweep in
+# the GUI, every FCStd under the home opened, touched and recomputed by a
+# worker with Workers/NoteGuiUp on; no built-in object made here or taken
+# back. About 90 s.
+fc_add_gui_test(GuiBuiltinsByWorker_tests_run builtins-by-worker.py
+                --timeout 1200)
+
 # A document with a Draft BSpline opens again in the GUI: RotationPy's
 # inverted() and isSame() were not const, so obj.Placement.Rotation.inverted()
 # in the wire view's updateData of Shape wrote the placement back, which

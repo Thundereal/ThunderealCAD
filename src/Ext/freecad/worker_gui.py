@@ -43,11 +43,23 @@ import FreeCAD as App
 _count = 0  # fakes used since the worker started
 
 
+def _where():
+    """The first caller outside this module, as file:line"""
+    frame = sys._getframe(1)  # pylint: disable=protected-access
+    here = __file__
+    while frame is not None and frame.f_code.co_filename == here:
+        frame = frame.f_back
+    if frame is None:
+        return ""
+    return "%s:%d" % (os.path.basename(frame.f_code.co_filename), frame.f_lineno)
+
+
 def _fake(what):
     global _count
     _count += 1
     try:
-        App._workerFaked(what)
+        where = _where()
+        App._workerFaked("%s (%s)" % (what, where) if where else what)
     except Exception:  # pylint: disable=broad-except
         pass
 
@@ -158,7 +170,7 @@ _LOOK_WRITES = frozenset(("LineMaterial", "PointMaterial", "LineColorArray", "Po
 # GUI's, which a worker has not got -- a fake
 _VIEW_API = frozenset(("RootNode", "SwitchNode", "Annotation", "TypeId", "Document",
                        "getElementColors", "setElementColors", "getDisplayModes",
-                       "claimChildren", "signalChangeIcon", "addProperty", "removeProperty",
+                       "claimChildren", "addProperty", "removeProperty",
                        "addDisplayMode", "setTransformation", "toString", "startEditing",
                        "finishEditing", "isEditing", "getActiveView", "getBoundingBox",
                        "getDetailPath", "getElementPicked", "Icon", "DropPrefix",
@@ -442,6 +454,10 @@ class ViewObject:
 
     def update(self):
         _record(self._object, {"op": "call", "name": "update"})
+
+    def signalChangeIcon(self):
+        # The tree's icon, which the view provider here draws again
+        _record(self._object, {"op": "call", "name": "signalChangeIcon"})
 
     def __bool__(self):
         return True
@@ -800,6 +816,45 @@ class _Control:
         return _Inert("Control." + name)
 
 
+class _ActiveView:
+    """The asking process's active 3D view, as the job said it was
+    (WorkerRecompute::setViewState): its camera's direction is real, the rest
+    of a view a fake"""
+
+    def __init__(self, state):
+        self._state = state
+
+    def getViewDirection(self):
+        d = self._state.get("direction") or (0.0, 0.0, -1.0)
+        return App.Vector(*d)
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        _fake("ActiveView." + name)
+        return _Inert("ActiveView." + name)
+
+
+_active_view = None
+
+
+def set_active_view(text):
+    """What a recompute job says the asking process's active view is (none
+    when it has no 3D view active)"""
+    global _active_view
+    try:
+        state = json.loads(text) if text else {}
+    except ValueError:
+        state = {}
+    _active_view = _ActiveView(state) if state.get("direction") else None
+
+
+def worker_active_view():
+    """The active 3D view in a worker: the asking process's, as its job said,
+    or None -- what Draft's gui_utils.get_3d_view() answers there"""
+    return _active_view
+
+
 class GuiDocument:
     """getDocument(name) in a worker: its App document, and the stand-in view
     objects of its objects; no view"""
@@ -810,6 +865,16 @@ class GuiDocument:
     def getObject(self, name):
         obj = self.Document.getObject(name)
         return obj.ViewObject if obj is not None else None
+
+    @property
+    def ActiveView(self):
+        if _active_view is None:
+            _fake("Document.ActiveView")
+            return _Inert("Document.ActiveView")
+        return _active_view
+
+    def activeView(self):
+        return self.ActiveView
 
     def __getattr__(self, name):
         if name.startswith("__"):
@@ -850,7 +915,7 @@ def _make():
                  "listWorkbenches", "getWorkbench", "activeWorkbench", "activateWorkbench",
                  "addWorkbenchManipulator", "removeWorkbenchManipulator", "doCommand",
                  "doCommandGui", "doCommandSkip", "addModule", "getDocument",
-                 "activeDocument", "getMainWindow"):
+                 "activeDocument", "getMainWindow", "worker_active_view"):
         setattr(module, name, globals()[name])
     module.Selection = _Selection()
     module.Control = _Control()

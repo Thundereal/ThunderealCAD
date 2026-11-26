@@ -77,6 +77,32 @@ class SizedView:
         return None
 
 
+class Facing:
+    """Takes the normal of its Base's face as Draft does, which turns it
+    toward the active view's camera (DraftGeomUtils.get_normal), as
+    ArchComponent's extrusion of a structure's base does"""
+
+    def __init__(self, obj):
+        obj.addProperty("App::PropertyLink", "Base")
+        obj.addProperty("App::PropertyFloat", "NormalZ")
+        obj.addProperty("App::PropertyInteger", "MadeBy")
+        obj.Proxy = self
+
+    def execute(self, obj):
+        import DraftGeomUtils
+
+        obj.Shape = Part.makeBox(1, 1, 1)
+        normal = DraftGeomUtils.get_normal(obj.Base.Shape) if obj.Base else None
+        obj.NormalZ = normal.z if normal is not None else 0.0
+        obj.MadeBy = os.getpid()
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+
 class Refresher:
     def __init__(self, obj):
         obj.addProperty("App::PropertyInteger", "Input")

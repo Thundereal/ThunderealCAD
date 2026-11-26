@@ -24,6 +24,7 @@
 #define APP_WORKER_RECOMPUTE_H
 
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -196,6 +197,13 @@ public:
      * (docs/WorkerProcess.md sec 73). Nothing outside an execute
      */
     static void noteViewWrite(const std::string& what);
+    /** What the GUI's active 3D view is, as JSON ({"direction": [x, y, z]}),
+     * asked as a recompute is handed to a worker: an execute that reads the
+     * view -- Draft's get_normal turns a plane's normal toward the camera --
+     * reads it there as here (freecad.worker_gui.worker_active_view,
+     * docs/WorkerProcess.md sec 73). Set by the GUI; empty for none
+     */
+    static void setViewState(std::function<std::string()> state);
 
     /// Started, made, put in, dropped
     static fastsignals::signal<void(const Document&)> signalChanged;

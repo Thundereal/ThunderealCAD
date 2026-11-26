@@ -576,6 +576,13 @@ public:
     std::vector<fastsignals::scoped_connection> conns;
 };
 
+/// The GUI's active view, asked when a job is made (setViewState)
+std::function<std::string()>& viewState()
+{
+    static std::function<std::string()> state;
+    return state;
+}
+
 /// How a job taken back for a fake says so, and that the code is the
 /// install's (docs/WorkerProcess.md sec 72, 73)
 constexpr const char* FakedPrefix = "a stand-in was used: ";
@@ -696,6 +703,25 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             }
         }
     }
+    // The asking process's active view, for an execute that reads it (sec 73)
+    {
+        auto view = inputs.find("view");
+        Base::PyGILStateLocker lock;
+        try {
+            Py::Dict modules(PyImport_GetModuleDict());
+            if (modules.hasKey("freecad.worker_gui")) {
+                Py::Object gui(modules.getItem("freecad.worker_gui"));
+                Py::Callable set(gui.getAttr("set_active_view"));
+                Py::Tuple args(1);
+                args.setItem(0, Py::String(view != inputs.end() ? view->dump() : "{}"));
+                set.apply(args);
+            }
+        }
+        catch (Py::Exception&) {
+            Base::PyException e;
+            e.ReportException();
+        }
+    }
     doc->recompute(objs);
     const double seconds = now() - began;
     if (auto why = recorder.why(); !why.empty()) {
@@ -710,17 +736,27 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
     // and a test fails on it (sec 73)
     json faked = json::array();
     {
-        std::map<DocumentObject*, std::pair<std::string, bool>> fakers;  // class, built-in
+        // Each object that used one -- in any of its entries, an object may
+        // be executed more than once -- its class, whether it is built-in,
+        // and what it used first
+        struct Faker
+        {
+            std::string cls;
+            bool builtin = true;
+            std::string used;
+        };
+        std::map<DocumentObject*, Faker> fakers;
         for (auto& e : recorder.entries) {
-            if (!e.here && !e.faked.empty()) {
-                fakers[e.obj] = codeOf(*e.obj);
+            if (!e.here && !e.faked.empty() && !fakers.count(e.obj)) {
+                auto origin = codeOf(*e.obj);
+                fakers[e.obj] = Faker {origin.first, origin.second, e.faked.front()};
             }
         }
         // The reply of a job taken back for a fake: said so, and whose code
         auto back = [&fakers](DocumentObject* obj, const std::string& why) {
-            const auto& origin = fakers[obj];
-            return unfit(std::string(FakedPrefix) + why + " (" + origin.first + ")"
-                         + (origin.second ? BuiltInSuffix : ""));
+            const Faker& f = fakers[obj];
+            return unfit(std::string(FakedPrefix) + why + " (" + f.cls + ")"
+                         + (f.builtin ? BuiltInSuffix : ""));
         };
         for (std::size_t i = 0; !fakers.empty() && i < recorder.entries.size(); ++i) {
             auto& e = recorder.entries[i];
@@ -729,8 +765,8 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             }
             const bool faker = fakers.count(e.obj) > 0;
             if (faker && e.outer) {
-                return back(e.obj, std::string(e.obj->getFullName()) + " used " + e.faked.front()
-                                       + ", which a worker has not got, inside "
+                return back(e.obj, std::string(e.obj->getFullName()) + " used "
+                                       + fakers[e.obj].used + ", which a worker has not got, inside "
                                        + recorder.entries[e.outer - 1].obj->getFullName());
             }
             if (faker) {
@@ -738,32 +774,44 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             }
             for (auto dep : e.obj->getOutListRecursive()) {
                 if (fakers.count(dep)) {
-                    return back(dep, std::string(dep->getFullName())
-                                         + " used what a worker has not got, and "
+                    return back(dep, std::string(dep->getFullName()) + " used "
+                                         + fakers[dep].used + ", which a worker has not got, and "
                                          + e.obj->getFullName() + " reads it");
                 }
             }
         }
+        std::set<DocumentObject*> told;
         for (auto& e : recorder.entries) {
-            if (e.here || e.faked.empty()) {
+            if (e.here || !fakers.count(e.obj)) {
                 continue;
             }
             for (auto& inner : recorder.entries) {
                 if (inner.outer && &recorder.entries[inner.outer - 1] == &e) {
                     return back(e.obj, std::string(e.obj->getFullName()) + " used "
-                                           + e.faked.front()
+                                           + fakers[e.obj].used
                                            + ", which a worker has not got, and recomputed "
                                            + inner.obj->getFullName() + " itself");
                 }
             }
             e.here = true;
+            if (!told.insert(e.obj).second) {
+                continue;  // made here once, said once
+            }
             ++recorder.left;
-            const auto& origin = fakers[e.obj];
+            const Faker& f = fakers[e.obj];
+            json used = json::array();
+            for (auto& other : recorder.entries) {
+                if (other.obj == e.obj) {
+                    for (auto& u : other.faked) {
+                        used.push_back(u);
+                    }
+                }
+            }
             faked.push_back(json {{"object", e.obj->getNameInDocument()},
                                   {"label", e.obj->Label.getValue()},
-                                  {"class", origin.first},
-                                  {"builtin", origin.second},
-                                  {"used", e.faked}});
+                                  {"class", f.cls},
+                                  {"builtin", f.builtin},
+                                  {"used", used}});
         }
     }
     // What the other process makes itself is not sent. The entry each
@@ -974,6 +1022,11 @@ void WorkerRecompute::noteFaked(const std::string& what)
         return;
     }
     entry.faked.push_back(what);
+}
+
+void WorkerRecompute::setViewState(std::function<std::string()> state)
+{
+    viewState() = std::move(state);
 }
 
 void WorkerRecompute::noteViewWrite(const std::string& what)
@@ -2761,12 +2814,20 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         job.kind = RecomputeKind;
         job.tag = s.tag;
         job.reads = names;
+        json view = json::object();
+        if (auto& state = viewState()) {
+            view = json::parse(state(), nullptr, false);
+            if (view.is_discarded() || !view.is_object()) {
+                view = json::object();
+            }
+        }
         job.inputs = json {{"objects", names},
                            {"touched", touchedHere},
                            {"display", meshes ? display : json::object()},
                            {"tables", s.tables},
                            {"refused", refused},
-                           {"numbers", numbers}}
+                           {"numbers", numbers},
+                           {"view", view}}
                          .dump();
         job.done = [name, slot](WorkerPool::Result& r) { done(name, *slot, r); };
         return job;

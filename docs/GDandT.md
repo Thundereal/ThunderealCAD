@@ -1613,6 +1613,30 @@ part's own curves or points (XCAF makes them of them) are layered member by memb
 one layer of supplemental and part items is written as two, and two points it hides by its
 layer we hide by their style too.
 
+Closed 2026-11-27 (I11 (c) and (d)). **A shape content's looks are its parent's.** A content
+(`Part::Feature` 'Expand shape contents', STC-09's compound) took the parent's face colours
+when it was made and kept them: a change of the parent's reached none. It links its parent by
+a hidden link alone (`_ShapeContentOwner`), which puts it in no in-list and makes it no shape
+made from anything, so neither `App::AppearanceUpdater` nor the source looks reached it. Each
+element of a content now takes the look its element has in the parent, whole (a content is a
+piece of the parent, not a shape made from it), and the parent tells its contents when it is
+drawn differently. A content's own look wins: an element it states a look for keeps it, and a
+colour, transparency or material given to the whole content turns its `MapFaceColor` (an
+edge's or vertex's: `MapLineColor`, `MapPointColor`) off, so the content keeps it -- turn the
+property on again to follow the parent. Saved and reopened as they were drawn
+(`ShapeContentsSaveTest.test_contents_follow_their_parents_looks`). **A part's members are
+not thrown out for the annotations beside it.** A `GeoFeatureGroup` keeps the members it has
+checked, and a change of Group checks the rest. The ones `addObjects()` adds it checks itself,
+and it did not say so: at the next change they were all taken for new, and each tied to
+anything outside the part by a link made since -- every member a PMI annotation beside the
+part names, through its links -- was thrown out. Deleting FTC-10's nested container so dropped
+most of its parent's members ('because of cross coordinate link to View001', or Datum004, or
+DatumSystem008: whichever the walk met first; the import detached the container first to get
+around it, which it no longer does). And a change taking a member away checked every member
+again, for the same result: it checks those tied to what left, and to what it throws out
+(`PartGroupModeTest.aMemberAddedByAddObjectsIsCheckedAlready`,
+`aMemberLinkedFromOutsideStaysWhenAnotherLeaves`).
+
 SFA pass 12 (dwin) on that: STC-06 and STC-10 equal NIST's graphics table, and two things it
 found. A value's format was written with the digits of the millimetres a value is kept in, in a
 file in inches ('NR2 3.2' for 12 in): the writer counts those of the value it writes. And one

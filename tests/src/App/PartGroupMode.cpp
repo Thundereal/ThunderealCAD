@@ -368,6 +368,46 @@ TEST_F(PartGroupModeTest, aMemberLeftLinkingToOneThatLeftIsTakenOut)
     EXPECT_TRUE(p->Group.getValues().empty());
 }
 
+// Only what is tied to the one that left is checked again: a member linked
+// from outside after it came in (a PMI annotation naming a part's faces) is
+// not thrown out by another leaving, or deleted (docs/GDandT.md sec 10.25,
+// I11 (d): NIST FTC-10's part lost most of its members)
+TEST_F(PartGroupModeTest, aMemberLinkedFromOutsideStaysWhenAnotherLeaves)
+{
+    auto p = part("P");
+    auto a = feature("A");
+    auto b = feature("B");
+    auto c = feature("C");
+    auto outside = feature("Outside");
+    p->Group.setValues({a, b, c});
+    outside->Link.setValue(a);
+
+    EXPECT_NO_THROW(p->Group.setValues({a, c}));
+    EXPECT_EQ(p->Group.getValues(), std::vector<App::DocumentObject*>({a, c}));
+
+    doc()->removeObject(c->getNameInDocument());
+    EXPECT_EQ(p->Group.getValues(), std::vector<App::DocumentObject*>({a}));
+}
+
+// The same of members added by addObjects(), which checks them itself: the
+// next change took them for unchecked (FTC-10's import adds them so)
+TEST_F(PartGroupModeTest, aMemberAddedByAddObjectsIsCheckedAlready)
+{
+    auto p = part("P");
+    auto a = feature("A");
+    auto b = feature("B");
+    auto c = feature("C");
+    auto outside = feature("Outside");
+    p->addObjects({a, b, c});
+    ASSERT_EQ(p->Group.getValues(), std::vector<App::DocumentObject*>({a, b, c}));
+    outside->Link.setValue(a);
+
+    doc()->removeObject(b->getNameInDocument());
+    EXPECT_EQ(p->Group.getValues(), std::vector<App::DocumentObject*>({a, c}));
+    EXPECT_NO_THROW(p->Group.setValues({a}));
+    EXPECT_EQ(p->Group.getValues(), std::vector<App::DocumentObject*>({a}));
+}
+
 TEST_F(PartGroupModeTest, aLinkSetAfterIsFollowedOnRecompute)
 {
     auto p = part("P");

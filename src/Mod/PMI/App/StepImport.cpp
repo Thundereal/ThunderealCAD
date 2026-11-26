@@ -1560,13 +1560,6 @@ private:
                                   : nullptr;
                 auto ext = group ? group->getExtensionByType<App::GroupExtension>(true) : nullptr;
                 if (prop && prop->getValue() && ext && ext->Group.getValues().empty()) {
-                    // Out of its own container first: deleted while in it, the container's
-                    // list of what it groups lost most of it (FTC-10's product)
-                    if (auto parent = App::GeoFeatureGroupExtension::getGroupOfObject(group)) {
-                        if (auto pext = parent->getExtensionByType<App::GroupExtension>(true)) {
-                            pext->removeObject(group);
-                        }
-                    }
                     _info.doc->removeObject(group->getNameInDocument());
                 }
             }

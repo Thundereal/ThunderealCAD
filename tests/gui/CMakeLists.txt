@@ -478,6 +478,13 @@ fc_add_gui_test(GuiPartDesignExtensionsToolbar_tests_run pd-extensions-toolbar.p
 fc_add_gui_test(GuiPMIBodyWithoutSolidBody_tests_run pmi-body-without-solid-body.py
                 --timeout 200)
 
+# 2026-11-26: a right click on a toolbar in the custom title bar brings the
+# toolbar's own menu (the workbench selector's, or the window's toolbar menu),
+# not the area's list; title bar grips and docked toolbars still drag after
+# the title bar has been used.
+fc_add_gui_test(GuiToolBarTitleBarMenusAndDrags_tests_run toolbar-title-bar-menus-and-drags.py
+                --timeout 300)
+
 # Entry 215: every change in a chamfer's panel an undo step of its own, as
 # the fillet's (entry 136); Cancel takes the edit back.
 fc_add_gui_test(GuiChamferUndoSteps_tests_run chamfer-undo-steps.py

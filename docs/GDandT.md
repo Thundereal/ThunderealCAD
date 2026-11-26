@@ -1637,6 +1637,30 @@ again, for the same result: it checks those tied to what left, and to what it th
 (`PartGroupModeTest.aMemberAddedByAddObjectsIsCheckedAlready`,
 `aMemberLinkedFromOutsideStaysWhenAnotherLeaves`).
 
+Closed 2026-11-27 (the layer forms left above). **CTC-04's curve sets are layered as NIST
+layers them.** A curve set of the part's own curves or points has no label of its own, so its
+layer is read onto each member (`StepLayers` by element), and a member on a layer of its own
+too carries two. The OCCT writer gave the first of them the member's entity and the second
+none -- `NCollection_Sequence::Append(sequence)` moves the items, it does not copy them -- so
+four of CTC-04's assignments were written with no items at all (`()`, invalid STEP: Sketch.3's,
+Sketch.18's, Sketch.22's, Sketch.37's). Each layer now gets its items, and a layer holding
+every member of a set of two or more written holds the set instead (no NIST file layers all of
+a set's members one by one). The same rule ends a duplicate: a supplemental curve set's layer
+read onto its members was written again by them beside the set's own (CTC-04's four
+'ThreadCylinder.1' layers, eight written). And a compound of points alone (a sketch of points)
+is written one point set, as a compound of curves is, not merged with every other point of the
+part into one (CTC-04's 30 and 12 and 'Point.1' were one set of 43). CTC-04 now writes NIST's
+32 assignments, in NIST's order, each holding NIST's kinds of items, and
+`test_part_layers_as_the_file_has_them` compares what each layer holds, not only that it is
+there. Left: STC-09 -e4's one layer of 11 supplemental planes and 6 part curve sets is written
+as twelve -- the part's sets on one, each plane on one of its own -- because a supplemental
+item's layer is read without the assignment it came from (`SetSupplementalLayer` keeps a name
+and a description, no ordinal).
+
+The NIST set the suites run on here is NIST's February 2026 update (SFA's
+`Release/NIST-PMI-STEP-Files.zip`), as `docs/Testing.md` says; with it TestPMIApp's 151 tests
+run and none skips (the 2021 download's STC-09 -e3 skipped two).
+
 SFA pass 12 (dwin) on that: STC-06 and STC-10 equal NIST's graphics table, and two things it
 found. A value's format was written with the digits of the millimetres a value is kept in, in a
 file in inches ('NR2 3.2' for 12 in): the writer counts those of the value it writes. And one

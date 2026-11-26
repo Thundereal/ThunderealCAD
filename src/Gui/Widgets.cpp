@@ -1194,6 +1194,10 @@ struct TipIconEntry {
 };
 QCache<QString, TipIconEntry> _TipIconCache(1024);
 int _TipIconSize;
+// Whether the tip ToolTip waits to show was asked for by a widget. ToolTip
+// (one instance) keeps that widget in a QPointer, null once it is destroyed;
+// this tells a widget gone in the wait from a tip that never had one.
+bool _TipHadWidget = false;
 
 void hideQtToolTips()
 {
@@ -1218,7 +1222,14 @@ QRect getScreenGeometry(const QPoint &pos, QWidget *w)
     else
         return QApplication::desktop()->availableGeometry(w);
 #else
-    auto screen = w->screen();
+    // w is null for a tip shown with no widget, and for one whose widget was
+    // destroyed while the tip waited (ToolTip keeps it in a QPointer): the
+    // screen is then the one under pos
+    QScreen *screen = w ? w->screen() : QGuiApplication::screenAt(pos);
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    if (!screen)
+        return {};
     if (auto sibling = screen->virtualSiblingAt(pos))
         return sibling->availableGeometry();
     else
@@ -1484,6 +1495,7 @@ void ToolTip::showText(const QPoint & pos,
         tip->iconPixmap = QPixmap();
         tip->iconPath.clear();
         tip->w = w;
+        _TipHadWidget = w != nullptr;
         tip->corner = corner;
         tip->overlay = overlay;
         tip->tooltipTimer.start(80);
@@ -1511,6 +1523,7 @@ void ToolTip::showText(const QPoint & pos,
         tip->iconPixmap = QPixmap();
         tip->corner = NoCorner;
         tip->w = w;
+        _TipHadWidget = w != nullptr;
         tip->overlay = false;
         tip->tooltipTimer.start(80);
         tip->displayTime.start();
@@ -1537,6 +1550,7 @@ void ToolTip::showText(const QPoint & pos,
         tip->iconPixmap = pixmap;
         tip->corner = NoCorner;
         tip->w = w;
+        _TipHadWidget = w != nullptr;
         tip->overlay = false;
         tip->tooltipTimer.start(80);
         tip->displayTime.start();
@@ -1605,6 +1619,11 @@ QRect clearOfCovers(QRect tip, const QVector<QRect> &covers, const QSize &area,
 
 void ToolTip::onShowTimer()
 {
+    // The widget that asked for the tip was destroyed while it waited (a
+    // panel closed under the mouse): no tip for what is gone. It took the
+    // no-widget branch below, which asked the null widget for its screen.
+    if (_TipHadWidget && !this->w)
+        return;
     if (ViewParams::getToolTipIconSize() > 0
             || this->overlay
             || this->corner != NoCorner) {

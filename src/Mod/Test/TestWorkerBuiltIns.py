@@ -44,7 +44,12 @@ def documents():
     found = []
     for ext in ("FCStd", "fcstd"):
         found += glob.glob(os.path.join(home, "**", "*." + ext), recursive=True)
-    found = sorted(set(os.path.normpath(p) for p in found))
+    # Not what a build tree's tests wrote (its Testing directory, which a
+    # home in a build tree has): no document of the install's, and under a
+    # parallel ctest another test's being written as the sweep opens it
+    tests = os.path.normpath(os.path.join(home, "Testing")) + os.sep
+    found = sorted(set(os.path.normpath(p) for p in found
+                       if not os.path.normpath(p).startswith(tests)))
     if pattern:
         found = [p for p in found if fnmatch.fnmatch(p.replace("\\", "/"), pattern)]
     skip = [s for s in os.environ.get("WORKER_SWEEP_SKIP", "").split(";") if s]
@@ -56,9 +61,10 @@ def _wait(pool, seconds):
     return pool.waitRecompute(seconds)
 
 
-def sweep_one(path, wait=_wait):
+def sweep_one(path, wait=_wait, loaded=None):
     """One document opened, everything touched, recomputed by a worker:
-    what came of it"""
+    what came of it. loaded(doc), when given, waits for the document's
+    progressive load in the GUI and says whether it ended"""
     entry = {"file": path}
     try:
         doc = App.openDocument(path)
@@ -66,6 +72,9 @@ def sweep_one(path, wait=_wait):
         entry["skipped"] = "cannot open: %s" % e
         return entry
     try:
+        if loaded is not None and not loaded(doc):
+            entry["skipped"] = "still loading after 600 s"
+            return entry
         for obj in doc.Objects:
             obj.touch()
         pool = App.workerPool(doc)
@@ -105,9 +114,10 @@ def faults(report):
     return bad
 
 
-def sweep(paths, wait=_wait, each=None):
+def sweep(paths, wait=_wait, each=None, loaded=None):
     """Workers/NoteGuiUp on, one worker, every document of `paths`: the
-    report, kept as WORKER_SWEEP_OUT says. each(path) is told of each first"""
+    report, kept as WORKER_SWEEP_OUT says. each(path) is told of each first;
+    loaded as sweep_one's"""
     group = App.ParamGet(WORKERS)
     had = group.GetBool("NoteGuiUp", False) if "NoteGuiUp" in group.GetBools() else None
     workers = group.GetInt("Workers", -1) if "Workers" in group.GetInts() else None
@@ -118,7 +128,7 @@ def sweep(paths, wait=_wait, each=None):
         for p in paths:
             if each is not None:
                 each(p)
-            report.append(sweep_one(p, wait))
+            report.append(sweep_one(p, wait, loaded))
     finally:
         if had is None:
             group.RemBool("NoteGuiUp")

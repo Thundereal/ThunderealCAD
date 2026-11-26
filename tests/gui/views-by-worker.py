@@ -53,6 +53,16 @@ def pump(seconds):
         time.sleep(0.01)
 
 
+def loaded(doc, seconds=120):
+    """Until the document's progressive load is over: a command that edits
+    it -- Std_Refresh -- is refused while it fills (Command::invoke), which
+    on a loaded box outlasted a fixed pump"""
+    end = time.time() + seconds
+    while (doc.Restoring or doc.LiveImport) and time.time() < end:
+        pump(0.05)
+    return not doc.Restoring and not doc.LiveImport
+
+
 def touched(doc):
     return sorted(o.Name for o in doc.Objects if "Touched" in o.State)
 
@@ -88,6 +98,7 @@ def build(name):
     pump(0.3)
     doc = FreeCAD.openDocument(path)
     pump(0.5)
+    check(name + " loaded before it is edited", loaded(doc))
     view = FreeCADGui.getDocument(doc.Name).activeView()
     view.setObjectVisibility(doc.PerView, False)
     from Show import TempoVis
@@ -104,9 +115,17 @@ def edit(doc):
     doc.Sized.Input = 3
     doc.Refresher.Input = 2
     doc.Plane.Length = 12
-    # The camera below the plane: Draft turns its normal toward it
-    FreeCADGui.getDocument(doc.Name).activeView().viewBottom()
+    # The camera below the plane: Draft turns its normal toward it. The
+    # turn is animated, over frames: until it is there, not a fixed pump,
+    # which a box with dear frames outlasted (the normal read 1.0 here)
+    view = FreeCADGui.getDocument(doc.Name).activeView()
+    view.viewBottom()
+    end = time.time() + 60
+    while view.getViewDirection().z < 0.99 and time.time() < end:
+        pump(0.05)
     pump(0.3)
+    check(doc.Name + "'s camera below the plane before the recompute",
+          view.getViewDirection().z > 0.99, view.getViewDirection())
 
 
 def census(doc):

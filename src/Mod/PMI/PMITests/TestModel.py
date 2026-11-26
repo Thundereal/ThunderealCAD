@@ -1176,6 +1176,13 @@ class TestPresentation(Base):
         a.AutoPlace = False
         self.recompute()
         self.assertAlmostEqual((b.Plane.Base - alone).Length, 0, 6)
+        # On again, then deleted: the slot it took is freed
+        a.AutoPlace = True
+        self.recompute()
+        self.assertAlmostEqual((b.Plane.Base - a.Plane.Base).Length, 3 * h, 6)
+        self.doc.removeObject(a.Name)
+        self.recompute()
+        self.assertAlmostEqual((b.Plane.Base - alone).Length, 0, 6)
 
     def test_an_axis_leader_ends_where_the_axis_leaves_the_part(self):
         gt = self.add("GeometricTolerance", "GT", Characteristic="Position",

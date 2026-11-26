@@ -82,6 +82,11 @@ protected:
     void onChanged(const App::Property* prop) override;
     void setupObject() override;
 
+private:
+    /// The callouts the set had, for one leaving it to be seen (only
+    /// compared, never followed: one may be deleted)
+    std::vector<const App::DocumentObject*> _callouts;
+
 public:
 
     enum StandardValue

@@ -24,8 +24,11 @@
 
 #include "PreCompiled.h"
 
+#include <set>
+
 #include "Annotation.h"
 #include "AnnotationSet.h"
+#include "Callout.h"
 #include "TolerancedFeature.h"
 
 #include <App/Document.h>
@@ -128,6 +131,33 @@ void AnnotationSet::onChanged(const App::Property* prop)
         for (auto obj : Group.getValues()) {
             if (obj) {
                 obj->touch();
+            }
+        }
+    }
+    // One leaving the set frees its slot: the auto-placed callouts after it
+    // are placed again (Callout::autoSlot; they do not depend on it)
+    if (prop == &Group && !isRestoring() && getDocument()
+        && !getDocument()->testStatus(App::Document::Restoring)
+        && !getDocument()->testStatus(App::Document::Recomputing)) {
+        std::set<const App::DocumentObject*> now(Group.getValues().begin(), Group.getValues().end());
+        bool left = false;
+        for (auto obj : _callouts) {
+            left = left || !now.count(obj);
+        }
+        if (left) {
+            for (auto obj : Group.getValues()) {
+                auto callout = freecad_cast<Callout*>(obj);
+                if (callout && callout->AutoPlace.getValue() && !callout->isTouched()) {
+                    callout->touch();
+                }
+            }
+        }
+    }
+    if (prop == &Group) {
+        _callouts.clear();
+        for (auto obj : Group.getValues()) {
+            if (freecad_cast<Callout*>(obj)) {
+                _callouts.push_back(obj);
             }
         }
     }

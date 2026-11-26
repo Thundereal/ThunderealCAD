@@ -149,6 +149,14 @@ void Callout::onChanged(const App::Property* prop)
 {
     // Its own: where it lands is asked again
     _landing.valid = false;
+    // Edited: the callouts after it in its set take their slots by where it
+    // lands, and do not depend on it -- so they are told (autoSlot)
+    if (!_placing && !isRestoring() && prop && prop->getContainer() == this
+        && !(prop->getType() & (App::Prop_ReadOnly | App::Prop_Output)) && getDocument()
+        && !getDocument()->testStatus(App::Document::Restoring)
+        && !getDocument()->testStatus(App::Document::Recomputing)) {
+        touchLaterSlots();
+    }
     // Edited: drawn from what it says from now on
     if (UseImported.getValue() && !_placing && !isRestoring() && isEdit(prop)) {
         UseImported.setValue(false);
@@ -557,6 +565,26 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
         }
     }
     return slot;
+}
+
+void Callout::touchLaterSlots() const
+{
+    auto set = getSet();
+    if (!set) {
+        return;
+    }
+    bool after = false;
+    for (auto obj : set->Group.getValues()) {
+        if (obj == this) {
+            after = true;
+            continue;
+        }
+        auto other = freecad_cast<Callout*>(obj);
+        if (after && other && other->AutoPlace.getValue() && !other->attachedParent()
+            && !other->isTouched()) {
+            other->touch();
+        }
+    }
 }
 
 namespace

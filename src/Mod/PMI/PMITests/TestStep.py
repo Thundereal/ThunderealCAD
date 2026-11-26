@@ -669,6 +669,44 @@ class TestNistSet(Base):
                 empty.append(k)
         self.assertEqual(empty, [])
 
+    def test_a_datum_of_targets_alone_has_no_datum_feature(self):
+        """A datum established by its targets alone is related to them, no
+        DATUM_FEATURE of its own (NIST CTC-02's A, B, C, K; FTC-06's G to K):
+        a frame citing it was written one of nothing, no geometry, no graphic"""
+        nist = os.environ["FC_PMI_NIST"]
+
+        def features(path):
+            with open(path, errors="replace") as f:
+                text = re.sub(r"\s+", "", f.read())
+            ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+            used = collections.Counter()
+            for k, v in ents.items():
+                r = re.findall(r"#(\d+)", v)
+                if v.startswith(("GEOMETRIC_ITEM_SPECIFIC_USAGE(",
+                                 "ITEM_IDENTIFIED_REPRESENTATION_USAGE(",
+                                 "DRAUGHTING_MODEL_ITEM_ASSOCIATION")):
+                    # Its geometry, or its graphic (NIST's of a datum whose
+                    # geometry is on the DATUM: CTC-02's D, FTC-06's A, C, D, E)
+                    used[r[0]] += 1
+                elif v.startswith("SHAPE_ASPECT_RELATIONSHIP(") \
+                        and not ents.get(r[-1], "").startswith("DATUM("):
+                    # Its members; not the datum it is of
+                    used[r[0]] += 1
+            # Each datum feature: of something (geometry, its own or its members',
+            # or a graphic) or of nothing
+            return collections.Counter(
+                bool(used[k]) for k, v in ents.items()
+                if v.startswith("DATUM_FEATURE(") or (v.startswith("(") and "DATUM_FEATURE()" in v))
+
+        for name in ("nist_ctc_02_asme1_ap242-e2.stp", "nist_ctc_05_asme1_ap242-e1.stp",
+                     "nist_ftc_06_asme1_ap242-e2.stp"):
+            path = edition(os.path.join(nist, name))
+            with self.subTest(os.path.basename(path)):
+                doc = self.read(path)
+                self.write_and_read(doc)
+                self.assertEqual(features(path)[False], 0)
+                self.assertEqual(features(self.written)[False], 0)
+
     def test_a_target_on_its_geometry(self):
         """Written, a datum target's graphic is associated with the faces it
         is on -- its feature's shape aspects, which have geometry, not the
@@ -1460,9 +1498,24 @@ class TestNistSet(Base):
             items = set()
             for k in cgr:
                 items |= set(re.findall(r"#(\d+)", ents[k])[:-1])
-            styled = sum(1 for k, v in ents.items()
-                         if "STYLED_ITEM" in typ(ents, k)
-                         and (re.findall(r"#(\d+)", v) or [None])[-1] in items)
+            targets = set((re.findall(r"#(\d+)", v) or [None])[-1]
+                          for k, v in ents.items() if "STYLED_ITEM" in typ(ents, k))
+
+            def members(i):
+                """A curve set's members, a trimmed curve's basis curve with it"""
+                if typ(ents, i) != "GEOMETRIC_CURVE_SET":
+                    return []
+                out = []
+                for m in re.findall(r"#(\d+)", ents[i]):
+                    out.append(m)
+                    if typ(ents, m) == "TRIMMED_CURVE":
+                        out += re.findall(r"#(\d+)", ents[m])[:1]
+                return out
+
+            # The items drawn in a colour: styled themselves, or a curve set by its
+            # members (NIST FTC-10's 'Axis.1' and 'Axis.2' by their one line each)
+            styled = sum(1 for i in items
+                         if i in targets or any(m in targets for m in members(i)))
             return sorted(reps), usages, nauo, styled
 
         kinds = {"Part::DatumPlane": "PLANE", "Part::LocalCoordinateSystem": "AXIS2_PLACEMENT_3D"}
@@ -1507,7 +1560,8 @@ class TestNistSet(Base):
     def test_supplemental_layers_as_the_file_has_them(self):
         """Each item of supplemental geometry on the layer the file puts it on,
         and hidden where the file hides it -- by its layer (FTC-07's 13,
-        STC-06's 16) or its style -- read so (StepLayer, StepHidden; a set of
+        STC-06's 16), its style, or a curve set by its members' (FTC-10's
+        two axes) -- read so (StepLayer, StepHidden; a set of
         curves not shown) and written so again, item for item"""
         nist = os.environ["FC_PMI_NIST"]
 
@@ -1528,12 +1582,23 @@ class TestNistSet(Base):
                 elif v.startswith("STYLED_ITEM("):
                     i = re.findall(r"#(\d+)", v)[-1]
                     styles[i] = styles.get(i, False) or k in hidden
+            def by_members(i):
+                # A curve set hidden by its members' styles, each of them (FTC-10's
+                # 'Axis.1', 'Axis.2'); a trimmed curve's may be its basis curve's
+                if not ents[i].startswith(("GEOMETRIC_CURVE_SET(", "GEOMETRIC_SET(")):
+                    return False
+                members = re.findall(r"#(\d+)", ents[i])
+                return bool(members) and all(
+                    styles.get(m) or (ents[m].startswith("TRIMMED_CURVE(")
+                                      and styles.get(re.findall(r"#(\d+)", ents[m])[0]))
+                    for m in members)
+
             got = collections.Counter()
             for i in items:
                 layer = layers.get(i)
                 got[ents[i].split("(")[0], (re.findall(r"'([^']*)'", ents[i]) or [""])[0],
                     layer[0] if layer else None,
-                    bool(layer and layer[1]) or bool(styles.get(i))] += 1
+                    bool(layer and layer[1]) or bool(styles.get(i)) or by_members(i)] += 1
             return got
 
         for name in ("nist_ctc_04_asme1_ap242-e1.stp", "nist_ftc_07_asme1_ap242-e2.stp",

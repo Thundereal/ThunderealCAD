@@ -212,6 +212,9 @@ protected:
     /// How many callouts before this one in the set land near \a mine on
     /// a parallel plane
     int autoSlot(const gp_Ax3& mine, double h) const;
+    /// Touches the auto-placed callouts after this one in its set: their
+    /// slots are taken by where this lands, which they do not depend on
+    void touchLaterSlots() const;
 
     /// Set while the callout changes its own properties (its plane as it is
     /// placed, a limits dimension's deviations about a nominal measured

@@ -63,6 +63,35 @@ class PartDesignWorkbench ( Workbench ):
             from PartDesign import SprocketFeature
         except ImportError:
             print("Involute gear module cannot be loaded")
+        # The design generators in one drop-down on the Part Design Extensions
+        # tool bar, each only if its command is there (the reporter,
+        # 2026-11-26)
+        generators = [
+            name
+            for name in ("PartDesign_InvoluteGear", "PartDesign_Sprocket",
+                         "PartDesign_WizardShaft")
+            if name in Gui.listCommands()
+        ]
+        if generators and "PartDesign_DesignGenerators" not in Gui.listCommands():
+
+            class DesignGenerators:
+                def GetCommands(self):
+                    return generators
+
+                def GetDefaultCommand(self):
+                    return 0
+
+                def GetResources(self):
+                    return {
+                        "MenuText": "Design Generators",
+                        "ToolTip": "Make a part from parameters: an involute gear, a "
+                                   "sprocket, a shaft",
+                    }
+
+                def IsActive(self):
+                    return Gui.ActiveDocument is not None
+
+            Gui.addCommand("PartDesign_DesignGenerators", DesignGenerators())
             #try:
             #    from FeatureHole import HoleGui
             #except:

@@ -94,7 +94,20 @@ module is -- which lives outside PartDesign and still works inside a Body [B4]:
     leaving PartDesign. The way in is sheet metal's (docs/SheetMetal.md sec 8.1): the Part
     Design menu's **PMI** submenu always holds Datum, Geometric tolerance, Dimension and
     Note. An annotation made in PartDesign with no set active makes its set active, so the
-    first one -- which makes the Body's set -- brings the tool bar.
+    first one -- which makes the Body's set -- brings the tool bar. The PMI toggle on the
+    always-shown Part Design Extensions tool bar asks for it directly, kept across sessions
+    (docs/SheetMetal.md sec 8.1, 2026-11-26).
+  - **The first annotation on a Body makes what it needs** (the reporter, 2026-11-26). A
+    command given faces of a Body with no solid body makes the annotation set if it has none,
+    then the solid body itself (`Body.syncSolidBodies()`), in the command's own transaction. It
+    used to rely on the next recompute, which keeps the Body's shape when the tip has not
+    changed and never came to it. A Body that already had a set said "the Body has no solid body
+    yet: recompute it once it holds an annotation set", which told the user nothing they could
+    act on. The reporter met it on a legacy file: a Body restored from a file older than
+    `AddSolidBody` keeps it off, and with it off every sync takes the solid bodies away. So an
+    annotation set coming into a Body switches `AddSolidBody` on (`Body::insertObject`, as a
+    sheet metal feature does), and the command switches it on for a Body that already had its
+    set.
 
 Names follow the upstream proposal (decision 1): its `PMI_AnnotationSet` is our
 `PMI::AnnotationSet`, and so on; section 12 maps every part of it.

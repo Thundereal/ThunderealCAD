@@ -469,6 +469,15 @@ fc_add_gui_test(GuiTechDrawHatchCenterLineReattach_tests_run techdraw-hatch-cent
 fc_add_gui_test(GuiTechDrawHoverPreselect_tests_run techdraw-hover-preselect.py
                 --timeout 200)
 
+# 2026-11-26: the Part Design Extensions tool bar -- a toggle per tool
+# context (Sheet Metal, Surface, PMI) kept across sessions, the design
+# generators, 3D sketch beside Create Sketch -- and a PMI annotation on a Body
+# with no solid body making the solid body, not a message.
+fc_add_gui_test(GuiPartDesignExtensionsToolbar_tests_run pd-extensions-toolbar.py
+                --timeout 200)
+fc_add_gui_test(GuiPMIBodyWithoutSolidBody_tests_run pmi-body-without-solid-body.py
+                --timeout 200)
+
 # Entry 215: every change in a chamfer's panel an undo step of its own, as
 # the fillet's (entry 136); Cancel takes the edit back.
 fc_add_gui_test(GuiChamferUndoSteps_tests_run chamfer-undo-steps.py

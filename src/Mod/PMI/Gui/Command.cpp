@@ -25,6 +25,7 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <set>
 
 #include <QMessageBox>
 
@@ -121,16 +122,53 @@ std::vector<Pick> pickedFaces(Gui::Command* cmd, const char* what)
     auto selection = Gui::Selection().getSelectionEx(nullptr,
                                                      App::DocumentObject::getClassTypeId(),
                                                      Gui::ResolveMode::NoResolve);
+    // A Body picked that has no solid body is given one here, in the
+    // command's own transaction: with an annotation set it would get one at
+    // its next recompute, but that recompute may keep the shape it has and
+    // never come to it -- a Body that already had a set said "the Body has no
+    // solid body yet: recompute it once it holds an annotation set", and the
+    // reporter: "which the user (even me) has no clue what to do next. how
+    // about just auto create the SolidBody, add the group for annotation and
+    // then create the PMI object"
+    static const Base::Type solidBodyType = Base::Type::fromName("PartDesign::SolidBody");
+    auto hasSolidBody = [](Part::BodyBase* body) {
+        for (auto obj : body->Group.getValues()) {
+            if (obj && !solidBodyType.isBad() && obj->isDerivedFrom(solidBodyType)) {
+                return true;
+            }
+        }
+        return false;
+    };
     bool made = false;
+    std::set<Part::BodyBase*> done;
     for (auto& sel : selection) {
         for (auto& sub : sel.getSubNames()) {
             App::DocumentObject* owner = nullptr;
             Part::Feature::getTopoShape(sel.getObject(), sub.c_str(), true, nullptr, &owner);
             auto body = owner ? Part::BodyBase::findBodyOf(owner) : nullptr;
-            if (body && !PMI::Api::getSet(body, false)) {
+            if (!body || !done.insert(body).second) {
+                continue;
+            }
+            const std::string name = body->getFullName(true);
+            if (!PMI::Api::getSet(body, false)) {
                 cmd->doCommand(Gui::Command::Doc, "import PMI");
-                cmd->doCommand(Gui::Command::Doc, "PMI.getSet(%s)",
-                               body->getFullName(true).c_str());
+                cmd->doCommand(Gui::Command::Doc, "PMI.getSet(%s)", name.c_str());
+                made = true;
+            }
+            if (!hasSolidBody(body)) {
+                // the set in it, which is what asks for a solid body
+                // (Part::BodyBase::requireSolidBody). A Body from a file
+                // older than AddSolidBody has it off, and with it off a sync
+                // takes every solid body away: the reporter got the message
+                // "by opening a legacy file where body does not have
+                // SolidBody". A set coming in switches it on (Body::
+                // insertObject); one that was already there did not.
+                cmd->doCommand(Gui::Command::Doc,
+                               "if not getattr(%s, 'AddSolidBody', True): %s.AddSolidBody = True",
+                               name.c_str(), name.c_str());
+                cmd->doCommand(Gui::Command::Doc,
+                               "if hasattr(%s, 'syncSolidBodies'): %s.syncSolidBodies()",
+                               name.c_str(), name.c_str());
                 made = true;
             }
         }

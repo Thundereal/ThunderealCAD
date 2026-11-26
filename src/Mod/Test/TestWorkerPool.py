@@ -1656,6 +1656,63 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertIn("TestWorkerPool._OnlyHere", info["Reason"])
         self.assertIn("cannot be restored in a worker", info["Reason"])
 
+    def testTheGuestsBootIsNotTheObjectsUseOfGuiUp(self):
+        """A worker boots its sandbox guest on a thread of its own while it
+        waits for work (sec 67), and the boot reads FreeCAD.GuiUp to tell
+        the guest. Under Workers/NoteGuiUp that read was charged to the
+        object the worker was executing when the boot got to it -- on a
+        loaded box a first job's, a C++ Sketch's in the sweep of sec 73,
+        with no file:line: a built-in object made here for what it never
+        did. Here the first job sleeps through the boot"""
+        if not App.ExpressionSandbox.available():
+            self.skipTest("no sandbox guest in this build or profile")
+        sandbox = App.ParamGet("User parameter:BaseApp/Preferences/Expression/Sandbox")
+        sandbox.SetBool("Evaluate", True)
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        for name, value in (("NoteGuiUp", True), ("BootSandbox", True)):
+            group.SetBool(name, value)
+            self.addCleanup(group.RemBool, name)
+        slow = self.counted("Slow", Input=2)
+        self.doc.recompute()
+        self.pool.stop("a new worker, its guest not up")
+        slow.Sleep = 8.0
+        slow.Input = 3
+        info = self.byWorker()
+        self.assertEqual(info["Faked"], [], info)
+        self.assertEqual(info["ExecutedHereNames"], [], info)
+        self.assertEqual(slow.Result, 6)
+        self.assertNotEqual(slow.MadeBy, os.getpid())
+
+    def testAGuestsBootDoesNotAskAStandInForGuiUp(self):
+        """A guest booted again inside a job -- after a budget stopped one
+        -- is booted on the recompute's thread, and its host reads
+        FreeCAD.GuiUp to tell it: an int, as the App and the Gui set it. A
+        stand-in, the worker's Workers/NoteGuiUp diagnostic, is not asked,
+        or the reading is told as the executing object's use of it"""
+        if not App.ExpressionSandbox.available():
+            self.skipTest("no sandbox guest in this build or profile")
+        asked = []
+
+        class StandIn:
+            def __bool__(self):
+                asked.append("bool")
+                return False
+
+            def __index__(self):
+                asked.append("index")
+                return 0
+
+        had = App.GuiUp
+        boots = App.ExpressionSandbox.bootCount()
+        App.GuiUp = StandIn()
+        try:
+            App.ExpressionSandbox.reset()
+            self.assertTrue(App.ExpressionSandbox.available())
+        finally:
+            App.GuiUp = had
+        self.assertGreater(App.ExpressionSandbox.bootCount(), boots)
+        self.assertEqual(asked, [])
+
     def testARecomputeIsSplitOverTwoWorkers(self):
         """Two branches that take long, under what both read: split over two
         workers, each half made at once by its own, put in as one recompute

@@ -360,8 +360,14 @@ struct ImageHost::Private: public ParameterGrp::ObserverType
             Base::PyGILStateLocker lock;
             PyObject* mod = PyImport_ImportModule("FreeCAD");
             PyObject* v = mod ? PyObject_GetAttrString(mod, "GuiUp") : nullptr;
-            if (v)
-                guiUp = PyObject_IsTrue(v) == 1;
+            // An int, as FreeCADInit.py and FreeCADGuiInit.py set it.
+            // Anything else stands in for a process without a GUI -- a
+            // worker's Workers/NoteGuiUp diagnostic (freecad.worker_gui),
+            // whose truth is told as the executing object's use of GuiUp:
+            // not asked, since this is the host's reading, not the object's
+            // (docs/WorkerProcess.md sec 73)
+            if (v && PyLong_CheckExact(v))
+                guiUp = PyLong_AsLong(v) != 0;
             Py_XDECREF(v);
             Py_XDECREF(mod);
             PyErr_Clear();

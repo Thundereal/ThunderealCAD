@@ -4865,6 +4865,33 @@ moved the shape, which called updateData of Shape again. Both const now
 Left out of the sweep: four Addon Manager fixtures that are not
 documents, and one that links to another (refused, sec 2).
 
+**The sweep's flakes at `ctest -j 4` (2026-11-26).** Twenty faults in
+parallel, none alone, all "used FreeCAD.GuiUp" with no file:line -- a
+C++ Sketch among them. Not the objects' code: the guest's boot (sec 67,
+`Workers/BootSandbox`) runs on a thread of its own while the worker
+waits for work, and ends with `tellGuiUp()` reading `FreeCAD.GuiUp` to
+tell the guest. Under `NoteGuiUp` that read was charged to whatever
+object the worker's recompute was executing when the boot got there --
+on a loaded box a first job's. The recorder is now the recompute
+thread's (`thread_local`), and the host reads `GuiUp` only when it is
+an int, as the App and the Gui set it, so a stand-in is never asked
+even by a boot on the recompute's thread (a guest dropped by its budget
+and booted again inside a job). `TestWorkerPool`'s
+`testTheGuestsBootIsNotTheObjectsUseOfGuiUp` sleeps a first job through
+the boot; `testAGuestsBootDoesNotAskAStandInForGuiUp` boots one under a
+stand-in. Both need a pyodide runtime in the profile, which a box's
+isolated test profile may not have -- where it has none, the race cannot
+happen and the GUI sweep cannot show it.
+
+Two of the test's own: in a build tree the home holds `Testing/`, the
+other GUI tests' documents, which the sweep opened as they were being
+written (now left out); and a document is swept, and the views test's
+documents edited, only once their progressive load is over --
+`Std_Refresh` is refused while one fills (`Command::invoke`), which is
+what the views test's "made here" half met under load. The views test
+also waits for its animated `viewBottom()` to arrive before the
+recompute that reads the camera, rather than a fixed pump.
+
 ## 74. What reading the worker code over found (2026-11-26)
 
 The worker code read whole, for faults rather than for a feature: the pool,

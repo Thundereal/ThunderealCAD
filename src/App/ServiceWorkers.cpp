@@ -284,7 +284,7 @@ public:
         for (auto& o : owners) {
             idle += o->busy ? 0 : 1;
         }
-        const int limit = std::max(1L, params()->GetInt("ServiceWorkers", 2));
+        const int limit = helperLimit();
         if (static_cast<int>(queue.size()) > idle && static_cast<int>(owners.size()) < limit) {
             startOwner();
         }
@@ -330,10 +330,35 @@ public:
         done.notify_all();
     }
 
+    /** How many helpers at most: ServiceWorkers of Preferences/Workers, or
+     * with 0, its default, one for each thread the machine runs at once, 2
+     * at least. Two were the most for a load's pre-mesh, which made a
+     * document's meshes 3.3 times slower than on this process's threads
+     * (docs/WorkerProcess.md sec 71): the threads it posts to each block
+     * in call() for one of the two
+     */
+    static int helperLimit()
+    {
+        const long set = params()->GetInt("ServiceWorkers", 0);
+        if (set > 0) {
+            return static_cast<int>(set);
+        }
+        return std::max(2, QThread::idealThreadCount());
+    }
+
+    /// The helpers kept however long they are idle: ServiceWorkersKept (2);
+    /// one past them ends its process once idle for ServiceIdleSeconds (30)
+    static int helpersKept()
+    {
+        return static_cast<int>(std::max(0L, params()->GetInt("ServiceWorkersKept", 2)));
+    }
+
     ServiceWorkers::Info info()
     {
         std::lock_guard<std::mutex> lock(m);
         ServiceWorkers::Info i;
+        i.limit = helperLimit();
+        i.idleEnded = idleEnded;
         for (auto& o : owners) {
             if (o->pid > 0) {
                 ++i.helpers;
@@ -533,7 +558,25 @@ private:
             std::shared_ptr<Call> c;
             {
                 std::unique_lock<std::mutex> lock(m);
-                cv.wait(lock, [&] { return stopping || !queue.empty(); });
+                auto wanted = [&] { return stopping || !queue.empty(); };
+                if (h.socket && me.number >= helpersKept()) {
+                    // One past those kept: its process ends once idle
+                    // long enough, and is started again by the next call
+                    // that finds the others busy
+                    const double idle = std::max(0.0, params()->GetFloat("ServiceIdleSeconds", 30.0));
+                    if (!cv.wait_for(lock, std::chrono::duration<double>(idle), wanted)) {
+                        lock.unlock();
+                        end(h);
+                        h = Helper();
+                        lock.lock();
+                        me.pid = 0;
+                        ++idleEnded;
+                        continue;
+                    }
+                }
+                else {
+                    cv.wait(lock, wanted);
+                }
                 if (stopping) {
                     break;
                 }
@@ -595,7 +638,12 @@ private:
             }
             finish(me, c);
         }
-        // Told to stop: the helper ends when its socket closes
+        end(h);  // told to stop
+    }
+
+    /// `h`'s process ended: it ends when its socket closes
+    static void end(Helper& h)
+    {
         if (h.socket) {
             h.socket->disconnectFromServer();
         }
@@ -614,6 +662,7 @@ private:
     bool prepared = false;
     std::string root;
     int spawned = 0;
+    long idleEnded = 0;
     long calls = 0;
     long died = 0;
     double seconds = 0;

@@ -4551,3 +4551,58 @@ of, and none kept after the next job), `testOnlyTheLastIdleWorkerIsKept`
 (two workers, one stays), `testTheMemoryAsJudged`; `testIdleWorkersGo`
 turns `KeepOpen` off. TestWorkerPool 88 OK plain (1 skipped) and 88 OK with
 the runtime; TestAnimation 78 OK.
+
+## 71. As many helpers as the machine runs threads (2026-11-26)
+
+Reported from the Windows box after `Workers/MeshInWorker` went on by
+default (sec 65): `tests/gui/hold-per-document.py` failed its sequences 3
+and 4 every time, and passed with the setting off. A load's pre-mesh
+(`PartGui/PreMesh.cpp`) posts each shape to the compute pool's threads, and
+each of those, with the setting on, blocks in `ServiceWorkers::call()` for a
+helper -- of which there were two at most. A document's meshes were made two
+at a time where they had been made on every thread.
+
+On the mini (8 threads), the test's sequence 4 (`New`, 80 solids of 992
+faces, with `Small`, 20, opened right after it; New's view active):
+
+| meshes made | New filled in by | Small filled in by |
+|---|---|---|
+| here, on the threads (`MeshInWorker` off) | 3.08-3.14 s | 1.90-1.92 s |
+| by 2 helpers (the limit before) | 10.28 s | 3.13 s |
+| by 8 helpers (`ServiceWorkers` 8) | 4.39 s | 1.41 s |
+| by the helpers as now (one a thread: 8 here) | 4.44-4.50 s | 1.40-1.42 s |
+
+Now `Workers/ServiceWorkers` is 0 by default: one helper for each thread the
+machine runs at once (`QThread::idealThreadCount()`), 2 at least; a number
+set is the limit as before. `ServiceWorkersKept` (2) of them stay however
+long they are idle. The process of each one past them ends once idle for
+`ServiceIdleSeconds` (30), and its thread starts one again when a call finds
+the others busy. A helper holds 32 MB of footprint idle; eight at a load are
+about 260 MB, back to 64 MB half a minute after it. `Part.meshServiceInfo()`
+gives `Limit` and `IdleEnded`.
+
+The rest of the gap to the threads here is the helpers' own cost: the shape
+written and read back, and its mesh, each way.
+
+**Sequences 3 and 4 fail on the mini whichever way the meshes are made**,
+in this process's threads too: there Small is through before New with New's
+view active (3.14 s against 1.90 s), and in sequence 3 New builds 8 to 10
+visuals while Small fills in, where the test allows 5. Every document's
+meshes come so fast here that what the test measures is the drain's
+leftovers ("what it leaves is the next one's", docs/DocumentLoad.md sec
+18.15): the document in front waits for its first pre-meshes, and the one
+behind, whose meshes are already made, builds in that time. Not what this
+section changes, which is the Windows failure's cause. Whether it passes
+there now is for the Windows box to say.
+
+Tried and taken out: handing the pre-mesh's claims out in the drain's order
+of documents, the active view's first, rather than in the order they came.
+Sequences 3 and 4 came out the same (Small through by 1.37 s with it, 1.34 s
+without, helpers on; 1.14 s and 1.04 s here), because the window
+(`windowFloor()`, two claims a compute thread, or 50000 faces and edges)
+lets about 16 of New's solids out before Small's claims arrive.
+
+Tests (`parttests.MeshServiceTest`): `testTheHelpersAreOneAThreadByDefault`,
+`testAHelperPastThoseKeptEndsOnceIdle` (`ServiceWorkersKept` 0,
+`ServiceIdleSeconds` 0.3: its process ends, and the next call meshes in a
+new one). TestPartApp 453 OK.

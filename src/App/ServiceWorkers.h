@@ -45,8 +45,12 @@ namespace App
  *
  * call() blocks the thread it is made on, any thread, until the reply, the
  * helper's death or the timeout. Up to ServiceWorkers of
- * Preferences/Workers (2) helpers serve the calls of several threads at
- * once, each owned by a thread of its own here.
+ * Preferences/Workers helpers (0, the default: one for each thread the
+ * machine runs at once) serve the calls of several threads at once, each
+ * owned by a thread of its own here. ServiceWorkersKept (2) of them stay
+ * however long they are idle; the processes of the others end once idle
+ * for ServiceIdleSeconds (30), and are started again when wanted
+ * (docs/WorkerProcess.md sec 71).
  */
 class AppExport ServiceWorkers
 {
@@ -79,6 +83,8 @@ public:
     {
         int helpers = 0;   ///< running
         int spawned = 0;   ///< ever
+        int limit = 0;     ///< the most at once (ServiceWorkers, 0 for one a thread)
+        long idleEnded = 0;  ///< ended idle, past ServiceWorkersKept (sec 71)
         long calls = 0;
         long died = 0;
         double seconds = 0;  ///< all calls', end to end

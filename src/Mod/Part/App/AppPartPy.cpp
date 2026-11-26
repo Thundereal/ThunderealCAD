@@ -1151,6 +1151,8 @@ private:
         d.setItem("Received", Py::Long(static_cast<long>(i.received)));
         d.setItem("Helpers", Py::Long(s.helpers));
         d.setItem("Spawned", Py::Long(s.spawned));
+        d.setItem("Limit", Py::Long(s.limit));
+        d.setItem("IdleEnded", Py::Long(s.idleEnded));
         Py::List pids;
         for (long pid : s.pids)
             pids.append(Py::Long(pid));

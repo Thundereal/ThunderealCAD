@@ -2103,6 +2103,14 @@ fc_add_gui_test(GuiHoldPerDocument_tests_run hold-per-document.py
 fc_add_gui_test(GuiAddonGuiByWorker_tests_run addon-gui-by-worker.py
                 --timeout 300)
 
+# A document with a Draft BSpline opens again in the GUI: RotationPy's
+# inverted() and isSame() were not const, so obj.Placement.Rotation.inverted()
+# in the wire view's updateData of Shape wrote the placement back, which
+# moved the shape, which called updateData of Shape again -- a stack
+# overflow opening draft_test_objects.FCStd or EngineBlock.FCStd.
+fc_add_gui_test(GuiDraftBSplineReopen_tests_run draft-bspline-reopen.py
+                --timeout 300)
+
 # What built-in code does to views in its execute() is the same made by a
 # worker as made here (docs/WorkerProcess.md sec 73): Mod/Test/
 # WorkerViewProbe.py shows and hides a base, takes its size from a view

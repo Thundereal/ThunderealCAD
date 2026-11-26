@@ -299,7 +299,7 @@ PyObject* RotationPy::invert(PyObject* args)
     Py_Return;
 }
 
-PyObject* RotationPy::inverted(PyObject* args)
+PyObject* RotationPy::inverted(PyObject* args) const
 {
     if (!PyArg_ParseTuple(args, "")) {
         return nullptr;
@@ -431,7 +431,7 @@ PyObject* RotationPy::toMatrix(PyObject* args) const
     return new MatrixPy(new Matrix4D(mat));
 }
 
-PyObject* RotationPy::isSame(PyObject* args)
+PyObject* RotationPy::isSame(PyObject* args) const
 {
     PyObject* rot {};
     double tol = 0.0;

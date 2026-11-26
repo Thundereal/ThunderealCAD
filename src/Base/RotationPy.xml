@@ -88,14 +88,14 @@ coef : sequence of float</UserDocu>
 Sets the rotation to its inverse.</UserDocu>
             </Documentation>
         </Methode>
-        <Methode Name="inverted">
+        <Methode Name="inverted" Const="true">
             <Documentation>
                 <UserDocu>inverted() -> Base.Rotation
 
 Returns the inverse of the rotation.</UserDocu>
             </Documentation>
         </Methode>
-        <Methode Name="isSame">
+        <Methode Name="isSame" Const="true">
             <Documentation>
                 <UserDocu>isSame(rotation, tol=0) -> bool
 

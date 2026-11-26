@@ -1123,6 +1123,14 @@ public:
 
     bool make(DocumentObject& obj, Made& made) override
     {
+        // Only inside the recompute it was made for. One borrowed by a
+        // recompute that threw -- the user's abort -- still stands, as that
+        // recompute never said it was over: an object recomputed by itself
+        // after it (a task panel's preview) is executed, not given values
+        // made from what it read before
+        if (!doc.testStatus(Document::Recomputing)) {
+            return false;
+        }
         // Its class retrying the execute within the one recompute of it (a
         // Part feature on copies of its inputs): the answer it was given
         auto again = answered.find(&obj);
@@ -1322,6 +1330,9 @@ struct State
     std::string tables;
     bool applying = false;
     bool timer = false;
+    /// start() was told to force: the put-in is a forced recompute, which a
+    /// document that skips recomputes does not turn away
+    bool forced = false;
     /// Taken by a recompute run here: the hook for as long as it runs
     std::unique_ptr<Supplier> borrowed;
     /// Objects whose execute() crashed a worker on what they read now, each
@@ -1640,7 +1651,7 @@ void apply(State& s)
     {
         Base::FlagToggler<bool> applying(s.applying, false);
         try {
-            s.doc.recompute(objs);
+            s.doc.recompute(objs, s.forced);
         }
         catch (Base::Exception& e) {
             e.ReportException();
@@ -1884,7 +1895,9 @@ bool handOverRisky(Document& doc, const std::vector<DocumentObject*>& objs)
         return false;
     }
     std::string why;
-    if (!WorkerRecompute::start(doc, objs, &why)) {
+    // Reached from a recompute that is being made: of a document that skips
+    // recomputes, a forced one
+    if (!WorkerRecompute::start(doc, objs, &why, doc.testStatus(Document::SkipRecompute))) {
         FC_LOG(doc.getName() << ": a recompute reaching what crashed a worker made here: " << why);
         return false;
     }
@@ -1926,10 +1939,17 @@ State& stateFor(Document& doc)
             }
             if (auto pool = WorkerPool::of(s.doc, false)) {
                 const WorkerPool::JobId id = *job;
-                if (pool->claim(id) != WorkerPool::Claim::Done && *job == id) {
+                WorkerPool::Result death;
+                if (pool->claim(id, &death) != WorkerPool::Claim::Done && *job == id) {
                     *job = 0;
                     ++s.info.cancelled;
                     s.info.reason = "recomputed here";
+                    // Its worker died in an object's execute() as this
+                    // waited: the recompute about to run here would execute
+                    // that object next, and go the same way (sec 34). Once
+                    // is enough here, where there is no second worker to
+                    // try it on first
+                    quarantine(s, death);
                 }
             }
             else {
@@ -2442,7 +2462,7 @@ double WorkerRecompute::expectedSeconds(const Document& doc,
 }
 
 bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& objs,
-                            std::string* why)
+                            std::string* why, bool force)
 {
     (void)registered;
     const double began = now();
@@ -2464,6 +2484,12 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     if (making(s) || hasResult(s)) {
         return refuse("a recompute is with the workers already");
     }
+    // As Document::recompute(): one not forced is not made at all, and the
+    // result of one could not be put in
+    if (!force && doc.testStatus(Document::SkipRecompute)) {
+        return refuse("the document skips recomputes");
+    }
+    s.forced = force;
     // What a recompute would reach: what is touched, or asked for, and
     // everything depending on it
     const std::set<DocumentObject*> all = reachOf(doc, objs);

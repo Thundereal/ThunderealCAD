@@ -124,10 +124,13 @@ public:
     /** Hand the recompute of `objs` -- with none, of what is touched -- and
      * of everything depending on them to the document's workers. False,
      * `why` set, when it cannot be: no workers, nothing to recompute, one
-     * with the workers already.
+     * with the workers already. A document that skips recomputes
+     * (Document::SkipRecompute) is handed over only with `force`, as
+     * Document::recompute() makes it only when forced; the result is then
+     * put in forced too.
      */
     static bool start(Document& doc, const std::vector<DocumentObject*>& objs = {},
-                      std::string* why = nullptr);
+                      std::string* why = nullptr, bool force = false);
     /// Whether one is with the workers, or has come and is not put in yet
     static bool running(const Document& doc);
     /// Take in what comes, putting in a result that came, until none is

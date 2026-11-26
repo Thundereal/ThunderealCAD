@@ -54,6 +54,8 @@ struct Watch
     long failed = 0;
     long unfit = 0;
     long cancelled = 0;
+    /// Asked for forced (Std_Refresh): run here that way if it comes to it
+    bool force = false;
 };
 
 std::map<std::string, Watch>& watched()
@@ -115,13 +117,14 @@ void onChanged(const App::Document& doc)
             .arg(label, QString::fromUtf8(info.reason.c_str())),
         8000);
     const std::string name = doc.getName();
-    QTimer::singleShot(0, [name]() {
+    const bool force = was.force;
+    QTimer::singleShot(0, [name, force]() {
         auto d = App::GetApplication().getDocument(name.c_str());
         if (!d || App::WorkerRecompute::running(*d)) {
             return;
         }
         try {
-            d->recompute();
+            d->recompute({}, force);
         }
         catch (Base::Exception& e) {
             e.ReportException();
@@ -140,7 +143,7 @@ ParameterGrp::handle workerParams()
         "User parameter:BaseApp/Preferences/Workers");
 }
 
-bool handOver(App::Document& doc)
+bool handOver(App::Document& doc, bool force = false)
 {
     static fastsignals::scoped_connection conn =
         App::WorkerRecompute::signalChanged.connect(&onChanged);
@@ -149,11 +152,13 @@ bool handOver(App::Document& doc)
         return false;
     }
     std::string why;
-    if (!App::WorkerRecompute::start(doc, {}, &why)) {
+    if (!App::WorkerRecompute::start(doc, {}, &why, force)) {
         FC_LOG(doc.getName() << ": not recomputed by a worker: " << why);
         return false;
     }
-    watched()[doc.getName()] = watchOf(App::WorkerRecompute::info(doc));
+    Watch watch = watchOf(App::WorkerRecompute::info(doc));
+    watch.force = force;
+    watched()[doc.getName()] = watch;
     say(QObject::tr("%1: recomputing in a worker process")
             .arg(QString::fromUtf8(doc.Label.getValue())));
     return true;
@@ -161,13 +166,13 @@ bool handOver(App::Document& doc)
 
 }  // namespace
 
-bool Gui::recomputeByWorkers(App::Document& doc)
+bool Gui::recomputeByWorkers(App::Document& doc, bool force)
 {
     App::WorkerRecompute::trackTimes();
     if (!workerParams()->GetBool("RecomputeCommand", true)) {
         return false;
     }
-    return handOver(doc);
+    return handOver(doc, force);
 }
 
 bool Gui::editRecomputeIsLong(const App::Document& doc)

@@ -269,8 +269,11 @@ public:
     /// Whether it has a copy standing and workers may run on it
     bool started() const;
     JobId submit(Job job);
-    /// The job is wanted now (docs/WorkerProcess.md sec 7): exactly once
-    Claim claim(JobId id);
+    /// The job is wanted now (docs/WorkerProcess.md sec 7): exactly once.
+    /// With Failed for its worker's death, `death` if given is told of it
+    /// as a result would be (died, diedAt, how, stack, crashLog): the
+    /// client that does the job itself is the one to know what it died in
+    Claim claim(JobId id, Result* death = nullptr);
     State state(JobId id) const;
     /// Drop the jobs whose tag `which` takes, without telling their
     /// clients: queued ones go, a running one's result is thrown away --

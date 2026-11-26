@@ -270,6 +270,13 @@ bool keepOpenAllowed(std::string* why = nullptr)
         }
         return false;
     }
+    // None idle is asked for: one kept before that was set goes too
+    if (group->GetFloat("IdleSeconds", 30.0) <= 0) {
+        if (why) {
+            *why = "IdleSeconds is 0";
+        }
+        return false;
+    }
     const double most = group->GetFloat("KeepOpenMemoryUse", 85.0);
     const double use = memoryUse();
     if (use >= 0 && use >= most) {
@@ -1158,6 +1165,9 @@ struct WorkerPool::Private
     int spawned = 0;
     int adopted = 0;  ///< of them, taken standing (sec 69)
     long keptOpen = 0;  ///< times its last worker was kept past IdleSeconds (sec 70)
+    /// The job a client waits for in claim(): not queued again if its
+    /// worker dies meanwhile
+    JobId claiming = 0;
     long letGo = 0;     ///< of them, let go of for the memory
     /// While a worker is kept open anywhere: memory looked at every
     /// KeepOpenCheckSeconds, and the one kept longest let go of while it
@@ -2622,8 +2632,12 @@ void WorkerPool::Private::finished(Proc& proc)
             else if (++it->second.tries < 2
                      && (!it->second.job.pinned || it->second.copyDir == dir)) {
                 // Once more, first in line: the death may not be the job's.
-                // A pinned one only while its copy is the one standing
-                queue.push_front(lost);
+                // A pinned one only while its copy is the one standing. Not
+                // one a client is waiting for in claim(): it does that one
+                // itself, and no other worker is to start it meanwhile
+                if (lost != claiming) {
+                    queue.push_front(lost);
+                }
             }
             else {
                 ++failed;
@@ -2668,12 +2682,31 @@ void WorkerPool::Private::finished(Proc& proc)
             return;
         }
     }
+    else if (!copy.empty() && !queue.empty()) {
+        // The job it died over is queued again: offered to one standing
+        // idle now, not when the idle timer next looks
+        std::vector<Proc*> list;
+        for (auto& other : procs) {
+            list.push_back(other.get());
+        }
+        for (auto other : list) {
+            if (queue.empty()) {
+                break;
+            }
+            if (!other->over) {
+                dispatch(*other);
+            }
+        }
+    }
     changedNotice();
 }
 
 void WorkerPool::Private::dispatch(Proc& proc)
 {
-    if (copy.empty() || !proc.ready || proc.job || proc.quitting || proc.over || !proc.socket) {
+    // Not one that is ending (finished() reads what it said last before it
+    // is over): a job sent to it would be counted as one it died over
+    if (copy.empty() || !proc.ready || proc.job || proc.quitting || proc.over || proc.ending
+        || !proc.socket) {
         return;
     }
     for (auto at = queue.begin(); at != queue.end();) {
@@ -3179,7 +3212,7 @@ WorkerPool::State WorkerPool::state(JobId id) const
     return it->second.running ? State::Running : State::Queued;
 }
 
-WorkerPool::Claim WorkerPool::claim(JobId id)
+WorkerPool::Claim WorkerPool::claim(JobId id, Result* death)
 {
     Private::Depth guard(*d, true);
     poll(0);
@@ -3204,6 +3237,13 @@ WorkerPool::Claim WorkerPool::claim(JobId id)
     if (!proc) {
         return Claim::Unknown;
     }
+    struct Claiming
+    {
+        JobId& slot;
+        JobId was;
+        ~Claiming() { slot = was; }
+    } claiming {d->claiming, d->claiming};
+    d->claiming = id;
     // Waited for: it is on its way, and nearer done than one begun here.
     // Not for ever: a worker that hangs is let go and the client does it
     const std::string kind = it->second.job.kind;
@@ -3214,9 +3254,19 @@ WorkerPool::Claim WorkerPool::claim(JobId id)
         if (proc->over || proc->job != id) {
             break;
         }
-        // The others are not kept waiting for their next job meanwhile
+        // The others are not kept waiting for their next job meanwhile.
+        // Over a copy of the list: one of them ending, or its result
+        // starting another worker, changes `procs` inside the wait (`gone`
+        // keeps the ended ones until this returns)
+        std::vector<Private::Proc*> others;
         for (auto& other : d->procs) {
-            if (other.get() != proc && other->socket && other->socket->waitForReadyRead(0)) {
+            if (other.get() != proc) {
+                others.push_back(other.get());
+            }
+        }
+        for (auto other : others) {
+            if (!other->over && other->socket && other->socket->waitForReadyRead(0)
+                && !other->over) {
                 d->read(*other);
             }
         }
@@ -3254,6 +3304,17 @@ WorkerPool::Claim WorkerPool::claim(JobId id)
         return Claim::Done;
     }
     // Its worker died and it is queued again: the client does it
+    if (death && !it->second.diedAt.empty()) {
+        death->id = id;
+        death->kind = it->second.job.kind;
+        death->tag = it->second.job.tag;
+        death->status = Result::Status::Failed;
+        death->died = true;
+        death->diedAt = it->second.diedAt;
+        death->how = it->second.how;
+        death->stack = it->second.stack;
+        death->crashLog = it->second.crashLog;
+    }
     d->jobs.erase(it);
     d->queue.erase(std::remove(d->queue.begin(), d->queue.end(), id), d->queue.end());
     return Claim::Failed;
@@ -3377,7 +3438,12 @@ std::size_t WorkerPool::releaseDirectory(const std::string& dir, int ms)
     }
     std::vector<Private::Proc*> waited;
     std::size_t left = 0;
+    // Over a copy of the list: kill() takes the worker out of `procs`
+    std::vector<Private::Proc*> list;
     for (auto& proc : d->procs) {
+        list.push_back(proc.get());
+    }
+    for (auto proc : list) {
         if (proc->over || !under(proc->store)) {
             continue;
         }
@@ -3387,6 +3453,9 @@ std::size_t WorkerPool::releaseDirectory(const std::string& dir, int ms)
                 d->kill(*proc);
                 continue;
             }
+            if (proc->over) {
+                continue;  // ended inside the send
+            }
         }
         if (proc->job) {
             // Read after its job, whose result comes as ever: not waited for
@@ -3394,7 +3463,7 @@ std::size_t WorkerPool::releaseDirectory(const std::string& dir, int ms)
             ++left;
         }
         else {
-            waited.push_back(proc.get());
+            waited.push_back(proc);
         }
     }
     QElapsedTimer timer;
@@ -4266,9 +4335,11 @@ public:
                            "memory() -> dict: the machine's memory as judged for keeping a "
                            "worker's copy open (Use, Pressure, KeepOpen, Why)");
         add_varargs_method("recompute", &WorkerPoolPy::recompute,
-                           "recompute(objs=None) -> bool: hand the recompute of objs, or of what\n"
-                           "is touched, and of what depends on them, to a worker; its result\n"
-                           "is put in when it comes (docs/WorkerProcess.md sec 19)");
+                           "recompute(objs=None, force=False) -> bool: hand the recompute of\n"
+                           "objs, or of what is touched, and of what depends on them, to a\n"
+                           "worker; its result is put in when it comes (docs/WorkerProcess.md\n"
+                           "sec 19). A document that skips recomputes is handed over only\n"
+                           "with force, as its recompute() makes it only when forced");
         add_varargs_method("recomputing", &WorkerPoolPy::recomputing,
                            "recomputing() -> bool: a recompute is with the workers, or has\n"
                            "come and is not put in yet");
@@ -4553,7 +4624,8 @@ public:
     Py::Object recompute(const Py::Tuple& args)
     {
         PyObject* objs = Py_None;
-        if (!PyArg_ParseTuple(args.ptr(), "|O", &objs)) {
+        PyObject* force = Py_False;
+        if (!PyArg_ParseTuple(args.ptr(), "|OO", &objs, &force)) {
             throw Py::Exception();
         }
         Document& doc = document();
@@ -4568,7 +4640,8 @@ public:
                 list.push_back(static_cast<DocumentObjectPy*>(item.ptr())->getDocumentObjectPtr());
             }
         }
-        return Py::Boolean(WorkerRecompute::start(doc, list));
+        return Py::Boolean(
+            WorkerRecompute::start(doc, list, nullptr, PyObject_IsTrue(force) == 1));
     }
 
     Py::Object recomputing(const Py::Tuple&)

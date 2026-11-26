@@ -501,6 +501,24 @@ class TestWorkerPool(unittest.TestCase):
                         self.pool.info())
         self.assertEqual(self.pool.info()["KeptOpenTimes"], 1)
 
+    def testAKeptWorkerIsLetGoOfWhenNoneIdleIsAskedFor(self):
+        """IdleSeconds set to 0 while a worker is kept: none idle is asked
+        for, and the kept one goes at the next look"""
+        self.settings(1, idle=0.3)
+        self.keepOpen()
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["KeptOpen"] == 1, 30),
+                        self.pool.info())
+        App.ParamGet("User parameter:BaseApp/Preferences/Workers").SetFloat("IdleSeconds", 0.0)
+        memory = self.pool.memory()
+        self.assertFalse(memory["KeepOpen"], memory)
+        self.assertEqual(memory["Why"], "IdleSeconds is 0")
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["Workers"] == 0, 30),
+                        self.pool.info())
+        self.assertEqual(self.pool.info()["LetGo"], 1)
+
     def testOnlyTheLastIdleWorkerIsKept(self):
         self.settings(2, idle=0.3)
         self.keepOpen()
@@ -2121,6 +2139,51 @@ class TestWorkerRecompute(unittest.TestCase):
                       else "crashed a worker process twice (signal 11", crash.getStatusString())
         self.assertEqual(self.pool.info()["Failed"], failed)
         self.assertTrue(pids <= set(self.pool.info()["Pids"]), self.pool.info()["Pids"])
+
+    def testAWorkersDeathUnderARecomputeHereIsPutDownToItsObject(self):
+        """A recompute here takes the one a worker is making and waits for
+        it; the worker dies in an object's execute() meanwhile. The object is
+        refused as after any crash, not executed here next
+        (docs/WorkerProcess.md sec 72)"""
+        warm = self.counted("Warm")
+        self.doc.recompute()
+        warm.Input = 1
+        self.byWorker()  # a worker standing, its copy open
+        before, crash, after = self.crashingChain()
+        before.Sleep = 1.5  # the worker is in the job when this claims it
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        deadline = time.time() + 60
+        while self.pool.info()["Busy"] == 0 and time.time() < deadline:
+            self.pool.wait(0.02)
+        self.assertEqual(self.pool.info()["Busy"], 1, self.pool.info())
+        self.doc.recompute()
+        self.assertNotIn("crashed here", _executions)
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Crashed"], ["Crash"], info)
+        self.assertIn("Invalid", crash.State)
+        self.assertIn("crashed a worker process", crash.getStatusString())
+        self.assertEqual(before.Result, 4)
+        self.assertEqual(before.MadeBy, os.getpid())
+        self.assertEqual(after.Result, 0)
+        # No other worker was started on what the recompute here took
+        self.assertEqual(self.pool.info()["Busy"], 0, self.pool.info())
+
+    def testADocumentThatSkipsRecomputesIsHandedOverOnlyForced(self):
+        """A document that skips recomputes: not handed over unless forced,
+        as its own recompute() makes nothing unless forced; forced, the
+        worker's result is put in (docs/WorkerProcess.md sec 72)"""
+        one = self.counted("One", Input=3)
+        self.doc.RecomputesFrozen = True
+        self.assertFalse(self.pool.recompute())
+        self.assertEqual(self.pool.recomputeInfo()["Reason"], "the document skips recomputes")
+        self.assertEqual(one.Result, 0)
+        self.assertTrue(self.pool.recompute(None, True), self.pool.recomputeInfo()["Reason"])
+        self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(one.Result, 6)
+        self.assertNotEqual(one.MadeBy, os.getpid())
+        self.assertEqual(self.touched(), [])
 
     @staticmethod
     def systemCrashReports():

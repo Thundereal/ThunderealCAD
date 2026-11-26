@@ -22,6 +22,7 @@
 
 #include "PreCompiled.h"
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -48,6 +49,7 @@
 #include <Base/FileInfo.h>
 #include <Base/Interpreter.h>
 #include <Base/Parameter.h>
+#include <Base/Stream.h>
 
 #include "Application.h"
 #include "ServiceWorkers.h"
@@ -276,6 +278,13 @@ public:
         c->timeout = timeout;
         const double began = now();
         std::unique_lock<std::mutex> lock(m);
+        if (stopping) {
+            // No owner is started while stop() waits for those it took: one
+            // would end at once and stand in `owners` as an idle one, for
+            // the next call to wait on for ever
+            c->reply.error = "the helpers were stopped";
+            return c->reply;
+        }
         if (!prepared) {
             prepare(lock);
         }
@@ -307,14 +316,19 @@ public:
             ending.swap(owners);
             cv.notify_all();
         }
+        // Each ends its call first: one in a call, or starting its helper,
+        // sees `stopping` within a moment and ends the helper (run(),
+        // start()). Waited for to its end: a thread still running is not
+        // deleted, which Qt ends the process for
         for (auto& o : ending) {
             if (o->thread) {
-                o->thread->wait(10000);
+                o->thread->wait();
                 delete o->thread;
             }
         }
         std::lock_guard<std::mutex> lock(m);
         stopping = false;
+        startFailedAt = 0;
         // The logs are kept where a helper died: the error names them
         if (prepared && died == 0 && !root.empty()) {
             std::error_code ec;
@@ -489,7 +503,14 @@ private:
         }
         const double deadline = now() + 60;
         while (!h.server->hasPendingConnections()) {
-            if (h.process->state() == QProcess::NotRunning) {
+            if (stopping) {
+                h.process->kill();
+                h.process->waitForFinished(2000);
+                why = "the helpers were stopped";
+                return false;
+            }
+            // Asked: without an event loop here its end is seen no other way
+            if (h.process->state() == QProcess::NotRunning || h.process->waitForFinished(0)) {
                 why = "the helper ended before it connected; its log: " + h.log;
                 return false;
             }
@@ -535,7 +556,17 @@ private:
                 how = "exited with code " + std::to_string(h.process->exitCode());
             }
         }
-        WorkerCrash::Report report = WorkerCrash::read(h.log);
+        // read() takes what the log says, not where it is
+        std::string said;
+        {
+            Base::ifstream in(Base::FileInfo(h.log), std::ios::in | std::ios::binary);
+            if (in) {
+                std::ostringstream all;
+                all << in.rdbuf();
+                said = all.str();
+            }
+        }
+        WorkerCrash::Report report = WorkerCrash::read(said);
         if (report.found) {
             how += " (" + WorkerCrash::what(report) + ")";
             FC_ERR("a helper crashed; its log: " << h.log << "\n" << WorkerCrash::text(report));
@@ -587,15 +618,36 @@ private:
             const double began = now();
             if (!h.socket || h.socket->state() != QLocalSocket::ConnectedState) {
                 std::string why;
-                if (!start(me, h, why)) {
+                bool tried = false;
+                {
+                    // One that could not be started a moment ago is not
+                    // waited for again by every call of a load: each would
+                    // stand for as long as the first before it is made here
+                    std::lock_guard<std::mutex> lock(m);
+                    if (startFailedAt > 0 && now() - startFailedAt < StartAgainAfter) {
+                        why = startFailedWhy;
+                    }
+                    else {
+                        tried = true;
+                    }
+                }
+                if (!tried || !start(me, h, why)) {
                     c->reply.error = why;
                     h = Helper();
                     {
                         std::lock_guard<std::mutex> lock(m);
                         me.pid = 0;
+                        if (tried && !stopping) {
+                            startFailedAt = now();
+                            startFailedWhy = why;
+                        }
                     }
                     finish(me, c);
                     continue;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(m);
+                    startFailedAt = 0;
                 }
                 c->reply.started = now() - began;
             }
@@ -610,9 +662,20 @@ private:
             Got got = Got::Gone;
             if (send(*h.socket, bytes)) {
                 QProcess* process = h.process.get();
-                got = receive(*h.socket, h.buffer, header, body, now() + c->timeout, [process] {
-                    return process->state() != QProcess::NotRunning;
-                });
+                got = receive(*h.socket, h.buffer, header, body, now() + c->timeout,
+                              [this, process] {
+                                  // Not waited for past a stop(); and asked,
+                                  // as its end is seen no other way here
+                                  return !stopping && process->state() != QProcess::NotRunning
+                                      && !process->waitForFinished(0);
+                              });
+            }
+            if (got != Got::Message && stopping) {
+                // Stopped in the middle of it: not the call's doing
+                h.process->kill();
+                c->reply.error = "the helpers were stopped";
+                finish(me, c);
+                break;
             }
             if (got == Got::Message) {
                 c->reply.ok = header.value("ok", false);
@@ -658,8 +721,14 @@ private:
     std::condition_variable done;  ///< a call answered
     std::deque<std::shared_ptr<Call>> queue;
     std::vector<std::unique_ptr<Owner>> owners;
-    bool stopping = false;
+    /// Read by an owner in a call too, outside the lock
+    std::atomic<bool> stopping {false};
     bool prepared = false;
+    /// When a helper last could not be started, and why: not tried again
+    /// for StartAgainAfter seconds
+    static constexpr double StartAgainAfter = 30;
+    double startFailedAt = 0;
+    std::string startFailedWhy;
     std::string root;
     int spawned = 0;
     long idleEnded = 0;

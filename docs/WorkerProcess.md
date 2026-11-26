@@ -4606,3 +4606,105 @@ Tests (`parttests.MeshServiceTest`): `testTheHelpersAreOneAThreadByDefault`,
 `testAHelperPastThoseKeptEndsOnceIdle` (`ServiceWorkersKept` 0,
 `ServiceIdleSeconds` 0.3: its process ends, and the next call meshes in a
 new one). TestPartApp 453 OK.
+
+## 72. What reading the worker code over found (2026-11-26)
+
+The worker code read whole, for faults rather than for a feature: the pool,
+the recompute client, the helpers, the crash reports. What was fixed:
+
+**A worker's death could take this process with it.** `claim()` walked
+`procs` itself while it looked in on the other workers, and
+`releaseDirectory()` while it told them to quit. Both reach `finished()`,
+which takes a worker out of the list, and `claim()` reaches `grow()`, which
+adds one: a second worker dying, or its result starting a third, while a
+client waited in `claim()` left the loop on a list that had changed under
+it. Both walk a copy now, as `poll()`, `checkIdle()` and `submit()` always
+did; `gone` keeps the ended ones for as long as the call runs.
+
+**Std_Refresh did nothing on a document that skips recomputes.** The
+command forces its recompute (`recompute(None, True, True)`); handed to a
+worker, the result was put in by a recompute that was not forced, which
+`Document::recompute()` turns away at once on such a document
+(`Document::SkipRecompute`). The result's files were read and deleted, the
+status bar said "recomputed by a worker", and the document stayed touched.
+`WorkerRecompute::start()` takes `force` now (`pool.recompute(objs,
+force)`, `Gui::recomputeByWorkers(doc, force)`): not forced, such a
+document is not handed over ("the document skips recomputes") and its
+caller does what it did before; forced, the put-in is forced too, and so is
+the recompute run here when the workers fail. A recompute handed over for
+reaching what crashed a worker (sec 37) is forced where the document skips,
+as it is reached only from a recompute that is being made.
+
+**What had just crashed a worker was executed here.** A recompute run here
+while one is with a worker claims it and waits (sec 19). When the worker
+died in an object's `execute()` during that wait, the pool queued the job
+again and `claim()` said `Failed`, with nothing of where it died: the
+recompute went on and executed that object in this process. `claim()` tells
+its caller of the death now (`Result* death`: `diedAt`, `how`, `stack`,
+`crashLog`), the recompute puts it down to the object as after any crash
+(sec 34) before it runs, and the job is not queued again for another worker
+to start on (`Private::claiming`). One death is enough here, where the
+other way is to execute it in this process next.
+
+**Quitting inside a mesh ended the application badly.** `Service::stop()`
+waited 10 s for each helper's thread and deleted it whether it had ended or
+not; a thread in a call (to its timeout, 120 s) or starting a helper (60 s)
+had not, and Qt ends the process for a running thread deleted. `stopping`
+is read by the thread now where it waits -- in the call, and for the helper
+to connect -- which ends the helper and the call ("the helpers were
+stopped") within a moment, and `stop()` waits for the thread to its end. A
+call made while `stop()` waits is answered the same way at once: it used to
+start a thread that ended at once and stood in the list as an idle one,
+for the next call to wait on with no end.
+
+Smaller ones:
+
+- A helper's crash report was never found: `howEnded()` gave
+  `WorkerCrash::read()` the log's path, which takes what the log says.
+- A helper's end before it connected is asked of the process
+  (`waitForFinished(0)`): its thread turns no event loop, and `state()`
+  alone did not come to say it. A helper that could not be started is not
+  tried again for 30 s, so that not every call of a load waits for it.
+- A job queued again after its worker's death is offered at once to a
+  worker standing idle, not when the idle timer next looks (`IdleSeconds`
+  later).
+- `finished()` reads what the worker said last before it marks it over,
+  and a result among that had the next job sent to the dying worker and
+  counted as one it died over. `dispatch()` leaves one that is ending
+  alone.
+- `IdleSeconds` set to 0 lets go of a worker kept before (sec 70):
+  `keepOpenAllowed()` says "IdleSeconds is 0".
+- A result borrowed by a recompute that threw (the user's abort) stood as
+  the document's hook until the next whole recompute, and gave an object
+  recomputed by itself meanwhile the values made from what it read
+  before. `Supplier::make()` gives values only inside a recompute of the
+  document.
+
+Tests: `TestWorkerPool` 91 OK (new:
+`testADocumentThatSkipsRecomputesIsHandedOverOnlyForced`,
+`testAWorkersDeathUnderARecomputeHereIsPutDownToItsObject`,
+`testAKeptWorkerIsLetGoOfWhenNoneIdleIsAskedFor`),
+`parttests.MeshServiceTest` 7 OK, `tests/gui/refresh-by-worker.py` with the
+skipping document (8 claims), and the other ten worker GUI tests.
+
+Found and left as it is, by what it would cost:
+
+- No stage of a worker's life but a claimed job has a deadline: one that
+  never says it is ready, or does not end when told to quit, stands in the
+  list and the queue waits behind it.
+- `send()` gives a write 2 s: a worker in a long job that is sent a large
+  setup, or this process busy as a worker sends a large result, ends the
+  worker.
+- A console line that is not UTF-8 makes the header's `dump()` throw, in
+  the worker's relay or in its result.
+- A recompute of part of the document run here takes the whole of a
+  worker's result and drops what it did not reach, which stays touched; a
+  split recompute's part dropped for an edit is made here as the other is
+  put in; a put-in that threw is counted as applied.
+- The directories in the system's temp have names that can be told
+  beforehand, and one found there is used; the helpers' sweep goes by the
+  directory's age alone.
+- A header of the wrong shape throws in a Qt slot; sizes past 4 GiB are
+  narrowed; `IdleSeconds` past 2.1e6 overflows the timer's interval.
+- The crash handler's other stack is the installing thread's only, and
+  the helpers read the parameters from their threads with no lock.

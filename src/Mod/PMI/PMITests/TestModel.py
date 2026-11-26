@@ -19,6 +19,15 @@ import FreeCAD as App
 import Part  # noqa: F401 -- the shapes' types
 import PMI
 
+try:
+    import PartDesign  # noqa: F401 -- the parts the tests are of are Bodies
+except ImportError:
+    PartDesign = None
+
+# The PMI module needs Part and Import only; a build without PartDesign runs
+# the tests that need no Body
+needs_part_design = unittest.skipIf(PartDesign is None, "PartDesign is not built")
+
 V = App.Vector
 
 
@@ -35,6 +44,7 @@ FRONT, BACK = V(5, 0, 5), V(5, 20, 5)
 HOLE = V(23, 10, 5)
 
 
+@needs_part_design
 class Base(unittest.TestCase):
     def setUp(self):
         self.doc = App.newDocument("PMITest")
@@ -204,6 +214,29 @@ class TestModel(Base):
                         gt.Plane)
         self.assertAlmostEqual(gt.Plane.Base.z, 10, 0)
 
+    def test_a_step_is_no_width(self):
+        """Two parallel planes facing the same way (a slot's wall and the
+        back it faces like) are a step: the height between them is a
+        distance, not a width"""
+        self.slot("Slot", 4, 12)
+        self.doc.recompute()
+        shape = self.solid.Shape
+
+        def wall(f):
+            b = f.BoundBox
+            return (f.Surface.TypeId == "Part::GeomPlane" and b.XMin > 2 and b.XMax < 14
+                    and b.YLength < 1e-6 and f.normalAt(0, 0).y > 0.5)
+
+        walls = self.faces_where(wall)
+        self.assertEqual(len(walls), 1)
+        back = face_at(shape, BACK)
+        self.assertGreater(shape.getElement(back).normalAt(0, 0).y, 0.5)
+        step = self.add("TolerancedFeature", "Step", References=[(self.solid, walls + [back])])
+        width = self.add("Dimension", "StepWidth", Type="Width", Features=[step])
+        self.doc.recompute()
+        self.assertEqual(width.Condition, "Invalid")
+        self.assertIn("step", width.ConditionMessage)
+
     def test_counterbored_holes_are_of_size(self):
         # The hole of the base (radius 3 at (20, 10)) bored to radius 5, 3
         # deep, and another the same at (8, 10); a third, plain
@@ -283,6 +316,27 @@ class TestModel(Base):
         self.assertIn("one depth", mixed.ConditionMessage)
         self.assertEqual(flat.Condition, "Invalid")
         self.assertIn("a hole", flat.ConditionMessage)
+
+    def test_blind_holes_from_either_side_are_two(self):
+        """Two blind holes of one size on one axis, from the top and from
+        the bottom ("2X", material between): each its own depth (3), not
+        the two and the gap between as one (10)"""
+        self.cut("Cylinder", "Down", V(32, 10, 7), Radius=2, Height=3)
+        self.cut("Cylinder", "Up", V(32, 10, 0), Radius=2, Height=3)
+        self.doc.recompute()
+
+        def around(f):
+            b = f.BoundBox
+            return b.XLength < 4.5 and abs(b.Center.x - 32) < 1e-6 and abs(b.Center.y - 10) < 1e-6
+
+        subs = self.faces_where(around)
+        # Two walls and two floors (a wall may be split at its seam)
+        self.assertGreaterEqual(len(subs), 4)
+        f = self.add("TolerancedFeature", "BothF", References=[(self.solid, subs)])
+        dim = self.add("Dimension", "Both", Type="Depth", Features=[f], Upper=0.1, Lower=-0.1)
+        self.recompute()
+        self.assertEqual(dim.Condition, "Ok", dim.ConditionMessage)
+        self.assertAlmostEqual(dim.Nominal.Value, 3, 6)
 
     def test_a_depth_on_its_floor(self):
         """A depth given on a counterbore's floor alone (STC-06) is of the
@@ -439,8 +493,17 @@ class TestModel(Base):
     def test_save_and_reopen(self):
         hole = self.feature(HOLE)
         dim = self.add("Dimension", "Dia", Type="Diameter", Features=[hole], Upper=0.1)
+        self.add("Datum", "DatumA", Letter="A", Feature=self.feature(BOTTOM))
+        self.add("Datum", "DatumB", Letter="B", Feature=hole)
+        targets = [self.add("DatumTarget", "T", TargetType="Point", Number=i + 1,
+                            Target=App.Placement(p, App.Rotation(V(1, 0, 0), 180)),
+                            Feature=self.feature(p))
+                   for i, p in enumerate((V(5, 5, 10), V(35, 5, 10), V(20, 15, 10)))]
+        self.add("Datum", "DatumC", Letter="C", Targets=targets)
         self.set.Standard = "ASME Y14.5-2018"
         self.recompute()
+        shapes = {n: self.doc.getObject(n).Shape.copy() for n in ("DatumA", "DatumB", "DatumC")}
+        shapes.update({t.Name: t.Shape.copy() for t in targets})
         folder = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, folder, True)
         path = os.path.join(folder, "pmi.FCStd")
@@ -454,8 +517,14 @@ class TestModel(Base):
         self.assertEqual(self.set.Standard, "ASME Y14.5-2018")
         self.assertEqual(self.set.Part, self.doc.getObject("Body"))
         self.assertIn(hole, self.set.Group)
-        # The derived geometry is back before any recompute
+        # The derived geometry is back before any recompute; the simulated
+        # datums too, and the targets (transient, made again)
         self.assertFalse(hole.Shape.isNull())
+        for n, shape in shapes.items():
+            got = self.doc.getObject(n).Shape
+            self.assertFalse(got.isNull(), n)
+            self.assertEqual(got.ShapeType, shape.ShapeType, n)
+            self.assertTrue(got.BoundBox.isInside(shape.BoundBox.Center), n)
         self.assertAlmostEqual(dim.Nominal.Value, 6, 6)
         self.assertAlmostEqual(dim.Upper.Value, 0.1, 9)
         self.assertEqual(self.issues(dim, "Error"), [])
@@ -632,6 +701,13 @@ class TestCheck(Base):
             self.assertAlmostEqual(below.ZLength, 0, 6)
         for lower in lowers:
             self.assertTrue(lower.Plane.Rotation.isSame(upper.Plane.Rotation, 1e-9))
+        # Seen from below they turn as one, about the middle of all the rows:
+        # each about its own, the upper read under its lowers
+        mid = (rows[0].YMax + rows[-1].YMin) / 2
+        for c in [upper] + lowers:
+            self.assertEqual(len(c.UprightAt), 1, c.Name)
+            pivot = inv.multVec(c.Plane.multVec(c.UprightAt[0]))
+            self.assertAlmostEqual(pivot.y, mid, 6, c.Name)
         # No symbol below: the lower rows' strokes are lines alone
         for lower in lowers:
             kinds = {e.Curve.__class__.__name__ for e in lower.Presentation.Edges
@@ -702,6 +778,29 @@ class TestRepair(Base):
         self.assertAlmostEqual(right.Shape.CenterOfMass.x, 40, 6)
         self.assertEqual(dim.Condition, "Broken")
         self.assertTrue([m for m in self.issues(right, "Error") if "broken" in m])
+
+    def test_what_each_reference_was_is_kept_by_its_index(self):
+        """A reference resolved to nothing keeps its place in SavedGeometry:
+        the shapes alone in a compound moved each one after it onto the
+        reference before it"""
+        solid = self.solid
+        feat = self.add("TolerancedFeature", "Feature", Kind="Integral",
+                        References=[(solid, ["Face999", face_at(solid.Shape, LEFT),
+                                             face_at(solid.Shape, RIGHT)])])
+        self.doc.recompute()
+        saved = feat.SavedGeometry.childShapes()
+        self.assertEqual(len(saved), 3)
+        self.assertEqual(saved[0].ShapeType, "Compound")
+        self.assertEqual(len(saved[0].childShapes()), 0)
+        self.assertAlmostEqual(saved[1].CenterOfMass.x, 0, 6)
+        self.assertAlmostEqual(saved[2].CenterOfMass.x, 40, 6)
+        # Read again by the next recompute, each its own
+        self.body.touch()
+        self.doc.recompute()
+        saved = feat.SavedGeometry.childShapes()
+        self.assertEqual(len(saved), 3)
+        self.assertAlmostEqual(saved[1].CenterOfMass.x, 0, 6)
+        self.assertAlmostEqual(saved[2].CenterOfMass.x, 40, 6)
 
     def test_a_rebuilt_feature_remaps_by_geometry(self):
         lid = self.doc.addObject("PartDesign::AdditiveBox", "Lid")

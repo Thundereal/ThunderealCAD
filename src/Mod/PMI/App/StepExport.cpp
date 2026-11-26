@@ -286,10 +286,10 @@ public:
                 if (!part || !std::count(_info.objects.begin(), _info.objects.end(), part)) {
                     continue;
                 }
-                Exported* ex = exported(part, set);
+                std::string why;
+                Exported* ex = exported(part, set, why);
                 if (!ex) {
-                    _report.skipped.push_back(std::string(set->Label.getValue())
-                                              + ": its part's shape was not exported whole");
+                    _report.skipped.push_back(std::string(set->Label.getValue()) + ": " + why);
                     continue;
                 }
                 std::string key = std::string(set->getFullName());
@@ -327,8 +327,27 @@ public:
     }
 
 private:
-    /// The part as exported, made once
-    Exported* exported(App::DocumentObject* part, const AnnotationSet* set)
+    /// The part as exported, made once; null with why if it is not
+    Exported* exported(App::DocumentObject* part, const AnnotationSet* set, std::string& why)
+    {
+        why = "its part's shape was not exported whole";
+        try {
+            return exportedOnce(part, set);
+        }
+        catch (const Standard_Failure& e) {
+            why = e.GetMessageString();
+        }
+        catch (const Base::Exception& e) {
+            why = e.what();
+        }
+        catch (const std::exception& e) {
+            why = e.what();
+        }
+        // Not made (its shape is set last): the next asking is told so too
+        return nullptr;
+    }
+
+    Exported* exportedOnce(App::DocumentObject* part, const AnnotationSet* set)
     {
         auto it = _parts.find(part);
         if (it != _parts.end()) {
@@ -421,10 +440,10 @@ private:
             if (!part || !std::count(_info.objects.begin(), _info.objects.end(), part)) {
                 continue;
             }
-            Exported* ex = exported(part, nullptr);
+            std::string why;
+            Exported* ex = exported(part, nullptr, why);
             if (!ex) {
-                _report.skipped.push_back(std::string(o->Label.getValue())
-                                          + ": its part's shape was not exported whole");
+                _report.skipped.push_back(std::string(o->Label.getValue()) + ": " + why);
                 continue;
             }
             TDF_Label group = _tool->AddSupplementalGeometry(
@@ -654,7 +673,8 @@ private:
                 // part's supplemental geometry (NIST CTC-04's thread curves).
                 // Not a Body: its set's coordinates are its own, and cached.
                 if (mine.IsNull() && !obj->isDerivedFrom<Part::BodyBase>()) {
-                    Exported* own = exported(obj, nullptr);
+                    std::string notOwn;
+                    Exported* own = exported(obj, nullptr, notOwn);
                     if (own && own != &ex) {
                         mine = locate(*own, obj, sub, el.getShape());
                         on = own;
@@ -1019,6 +1039,9 @@ private:
         }
         catch (const Standard_Failure& e) {
             skip(obj, e.GetMessageString());
+        }
+        catch (const std::exception& e) {
+            skip(obj, e.what());
         }
     }
 

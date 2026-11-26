@@ -169,6 +169,12 @@ public:
         (void)below;
         return nullptr;
     }
+    /// The rows of the frame it is one of, drawn as one (a composite frame's
+    /// lower segments, counted from its upper or from one of them); 0 for none
+    virtual int composedRows() const
+    {
+        return 0;
+    }
     /// Whether the file's graphic of another callout (ImportedWith) draws
     /// this one too: nothing of its own is drawn then
     bool drawnByAnother() const;

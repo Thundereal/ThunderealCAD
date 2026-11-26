@@ -153,7 +153,7 @@ public:
         for (auto& l : labels) {
             guard(l, "datum", [&]() { datum(l); });
         }
-        targetDatums();
+        stage("datum targets", [&]() { targetDatums(); });
         // OCCT makes a datum label for each time a frame cites it; only the
         // ones whose feature it found carry shapes. A letter none carries
         // is a datum lost.
@@ -168,21 +168,21 @@ public:
         for (auto& l : labels) {
             guard(l, "tolerance", [&]() { tolerance(l); });
         }
-        composites(labels);
+        stage("composite frames", [&]() { composites(labels); });
         labels.Clear();
         _tool->GetDimensionLabels(labels);
         for (auto& l : labels) {
             guard(l, "dimension", [&]() { dimension(l); });
         }
-        notes();
-        views();
-        placeholders();
-        holes();
-        hidden();
-        oneShapes();
-        supplemental();
-        viewSupplementals();
-        aspectsAll();
+        stage("notes", [&]() { notes(); });
+        stage("views", [&]() { views(); });
+        stage("placeholders", [&]() { placeholders(); });
+        stage("holes", [&]() { holes(); });
+        stage("hidden PMI", [&]() { hidden(); });
+        stage("one-shape parts", [&]() { oneShapes(); });
+        stage("supplemental geometry", [&]() { supplemental(); });
+        stage("views' supplemental geometry", [&]() { viewSupplementals(); });
+        stage("shape aspects", [&]() { aspectsAll(); });
         return _report;
     }
 
@@ -198,6 +198,28 @@ private:
         }
         catch (const Base::Exception& e) {
             skip(l, what, e.what());
+        }
+        catch (const std::exception& e) {
+            skip(l, what, e.what());
+        }
+    }
+
+    /// A step of the reading over the whole file: one failing loses what it
+    /// would have read, not the rest (nor what is read already, half made)
+    template<typename F>
+    void stage(const char* what, F f)
+    {
+        try {
+            f();
+        }
+        catch (const Standard_Failure& e) {
+            _report.skipped.push_back(std::string("reading the ") + what + ": " + e.what());
+        }
+        catch (const Base::Exception& e) {
+            _report.skipped.push_back(std::string("reading the ") + what + ": " + e.what());
+        }
+        catch (const std::exception& e) {
+            _report.skipped.push_back(std::string("reading the ") + what + ": " + e.what());
         }
     }
 
@@ -318,7 +340,10 @@ private:
             }
         }
         if (!out.object) {
+            // Only elements beside a solid, none on it
             out.beside.clear();
+            why = "it refers to no element of the part, only to shapes beside it";
+            return false;
         }
         return true;
     }
@@ -815,7 +840,7 @@ private:
         double edgeLength = 0;
         if (type == DatumTarget::Line && !first.IsEmpty()) {
             TopoDS_Shape sh = _shapes->GetShape(first.First());
-            if (sh.ShapeType() == TopAbs_EDGE) {
+            if (!sh.IsNull() && sh.ShapeType() == TopAbs_EDGE) {
                 TopoDS_Vertex v0, v1;
                 TopExp::Vertices(TopoDS::Edge(sh), v0, v1);
                 if (!v0.IsNull() && !v1.IsNull()) {
@@ -1883,7 +1908,22 @@ private:
             gt->UnitSize.setValue(obj->GetUnitSize());
         }
         if (!comps.empty()) {
-            gt->DatumSystem.setValue(Api::frame(set(partOf(f.object)), comps));
+            auto drf = freecad_cast<DatumReferenceFrame*>(Api::frame(set(partOf(f.object)), comps));
+            gt->DatumSystem.setValue(drf);
+            // Kept as the file says, and said: a frame FreeCAD does not make
+            // (a letter not A to Z, more than three compartments, a datum
+            // twice) is shown invalid and not written again
+            std::vector<DatumReferenceFrame::Compartment> parsed;
+            std::string bad;
+            if (drf && !drf->parse(parsed, bad)) {
+                std::string text;
+                for (auto& c : comps) {
+                    text += (text.empty() ? "" : "|") + c;
+                }
+                _report.skipped.push_back("tolerance " + entry(l) + ": its datum system " + text
+                                          + " is kept as read, but is not written again: "
+                                          + bad);
+            }
         }
         place(gt, f.object, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
               obj->GetPointTextAttach(), obj->GetPresentation());
@@ -2659,68 +2699,84 @@ Step::Report Step::read(const Import::PostImport& info)
 {
     Reader reader(info);
     Report report = reader.run();
-    // The file's text size, from its frames (ASME: a frame is twice the
-    // text height): a part a metre long is not lettered at 3.5
-    if (reader._frameHeight > 0) {
-        for (auto c : reader._made) {
-            c->TextHeight.setValue(reader._frameHeight / 2);
-        }
-    }
-    // Drawn as the file draws them, until edited; set last, as any edit
-    // turns it off
-    for (auto& [c, shape] : reader._graphics) {
-        c->ImportedGraphic.setValue(shape);
-        c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
-        c->ImportedGraphicName.setValue(reader._graphicNames[c]);
-        c->UseImported.setValue(true);
-    }
-    for (auto c : reader._placeholders) {
-        c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
-        c->ImportedGraphicName.setValue(reader._graphicNames[c]);
-        c->UseImported.setValue(true);
-    }
-    for (auto& [c, kind] : reader._placeholderKinds) {
-        c->ImportedPlaceholder.setValues(kind);
-    }
-    // A PMI the file draws in another's graphic: drawn so, until either is
-    // edited (docs/GDandT.md sec 10.10, I)
-    for (auto c : reader._made) {
-        if (auto other = reader.drawnWith(c)) {
-            c->ImportedWith.setValue(other);
-            c->UseImported.setValue(true);
-        }
-    }
-    // A graphic alone that PMI are drawn in is no note: it is theirs. The
-    // first of them holds it, the others are drawn in it there (STC-07's
-    // '32X R', linked in the file to another radius than the 31 its
-    // placeholders are of; written and read again it is so too)
-    std::vector<Callout*> gone;
-    for (auto c : reader._made) {
-        auto note = freecad_cast<Note*>(c->ImportedWith.getValue());
-        if (!note || !note->Text.getValues().empty() || !c->ImportedGraphic.getShape().isNull()
-            || std::find(gone.begin(), gone.end(), note) != gone.end()) {
-            continue;
-        }
-        c->ImportedGraphic.setValue(note->ImportedGraphic.getShape().getShape());
-        c->ImportedGraphicType.setValue(note->ImportedGraphicType.getValue());
-        if (c->Views.getValues().empty()) {
-            c->Views.setValues(note->Views.getValues());
-        }
-        c->ImportedWith.setValue(nullptr);
-        for (auto o : reader._made) {
-            if (o != c && o->ImportedWith.getValue() == note) {
-                o->ImportedWith.setValue(c);
+    // What is made is finished here; a failure in it is said, with the rest
+    // of the report, not lost to the import's log alone
+    auto failed = [&](const std::string& why) {
+        report.skipped.push_back("finishing what was read: " + why);
+    };
+    try {
+        // The file's text size, from its frames (ASME: a frame is twice the
+        // text height): a part a metre long is not lettered at 3.5
+        if (reader._frameHeight > 0) {
+            for (auto c : reader._made) {
+                c->TextHeight.setValue(reader._frameHeight / 2);
             }
         }
-        gone.push_back(note);
-    }
-    for (auto note : gone) {
-        reader._made.erase(std::remove(reader._made.begin(), reader._made.end(), note),
-                           reader._made.end());
-        info.doc->removeObject(note->getNameInDocument());
-        if (report.notes > 0) {
-            --report.notes;
+        // Drawn as the file draws them, until edited; set last, as any edit
+        // turns it off
+        for (auto& [c, shape] : reader._graphics) {
+            c->ImportedGraphic.setValue(shape);
+            c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
+            c->ImportedGraphicName.setValue(reader._graphicNames[c]);
+            c->UseImported.setValue(true);
         }
+        for (auto c : reader._placeholders) {
+            c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
+            c->ImportedGraphicName.setValue(reader._graphicNames[c]);
+            c->UseImported.setValue(true);
+        }
+        for (auto& [c, kind] : reader._placeholderKinds) {
+            c->ImportedPlaceholder.setValues(kind);
+        }
+        // A PMI the file draws in another's graphic: drawn so, until either is
+        // edited (docs/GDandT.md sec 10.10, I)
+        for (auto c : reader._made) {
+            if (auto other = reader.drawnWith(c)) {
+                c->ImportedWith.setValue(other);
+                c->UseImported.setValue(true);
+            }
+        }
+        // A graphic alone that PMI are drawn in is no note: it is theirs. The
+        // first of them holds it, the others are drawn in it there (STC-07's
+        // '32X R', linked in the file to another radius than the 31 its
+        // placeholders are of; written and read again it is so too)
+        std::vector<Callout*> gone;
+        for (auto c : reader._made) {
+            auto note = freecad_cast<Note*>(c->ImportedWith.getValue());
+            if (!note || !note->Text.getValues().empty() || !c->ImportedGraphic.getShape().isNull()
+                || std::find(gone.begin(), gone.end(), note) != gone.end()) {
+                continue;
+            }
+            c->ImportedGraphic.setValue(note->ImportedGraphic.getShape().getShape());
+            c->ImportedGraphicType.setValue(note->ImportedGraphicType.getValue());
+            if (c->Views.getValues().empty()) {
+                c->Views.setValues(note->Views.getValues());
+            }
+            c->ImportedWith.setValue(nullptr);
+            for (auto o : reader._made) {
+                if (o != c && o->ImportedWith.getValue() == note) {
+                    o->ImportedWith.setValue(c);
+                }
+            }
+            gone.push_back(note);
+        }
+        for (auto note : gone) {
+            reader._made.erase(std::remove(reader._made.begin(), reader._made.end(), note),
+                               reader._made.end());
+            info.doc->removeObject(note->getNameInDocument());
+            if (report.notes > 0) {
+                --report.notes;
+            }
+        }
+    }
+    catch (const Standard_Failure& e) {
+        failed(e.what());
+    }
+    catch (const Base::Exception& e) {
+        failed(e.what());
+    }
+    catch (const std::exception& e) {
+        failed(e.what());
     }
     if (reader._made.empty() && report.views == 0) {
         for (auto& s : report.skipped) {

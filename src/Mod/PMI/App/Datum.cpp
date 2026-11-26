@@ -144,33 +144,11 @@ bool Datum::isLegalLetter(const std::string& letter, bool asme, std::string& why
     return true;
 }
 
-App::DocumentObjectExecReturn* Datum::execute()
+TopoDS_Shape Datum::simulated() const
 {
     auto feat = getFeature();
-    if (!feat && !getTargets().empty()) {
-        // Established by its targets alone: they are drawn, each with its
-        // symbol; a datum feature symbol needs a feature to stand on
-        Shape.setValue(fromTargets());
-        if (UseImported.getValue() && !ImportedGraphic.getShape().isNull()) {
-            updatePresentation();
-        }
-        else {
-            Presentation.setValue(TopoDS_Shape());
-        }
-        std::string why;
-        auto set = getSet();
-        if (!isLegalLetter(Letter.getStrValue(), set && set->isASME(), why)) {
-            setState(Invalid, why);
-        }
-        else {
-            setState(Ok);
-        }
-        return App::DocumentObject::StdReturn;
-    }
     if (!feat) {
-        Shape.setValue(TopoDS_Shape());
-        setState(Broken, "no datum feature");
-        return App::DocumentObject::StdReturn;
+        return getTargets().empty() ? TopoDS_Shape() : fromTargets();
     }
     const Primitive& p = feat->primitive();
     TopoDS_Shape shape;
@@ -202,7 +180,55 @@ App::DocumentObjectExecReturn* Datum::execute()
         default:
             break;
     }
-    Shape.setValue(shape);
+    return shape;
+}
+
+void Datum::onDocumentRestored()
+{
+    // Shape is not saved: made again, for a reader before the first
+    // recompute (its feature is restored before it, its Shape with it)
+    bool touched = isTouched();
+    try {
+        Shape.setValue(simulated());
+    }
+    catch (...) {
+    }
+    Callout::onDocumentRestored();
+    if (!touched) {
+        purgeTouched();
+    }
+}
+
+App::DocumentObjectExecReturn* Datum::execute()
+{
+    auto feat = getFeature();
+    if (!feat && !getTargets().empty()) {
+        // Established by its targets alone: they are drawn, each with its
+        // symbol; a datum feature symbol needs a feature to stand on
+        Shape.setValue(simulated());
+        if (UseImported.getValue() && !ImportedGraphic.getShape().isNull()) {
+            updatePresentation();
+        }
+        else {
+            Presentation.setValue(TopoDS_Shape());
+        }
+        std::string why;
+        auto set = getSet();
+        if (!isLegalLetter(Letter.getStrValue(), set && set->isASME(), why)) {
+            setState(Invalid, why);
+        }
+        else {
+            setState(Ok);
+        }
+        return App::DocumentObject::StdReturn;
+    }
+    if (!feat) {
+        Shape.setValue(TopoDS_Shape());
+        setState(Broken, "no datum feature");
+        return App::DocumentObject::StdReturn;
+    }
+    const Primitive& p = feat->primitive();
+    Shape.setValue(simulated());
     updatePresentation();
 
     std::string why;
@@ -480,6 +506,21 @@ TopoDS_Shape DatumTarget::makeShape() const
             return {};
     }
     return s.IsNull() ? s : s.Moved(TopLoc_Location(trsf));
+}
+
+void DatumTarget::onDocumentRestored()
+{
+    // Shape is not saved: made again, as Datum's
+    bool touched = isTouched();
+    try {
+        Shape.setValue(makeShape());
+    }
+    catch (...) {
+    }
+    Callout::onDocumentRestored();
+    if (!touched) {
+        purgeTouched();
+    }
 }
 
 App::DocumentObjectExecReturn* DatumTarget::execute()

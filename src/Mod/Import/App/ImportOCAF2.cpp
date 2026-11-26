@@ -2600,6 +2600,9 @@ void ImportOCAF2::runPostImport(bool progressive)
         catch (const Standard_Failure& e) {
             FC_ERR("Import pass '" << name << "' failed: " << e.GetMessageString());
         }
+        catch (const std::exception& e) {
+            FC_ERR("Import pass '" << name << "' failed: " << e.what());
+        }
     }
 }
 

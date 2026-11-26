@@ -216,6 +216,38 @@ def run():
         view.setActiveObject("pmiview", None)
         pump(10)
 
+        # From a perspective camera: kept as it is, the height it shows at
+        # its focal distance -- none was kept, and shown again it was fitted
+        # to the whole model
+        import math
+
+        def seen(cam):
+            return 2 * cam.focalDistance.getValue() * math.tan(cam.heightAngle.getValue() / 2)
+
+        view.setCameraType("Perspective")
+        pump(20)
+        Gui.SendMsgToActiveView("ViewFit")
+        pump(10)
+        view.getCameraNode().heightAngle.setValue(0.3)
+        pump(10)
+        want = seen(view.getCameraNode())
+        Gui.runCommand("PMI_View")
+        pump(30)
+        persp = [o for o in doc.Objects if o.TypeId == "PMI::View"][-1]
+        check("from a perspective camera the view keeps its height",
+              persp.Perspective and abs(persp.Height.Value - want) < 1e-3 * want,
+              (persp.Perspective, persp.Height.Value, want))
+        view.setActiveObject("pmiview", None)
+        view.getCameraNode().heightAngle.setValue(0.9)
+        pump(10)
+        view.setActiveObject("pmiview", persp)
+        pump(30)
+        got = seen(view.getCameraNode())
+        check("shown again, it shows that height", abs(got - want) < 1e-3 * want, (got, want))
+        view.setActiveObject("pmiview", None)
+        view.setCameraType("Orthographic")
+        pump(20)
+
         # Side by side: a PMI view in a new 3D view, the first untouched,
         # each 3D view showing a PMI view of its own
         gdoc = Gui.getDocument(doc.Name)

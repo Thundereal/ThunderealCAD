@@ -24,6 +24,7 @@ import FreeCAD as App
 import Import
 import Part
 import PMI  # noqa: F401 -- registers the pass
+from PMITests.TestModel import needs_part_design
 
 V = App.Vector
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1770,6 +1771,7 @@ def schema_of(path):
     return text[start:text.find(";", start)] if start >= 0 else ""
 
 
+@needs_part_design
 class TestStepExport(Base):
     """The GD&T of a part, written (docs/GDandT.md sec 5.2, P3): AP242, its
     semantics on the faces exported, each with its plane and its graphic,

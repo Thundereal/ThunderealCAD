@@ -150,6 +150,9 @@ void ExportOCAF2::runPostExport()
         catch (const Standard_Failure& e) {
             FC_ERR("Export pass '" << name << "' failed: " << e.GetMessageString());
         }
+        catch (const std::exception& e) {
+            FC_ERR("Export pass '" << name << "' failed: " << e.what());
+        }
     }
 }
 

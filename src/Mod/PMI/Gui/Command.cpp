@@ -25,6 +25,7 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QMessageBox>
 
@@ -38,6 +39,7 @@
 
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/nodes/SoOrthographicCamera.h>
+#include <Inventor/nodes/SoPerspectiveCamera.h>
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
@@ -808,6 +810,15 @@ void CmdPMIView::activated(int)
     if (ortho) {
         doCommand(Doc, "_obj.Height = %.9g",
                   static_cast<SoOrthographicCamera*>(cam)->height.getValue());
+    }
+    else if (cam->isOfType(SoPerspectiveCamera::getClassTypeId())) {
+        // The height seen at the focal distance, as the view gives it back
+        // (none was kept: shown again, it was fitted to the whole model)
+        auto persp = static_cast<SoPerspectiveCamera*>(cam);
+        double height = 2.0 * cam->focalDistance.getValue()
+            * std::tan(persp->heightAngle.getValue() / 2.0);
+        doCommand(Doc, "_obj.Perspective = True");
+        doCommand(Doc, "_obj.Height = %.9g", height);
     }
     else {
         doCommand(Doc, "_obj.Perspective = True");

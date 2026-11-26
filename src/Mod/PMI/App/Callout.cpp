@@ -599,9 +599,16 @@ void Callout::updatePresentation()
 
     Callout* parent = attachedParent();
     double below = 0.5 * h;
+    bool composed = false;
     if (!parent) {
         parent = composedUnder(h, below);
+        composed = parent != nullptr;
     }
+    // A composite frame's rows, each 2h, turn as one about the middle of
+    // them all: each about its own, seen from below the upper read under its
+    // lowers. Its span in this one's drawing, as laid out below
+    double stackTop = 0, stackBottom = 0;
+    bool stacked = false;
     if (parent) {
         // Under the parent's drawing, left edges in line, in its plane
         double ph = parent->TextHeight.getValue() > 0 ? parent->TextHeight.getValue() : h;
@@ -616,6 +623,13 @@ void Callout::updatePresentation()
         }
         Drawing mine;
         layout(mine, h);
+        if (composed && !above.isEmpty() && !mine.isEmpty()) {
+            // Its top is below under the upper's bottom (in the upper's
+            // drawing above.ymin - below), the last row 2h each further down
+            stacked = true;
+            stackTop = mine.ymax + below + (above.ymax - above.ymin);
+            stackBottom = mine.ymax + below - 2 * h * composedRows();
+        }
         if (!above.isEmpty() && !mine.isEmpty()) {
             pla = pla
                 * Base::Placement(Base::Vector3d(above.xmin - mine.xmin,
@@ -654,6 +668,15 @@ void Callout::updatePresentation()
     layout(d, h);
     // A frame, a datum's box, a note turn whole; a dimension marks its value
     d.uprightAll();
+    if (!parent && composedRows() > 0 && !d.isEmpty()) {
+        // The upper of a composite frame, its lowers under it
+        stacked = true;
+        stackTop = d.ymax;
+        stackBottom = d.ymin - 2 * h * composedRows();
+    }
+    if (stacked) {
+        d.uprightAbout((stackTop + stackBottom) / 2);
+    }
 
     // The leader, in the plane: the target as the plane sees it (a target
     // off the plane is drawn where it projects, CAx-IF sec 8.3)

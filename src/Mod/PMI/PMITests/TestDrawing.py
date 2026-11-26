@@ -24,7 +24,7 @@ try:
 except ImportError:
     TechDrawPMI = None
 
-from PMITests.TestModel import BOTTOM, HOLE, LEFT, RIGHT, TOP, face_at
+from PMITests.TestModel import BOTTOM, HOLE, LEFT, RIGHT, TOP, face_at, needs_part_design
 
 V = App.Vector
 
@@ -45,6 +45,7 @@ def wait_for(view, seconds=20.0):
 
 
 @unittest.skipIf(TechDrawPMI is None, "TechDraw is not built")
+@needs_part_design
 class TestImportModelAnnotations(unittest.TestCase):
     def setUp(self):
         doc = self.doc = App.newDocument("PMIDrawing")

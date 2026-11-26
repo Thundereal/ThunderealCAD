@@ -80,6 +80,13 @@ void Drawing::endUpright()
     _uprights.back().y = (_oy0 + _oy1) / 2;
 }
 
+void Drawing::uprightAbout(double y)
+{
+    for (auto& u : _uprights) {
+        u.y = y;
+    }
+}
+
 void Drawing::uprightAll()
 {
     if (!_uprights.empty() || _empty) {

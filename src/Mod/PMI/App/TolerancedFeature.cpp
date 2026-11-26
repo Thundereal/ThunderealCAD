@@ -28,9 +28,12 @@
 #include <cmath>
 #include <set>
 
+#include <BRep_Builder.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopoDS_Compound.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
@@ -184,6 +187,58 @@ bool ofSize(const std::vector<Primitive>& faces, std::size_t& main)
     }
     return false;
 }
+/// What each reference was last resolved to, by its index, in one shape: a
+/// reference resolved to nothing is an empty compound in its place, so the
+/// ones after it keep theirs (a compound of the shapes alone shifted them)
+TopoDS_Shape savedAll(const std::vector<TopoDS_Shape>& shapes)
+{
+    bool any = false;
+    for (auto& s : shapes) {
+        any = any || !s.IsNull();
+    }
+    if (!any) {
+        return TopoDS_Shape();
+    }
+    if (shapes.size() == 1) {
+        return shapes.front();
+    }
+    BRep_Builder builder;
+    TopoDS_Compound comp;
+    builder.MakeCompound(comp);
+    for (auto& s : shapes) {
+        if (s.IsNull()) {
+            TopoDS_Compound none;
+            builder.MakeCompound(none);
+            builder.Add(comp, none);
+        }
+        else {
+            builder.Add(comp, s);
+        }
+    }
+    return comp;
+}
+
+/// savedAll() read back: one per reference, null for one resolved to nothing
+std::vector<TopoDS_Shape> savedEach(const TopoDS_Shape& shape)
+{
+    std::vector<TopoDS_Shape> res;
+    for (auto& s : Geom::members(shape)) {
+        res.push_back(s.ShapeType() == TopAbs_COMPOUND && !TopoDS_Iterator(s).More()
+                          ? TopoDS_Shape()
+                          : s);
+    }
+    return res;
+}
+
+/// The ones that are something
+std::vector<TopoDS_Shape> present(std::vector<TopoDS_Shape> shapes)
+{
+    shapes.erase(std::remove_if(shapes.begin(),
+                                shapes.end(),
+                                [](const TopoDS_Shape& s) { return s.IsNull(); }),
+                 shapes.end());
+    return shapes;
+}
 }  // namespace
 
 App::DocumentObjectExecReturn* TolerancedFeature::execute()
@@ -220,8 +275,7 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
     const std::vector<std::string> subs = References.getSubValues(false);
     const std::vector<App::ShadowSub> shadows = References.getShadowSubs();
     const std::vector<std::string> savedNames = SavedNames.getValues();
-    const std::vector<TopoDS_Shape> savedFaces =
-        Geom::members(SavedGeometry.getShape().getShape());
+    const std::vector<TopoDS_Shape> savedFaces = savedEach(SavedGeometry.getShape().getShape());
 
     std::vector<App::DocumentObject*> newObjs;
     std::vector<std::string> newSubs;
@@ -350,15 +404,9 @@ App::DocumentObjectExecReturn* TolerancedFeature::execute()
     }
 
     std::string why;
-    std::vector<TopoDS_Shape> live;
-    for (auto& f : faces) {
-        if (!f.IsNull()) {
-            live.push_back(f);
-        }
-    }
-    bool derived = derive(live, why);
+    bool derived = derive(present(faces), why);
     // What it was last resolved to, kept for a broken reference
-    SavedGeometry.setValue(Geom::compound(faces));
+    SavedGeometry.setValue(savedAll(faces));
     if (SavedNames.getValues() != names) {
         SavedNames.setValues(names);
     }
@@ -535,7 +583,7 @@ void TolerancedFeature::onDocumentRestored()
     // the dimensions have their geometry before the first recompute
     std::string why;
     auto saved = getKind() == WholePart ? wholePart()
-                                        : Geom::members(SavedGeometry.getShape().getShape());
+                                        : present(savedEach(SavedGeometry.getShape().getShape()));
     bool touched = isTouched();
     derive(saved, why);
     if (!touched) {

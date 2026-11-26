@@ -139,6 +139,7 @@ public:
     void layout(Drawing& d, double h) const override;
     std::u32string equivalentText() const override;
     Callout* composedUnder(double h, double& below) const override;
+    int composedRows() const override;
     bool editTakesHost() const override
     {
         return compositeUpper() && compositeUpper() == ImportedWith.getValue();

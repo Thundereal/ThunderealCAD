@@ -1169,8 +1169,17 @@ void ToolBarManager::setup(ToolBarItem* item, QToolBar* toolbar) const
         }
     }
 
-    // remove all tool buttons which we don't need for the moment
+    // remove all tool buttons which we don't need for the moment -- but not the
+    // grip of a toolbar in a title-bar or status-bar area, nor the separator a
+    // locked one wears in its place: no command claims them, and taking the
+    // grip's action out deletes the grip. The toolbar then stayed movable with
+    // nothing to be dragged by after every workbench switch, a start included,
+    // until a lock toggle made a new one.
     for (QList<QAction*>::Iterator it = actions.begin(); it != actions.end(); ++it) {
+        if (qobject_cast<ToolBarGrip*>(toolbar->widgetForAction(*it))
+            || (*it)->objectName() == QStringLiteral("_fc_toolbar_sep_")) {
+            continue;
+        }
         toolbar->removeAction(*it);
     }
 }

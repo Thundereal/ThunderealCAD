@@ -3830,7 +3830,11 @@ void Document::Save (Base::Writer &writer) const
     d->folderMapIdsNow.clear();
     // Each map is given the id it keeps (sec 38.15), whichever save this is.
     Data::startElementMapNumbering();
-    for (auto o : d->objectArray) {
+    // By index: an object's beforeSave() may add objects (a Part::Feature's
+    // shape contents, expanded) -- the array may move, and those added are
+    // saved too, so they are prepared as well
+    for (std::size_t i = 0; i < d->objectArray.size(); ++i) {
+        auto o = d->objectArray[i];
         if (d->saveSeq) {
             d->saveSeq->next();
         }

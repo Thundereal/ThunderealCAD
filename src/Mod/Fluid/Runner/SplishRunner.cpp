@@ -1220,6 +1220,17 @@ int main(int argc, char** argv)
     if (g.norm() > 0) {
         longest = std::min(longest, std::sqrt(0.01 * 2 * made.radius / (double)g.norm()));
     }
+    // A mechanism's parts move a quarter of that at most. Their push is
+    // the fluid's over the stretch before, a step behind the motion, and
+    // that lag feeds a swing what the water's damping takes out. At 5 mm
+    // the water damps far more than it is fed; at 2.5 mm the hinged bar
+    // swung wider each time on the longest step (docs/FluidSimulation.md
+    // sec 12.9), and came to rest on half of it. A quarter costs no more
+    // there: on the shorter step the pressure solver needs fewer
+    // iterations (measured 437 s against 448, 2 s of the whole tank).
+    if (made.driven && !run.moved.empty()) {
+        longest /= 4.0;
+    }
     sim->setValue<Real>(Simulation::CFL_MAX_TIMESTEPSIZE, (Real)longest);
     // Driven walls (docs/FluidSimulation.md sec 12.9): the run waits for
     // where they are and how they go, takes the fluid past the end of the

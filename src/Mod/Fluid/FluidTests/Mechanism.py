@@ -52,14 +52,17 @@ def areaAndCentre(section):
     return abs(area), moment / (6.0 * area)
 
 
-def barAtRest(density, shrink=0.0, water=TANK * TANK * DEPTH):
+def barAtRest(density, shrink=0.0, water=None, across=TANK):
     """The angle (deg) below level where the hinged bar's buoyancy has the
-    moment about the hinge its weight has, with that volume of water (mm^3)
-    risen by what the bar pushes aside. The buoyancy is of the bar as the
+    moment about the hinge its weight has, with that volume of water (mm^3,
+    the tank's to DEPTH if none) risen by what the bar pushes aside, in a
+    tank 'across' wide along the hinge. The buoyancy is of the bar as the
     fluid would see it 'shrink' thinner on every face; the weight is of the
     whole bar. Its section in x, z is all that counts: across, the bar is
     uniform."""
     length, width, thick = BAR
+    if water is None:
+        water = TANK * across * DEPTH
 
     def section(turn, inset):
         c, s = math.cos(turn), math.sin(turn)
@@ -72,7 +75,7 @@ def barAtRest(density, shrink=0.0, water=TANK * TANK * DEPTH):
         for _ in range(60):
             middle = 0.5 * (low + high)
             under, _ = areaAndCentre(below(section(turn, shrink), middle))
-            if TANK * TANK * middle - (width - 2 * shrink) * under < water:
+            if TANK * across * middle - (width - 2 * shrink) * under < water:
                 low = middle
             else:
                 high = middle
@@ -200,14 +203,22 @@ class Mechanism:
             mechanism.append(self.block.Placement.Base.z)
         return rows, mechanism
 
-    def bar_on_a_hinge(self, density, start, end):
+    def bar_on_a_hinge(self, density, start, end, across=TANK, resolution=5.0):
         """A bar 100 x 20 x 20 (along x, across, thick) of that density on a
         revolute about y at the middle of its end, the hinge at x 10 and 20
         above the water, turned 'start' deg down from level; the assembly's
-        simulation and the study that runs with it, both 'end' long."""
+        simulation and the study that runs with it at that resolution, both
+        'end' long. The tank is 'across' wide along the hinge, about the
+        bar's middle: a slice of it, where narrower."""
         import JointObject
         import Materials
 
+        if across != TANK:
+            side = HINGE[1] - across / 2
+            outer = Part.makeBox(140, across + 20, 140, App.Vector(-10, side - 10, -10))
+            self.tank.Shape = outer.cut(Part.makeBox(120, across, 131, App.Vector(0, side, 0)))
+            self.water.Width = across
+            self.water.Placement.Base = App.Vector(0, side, 0)
         base = self.assembly.newObject("Part::Box", "Base")
         base.Length, base.Width, base.Height = 10, 10, 10
         base.Placement.Base = App.Vector(-50, -50, 0)
@@ -245,7 +256,7 @@ class Mechanism:
         self.study = FluidPlayback.makeStudy(self.doc, [self.tank])
         FluidPlayback.addFluid(self.study, self.water)
         self.study.Backend = self.BACKEND
-        self.study.Resolution = 5
+        self.study.Resolution = resolution
         self.study.OutputInterval = 0.05
         self.study.TimeEnd = end
         FluidPlayback.addBody(self.study, self.bar, density)
@@ -516,12 +527,12 @@ class Mechanism:
         self.assertIsNone(self.study.Mechanism)
         self.assertAlmostEqual(self.simulation.TimeEnd.Value, 1.5)
 
-    def settles(self, density, start, end=2.0):
+    def settles(self, density, start, end=2.0, across=TANK, resolution=5.0):
         """The bar of that density on its hinge, let go 'start' deg down, run
         'end' long: the mean of its angle over the last 30% and how far it
         swings about it, the hinge held, the two runs of one motion, no water
         lost; and the volume of water the fluid has (mm^3)."""
-        self.bar_on_a_hinge(density, start, end)
+        self.bar_on_a_hinge(density, start, end, across, resolution)
         tip = self.bar.Placement.multVec(App.Vector(BAR[0], BAR[1] / 2, BAR[2] / 2))
         modelled = App.Placement(self.bar.Placement)
         self.assertEqual(self.study.run(), 0, self.study.Status)
@@ -592,20 +603,21 @@ class Mechanism:
         # sees a part a little thinner than it is, as the block on its
         # slider shows (0.7 mm deep in the mean, a skin 0.3 mm thin); a
         # bar 20 thick feels that more: it rests as the closed form has it
-        # for a bar 0.25 to 0.6 mm thinner on every face (measured 17.42
-        # deg, 0.43 mm; at three tenths the water's density 0.33 mm, at
+        # for a bar 0.25 to 0.6 mm thinner on every face (measured 17.38
+        # deg on a mechanism's quarter step, 0.42 mm; 17.42 and 0.43 on the
+        # whole step; at three tenths the water's density 0.33 mm, at
         # seven tenths 0.38). The torque's path, the centre's to the hinge's,
         # wrong would put it degrees off.
         self.assertAlmostEqual(barAtRest(500.0), 16.454, places=3)
         mean, swing, water = self.settles(500.0, 0.0)
         self.assertGreater(mean, barAtRest(500.0, 0.25, water))
         self.assertLess(mean, barAtRest(500.0, 0.6, water))
-        self.assertLess(swing, 0.6)  # measured 0.25
+        self.assertLess(swing, 0.6)  # measured 0.19
 
     def test_a_bar_on_a_hinge_put_at_rest(self):
         # Put where it rests, the fluid is not seeded where the bar is: less
-        # water, a lower level, a deeper rest (measured 18.13 deg, swinging
-        # 0.15; 17.14 by the closed form for that water, 17.68 to 18.62 for
+        # water, a lower level, a deeper rest (measured 18.08 deg, swinging
+        # 0.19; 17.14 by the closed form for that water, 17.68 to 18.62 for
         # the skin)
         mean, swing, water = self.settles(500.0, barAtRest(500.0))
         self.assertLess(water, TANK * TANK * DEPTH)
@@ -613,13 +625,30 @@ class Mechanism:
         self.assertLess(mean, barAtRest(500.0, 0.6, water))
         self.assertLess(swing, 0.6)
 
+    def test_a_bar_on_a_hinge_at_half_the_spacing(self):
+        # At 2.5 mm the bar did not come to rest: on the fluid's longest
+        # step, the stretch the mechanism holds its push over, it swung 3.68
+        # deg about its mean over the last 0.6 s (the whole tank: 14.4 to
+        # 21.9 deg, still growing). A slice of the tank 40 across shows it
+        # in a quarter of the particles; it rests 14.92 deg down by the
+        # closed form, the water risen 2.8 mm. On a quarter of the step it
+        # swings 0.53 (measured; 0.25 either way from 1.8 s on, at 3 s) and
+        # rests at 15.35, the skin 0.22 mm -- half the 5 mm runs' (the
+        # whole tank: 16.95 against 16.45, 0.24 mm).
+        across = 40.0
+        self.assertAlmostEqual(barAtRest(500.0, across=across), 14.92, places=2)
+        mean, swing, water = self.settles(500.0, 0.0, 2.0, across, 2.5)
+        self.assertLess(swing, 1.0)
+        self.assertGreater(mean, barAtRest(500.0, 0.1, water, across))
+        self.assertLess(mean, barAtRest(500.0, 0.4, water, across))
+
     def test_a_lighter_bar_on_a_hinge(self):
-        # Of the same skin: measured 13.61 deg at three tenths of the
+        # Of the same skin: measured 13.62 deg at three tenths of the
         # water's density, 13.08 by the closed form; the least damped
         mean, swing, water = self.settles(300.0, 0.0)
         self.assertGreater(mean, barAtRest(300.0, 0.25, water))
         self.assertLess(mean, barAtRest(300.0, 0.6, water))
-        self.assertLess(swing, 1.0)  # measured 0.67
+        self.assertLess(swing, 1.0)  # measured 0.40 (0.67 on the whole step)
 
     def test_a_heavier_bar_on_a_hinge(self):
         # Measured 23.80 deg at seven tenths, 21.07 by the closed form: the
@@ -628,4 +657,4 @@ class Mechanism:
         mean, swing, water = self.settles(700.0, 0.0, 3.0)
         self.assertGreater(mean, barAtRest(700.0, 0.25, water))
         self.assertLess(mean, barAtRest(700.0, 0.6, water))
-        self.assertLess(swing, 0.8)  # measured 0.3
+        self.assertLess(swing, 0.8)  # measured 0.36 (0.3 on the whole step)

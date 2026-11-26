@@ -1520,7 +1520,43 @@ the tree), then, if it does, the remedies by cost -- the walls on a
 parabola over a stretch (the accelerations in the move line), an
 added-mass correction, shorter stretches.
 
-Not built yet: whatever the 2.5 mm runs call for.
+**The 2.5 mm runs, and a quarter of the step (2026-11-26).** The
+manual's hinged bar (the pointer on it adds 0.08 deg: 16.52 by the closed
+form) run 2 s at 2.5 mm, 55296 particles, on 4 threads, the last 30% of
+its angle:
+
+| The run | Longest step | Last 30% | Wall time |
+|---|---|---|---|
+| as it was | 1.6 ms | 14.37 to 21.93 deg, growing | 448 s |
+| the pressure solver's cap 500, not 100 | 1.6 ms | 12.66 to 22.44 | 1004 s |
+| the longest step halved | 0.8 ms | 16.75 to 17.21 | 616 s |
+| quartered | 0.4 ms | 16.74 to 17.18 | 437 s |
+| 5 mm, as it was | 2.3 ms | 17.30 to 17.68 | 25 s |
+| 5 mm, quartered | 0.6 ms | 17.22 to 17.63 | 29 s |
+
+The runner's trace had DFSPH at its default cap of 100 iterations on 93%
+of the lines, the water not brought back to its density; let it go to
+500 and it converged (median 175, at 500 on 0.1%) and swung no less --
+not the cause. The longest step is the stretch the mechanism holds its
+push over and the fluid's own longest step at once, and halving it was
+enough: the growth is the lag, fed faster than the finer water damps.
+Which of the two halves matters is not separated. Shorter costs nothing
+here: the pressure solver needs fewer iterations on a shorter step (at
+its cap 93%, 43%, 0% of the lines), so a quarter ran as fast as the whole.
+
+Built: a run with a mechanism moving a part takes a quarter of the
+longest step (`SplishRunner.cpp`), which leaves the 5 mm results where
+they were (17.38 deg for the half-density bar, 0.19 either way; 13.62,
+0.40 at three tenths; 23.80, 0.36 at seven tenths). The test that would
+have caught it, `test_a_bar_on_a_hinge_at_half_the_spacing`, runs the bar
+at 2.5 mm in a slice of the tank 40 across (18432 particles, 2.5 min);
+on the whole step it swung 3.68 deg about its mean, now 0.53 (0.25
+either way from 1.8 s on). It rests at 15.35 deg against 14.92 by the
+closed form: a skin of 0.22 mm, half the 5 mm runs' 0.42 -- the whole
+tank's 16.95 against 16.45 is 0.24. So the skin shrinks with the
+spacing, and the rest converges on the closed form: 1.0, then 0.43 deg
+over. The scratch is `~/.cache/fluid/s4/` (narrow.py, run25*, the
+analytic check `~/.cache/fluid/analytic/hinged_bar.py`).
 
 ### 12.10 The host's hard hangs, and what the runs are held to (2026-11-24)
 
@@ -1540,6 +1576,14 @@ too; the jet test (`FluidTests/Jet.py`) is at 5 mm, its bounds from
 measurements there -- the force 7.5 to 8% over, single steps 0.60 to
 1.84 times the mean's, the plate's centre 0.39 to 0.40 of the stagnation
 pressure. An attended run to look for the cause is to come.
+
+2026-11-25 the user asked for 2.5 mm. Four such runs (7 to 17 min, 4
+threads) were watched by a logger whose lines survive a hang -- Windows'
+own counters from typeperf, which runs outside the VM; the VM's load,
+memory and pressure stalls; its kernel messages; the runner's own trace
+(`FLUID_RUNNER_LOG`): none hung. Package power 31 to 91 W, the thermal
+zone 69 to 88, no throttle reason, the passive limit 100% throughout, no
+memory or IO pressure. 8 threads is still to be tried, attended.
 
 ## 13. For the user to rule (2026-11-21)
 

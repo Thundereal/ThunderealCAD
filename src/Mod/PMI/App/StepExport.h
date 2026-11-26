@@ -100,7 +100,7 @@ std::string renameAspects(const std::string& structure, F rename)
             out += structure.substr(i, end - i);
             i = end;
         }
-        else if (c && std::strchr("CGDFH", c) && i + 1 < structure.size()
+        else if (c && std::strchr("CGDFHSW", c) && i + 1 < structure.size()
                  && structure[i + 1] == '{') {
             out += c;
             ++i;

@@ -2034,12 +2034,16 @@ compares; it took our curves for none.
   faces and a hole occurrence; a group, 'F', where the file's is one). A hole occurrence is
   an entity OCCT now knows (`StepRepr_BasicRoundHoleOccurrence`): before, its faces were lost
   from the PMI on it. Shapes of the part beside its solid -- FTC-10's extracted surfaces,
-  STC-10's wires -- stay in the feature, after the solid's, where they were dropped. Fifteen
-  of the sixteen files as NIST has them (`assertSameAspects`, in the every-file round trip).
-  Not yet: STC-07's centres of symmetry (a derived shape aspect, its axis a curve of the
-  supplemental geometry) and its sizes that are their own datum features; a datum feature's
-  own form -- its faces on its own usage or on members, one shape aspect of several faces,
-  the geometry on the datum and not its feature (CTC-02) -- is not kept. Found on the way: a
+  STC-10's wires -- stay in the feature, after the solid's, where they were dropped. A
+  centre of symmetry (STC-07's 23 axes of its holes, 'S') is written again, derived from the
+  surfaces it is of, its own axis the curve of the supplemental geometry it was (named among
+  the supplemental objects, `Curves016.Edge1`); a size that is its own datum feature (STC-07's
+  datums B and C, 'W') is one dimensional_size_with_datum_feature again, not a size on a
+  datum feature; a leaf of several faces is one shape aspect of them all (an
+  item_identified_representation_usage of a set). All sixteen files as NIST has them
+  (`assertSameAspects`, in the every-file round trip). Not kept: a datum feature's own form
+  where no PMI is on it -- its faces on its own usage or on members, the geometry on the
+  datum and not its feature (CTC-02); SFA does not report it. Found on the way: a
   feature named a face and an edge lost its edge, an edge taken for a tessellated copy of the
   face (FTC-11's arc length).
   Cited documents: the standards a file says its PMI follows (FTC-10 'ASME Y14.41', STC-07's

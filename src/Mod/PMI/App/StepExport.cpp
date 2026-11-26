@@ -716,8 +716,22 @@ private:
         std::string structure =
             Step::renameAspects(prop->getValues()[side], [&](const std::string& name) {
                 auto it = entries.find(name);
-                return it == entries.end() ? std::vector<std::string>()
-                                           : std::vector<std::string> {it->second};
+                if (it != entries.end()) {
+                    return std::vector<std::string> {it->second};
+                }
+                // Supplemental geometry the feature does not refer to (a centre of symmetry's
+                // own axis, StepImport aspectsAll): its set's label
+                std::size_t dot = name.find('.');
+                auto obj = dot == std::string::npos
+                    ? nullptr
+                    : annotation->getDocument()->getObject(name.substr(0, dot).c_str());
+                auto supplemental = obj ? _supplementals.find(obj) : _supplementals.end();
+                if (supplemental == _supplementals.end()) {
+                    return std::vector<std::string>();
+                }
+                TCollection_AsciiString e;
+                TDF_Tool::Entry(supplemental->second, e);
+                return std::vector<std::string> {e.ToCString()};
             });
         XCAFDoc_DimTolTool::SetAspectStructure(l, second, structure.c_str());
     }

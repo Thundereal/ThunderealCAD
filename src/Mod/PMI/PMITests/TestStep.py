@@ -401,15 +401,9 @@ class TestNistSet(Base):
         file has them: a pattern of features a composite group shape aspect
         'pattern of features' of a composite shape aspect 'unified geometric
         item' a hole, named as the annotation (NIST CTC-04's 'Position.2', 6
-        holes of 2 faces each), or a datum's feature itself (FTC-07's sizes on
-        datum B's) -- kind, name, description and members, each leaf counted
-        by its faces"""
-        # Not yet as the file has them: a PMI on centres of symmetry, a size that is its own
-        # datum feature (STC-07); a datum's own feature grouped, of hole occurrences (STC-09)
-        known = r"nist_(stc_07|stc_09)_"
-        if re.match(known, os.path.basename(original)):
-            return
-
+        holes of 2 faces each), a datum's feature itself (FTC-07's sizes on
+        datum B's), a centre of symmetry of a hole and its axis (STC-07) --
+        kind, name, description and members, each leaf counted by its faces"""
         def trees(path):
             with open(path, errors="replace") as f:
                 text = re.sub(r"\s+", " ", f.read())
@@ -421,6 +415,8 @@ class TestNistSet(Base):
                 "COMPOSITE_GROUP_SHAPE_ASPECT": "G",
                 "DATUM_FEATURE": "D",
                 "BASIC_ROUND_HOLE_OCCURRENCE": "H",
+                "CENTRE_OF_SYMMETRY": "S",
+                "DIMENSIONAL_SIZE_WITH_DATUM_FEATURE": "W",
             }
 
             def kind(v):
@@ -442,13 +438,15 @@ class TestNistSet(Base):
             for k, v in ents.items():
                 for r in ref(v):
                     users[r].add(k)
-                if re.match(r"SHAPE_ASPECT_RELATIONSHIP ?\(", v):
+                # a centre of symmetry's member what it is derived from
+                if re.match(r"SHAPE_ASPECT_(DERIVING_)?RELATIONSHIP ?\(", v):
                     members[ref(v)[-2]].append(ref(v)[-1])
                 elif re.match(r"(GEOMETRIC_ITEM_SPECIFIC|ITEM_IDENTIFIED_REPRESENTATION)_USAGE", v):
                     faces[ref(v)[0]] += len(ref(v)) - 2
 
             def tree(k):
-                own, subs = 0, []
+                # a centre's own faces its axis, a size that is its own datum feature's its
+                own, subs = (faces[k] if kind(ents[k]) in ("S", "W") else 0), []
                 for m in members[k]:
                     if kind(ents.get(m, "")):
                         subs.append(tree(m))
@@ -468,7 +466,7 @@ class TestNistSet(Base):
 
             return collections.Counter(
                 tree(k) for k, v in ents.items()
-                if kind(v) and any(annotation(u) for u in users[k]))
+                if kind(v) == "W" or kind(v) and any(annotation(u) for u in users[k]))
 
         self.assertEqual(trees(written), trees(original))
 

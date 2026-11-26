@@ -368,6 +368,22 @@ private:
 
     void aspectsAll()
     {
+        // Supplemental geometry, where a centre of symmetry's own axis is (NIST STC-07): named
+        // after the feature's objects
+        std::vector<Part::Feature*> supplementals;
+        for (auto o : _info.doc->getObjects()) {
+            auto flag = freecad_cast<App::PropertyBool*>(
+                o->getPropertyByName(Import::ExportOCAF2::SupplementalProperty));
+            auto group = o->getExtensionByType<App::GroupExtension>(true);
+            if (!flag || !flag->getValue() || !group) {
+                continue;
+            }
+            for (auto child : group->Group.getValues()) {
+                if (auto feat = freecad_cast<Part::Feature*>(child)) {
+                    supplementals.push_back(feat);
+                }
+            }
+        }
         for (auto& pending : _aspects) {
             std::vector<std::string> values;
             bool any = false;
@@ -382,6 +398,11 @@ private:
                     std::vector<Part::Feature*> objects;
                     for (auto& [obj, subs] : tf->References.getSubListValues()) {
                         if (auto feat = freecad_cast<Part::Feature*>(obj)) {
+                            objects.push_back(feat);
+                        }
+                    }
+                    for (auto feat : supplementals) {
+                        if (std::find(objects.begin(), objects.end(), feat) == objects.end()) {
                             objects.push_back(feat);
                         }
                     }

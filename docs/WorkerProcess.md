@@ -4489,3 +4489,65 @@ recompute the job is for. A worker that kept the copy open would save the
 scanner opened, one job, in the console): a worker holding the document
 has a footprint of 158 MB without a runtime and 250 MB with one, against
 the standby's 30 MB and 146 MB -- before any recompute adds its shapes.
+
+## 70. A document's last worker keeps its copy open while memory allows (2026-11-26)
+
+Sec 69 left the open of the copy as the largest wait once a document's
+workers had gone: 1.16 s on scanner, against the standby's 0.16 s. The
+user's ruling: keep the document open, gated by the system's memory, and
+automatically; the judging made settings.
+
+Now the pool's last worker, idle past `IdleSeconds`, is not told to quit.
+It stays, its copy open (`keptOpen`), and the next job is made on it: moved
+along the log to the newer copy (sec 57 moves it while the document is
+quiet), or opening the copy whole when the rows do not fold. A second
+worker of the same pool goes as before. `IdleSeconds` 0 still asks for no
+worker idle, and keeps none.
+
+Whether one may be kept is judged as it would go, and again every
+`KeepOpenCheckSeconds` (2) while any is kept, by Preferences/Workers:
+
+| setting | default | kept while |
+|---|---|---|
+| `KeepOpen` | on | on |
+| `KeepOpenMemoryUse` | 85 | the machine's memory in use, 100 * (1 - available / total), is below this percent |
+| `KeepOpenPressure` | 1 | the system's own word on its memory is below this level: 1 low, 2 critical; 0 does not ask |
+
+Available memory is what `grow()` already reads (sec 40): free, inactive
+and purgeable pages on macOS, `MemAvailable` on Linux, `ullAvailPhys` on
+Windows. The system's word: the kernel's `memorystatus_vm_pressure_level`
+on macOS (warn 1, critical 2); on Linux the pressure stall information, 10 %
+of the last 10 s stalled on memory by some task (1) or all (2); on Windows
+the low-memory resource notification (2), which has no warning before it.
+When the judging fails, the worker kept longest across all pools is let go
+of, one each look, so that what the first gives back is seen before the
+next goes. Without an event loop the look is made by `poll()`.
+`pool.memory()` says how it judges now (`Use`, `Pressure`, `KeepOpen`,
+`Why`); `pool.info()` counts `KeptOpen` (now), `KeptOpenTimes` and `LetGo`.
+
+**What it buys, scanner in the GUI** (`times_gui.py`, `PROBE_ONEHERE=1
+PROBE_GONE=3`, as at the end of sec 69: `IdleSeconds` 3, each job waiting
+until the pool's worker has gone or is kept; memory in use 63-69 % all
+through, pressure 0):
+
+| `KeepOpen` | round | `Start` | `Queued` | `Setup` | total |
+|---|---|---|---|---|---|
+| on | 1 | 0.45 s | 0.60 s | 0.60 s (opened whole) | 11.23 s |
+| on | 2, 3 | 0.14-0.19 s | 0.15-0.21 s | 0.42-0.43 s (moved, in the quiet) | 10.62-11.07 s |
+| off | 1-3 | 0.43-0.46 s | 1.15 s | 1.14-1.15 s (a new worker) | 11.94-11.96 s |
+
+0.7 to 1.3 s less of a 12 s job: the open is gone, and with the worker
+still there the quiet time's snapshot and move (sec 57) are made before the
+job asks, which is what takes `Start` down too. In round 1 the kept worker
+opened the version whole -- no move since its open had been made -- at 0.6 s,
+half of what a new worker took. The cost is the kept worker's memory:
+158 MB of footprint for scanner without a runtime, 250 MB with one (end of
+sec 69), more once a recompute's shapes are in it.
+
+Tests (`TestWorkerPool`): `testTheLastIdleWorkerIsKeptWithItsCopyOpen` (the
+next job, after a change, is made on the same pid, nothing spawned),
+`testAKeptWorkerIsLetGoOfWhenMemoryIsShort` (`KeepOpenMemoryUse` 0: let go
+of, and none kept after the next job), `testOnlyTheLastIdleWorkerIsKept`
+(two workers, one stays), `testTheMemoryAsJudged`; `testIdleWorkersGo`
+turns `KeepOpen` off. TestWorkerPool 88 OK plain (1 skipped) and 88 OK with
+the runtime; TestAnimation 78 OK.

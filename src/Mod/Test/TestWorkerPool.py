@@ -442,6 +442,91 @@ class TestWorkerPool(unittest.TestCase):
         self.assertTrue(self.pool.wait(120), self.pool.info())
         self.assertEqual(self.pool.info()["Adopted"], before)
 
+    def keepOpen(self, use=100.0, pressure=0, check=0.1):
+        """Workers/KeepOpen's judging (docs/WorkerProcess.md sec 70): kept
+        while the memory in use is below `use` percent and the system's
+        pressure below `pressure` (0 not asked); looked at every `check` s"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetFloat("KeepOpenMemoryUse", use)
+        group.SetInt("KeepOpenPressure", pressure)
+        group.SetFloat("KeepOpenCheckSeconds", check)
+        self.addCleanup(group.RemFloat, "KeepOpenMemoryUse")
+        self.addCleanup(group.RemInt, "KeepOpenPressure")
+        self.addCleanup(group.RemFloat, "KeepOpenCheckSeconds")
+
+    def testTheLastIdleWorkerIsKeptWithItsCopyOpen(self):
+        """Idle past IdleSeconds, the pool's last worker stays, its copy
+        open: the next job is made on it, with nothing opened again"""
+        self.settings(1, idle=0.3)
+        self.keepOpen()
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        job = self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        pid = self.pool.result(job)["Output"]["Pid"]
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["KeptOpen"] == 1, 30),
+                        self.pool.info())
+        self.assertFalse(self.waitFor(lambda: self.pool.info()["Workers"] != 1, 1.0))
+        self.obj.Integer = 43  # the copy stale: the kept worker moves to the next
+        job = self.submit("test.read", {"Object": "Feature", "Property": "Integer"})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(job)
+        self.assertEqual(result["Output"]["Value"], 43, result)
+        info = self.pool.info()
+        self.assertEqual(info["Pids"], [pid], info)
+        self.assertEqual(info["Spawned"], 1, info)
+        self.assertGreaterEqual(info["KeptOpenTimes"], 1, info)
+        self.assertEqual(info["LetGo"], 0, info)
+
+    def testAKeptWorkerIsLetGoOfWhenMemoryIsShort(self):
+        """The memory in use reaching KeepOpenMemoryUse lets the kept worker
+        go; and with it there, none is kept"""
+        self.settings(1, idle=0.3)
+        self.keepOpen()
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["KeptOpen"] == 1, 30),
+                        self.pool.info())
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetFloat("KeepOpenMemoryUse", 0.0)
+        memory = self.pool.memory()
+        self.assertFalse(memory["KeepOpen"], memory)
+        self.assertIn("KeepOpenMemoryUse", memory["Why"])
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["Workers"] == 0, 30),
+                        self.pool.info())
+        self.assertEqual(self.pool.info()["LetGo"], 1)
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["Workers"] == 0, 30),
+                        self.pool.info())
+        self.assertEqual(self.pool.info()["KeptOpenTimes"], 1)
+
+    def testOnlyTheLastIdleWorkerIsKept(self):
+        self.settings(2, idle=0.3)
+        self.keepOpen()
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        jobs = [self.submit("test.sleep", {"Seconds": 0.5}) for _ in range(6)]
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["Workers"] == 2, 60),
+                        self.pool.info())
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["Workers"] == 1, 30),
+                        self.pool.info())
+        self.assertFalse(self.waitFor(lambda: self.pool.info()["Workers"] != 1, 1.0))
+        self.assertEqual(self.pool.info()["KeptOpen"], 1, self.pool.info())
+        self.assertEqual(len(jobs), 6)
+
+    def testTheMemoryAsJudged(self):
+        memory = self.pool.memory()
+        self.assertGreater(memory["Use"], 0.0, memory)
+        self.assertLess(memory["Use"], 100.0, memory)
+        self.assertIn(memory["Pressure"], (0, 1, 2), memory)
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("KeepOpen", False)
+        self.addCleanup(group.RemBool, "KeepOpen")
+        memory = self.pool.memory()
+        self.assertFalse(memory["KeepOpen"])
+        self.assertEqual(memory["Why"], "KeepOpen is off")
+
     def testJobsComeBackOnce(self):
         self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
         self.assertTrue(self.pool.info()["Started"])
@@ -1194,6 +1279,9 @@ class TestWorkerPool(unittest.TestCase):
 
     def testIdleWorkersGo(self):
         self.settings(1, idle=0.5)
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("KeepOpen", False)  # the last is kept otherwise (sec 70)
+        self.addCleanup(group.RemBool, "KeepOpen")
         self.assertTrue(self.pool.start())
         job = self.submit("test.echo")
         self.assertTrue(self.pool.wait(120))

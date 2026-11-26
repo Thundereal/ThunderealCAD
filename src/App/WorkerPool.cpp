@@ -203,6 +203,96 @@ std::size_t availableMemory()
 #endif
 }
 
+/// Percent of the machine's memory in use, 100 * (1 - available / total),
+/// or -1 when not known
+double memoryUse()
+{
+    const std::size_t total = totalMemory();
+    const std::size_t available = availableMemory();
+    if (!total || !available || available > total) {
+        return -1;
+    }
+    return 100.0 * (1.0 - static_cast<double>(available) / static_cast<double>(total));
+}
+
+/// The system's own word on its memory: 0 none, 1 low, 2 critically low.
+/// macOS: the kernel's pressure level (warn, critical). Linux: the pressure
+/// stall information, 10 % or more of the last 10 s stalled on memory by
+/// some task (low) or by all (critical). Windows: the low-memory resource
+/// notification (critical); it has no warning before that
+int memoryPressure()
+{
+#if defined(_WIN32)
+    static HANDLE low = CreateMemoryResourceNotification(LowMemoryResourceNotification);
+    BOOL state = FALSE;
+    if (low && QueryMemoryResourceNotification(low, &state) && state) {
+        return 2;
+    }
+    return 0;
+#elif defined(__APPLE__)
+    int level = 0;
+    size_t len = sizeof(level);
+    if (sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &len, nullptr, 0) != 0) {
+        return 0;
+    }
+    return level >= 4 ? 2 : level >= 2 ? 1 : 0;
+#else
+    int level = 0;
+    if (std::FILE* f = std::fopen("/proc/pressure/memory", "r")) {
+        char line[160];
+        while (std::fgets(line, sizeof(line), f)) {
+            double avg10 = 0;
+            if (std::sscanf(line, "full avg10=%lf", &avg10) == 1 && avg10 >= 10.0) {
+                level = std::max(level, 2);
+            }
+            else if (std::sscanf(line, "some avg10=%lf", &avg10) == 1 && avg10 >= 10.0) {
+                level = std::max(level, 1);
+            }
+        }
+        std::fclose(f);
+    }
+    return level;
+#endif
+}
+
+/** Whether a document's last idle worker may keep its copy open past
+ * IdleSeconds (docs/WorkerProcess.md sec 70), by Preferences/Workers:
+ * KeepOpen on; the machine's memory in use below KeepOpenMemoryUse percent;
+ * the system's pressure below KeepOpenPressure (1 low, 2 critical, 0 not
+ * asked). `why` says which failed
+ */
+bool keepOpenAllowed(std::string* why = nullptr)
+{
+    auto group = params();
+    if (!group->GetBool("KeepOpen", true)) {
+        if (why) {
+            *why = "KeepOpen is off";
+        }
+        return false;
+    }
+    const double most = group->GetFloat("KeepOpenMemoryUse", 85.0);
+    const double use = memoryUse();
+    if (use >= 0 && use >= most) {
+        if (why) {
+            char text[96];
+            std::snprintf(text, sizeof(text), "memory in use %.1f %% >= KeepOpenMemoryUse %.1f %%",
+                          use, most);
+            *why = text;
+        }
+        return false;
+    }
+    const long at = group->GetInt("KeepOpenPressure", 1);
+    const int level = memoryPressure();
+    if (at > 0 && level >= at) {
+        if (why) {
+            *why = std::string("the system says its memory is ")
+                + (level >= 2 ? "critically low" : "low");
+        }
+        return false;
+    }
+    return true;
+}
+
 /// The console program beside this one: ThunderealCmd, or what Command of
 /// Preferences/Workers names
 std::string workerProgram()
@@ -916,6 +1006,9 @@ struct WorkerPool::Private
         /// whose handler would end it again inside (sec 69)
         bool ending = false;
         bool killed = false;    ///< ended by the pool (kill())
+        /// Idle past IdleSeconds and kept, the copy open, for the next job:
+        /// the pool's last worker, while memory allows (sec 70)
+        bool keptOpen = false;
         long made = 0;
         std::size_t resident = 0;
         /// What it was last told to open: the log's version and its row, in
@@ -1064,6 +1157,16 @@ struct WorkerPool::Private
     int limit = 1;
     int spawned = 0;
     int adopted = 0;  ///< of them, taken standing (sec 69)
+    long keptOpen = 0;  ///< times its last worker was kept past IdleSeconds (sec 70)
+    long letGo = 0;     ///< of them, let go of for the memory
+    /// While a worker is kept open anywhere: memory looked at every
+    /// KeepOpenCheckSeconds, and the one kept longest let go of while it
+    /// does not allow keeping (sec 70)
+    static void watchMemory();
+    static void checkMemory();
+    /// checkMemory() if its timer is running and its interval has passed:
+    /// a poll without an event loop, where the timer never fires
+    static void checkMemoryDue();
     int failedInRow = 0;
     long done = 0;
     long failed = 0;
@@ -2643,6 +2746,7 @@ void WorkerPool::Private::sendJob(Proc& proc, JobId id)
     proc.job = id;
     proc.began = it->second.sentAt;
     proc.idleSince = 0;
+    proc.keptOpen = false;
     if (!send(*proc.socket, header)) {
         kill(proc);
     }
@@ -2711,11 +2815,32 @@ void WorkerPool::Private::checkIdle()
         if (!proc->ready || proc->job || proc->quitting || !proc->idleSince) {
             continue;
         }
+        if (proc->keptOpen && queue.empty()) {
+            continue;  // let go of by checkMemory(), or taken by a job
+        }
         const double left = proc->idleSince + idle - t;
         if (left <= 0 || !queue.empty()) {
             if (!queue.empty()) {
                 dispatch(*proc);
                 continue;
+            }
+            // The pool's last worker, with its copy open, kept for the next
+            // job while memory allows (sec 70): the next one would open the
+            // copy again. Not with IdleSeconds 0, which asks for none idle
+            const bool last = std::none_of(procs.begin(), procs.end(), [proc](auto& other) {
+                return other.get() != proc && !other->over && !other->quitting;
+            });
+            std::string why;
+            if (last && idle > 0 && proc->socket && keepOpenAllowed(&why)) {
+                proc->keptOpen = true;
+                ++keptOpen;
+                FC_LOG(doc.getName() << ": worker " << proc->number << " kept, its copy open");
+                watchMemory();
+                changedNotice();
+                continue;
+            }
+            if (last && idle > 0 && !why.empty()) {
+                FC_LOG(doc.getName() << ": worker " << proc->number << " not kept: " << why);
             }
             // It goes, and its memory with it
             proc->quitting = true;
@@ -2777,6 +2902,87 @@ void WorkerPool::Private::grow()
     starved = false;
     if (!spawn()) {
         FC_LOG(doc.getName() << ": " << reason);
+    }
+}
+
+namespace
+{
+QTimer*& memoryTimer()
+{
+    static QTimer* timer = nullptr;  // never deleted: it may fire as the pools go
+    return timer;
+}
+double lastMemoryCheck = 0;
+}  // namespace
+
+void WorkerPool::Private::checkMemoryDue()
+{
+    QTimer* timer = memoryTimer();
+    if (timer && timer->isActive() && now() - lastMemoryCheck >= timer->interval() / 1000.0) {
+        checkMemory();
+    }
+}
+
+void WorkerPool::Private::watchMemory()
+{
+    QTimer*& timer = memoryTimer();
+    if (!timer) {
+        if (!QCoreApplication::instance()) {
+            return;
+        }
+        timer = new QTimer();
+        QObject::connect(timer, &QTimer::timeout, [] { checkMemory(); });
+    }
+    const double seconds = std::max(0.05, params()->GetFloat("KeepOpenCheckSeconds", 2.0));
+    timer->setInterval(static_cast<int>(seconds * 1000));
+    if (!timer->isActive()) {
+        timer->start();
+    }
+}
+
+void WorkerPool::Private::checkMemory()
+{
+    lastMemoryCheck = now();
+    // The one kept longest, across the pools: one let go of each look, so
+    // what memory a first gives back is seen before the next goes
+    Proc* oldest = nullptr;
+    Private* owner = nullptr;
+    int count = 0;
+    for (auto& kv : pools()) {
+        Private& d = *kv.second->d;
+        for (auto& proc : d.procs) {
+            if (!proc->keptOpen || proc->quitting || proc->over || proc->job) {
+                continue;
+            }
+            ++count;
+            if (!oldest || proc->idleSince < oldest->idleSince) {
+                oldest = proc.get();
+                owner = &d;
+            }
+        }
+    }
+    QTimer* timer = memoryTimer();
+    if (!count) {
+        if (timer) {
+            timer->stop();
+        }
+        return;
+    }
+    std::string why;
+    if (keepOpenAllowed(&why)) {
+        return;
+    }
+    Depth guard(*owner, true);  // a timer of its own, no socket's signal
+    oldest->keptOpen = false;
+    oldest->quitting = true;
+    ++owner->letGo;
+    FC_LOG(owner->doc.getName() << ": worker " << oldest->number << " let go of: " << why);
+    if (oldest->socket) {
+        send(*oldest->socket, json {{"type", "quit"}});
+    }
+    owner->changedNotice();
+    if (count == 1 && timer) {
+        timer->stop();
     }
 }
 
@@ -3301,6 +3507,9 @@ void WorkerPool::poll(int ms)
             QThread::msleep(5);
         }
         d->checkIdle();
+        if (noEventLoop()) {
+            Private::checkMemoryDue();  // its timer runs only in a loop
+        }
     } while (ms > 0 && timer.elapsed() < ms);
 }
 
@@ -3334,9 +3543,14 @@ WorkerPool::Info WorkerPool::info() const
     info.limit = started() ? d->limit : workerLimit();
     info.spawned = d->spawned;
     info.adopted = d->adopted;
+    info.keptOpenTimes = d->keptOpen;
+    info.letGo = d->letGo;
     for (auto& proc : d->procs) {
         if (proc->job) {
             ++info.busy;
+        }
+        if (proc->keptOpen && !proc->quitting && !proc->over) {
+            ++info.keptOpen;
         }
         info.pids.push_back(proc->pid);
     }
@@ -3366,6 +3580,15 @@ WorkerPool::Info WorkerPool::info() const
 void WorkerPool::stopStandby()
 {
     Standby::stopAny();
+}
+
+WorkerPool::MemoryInfo WorkerPool::memory()
+{
+    MemoryInfo info;
+    info.use = memoryUse();
+    info.pressure = memoryPressure();
+    info.keepOpen = keepOpenAllowed(&info.why);
+    return info;
 }
 
 WorkerPool::StandbyInfo WorkerPool::standby()
@@ -4039,6 +4262,9 @@ public:
         add_varargs_method("info", &WorkerPoolPy::info, "info() -> dict");
         add_varargs_method("standby", &WorkerPoolPy::standby,
                            "standby() -> dict: the worker standing for any pool to take");
+        add_varargs_method("memory", &WorkerPoolPy::memory,
+                           "memory() -> dict: the machine's memory as judged for keeping a "
+                           "worker's copy open (Use, Pressure, KeepOpen, Why)");
         add_varargs_method("recompute", &WorkerPoolPy::recompute,
                            "recompute(objs=None) -> bool: hand the recompute of objs, or of what\n"
                            "is touched, and of what depends on them, to a worker; its result\n"
@@ -4260,6 +4486,9 @@ public:
         dict.setItem("Limit", Py::Long(i.limit));
         dict.setItem("Spawned", Py::Long(i.spawned));
         dict.setItem("Adopted", Py::Long(i.adopted));
+        dict.setItem("KeptOpen", Py::Long(i.keptOpen));
+        dict.setItem("KeptOpenTimes", Py::Long(i.keptOpenTimes));
+        dict.setItem("LetGo", Py::Long(i.letGo));
         dict.setItem("Busy", Py::Long(i.busy));
         dict.setItem("Queued", Py::Long(static_cast<unsigned long>(i.queued)));
         dict.setItem("Resident", Py::Long(static_cast<unsigned long>(i.resident)));
@@ -4298,6 +4527,17 @@ public:
         dict.setItem("Started", Py::Long(i.started));
         dict.setItem("HandedOver", Py::Long(i.handedOver));
         dict.setItem("Retired", Py::Long(i.retired));
+        return dict;
+    }
+
+    Py::Object memory(const Py::Tuple&)
+    {
+        WorkerPool::MemoryInfo i = WorkerPool::memory();
+        Py::Dict dict;
+        dict.setItem("Use", Py::Float(i.use));
+        dict.setItem("Pressure", Py::Long(i.pressure));
+        dict.setItem("KeepOpen", Py::Boolean(i.keepOpen));
+        dict.setItem("Why", Py::String(i.why));
         return dict;
     }
 

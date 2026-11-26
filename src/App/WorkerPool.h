@@ -154,6 +154,12 @@ public:
         /// runs; a newer copy taken before a worker could be handed it hands
         /// it back Cancelled
         bool pinned = false;
+        /// The job changes the worker's copy of the document, and its
+        /// result is what brings the document here to where that copy is --
+        /// a recompute. Its result thrown away, or told spoiled(), the copy
+        /// is ahead of the document and its worker is let go: values the
+        /// next job makes the same there would not be sent again (sec 73)
+        bool writes = false;
         /// Called once, from the thread the pool runs in, unless the
         /// client cancels the job or claims it while it is queued
         std::function<void(Result&)> done;
@@ -185,6 +191,8 @@ public:
         int keptOpen = 0;
         long keptOpenTimes = 0;  ///< times one was kept so
         long letGo = 0;          ///< of them, let go of for the memory
+        long stalled = 0;        ///< ended for not answering in time (sec 73)
+        long spoiled = 0;        ///< let go of, their copy ahead of the document
         int busy = 0;      ///< running a job
         std::size_t queued = 0;
         std::size_t resident = 0;  ///< the most a worker said it held
@@ -269,6 +277,10 @@ public:
     /// Whether it has a copy standing and workers may run on it
     bool started() const;
     JobId submit(Job job);
+    /// The result of `job`, one that `writes`, was not put in, or not all
+    /// of it: the worker that made it holds a copy ahead of the document,
+    /// and is let go
+    void spoiled(JobId job);
     /// The job is wanted now (docs/WorkerProcess.md sec 7): exactly once.
     /// With Failed for its worker's death, `death` if given is told of it
     /// as a result would be (died, diedAt, how, stack, crashLog): the

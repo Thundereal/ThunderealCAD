@@ -148,7 +148,9 @@ std::uint32_t get32(const char* p)
 /// A message: the header's length, the body's, the header (JSON), the body
 QByteArray message(const json& header, const std::string& body = {})
 {
-    const std::string head = header.dump();
+    // Text that is not UTF-8 -- a console line with a path in the system's
+    // encoding -- is sent with the bytes replaced, not thrown over
+    const std::string head = header.dump(-1, ' ', false, json::error_handler_t::replace);
     QByteArray out;
     out.reserve(static_cast<int>(8 + head.size() + body.size()));
     put32(out, static_cast<std::uint32_t>(head.size()));

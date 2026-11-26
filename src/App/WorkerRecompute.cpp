@@ -1333,6 +1333,10 @@ struct State
     /// start() was told to force: the put-in is a forced recompute, which a
     /// document that skips recomputes does not turn away
     bool forced = false;
+    /// A recompute of part of the document run here took the result and
+    /// left objects it was made for touched: handed over again once the
+    /// document is free (sec 73)
+    bool again = false;
     /// Taken by a recompute run here: the hook for as long as it runs
     std::unique_ptr<Supplier> borrowed;
     /// Objects whose execute() crashed a worker on what they read now, each
@@ -1422,7 +1426,7 @@ State* stateByName(const std::string& name)
 
 void changed(State& s)
 {
-    s.info.running = making(s) || hasResult(s);
+    s.info.running = making(s) || hasResult(s) || s.again;
     s.info.crashed.clear();
     for (auto& [name, why] : s.crashed) {
         s.info.crashed.push_back(name);
@@ -1431,13 +1435,35 @@ void changed(State& s)
     WorkerRecompute::signalChanged(s.doc);
 }
 
+/// The workers whose results came are told these were not put in, or not
+/// all of them: each holds a copy that is where its result would have
+/// brought the document, and what its next recompute makes the same there
+/// would not be sent again (docs/WorkerProcess.md sec 73)
+void spoil(State& s)
+{
+    auto pool = WorkerPool::of(s.doc, false);
+    for (auto& p : s.parts) {
+        if (p.fileJob) {
+            if (pool) {
+                pool->spoiled(p.fileJob);
+            }
+            p.fileJob = 0;
+        }
+    }
+}
+
 void dropFile(State& s)
 {
+    bool any = false;
     for (auto& p : s.parts) {
         if (!p.file.empty()) {
             Base::FileInfo(p.file).deleteFile();
             p.file.clear();
+            any = true;
         }
+    }
+    if (any) {
+        spoil(s);
     }
 }
 
@@ -1520,6 +1546,7 @@ bool supplierFor(State& s, std::unique_ptr<Supplier>& supplier)
     if (!ok) {
         dropRest(base + 1);
         supplier.reset();
+        spoil(s);
         s.info.reason = "a worker's recompute not put in: " + why;
         ++s.info.failed;
         FC_WARN(s.doc.getName() << ": " << s.info.reason);
@@ -1711,6 +1738,29 @@ void apply(State& s)
     changed(s);
 }
 
+/// What a recompute of part of the document left of the one handed over,
+/// handed over again
+void startAgain(State& s)
+{
+    if (!s.again) {
+        return;
+    }
+    if (!safeNow(s.doc)) {
+        schedule(s);
+        return;
+    }
+    s.again = false;
+    std::string why;
+    if (!WorkerRecompute::start(s.doc, {}, &why, s.forced)) {
+        if (why != "nothing to recompute") {
+            // Its client recomputes here, as for one a worker could not make
+            ++s.info.failed;
+            s.info.reason = why;
+        }
+        changed(s);
+    }
+}
+
 void schedule(State& s)
 {
     if (s.timer) {
@@ -1721,7 +1771,12 @@ void schedule(State& s)
     QTimer::singleShot(0, [name]() {
         if (auto s = stateByName(name)) {
             s->timer = false;
-            apply(*s);
+            if (s->again) {
+                startAgain(*s);
+            }
+            else {
+                apply(*s);
+            }
         }
     });
 }
@@ -1962,10 +2017,25 @@ State& stateFor(Document& doc)
         changed(s);
     }));
     s.conns.emplace_back(doc.signalRecomputed.connect(
-        [&s](const Document&, const std::vector<DocumentObject*>&) {
+        [&s](const Document&, const std::vector<DocumentObject*>& made) {
             if (s.borrowed && !s.applying) {
                 noteSupplied(s, *s.borrowed);
                 s.borrowed.reset();
+                // A recompute of part of the document: what the result was
+                // made for and it did not reach is touched still, and the
+                // result is spent. Handed over again
+                const std::set<DocumentObject*> reached(made.begin(), made.end());
+                for (auto& name : s.names) {
+                    auto obj = s.doc.getObject(name.c_str());
+                    if (obj && !reached.count(obj) && obj->mustRecompute()) {
+                        spoil(s);
+                        s.again = true;
+                        s.info.reason = "a recompute here took part of it";
+                        schedule(s);
+                        changed(s);
+                        break;
+                    }
+                }
             }
         }));
     // A change of what the result is made of, between its coming and its
@@ -2545,6 +2615,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         }
         WorkerPool::Job job;
         job.kind = RecomputeKind;
+        job.writes = true;
         job.tag = s.tag;
         job.reads = names;
         job.inputs = json {{"objects", names},
@@ -2631,7 +2702,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
 bool WorkerRecompute::running(const Document& doc)
 {
     auto s = stateOf(doc);
-    return s && (making(*s) || hasResult(*s));
+    return s && (making(*s) || hasResult(*s) || s->again);
 }
 
 bool WorkerRecompute::wait(Document& doc, double seconds)
@@ -2644,6 +2715,10 @@ bool WorkerRecompute::wait(Document& doc, double seconds)
         }
         if (hasResult(*s) && !making(*s) && safeNow(doc)) {
             apply(*s);
+            continue;
+        }
+        if (s->again && safeNow(doc)) {
+            startAgain(*s);
             continue;
         }
         if (!making(*s)) {
@@ -2665,6 +2740,9 @@ bool WorkerRecompute::wait(Document& doc, double seconds)
 void WorkerRecompute::cancel(Document& doc, const std::string& why)
 {
     State* s = stateOf(doc);
+    if (s) {
+        s->again = false;
+    }
     if (!s || (!making(*s) && !hasResult(*s))) {
         return;
     }

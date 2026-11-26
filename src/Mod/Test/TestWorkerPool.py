@@ -519,6 +519,26 @@ class TestWorkerPool(unittest.TestCase):
                         self.pool.info())
         self.assertEqual(self.pool.info()["LetGo"], 1)
 
+    def testAWorkerNotReadyInTimeIsEnded(self):
+        """A worker that does not say it is ready within ReadySeconds is
+        ended, where the queue stood behind it with no end; one after the
+        other, the pool stops and its jobs are told (sec 73)"""
+        self.settings(1)
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetFloat("ReadySeconds", 0.001)
+        self.addCleanup(group.RemFloat, "ReadySeconds")
+        self.pool.start()
+        job = self.pool.submit("test.echo", {}, module=MODULE)
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        info = self.pool.info()
+        self.assertGreaterEqual(info["Stalled"], 1, info)
+        self.assertEqual(info["Workers"], 0, info)
+        if job:
+            result = self.pool.result(job)
+            self.assertIsNotNone(result, info)
+            self.assertEqual(result["Status"], "Cancelled", result)
+            self.assertEqual(result["Error"], "the workers exited", result)
+
     def testOnlyTheLastIdleWorkerIsKept(self):
         self.settings(2, idle=0.3)
         self.keepOpen()
@@ -2167,6 +2187,64 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(after.Result, 0)
         # No other worker was started on what the recompute here took
         self.assertEqual(self.pool.info()["Busy"], 0, self.pool.info())
+
+    def testARecomputeOfPartHereHandsTheRestOverAgain(self):
+        """A recompute of one object run here while the document's is with a
+        worker takes the worker's result and uses none of it: what the
+        result was made for is handed over again, not left touched with the
+        result spent (docs/WorkerProcess.md sec 73)"""
+        slow = self.counted("Slow", Input=2, Sleep=1.0)
+        tail = self.counted("Tail")
+        tail.setExpression("Input", "Slow.Result")
+        other = self.counted("Other", Input=5)
+        self.doc.recompute()
+        warm = self.counted("Warm")
+        self.doc.recompute()
+        warm.Input = 1
+        self.byWorker()
+        slow.Input = 3
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        deadline = time.time() + 60
+        while self.pool.info()["Busy"] == 0 and time.time() < deadline:
+            self.pool.wait(0.02)
+        started = self.pool.recomputeInfo()["Started"]
+        self.doc.recompute([other], True)
+        info = self.pool.recomputeInfo()
+        self.assertTrue(self.pool.recomputing(), info)
+        self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Started"], started + 1, info)
+        self.assertEqual(self.touched(), [])
+        self.assertEqual((slow.Result, tail.Result), (6, 12))
+        self.assertNotEqual(slow.MadeBy, os.getpid())
+
+    def testAResultNotPutInIsNotBuiltOn(self):
+        """A worker's recompute made and then dropped leaves its copy where
+        the result would have brought the document: what the next recompute
+        makes the same there is not written again, and would not come back.
+        Its worker is let go, and the next is made on a copy of the document
+        as it is (docs/WorkerProcess.md sec 73)"""
+        slow = self.counted("Slow", Input=2, Sleep=0.3)
+        tail = self.counted("Tail")
+        tail.setExpression("Input", "Slow.Result")
+        self.doc.recompute()
+        slow.Input = 3
+        self.byWorker()
+        self.assertEqual((slow.Result, tail.Result), (6, 12))
+        slow.Input = 7
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        deadline = time.time() + 60
+        while self.pool.info()["Done"] < 2 and time.time() < deadline:
+            self.pool.wait(0.02)
+        self.assertEqual(self.pool.info()["Done"], 2, self.pool.info())
+        pids = self.pool.info()["Pids"]
+        self.pool.cancelRecompute("the test's")
+        self.assertEqual(self.pool.info()["Spoiled"], 1, self.pool.info())
+        self.assertEqual(slow.Result, 6)
+        self.byWorker()
+        self.assertEqual((slow.Result, tail.Result), (14, 28))
+        self.assertEqual(self.touched(), [])
+        self.assertNotIn(slow.MadeBy, pids + [os.getpid()])
 
     def testADocumentThatSkipsRecomputesIsHandedOverOnlyForced(self):
         """A document that skips recomputes: not handed over unless forced,

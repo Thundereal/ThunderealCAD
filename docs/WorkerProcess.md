@@ -4687,7 +4687,8 @@ Tests: `TestWorkerPool` 91 OK (new:
 `parttests.MeshServiceTest` 7 OK, `tests/gui/refresh-by-worker.py` with the
 skipping document (8 claims), and the other ten worker GUI tests.
 
-Found and left as it is, by what it would cost:
+Found and left as it is, by what it would cost (the first, the third and
+the fourth taken up in sec 73):
 
 - No stage of a worker's life but a claimed job has a deadline: one that
   never says it is ready, or does not end when told to quit, stands in the
@@ -4708,3 +4709,69 @@ Found and left as it is, by what it would cost:
   narrowed; `IdleSeconds` past 2.1e6 overflows the timer's interval.
 - The crash handler's other stack is the installing thread's only, and
   the helpers read the parameters from their threads with no lock.
+
+## 73. A result not put in leaves its worker's copy ahead (2026-11-26)
+
+Taking up what sec 72 left found a fault older than any of it.
+
+**A worker's recompute changes its copy.** That is the design: its result
+brings the document here to where the copy is, and the worker then moves
+along the log from there (sec 29). A result that is not put in breaks it
+with nothing said: the copy is ahead, and the next recompute there makes
+the same values again, of which nothing came back: here the object was
+supplied with no value put in (no property of it changed in the put-in)
+and left up to date on what it held before. Why a value made the same is
+not recorded there was not traced; the measurement is what follows. Measured, console, one worker:
+`Slow.Input` 3 made by a worker (`Result` 6); `Input` set to 7, handed
+over, the result cancelled once made; handed over again, with no change:
+`Supplied` 1, nothing touched, `Slow.Result` still 6. A result dropped
+for an edit leaves its worker's copy ahead in the same way, for every
+object it had made that the edit does not reach; that case was not
+measured.
+
+A job says now that it writes its copy (`WorkerPool::Job::writes`, set for
+a recompute), and the worker that made one whose result is not put in is
+let go (`Private::retire()`, counted as `Spoiled` in `info()`): the next
+job is made by another, on a copy of the document as it is. Where:
+
+- the pool throws a result away, its job cancelled or dropped while it ran;
+- the recompute client drops a result that came -- the design changed, or
+  `cancel()` -- or cannot read it, or a recompute here used only part of
+  it (below): `WorkerPool::spoiled(job)`.
+
+What it costs is that worker's copy opened again by the next (1.2 s of the
+scanner, sec 69), in the cases where a result was thrown away already.
+
+**A recompute of part of the document took the whole result.** One run here
+while the document's is with a worker claims it (sec 19), and
+`signalBeforeRecompute` does not say what it is of: `doc.recompute([A])`
+took the result, used what it reached of it, and the rest was gone with the
+objects it was made for still touched and "recomputed by a worker" said.
+What the result was made for and that recompute did not reach is handed
+over again once the document is free (`State::again`, `startAgain()`);
+`recomputing()` stays true across it, so nothing is said or run here in
+between, and `waitRecompute()` waits for it.
+
+**A worker that does not answer is ended.** One started, or told to open or
+move, that is not ready after `Workers/ReadySeconds` (300), and one told to
+quit that has not gone after `Workers/QuitSeconds` (30), is ended
+(`checkStalled()`, each second while one is awaited, and in `poll()`; 0 for
+no end; `Stalled` in `info()`). Counted from when it was told or last said
+anything; not while it is in a job, whose time is the job's. Before, no
+other worker was started while one was not ready or was going (`grow()`),
+and the queue stood behind it with no end. One not ready counts as a
+worker that failed: three in a row stop the pool, and its jobs are told.
+
+**Text that is not UTF-8** in a header -- a console line with a path in the
+system's encoding, relayed -- is sent with the bytes replaced; `dump()`
+threw over it, out of whatever code had written the line.
+
+Tests (`TestWorkerPool`, 94 OK): `testAResultNotPutInIsNotBuiltOn`,
+`testARecomputeOfPartHereHandsTheRestOverAgain`,
+`testAWorkerNotReadyInTimeIsEnded` (`ReadySeconds` 0.001: every worker
+ended, the pool stopped, the job told Cancelled).
+
+Left of sec 72's list: `send()`'s 2 s, the temp directories' names, a
+header of the wrong shape in a slot, sizes past 4 GiB, a split part
+dropped for an edit made here, a put-in that threw counted as applied, the
+crash handler's stack and the helpers' unlocked parameter reads.

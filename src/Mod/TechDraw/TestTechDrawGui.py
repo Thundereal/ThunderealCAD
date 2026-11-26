@@ -28,4 +28,5 @@ from TDTest.DrawViewDetailTest import DrawViewDetailTest  # noqa: F401
 from TDTest.DrawViewDimensionTest import DrawViewDimensionTest  # noqa: F401
 from TDTest.DrawStoredGeometryTest import DrawStoredGeometryTest  # noqa: F401
 from TDTest.ReferenceByNameTest import ReferenceByNameTest  # noqa: F401
+from TDTest.DefaultSizesTest import DefaultSizesTest  # noqa: F401
 

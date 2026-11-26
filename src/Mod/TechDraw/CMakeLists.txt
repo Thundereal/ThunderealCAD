@@ -213,6 +213,7 @@ SET(TDTest_SRCS
     TDTest/RestoredEnumerationTest.py
     TDTest/DimensionReferenceTest.py
     TDTest/ReferenceByNameTest.py
+    TDTest/DefaultSizesTest.py
     TDTest/TechDrawTestUtilities.py
 )
 

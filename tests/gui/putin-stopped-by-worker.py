@@ -1,5 +1,5 @@
 """A worker's recompute whose put-in the user stops (docs/WorkerProcess.md
-sec 75, sec 76).
+sec 77, sec 78).
 
 The put-in is a recompute here, with the worker's values supplied, and the
 progress bar's Escape stops it as it stops any: the recompute throws an

@@ -1335,7 +1335,7 @@ struct State
     bool forced = false;
     /// A recompute of part of the document run here took the result and
     /// left objects it was made for touched: handed over again once the
-    /// document is free (sec 73)
+    /// document is free (sec 75)
     bool again = false;
     /// Taken by a recompute run here: the hook for as long as it runs
     std::unique_ptr<Supplier> borrowed;
@@ -1442,7 +1442,7 @@ void changed(State& s)
 /// The workers whose results came are told these were not put in, or not
 /// all of them: each holds a copy that is where its result would have
 /// brought the document, and what its next recompute makes the same there
-/// would not be sent again (docs/WorkerProcess.md sec 73)
+/// would not be sent again (docs/WorkerProcess.md sec 75)
 void spoil(State& s)
 {
     auto pool = WorkerPool::of(s.doc, false);
@@ -1673,7 +1673,7 @@ void apply(State& s)
     // Of a split one, what only a part that was dropped was handed, and the
     // joins over the parts, are left out, to the next recompute, as an edit
     // leaves what it drops. Put in, they would be executed here, with no
-    // worker's values for them (docs/WorkerProcess.md sec 75)
+    // worker's values for them (docs/WorkerProcess.md sec 77)
     std::set<std::string> left;
     std::string dropped;
     if (s.parts.size() > 1) {
@@ -1713,7 +1713,7 @@ void apply(State& s)
     const int64_t before = log ? log->lastSeq() : 0;
     // A put-in that threw stopped part way: what it had not come to is left
     // touched, and the workers' copies are where the whole result would have
-    // brought the document (docs/WorkerProcess.md sec 75)
+    // brought the document (docs/WorkerProcess.md sec 77)
     bool aborted = false;
     std::string threw;
     {

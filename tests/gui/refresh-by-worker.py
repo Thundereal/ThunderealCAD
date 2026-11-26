@@ -11,7 +11,7 @@ Claims:
     the edited box, nothing executed here;
   - set off, Std_Refresh recomputes here at once;
   - a document that skips recomputes is recomputed by Std_Refresh through
-    a worker too (sec 72).
+    a worker too (sec 74).
 """
 import os
 import time
@@ -84,7 +84,7 @@ def run():
 
         # A document that skips recomputes: Std_Refresh recomputes it all the
         # same, forced, and the worker's result is put in forced too
-        # (docs/WorkerProcess.md sec 72)
+        # (docs/WorkerProcess.md sec 74)
         doc.RecomputesFrozen = True
         box.Length = 16
         FreeCADGui.runCommand("Std_Refresh")

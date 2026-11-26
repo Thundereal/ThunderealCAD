@@ -79,7 +79,7 @@ ParameterGrp::handle params()
  * (ServiceWorkers::init()): a call comes on a thread of the compute pool,
  * an owner's loop on its own, and a parameter group has no lock -- a read
  * beside the application's write of the same group walks a tree being
- * changed (docs/WorkerProcess.md sec 75).
+ * changed (docs/WorkerProcess.md sec 77).
  */
 struct Settings
 {
@@ -271,7 +271,7 @@ std::string tooBig(std::size_t size)
 /// A message: the header's length, the body's, the header (JSON), the
 /// body. Nothing for one that does not fit -- a length narrowed to four
 /// bytes would have the other end read the rest of it as messages
-/// (docs/WorkerProcess.md sec 75) -- and send() fails on nothing.
+/// (docs/WorkerProcess.md sec 77) -- and send() fails on nothing.
 QByteArray message(const json& header, const std::string& body = {})
 {
     // Text that is not UTF-8 -- a console line with a path in the system's
@@ -555,11 +555,11 @@ private:
         ensureCore();
         // Its own, made here: not one found there, and those of processes
         // gone removed by whether they run, not by their age -- one a day
-        // old may be a session's still (docs/WorkerProcess.md sec 74)
+        // old may be a session's still (docs/WorkerProcess.md sec 76)
         root = WorkerPool::privateDirectory("ThunderealService", "helpers");
         // Their own copies, a helper saving its parameters at its exit must
         // not write over this process's: written from what the application's
-        // thread made of them, as this is a call's thread, any (sec 75)
+        // thread made of them, as this is a call's thread, any (sec 77)
         if (!root.empty()) {
             const Settings have = settingsNow();
             if (have.user.empty()) {

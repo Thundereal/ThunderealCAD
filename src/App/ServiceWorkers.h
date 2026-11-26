@@ -98,7 +98,7 @@ public:
     /// On the application's thread, as it starts: the parameters the helpers
     /// are started by read there, and read again there as they change. A
     /// call comes on any thread, and a parameter group is not to be read
-    /// beside the thread that writes it (docs/WorkerProcess.md sec 75)
+    /// beside the thread that writes it (docs/WorkerProcess.md sec 77)
     static void init();
     /// End the helpers; a call after starts them again
     static void stop();

@@ -188,7 +188,7 @@ volatile LONG entered = 0;
 // Room kept back on a thread's stack for the report when the stack itself
 // overflowed: Windows' way to an alternate stack
 constexpr ULONG Guarantee = 64 * 1024;
-// Every thread that room (docs/WorkerProcess.md sec 76), as a thread on
+// Every thread that room (docs/WorkerProcess.md sec 78), as a thread on
 // macOS is given its own stack: with the installing thread's alone, a
 // thread of OCCT's pool, Qt's or Python's that ran out of stack had the
 // guard page's few KiB for the handler, and faulted again in it. A thread
@@ -1212,7 +1212,7 @@ std::string WorkerCrash::text(const Report& report)
 
 /// pthread_create() as every image of the process calls it: dyld puts this
 /// in its place in all the images loaded at launch but this one, so the
-/// call below is the system's own (docs/WorkerProcess.md sec 75)
+/// call below is the system's own (docs/WorkerProcess.md sec 77)
 extern "C" int fcWorkerCrashPthreadCreate(pthread_t* thread, const pthread_attr_t* attr,
                                           void* (*routine)(void*), void* arg)
 {
@@ -1253,7 +1253,7 @@ namespace
 {
 /// Called by the loader on each thread as it starts, before the thread's
 /// routine, on that thread: the place to keep its room back
-/// (docs/WorkerProcess.md sec 76)
+/// (docs/WorkerProcess.md sec 78)
 void NTAPI threadStarted(PVOID /*image*/, DWORD reason, PVOID /*reserved*/)
 {
     if (reason == DLL_THREAD_ATTACH && threadGuarantees.load(std::memory_order_relaxed)) {

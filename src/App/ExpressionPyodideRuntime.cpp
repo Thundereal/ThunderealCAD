@@ -520,7 +520,7 @@ public:
         // What the boot made and let go -- the loader's objects, the files
         // it read in -- is garbage V8 had not yet collected, and stood in
         // every process with a guest until it did: a collection now gives
-        // it back. Measured (docs/WorkerProcess.md sec 76): a worker's
+        // it back. Measured (docs/WorkerProcess.md sec 78): a worker's
         // footprint 145 -> 127 MB, the boot ~1.50 -> ~1.51 s, the first
         // expressions as fast
         isolate->LowMemoryNotification();

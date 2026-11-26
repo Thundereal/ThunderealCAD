@@ -1,5 +1,5 @@
 """The mesh helpers' parameters, read on the GUI thread (docs/WorkerProcess.md
-sec 75).
+sec 77).
 
 A call to the helpers comes on any thread -- the pre-mesh's are the compute
 pool's -- and a parameter group has no lock. The copies of the parameters a

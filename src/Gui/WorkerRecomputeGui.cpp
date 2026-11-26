@@ -102,7 +102,7 @@ void onChanged(const App::Document& doc)
                            .arg(info.applySeconds, 0, 'f', 1);
         if (info.applied > was.applied && info.leftOut > 0) {
             // A split one with a part an edit dropped: that part is left as
-            // the edit left it (docs/WorkerProcess.md sec 75)
+            // the edit left it (docs/WorkerProcess.md sec 77)
             text += QObject::tr("; %1 objects left to recompute, the design changed under them")
                         .arg(info.leftOut);
         }

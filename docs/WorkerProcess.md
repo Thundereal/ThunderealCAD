@@ -4444,7 +4444,7 @@ from run to run and between processes of the same run, the standby among
 them. About half of a worker's footprint with a runtime is one region kind
 (`footprint`: "app-specific tag 16", 72-82 MB dirty), the rest malloc.
 (That region is V8's own, and 18 MB of a worker's footprint was garbage
-the boot left: sec 76.)
+the boot left: sec 78.)
 
 Two things the tests found on the way:
 
@@ -4609,7 +4609,7 @@ Tests (`parttests.MeshServiceTest`): `testTheHelpersAreOneAThreadByDefault`,
 `ServiceIdleSeconds` 0.3: its process ends, and the next call meshes in a
 new one). TestPartApp 453 OK.
 
-## 72. What reading the worker code over found (2026-11-26)
+## 74. What reading the worker code over found (2026-11-26)
 
 The worker code read whole, for faults rather than for a feature: the pool,
 the recompute client, the helpers, the crash reports. What was fixed:
@@ -4690,7 +4690,7 @@ Tests: `TestWorkerPool` 91 OK (new:
 skipping document (8 claims), and the other ten worker GUI tests.
 
 Found and left as it is, by what it would cost (the first, the third and
-the fourth taken up in sec 73):
+the fourth taken up in sec 75):
 
 - No stage of a worker's life but a claimed job has a deadline: one that
   never says it is ready, or does not end when told to quit, stands in the
@@ -4712,9 +4712,9 @@ the fourth taken up in sec 73):
 - The crash handler's other stack is the installing thread's only, and
   the helpers read the parameters from their threads with no lock.
 
-## 73. A result not put in leaves its worker's copy ahead (2026-11-26)
+## 75. A result not put in leaves its worker's copy ahead (2026-11-26)
 
-Taking up what sec 72 left found a fault older than any of it.
+Taking up what sec 74 left found a fault older than any of it.
 
 **A worker's recompute changes its copy.** That is the design: its result
 brings the document here to where the copy is, and the worker then moves
@@ -4773,14 +4773,14 @@ Tests (`TestWorkerPool`, 94 OK): `testAResultNotPutInIsNotBuiltOn`,
 `testAWorkerNotReadyInTimeIsEnded` (`ReadySeconds` 0.001: every worker
 ended, the pool stopped, the job told Cancelled).
 
-Left of sec 72's list: `send()`'s 2 s, the temp directories' names, a
+Left of sec 74's list: `send()`'s 2 s, the temp directories' names, a
 header of the wrong shape in a slot, sizes past 4 GiB, a split part
 dropped for an edit made here, a put-in that threw counted as applied, the
 crash handler's stack and the helpers' unlocked parameter reads.
 
-## 74. The rest of what the reading found (2026-11-26)
+## 76. The rest of what the reading found (2026-11-26)
 
-What sec 73 left of sec 72's list, by what each could cost:
+What sec 75 left of sec 74's list, by what each could cost:
 
 **A write that stood for 2 s ended the worker.** `send()` waited 2 s for
 the bytes to go and took a write still standing for the other end gone. A
@@ -4833,9 +4833,9 @@ put-in that threw counted as applied; the crash handler's other stack on
 the installing thread only; the helpers reading the parameters from their
 threads with no lock.
 
-## 75. The last of what the reading found (2026-11-26)
+## 77. The last of what the reading found (2026-11-26)
 
-What sec 74 left of sec 72's list.
+What sec 76 left of sec 74's list.
 
 **A size past 4 GiB was narrowed.** A message gives its header's length
 and its body's in four bytes each; one past that went with the length cut
@@ -4869,7 +4869,7 @@ the workers the rows it had written as theirs, and counted what it had
 made of a quarantined object as a clean run. Now an abort counts as a
 drop (`Cancelled`; the GUI then says so and runs nothing here) and
 anything else that comes out as a failure (`Failed`, which the GUI
-recomputes here); in both the workers' copies are let go (sec 73), as the
+recomputes here); in both the workers' copies are let go (sec 75), as the
 document is not where they are. No test: an abort comes from the progress
 bar only, and `execute()` of a Python feature cannot make one (its error
 is a `Base::PyException`, which `_recomputeFeature()` takes for the
@@ -4901,13 +4901,13 @@ turns). `prepare()` writes the text it is given. The helpers start with
 the parameters as they were at the last copy, as before they started with
 those at the first call.
 
-**Why a worker did not send back a value made the same** (sec 73): with
+**Why a worker did not send back a value made the same** (sec 75): with
 `Document/OptimizeRecompute` on, its default, `Property::aboutToSetValue()`
 keeps the old value and `hasSetValue()` returns before `touch()` when the
 new one is the same, so no `signalChangedObject` is sent and the worker's
 `Recorder`, which notes what an `execute()` writes from that signal, has
 nothing to note. In a copy ahead of the document the value is already
-there. Letting the worker go (sec 73) is then the fix, not a way round.
+there. Letting the worker go (sec 75) is then the fix, not a way round.
 Seen, console, an `App::FeatureTest` holding `Integer` 5 and an observer of
 `slotChangedObject`: `Integer = 5` is signalled 0 times with
 `OptimizeRecompute` on and once with it off; `Integer = 6` once with
@@ -4925,11 +4925,11 @@ first call made from another thread -- by a helper, and their copy holds
 it. That checks the copy is made where it now is; a race is not a thing a
 test shows. Not tested: a message past 4 GiB, a put-in that threw.
 
-Nothing is left of sec 72's list.
+Nothing is left of sec 74's list.
 
-## 76. What sec 75 left open (2026-11-26)
+## 78. What sec 77 left open (2026-11-26)
 
-**A put-in the user stops, tested.** Sec 75 counted a put-in that threw
+**A put-in the user stops, tested.** Sec 77 counted a put-in that threw
 an abort as a drop, untested: a Python feature's `execute()` cannot throw
 one (its `FreeCADAbort` is reported and rethrown as a `Base::PyException`
 by the hook's error policy, `ReportThrow`, so `_recomputeFeature()` takes
@@ -4949,7 +4949,7 @@ box, nothing executed here. A failure other than an abort (`Failed`) is
 still untested: what `Document::recompute()` lets out is an abort, and
 anything else in it is caught there.
 
-**Windows threads have the handler's room too.** Sec 75 gave each thread
+**Windows threads have the handler's room too.** Sec 77 gave each thread
 a worker starts on macOS a stack of its own for the crash handler. On
 Windows the handler, the unhandled-exception filter, runs on the faulting
 thread, and what it has left after a stack overflow is what

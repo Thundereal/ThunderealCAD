@@ -367,12 +367,12 @@ class TestWorkerPool(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform in ("darwin", "win32"),
                          "a thread is given the handler's stack on macOS and Windows only"
-                         " (secs 75, 76)")
+                         " (secs 77, 78)")
     def testAThreadAWorkerStartsHasTheCrashHandlersStack(self):
         """A thread a worker starts has a stack for the crash handler of its
         own -- on Windows, room kept back on its stack: one that runs out of
         stack is reported, not taken down again in the handler. A process
-        that is no worker gives none (docs/WorkerProcess.md secs 75, 76)"""
+        that is no worker gives none (docs/WorkerProcess.md secs 77, 78)"""
         want = 64 * 1024 if sys.platform == "win32" else 256 * 1024
         if sys.platform == "win32":
             # what Windows keeps back of its own is not said to be none
@@ -586,7 +586,7 @@ class TestWorkerPool(unittest.TestCase):
     def testAWorkerNotReadyInTimeIsEnded(self):
         """A worker that does not say it is ready within ReadySeconds is
         ended, where the queue stood behind it with no end; one after the
-        other, the pool stops and its jobs are told (sec 73)"""
+        other, the pool stops and its jobs are told (sec 75)"""
         self.settings(1)
         group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
         group.SetFloat("ReadySeconds", 0.001)
@@ -606,7 +606,7 @@ class TestWorkerPool(unittest.TestCase):
     def testThePoolsDirectoryIsItsOwn(self):
         """What the workers are given and write is in a directory made for
         this pool, under a name not to be told beforehand, the user's alone
-        (docs/WorkerProcess.md sec 74)"""
+        (docs/WorkerProcess.md sec 76)"""
         import re
 
         self.settings(1)
@@ -1545,7 +1545,7 @@ class TestWorkerRecompute(unittest.TestCase):
         the second half's job: the first half is put in, and Right and its
         tail are left to the next recompute, as an edit leaves what it
         drops -- not executed here as the first half is put in
-        (docs/WorkerProcess.md sec 75)"""
+        (docs/WorkerProcess.md sec 77)"""
         base, left, right, tails = self.splitChains()
         made = right.MadeBy
         base.Input = 2
@@ -2278,7 +2278,7 @@ class TestWorkerRecompute(unittest.TestCase):
         """A recompute here takes the one a worker is making and waits for
         it; the worker dies in an object's execute() meanwhile. The object is
         refused as after any crash, not executed here next
-        (docs/WorkerProcess.md sec 72)"""
+        (docs/WorkerProcess.md sec 74)"""
         warm = self.counted("Warm")
         self.doc.recompute()
         warm.Input = 1
@@ -2306,7 +2306,7 @@ class TestWorkerRecompute(unittest.TestCase):
         """A recompute of one object run here while the document's is with a
         worker takes the worker's result and uses none of it: what the
         result was made for is handed over again, not left touched with the
-        result spent (docs/WorkerProcess.md sec 73)"""
+        result spent (docs/WorkerProcess.md sec 75)"""
         slow = self.counted("Slow", Input=2, Sleep=1.0)
         tail = self.counted("Tail")
         tail.setExpression("Input", "Slow.Result")
@@ -2337,7 +2337,7 @@ class TestWorkerRecompute(unittest.TestCase):
         the result would have brought the document: what the next recompute
         makes the same there is not written again, and would not come back.
         Its worker is let go, and the next is made on a copy of the document
-        as it is (docs/WorkerProcess.md sec 73)"""
+        as it is (docs/WorkerProcess.md sec 75)"""
         slow = self.counted("Slow", Input=2, Sleep=0.3)
         tail = self.counted("Tail")
         tail.setExpression("Input", "Slow.Result")
@@ -2363,7 +2363,7 @@ class TestWorkerRecompute(unittest.TestCase):
     def testADocumentThatSkipsRecomputesIsHandedOverOnlyForced(self):
         """A document that skips recomputes: not handed over unless forced,
         as its own recompute() makes nothing unless forced; forced, the
-        worker's result is put in (docs/WorkerProcess.md sec 72)"""
+        worker's result is put in (docs/WorkerProcess.md sec 74)"""
         one = self.counted("One", Input=3)
         self.doc.RecomputesFrozen = True
         self.assertFalse(self.pool.recompute())

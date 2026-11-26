@@ -390,7 +390,7 @@ constexpr std::size_t MessageMost = 0xffffffffu;
 
 /// A message, or nothing for one that does not fit: a length narrowed to
 /// four bytes would have the other end read the rest of it as messages
-/// (docs/WorkerProcess.md sec 75). send() fails on nothing.
+/// (docs/WorkerProcess.md sec 77). send() fails on nothing.
 QByteArray message(const json& header, const std::string& body = std::string())
 {
     // Text that is not UTF-8 -- a console line with a path in the system's
@@ -469,7 +469,7 @@ bool send(QLocalSocket& socket, const json& header)
     // stays with the socket, which writes it in its next wait, here or for
     // something to read, and with the event loop. A write that stood for
     // 2 s used to count as the other end gone, which ended a worker in a
-    // long job that was sent a large setup (docs/WorkerProcess.md sec 74)
+    // long job that was sent a large setup (docs/WorkerProcess.md sec 76)
     QElapsedTimer waited;
     waited.start();
     while (socket.bytesToWrite() > 0) {
@@ -1094,7 +1094,7 @@ struct WorkerPool::Private
         double spawnedAt = 0;   ///< when it was started, or taken standing
         /// When it last said anything, or was last told what it has to
         /// answer -- started, to open or move, to quit: one not heard from
-        /// for too long after that is ended (checkStalled(), sec 73)
+        /// for too long after that is ended (checkStalled(), sec 75)
         double heardAt = 0;
         std::string log;        ///< where what it says goes
         double idleSince = 0;   ///< when it last had nothing, 0 while busy

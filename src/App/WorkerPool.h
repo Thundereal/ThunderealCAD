@@ -158,7 +158,7 @@ public:
         /// result is what brings the document here to where that copy is --
         /// a recompute. Its result thrown away, or told spoiled(), the copy
         /// is ahead of the document and its worker is let go: values the
-        /// next job makes the same there would not be sent again (sec 73)
+        /// next job makes the same there would not be sent again (sec 75)
         bool writes = false;
         /// Called once, from the thread the pool runs in, unless the
         /// client cancels the job or claims it while it is queued
@@ -191,7 +191,7 @@ public:
         int keptOpen = 0;
         long keptOpenTimes = 0;  ///< times one was kept so
         long letGo = 0;          ///< of them, let go of for the memory
-        long stalled = 0;        ///< ended for not answering in time (sec 73)
+        long stalled = 0;        ///< ended for not answering in time (sec 75)
         long spoiled = 0;        ///< let go of, their copy ahead of the document
         int busy = 0;      ///< running a job
         std::size_t queued = 0;
@@ -241,7 +241,7 @@ public:
      * for what its helper processes are given and write: `<kind>-<pid>-
      * <what>-<random>`, made here and for the user alone. Never one found
      * there: the name cannot be told beforehand, and one that exists is
-     * not used (docs/WorkerProcess.md sec 74). Empty when none can be
+     * not used (docs/WorkerProcess.md sec 76). Empty when none can be
      * made. The first call removes those that processes no longer running
      * left behind.
      */

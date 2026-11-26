@@ -3679,7 +3679,7 @@ void Application::initApplication()
     CacheSweep::start();
 
     // What the service helpers are started by, read on this thread: their
-    // calls come on any (docs/WorkerProcess.md sec 75)
+    // calls come on any (docs/WorkerProcess.md sec 77)
     ServiceWorkers::init();
 }
 

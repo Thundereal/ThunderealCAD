@@ -67,6 +67,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/range/algorithm/replace_if.hpp>
@@ -309,6 +310,8 @@ struct ImportOCAF2::ColorInfo {
     App::Color edgeColor;
     bool hasFaceColor = false;
     bool hasEdgeColor = false;
+    /// The faces and edges the file hides (STEP: a style each listed by an INVISIBILITY)
+    std::unordered_set<const TopoDS_TShape*> hiddenElements;
 };
 
 // Check for uniform color
@@ -484,7 +487,12 @@ void ImportOCAF2::scanElementColors(TDF_Label label,
             for (auto type : {TopAbs_FACE, TopAbs_EDGE}) {
                 for (TopExp_Explorer xp(sub, type); xp.More(); xp.Next()) {
                     hidden.Add(xp.Current());
+                    colors.hiddenElements.insert(xp.Current().TShape().get());
                 }
+            }
+            // A point (NIST STC-09 -e3's hidden curve sets of one point each)
+            for (TopExp_Explorer xp(sub, TopAbs_VERTEX); xp.More(); xp.Next()) {
+                colors.hiddenElements.insert(xp.Current().TShape().get());
             }
         }
         using Map = NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>;
@@ -882,6 +890,56 @@ void ImportOCAF2::scanMaterialGroups(TDF_Label label,
     }
 }
 
+/// The members of a compound, through compounds of one member (NIST STC-09 -e3's wireframe: a
+/// compound of one compound of its 118 curve sets)
+static std::vector<TopoDS_Shape> compoundMembers(const TopoDS_Shape& shape)
+{
+    TopoDS_Shape at = shape;
+    for (;;) {
+        std::vector<TopoDS_Shape> out;
+        if (at.IsNull() || at.ShapeType() != TopAbs_COMPOUND) {
+            return out;
+        }
+        for (TopoDS_Iterator it(at); it.More(); it.Next()) {
+            out.push_back(it.Value());
+        }
+        if (out.size() != 1 || out.front().ShapeType() != TopAbs_COMPOUND) {
+            return out;
+        }
+        at = out.front().Moved(at.Location());
+    }
+}
+
+/// Which members of a compound the file hides, member by member (NIST STC-09's shells and
+/// sketches beside its solid): each hidden when every face of it is (every edge, of one with
+/// no face; every point, of one with neither). None when no member is hidden, or every one --
+/// the object is hidden whole then (hideInvisible())
+static std::vector<bool> hiddenMembers(const TopoDS_Shape& shape,
+                                       const std::unordered_set<const TopoDS_TShape*>& hidden)
+{
+    std::vector<bool> out;
+    if (hidden.empty()) {
+        return {};
+    }
+    std::size_t count = 0;
+    for (const TopoDS_Shape& member : compoundMembers(shape)) {
+        const TopAbs_ShapeEnum type = TopExp_Explorer(member, TopAbs_FACE).More() ? TopAbs_FACE
+            : TopExp_Explorer(member, TopAbs_EDGE).More()                        ? TopAbs_EDGE
+                                                                                  : TopAbs_VERTEX;
+        bool any = false, all = true;
+        for (TopExp_Explorer xp(member, type); xp.More() && all; xp.Next()) {
+            any = true;
+            all = hidden.count(xp.Current().TShape().get()) > 0;
+        }
+        out.push_back(any && all);
+        count += out.back() ? 1 : 0;
+    }
+    if (out.size() < 2 || count == 0 || count == out.size()) {
+        return {};
+    }
+    return out;
+}
+
 bool ImportOCAF2::createObject(App::Document* doc,
                                TDF_Label label,
                                const TopoDS_Shape& shape,
@@ -981,6 +1039,83 @@ bool ImportOCAF2::createObject(App::Document* doc,
                 && createGroup(doc, info, shape, children, visibilities)) {
                 return true;
             }
+        }
+    }
+
+    // Members the file hides one by one (STEP INVISIBILITY: NIST STC-09's shells and
+    // sketches beside its solid): one object each, those hidden hidden, in a container
+    // written as one shape again (ExportOCAF2::OneShapeProperty) -- one object hides no part
+    // of itself
+    const std::vector<bool> hidden = hiddenMembers(shape, colors.hiddenElements);
+    if (!hidden.empty() && !options.useLinkGroup) {
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faceMap, edgeMap;
+        TopExp::MapShapes(shape, TopAbs_FACE, faceMap);
+        TopExp::MapShapes(shape, TopAbs_EDGE, edgeMap);
+        RenderMaterial rmat;
+        const bool hasRenderMaterial = getRenderMaterial(label, rmat);
+        std::vector<App::DocumentObject*> children;
+        boost::dynamic_bitset<> visibilities;
+        std::size_t i = 0;
+        for (const TopoDS_Shape& member : compoundMembers(shape)) {
+            const std::size_t index = i++;
+            Part::TopoShape tmember(member);
+            auto child = static_cast<Part::Feature*>(
+                doc->addObject("Part::Feature", tmember.shapeName().c_str()));
+            child->Shape.setValue(member);
+            TDF_Label memberL;
+            if (aShapeTool->FindSubShape(label, member, memberL)) {
+                std::string name = getLabelName(memberL);
+                if (!name.empty()) {
+                    child->Label.setValue(name.c_str());
+                }
+            }
+            // Its own faces' and edges' looks, as the whole had them
+            std::vector<App::Color> childFaces, childEdges;
+            std::vector<App::MaterialAppearance> childMats;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> memberFaces, memberEdges;
+            TopExp::MapShapes(member, TopAbs_FACE, memberFaces);
+            TopExp::MapShapes(member, TopAbs_EDGE, memberEdges);
+            for (int j = 1; j <= memberFaces.Extent(); ++j) {
+                const int idx = faceMap.FindIndex(memberFaces(j)) - 1;
+                if (idx >= 0 && idx < int(colors.faceColors.size())) {
+                    childFaces.push_back(colors.faceColors[idx]);
+                }
+                if (idx >= 0 && idx < int(colors.faceMaterials.size())) {
+                    childMats.push_back(colors.faceMaterials[idx]);
+                }
+            }
+            for (int j = 1; j <= memberEdges.Extent(); ++j) {
+                const int idx = edgeMap.FindIndex(memberEdges(j)) - 1;
+                if (idx >= 0 && idx < int(colors.edgeColors.size())) {
+                    childEdges.push_back(colors.edgeColors[idx]);
+                }
+            }
+            applyFaceColors(child, {info.faceColor});
+            applyEdgeColors(child, {info.edgeColor});
+            if (!childMats.empty() && int(childMats.size()) == memberFaces.Extent()) {
+                applyFaceMaterials(child, childMats, colors.pbrMaterials);
+            }
+            else if (!childFaces.empty() && int(childFaces.size()) == memberFaces.Extent()) {
+                applyFaceColors(child, childFaces);
+            }
+            if (!childEdges.empty() && int(childEdges.size()) == memberEdges.Extent()) {
+                applyEdgeColors(child, childEdges);
+            }
+            if (hasRenderMaterial) {
+                applyRenderMaterial(child, rmat);
+            }
+            children.push_back(child);
+            visibilities.push_back(!hidden[index]);
+        }
+        if (createGroup(doc, info, shape, children, visibilities, false)) {
+            auto prop = static_cast<App::PropertyBool*>(info.obj->addDynamicProperty(
+                "App::PropertyBool",
+                ExportOCAF2::OneShapeProperty,
+                "Export",
+                "Written to STEP as one product, each child a shape representation of it, not "
+                "as an assembly of them"));
+            prop->setValue(true);
+            return true;
         }
     }
 
@@ -1634,9 +1769,10 @@ int ImportOCAF2::analyzeObject(TDF_Label label, const TopoDS_Shape& shape)
 
     MaterialGroups matGroups;
     scanMaterialGroups(label, colors.tshape, matGroups);
-    if (matGroups.split) {
-        // Would split into one feature per material group; hand the
-        // whole import back to the synchronous path.
+    if (matGroups.split
+        || (!options.useLinkGroup && !hiddenMembers(shape, colors.hiddenElements).empty())) {
+        // Would split into one feature per material group, or per member the file hides
+        // alone; hand the whole import back to the synchronous path.
         myProgFailed = true;
         return -1;
     }

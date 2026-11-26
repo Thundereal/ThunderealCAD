@@ -1331,19 +1331,39 @@ class TestNistSet(Base):
         """What a file does not show -- PMI graphics an INVISIBILITY lists
         (STC-08's 29, STC-09's 75), their callouts (FTC-09's 44) and
         placeholders (STC-06's 19), a surface beside the solid whose styles
-        it lists (STC-08's, CTC-02's) -- is read hidden and written hidden
-        again, each graphic as NIST hides it"""
+        it lists (STC-08's, CTC-02's), the members of the part's shape it
+        hides one by one (STC-09's 5 shells and 29 curves, FTC-10's curves:
+        read as an object each) -- is read hidden and written hidden again,
+        each graphic and each kind of item as NIST hides it"""
         nist = os.environ["FC_PMI_NIST"]
 
         def hidden(path):
-            """The annotation occurrences an invisibility lists, and how many
-            styles of surface models"""
+            """The annotation occurrences an invisibility lists, and the members
+            of the part's shape it lists the styles of: curves and surface models
+            (a curve hidden as itself or as the set it is in, as OCCT writes it;
+            not supplemental geometry, nor a bare surface or point, I12). A set of a
+            point (STC-09 -e3's 9) is a point: read hidden, but OCCT writes a part's
+            points as one set, no item to hide each by -- not compared"""
             with open(path, errors="replace") as f:
                 text = re.sub(r"\s+", "", f.read())
             ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
-            typ = lambda i: ents.get(i, "").split("(")[0]
+            typ = lambda i: ents.get(i, "").lstrip("(").split("(")[0]
             name = lambda i: (re.findall(r"'([^']*)'", ents[i]) or [""])[0]
-            graphics, surfaces = collections.Counter(), 0
+            refs = lambda i: re.findall(r"#(\d+)", ents.get(i, ""))
+            supplemental = set()
+            for k, v in ents.items():
+                if v.startswith("CONSTRUCTIVE_GEOMETRY_REPRESENTATION("):
+                    todo = refs(k)[:-1]
+                    while todo:
+                        i = todo.pop()
+                        if i not in supplemental:
+                            supplemental.add(i)
+                            if typ(i) in ("GEOMETRIC_CURVE_SET", "GEOMETRIC_SET",
+                                          "COMPOSITE_CURVE"):
+                                todo += refs(i)
+            curves = ("TRIMMED_CURVE", "COMPOSITE_CURVE", "LINE", "GEOMETRIC_CURVE_SET",
+                      "POLYLINE", "CIRCLE", "B_SPLINE_CURVE_WITH_KNOTS", "ELLIPSE")
+            graphics, items = collections.Counter(), collections.Counter()
             for v in ents.values():
                 if not v.startswith("INVISIBILITY("):
                     continue
@@ -1357,31 +1377,47 @@ class TestNistSet(Base):
                     elif "ANNOTATION" in typ(r) and "OCCURRENCE" in typ(r):
                         graphics["graphic", ""] += 1
                     elif "STYLED_ITEM" in typ(r):
-                        refs = re.findall(r"#(\d+)", ents[r])
-                        surfaces += typ(refs[-1]) == "SHELL_BASED_SURFACE_MODEL"
-            return graphics, surfaces
+                        item = refs(r)[-1]
+                        if item in supplemental:
+                            continue
+                        points = typ(item) == "GEOMETRIC_CURVE_SET" and all(
+                            typ(m) == "CARTESIAN_POINT" for m in refs(item))
+                        if points:
+                            continue
+                        if typ(item) in curves:
+                            items["curves"] += 1
+                        elif typ(item) == "SHELL_BASED_SURFACE_MODEL":
+                            items["surface models"] += 1
+            return graphics, items
 
         for name in ("nist_stc_08_asme1_ap242-e3.stp", "nist_stc_09_asme1_ap242-e4.stp",
                      "nist_ctc_02_asme1_ap242-e2.stp", "nist_ftc_09_asme1_ap242-e1.stp",
-                     "nist_stc_06_asme1_ap242-e3.stp"):
+                     "nist_stc_06_asme1_ap242-e3.stp", "nist_ftc_10_asme1_ap242-e2.stp",
+                     "nist_ctc_04_asme1_ap242-e1.stp"):
             path = edition(os.path.join(nist, name))
             with self.subTest(os.path.basename(path)):
-                graphics, surfaces = hidden(path)
+                graphics, items = hidden(path)
                 doc = self.read(path)
                 if graphics:
                     self.assertTrue([o for o in doc.Objects if o.isDerivedFrom("PMI::Callout")
                                      and not o.Visibility])
                 shells = [o for o in doc.Objects if o.TypeId == "Part::Feature"
                           and not o.Shape.Solids and o.Shape.Faces and not supplemental_group(o)]
-                # A surface model of its own: hidden whole (STC-09's are one compound
-                # with others, of which an object hides no part)
-                if surfaces and shells:
+                # A surface model of its own: hidden whole
+                if items["surface models"] and shells:
                     self.assertFalse(shells[0].Visibility)
+                # Members of one shape hidden one by one: an object each, in a container
+                # written as one shape (STC-09's compound of its solid, shells and curves)
+                if "stc_09" in name:
+                    split = [o for o in doc.Objects if getattr(o, "ExportAsOneShape", False)
+                             and o.TypeId == "App::Part"
+                             and any(not c.Visibility for c in o.Group)
+                             and any(c.Visibility for c in o.Group)]
+                    self.assertTrue(split)
                 self.write_and_read(doc)
-                got_graphics, got_surfaces = hidden(self.written)
+                got_graphics, got_items = hidden(self.written)
                 self.assertEqual(got_graphics, graphics)
-                if shells:
-                    self.assertEqual(bool(got_surfaces), bool(surfaces))
+                self.assertEqual(got_items, items)
 
     def test_supplemental_geometry_as_the_file_has_it(self):
         """A part's supplemental geometry -- its constructive geometry

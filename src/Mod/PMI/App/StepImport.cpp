@@ -221,7 +221,7 @@ private:
         bool solid = false;
         for (auto& l : labels) {
             TDF_Label owner = XCAFDoc_ShapeTool::IsSubShape(l) ? l.Father() : l;
-            auto feat = freecad_cast<Part::Feature*>(_info.objectOf(owner));
+            auto feat = objectOf(l);
             if (!feat) {
                 why = "no object was made for shape " + entry(owner);
                 return false;
@@ -231,15 +231,34 @@ private:
             solid = solid || hasSolid(feat);
         }
         // Faces on a solid and on surfaces beside it (supplemental geometry,
-        // NIST FTC-10): the solid is the part, those beside it kept beside
+        // NIST FTC-10): the solid is the part, those beside it kept beside. On
+        // members of one shape the import made an object each (ImportOCAF2: members
+        // the file hides one by one, FTC-10's thread cylinders), the first is the
+        // feature's object, the others beside it
         bool several = std::any_of(refs.begin(), refs.end(), [&](const auto& r) {
             return r.second != refs.front().second;
         });
+        Part::Feature* primary = nullptr;
+        for (auto& [l, feat] : refs) {
+            if (!(exact && tessellated(_shapes->GetShape(l))) && (!solid || hasSolid(feat))) {
+                primary = feat;
+                break;
+            }
+        }
+        auto members = [](Part::Feature* a, Part::Feature* b) {
+            auto group = a && b ? App::GeoFeatureGroupExtension::getGroupOfObject(a) : nullptr;
+            auto prop = group ? freecad_cast<App::PropertyBool*>(group->getPropertyByName(
+                                    Import::ExportOCAF2::OneShapeProperty))
+                              : nullptr;
+            return prop && prop->getValue()
+                && App::GeoFeatureGroupExtension::getGroupOfObject(b) == group;
+        };
         for (auto& [l, feat] : refs) {
             if (exact && tessellated(_shapes->GetShape(l))) {
                 continue;
             }
-            const bool isBeside = several && solid && !hasSolid(feat);
+            const bool isBeside = several && feat != primary
+                && (solid ? !hasSolid(feat) : members(feat, primary));
             if (!isBeside && out.object && out.object != feat) {
                 why = "it refers to faces of two objects";
                 return false;
@@ -437,7 +456,7 @@ private:
         if (!over || labels.Length() != 1 || XCAFDoc_ShapeTool::IsSubShape(labels.First())) {
             return false;
         }
-        auto feat = freecad_cast<Part::Feature*>(_info.objectOf(labels.First()));
+        auto feat = objectOf(labels.First());
         if (!feat) {
             // The product's shape read as several objects (its solid, and
             // the surfaces and curves beside it): the one with its solid
@@ -542,22 +561,43 @@ private:
         if (!obj || hasSolid(obj)) {
             return obj;
         }
-        auto group = App::GeoFeatureGroupExtension::getGroupOfObject(obj);
-        if (!group) {
-            return obj;
-        }
-        Part::Feature* solid = nullptr;
-        auto ext = group->getExtensionByType<App::GeoFeatureGroupExtension>();
-        for (auto o : ext->Group.getValues()) {
-            auto feat = freecad_cast<Part::Feature*>(o);
-            if (feat && feat != obj && hasSolid(feat)) {
-                if (solid) {
-                    return obj;
+        // In a container written as one shape with no solid (ImportOCAF2's object for each
+        // member the file hides one by one: FTC-10's thread curves), the one it is in
+        for (auto group = App::GeoFeatureGroupExtension::getGroupOfObject(obj); group;
+             group = App::GeoFeatureGroupExtension::getGroupOfObject(group)) {
+            Part::Feature* solid = nullptr;
+            auto ext = group->getExtensionByType<App::GeoFeatureGroupExtension>();
+            // Its objects, and those of a container in it written as one shape (the members
+            // of a compound made an object each: the solid among them)
+            std::vector<App::DocumentObject*> objs = ext->Group.getValues();
+            for (std::size_t i = 0; i < objs.size(); ++i) {
+                auto prop = freecad_cast<App::PropertyBool*>(
+                    objs[i]->getPropertyByName(Import::ExportOCAF2::OneShapeProperty));
+                auto inner = objs[i]->getExtensionByType<App::GeoFeatureGroupExtension>(true);
+                if (prop && prop->getValue() && inner) {
+                    auto more = inner->Group.getValues();
+                    objs.insert(objs.end(), more.begin(), more.end());
                 }
-                solid = feat;
+            }
+            for (auto o : objs) {
+                auto feat = freecad_cast<Part::Feature*>(o);
+                if (feat && feat != obj && hasSolid(feat)) {
+                    if (solid) {
+                        return obj;
+                    }
+                    solid = feat;
+                }
+            }
+            if (solid) {
+                return solid;
+            }
+            auto prop = freecad_cast<App::PropertyBool*>(
+                group->getPropertyByName(Import::ExportOCAF2::OneShapeProperty));
+            if (!prop || !prop->getValue()) {
+                break;
             }
         }
-        return solid ? solid : obj;
+        return obj;
     }
 
     /// The file's plane and text point, in the object's placement
@@ -989,8 +1029,16 @@ private:
         if (XCAFDoc_ShapeTool::IsReference(label)) {
             XCAFDoc_ShapeTool::GetReferredShape(label, l);
         }
+        // The object made of the label itself: a compound made an object each of its
+        // members (ImportOCAF2's members the file hides one by one) is in the container made
+        // of it, not a member
         if (!XCAFDoc_ShapeTool::IsAssembly(l)) {
-            return objectOf(l);
+            auto obj = _info.objectOf(l);
+            return obj && (freecad_cast<Part::Feature*>(obj)
+                           || obj->hasExtension(
+                               App::GeoFeatureGroupExtension::getExtensionClassTypeId()))
+                ? obj
+                : nullptr;
         }
         NCollection_Sequence<TDF_Label> comps;
         XCAFDoc_ShapeTool::GetComponents(l, comps);
@@ -999,7 +1047,7 @@ private:
             if (!XCAFDoc_ShapeTool::GetReferredShape(c, proto)) {
                 continue;
             }
-            if (auto obj = objectOf(proto)) {
+            if (auto obj = _info.objectOf(proto)) {
                 if (auto group = App::GeoFeatureGroupExtension::getGroupOfObject(obj)) {
                     return group;
                 }
@@ -1384,7 +1432,24 @@ private:
                 }
             }
             if (left.IsNull()) {
+                // A member of a shape the import made an object each of (ImportOCAF2:
+                // members the file hides one by one) -- the last of it, its container too
+                auto group = App::GeoFeatureGroupExtension::getGroupOfObject(feat);
                 _info.doc->removeObject(feat->getNameInDocument());
+                auto prop = group ? freecad_cast<App::PropertyBool*>(group->getPropertyByName(
+                                        Import::ExportOCAF2::OneShapeProperty))
+                                  : nullptr;
+                auto ext = group ? group->getExtensionByType<App::GroupExtension>(true) : nullptr;
+                if (prop && prop->getValue() && ext && ext->Group.getValues().empty()) {
+                    // Out of its own container first: deleted while in it, the container's
+                    // list of what it groups lost most of it (FTC-10's product)
+                    if (auto parent = App::GeoFeatureGroupExtension::getGroupOfObject(group)) {
+                        if (auto pext = parent->getExtensionByType<App::GroupExtension>(true)) {
+                            pext->removeObject(group);
+                        }
+                    }
+                    _info.doc->removeObject(group->getNameInDocument());
+                }
             }
             else {
                 Base::Placement pla = feat->Placement.getValue();
@@ -1400,11 +1465,60 @@ private:
         return std::string(part ? part->getNameInDocument() : "") + ":" + letter;
     }
 
-    /// The object made for a shape label or its owner
+    /// The object made for a shape label or its owner. Of a compound the import made an object
+    /// of each member of (ImportOCAF2: members the file hides one by one, NIST STC-09's), the
+    /// member's that has the label's shape; for the compound itself, the member's with a solid
     Part::Feature* objectOf(const TDF_Label& l)
     {
         TDF_Label owner = XCAFDoc_ShapeTool::IsSubShape(l) ? l.Father() : l;
-        return freecad_cast<Part::Feature*>(_info.objectOf(owner));
+        App::DocumentObject* obj = _info.objectOf(owner);
+        if (auto feat = freecad_cast<Part::Feature*>(obj)) {
+            return feat;
+        }
+        // (An assembly's container: none -- only a shape's own label is split so)
+        auto ext = obj && !XCAFDoc_ShapeTool::IsAssembly(owner)
+            ? obj->getExtensionByType<App::GeoFeatureGroupExtension>(true)
+            : nullptr;
+        if (!ext) {
+            return nullptr;
+        }
+        std::vector<Part::Feature*> members;
+        for (auto child : ext->Group.getValues()) {
+            if (auto feat = freecad_cast<Part::Feature*>(child)) {
+                members.push_back(feat);
+            }
+        }
+        if (owner == l) {
+            for (auto feat : members) {
+                if (hasSolid(feat)) {
+                    return feat;
+                }
+            }
+            return members.empty() ? nullptr : members.front();
+        }
+        // Its first face, edge or vertex, in a member
+        const TopoDS_Shape sub = _shapes->GetShape(l);
+        for (auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
+            TopExp_Explorer xp(sub, type);
+            if (!xp.More()) {
+                continue;
+            }
+            const TopoDS_TShape* first = xp.Current().TShape().get();
+            for (auto feat : members) {
+                auto& index = _memberElements[{feat, type}];
+                if (index.empty()) {
+                    for (TopExp_Explorer m(feat->Shape.getShape().getShape(), type); m.More();
+                         m.Next()) {
+                        index.insert(m.Current().TShape().get());
+                    }
+                }
+                if (index.count(first)) {
+                    return feat;
+                }
+            }
+            return nullptr;
+        }
+        return nullptr;
     }
 
     /// The first object made with a solid: what a target with no shape is on
@@ -2514,6 +2628,9 @@ public:
     /// Each element of an object by its TShape, its index; 0 if there twice
     std::map<std::pair<Part::Feature*, TopAbs_ShapeEnum>, std::map<const TopoDS_TShape*, int>>
         _elementIndex;
+    /// The elements of each member of a compound made an object each (objectOf), by TShape
+    std::map<std::pair<Part::Feature*, TopAbs_ShapeEnum>, std::set<const TopoDS_TShape*>>
+        _memberElements;
     Part::Feature* _lastObject = nullptr;
     std::vector<Pending> _pending;
 

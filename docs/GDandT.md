@@ -2005,10 +2005,20 @@ compares; it took our curves for none.
   (`XCAFDoc_DimTolTool::SetSupplementalLayer`) and whether it is hidden; the import puts them
   on the object (`StepLayer`: name, description; `StepHidden`), a set of curves not shown; the
   writer gives each its layer again and hides it as it was hidden: kind, name, layer and
-  hidden, item for item, NIST's in all seven files (`test_supplemental_layers_...`). Not done:
-  members of a curve set hidden alone (STC-06's 12), and the part's own sketches and surfaces
-  NIST hides member by member (STC-09, FTC-10, CTC-04: one object in FreeCAD, which hides no
-  part of one).
+  hidden, item for item, NIST's in all seven files (`test_supplemental_layers_...`). The
+  part's own sketches and surfaces NIST hides member by member (STC-09's 5 shells and 29
+  curves, FTC-10's curves; one object in FreeCAD hides no part of itself; user decision
+  2026-11-26: the assembly route): a compound some members of which the file hides, not all,
+  is read as an object each in an App::Part written as one shape again
+  (`ExportOCAF2::OneShapeProperty`), those hidden hidden, each with its own faces' and edges'
+  looks (ImportOCAF2 `hiddenMembers`; the progressive import hands such a file to the direct
+  one). The PMI on them refers to the members it is on, the first its object, the others
+  beside it; the part of a member without a solid is the one its container is in. Written,
+  the members hidden are NIST's, curves and surface models (`test_what_the_file_hides_is_hidden`,
+  now on FTC-10 and CTC-04 too; NIST styles a hidden curve itself, OCCT the set it is in). Not
+  done: members of a curve set hidden alone (STC-06's 12, FTC-10's two axis lines), each a
+  supplemental item; STC-09 -e3's hidden points (curve sets of a point each) are read hidden
+  but not written so -- OCCT writes a part's points as one set.
   Which supplemental items a saved view shows: STC-06's twelve views each map, beside the
   part, a shape representation 'supplemental geometry' of some of the items, described
   'supplemental geometry subset' (a description attribute), as a mapped item of the camera

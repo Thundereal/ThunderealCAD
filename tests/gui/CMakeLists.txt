@@ -2894,3 +2894,9 @@ fc_add_gui_test(GuiAnimationWorkers_tests_run animation-workers.py --timeout 600
 # A tool tip asked for by a widget destroyed in the 80 ms the tip waits: no
 # crash from the show timer, and no tip for what is gone (SmokeTesting step 1).
 fc_add_gui_test(GuiTooltipWidgetGone_tests_run tooltip-widget-gone.py --timeout 300)
+# A workbench whose Initialize() asks for its own command, with the
+# Preferences/Commands record naming it: Initialize() runs once and the
+# records stay (PartDesign lost the Sprocket from Design Generators, and the
+# record at every start; SmokeTesting step 1).
+fc_add_gui_test(GuiWorkbenchInitCommandRecord_tests_run workbench-init-command-record.py
+                --timeout 300)

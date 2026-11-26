@@ -2434,6 +2434,13 @@ Command* CommandManager::getCommandByName(const char* sName) const
         auto workbench = hGrp->GetASCII(sName);
         if (workbench.empty())
             return nullptr;
+        // The workbench the record names is initialising now: a module of its
+        // Initialize() asks before it adds the command (SprocketFeature.py
+        // does). Not there YET -- neither initialise it again from inside
+        // itself nor drop the record it is about to write once more.
+        const char *initializing = Application::Instance->initializingWorkbench();
+        if (initializing && workbench == initializing)
+            return nullptr;
         if (!_sPendingWorkbench.insert(workbench).second) {
             FC_LOG("Recursive loading of command '" << sName << "' from workbench " << workbench);
             return nullptr;

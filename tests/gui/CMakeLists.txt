@@ -463,6 +463,12 @@ fc_add_gui_test(GuiTechDrawDimensionReattach_tests_run techdraw-dimension-reatta
 fc_add_gui_test(GuiTechDrawHatchCenterLineReattach_tests_run techdraw-hatch-centerline-reattach.py
                 --timeout 200)
 
+# 2026-11-26: TechDraw hover sets the preselection (the status bar names what
+# is under the mouse), and a dimension's arrow heads have no holes for the
+# face under them to take the mouse through.
+fc_add_gui_test(GuiTechDrawHoverPreselect_tests_run techdraw-hover-preselect.py
+                --timeout 200)
+
 # Entry 215: every change in a chamfer's panel an undo step of its own, as
 # the fillet's (entry 136); Cancel takes the edit back.
 fc_add_gui_test(GuiChamferUndoSteps_tests_run chamfer-undo-steps.py

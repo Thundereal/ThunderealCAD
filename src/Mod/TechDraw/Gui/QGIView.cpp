@@ -37,6 +37,7 @@
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <Base/Console.h>
+#include <Base/Tools.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
 #include <Gui/Document.h>
@@ -61,8 +62,10 @@
 #include "QGCustomLabel.h"
 #include "QGICaption.h"
 #include "QGIEdge.h"
+#include "QGIFace.h"
 #include "QGIVertex.h"
 #include "QGIViewClip.h"
+#include "QGIViewDimension.h"
 #include "QGSPage.h"
 #include "QGVPage.h"
 #include "Rez.h"
@@ -316,6 +319,8 @@ void QGIView::mouseReleaseEvent(QGraphicsSceneMouseEvent * event)
 
 void QGIView::hoverEnterEvent(QGraphicsSceneHoverEvent *event)
 {
+    // an item inside it, an edge, is entered after it and named over it
+    preselectItem(this, event->scenePos());
     setPreselect(true);
     inherited::hoverEnterEvent(event);
 }
@@ -345,6 +350,7 @@ void QGIView::setPreselect(bool enable)
 
 void QGIView::hoverLeaveEvent(QGraphicsSceneHoverEvent *event)
 {
+    unpreselectItem(this);
     setPreselect(false);
     inherited::hoverLeaveEvent(event);
 }
@@ -888,6 +894,88 @@ bool QGIView::selectionInside(TechDraw::DrawView* dv)
         }
     }
     return false;
+}
+
+bool QGIView::selectionNameOf(const QGraphicsItem* item, std::string& docName,
+                              std::string& objName, std::string& subName)
+{
+    if (!item) {
+        return false;
+    }
+    auto named = [&](const TechDraw::DrawView* obj, const std::string& sub) {
+        if (!obj || !obj->isAttachedToDocument() || obj->isRemoving()) {
+            return false;
+        }
+        docName = obj->getDocument()->getName();
+        objName = obj->getNameInDocument();
+        subName = sub;
+        return true;
+    };
+    auto viewOf = [](const QGraphicsItem* child) -> const TechDraw::DrawView* {
+        auto view = child ? dynamic_cast<const QGIView*>(child->parentItem()) : nullptr;
+        return view ? const_cast<QGIView*>(view)->getViewObject() : nullptr;
+    };
+    // as setTreeToSceneSelect() names what a click selected
+    if (auto edge = qgraphicsitem_cast<const QGIEdge*>(item)) {
+        return named(viewOf(edge), "Edge" + std::to_string(edge->getProjIndex()));
+    }
+    if (auto vertex = qgraphicsitem_cast<const QGIVertex*>(item)) {
+        return named(viewOf(vertex), "Vertex" + std::to_string(vertex->getProjIndex()));
+    }
+    if (auto face = qgraphicsitem_cast<const QGIFace*>(item)) {
+        return named(viewOf(face), "Face" + std::to_string(face->getProjIndex()));
+    }
+    if (auto label = qgraphicsitem_cast<const QGIDatumLabel*>(item)) {
+        return named(viewOf(label), std::string());
+    }
+    if (auto view = dynamic_cast<const QGIView*>(item)) {
+        return named(const_cast<QGIView*>(view)->getViewObject(), std::string());
+    }
+    return false;
+}
+
+namespace
+{
+//! set while the scene sets the preselection (QGIView::preselectingFromScene())
+bool sceneIsPreselecting = false;
+}  // namespace
+
+bool QGIView::preselectingFromScene()
+{
+    return sceneIsPreselecting;
+}
+
+void QGIView::preselectItem(const QGraphicsItem* item, const QPointF& scenePos)
+{
+    std::string doc, obj, sub;
+    if (!selectionNameOf(item, doc, obj, sub)) {
+        return;
+    }
+    // the page's coordinates, as the status bar gives the 3D view's
+    Base::StateLocker guard(sceneIsPreselecting);
+    Gui::Selection().setPreselect(doc.c_str(), obj.c_str(), sub.c_str(),
+                                  float(Rez::appX(scenePos.x())), float(-Rez::appX(scenePos.y())),
+                                  0.0f, Gui::SelectionChanges::MsgSource::Any, true);
+}
+
+void QGIView::unpreselectItem(const QGraphicsItem* item)
+{
+    std::string doc, obj, sub;
+    if (!selectionNameOf(item, doc, obj, sub)) {
+        return;
+    }
+    const Gui::SelectionChanges& current = Gui::Selection().getPreselection();
+    if (current.pDocName && current.pObjectName && doc == current.pDocName
+        && obj == current.pObjectName && sub == (current.pSubName ? current.pSubName : "")) {
+        Base::StateLocker guard(sceneIsPreselecting);
+        Gui::Selection().rmvPreselect();
+    }
+    // off an edge of a view, still over the view: the view is what is under
+    // the mouse now
+    auto parent = dynamic_cast<const QGIView*>(item->parentItem());
+    if (parent && parent->isUnderMouse() && !dynamic_cast<const QGIView*>(item)) {
+        preselectItem(parent, parent->mapToScene(parent->boundingRect().center()));
+    }
 }
 
 void QGIView::hideFrame()

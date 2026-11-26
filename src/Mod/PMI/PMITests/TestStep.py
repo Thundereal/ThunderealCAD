@@ -1623,9 +1623,9 @@ class TestNistSet(Base):
         layer as it is: its name, description, and whether it is hidden; two
         of one name stay two (STC-06's layer '1', a hidden one and a shown
         one; CTC-04's 24 '-1's) -- read (StepLayers) and written so again.
-        Not how many items each holds: a curve set of the part is written a
-        curve set of each of its curves (FTC-10's sketches), its layer
-        holding them all"""
+        Not how many items each holds: five of the six files hold NIST's
+        count, CTC-04 not -- a curve set of it that is the part's own curves
+        or points (XCAF makes it of them) is layered by its members"""
         nist = os.environ["FC_PMI_NIST"]
 
         def layered(path):
@@ -2349,6 +2349,42 @@ class TestStepExport(Base):
         other = os.path.join(self.dir, "plain.step")
         Import.export([plain], other)
         self.assertNotIn("AP242", schema_of(other))
+
+
+class TestStepShapes(Base):
+    """How a shape's parts are written to STEP, as NIST's files have them"""
+
+    def test_a_sketch_beside_a_solid_is_one_curve_set_and_a_point_is_kept(self):
+        """A compound of curves alone beside a solid (a sketch) is one
+        geometric curve set of its curves, not one of each curve (NIST
+        FTC-10's 'Sketch.1', four curves in one set); a point of its own
+        there too is written (it was not at all: CTC-05's, STC-06's)"""
+        doc = App.newDocument("PMIShapes")
+        self.addCleanup(App.closeDocument, doc.Name)
+        sketch = Part.Compound([Part.makeLine(V(0, 0, 20), V(10, 0, 20)),
+                                Part.makeLine(V(10, 0, 20), V(10, 10, 20)),
+                                Part.makeLine(V(10, 10, 20), V(0, 0, 20))])
+        point = Part.Vertex(V(5, 5, 30))
+        feat = doc.addObject("Part::Feature", "Shapes")
+        feat.Shape = Part.Compound([Part.makeBox(10, 10, 10), sketch, point])
+        doc.recompute()
+        folder = tempfile.mkdtemp(prefix="pmi-shapes-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "shapes.step")
+        Import.export([feat], path)
+        with open(path, errors="replace") as f:
+            text = re.sub(r"\s+", "", f.read())
+        ents = dict(re.findall(r"#(\d+)=([^;]*);", text))
+        sets = [re.findall(r"#(\d+)", v) for v in ents.values()
+                if v.startswith("GEOMETRIC_CURVE_SET(")]
+        kinds = sorted(sorted(ents[m].split("(")[0] for m in members) for members in sets)
+        self.assertIn(["TRIMMED_CURVE"] * 3, kinds)
+        self.assertIn(["CARTESIAN_POINT"], kinds)
+        again = self.read(path)
+        shapes = [o.Shape for o in again.Objects if o.isDerivedFrom("Part::Feature")]
+        self.assertTrue(any(len(s.Solids) == 1 for s in shapes))
+        self.assertEqual(sum(len(s.Edges) - 12 * len(s.Solids) for s in shapes), 3)
+        self.assertTrue(any(abs(v.Point.z - 30) < 1e-6 for s in shapes for v in s.Vertexes))
 
 
 class TestStepRoundTrip(Base):

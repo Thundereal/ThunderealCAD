@@ -20,4 +20,5 @@ from PMITests.TestStep import (  # noqa: F401
     TestStepExport,
     TestStepImport,
     TestStepRoundTrip,
+    TestStepShapes,
 )

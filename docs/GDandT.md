@@ -1600,10 +1600,18 @@ the part shares with its supplemental geometry keeps its layers on the supplemen
 (`XCAFDoc_DimTolTool::SupplementalMember`: STC-06's 36 trimmed curves). Two OCCT writer
 fixes came with it: a point of its own in a compound beside other shapes was not written at
 all (CTC-05's, STC-06's 12), and a written point is now found as its vertex (STC-09 -e3's
-hidden points written hidden). Not matched: the part's curve sets are written one per curve
-(the AsIs writer explodes a compound into its edges), so a layer of NIST's one curve set
-holds our several (`test_part_layers_as_the_file_has_them` compares the layers, not how many
-items each holds).
+hidden points written hidden). And the part's curve sets: the AsIs writer exploded a
+compound into its edges, a curve set of each (a wire flattened into trimmed curves). A
+compound of curves alone (a sketch) is now one curve set as NIST writes one: each wire a
+composite curve, each edge a trimmed curve, each found by its shape -- NIST hides and
+layers the members, never the set (STC-09's 13 composite curves and 16 trimmed curves,
+FTC-10's 11 trimmed curves: hidden each as NIST's; CTC-04's 10 composite curves layered as
+NIST's; `test_a_sketch_beside_a_solid_is_one_curve_set_and_a_point_is_kept`). Five of the
+six files' layers hold NIST's items one for one; CTC-04's six curve sets that are the
+part's own curves or points (XCAF makes them of them) are layered member by member
+(`test_part_layers_as_the_file_has_them` compares the layers, not their counts). STC-09's
+one layer of supplemental and part items is written as two, and two points it hides by its
+layer we hide by their style too.
 
 SFA pass 12 (dwin) on that: STC-06 and STC-10 equal NIST's graphics table, and two things it
 found. A value's format was written with the digits of the millimetres a value is kept in, in a

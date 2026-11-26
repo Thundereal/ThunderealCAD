@@ -180,6 +180,11 @@ public:
         int limit = 0;
         int spawned = 0;   ///< ever, this pool
         int adopted = 0;   ///< of them, taken standing (docs/WorkerProcess.md sec 69)
+        /// Workers idle past IdleSeconds kept with their copy open for the
+        /// next job, now (Workers/KeepOpen, sec 70)
+        int keptOpen = 0;
+        long keptOpenTimes = 0;  ///< times one was kept so
+        long letGo = 0;          ///< of them, let go of for the memory
         int busy = 0;      ///< running a job
         std::size_t queued = 0;
         std::size_t resident = 0;  ///< the most a worker said it held
@@ -240,6 +245,18 @@ public:
     static StandbyInfo standby();
     /// The one standing ended (at exit)
     static void stopStandby();
+
+    /// The machine's memory as the pools judge it for keeping a worker's
+    /// copy open (Preferences/Workers: KeepOpen, KeepOpenMemoryUse,
+    /// KeepOpenPressure, docs/WorkerProcess.md sec 70)
+    struct MemoryInfo
+    {
+        double use = -1;     ///< percent in use, -1 not known
+        int pressure = 0;    ///< the system's word: 0 none, 1 low, 2 critical
+        bool keepOpen = false;  ///< a worker may be kept open now
+        std::string why;        ///< why not
+    };
+    static MemoryInfo memory();
 
     ~WorkerPool();
     WorkerPool(const WorkerPool&) = delete;

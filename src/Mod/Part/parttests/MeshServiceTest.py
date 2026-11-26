@@ -120,3 +120,42 @@ class MeshServiceTest(unittest.TestCase):
         self.assertTrue(Part.meshShape(shape, 0.1, 0.5, "worker"))
         self.assertFalse(Part.meshDigest(shape).startswith("faces 0 "))
         self.assertGreater(Part.meshServiceInfo()["Spawned"], info["Spawned"])
+
+    def setting(self, kind, name, value):
+        """A setting of Preferences/Workers for this test only"""
+        getattr(self.params, "Set" + kind)(name, value)
+        self.addCleanup(getattr(self.params, "Rem" + kind), name)
+
+    def testTheHelpersAreOneAThreadByDefault(self):
+        """As many helpers as the machine runs threads at once, 2 at least:
+        a load's pre-mesh posts to that many threads, and each blocks in
+        the call for a helper (docs/WorkerProcess.md sec 71)"""
+        import os
+
+        if "ServiceWorkers" in self.params.GetInts():
+            self.addCleanup(self.params.SetInt, "ServiceWorkers",
+                            self.params.GetInt("ServiceWorkers"))
+        self.params.RemInt("ServiceWorkers")
+        self.assertEqual(Part.meshServiceInfo()["Limit"], max(2, os.cpu_count()))
+        self.setting("Int", "ServiceWorkers", 3)
+        self.assertEqual(Part.meshServiceInfo()["Limit"], 3)
+
+    def testAHelperPastThoseKeptEndsOnceIdle(self):
+        """One past ServiceWorkersKept ends its process once idle for
+        ServiceIdleSeconds, and the next call starts one again"""
+        import time
+
+        self.setting("Int", "ServiceWorkersKept", 0)
+        self.setting("Float", "ServiceIdleSeconds", 0.3)
+        self.assertTrue(Part.meshShape(Part.makeBox(1, 2, 3), 0.1, 0.5, "worker"))
+        before = Part.meshServiceInfo()
+        end = time.time() + 20
+        while Part.meshServiceInfo()["Helpers"] and time.time() < end:
+            time.sleep(0.05)
+        info = Part.meshServiceInfo()
+        self.assertEqual(info["Helpers"], 0, info)
+        self.assertGreater(info["IdleEnded"], before["IdleEnded"], info)
+        shape = Part.makeCylinder(2, 3)
+        self.assertTrue(Part.meshShape(shape, 0.1, 0.5, "worker"))
+        self.assertFalse(Part.meshDigest(shape).startswith("faces 0 "))
+        self.assertGreater(Part.meshServiceInfo()["Spawned"], info["Spawned"])

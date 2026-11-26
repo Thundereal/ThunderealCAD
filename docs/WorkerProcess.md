@@ -4469,3 +4469,140 @@ job's worker is the one standing; with a runtime its guest is up, under
 there, one removed since is not),
 `testAStandingWorkerIsRetiredByWhatAWorkerReadsAsItStarts`,
 `testNoWorkerStandsWithStandbyOff`.
+
+**What is left once a document's workers have gone, scanner in the GUI**
+(`times_gui.py`, `PROBE_ONEHERE=1 PROBE_GONE=3`: `IdleSeconds` 3, and each
+job waits until the pool has no worker; the `hole_radius` edit of sec 53,
+recomputed here and then by one worker, three rounds; the mini's default
+profile, no runtime):
+
+| `Workers/Standby` | `Start` | `Queued` (the open of the copy in it) | job's recompute | read + apply | total |
+|---|---|---|---|---|---|
+| on | 0.42-0.46 s | 1.16-1.17 s (1.16-1.17 s) | 9.79-9.85 s | 0.51-0.53 s | 11.95-11.99 s |
+| off | 0.44 s | 1.32-1.35 s (1.14-1.15 s) | 9.83-9.99 s | 0.50-0.51 s | 12.11-12.30 s |
+
+Without a runtime the standby saves the process's start and imports,
+0.16 s. What waits after it is the worker's open of the copy, 1.16 s, and
+`Start`'s snapshot, 0.44 s on the main thread. Both are small beside the
+recompute the job is for. A worker that kept the copy open would save the
+1.16 s, at the memory of holding it (`fcad-probes/worker/docfoot.py`,
+scanner opened, one job, in the console): a worker holding the document
+has a footprint of 158 MB without a runtime and 250 MB with one, against
+the standby's 30 MB and 146 MB -- before any recompute adds its shapes.
+
+## 70. A document's last worker keeps its copy open while memory allows (2026-11-26)
+
+Sec 69 left the open of the copy as the largest wait once a document's
+workers had gone: 1.16 s on scanner, against the standby's 0.16 s. The
+user's ruling: keep the document open, gated by the system's memory, and
+automatically; the judging made settings.
+
+Now the pool's last worker, idle past `IdleSeconds`, is not told to quit.
+It stays, its copy open (`keptOpen`), and the next job is made on it: moved
+along the log to the newer copy (sec 57 moves it while the document is
+quiet), or opening the copy whole when the rows do not fold. A second
+worker of the same pool goes as before. `IdleSeconds` 0 still asks for no
+worker idle, and keeps none.
+
+Whether one may be kept is judged as it would go, and again every
+`KeepOpenCheckSeconds` (2) while any is kept, by Preferences/Workers:
+
+| setting | default | kept while |
+|---|---|---|
+| `KeepOpen` | on | on |
+| `KeepOpenMemoryUse` | 85 | the machine's memory in use, 100 * (1 - available / total), is below this percent |
+| `KeepOpenPressure` | 1 | the system's own word on its memory is below this level: 1 low, 2 critical; 0 does not ask |
+
+Available memory is what `grow()` already reads before it starts a second worker: free, inactive
+and purgeable pages on macOS, `MemAvailable` on Linux, `ullAvailPhys` on
+Windows. The system's word: the kernel's `memorystatus_vm_pressure_level`
+on macOS (warn 1, critical 2); on Linux the pressure stall information, 10 %
+of the last 10 s stalled on memory by some task (1) or all (2); on Windows
+the low-memory resource notification (2), which has no warning before it.
+When the judging fails, the worker kept longest across all pools is let go
+of, one each look, so that what the first gives back is seen before the
+next goes. Without an event loop the look is made by `poll()`.
+`pool.memory()` says how it judges now (`Use`, `Pressure`, `KeepOpen`,
+`Why`); `pool.info()` counts `KeptOpen` (now), `KeptOpenTimes` and `LetGo`.
+
+**What it buys, scanner in the GUI** (`times_gui.py`, `PROBE_ONEHERE=1
+PROBE_GONE=3`, as at the end of sec 69: `IdleSeconds` 3, each job waiting
+until the pool's worker has gone or is kept; memory in use 63-69 % all
+through, pressure 0):
+
+| `KeepOpen` | round | `Start` | `Queued` | `Setup` | total |
+|---|---|---|---|---|---|
+| on | 1 | 0.45 s | 0.60 s | 0.60 s (opened whole) | 11.23 s |
+| on | 2, 3 | 0.14-0.19 s | 0.15-0.21 s | 0.42-0.43 s (moved, in the quiet) | 10.62-11.07 s |
+| off | 1-3 | 0.43-0.46 s | 1.15 s | 1.14-1.15 s (a new worker) | 11.94-11.96 s |
+
+0.7 to 1.3 s less of a 12 s job: the open is gone, and with the worker
+still there the quiet time's snapshot and move (sec 57) are made before the
+job asks, which is what takes `Start` down too. In round 1 the kept worker
+opened the version whole -- no move since its open had been made -- at 0.6 s,
+half of what a new worker took. The cost is the kept worker's memory:
+158 MB of footprint for scanner without a runtime, 250 MB with one (end of
+sec 69), more once a recompute's shapes are in it.
+
+Tests (`TestWorkerPool`): `testTheLastIdleWorkerIsKeptWithItsCopyOpen` (the
+next job, after a change, is made on the same pid, nothing spawned),
+`testAKeptWorkerIsLetGoOfWhenMemoryIsShort` (`KeepOpenMemoryUse` 0: let go
+of, and none kept after the next job), `testOnlyTheLastIdleWorkerIsKept`
+(two workers, one stays), `testTheMemoryAsJudged`; `testIdleWorkersGo`
+turns `KeepOpen` off. TestWorkerPool 88 OK plain (1 skipped) and 88 OK with
+the runtime; TestAnimation 78 OK.
+
+## 71. As many helpers as the machine runs threads (2026-11-26)
+
+Reported from the Windows box after `Workers/MeshInWorker` went on by
+default (sec 65): `tests/gui/hold-per-document.py` failed its sequences 3
+and 4 every time, and passed with the setting off. A load's pre-mesh
+(`PartGui/PreMesh.cpp`) posts each shape to the compute pool's threads, and
+each of those, with the setting on, blocks in `ServiceWorkers::call()` for a
+helper -- of which there were two at most. A document's meshes were made two
+at a time where they had been made on every thread.
+
+On the mini (8 threads), the test's sequence 4 (`New`, 80 solids of 992
+faces, with `Small`, 20, opened right after it; New's view active):
+
+| meshes made | New filled in by | Small filled in by |
+|---|---|---|
+| here, on the threads (`MeshInWorker` off) | 3.08-3.14 s | 1.90-1.92 s |
+| by 2 helpers (the limit before) | 10.28 s | 3.13 s |
+| by 8 helpers (`ServiceWorkers` 8) | 4.39 s | 1.41 s |
+| by the helpers as now (one a thread: 8 here) | 4.44-4.50 s | 1.40-1.42 s |
+
+Now `Workers/ServiceWorkers` is 0 by default: one helper for each thread the
+machine runs at once (`QThread::idealThreadCount()`), 2 at least; a number
+set is the limit as before. `ServiceWorkersKept` (2) of them stay however
+long they are idle. The process of each one past them ends once idle for
+`ServiceIdleSeconds` (30), and its thread starts one again when a call finds
+the others busy. A helper holds 32 MB of footprint idle; eight at a load are
+about 260 MB, back to 64 MB half a minute after it. `Part.meshServiceInfo()`
+gives `Limit` and `IdleEnded`.
+
+The rest of the gap to the threads here is the helpers' own cost: the shape
+written and read back, and its mesh, each way.
+
+**Sequences 3 and 4 fail on the mini whichever way the meshes are made**,
+in this process's threads too: there Small is through before New with New's
+view active (3.14 s against 1.90 s), and in sequence 3 New builds 8 to 10
+visuals while Small fills in, where the test allows 5. Every document's
+meshes come so fast here that what the test measures is the drain's
+leftovers ("what it leaves is the next one's", docs/DocumentLoad.md sec
+18.15): the document in front waits for its first pre-meshes, and the one
+behind, whose meshes are already made, builds in that time. Not what this
+section changes, which is the Windows failure's cause. Whether it passes
+there now is for the Windows box to say.
+
+Tried and taken out: handing the pre-mesh's claims out in the drain's order
+of documents, the active view's first, rather than in the order they came.
+Sequences 3 and 4 came out the same (Small through by 1.37 s with it, 1.34 s
+without, helpers on; 1.14 s and 1.04 s here), because the window
+(`windowFloor()`, two claims a compute thread, or 50000 faces and edges)
+lets about 16 of New's solids out before Small's claims arrive.
+
+Tests (`parttests.MeshServiceTest`): `testTheHelpersAreOneAThreadByDefault`,
+`testAHelperPastThoseKeptEndsOnceIdle` (`ServiceWorkersKept` 0,
+`ServiceIdleSeconds` 0.3: its process ends, and the next call meshes in a
+new one). TestPartApp 453 OK.

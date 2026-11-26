@@ -4606,3 +4606,122 @@ Tests (`parttests.MeshServiceTest`): `testTheHelpersAreOneAThreadByDefault`,
 `testAHelperPastThoseKeptEndsOnceIdle` (`ServiceWorkersKept` 0,
 `ServiceIdleSeconds` 0.3: its process ends, and the next call meshes in a
 new one). TestPartApp 453 OK.
+
+## 72. An addon's FreeCADGui in a worker (2026-11-26)
+
+The report (the reporter's staged be01cc13ab, scanner.FCStd): sixteen times
+at the worker's open of its copy, OpticsWorkbench's `OpticalObject.py` line
+483, `Gui.addCommand('Emitter', OpticalEmitter())` -- `AttributeError:
+module 'FreeCADGui' has no attribute 'addCommand'` -- each followed by
+`PropertyPythonObject::Restore: unsupported serialisation`. The copy's
+optical objects had no class, and the worker went on to recompute the
+document. The reporter's ruling, in order: a partial FreeCADGui in the
+worker, real where it needs no event loop and faked where it does; or the
+cost of a real event loop measured; and, as the last resort, the user
+warned and the recompute taken back here.
+
+**A real FreeCADGui in a worker: measured, not taken.**
+`FreeCADGui.setupWithoutGUI()` runs in a worker (7 ms) and gives nothing:
+`Gui::Application(false)` registers its Python functions only when the GUI
+is enabled (`Gui/Application.cpp`, the block under `if (GUIenabled)`), so
+addCommand, Selection and Control are still missing after it. The real API
+is `Gui::Application(true)` over a QApplication, and that makes a
+Gui::Document and a view provider for every object of the copy
+(`slotNewDocument`), its Coin nodes and its tessellation, in every worker at
+every open. `Thundereal.exe` under `QT_QPA_PLATFORM=offscreen` stood at
+605 MB before its script had run, and then hung (offscreen on Windows has no
+GL); `ThunderealCmd` peaked at 405 MB with the same document open and
+recomputed (`hole_puzzle`, 65 objects, 3.5 s). So at least 200 MB a worker
+before any view provider, in a program that does not start headless.
+
+**`freecad.worker_gui`**, pure Python, is `sys.modules["FreeCADGui"]` in a
+worker: `freecad.worker.serve()` installs it before the copy opens, and no
+GUI library is loaded. A FreeCADGui imported before (an Init.py) is given
+the same names.
+
+- *Real, needing no event loop:* the command registry (`addCommand`,
+  `listCommands`, `isCommandActive` false, `runCommand` running nothing),
+  `addIcon`, `addIconPath`, `addLanguagePath`, `addPreferencePage`,
+  `updateLocale`, `updateGui`, `translate`, `Workbench` and
+  `addWorkbench`/`listWorkbenches`/`getWorkbench`/`removeWorkbench`,
+  workbench manipulators, `doCommand` (run in `__main__`), `addModule`, a
+  `Selection` with nothing selected whose observers are kept, a `Control`
+  with no dialog, `getDocument`/`activeDocument`/`ActiveDocument` giving
+  the App document with no view.
+- *Faked:* `getMainWindow()`, a name the module does not know, and every
+  attribute of a view object, answer an inert object that takes any call,
+  attribute or item and never raises; it is false and empty. Each use is a
+  fake, told to the recompute (`FreeCAD._workerFaked`).
+- *A view object for each object of the copy*
+  (`WorkerPool.cpp`, `attachViewStandIns`, at each setup): `ViewObject` is
+  never saved and does not touch its object, and a worker's was None, on
+  which `Ray.execute` failed -- it writes `fp.ViewObject.LineColor` after it
+  sets its shape. The stand-in is true, so that `if obj.ViewObject:` takes
+  the GUI's path, and whatever is read or written of it is a fake.
+
+The two addons here call, at import: `addCommand` (22 times),
+`addWorkbench`, `addLanguagePath`, `updateLocale`, `getMainWindow`.
+
+**What used a fake is made here.** The Recorder notes each fake against the
+object being executed. After the recompute, such an object's entry is made
+the other process's (`here`): its values are not sent, and the recompute
+here executes it, with the view it has. The Report view says so, once a
+session for each class of a document: "OpticsByWorker#Ray (Ray), of
+Ray.RayWorker is recomputed in this process, not by a worker: its execute()
+uses ViewObject.LineColor, which a worker process has not got". Its value
+there was made without what it asked for, so the whole job is unfit instead
+when another object of the job reads it, when it ran inside another's
+execute(), or when it recomputed another itself. A job of a Python kind
+(`freecad.worker._run`: an export) that used a fake is answered unfit: an
+exporter reading a view object's colour is not making the file the GUI
+would.
+
+**The copy whose restore failed is not worked on.** The pool's list of
+objects with a class (sec 2) is the pool's view of its own document. Now
+the copy's restore reports each Python object it could not make
+(`PropertyPythonObject::setRestoreFailed`, the class tried and what its
+import raised), and the setup answers unfit with it: "...#OnlyHere
+(TestWorkerPool._OnlyHere) cannot be restored in a worker: ...".
+
+**And an unfit setup is the client's to do.** `pool.stop()` handed every
+job back Cancelled; the GUI reads Cancelled as "the design changed under
+it" and leaves the document touched (`WorkerRecomputeGui.cpp`). The test
+below, on the tree before: Std_Refresh found "Plain has no Python class
+here", and nothing was recomputed anywhere. Now an unfit setup stops the
+pool with its jobs Unfit (`WorkerPool::stop(why, true)`), the GUI
+recomputes here, and the Report view says why ("...: done in this
+process").
+
+**Not reproduced: why the guard did not fire on the reporter's box.**
+Here, in the console and in the GUI, an object whose class the worker
+cannot import is in the pool's list, and the setup answers unfit. The
+reporter's log has no unfit and no reason, and the worker recomputed the
+whole document after the failed restores (the migration recompute after
+the open, `Application.cpp`). With the restore's own report the copy is
+refused whatever the list says, and with the stand-in the import does not
+fail.
+
+**A missing file is a delete done.** `Base::FileInfo`'s retry
+(`attempt`): a delete refused for a moment, which then does not find its
+file on the next try, was reported "still refused after 2 tries ... No
+such file or directory (2)" and failed. The file went while it waited (a
+file pending deletion refuses the next open): it is a delete that went
+through.
+
+Not done:
+
+- The view writes a worker recorded put in here, so that the worker's
+  value stands (Ray made there): the reporter's call.
+- An addon that guards its view writes with `FreeCAD.GuiUp`, which is
+  false in a worker, skips them there, and the worker's value is sent
+  without them. Not seen in the two addons.
+- A class that used a fake is not remembered: each recompute executes it
+  in the worker first.
+
+Tests: `tests/gui/addon-gui-by-worker.py` (`Mod/Test/WorkerGuiProbe.py`, an
+addon module calling `addCommand` and `addIconPath` at import, with a
+feature writing its view in its execute(); and, with OpticsWorkbench under
+`GT_ADDONS`, a ray on a mirror). On the tree before: 5 of 6 of the probe's
+claims failed. Now 11 of 11, the ray included. TestWorkerPool:
+`testAnAddonsGuiCallsAreThereInAWorker`, `testAJobThatUsedAStandInIsUnfit`,
+`testAClassAWorkerCannotRestoreMakesTheRecomputeUnfit`.

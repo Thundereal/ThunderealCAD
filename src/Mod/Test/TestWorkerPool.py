@@ -9,6 +9,7 @@ worker does before its first job of one (module="TestWorkerPool").
 """
 
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -208,6 +209,14 @@ class _Counted:
         return None
 
 
+if not getattr(sys.modules.get("FreeCADGui"), "_worker_stand_in", False):
+
+    class _OnlyHere(_Counted):
+        """A Python feature whose class a worker has not got: this module
+        has it only where FreeCADGui is not the worker's stand-in -- an
+        addon whose import fails in a worker (docs/WorkerProcess.md sec 72)"""
+
+
 class _Polygon:
     """A Part Python feature: a face of Sides sides"""
 
@@ -267,7 +276,36 @@ class _Crashing(_Counted):
         super().execute(obj)
 
 
+def _guiRegistry(doc, inputs, out):
+    """What an addon calls of FreeCADGui at import, real in a worker
+    (freecad.worker_gui, docs/WorkerProcess.md sec 72)"""
+    import FreeCADGui as Gui
+
+    class _Cmd:
+        def GetResources(self):
+            return {"MenuText": "x"}
+
+    Gui.addCommand("TestWorkerPool_Cmd", _Cmd())
+    Gui.addIconPath(os.path.dirname(__file__))
+    Gui.addLanguagePath(os.path.dirname(__file__))
+    Gui.updateLocale()
+    Gui.updateGui()
+    return {"Commands": Gui.listCommands(), "Translated": Gui.translate("ctx", "text"),
+            "Selection": len(Gui.Selection.getSelectionEx()),
+            "Dialog": Gui.Control.activeDialog(), "Standing": Gui._worker_stand_in}
+
+
+def _guiFake(doc, inputs, out):
+    """What a worker only stands in for: the main window"""
+    import FreeCADGui as Gui
+
+    Gui.getMainWindow().statusBar().showMessage("from a worker")
+    return {}
+
+
 for _kind, _handler in (
+    ("test.guiregistry", _guiRegistry),
+    ("test.guifake", _guiFake),
     ("test.echo", _echo),
     ("test.sleep", _sleep),
     ("test.fail", _fail),
@@ -854,6 +892,29 @@ class TestWorkerPool(unittest.TestCase):
         self.assertTrue(self.pool.wait(120))
         self.assertEqual(self.pool.result(job)["Status"], "Done")
 
+    def testAnAddonsGuiCallsAreThereInAWorker(self):
+        """An addon's module calls FreeCADGui at import: in a worker the
+        registry is real and nothing raises (docs/WorkerProcess.md sec 72)"""
+        self.assertTrue(self.pool.start())
+        job = self.submit("test.guiregistry")
+        self.assertTrue(self.pool.wait(120))
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Done", result)
+        out = result["Output"]
+        self.assertIn("TestWorkerPool_Cmd", out["Commands"])
+        self.assertEqual((out["Translated"], out["Selection"], out["Dialog"], out["Standing"]),
+                         ("text", 0, False, True))
+
+    def testAJobThatUsedAStandInIsUnfit(self):
+        """A job of a Python kind that used what a worker only stands in for
+        is unfit, done by the client (sec 72)"""
+        self.assertTrue(self.pool.start())
+        job = self.submit("test.guifake")
+        self.assertTrue(self.pool.wait(120))
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Unfit", result)
+        self.assertIn("FreeCADGui", result["Error"])
+
     def testAFileWritten(self):
         self.assertTrue(self.pool.start())
         job = self.submit("test.write", {"Text": "made there"})
@@ -1393,6 +1454,23 @@ class TestWorkerRecompute(unittest.TestCase):
         warm.Input = 1
         self.byWorker()
         return base, left, right, tails
+
+    def testAClassAWorkerCannotRestoreMakesTheRecomputeUnfit(self):
+        """The copy's restore could not make a Python object: the copy is
+        not worked on, the recompute answered unfit -- not cancelled, which
+        left a recompute asked in the GUI undone -- naming the class and
+        why (docs/WorkerProcess.md sec 72)"""
+        obj = self.doc.addObject("App::FeaturePython", "OnlyHere")
+        _OnlyHere(obj)
+        obj.Input = 2
+        self.doc.recompute()
+        obj.Input = 3
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
+        info = self.pool.recomputeInfo()
+        self.assertEqual((info["Unfit"], info["Cancelled"], info["Applied"]), (1, 0, 0), info)
+        self.assertIn("TestWorkerPool._OnlyHere", info["Reason"])
+        self.assertIn("cannot be restored in a worker", info["Reason"])
 
     def testARecomputeIsSplitOverTwoWorkers(self):
         """Two branches that take long, under what both read: split over two

@@ -47,6 +47,7 @@
 #include "ParamRegistry.h"
 #include "TransactionMeasure.h"
 #include "WorkerPool.h"
+#include "WorkerRecompute.h"
 #include "ServiceWorkers.h"
 #include "ExpressionSecurityRuntime.h"
 #include "FileHistory.h"
@@ -87,6 +88,7 @@ namespace {
 PyObject* workerPoolPy(PyObject* self, PyObject* args);
 PyObject* serveWorkerPy(PyObject* self, PyObject* args);
 PyObject* serveServicePy(PyObject* self, PyObject* args);
+PyObject* workerFakedPy(PyObject* self, PyObject* args);
 }
 
 PyMethodDef Application::Methods[] = {
@@ -211,6 +213,9 @@ PyMethodDef Application::Methods[] = {
      "_serveWorker() -> exit code: a worker's loop, run by freecad.worker.serve()"},
     {"_serveService",  (PyCFunction) serveServicePy, METH_VARARGS,
      "_serveService() -> exit code: a service helper's loop (App::ServiceWorkers)"},
+    {"_workerFaked",   (PyCFunction) workerFakedPy, METH_VARARGS,
+     "_workerFaked(what): in a worker, the object being executed used `what`, which\n"
+     "the worker only stands in for (freecad.worker_gui): made by the asking process"},
     {"getDocument",    (PyCFunction) Application::sGetDocument, METH_VARARGS,
      "getDocument(string) -> object\n\n"
      "Get a document by its name or raise an exception\n"
@@ -663,6 +668,17 @@ PyObject* serveWorkerPy(PyObject * /*self*/, PyObject *args)
         return nullptr;
     PY_TRY {
         return Py::new_reference_to(Py::Long(WorkerPool::serve()));
+    }PY_CATCH;
+}
+
+PyObject* workerFakedPy(PyObject * /*self*/, PyObject *args)
+{
+    const char* what = nullptr;
+    if (!PyArg_ParseTuple(args, "s", &what))
+        return nullptr;
+    PY_TRY {
+        WorkerRecompute::noteFaked(what);
+        Py_Return;
     }PY_CATCH;
 }
 

@@ -66,7 +66,17 @@ def _run(kind, docName, inputs, out, module):
         if handler is None:
             return _reply(ok=False, unfit=True, error="no handler for %s here" % kind)
         doc = App.getDocument(docName) if docName else None
+        from freecad import worker_gui
+
+        before = worker_gui.faked()
         output = handler(doc, json.loads(inputs), out)
+        if worker_gui.faked() != before:
+            # It used what the worker only stands in for -- an exporter
+            # reading a view object's colour -- and its result is not the
+            # one the GUI would make (docs/WorkerProcess.md sec 72)
+            return _reply(ok=False, unfit=True,
+                          error="%s used FreeCADGui or a view object, which a worker "
+                                "process has not got" % kind)
         return _reply(ok=True, output=output if output is not None else {})
     except Unfit as e:
         return _reply(ok=False, unfit=True, error=str(e) or kind)
@@ -148,4 +158,9 @@ def serve():
         sys.stdout.flush()
     except Exception:  # pylint: disable=broad-except
         pass
+    # Before the copy opens: an addon's module that calls FreeCADGui at
+    # import loads (docs/WorkerProcess.md sec 72)
+    from freecad import worker_gui
+
+    worker_gui.install()
     return App._serveWorker()

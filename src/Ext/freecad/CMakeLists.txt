@@ -45,6 +45,7 @@ configure_file(gltfscene.py ${NAMESPACE_DIR}/gltfscene.py COPYONLY)
 configure_file(animationgltf.py ${NAMESPACE_DIR}/animationgltf.py COPYONLY)
 # Worker processes and the kinds of job written in Python (docs/WorkerProcess.md)
 configure_file(worker.py ${NAMESPACE_DIR}/worker.py COPYONLY)
+configure_file(worker_gui.py ${NAMESPACE_DIR}/worker_gui.py COPYONLY)
 
 # MCP debug console (pure-Python; requires the 'mcp' package at runtime)
 configure_file(mcp_console/__init__.py ${NAMESPACE_DIR}/mcp_console/__init__.py COPYONLY)
@@ -83,6 +84,7 @@ INSTALL(
         gltfscene.py
         animationgltf.py
         worker.py
+        worker_gui.py
     DESTINATION
         ${SITE_PACKAGE_DIR}
 )

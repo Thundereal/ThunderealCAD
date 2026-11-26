@@ -2093,6 +2093,16 @@ fc_add_gui_test(GuiBoxesOutOfViewTurn_tests_run boxes-out-of-view-turn.py
 fc_add_gui_test(GuiHoldPerDocument_tests_run hold-per-document.py
                 --timeout 400)
 
+# An addon's module that calls FreeCADGui at import loads in a worker, and
+# what a worker cannot make faithfully is made here, said in the Report view
+# (docs/WorkerProcess.md sec 72). scanner.FCStd's OpticsWorkbench objects
+# failed to restore in the worker's copy (Gui.addCommand at import), and the
+# worker recomputed them without their code. Mod/Test/WorkerGuiProbe.py does
+# what OpticalObject.py and Ray.py do; with OpticsWorkbench under GT_ADDONS,
+# a ray on a mirror too.
+fc_add_gui_test(GuiAddonGuiByWorker_tests_run addon-gui-by-worker.py
+                --timeout 300)
+
 # A slice of a progressive load is not charged for the frame drawn inside
 # it, and grows with what the event loop costs (docs/DocumentLoad.md sec
 # 18.16). Both drains worked a fixed budget and then gave the thread back

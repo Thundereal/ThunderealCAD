@@ -48,6 +48,7 @@
 
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
+#include <Base/Interpreter.h>
 #include <Base/Tools.h>
 
 #include "Animation.h"
@@ -56,6 +57,7 @@
 #include "DocumentObject.h"
 #include "LogMoveKeep.h"
 #include "Property.h"
+#include "PropertyPythonObject.h"
 #include "RecomputeHook.h"
 #include "TransactionLog.h"
 #include "TransactionStore.h"
@@ -396,13 +398,31 @@ public:
         bool here = false;  ///< made by the other process itself: not sent
         /// The entry whose execute() ran this one, plus one; 0 for none
         std::size_t outer = 0;
+        /// What of FreeCADGui or a view object it used, which the worker
+        /// only stands in for (sec 72): made by the other process instead
+        std::vector<std::string> faked;
     };
+
+    /// The one recording, for noteFaked()
+    static Recorder*& active()
+    {
+        static Recorder* recorder = nullptr;
+        return recorder;
+    }
+
+    ~Recorder() override
+    {
+        if (active() == this) {
+            active() = nullptr;
+        }
+    }
 
     Recorder(Document& doc, std::function<void(const std::string&)> at)
         : RecomputeHook(doc)
         , doc(doc)
         , at(std::move(at))
     {
+        active() = this;
         conns.emplace_back(doc.signalChangedObject.connect(
             [this](const DocumentObject& obj, const Property& prop) {
                 // Each value once, with the first object that wrote it: its
@@ -648,6 +668,73 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
     if (auto why = recorder.why(); !why.empty()) {
         return unfit(why);
     }
+    // What used a part of FreeCADGui or a view object the worker only
+    // stands in for -- Ray.execute writing fp.ViewObject.LineColor -- is
+    // made by the other process itself, which has them (sec 72). Its value
+    // here was made without what it asked for: one that another object of
+    // the job read, or one inside another's execute(), takes the whole job
+    // back
+    json faked = json::array();
+    {
+        std::set<DocumentObject*> fakers;
+        for (auto& e : recorder.entries) {
+            if (!e.here && !e.faked.empty()) {
+                fakers.insert(e.obj);
+            }
+        }
+        for (std::size_t i = 0; !fakers.empty() && i < recorder.entries.size(); ++i) {
+            auto& e = recorder.entries[i];
+            if (e.here) {
+                continue;
+            }
+            const bool faker = fakers.count(e.obj) > 0;
+            if (faker && e.outer) {
+                return unfit(std::string(e.obj->getFullName()) + " used "
+                             + e.faked.front() + ", which a worker has not got, inside "
+                             + recorder.entries[e.outer - 1].obj->getFullName());
+            }
+            if (faker) {
+                continue;
+            }
+            for (auto dep : e.obj->getOutListRecursive()) {
+                if (fakers.count(dep)) {
+                    return unfit(std::string(dep->getFullName())
+                                 + " used what a worker has not got, and "
+                                 + e.obj->getFullName() + " reads it");
+                }
+            }
+        }
+        for (auto& e : recorder.entries) {
+            if (e.here || e.faked.empty()) {
+                continue;
+            }
+            for (auto& inner : recorder.entries) {
+                if (inner.outer && &recorder.entries[inner.outer - 1] == &e) {
+                    return unfit(std::string(e.obj->getFullName()) + " used " + e.faked.front()
+                                 + ", which a worker has not got, and recomputed "
+                                 + inner.obj->getFullName() + " itself");
+                }
+            }
+            e.here = true;
+            ++recorder.left;
+            std::string cls;
+            {
+                Base::PyGILStateLocker lock;
+                auto proxy =
+                    freecad_cast<PropertyPythonObject*>(e.obj->getPropertyByName("Proxy"));
+                Py::Object value = proxy ? proxy->getValue() : Py::None();
+                if (!value.isNone()) {
+                    Py::Object type = value.type();
+                    cls = type.getAttr("__module__").as_string() + "."
+                        + type.getAttr("__qualname__").as_string();
+                }
+            }
+            faked.push_back(json {{"object", e.obj->getNameInDocument()},
+                                  {"label", e.obj->Label.getValue()},
+                                  {"class", cls},
+                                  {"used", e.faked}});
+        }
+    }
     // What the other process makes itself is not sent. The entry each
     // inner one names as its outer is renumbered for the entries left; one
     // whose outer is made there has none, that execute() recomputing it
@@ -812,7 +899,8 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
                          {"added", added.size()},
                          {"table", hash},
                          {"byId", byId},
-                         {"numbers", numbers}}
+                         {"numbers", numbers},
+                         {"faked", faked}}
                        .dump();
     return reply;
 }
@@ -824,6 +912,20 @@ const bool registered = WorkerPool::registerKind(RecomputeKind, makeRecompute);
 bool WorkerRecompute::sent(const std::string& obj, const std::string& prop)
 {
     return sentWrites().count({obj, prop}) > 0;
+}
+
+void WorkerRecompute::noteFaked(const std::string& what)
+{
+    Recorder* recorder = Recorder::active();
+    if (!recorder || recorder->running.empty()) {
+        return;
+    }
+    auto& entry = recorder->entries[recorder->running.back()];
+    if (entry.here || entry.faked.size() >= 4
+        || std::find(entry.faked.begin(), entry.faked.end(), what) != entry.faked.end()) {
+        return;
+    }
+    entry.faked.push_back(what);
 }
 
 namespace
@@ -1818,6 +1920,34 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
                 json output = json::parse(r.output, nullptr, false);
                 json numbers = output.is_object() ? output.value("numbers", json::array())
                                                   : json::array();
+                // What the worker left to be made here for what it has not
+                // got (sec 72): said once a session for each class of a
+                // document, where the user reads it
+                if (output.is_object()) {
+                    static std::set<std::string> told;
+                    for (auto& f : output.value("faked", json::array())) {
+                        if (!f.is_object()) {
+                            continue;
+                        }
+                        const std::string cls = f.value("class", std::string());
+                        const std::string object = f.value("object", std::string());
+                        if (!told.insert(name + "#" + (cls.empty() ? object : cls)).second) {
+                            continue;
+                        }
+                        std::string used;
+                        for (auto& u : f.value("used", json::array())) {
+                            if (u.is_string()) {
+                                used += (used.empty() ? "" : ", ") + u.get<std::string>();
+                            }
+                        }
+                        Base::Console().warning(
+                            "%s#%s (%s)%s is recomputed in this process, not by a worker: its "
+                            "execute() uses %s, which a worker process has not got\n",
+                            name.c_str(), object.c_str(),
+                            f.value("label", std::string()).c_str(),
+                            cls.empty() ? "" : (", of " + cls).c_str(), used.c_str());
+                    }
+                }
                 part->file = r.file;
                 part->fileJob = id;
                 part->numbers = std::move(numbers);

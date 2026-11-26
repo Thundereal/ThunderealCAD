@@ -168,6 +168,14 @@ public:
     /// `prop` of `obj` (docs/WorkerProcess.md sec 29)
     static bool sent(const std::string& obj, const std::string& prop);
 
+    /** In a worker: the object being executed used `what`, a part of
+     * FreeCADGui or a view object the worker only stands in for
+     * (freecad.worker_gui). Its value is not sent: the asking process
+     * executes it itself, and says why (docs/WorkerProcess.md sec 72).
+     * Nothing outside an execute
+     */
+    static void noteFaked(const std::string& what);
+
     /// Started, made, put in, dropped
     static fastsignals::signal<void(const Document&)> signalChanged;
 };

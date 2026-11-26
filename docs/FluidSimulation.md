@@ -1588,6 +1588,25 @@ memory and pressure stalls; its kernel messages; the runner's own trace
 zone 69 to 88, no throttle reason, the passive limit 100% throughout, no
 memory or IO pressure. 8 threads is still to be tried, attended.
 
+2026-11-26 a third, about 12:46, a few minutes into a 2.5 mm run on 4
+threads: so the thread count does not prevent it, and what the three
+have in common is the 2.5 mm run, not 8 threads. The same test then ran
+8 times in a row without one, the package at a steady 65 W, the
+processor at full performance, no throttling. Looked into and found
+harmless: the WHEA 17 PCI Express events, one at every boot since 2025,
+a configuration read of a function the NVIDIA card does not have. Not
+known: the temperatures (no counter is readable without elevation; the
+HP BIOS sensors need it, HWiNFO does not start on this box, the BIOS is
+locked) and the power supply. The cause is not known.
+
+Agreed with the user, 2026-11-26: 2.5 mm runs and the gate go on
+unattended, with two logs kept for every fluid run and read first after
+a stop -- a one-second log of Windows' power counters, each line synced
+to both sides (`~/.cache/fluid/hang/powerlog.py`), and the runner's
+trace named by `FLUID_RUNNER_LOG`. The trace is not in the tree; it is
+kept as a patch beside the logger. A scheduled task on the host brings
+the VM up at boot without a login.
+
 ### 12.11 A run's account of its energy (2026-11-26)
 
 The 2.5 mm bar that swung ever wider ended its run well, and its frames

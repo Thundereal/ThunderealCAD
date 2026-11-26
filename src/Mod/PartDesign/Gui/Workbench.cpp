@@ -695,8 +695,9 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
           << "PartDesign_Plane"
           << "PartDesign_CoordinateSystem"
           << "PartDesign_ShapeBinder"
-          << "PartDesign_SubShapeBinder"
-          << "PartDesign_Clone";
+          << "PartDesign_SubShapeBinder";
+    // PartDesign_Clone is deprecated: kept in the menu and for macros, no
+    // longer offered on the tool bar
 
     part = new Gui::ToolBarItem(root);
     part->setCommand("Part Design Modeling");

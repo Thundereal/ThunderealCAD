@@ -1875,34 +1875,90 @@ void BGFXView::blit(Render::RenderStats *stats,
         }
         f->glGenFramebuffers(1, &fboDepth);
         f->glBindFramebuffer(GL_FRAMEBUFFER, fboDepth);
-        // Asked, not assumed -- the same question the colour attachment
-        // above already asks. bgfx backs a write-only D24S8 target with
-        // a renderbuffer on some drivers and a TEXTURE on others, and
-        // `glFramebufferRenderbuffer` handed a texture name attaches
-        // nothing: the framebuffer comes out "incomplete, missing
-        // attachment" and every frame took the failure path below.
-        // Measured on Windows/GL (RTX 2000 Ada, 2026-09-09), where
-        // that cost ~430ms of a 450ms frame and, on a 17k-object
-        // assembly, meant the scene never survived to be drawn at all.
-        if (glIsTexture(depthBuffer)) {
-            f->glFramebufferTexture2D(GL_FRAMEBUFFER,
-                                      GL_DEPTH_STENCIL_ATTACHMENT,
-                                      GL_TEXTURE_2D, depthBuffer, 0);
-        }
-        else {
-            f->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                        GL_RENDERBUFFER, depthBuffer);
-            f->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
-                                        GL_RENDERBUFFER, depthBuffer);
-        }
+        // The kind of attachment matters: `glFramebufferRenderbuffer`
+        // handed a texture name attaches nothing, the framebuffer comes
+        // out "incomplete, missing attachment" and every frame took the
+        // failure path below -- measured on Windows/GL (RTX 2000 Ada,
+        // 2026-09-09), ~430ms of a 450ms frame, and on a 17k-object
+        // assembly the scene never survived to be drawn at all. That was
+        // answered with glIsTexture(), which is no answer (below).
+        // What bgfx made, from what this view asked of it: a sampleable
+        // depth is a texture, a write-only one (MSAA, see the allocation)
+        // has NO texture -- bgfx::getInternal hands out its renderbuffer.
+        // glIsTexture() cannot tell: texture and renderbuffer names are
+        // separate name spaces, and with MSAA the renderbuffer's number was
+        // also some other texture's, so it was attached as that texture --
+        // "incomplete attachment" (0x8cd6) on every frame, and the view
+        // empty (bgfx GL, MSAA 4x, Windows, 2026-11-27). The other kind is
+        // still tried if the driver refuses this one.
+        auto attachDepth = [&](bool texture) {
+            if (texture) {
+                f->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                          GL_TEXTURE_2D, depthBuffer, 0);
+            }
+            else {
+                f->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                             GL_RENDERBUFFER, depthBuffer);
+                f->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
+                                             GL_RENDERBUFFER, depthBuffer);
+            }
+        };
+        attachDepth(depthSampleable);
         // No color attachment: complete only with the draw/read
         // buffers off.
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
-        if (!checkFramebufferStatus()) {
+        if (f->glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            while (glGetError() != GL_NO_ERROR) {
+            }
+            // take the first attempt off before the second
+            if (depthSampleable)
+                f->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                          GL_TEXTURE_2D, 0, 0);
+            else {
+                f->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                             GL_RENDERBUFFER, 0);
+                f->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
+                                             GL_RENDERBUFFER, 0);
+            }
+            attachDepth(!depthSampleable);
+        }
+        // A depth framebuffer the driver refuses costs the depth transfer,
+        // not the frame. Dropping the whole cache here and returning left
+        // the view EMPTY -- every frame, with MSAA on, where the depth is a
+        // write-only multisampled target (bgfx GL, Windows, 2026-11-27).
+        // Without depth the destination's depth is cleared in the view's
+        // rect instead (below), as the readback composite does.
+        const GLenum depthStatus = f->glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (depthStatus != GL_FRAMEBUFFER_COMPLETE) {
+            static int logged = 0;
+            if (logged++ < 2) {
+                GLint rbSamples = -1, rbFormat = -1, rbW = -1, rbH = -1;
+                const bool isRb = !depthSampleable && f->glIsRenderbuffer(depthBuffer);
+                if (isRb) {
+                    f->glBindRenderbuffer(GL_RENDERBUFFER, depthBuffer);
+                    f->glGetRenderbufferParameteriv(GL_RENDERBUFFER,
+                                                    GL_RENDERBUFFER_SAMPLES, &rbSamples);
+                    f->glGetRenderbufferParameteriv(GL_RENDERBUFFER,
+                                                    GL_RENDERBUFFER_INTERNAL_FORMAT, &rbFormat);
+                    f->glGetRenderbufferParameteriv(GL_RENDERBUFFER,
+                                                    GL_RENDERBUFFER_WIDTH, &rbW);
+                    f->glGetRenderbufferParameteriv(GL_RENDERBUFFER,
+                                                    GL_RENDERBUFFER_HEIGHT, &rbH);
+                    f->glBindRenderbuffer(GL_RENDERBUFFER, 0);
+                }
+                std::printf("bgfx: blit depth framebuffer status 0x%x, msaa %d, depth %u "
+                            "(%s, samples %d, format 0x%x, %dx%d); "
+                            "the frame is blitted without its depth\n",
+                            depthStatus, msaaSamples, depthBuffer,
+                            depthSampleable ? "a texture" : "a renderbuffer", rbSamples,
+                            rbFormat, rbW, rbH);
+            }
+            while (glGetError() != GL_NO_ERROR) {
+            }
             f->glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
-            dropBlitCache();
-            return;
+            _BGFXLib.freeFBO(fboDepth);
+            fboDepth = 0;
         }
     }
 
@@ -1928,12 +1984,35 @@ void BGFXView::blit(Render::RenderStats *stats,
                         blitColorId, int(glIsTexture(blitColorId)), cb);
         }
     }
-    f->glBindFramebuffer(GL_READ_FRAMEBUFFER, fboDepth);
-    f->glBlitFramebuffer(0, 0, width, height,
-                         dx0, dy0, dx0 + width, dy0 + height,
-                         GL_DEPTH_BUFFER_BIT,
-                         GL_NEAREST);
-    checkGLError("blit depth");
+    if (fboDepth) {
+        f->glBindFramebuffer(GL_READ_FRAMEBUFFER, fboDepth);
+        f->glBlitFramebuffer(0, 0, width, height,
+                             dx0, dy0, dx0 + width, dy0 + height,
+                             GL_DEPTH_BUFFER_BIT,
+                             GL_NEAREST);
+        checkGLError("blit depth");
+    }
+    else {
+        // No depth to transfer: a CLEARED depth in the view's rect, so
+        // Coin's chrome draws over the frame rather than testing against
+        // what the last frame left (the readback composite's reasoning).
+        // Scissored to the rect -- sub-views share the destination.
+        f->glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
+        GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+        GLint box[4];
+        glGetIntegerv(GL_SCISSOR_BOX, box);
+        GLboolean depthMask = GL_TRUE;
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(dx0, dy0, width, height);
+        glDepthMask(GL_TRUE);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        glDepthMask(depthMask);
+        glScissor(box[0], box[1], box[2], box[3]);
+        if (!scissor)
+            glDisable(GL_SCISSOR_TEST);
+        checkGLError("blit depth cleared");
+    }
 
     f->glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
 }

@@ -2906,3 +2906,6 @@ fc_add_gui_test(GuiMenuBarInTitleBar_tests_run menubar-in-title-bar.py --timeout
 # The Animation timeline and the Transaction log, docked side by side, leave
 # the main window narrow enough for a 1920 screen (SmokeTesting step 1).
 fc_add_gui_test(GuiDocksFitTheScreen_tests_run docks-fit-the-screen.py --timeout 300)
+# bgfx on OpenGL at MSAA 4x shows the view, PBR and volumetrics on too; a
+# refused depth framebuffer no longer drops the colour blit (SmokeTesting step 1).
+fc_add_gui_test(GuiBgfxGlMsaaViewDrawn_tests_run bgfx-gl-msaa-view-drawn.py --timeout 300)

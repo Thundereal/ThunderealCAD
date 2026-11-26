@@ -50,6 +50,8 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 
+#include <App/Application.h>
+#include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Base/Tools.h>
@@ -145,6 +147,8 @@ bool Callout::drawnByAnother() const
 
 void Callout::onChanged(const App::Property* prop)
 {
+    // Its own: where it lands is asked again
+    _landing.valid = false;
     // Edited: drawn from what it says from now on
     if (UseImported.getValue() && !_placing && !isRestoring() && isEdit(prop)) {
         UseImported.setValue(false);
@@ -530,10 +534,7 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
             break;
         }
         auto other = freecad_cast<Callout*>(obj);
-        gp_Ax3 ax;
-        gp_Pnt t;
-        if (!other || !other->AutoPlace.getValue() || !other->calloutTarget(t)
-            || other->attachedParent()) {
+        if (!other || !other->AutoPlace.getValue() || other->attachedParent()) {
             continue;
         }
         double oh = other->TextHeight.getValue() > 0 ? other->TextHeight.getValue() : h;
@@ -543,7 +544,9 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
         if (other->composedUnder(oh, below)) {
             continue;
         }
-        if (!other->autoPlane(oh, ax, t)) {
+        gp_Ax3 ax;
+        gp_Pnt t;
+        if (!other->landing(oh, ax, t)) {
             continue;
         }
         if (!ax.Direction().IsEqual(mine.Direction(), 1e-6)) {
@@ -554,6 +557,71 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
         }
     }
     return slot;
+}
+
+namespace
+{
+/// A count of the recomputes begun, any document's: a landing kept is of
+/// one recompute, not carried into the next
+unsigned long recomputes()
+{
+    static unsigned long count = 0;
+    static bool subscribed = []() {
+        App::GetApplication().signalBeforeRecomputeDocument.connect(
+            [](const App::Document&) { ++count; });
+        return true;
+    }();
+    (void)subscribed;
+    return count;
+}
+}  // namespace
+
+std::vector<TopoDS_Shape> Callout::landingInputs() const
+{
+    std::vector<TopoDS_Shape> res;
+    auto shapeOf = [&](const App::DocumentObject* obj) {
+        auto prop = obj ? freecad_cast<Part::PropertyPartShape*>(obj->getPropertyByName("Shape"))
+                        : nullptr;
+        res.push_back(prop ? prop->getShape().getShape() : TopoDS_Shape());
+    };
+    for (auto obj : getOutList()) {
+        shapeOf(obj);
+        if (auto feat = freecad_cast<TolerancedFeature*>(obj)) {
+            for (auto part : feat->References.getValues()) {
+                shapeOf(part);
+            }
+        }
+    }
+    return res;
+}
+
+bool Callout::landing(double h, gp_Ax3& plane, gp_Pnt& target) const
+{
+    std::vector<TopoDS_Shape> inputs = landingInputs();
+    auto same = [&]() {
+        if (!_landing.valid || _landing.h != h || _landing.recompute != recomputes()
+            || _landing.inputs.size() != inputs.size()) {
+            return false;
+        }
+        for (std::size_t i = 0; i < inputs.size(); ++i) {
+            if (!inputs[i].IsEqual(_landing.inputs[i])) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!same()) {
+        Landing l;
+        l.h = h;
+        l.recompute = recomputes();
+        l.ok = calloutTarget(l.target) && autoPlane(h, l.plane, l.target);
+        l.inputs = std::move(inputs);
+        l.valid = true;
+        _landing = std::move(l);
+    }
+    plane = _landing.plane;
+    target = _landing.target;
+    return _landing.ok;
 }
 
 void Callout::updatePresentation()

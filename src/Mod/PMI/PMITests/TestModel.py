@@ -1161,6 +1161,21 @@ class TestPresentation(Base):
         self.assertAlmostEqual((b.Plane.Base - a.Plane.Base).Length, 3 * h, 6)
         ba, bb = a.Presentation.BoundBox, b.Presentation.BoundBox
         self.assertGreater(bb.YMax, ba.YMax)
+        alone = App.Vector(a.Plane.Base)
+        # The first moved elsewhere (where each lands is kept through a
+        # recompute only, and while its own and its feature's stay as they
+        # were): the second is alone, down its slot
+        a.Feature = self.feature(LEFT)
+        self.recompute()
+        self.assertGreater((b.Plane.Base - a.Plane.Base).Length, 12 * h)
+        self.assertAlmostEqual((b.Plane.Base - alone).Length, 0, 6)
+        # Back, and turned off: stacked again, then alone again
+        a.Feature = top
+        self.recompute()
+        self.assertAlmostEqual((b.Plane.Base - a.Plane.Base).Length, 3 * h, 6)
+        a.AutoPlace = False
+        self.recompute()
+        self.assertAlmostEqual((b.Plane.Base - alone).Length, 0, 6)
 
     def test_an_axis_leader_ends_where_the_axis_leaves_the_part(self):
         gt = self.add("GeometricTolerance", "GT", Characteristic="Position",

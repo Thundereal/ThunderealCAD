@@ -26,9 +26,11 @@
 #define PMI_CALLOUT_H
 
 #include <string>
+#include <vector>
 
 #include <gp_Ax3.hxx>
 #include <gp_Pnt.hxx>
+#include <TopoDS_Shape.hxx>
 
 #include <App/PropertyGeo.h>
 #include <App/PropertyLinks.h>
@@ -215,6 +217,27 @@ protected:
     /// placed, a limits dimension's deviations about a nominal measured
     /// again): no edit by the user
     bool _placing = false;
+private:
+    /// Where it lands placed on its own (calloutTarget, then autoPlane),
+    /// as another's autoSlot asks: kept through one recompute while none of
+    /// its own properties changes and what it is placed from is the same
+    /// shapes; else each placement asked of every one before it in the set
+    /// (a set's recompute quadratic in callouts: 400 took 1.7 s)
+    bool landing(double h, gp_Ax3& plane, gp_Pnt& target) const;
+    /// The shapes a placement is made from: of the objects it links to, and
+    /// of the parts their features refer to
+    std::vector<TopoDS_Shape> landingInputs() const;
+    struct Landing
+    {
+        bool valid = false;
+        bool ok = false;
+        double h = 0;
+        unsigned long recompute = 0;
+        std::vector<TopoDS_Shape> inputs;
+        gp_Ax3 plane;
+        gp_Pnt target;
+    };
+    mutable Landing _landing;
 };
 
 }  // namespace PMI

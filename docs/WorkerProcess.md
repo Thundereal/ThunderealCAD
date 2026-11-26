@@ -4830,3 +4830,97 @@ recompute's part dropped for an edit made here as the other is put in; a
 put-in that threw counted as applied; the crash handler's other stack on
 the installing thread only; the helpers reading the parameters from their
 threads with no lock.
+
+## 75. The last of what the reading found (2026-11-26)
+
+What sec 74 left of sec 72's list.
+
+**A size past 4 GiB was narrowed.** A message gives its header's length
+and its body's in four bytes each; one past that went with the length cut
+short, and the other end read the rest of it as messages. `message()`
+gives nothing for such a message now and `send()` fails on nothing, in the
+pool and in the helpers. A helper's call is answered at once, "the request
+is N bytes, more than a message carries", with no helper given it; a
+helper whose reply is that large answers so instead. The helpers' copy of
+a message also took its lengths as an `int`, which a body past 2 GiB
+turned negative. No test: 4 GiB is half of the mini's memory.
+
+**A split recompute's part dropped for an edit was made here.** An edit
+that reaches one part's objects drops that part's job and not the other's
+(sec 42); the other's result was put in as a recompute of everything the
+recompute was made for, and that executed the dropped part's objects here,
+in the put-in, with no worker's values for them. Each part keeps what it
+was handed and why it was dropped (`State::Part::names`, `dropped`), and
+the put-in leaves out what only a dropped part was handed, with the joins
+over the parts (sec 59): they are left to the next recompute, as an edit
+leaves what it drops when the recompute is not split (what the edit
+changed touched, what reads it out of date). `recomputeInfo()["LeftOut"]` counts
+them; the reason says "part of it was dropped", and the GUI's line says
+how many were left to recompute. A part that failed is put
+in as before, its objects executed here: a failure is what the client
+recomputes here.
+
+**A put-in that threw was counted as put in.** `Document::recompute()`
+lets one exception out, the user's abort (the progress bar's), and it
+stops the recompute where it is. The put-in counted it as applied, told
+the workers the rows it had written as theirs, and counted what it had
+made of a quarantined object as a clean run. Now an abort counts as a
+drop (`Cancelled`; the GUI then says so and runs nothing here) and
+anything else that comes out as a failure (`Failed`, which the GUI
+recomputes here); in both the workers' copies are let go (sec 73), as the
+document is not where they are. No test: an abort comes from the progress
+bar only, and `execute()` of a Python feature cannot make one (its error
+is a `Base::PyException`, which `_recomputeFeature()` takes for the
+object's failure).
+
+**The crash handler's stack was one thread's.** `sigaltstack()` sets the
+stack of the thread that calls it, and `install()` is the worker's main
+thread's: a thread of OCCT's pool, Qt's or Python's that ran out of stack
+faulted again in the handler, and the worker went with nothing said. On
+macOS every thread started once `install()` has run is given its own
+(256 KiB, mapped, so a page costs nothing until a crash writes it), by
+`pthread_create()` interposed (dyld's `__interpose`, which takes the place
+of the call in every image loaded at launch but the one interposing). A
+process that is not a worker never runs `install()` and is given none.
+Linux and Windows are as they were: Linux would need its own way in, and
+Windows has no such stack.
+
+**The helpers read the parameters on their own threads.** A call comes on
+a thread of the compute pool and an owner's loop runs on its own, and both
+read `Preferences/Workers` there; `prepare()`, on a call's thread, saved
+the whole user and system parameters for the helpers' copies. A parameter
+group has no lock: a read beside the application's write of the same
+group walks a tree being changed. `ServiceWorkers::init()`, called as the
+application starts, reads the four values on its thread and again there
+as `Preferences/Workers` changes, and makes the two copies there as text
+(as the QApplication is made, in the GUI, which is after `init()`; and
+again on that thread after any change of a parameter, once the event loop
+turns). `prepare()` writes the text it is given. The helpers start with
+the parameters as they were at the last copy, as before they started with
+those at the first call.
+
+**Why a worker did not send back a value made the same** (sec 73): with
+`Document/OptimizeRecompute` on, its default, `Property::aboutToSetValue()`
+keeps the old value and `hasSetValue()` returns before `touch()` when the
+new one is the same, so no `signalChangedObject` is sent and the worker's
+`Recorder`, which notes what an `execute()` writes from that signal, has
+nothing to note. In a copy ahead of the document the value is already
+there. Letting the worker go (sec 73) is then the fix, not a way round.
+Seen, console, an `App::FeatureTest` holding `Integer` 5 and an observer of
+`slotChangedObject`: `Integer = 5` is signalled 0 times with
+`OptimizeRecompute` on and once with it off; `Integer = 6` once with
+either.
+
+Tests: `TestWorkerPool` 97 OK, 1 skipped (new:
+`testAHalfAnEditDropsIsNotMadeHere`, whose put-in leaves 2 out and
+executes none here, the tail as it was; and
+`testAThreadAWorkerStartsHasTheCrashHandlersStack`, a thread started in a
+worker with a 256 KiB stack and one started in the test's process with
+none, macOS only), `parttests.MeshServiceTest` 7 OK, `TestAnimation` 78 OK,
+the eleven worker GUI tests and a new one, `tests/gui/helpers-parameters.py`:
+a parameter set on the GUI thread, the event loop let turn, the helpers'
+first call made from another thread -- by a helper, and their copy holds
+it. That checks the copy is made where it now is; a race is not a thing a
+test shows. Not tested: a message past 4 GiB, a put-in that threw.
+
+Nothing is left of sec 72's list.

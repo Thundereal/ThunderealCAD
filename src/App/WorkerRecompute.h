@@ -119,6 +119,9 @@ public:
         /// Of the last one put in: objects made from the values of a part
         /// other than the first
         long suppliedSecond = 0;
+        /// Of the last one put in: objects of a part that was dropped, and
+        /// the joins over it, left to the next recompute, not executed here (sec 75)
+        long leftOut = 0;
     };
 
     /** Hand the recompute of `objs` -- with none, of what is touched -- and

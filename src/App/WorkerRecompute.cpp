@@ -1367,6 +1367,10 @@ struct State
         double setup = 0;
         double handler = 0;
         double returned = 0;
+        /// What it was handed, by name
+        std::vector<std::string> names;
+        /// Why its job was dropped -- an edit that reached it -- or nothing
+        std::string dropped;
     };
     std::vector<Part> parts;
     /// When the one with the workers was started, how long start() took,
@@ -1666,8 +1670,40 @@ void apply(State& s)
         return;
     }
     times.read = now() - reading;
+    // Of a split one, what only a part that was dropped was handed, and the
+    // joins over the parts, are left out, to the next recompute, as an edit
+    // leaves what it drops. Put in, they would be executed here, with no
+    // worker's values for them (docs/WorkerProcess.md sec 75)
+    std::set<std::string> left;
+    std::string dropped;
+    if (s.parts.size() > 1) {
+        std::set<std::string> kept;
+        for (auto& p : s.parts) {
+            if (p.dropped.empty()) {
+                kept.insert(p.names.begin(), p.names.end());
+            }
+            else if (dropped.empty()) {
+                dropped = p.dropped;
+            }
+        }
+        for (auto& p : s.parts) {
+            if (!p.dropped.empty()) {
+                for (auto& name : p.names) {
+                    if (!kept.count(name)) {
+                        left.insert(name);
+                    }
+                }
+            }
+        }
+        if (!dropped.empty()) {
+            left.insert(s.joined.begin(), s.joined.end());
+        }
+    }
     std::vector<DocumentObject*> objs;
     for (auto& name : s.names) {
+        if (left.count(name)) {
+            continue;
+        }
         if (auto obj = s.doc.getObject(name.c_str())) {
             objs.push_back(obj);
         }
@@ -1675,19 +1711,54 @@ void apply(State& s)
     const double began = now();
     TransactionLog* log = s.doc.getTransactionLog();
     const int64_t before = log ? log->lastSeq() : 0;
+    // A put-in that threw stopped part way: what it had not come to is left
+    // touched, and the workers' copies are where the whole result would have
+    // brought the document (docs/WorkerProcess.md sec 75)
+    bool aborted = false;
+    std::string threw;
     {
         Base::FlagToggler<bool> applying(s.applying, false);
         try {
             s.doc.recompute(objs, s.forced);
         }
+        catch (Base::AbortException& e) {
+            aborted = true;
+            threw = e.what();
+        }
         catch (Base::Exception& e) {
             e.ReportException();
+            threw = e.what();
+        }
+        catch (std::exception& e) {
+            FC_ERR(s.doc.getName() << ": putting a worker's recompute in: " << e.what());
+            threw = e.what();
         }
     }
     s.info.applySeconds = now() - began;
     times.apply = s.info.applySeconds;
     times.total = s.startedAt > 0 ? now() - s.startedAt : 0;
     s.info.times = times;
+    if (aborted || !threw.empty()) {
+        // Not counted as put in, and nothing in it trusted as made cleanly.
+        // A user's abort is a drop: what is touched stays touched, as after
+        // an edit. Anything else is a failure, which the client recomputes
+        // here
+        spoil(s);
+        noteSupplied(s, *supplier);
+        s.info.leftOut = static_cast<long>(left.size());
+        if (aborted) {
+            ++s.info.cancelled;
+            s.info.reason = "putting it in was stopped";
+        }
+        else {
+            ++s.info.failed;
+            s.info.reason = "putting it in threw: " + threw;
+        }
+        FC_WARN(s.doc.getName() << ": a worker's recompute not all put in: " << s.info.reason);
+        supplier.reset();
+        changed(s);
+        return;
+    }
     // The rows it was put in as, and what in them is the worker's: told to
     // the worker that made it, which keeps those values as it holds them
     // when it next moves across the rows (docs/WorkerProcess.md sec 29)
@@ -1733,7 +1804,8 @@ void apply(State& s)
         }
     }
     ++s.info.applied;
-    s.info.reason.clear();
+    s.info.leftOut = static_cast<long>(left.size());
+    s.info.reason = left.empty() ? std::string() : "part of it was dropped: " + dropped;
     supplier.reset();
     changed(s);
 }
@@ -1909,6 +1981,7 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
         case WorkerPool::Result::Status::Cancelled:
             ++s->info.cancelled;
             s->info.reason = r.error;
+            part->dropped = r.error.empty() ? std::string("dropped") : r.error;
             break;
     }
     if (!making(*s) && hasResult(*s)) {
@@ -2655,8 +2728,9 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
             *slot = id;
             State::Part p;
             p.job = id;
-            made.push_back(std::move(p));
             sizes.push_back(static_cast<long>(partNames.size()));
+            p.names = std::move(partNames);
+            made.push_back(std::move(p));
         }
         for (auto obj : all) {
             names.emplace_back(obj->getNameInDocument());
@@ -2682,6 +2756,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         *slot = id;
         State::Part p;
         p.job = id;
+        p.names = names;
         made.push_back(std::move(p));
     }
     s.parts = std::move(made);

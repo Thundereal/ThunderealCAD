@@ -95,6 +95,11 @@ public:
         std::string directory;  ///< the helpers' logs
     };
     static Info info();
+    /// On the application's thread, as it starts: the parameters the helpers
+    /// are started by read there, and read again there as they change. A
+    /// call comes on any thread, and a parameter group is not to be read
+    /// beside the thread that writes it (docs/WorkerProcess.md sec 75)
+    static void init();
     /// End the helpers; a call after starts them again
     static void stop();
     /// The helper's loop (FreeCAD._serveService()): its exit code

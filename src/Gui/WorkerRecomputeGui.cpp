@@ -96,11 +96,17 @@ void onChanged(const App::Document& doc)
     watched().erase(it);
     const QString label = QString::fromUtf8(doc.Label.getValue());
     if (info.applied > was.applied || info.borrowed > was.borrowed) {
-        say(QObject::tr("%1 recomputed by a worker: %2 s there, %3 s putting it in")
-                .arg(label)
-                .arg(info.workerSeconds, 0, 'f', 1)
-                .arg(info.applySeconds, 0, 'f', 1),
-            8000);
+        QString text = QObject::tr("%1 recomputed by a worker: %2 s there, %3 s putting it in")
+                           .arg(label)
+                           .arg(info.workerSeconds, 0, 'f', 1)
+                           .arg(info.applySeconds, 0, 'f', 1);
+        if (info.applied > was.applied && info.leftOut > 0) {
+            // A split one with a part an edit dropped: that part is left as
+            // the edit left it (docs/WorkerProcess.md sec 75)
+            text += QObject::tr("; %1 objects left to recompute, the design changed under them")
+                        .arg(info.leftOut);
+        }
+        say(text, 8000);
         return;
     }
     if (info.cancelled > was.cancelled) {

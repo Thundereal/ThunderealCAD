@@ -48,6 +48,7 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <atomic>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -61,6 +62,7 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <pthread.h>
+#include <sys/mman.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
 #else
@@ -113,6 +115,59 @@ volatile sig_atomic_t entered = 0;
 constexpr std::size_t AltSize = 256 * 1024;
 char altStack[AltSize];
 constexpr int Signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP};
+
+#if defined(FC_OS_MACOSX)
+
+// Every thread its own stack for the handler (docs/WorkerProcess.md sec
+// 75). An alternate stack is the thread's that set it: with the
+// installing thread's alone, a thread of OCCT's pool, Qt's or Python's
+// that ran out of stack faulted again in the handler, and the worker went
+// with nothing said. A thread started once install() has run is given one
+// as it starts, by pthread_create() interposed below; in a process that is
+// no worker, install() never runs and nothing is given.
+std::atomic<bool> threadStacks {false};
+
+struct Start
+{
+    void* (*routine)(void*);
+    void* arg;
+};
+
+void dropStack(void* stack)
+{
+    stack_t off;
+    std::memset(&off, 0, sizeof(off));
+    off.ss_flags = SS_DISABLE;
+    sigaltstack(&off, nullptr);
+    munmap(stack, AltSize);
+}
+
+void* started(void* given)
+{
+    const Start start = *static_cast<Start*>(given);
+    std::free(given);
+    // Mapped, not allocated: a page costs nothing until a crash writes it
+    void* stack = mmap(nullptr, AltSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (stack == MAP_FAILED) {
+        return start.routine(start.arg);
+    }
+    stack_t ss;
+    std::memset(&ss, 0, sizeof(ss));
+    ss.ss_sp = stack;
+    ss.ss_size = AltSize;
+    if (sigaltstack(&ss, nullptr) != 0) {
+        munmap(stack, AltSize);
+        return start.routine(start.arg);
+    }
+    void* result = nullptr;
+    // Dropped however the thread ends: returning, pthread_exit(), cancelled
+    pthread_cleanup_push(dropStack, stack);
+    result = start.routine(start.arg);
+    pthread_cleanup_pop(1);
+    return result;
+}
+
+#endif  // FC_OS_MACOSX
 
 void put(const char* text)
 {
@@ -589,6 +644,9 @@ void WorkerCrash::install()
     ss.ss_sp = altStack;
     ss.ss_size = AltSize;
     sigaltstack(&ss, nullptr);
+#if defined(FC_OS_MACOSX)
+    threadStacks = true;
+#endif
     struct sigaction act;
     std::memset(&act, 0, sizeof(act));
     act.sa_sigaction = handler;
@@ -1136,3 +1194,42 @@ std::string WorkerCrash::text(const Report& report)
     }
     return ss.str();
 }
+
+#if defined(FC_OS_MACOSX)
+
+/// pthread_create() as every image of the process calls it: dyld puts this
+/// in its place in all the images loaded at launch but this one, so the
+/// call below is the system's own (docs/WorkerProcess.md sec 75)
+extern "C" int fcWorkerCrashPthreadCreate(pthread_t* thread, const pthread_attr_t* attr,
+                                          void* (*routine)(void*), void* arg)
+{
+    if (!threadStacks.load(std::memory_order_relaxed)) {
+        return pthread_create(thread, attr, routine, arg);
+    }
+    auto start = static_cast<Start*>(std::malloc(sizeof(Start)));
+    if (!start) {
+        return pthread_create(thread, attr, routine, arg);
+    }
+    start->routine = routine;
+    start->arg = arg;
+    const int result = pthread_create(thread, attr, started, start);
+    if (result != 0) {
+        std::free(start);
+    }
+    return result;
+}
+
+namespace
+{
+struct Interpose
+{
+    const void* replacement;
+    const void* replacee;
+};
+__attribute__((used)) const Interpose interposed[] __attribute__((section("__DATA,__interpose"))) = {
+    {reinterpret_cast<const void*>(&fcWorkerCrashPthreadCreate),
+     reinterpret_cast<const void*>(&pthread_create)},
+};
+}  // namespace
+
+#endif  // FC_OS_MACOSX

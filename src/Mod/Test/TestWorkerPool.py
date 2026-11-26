@@ -9,6 +9,7 @@ worker does before its first job of one (module="TestWorkerPool").
 """
 
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -141,6 +142,32 @@ def _param(doc, inputs, out):
     name = inputs["Name"]
     return {"Pid": os.getpid(),
             "Value": group.GetString(name) if name in group.GetStrings() else None}
+
+
+def _threadAltStack():
+    """The size of the alternate signal stack a thread started now has, 0
+    for none (macOS's stack_t; SS_DISABLE is 4 there)"""
+    import ctypes
+
+    class Stack(ctypes.Structure):
+        _fields_ = [("sp", ctypes.c_void_p), ("size", ctypes.c_size_t), ("flags", ctypes.c_int)]
+
+    libc = ctypes.CDLL(None)
+    got = []
+
+    def look():
+        stack = Stack()
+        libc.sigaltstack(None, ctypes.byref(stack))
+        got.append(0 if stack.flags & 4 else stack.size)
+
+    thread = threading.Thread(target=look)
+    thread.start()
+    thread.join()
+    return got[0]
+
+
+def _altStack(doc, inputs, out):
+    return {"Pid": os.getpid(), "Size": _threadAltStack()}
 
 
 def _table(doc, inputs, out):
@@ -285,6 +312,7 @@ for _kind, _handler in (
     ("test.table", _table),
     ("test.guest", _guest),
     ("test.param", _param),
+    ("test.altstack", _altStack),
 ):
     worker.register(_kind, _handler)
 
@@ -321,6 +349,21 @@ class TestWorkerPool(unittest.TestCase):
                 return True
             self.pool.poll(50)
         return condition()
+
+    @unittest.skipUnless(sys.platform == "darwin",
+                         "a thread is given the handler's stack on macOS only (sec 75)")
+    def testAThreadAWorkerStartsHasTheCrashHandlersStack(self):
+        """A thread a worker starts has a stack for the crash handler of its
+        own: one that runs out of stack is reported, not taken down again
+        in the handler. A process that is no worker gives none
+        (docs/WorkerProcess.md sec 75)"""
+        self.assertEqual(_threadAltStack(), 0)
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        job = self.submit("test.altstack")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        out = self.pool.result(job)["Output"]
+        self.assertNotEqual(out["Pid"], os.getpid())
+        self.assertEqual(out["Size"], 256 * 1024, out)
 
     def testAWorkerWaitingForWorkHasItsGuestUp(self):
         """With a sandbox runtime installed a worker boots its guest as it
@@ -1475,6 +1518,39 @@ class TestWorkerRecompute(unittest.TestCase):
         # less than both one after the other
         self.assertLess(info["WorkerSeconds"], 2.0 + 1.0, info)
         self.assertLess(took, 2.0 + 1.5, info)
+
+    def testAHalfAnEditDropsIsNotMadeHere(self):
+        """An edit of Right while both halves are with their workers drops
+        the second half's job: the first half is put in, and Right and its
+        tail are left to the next recompute, as an edit leaves what it
+        drops -- not executed here as the first half is put in
+        (docs/WorkerProcess.md sec 75)"""
+        base, left, right, tails = self.splitChains()
+        made = right.MadeBy
+        base.Input = 2
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        deadline = time.time() + 60
+        while self.pool.info()["Busy"] < 2 and time.time() < deadline:
+            self.pool.wait(0.02)
+        self.assertEqual(self.pool.info()["Busy"], 2, self.pool.info())
+        cancelled = self.pool.recomputeInfo()["Cancelled"]
+        right.Sleep = 1.4
+        self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Split"], 1, info)
+        self.assertEqual(info["Applied"], 2, info)
+        self.assertEqual(info["Cancelled"], cancelled + 1, info)
+        self.assertEqual(info["LeftOut"], 2, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertTrue(info["Reason"].startswith("part of it was dropped"), info)
+        self.assertEqual((left.Result, tails[0].Result), (8, 16))
+        self.assertNotEqual(left.MadeBy, os.getpid())
+        # Right as the edit left it; its tail as it was, made from nothing
+        self.assertEqual(self.touched(), ["Right"])
+        self.assertEqual((right.MadeBy, right.Result, tails[1].Result), (made, 4, 8))
+        self.doc.recompute()
+        self.assertEqual((right.Result, tails[1].Result), (8, 16))
+        self.assertEqual(self.touched(), [])
 
     def testACrashInOneHalfIsPutDownToItsObject(self):
         """The worker of the second half dies in Right, twice: the first half

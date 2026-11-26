@@ -33,6 +33,7 @@
 #include <random>
 #include <set>
 #include <sstream>
+#include <thread>
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -42,8 +43,10 @@
 #include <QProcessEnvironment>
 #include <QStringList>
 #include <QThread>
+#include <QTimer>
 
 #include <nlohmann/json.hpp>
+#include <xercesc/framework/MemBufFormatTarget.hpp>
 
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
@@ -72,6 +75,108 @@ ParameterGrp::handle params()
     return GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers");
 }
 
+/** What the helpers are started by, read on the application's thread
+ * (ServiceWorkers::init()): a call comes on a thread of the compute pool,
+ * an owner's loop on its own, and a parameter group has no lock -- a read
+ * beside the application's write of the same group walks a tree being
+ * changed (docs/WorkerProcess.md sec 75).
+ */
+struct Settings
+{
+    long workers = 0;   ///< ServiceWorkers
+    long kept = 2;      ///< ServiceWorkersKept
+    double idle = 30.0; ///< ServiceIdleSeconds
+    std::string command;  ///< Command
+    /// The user's and the system's parameters as the helpers' own copies
+    /// are written, made on that thread too
+    std::string user;
+    std::string system;
+};
+
+std::mutex& settingsLock()
+{
+    static std::mutex m;
+    return m;
+}
+
+Settings& settings()
+{
+    static Settings s;
+    return s;
+}
+
+/// Whether the copies are older than a change since (set on any thread
+/// that changed a parameter, the application's)
+std::atomic<bool> copiesStale {true};
+std::atomic<bool> copyScheduled {false};
+std::thread::id appThread;
+
+bool onAppThread()
+{
+    return std::this_thread::get_id() == appThread;
+}
+
+std::string saved(const ParameterManager& manager)
+{
+    XERCES_CPP_NAMESPACE_QUALIFIER MemBufFormatTarget target;
+    manager.SaveDocument(&target);
+    return std::string(reinterpret_cast<const char*>(target.getRawBuffer()), target.getLen());
+}
+
+/// On the application's thread: the four values
+void readSettings()
+{
+    auto grp = params();
+    Settings read;
+    read.workers = grp->GetInt("ServiceWorkers", 0);
+    read.kept = grp->GetInt("ServiceWorkersKept", 2);
+    read.idle = grp->GetFloat("ServiceIdleSeconds", 30.0);
+    read.command = grp->GetASCII("Command", "");
+    std::lock_guard<std::mutex> lock(settingsLock());
+    auto& s = settings();
+    s.workers = read.workers;
+    s.kept = read.kept;
+    s.idle = read.idle;
+    s.command = std::move(read.command);
+}
+
+/// On the application's thread: the copies made again, if a parameter
+/// changed since
+void readCopies()
+{
+    if (!copiesStale.exchange(false)) {
+        return;
+    }
+    std::string user = saved(GetApplication().GetUserParameter());
+    std::string system = saved(GetApplication().GetSystemParameter());
+    std::lock_guard<std::mutex> lock(settingsLock());
+    settings().user = std::move(user);
+    settings().system = std::move(system);
+}
+
+/// The copies made again on the application's thread once its event loop
+/// turns, once for any number of changes
+void scheduleCopies()
+{
+    auto app = QCoreApplication::instance();
+    if (!app || copyScheduled.exchange(true)) {
+        return;
+    }
+    QTimer::singleShot(0, app, [] {
+        copyScheduled = false;
+        readCopies();
+    });
+}
+
+Settings settingsNow()
+{
+    if (onAppThread()) {
+        readCopies();
+    }
+    std::lock_guard<std::mutex> lock(settingsLock());
+    return settings();
+}
+
 double now()
 {
     using clock = std::chrono::steady_clock;
@@ -82,7 +187,11 @@ double now()
 /// workerProgram), Workers/Command if set
 std::string program()
 {
-    std::string set = params()->GetASCII("Command", "");
+    std::string set;
+    {
+        std::lock_guard<std::mutex> lock(settingsLock());
+        set = settings().command;
+    }
     if (!set.empty()) {
         return set;
     }
@@ -146,18 +255,37 @@ std::uint32_t get32(const char* p)
         | (static_cast<std::uint32_t>(b[2]) << 16) | (static_cast<std::uint32_t>(b[3]) << 24);
 }
 
-/// A message: the header's length, the body's, the header (JSON), the body
+/// The most a message's header, or its body, can be: each length is four
+/// bytes on the wire
+constexpr std::size_t MessageMost = 0xffffffffu;
+
+/// Why `size` bytes cannot go as a body, or nothing when they can
+std::string tooBig(std::size_t size)
+{
+    if (size <= MessageMost) {
+        return {};
+    }
+    return std::to_string(size) + " bytes, more than a message carries";
+}
+
+/// A message: the header's length, the body's, the header (JSON), the
+/// body. Nothing for one that does not fit -- a length narrowed to four
+/// bytes would have the other end read the rest of it as messages
+/// (docs/WorkerProcess.md sec 75) -- and send() fails on nothing.
 QByteArray message(const json& header, const std::string& body = {})
 {
     // Text that is not UTF-8 -- a console line with a path in the system's
     // encoding -- is sent with the bytes replaced, not thrown over
     const std::string head = header.dump(-1, ' ', false, json::error_handler_t::replace);
+    if (head.size() > MessageMost || body.size() > MessageMost) {
+        return {};
+    }
     QByteArray out;
-    out.reserve(static_cast<int>(8 + head.size() + body.size()));
+    out.reserve(static_cast<qsizetype>(8 + head.size() + body.size()));
     put32(out, static_cast<std::uint32_t>(head.size()));
     put32(out, static_cast<std::uint32_t>(body.size()));
-    out.append(head.data(), static_cast<int>(head.size()));
-    out.append(body.data(), static_cast<int>(body.size()));
+    out.append(head.data(), static_cast<qsizetype>(head.size()));
+    out.append(body.data(), static_cast<qsizetype>(body.size()));
     return out;
 }
 
@@ -181,7 +309,7 @@ int take(std::string& buffer, json& header, std::string& body)
 
 bool send(QLocalSocket& socket, const QByteArray& bytes)
 {
-    if (socket.state() != QLocalSocket::ConnectedState) {
+    if (bytes.isEmpty() || socket.state() != QLocalSocket::ConnectedState) {
         return false;
     }
     if (socket.write(bytes) != bytes.size()) {
@@ -275,6 +403,13 @@ public:
                                const std::string& request, double timeout)
     {
         auto c = std::make_shared<Call>();
+        c->reply.error = tooBig(request.size());
+        if (!c->reply.error.empty()) {
+            // Not given to a helper: one sent a request it cannot read the
+            // end of would be ended for it
+            c->reply.error = "the request is " + c->reply.error;
+            return c->reply;
+        }
         c->kind = kind;
         c->module = module;
         c->request = request;
@@ -356,7 +491,11 @@ public:
      */
     static int helperLimit()
     {
-        const long set = params()->GetInt("ServiceWorkers", 0);
+        long set = 0;
+        {
+            std::lock_guard<std::mutex> lock(settingsLock());
+            set = settings().workers;
+        }
         if (set > 0) {
             return static_cast<int>(set);
         }
@@ -367,7 +506,14 @@ public:
     /// one past them ends its process once idle for ServiceIdleSeconds (30)
     static int helpersKept()
     {
-        return static_cast<int>(std::max(0L, params()->GetInt("ServiceWorkersKept", 2)));
+        std::lock_guard<std::mutex> lock(settingsLock());
+        return static_cast<int>(std::max(0L, settings().kept));
+    }
+
+    static double idleSeconds()
+    {
+        std::lock_guard<std::mutex> lock(settingsLock());
+        return std::max(0.0, settings().idle);
     }
 
     ServiceWorkers::Info info()
@@ -411,11 +557,24 @@ private:
         // gone removed by whether they run, not by their age -- one a day
         // old may be a session's still (docs/WorkerProcess.md sec 74)
         root = WorkerPool::privateDirectory("ThunderealService", "helpers");
-        // Their own copies: a helper saving its parameters at its exit
-        // must not write over this process's
+        // Their own copies, a helper saving its parameters at its exit must
+        // not write over this process's: written from what the application's
+        // thread made of them, as this is a call's thread, any (sec 75)
         if (!root.empty()) {
-            GetApplication().GetUserParameter().SaveDocument((root + "/user.cfg").c_str());
-            GetApplication().GetSystemParameter().SaveDocument((root + "/system.cfg").c_str());
+            const Settings have = settingsNow();
+            if (have.user.empty()) {
+                FC_WARN("the helpers' parameters were not copied yet; they start with none");
+            }
+            auto write = [this](const char* name, const std::string& text) {
+                if (text.empty()) {
+                    return;
+                }
+                Base::FileInfo fi(root + "/" + name);
+                Base::ofstream out(fi, std::ios::out | std::ios::binary | std::ios::trunc);
+                out.write(text.data(), static_cast<std::streamsize>(text.size()));
+            };
+            write("user.cfg", have.user);
+            write("system.cfg", have.system);
         }
         // Once: prepared again after a stop(), it would be told to stop
         // once more for each
@@ -588,7 +747,7 @@ private:
                     // One past those kept: its process ends once idle
                     // long enough, and is started again by the next call
                     // that finds the others busy
-                    const double idle = std::max(0.0, params()->GetFloat("ServiceIdleSeconds", 30.0));
+                    const double idle = idleSeconds();
                     if (!cv.wait_for(lock, std::chrono::duration<double>(idle), wanted)) {
                         lock.unlock();
                         end(h);
@@ -753,6 +912,40 @@ ServiceWorkers::Info ServiceWorkers::info()
     return Service::instance().info();
 }
 
+void ServiceWorkers::init()
+{
+    appThread = std::this_thread::get_id();
+    readSettings();
+    copiesStale = true;
+    if (QCoreApplication::instance()) {
+        readCopies();
+    }
+    else {
+        // The GUI's QApplication is made after this: the copies are made as
+        // it is, here still. Left to the event loop, a load that meshes
+        // before the loop first turns would start the helpers with none
+        qAddPreRoutine([] {
+            if (onAppThread()) {
+                readCopies();
+            }
+        });
+    }
+    static fastsignals::scoped_connection changed;
+    // On the thread that changed it: the application's, the one that may
+    // read the groups
+    changed = GetApplication().GetUserParameter().signalParamChanged.connect(
+        [](ParameterGrp* grp, ParameterGrp::ParamType, const char*, const char*) {
+            if (!onAppThread()) {
+                return;
+            }
+            copiesStale = true;
+            if (grp && grp->GetPath().find("BaseApp/Preferences/Workers") != std::string::npos) {
+                readSettings();
+            }
+            scheduleCopies();
+        });
+}
+
 void ServiceWorkers::stop()
 {
     Service::instance().stop();
@@ -837,6 +1030,14 @@ int ServiceWorkers::serve()
             if (!error.empty()) {
                 reply["error"] = error;
             }
+        }
+        if (!tooBig(out.size()).empty()) {
+            // Said instead of sent: the call ends with why, the helper
+            // goes on
+            reply["ok"] = false;
+            reply["error"] = "the reply is " + tooBig(out.size());
+            out.clear();
+            out.shrink_to_fit();
         }
         reply["seconds"] = now() - began;
         if (!send(socket, message(reply, out))) {

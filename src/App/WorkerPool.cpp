@@ -384,11 +384,23 @@ std::uint32_t get32(const char* p)
         | (static_cast<std::uint32_t>(b[2]) << 16) | (static_cast<std::uint32_t>(b[3]) << 24);
 }
 
+/// The most a message's header, or its body, can be: each length is four
+/// bytes on the wire
+constexpr std::size_t MessageMost = 0xffffffffu;
+
+/// A message, or nothing for one that does not fit: a length narrowed to
+/// four bytes would have the other end read the rest of it as messages
+/// (docs/WorkerProcess.md sec 75). send() fails on nothing.
 QByteArray message(const json& header, const std::string& body = std::string())
 {
     // Text that is not UTF-8 -- a console line with a path in the system's
     // encoding -- is sent with the bytes replaced, not thrown over
     const std::string text = header.dump(-1, ' ', false, json::error_handler_t::replace);
+    if (text.size() > MessageMost || body.size() > MessageMost) {
+        FC_ERR("a message of " << text.size() << " + " << body.size()
+                               << " bytes is more than a message carries; not sent");
+        return {};
+    }
     QByteArray out;
     out.reserve(static_cast<qsizetype>(8 + text.size() + body.size()));
     put32(out, static_cast<std::uint32_t>(text.size()));
@@ -449,7 +461,7 @@ bool send(QLocalSocket& socket, const json& header)
         return false;
     }
     QByteArray bytes = message(header);
-    if (socket.write(bytes) != bytes.size()) {
+    if (bytes.isEmpty() || socket.write(bytes) != bytes.size()) {
         return false;
     }
     // Not waited for past a moment: the other end may be in a job, or in
@@ -4989,6 +5001,7 @@ public:
         dict.setItem("SplitObjects", parts);
         dict.setItem("SplitJoins", Py::Long(i.splitJoins));
         dict.setItem("SuppliedSecond", Py::Long(i.suppliedSecond));
+        dict.setItem("LeftOut", Py::Long(i.leftOut));
         return dict;
     }
 

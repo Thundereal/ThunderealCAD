@@ -19,6 +19,11 @@
 //                                  start, a translation and a rotation
 //   frame <index> <time> <count>   frame.<index> is written: count points
 //   sample <time> <value> ...      the monitors, in the case's order
+//   energy <time> <kinetic> <potential> <work> <created> <exchanged>
+//                                  the fluid's energy at a frame, J: its
+//                                  own, its work so far on the walls it
+//                                  moves, and of driven walls what their
+//                                  lag made and what went over (Account)
 //   error <why>
 //
 // Anything else is the solver's own talk.
@@ -691,6 +696,60 @@ struct Run
     unsigned long parked = 0;
 };
 
+// The run's account of its energy (docs/FluidSimulation.md sec 12.11),
+// for whoever reads the results to ask whether to believe them.
+//
+// The fluid's kinetic and potential energy and the work it has done on the
+// walls it moves cannot rise together in a run nothing feeds: the solver
+// only loses. That holds whatever a mechanism's parts do, and so it says
+// nothing of them. Theirs is the hand-over: a part goes through a stretch
+// by the push of the stretch before, and the fluid meanwhile gives another.
+// The difference, along the way the part went, is work one side did and
+// the other never felt -- made of nothing by the lag, or lost to it. It
+// is added up with its sign, beside all that went over without one; a
+// swing the lag feeds makes ever more of it.
+struct Account
+{
+    double work = 0.0;       // the fluid's on the walls it moves, J
+    double created = 0.0;    // at the hand-over, J
+    double exchanged = 0.0;  // through the hand-over, J
+
+    void write(const Run& run, double time) const
+    {
+        const FluidModel* fluid = run.fluid;
+        const Vector3r g(Simulation::getCurrent()->getVecValue<Real>(Simulation::GRAVITATION));
+        // heights from under the space: a particle that leaves takes
+        // energy with it, never brings any
+        double lowest = 0.0;
+        if (run.up.squaredNorm() > 0) {
+            lowest = std::numeric_limits<double>::max();
+            for (int corner = 0; corner < 8; corner++) {
+                const Vector3r at((corner & 1) ? run.made.spaceMax[0] : run.made.spaceMin[0],
+                                  (corner & 2) ? run.made.spaceMax[1] : run.made.spaceMin[1],
+                                  (corner & 4) ? run.made.spaceMax[2] : run.made.spaceMin[2]);
+                lowest = std::min(lowest, (double)run.up.dot(at));
+            }
+            lowest -= (double)run.support;
+        }
+        const double pull = (double)g.norm();
+        double kinetic = 0.0;
+        double potential = 0.0;
+        const int active = (int)fluid->numActiveParticles();
+        #pragma omp parallel for schedule(static) default(shared) reduction(+ : kinetic, potential)
+        for (int i = 0; i < active; i++) {
+            if (fluid->getParticleState(i) == ParticleState::Fixed) {
+                continue;
+            }
+            const double mass = (double)fluid->getMass(i);
+            kinetic += 0.5 * mass * (double)fluid->getVelocity(i).squaredNorm();
+            potential += mass * pull * ((double)run.up.dot(fluid->getPosition(i)) - lowest);
+        }
+        std::printf("energy %.9g %.9g %.9g %.9g %.9g %.9g\n", time, kinetic, potential, work,
+                    created, exchanged);
+        std::fflush(stdout);
+    }
+};
+
 // A particle that left the space is gone: it is put far away, apart from
 // the others there, and held. The solver has no way to take one out.
 void parkTheGone(Run& run)
@@ -1198,7 +1257,9 @@ int main(int argc, char** argv)
     TimeManager* tm = TimeManager::getCurrent();
     tm->setTime(0);
     int index = 0;
+    Account account;
     writeFrame(run, index++, 0.0);
+    account.write(run, 0.0);
     writeSample(run, 0.0, 0);
     // the time is kept here: the solver's own is a float, and a long run's
     // steps would not add up in it
@@ -1247,8 +1308,18 @@ int main(int argc, char** argv)
     std::vector<Vector3r> turns(run.moved.size(), Vector3r::Zero());
     std::vector<Vector3r> meanPush(run.moved.size(), Vector3r::Zero());
     std::vector<Vector3r> meanTurn(run.moved.size(), Vector3r::Zero());
+    // FLUID_SPLISH_STRETCH, for the tests and for looking into a run: the
+    // stretch a mechanism is asked for, that many times the longest step.
+    // At 4 it is the whole step again, on which the bar swung wider.
+    double stretch = longest;
+    if (const char* times = std::getenv("FLUID_SPLISH_STRETCH")) {
+        const double asked = std::atof(times);
+        if (asked > 0) {
+            stretch *= asked;
+        }
+    }
     if (driven) {
-        std::printf("ask 0 %.9g\n", longest);
+        std::printf("ask 0 %.9g\n", stretch);
         std::fflush(stdout);
         if (!readMove(run.moved, told)) {
             return 0;
@@ -1261,6 +1332,14 @@ int main(int argc, char** argv)
         if (driven && time >= told - 1e-12) {
             if (since > 0) {
                 for (std::size_t k = 0; k < run.moved.size(); k++) {
+                    // the stretch went by the push of the one before
+                    const Vector3r push = pushes[k] / (Real)since;
+                    const Vector3r turn = turns[k] / (Real)since;
+                    const Vector3r went = run.moved[k]->v * (Real)since;
+                    const Vector3r turned = run.moved[k]->w * (Real)since;
+                    account.created += (double)((meanPush[k] - push).dot(went)
+                                                + (meanTurn[k] - turn).dot(turned));
+                    account.exchanged += std::abs((double)(push.dot(went) + turn.dot(turned)));
                     meanPush[k] = pushes[k] / (Real)since;
                     meanTurn[k] = turns[k] / (Real)since;
                     pushes[k].setZero();
@@ -1303,6 +1382,7 @@ int main(int argc, char** argv)
             Vector3r torque;
             run.skins[k]->getForceAndTorque(force, torque);
             run.skins[k]->clearForceAndTorque();
+            account.work += (double)step * (double)(force.dot(body.v) + torque.dot(body.w));
             if (driven) {
                 // as it was told to go; what pushed it, for its mover
                 pushes[k] += force * step;
@@ -1337,6 +1417,7 @@ int main(int argc, char** argv)
                                    : std::min(index * made.interval, made.end);
         if (time >= next - 1e-9) {
             writeFrame(run, index++, time);
+            account.write(run, time);
         }
     }
     return 0;

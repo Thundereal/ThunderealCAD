@@ -281,6 +281,34 @@ PyObject* StudyPy::getResults(PyObject* args) const
             bodies.append(body);
         }
         ret.setItem("Bodies", bodies);
+        if (!index.energy.empty()) {
+            Py::Dict energy;
+            const auto column = [&](double Solver::Energy::* which) {
+                Py::List values;
+                for (const auto& at : index.energy) {
+                    values.append(Py::Float(at.*which));
+                }
+                return values;
+            };
+            energy.setItem("Times", column(&Solver::Energy::time));
+            energy.setItem("Kinetic", column(&Solver::Energy::kinetic));
+            energy.setItem("Potential", column(&Solver::Energy::potential));
+            energy.setItem("Work", column(&Solver::Energy::work));
+            energy.setItem("Created", column(&Solver::Energy::created));
+            energy.setItem("Exchanged", column(&Solver::Energy::exchanged));
+            energy.setItem("Fed", Py::Boolean(index.fed));
+            const EnergyVerdict verdict = judge(index);
+            energy.setItem("Judged", Py::Boolean(verdict.kept));
+            energy.setItem("BudgetJudged", Py::Boolean(verdict.kept && verdict.budget));
+            energy.setItem("Rise", Py::Float(verdict.rise));
+            energy.setItem("RiseLimit", Py::Float(EnergyVerdict::riseLimit));
+            energy.setItem("Rose", Py::Boolean(verdict.rose));
+            energy.setItem("HandOverJudged", Py::Boolean(verdict.handOver));
+            energy.setItem("Made", Py::Float(verdict.made));
+            energy.setItem("MadeLimit", Py::Float(EnergyVerdict::madeLimit));
+            energy.setItem("Lagged", Py::Boolean(verdict.lagged));
+            ret.setItem("Energy", energy);
+        }
         return Py::new_reference_to(ret);
     }
     PY_CATCH

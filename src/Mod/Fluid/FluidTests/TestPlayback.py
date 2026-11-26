@@ -82,6 +82,43 @@ class TestFrames(FluidCase):
         self.assertAlmostEqual(float(points[:, 2].max() - particles[:, 2].max()), 10.0, delta=1.5)
 
 
+class TestDoubts(unittest.TestCase):
+    """What the panel says of a run whose account of its energy does not
+    hold."""
+
+    @staticmethod
+    def results(**changed):
+        energy = {
+            "Judged": True,
+            "Rose": False,
+            "Rise": 0.0,
+            "RiseLimit": 0.1,
+            "Lagged": False,
+            "Made": 0.02,
+            "MadeLimit": 0.2,
+        }
+        energy.update(changed)
+        return {"Energy": energy}
+
+    def test_nothing_against_a_run_that_holds(self):
+        self.assertEqual(FluidPlayback.doubts(self.results()), [])
+        # nor one that kept no account, or too short a one, or no results
+        self.assertEqual(FluidPlayback.doubts({}), [])
+        self.assertEqual(FluidPlayback.doubts(None), [])
+        self.assertEqual(FluidPlayback.doubts(self.results(Judged=False, Lagged=True)), [])
+
+    def test_the_lag_and_the_rise_each_say_so(self):
+        (lag,) = FluidPlayback.doubts(self.results(Lagged=True, Made=0.3))
+        self.assertIn("30%", lag)
+        self.assertIn("20%", lag)
+        self.assertIn("mechanism", lag)
+        (rise,) = FluidPlayback.doubts(self.results(Rose=True, Rise=0.5))
+        self.assertIn("50%", rise)
+        self.assertIn("10%", rise)
+        both = FluidPlayback.doubts(self.results(Lagged=True, Made=0.3, Rose=True, Rise=0.5))
+        self.assertEqual(both, [lag, rise])
+
+
 class TestSetUp(FluidCase):
     def test_active_study(self):
         self.assertEqual(FluidPlayback.activeStudy(), self.study)

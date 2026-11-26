@@ -396,6 +396,38 @@ class FrameView:
         self.coords = None
 
 
+def doubts(results):
+    """What a run's own account of its energy has against its results, each
+    a sentence for the user; none when it has nothing, or kept no account.
+    Nothing found is not the results proved: a run on particles too coarse
+    for the question keeps its account in order."""
+    energy = (results or {}).get("Energy")
+    found = []
+    if not energy or not energy["Judged"]:
+        return found
+    if energy["Lagged"]:
+        found.append(
+            translate(
+                "Fluid",
+                "The mechanism's parts and the fluid did not keep step: {:.0%} of the "
+                "energy that passed between them came from the coupling itself (over "
+                "{:.0%} is not to be trusted). The parts may swing wider than they "
+                "should, or never come to rest. Heavier parts or a coarser resolution "
+                "keep step more easily.",
+            ).format(energy["Made"], energy["MadeLimit"])
+        )
+    if energy["Rose"]:
+        found.append(
+            translate(
+                "Fluid",
+                "The fluid gained energy from nowhere: by {:.0%} of the most it ever "
+                "moved with (over {:.0%} is not to be trusted). The run was coming "
+                "apart. Try a finer resolution, or a shorter time between frames.",
+            ).format(energy["Rise"], energy["RiseLimit"])
+        )
+    return found
+
+
 def studyOf(obj):
     """The study an object is, or is a child of; None otherwise."""
     if obj is None:

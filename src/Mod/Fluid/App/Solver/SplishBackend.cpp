@@ -313,6 +313,17 @@ private:
                 sink.sample(event.time, values);
                 break;
             }
+            case Splish::Event::Energy: {
+                Energy energy;
+                energy.time = event.time;
+                energy.kinetic = event.values[0];
+                energy.potential = event.values[1];
+                energy.work = event.values[2];
+                energy.created = event.values[3];
+                energy.exchanged = event.values[4];
+                sink.energy(energy);
+                break;
+            }
             case Splish::Event::Body:
                 // of the frame that follows
                 if (static_cast<std::size_t>(event.index) < motions.size()) {

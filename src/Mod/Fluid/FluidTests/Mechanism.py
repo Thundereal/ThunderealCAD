@@ -15,7 +15,7 @@ import Part
 
 import FluidPlayback
 
-from FluidTests.DamBreak import backendNamed
+from FluidTests.DamBreak import backendNamed, energyHolds
 
 WATER = 998.2  # kg/m^3, the fluid's own
 ALUMINUM = "9bf060e9-1663-44a2-88e2-2ff6ee858efe"  # Aluminum Generic's card
@@ -299,6 +299,7 @@ class Mechanism:
         rest = 60.0 - draught
         self.float_on_a_slider(500.0, rest, 1.0)
         self.assertEqual(self.study.run(), 0, self.study.Status)
+        energyHolds(self, self.study)
         rows, mechanism = self.heights(rest)
         self.assertEqual(len(rows), 21)
         self.assertEqual(len(mechanism), 21)
@@ -323,6 +324,7 @@ class Mechanism:
         rest = 60.0 - draught
         self.float_on_a_slider(100.0, rest, 1.0)
         self.assertEqual(self.study.run(), 0, self.study.Status)
+        energyHolds(self, self.study)
         rows, _ = self.heights(rest)
         self.assertEqual(len(rows), 21)
         for time, under, lean, count in rows:
@@ -337,6 +339,7 @@ class Mechanism:
         rest = 60.0 + draught * 60.0 * 60.0 / (120.0 * 120.0) - draught
         self.float_on_a_slider(500.0, 70.0, 1.5)
         self.assertEqual(self.study.run(), 0, self.study.Status)
+        energyHolds(self, self.study)
         rows, _ = self.heights(70.0)
         self.assertLess(min(under for _, under, _, _ in rows), rest - 5.0)
         for time, under, lean, count in rows:
@@ -536,6 +539,8 @@ class Mechanism:
         tip = self.bar.Placement.multVec(App.Vector(BAR[0], BAR[1] / 2, BAR[2] / 2))
         modelled = App.Placement(self.bar.Placement)
         self.assertEqual(self.study.run(), 0, self.study.Status)
+        energy = energyHolds(self, self.study)
+        self.assertTrue(energy["HandOverJudged"])
         self.wallPointsOnTheBar(modelled)
         angles, counts = self.angles()
         frames = round(end / 0.05) + 1
@@ -641,6 +646,34 @@ class Mechanism:
         self.assertLess(swing, 1.0)
         self.assertGreater(mean, barAtRest(500.0, 0.1, water, across))
         self.assertLess(mean, barAtRest(500.0, 0.4, water, across))
+
+    def test_the_lag_is_seen_in_the_runs_energy(self):
+        # The same bar on the whole step again (FLUID_SPLISH_STRETCH, the
+        # runner's own switch for this), as it was before the quarter: the
+        # run ends well and its frames look like water, and only its
+        # account says not to believe it. Past the first quarter of the
+        # run the lag made three tenths of the energy that went between
+        # the bar and the water (measured 0.30 over 2 s, and 0.02 on the
+        # quarter step; the limit is 0.2), while the fluid's own budget,
+        # which the lag is no part of, never rose.
+        before = os.environ.get("FLUID_SPLISH_STRETCH")
+        os.environ["FLUID_SPLISH_STRETCH"] = "4"
+        try:
+            self.bar_on_a_hinge(500.0, 0.0, 1.0, 40.0, 2.5)
+            self.assertEqual(self.study.run(), 0, self.study.Status)
+        finally:
+            if before is None:
+                del os.environ["FLUID_SPLISH_STRETCH"]
+            else:
+                os.environ["FLUID_SPLISH_STRETCH"] = before
+        energy = self.study.getResults()["Energy"]
+        self.assertTrue(energy["Judged"])
+        self.assertTrue(energy["BudgetJudged"])
+        self.assertFalse(energy["Rose"], energy["Rise"])
+        self.assertTrue(energy["HandOverJudged"])
+        self.assertGreater(energy["Made"], energy["MadeLimit"])
+        self.assertTrue(energy["Lagged"])
+        App.Console.PrintLog(f"the lag made {energy['Made']:.3f} of what went over\n")
 
     def test_a_lighter_bar_on_a_hinge(self):
         # Of the same skin: measured 13.62 deg at three tenths of the

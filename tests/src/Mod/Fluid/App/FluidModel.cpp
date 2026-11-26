@@ -556,6 +556,15 @@ TEST(FluidArchive, framesReadBackOneAtATime)
             // the monitors twice as often as the frames
             writer.sample(0.1 * k, {0.25 + k, 1000.0 * k});
             writer.sample(0.1 * k + 0.05, {0.5 + k, std::nan("")});
+            // the fluid's energy with each frame
+            Energy energy;
+            energy.time = 0.1 * k;
+            energy.kinetic = 0.5 * k;
+            energy.potential = 3.0 - k;
+            energy.work = 0.25 * k;
+            energy.created = 0.001 * k;
+            energy.exchanged = 0.1 * k;
+            writer.energy(energy);
         }
         EXPECT_EQ(writer.frames(), 3U);
         EXPECT_NEAR(writer.lastTime(), 0.2, 1e-12);
@@ -597,6 +606,13 @@ TEST(FluidArchive, framesReadBackOneAtATime)
         EXPECT_NEAR(frame.bodies[1].rotation[3], std::cos(0.2), 1e-12);
         EXPECT_EQ(reader.frame(0).points.size(), 3U);
         EXPECT_THROW(reader.frame(3), Base::IndexError);
+        ASSERT_EQ(read.energy.size(), 3U);
+        EXPECT_NEAR(read.energy[2].time, 0.2, 1e-12);
+        EXPECT_NEAR(read.energy[2].kinetic, 1.0, 1e-12);
+        EXPECT_NEAR(read.energy[2].potential, 1.0, 1e-12);
+        EXPECT_NEAR(read.energy[2].work, 0.5, 1e-12);
+        EXPECT_NEAR(read.energy[2].created, 0.002, 1e-12);
+        EXPECT_NEAR(read.energy[2].exchanged, 0.2, 1e-12);
     }
     Base::FileInfo(path).deleteFile();
     EXPECT_THROW(Fluid::ArchiveReader missing(path), Base::Exception);
@@ -612,6 +628,111 @@ TEST(FluidArchive, framesReadBackOneAtATime)
         const Fluid::ArchiveReader reader(path);
         EXPECT_TRUE(reader.index().bodies.empty());
         EXPECT_TRUE(reader.frame(0).bodies.empty());
+        // nor of an energy it was told none of: results made before it was kept
+        EXPECT_TRUE(reader.index().energy.empty());
     }
     Base::FileInfo(path).deleteFile();
+}
+
+namespace
+{
+// A run's account at a time: the fluid's energy, and what its mechanism's
+// hand-over made and passed.
+Energy accountAt(double time, double fluid, double created = 0.0, double exchanged = 0.0)
+{
+    Energy energy;
+    energy.time = time;
+    energy.kinetic = 0.01;
+    energy.potential = fluid - 0.01;
+    energy.created = created;
+    energy.exchanged = exchanged;
+    return energy;
+}
+}  // namespace
+
+TEST(FluidEnergy, aRunThatOnlyLosesIsBelieved)
+{
+    Fluid::ResultsIndex index;
+    // no account kept: nothing to say
+    EXPECT_FALSE(Fluid::judge(index).kept);
+    // the fluid's energy falling all the way, as a solver's does
+    for (int k = 0; k <= 20; ++k) {
+        index.energy.push_back(accountAt(0.1 * k, 1.0 - 0.001 * k));
+    }
+    auto verdict = Fluid::judge(index);
+    EXPECT_TRUE(verdict.kept);
+    EXPECT_TRUE(verdict.budget);
+    EXPECT_FALSE(verdict.rose);
+    EXPECT_NEAR(verdict.rise, 0.0, 1e-12);
+    // no mechanism passed anything
+    EXPECT_FALSE(verdict.handOver);
+    EXPECT_FALSE(verdict.lagged);
+}
+
+TEST(FluidEnergy, theStartIsNotHeldAgainstARun)
+{
+    // Seeded against a part, the fluid is pressed apart in the first
+    // steps and has energy it was not given (measured: the bar put where
+    // it rests, as much again as its kinetic energy ever is). The first
+    // quarter of a run is its start.
+    Fluid::ResultsIndex index;
+    for (int k = 0; k <= 20; ++k) {
+        index.energy.push_back(accountAt(0.1 * k, k == 1 ? 1.01 : 1.0 - 0.001 * k));
+    }
+    EXPECT_FALSE(Fluid::judge(index).rose);
+}
+
+TEST(FluidEnergy, aRiseLaterIsNot)
+{
+    Fluid::ResultsIndex index;
+    for (int k = 0; k <= 20; ++k) {
+        // from 1.5 s on it gains a fifth of its kinetic energy
+        const double fluid = k < 15 ? 1.0 - 0.001 * k : 0.986 + 0.0004 * (k - 15);
+        index.energy.push_back(accountAt(0.1 * k, fluid));
+    }
+    auto verdict = Fluid::judge(index);
+    EXPECT_TRUE(verdict.rose);
+    EXPECT_NEAR(verdict.rise, 0.2, 1e-9);
+    // a run that was fed has no such budget: its inlets bring energy
+    index.fed = true;
+    verdict = Fluid::judge(index);
+    EXPECT_FALSE(verdict.budget);
+    EXPECT_FALSE(verdict.rose);
+}
+
+TEST(FluidEnergy, whatAMechanismsLagMakes)
+{
+    // The hinged bar as measured at 2.5 mm: on the whole step the lag made
+    // three tenths of what went over, and went on making it; on a quarter
+    // of the step a fiftieth, all of it at the start.
+    Fluid::ResultsIndex swinging;
+    Fluid::ResultsIndex settled;
+    for (int k = 0; k <= 20; ++k) {
+        const double t = 0.1 * k;
+        swinging.energy.push_back(accountAt(t, 1.0 - 0.001 * k, 0.003 * t, 0.01 * t));
+        settled.energy.push_back(
+            accountAt(t, 1.0 - 0.001 * k, k == 0 ? 0.0 : 0.00015, 0.006 + 0.001 * t));
+    }
+    auto verdict = Fluid::judge(swinging);
+    EXPECT_TRUE(verdict.handOver);
+    EXPECT_NEAR(verdict.made, 0.3, 1e-9);
+    EXPECT_TRUE(verdict.lagged);
+    // the fluid's own budget says nothing of it
+    EXPECT_FALSE(verdict.rose);
+    verdict = Fluid::judge(settled);
+    EXPECT_TRUE(verdict.handOver);
+    EXPECT_NEAR(verdict.made, 0.0, 1e-9);
+    EXPECT_FALSE(verdict.lagged);
+    // a lag that takes energy out damps, and is nothing to warn of
+    for (auto& at : swinging.energy) {
+        at.created = -at.created;
+    }
+    EXPECT_FALSE(Fluid::judge(swinging).lagged);
+    // a mechanism that stands still passes nothing: no share of it
+    Fluid::ResultsIndex still;
+    for (int k = 0; k <= 20; ++k) {
+        still.energy.push_back(accountAt(0.1 * k, 1.0, k == 0 ? 0.0 : 1e-9, k == 0 ? 0.0 : 2e-9));
+    }
+    verdict = Fluid::judge(still);
+    EXPECT_FALSE(verdict.lagged);
 }

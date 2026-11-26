@@ -11,7 +11,7 @@ import Part
 
 import FluidPlayback
 
-from FluidTests.DamBreak import backendNamed
+from FluidTests.DamBreak import backendNamed, energyHolds
 
 WATER = 998.2  # kg/m^3, the fluid's own
 
@@ -73,6 +73,8 @@ class Jet:
     def test_the_plate_is_pressed_with_the_jets_momentum(self):
         self.assertEqual(self.force.Direction, App.Vector(1, 0, 0))
         self.assertEqual(self.study.run(), 0, self.study.Status)
+        # the inlet brings energy: the fluid's budget is not one to judge
+        energyHolds(self, self.study, fed=True)
         results = self.study.getResults()
         monitor, pressure = results["Monitors"]
         self.assertEqual((monitor["Kind"], monitor["Unit"]), ("Force", "N"))

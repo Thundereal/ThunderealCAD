@@ -334,6 +334,10 @@ struct Study::Run: public Solver::FrameSink
     {
         writer->sample(at, values);
     }
+    void energy(const Solver::Energy& energy) override
+    {
+        writer->energy(energy);
+    }
     bool cancelled() const override
     {
         return cancel.load();
@@ -964,6 +968,7 @@ Solver::Status Study::start(std::string& why)
     run->index.kind = backend->capabilities().results;
     run->index.signature = Solver::signature(run->model);
     run->index.spacing = run->model.resolution * 1000.0;
+    run->index.fed = !run->model.inlets.empty();
     for (const auto& monitor : run->model.monitors) {
         run->index.monitors.push_back({monitor.source, monitor.kind});
     }

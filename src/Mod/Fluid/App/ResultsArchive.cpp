@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <algorithm>
 #include <bit>
 #include <cstdio>
 #include <limits>
@@ -129,6 +130,51 @@ const char* Fluid::unitOf(Solver::MonitorKind kind)
     return kind == Solver::MonitorKind::Force ? "N" : kind == Solver::MonitorKind::Pressure ? "Pa" : "mm";
 }
 
+EnergyVerdict Fluid::judge(const ResultsIndex& index)
+{
+    EnergyVerdict verdict;
+    const auto& energy = index.energy;
+    if (energy.size() < 4) {
+        return verdict;
+    }
+    // past the start: the first record at or after a quarter of the time
+    const double from = energy.front().time + 0.25 * (energy.back().time - energy.front().time);
+    std::size_t first = 0;
+    while (first + 1 < energy.size() && energy[first].time < from) {
+        ++first;
+    }
+    if (first + 1 >= energy.size()) {
+        return verdict;
+    }
+    verdict.kept = true;
+    double fastest = 0.0;
+    for (const auto& at : energy) {
+        fastest = std::max(fastest, at.kinetic);
+    }
+    verdict.budget = !index.fed;
+    if (verdict.budget && fastest > 0.0) {
+        double lowest = std::numeric_limits<double>::max();
+        double rise = 0.0;
+        for (std::size_t k = first; k < energy.size(); ++k) {
+            const double all = energy[k].kinetic + energy[k].potential + energy[k].work;
+            lowest = std::min(lowest, all);
+            rise = std::max(rise, all - lowest);
+        }
+        verdict.rise = rise / fastest;
+        verdict.rose = verdict.rise > EnergyVerdict::riseLimit;
+    }
+    const double over = energy.back().exchanged - energy[first].exchanged;
+    const double created = energy.back().created - energy[first].created;
+    // against the fluid's own motion: a mechanism that stands passes
+    // nothing worth a share
+    if (over > 0.01 * fastest) {
+        verdict.handOver = true;
+        verdict.made = created / over;
+        verdict.lagged = verdict.made > EnergyVerdict::madeLimit;
+    }
+    return verdict;
+}
+
 struct ArchiveWriter::Private
 {
     explicit Private(const std::string& path)
@@ -143,6 +189,7 @@ struct ArchiveWriter::Private
     std::vector<double> samples;
     std::vector<double> values;
     std::vector<double> motions;
+    std::vector<double> energy;
     std::size_t width = 0;
     std::size_t bodies = 0;  // a frame, as the first frame has them
     bool sampled = false;
@@ -213,6 +260,17 @@ void ArchiveWriter::sample(double time, const std::vector<double>& values)
     }
 }
 
+void ArchiveWriter::energy(const Solver::Energy& energy)
+{
+    d->energy.insert(d->energy.end(),
+                     {energy.time,
+                      energy.kinetic,
+                      energy.potential,
+                      energy.work,
+                      energy.created,
+                      energy.exchanged});
+}
+
 std::size_t ArchiveWriter::frames() const
 {
     return d->times.size();
@@ -257,6 +315,7 @@ void ArchiveWriter::close(ResultsIndex index)
     // keeps none
     index.bodies.resize(d->bodies);
     out["bodies"] = index.bodies;
+    out["fed"] = index.fed;
 
     d->zip->setLevel(6);
     d->zip->putNextEntry("times.npy");
@@ -276,6 +335,14 @@ void ArchiveWriter::close(ResultsIndex index)
                  {frames, d->bodies, 7},
                  d->motions.data(),
                  d->motions.size() * sizeof(double));
+    }
+    if (!d->energy.empty()) {
+        d->zip->putNextEntry("energy.npy");
+        writeNpy(*d->zip,
+                 "<f8",
+                 {d->energy.size() / 6, 6},
+                 d->energy.data(),
+                 d->energy.size() * sizeof(double));
     }
     d->zip->putNextEntry("index.json");
     *d->zip << out.dump(1);
@@ -356,6 +423,17 @@ ArchiveReader::ArchiveReader(const std::string& path)
             if (d->index.motions.size() != d->index.times.size() * d->index.bodies.size() * 7) {
                 THROWM(Base::RuntimeError,
                        "the fluid results' moved walls do not match its frames");
+            }
+        }
+        d->index.fed = index.value("fed", false);
+        if (auto energyIn = entry("energy.npy")) {
+            const auto kept = readNpy<double>(*energyIn, "<f8", shape);
+            if (shape.size() != 2 || shape[1] != 6) {
+                THROWM(Base::RuntimeError, "the fluid results' energy is not six to a time");
+            }
+            for (std::size_t k = 0; k + 5 < kept.size(); k += 6) {
+                d->index.energy.push_back(
+                    {kept[k], kept[k + 1], kept[k + 2], kept[k + 3], kept[k + 4], kept[k + 5]});
             }
         }
     }

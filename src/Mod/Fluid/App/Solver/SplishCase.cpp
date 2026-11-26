@@ -1117,6 +1117,27 @@ Splish::Event Splish::parseLine(const std::string& line)
             }
         }
     }
+    else if (word == "energy") {
+        std::string time;
+        if ((in >> time) && numberOf(time, event.time)) {
+            std::string value;
+            bool good = true;
+            while (in >> value) {
+                double v = 0.0;
+                if (!numberOf(value, v)) {
+                    good = false;
+                    break;
+                }
+                event.values.push_back(v);
+            }
+            if (good && event.values.size() == 5) {
+                event.kind = Event::Energy;
+            }
+            else {
+                event.values.clear();
+            }
+        }
+    }
     else if (word == "sample") {
         std::string time;
         if ((in >> time) && numberOf(time, event.time)) {

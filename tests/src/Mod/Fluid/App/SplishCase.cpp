@@ -445,6 +445,19 @@ TEST(SplishCase, theLinesOfADrivenWall)
     for (const char* bad : {"ask", "ask 0", "ask 0 1 2", "pushed", "pushed 1 2 3", "pushed 1 a b c d e f"}) {
         EXPECT_EQ(Splish::parseLine(bad).kind, Splish::Event::Other) << bad;
     }
+    // the fluid's energy at a frame: kinetic, potential, the work it has
+    // done on what it moves, and at a mechanism's hand-over what was made
+    // of nothing and what went over
+    event = Splish::parseLine("energy 0.25 0.5 2.25 -0.125 0.001 0.0625");
+    EXPECT_EQ(event.kind, Splish::Event::Energy);
+    EXPECT_EQ(event.time, 0.25);
+    ASSERT_EQ(event.values.size(), 5U);
+    EXPECT_EQ(event.values[0], 0.5);
+    EXPECT_EQ(event.values[2], -0.125);
+    EXPECT_EQ(event.values[4], 0.0625);
+    for (const char* bad : {"energy", "energy 0.25", "energy 0.25 1 2 3 4", "energy 0 1 2 3 4 x"}) {
+        EXPECT_EQ(Splish::parseLine(bad).kind, Splish::Event::Other) << bad;
+    }
 
     // What it is told: until when, and each wall's centre where the motion
     // has it, its turn, its centre's velocity and its angular velocity. A

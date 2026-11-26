@@ -84,7 +84,19 @@ class Study(DocumentObject):
         (the monitors' own times, s: a solver reports them far oftener than
         it makes frames) and Monitors, each Object, Kind, Unit and Values
         (one per monitor time); and Bodies, the parts the fluid moved, each
-        Object and Source.
+        Object and Source. From a solver that keeps account of its energy,
+        Energy too: Times (s) and, at each, in J, the fluid's Kinetic and
+        Potential energy, its Work so far on the parts it moves, and of a
+        mechanism's parts what their lag behind the fluid Created and what
+        was Exchanged; Fed, whether inlets fed the run; and what is made of
+        it past the run's first quarter -- Judged, whether there was
+        enough to; BudgetJudged, Rise, RiseLimit and Rose, the most the
+        three together rose as a share of the fluid's greatest kinetic
+        energy (they cannot; not judged of a run that was fed);
+        HandOverJudged, Made, MadeLimit and Lagged, the share of what was
+        exchanged that the lag created. Rose or Lagged: the results are
+        not to be trusted. Neither: nothing was found, which is not to say
+        the particles are fine enough.
         """
         ...
 

@@ -1540,7 +1540,10 @@ of the lines, the water not brought back to its density; let it go to
 not the cause. The longest step is the stretch the mechanism holds its
 push over and the fluid's own longest step at once, and halving it was
 enough: the growth is the lag, fed faster than the finer water damps.
-Which of the two halves matters is not separated. Shorter costs nothing
+Which of the two halves matters was separated after (the slice of the
+test below, 2 s): the fluid's step a quarter and the stretch whole swung
+12.45 to 18.48 deg, as wide as before -- it is the stretch, the lag, and
+not the fluid's step. Shorter costs nothing
 here: the pressure solver needs fewer iterations on a shorter step (at
 its cap 93%, 43%, 0% of the lines), so a quarter ran as fast as the whole.
 
@@ -1584,6 +1587,74 @@ memory and pressure stalls; its kernel messages; the runner's own trace
 (`FLUID_RUNNER_LOG`): none hung. Package power 31 to 91 W, the thermal
 zone 69 to 88, no throttle reason, the passive limit 100% throughout, no
 memory or IO pressure. 8 threads is still to be tried, attended.
+
+### 12.11 A run's account of its energy (2026-11-26)
+
+The 2.5 mm bar that swung ever wider ended its run well, and its frames
+looked like water. Nothing said not to believe it. Now the run keeps an
+account of its energy, the results hold it, and the panel says when it
+does not hold.
+
+**What is kept.** With each frame the runner says (`energy`, J) the
+fluid's kinetic energy; its potential energy, heights taken from under
+the space so that a particle that leaves takes energy with it; the work
+the fluid has done so far on the walls it moves, each step's force and
+torque along the wall's motion; and of a mechanism's parts two sums made
+at each hand-over. A part goes through a stretch by the fluid's mean push
+of the stretch before, and the fluid meanwhile gives another: the
+difference, along the way the part went, is work the one side did and
+the other never felt. *Created* is that with its sign, *exchanged* the
+stretch's work without one. The results keep it as `energy.npy`, and
+`getResults()["Energy"]` gives the columns and what is made of them
+(`Fluid::judge`).
+
+**What is made of it**, past the first quarter of the run's time:
+
+- *The fluid's budget.* Kinetic and potential energy and the work
+  together cannot rise in a run nothing feeds; the solver only loses.
+  The most it rose above its lowest before, as a share of the fluid's
+  greatest kinetic energy: over 0.1, the run was coming apart. Not judged
+  of a run with inlets, which bring energy the account does not have
+  (the jet that stops would be over the limit, at 0.12, with nothing wrong).
+- *The hand-over.* What was created as a share of what was exchanged,
+  when more went over than a hundredth of the fluid's greatest kinetic
+  energy: over 0.2, the lag is feeding the motion. Energy the lag takes
+  out is damping, and nothing to warn of.
+
+The first quarter is left out because a run's start is not its fault:
+fluid seeded against a part is pressed apart in the first steps (the bar
+put where it rests: the budget up by as much as the fluid's kinetic
+energy ever was, in the first 50 ms, and never again), and a part's
+first stretch goes by a push of none.
+
+**Measured** (4 threads; the share created past the first quarter):
+
+| The run | Created of exchanged | The budget rose |
+|---|---|---|
+| the bar at 2.5 mm on the whole step (swinging 12.5 to 18.5 deg) | 0.30, and growing to the end | never |
+| the bar at 5 mm on the whole step (15.3 to 16.6) | 0.08 | never |
+| the bar at 2.5 mm on a quarter | 0.005 | never |
+| the bar at 5 mm on a quarter; lighter; heavier; put where it rests | 0.003 to 0.006 | never |
+| a float let go above the water, on a slider | 0.014 | never |
+| a float a tenth of the water's density on a slider | 0.10 | never |
+| the dam break, the plates, still water, the floating blocks | no mechanism | never |
+
+The fluid's own budget never rose in the run that swung wider: the lag
+is no part of the fluid, and the budget cannot see it. Only the
+hand-over does. The light float at 0.10 is the nearest to the limit of
+the runs that settle, as the theory has it (the water that moves with it
+outweighs it).
+
+**What it does not say.** A run on particles too coarse for the question
+keeps its account in order: the 5 mm bar rests a degree off the closed
+form with nothing found. And there is no remedy in it: the step is not
+made shorter by what it finds, which the user ruled out for now (the
+energy budget alone, of the guards offered).
+
+The test: `test_the_lag_is_seen_in_the_runs_energy` runs the slice at
+2.5 mm on the whole step again (`FLUID_SPLISH_STRETCH=4`, the runner's
+switch for it) and has the hand-over over its limit and the budget not;
+every other run of the Splish tests is held to both (`energyHolds`).
 
 ## 13. For the user to rule (2026-11-21)
 

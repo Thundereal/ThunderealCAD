@@ -461,6 +461,16 @@ class TaskFluidStudy:
         self.summary = QtWidgets.QLabel("")
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)
+        # what the run's own account has against its results
+        self.doubt = QtWidgets.QLabel("")
+        self.doubt.setObjectName("FluidDoubt")
+        self.doubt.setWordWrap(True)
+        self.doubt.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        self.doubt.setStyleSheet("color: #c05000;")
+        # wrapped to the panel as it is, never widening it
+        self.doubt.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+        self.doubt.setVisible(False)
+        layout.addWidget(self.doubt)
         row = QtWidgets.QHBoxLayout()
         self.playButton = QtWidgets.QPushButton(translate("Fluid", "Play"))
         self.playButton.clicked.connect(self.onPlay)
@@ -624,8 +634,14 @@ class TaskFluidStudy:
         except Exception as error:
             self.frames = None
             self.summary.setText(str(error))
+            self.doubt.setVisible(False)
             return
         valid = self.frames.valid
+        found = FluidPlayback.doubts(self.study.getResults()) if valid else []
+        self.doubt.setText("\n\n".join(found))
+        self.doubt.setVisible(bool(found))
+        for sentence in found:
+            App.Console.PrintWarning("{}: {}\n".format(self.study.Label, sentence))
         self.playButton.setEnabled(valid)
         self.slider.setEnabled(valid)
         self.asSurface.setVisible(valid and self.frames.kind == "Particles")

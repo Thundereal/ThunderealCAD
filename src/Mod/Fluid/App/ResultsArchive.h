@@ -20,6 +20,11 @@
 //   samples.npy   (samples,)      float64, s: the monitors' times, which
 //                                 are their own and far more than the frames
 //   monitors.npy  (samples, n)    float64, each monitor in its unit
+//   energy.npy    (n, 6)          float64, J, when the solver kept account
+//                                 of it: the time (s), the fluid's kinetic
+//                                 and potential energy, its work on the
+//                                 walls it moves, and what a mechanism's
+//                                 lag made and what went over (Backend.h)
 //   frames/000000.points.npy      (points, 3) float32, mm: one per frame
 //   frames/000000.triangles.npy   (triangles, 3) int32: a surface's frames
 //   bodies.npy    (frames, n, 7)  float64: where each wall the fluid moved
@@ -52,7 +57,38 @@ struct ResultsIndex
     std::vector<double> samples;  // the monitors' times, s
     std::vector<double> values;   // samples x monitors: Height mm, Pressure Pa, Force N
     std::vector<double> motions;  // frames x bodies x 7, as bodies.npy
+    // The fluid's energy as the run went, J; none from a solver that keeps
+    // no account of it, or in results made before it was kept.
+    std::vector<Solver::Energy> energy;
+    // Whether the run was fed: fluid came in at inlets, with energy the
+    // account does not have.
+    bool fed = false;
 };
+
+// Whether a run's own account of its energy holds (docs/FluidSimulation.md
+// sec 12.11). Both checks leave out the first quarter of the run: fluid
+// seeded against a part is pressed apart in the first steps, and a
+// mechanism's parts start by a push of none.
+//
+// It says a run went wrong, never that it went right: a run on particles
+// too coarse for what is asked of it keeps its account in order.
+struct EnergyVerdict
+{
+    bool kept = false;  // the run kept an account, long enough to judge
+    // The fluid's own: its energy and its work on the walls it moves
+    // cannot rise together. Not judged of a run that was fed.
+    bool budget = false;
+    double rise = 0.0;  // the most it rose above its lowest before, as a
+                        // share of the fluid's greatest kinetic energy
+    bool rose = false;  // by more than riseLimit
+    // A mechanism's: what its lag made of what went over.
+    bool handOver = false;  // something went over
+    double made = 0.0;      // the share
+    bool lagged = false;    // more than madeLimit
+    static constexpr double riseLimit = 0.1;
+    static constexpr double madeLimit = 0.2;
+};
+FluidExport EnergyVerdict judge(const ResultsIndex& index);
 
 // The unit a monitor's values are kept in.
 FluidExport const char* unitOf(Solver::MonitorKind kind);
@@ -80,6 +116,8 @@ public:
     void frame(const Solver::Frame& frame);
     // The monitors at a time, in the model's units, kept for close().
     void sample(double time, const std::vector<double>& values);
+    // The fluid's energy at a time, kept for close().
+    void energy(const Solver::Energy& energy);
     std::size_t frames() const;
     double lastTime() const;
     // Writes the times, the monitors' values and the index (its times,

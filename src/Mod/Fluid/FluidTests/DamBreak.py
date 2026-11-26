@@ -24,6 +24,22 @@ def backendNamed(name):
     return None
 
 
+def energyHolds(test, study, fed=False):
+    """A run's own account of its energy, from a solver that keeps one: the
+    fluid's energy and its work on what it moves did not rise past the
+    start, and a mechanism's lag made no great share of what went over. A
+    run that inlets fed has no such budget, and is not judged by it."""
+    energy = study.getResults().get("Energy")
+    if energy is None:
+        return None
+    test.assertTrue(energy["Judged"])
+    test.assertEqual(energy["Fed"], fed)
+    test.assertEqual(energy["BudgetJudged"], not fed)
+    test.assertFalse(energy["Rose"], energy["Rise"])
+    test.assertFalse(energy["Lagged"], energy["Made"])
+    return energy
+
+
 class DamBreak:
     """A tank 400 x 100 inside, its walls 10 thick and 200 high, open above;
     water 100 x 100 x 100 against its -x end; a resolution of 10 mm.
@@ -87,6 +103,7 @@ class DamBreak:
 
     def test_dam_break(self):
         self.assertEqual(self.study.run(), 0, self.study.Status)
+        energyHolds(self, self.study)
         results = self.study.getResults()
         self.assertEqual(results["Backend"], self.BACKEND)
         self.assertTrue(results["Version"])

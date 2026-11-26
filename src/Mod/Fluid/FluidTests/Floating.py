@@ -12,7 +12,7 @@ import Part
 
 import FluidPlayback
 
-from FluidTests.DamBreak import backendNamed
+from FluidTests.DamBreak import backendNamed, energyHolds
 
 WATER = 998.2  # kg/m^3, the fluid's own
 
@@ -59,6 +59,7 @@ class Floating:
         self.study.TimeEnd = end
         self.doc.recompute()
         self.assertEqual(self.study.run(), 0, self.study.Status)
+        energyHolds(self, self.study)
         results = self.study.getResults()
         self.assertEqual([body["Object"] for body in results["Bodies"]], [self.block])
         rows = []

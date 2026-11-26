@@ -101,6 +101,10 @@ struct Event
         Pushed,   // time, values: the runner is at that time, past the
                   // stretch it was given; the mean force (3) and torque (3,
                   // about its centre) on each driven wall since it last said
+        Energy,   // time, values: the fluid's kinetic and potential
+                  // energy, its work on the walls it moves, and of driven
+                  // walls what the lag made and what went over (Backend.h's
+                  // Energy), J
         Error,    // text
     };
     Kind kind = Other;

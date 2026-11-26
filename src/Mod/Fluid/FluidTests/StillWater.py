@@ -10,7 +10,7 @@ import Part
 
 import FluidPlayback
 
-from FluidTests.DamBreak import G, backendNamed
+from FluidTests.DamBreak import G, backendNamed, energyHolds
 
 
 class StillWater:
@@ -55,6 +55,7 @@ class StillWater:
 
     def test_still_water(self):
         self.assertEqual(self.study.run(), 0, self.study.Status)
+        energyHolds(self, self.study)
         results = self.study.getResults()
         self.assertEqual(results["Frames"], 11)
         frames = FluidPlayback.Frames(self.study)

@@ -72,6 +72,26 @@ struct Frame
     std::vector<Motion> bodies;
 };
 
+// The fluid's energy at a time, J (docs/FluidSimulation.md sec 12.11): a
+// run's own account of itself, for whoever asks whether to believe it.
+// Kinetic and potential are the fluid's, the potential above the lowest
+// point of its space; work is what the fluid has done so far on the walls
+// it moves. The three together cannot rise in a run nothing feeds. Of a
+// run with a mechanism, where a wall goes by the fluid's push of the
+// stretch before: created is the work so far of that push less the push
+// the fluid then gave, along the way the wall went -- energy of nothing
+// but the lag -- and exchanged is how much went between the two in all,
+// each stretch's taken without its sign.
+struct Energy
+{
+    double time = 0.0;
+    double kinetic = 0.0;
+    double potential = 0.0;
+    double work = 0.0;
+    double created = 0.0;
+    double exchanged = 0.0;
+};
+
 // Where a run's frames and its monitors' values go as they are made, and
 // where it asks whether to stop. Called from the run's thread.
 class FluidExport FrameSink
@@ -85,6 +105,10 @@ public:
     // far oftener than it makes frames -- an impact's pressure peak lasts
     // milliseconds.
     virtual void sample(double time, const std::vector<double>& values) = 0;
+    // The fluid's energy, from a solver that keeps account of it: with
+    // each frame.
+    virtual void energy(const Energy& /*energy*/)
+    {}
     virtual bool cancelled() const
     {
         return false;

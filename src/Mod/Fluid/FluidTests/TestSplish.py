@@ -11,7 +11,7 @@ import FreeCAD as App
 
 import FluidPlayback
 
-from FluidTests.DamBreak import DamBreak, backendNamed
+from FluidTests.DamBreak import DamBreak, backendNamed, energyHolds
 from FluidTests.Floating import Floating
 from FluidTests.Jet import Jet
 from FluidTests.Mechanism import Mechanism
@@ -91,6 +91,7 @@ class TestSplishPlates(unittest.TestCase):
 
     def test_plates_hold_water(self):
         self.assertEqual(self.study.run(), 0, self.study.Status)
+        energyHolds(self, self.study)
         frames = FluidPlayback.Frames(self.study)
         self.assertEqual(len(frames), 11)
         for index in range(len(frames)):

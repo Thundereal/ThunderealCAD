@@ -645,6 +645,34 @@ Application::Application(bool GUIenabled)
             }
             if(docs.empty() || !App::DocumentParams::getWarnRecomputeOnRestore())
                 return;
+            // Asked of the user only for what the user can reach: a document
+            // with a view, and what such a document depends on -- a part an
+            // assembly links. One opened hidden by code is neither: CAM's
+            // tool-bit shape, copied to a temporary file, read and closed
+            // again (Path/Tool/shape/doc.py). The question about a document
+            // the user never saw was a modal nobody would answer under a
+            // test (SandboxPanelMirror.test_cam_op_panel) and a puzzle to
+            // anyone else. Not asked, it stays as a "No" leaves it, its
+            // objects still marked for the migration
+            {
+                std::vector<App::Document*> shown;
+                for (auto doc : App::GetApplication().getDocuments()) {
+                    auto gdoc = Application::Instance->getDocument(doc);
+                    if (gdoc && !gdoc->getMDIViews().empty())
+                        shown.push_back(doc);
+                }
+                const auto reach = shown.empty()
+                    ? std::vector<App::Document*>()
+                    : App::Document::getDependentDocuments(shown, false);
+                docs.erase(std::remove_if(docs.begin(), docs.end(),
+                                          [&reach](App::Document* doc) {
+                                              return std::find(reach.begin(), reach.end(), doc)
+                                                  == reach.end();
+                                          }),
+                           docs.end());
+                if (docs.empty())
+                    return;
+            }
             WaitCursor wc;
             wc.restoreCursor();
             auto res = QMessageBox::warning(getMainWindow(), QObject::tr("Recompution required"),

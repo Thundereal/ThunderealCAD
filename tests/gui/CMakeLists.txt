@@ -1378,6 +1378,13 @@ fc_add_gui_test(GuiReopenVisualBuilds_tests_run
                 reopen-visual-builds.py
                 --timeout 240)
 
+# A document opened hidden by code -- CAM's tool-bit shapes, from a
+# temporary copy -- is not asked about its migration; one opened with a
+# view still is (SandboxPanelMirror.test_cam_op_panel sat in the question).
+fc_add_gui_test(GuiMigrationPromptHidden_tests_run
+                migration-prompt-hidden.py
+                --timeout 120)
+
 # A progressive load (ProgressiveLoad, view providers built after the App
 # load) builds the Gui state an eager load does: per view provider, per
 # scene path to every selection root, a pick grid and the backend's frame,

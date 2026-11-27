@@ -12,6 +12,7 @@ from FluidTests.TestDownload import TestDownload
 from FluidTests.TestOpenFoam import (
     TestOpenFoamDamBreak,
     TestOpenFoamPipe,
+    TestOpenFoamStep,
     TestOpenFoamStillWater,
 )
 from FluidTests.TestSplish import (
@@ -54,5 +55,6 @@ True if TestSplishJet else False
 True if TestSteady else False
 True if TestSplishMechanism else False
 True if TestOpenFoamPipe else False
+True if TestOpenFoamStep else False
 True if TestColors else False
 True if TestSteadyDoubts else False

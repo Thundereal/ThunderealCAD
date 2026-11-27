@@ -2257,3 +2257,58 @@ So an automatic mode cannot be built on this yet, and it is not built.
 The warning of sec 14.6 stands: it speaks against the cases that are
 off. What would be worth trying next is a mesh made for its walls
 (sec 5.4's second route) rather than layers pushed into a snapped one.
+
+### 14.9 A step down in a channel's floor, against Armaly (2026-11-27)
+
+A second measured flow beside the pipe, and the first with fluid that
+turns back. Armaly, Durst, Pereira and Schoenung (J. Fluid Mech. 127,
+1983) measured a channel 5.2 mm high that a step of 4.9 mm in its floor
+makes 10.1: behind the step the fluid at the floor runs backwards, and
+how far along it turns forwards again grows with the Reynolds number
+while the flow is in layers. Their Reynolds number is on the mean speed
+in and twice the height before the step. Nothing was built for it: it
+is the steady flow of secs 14.4 to 14.7 on another shape, and a test.
+
+The channel in a block, 100 mm of it before the step and 150 after,
+water, 0.5 mm cells. Where the flow at the floor turns forwards, in step
+heights, in the channel's middle:
+
+| Reynolds | Channel 20 wide | Channel 40 wide | Time, 20 and 40 wide |
+|---|---|---|---|
+| 100 | 2.78 | 2.98 | 31 s, 589 s |
+| 200 | 4.74 (4.79 with 100 mm before the step where that had 60) | 5.06 | 33 s, 136 s |
+| 400 | - | 8.66 | -, 179 s |
+| 800 | 14.37 | 14.38 | 81 s, 727 s |
+| 8000, k-omega SST | 5.41 to 5.54 | 6.98 | 395 s, 1071 s |
+| 40000, k-omega SST, 1 mm cells | 4.09 | 4.79 | 98 s, 112 s |
+
+- **In layers it is as measured.** The one number found in print is 7.94
+  at a Reynolds number of 389 (cited from the paper by later work); the
+  figure's others, some 3 at 100, 5 at 200 and 14 at 800, are from
+  memory of it and to be checked against the paper. Later work puts the
+  flow as no longer flat across the channel above some 400, and a
+  two-dimensional computation falls short of the measurement there; a
+  channel with side walls, as here, does not.
+- **The side walls are in it.** Across the channel the place moves: at
+  800, 12.7 step heights a quarter in from a side wall and 13.8 a tenth
+  in, where the middle has 14.4. The measured channel was far wider than
+  ours.
+- **1 mm cells give 4.59 at 200** in the channel 20 wide, in 7 s: five
+  cells to the step, and 3% short of the 0.5 mm cells. That is the
+  suite's test (FluidTests/Step.py), which takes 4.2 to 5.4.
+- **Turbulent it is rough.** Measured turbulent steps turn forwards 6 to
+  8 step heights behind. Ours do at 4 to 7 by the cells and the
+  channel's width, are not the same on the channel's two sides, and at
+  8000 the run does not settle in its 2000 steps and the cells at the
+  walls are 7 wall units out, which the panel says. With cells in the
+  wall model's range (40000 on 1 mm) the panel is silent and the place
+  is 4.1 to 4.8: the wall model has no law for fluid that turns back,
+  so its silence is not a pass here. Sec 14.6's warning is about the
+  friction of a flow along a wall; this is a limit of it.
+- **Tracers let go in the turned-back fluid** are carried towards the
+  step, round, and in the end out: the flow is not flat across the
+  channel, so its rings are not closed. The panel lets tracers go at the
+  inlets only, and none of those enters; the manual's pictures let them
+  go there from a script (Frames.paths).
+- **The Reynolds number the panel goes by** is on the inlet's width as
+  sec 14.6 has it (221 where Armaly's is 200).

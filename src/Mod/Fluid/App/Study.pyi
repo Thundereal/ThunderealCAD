@@ -28,11 +28,15 @@ class Study(DocumentObject):
         xx, yy, zz, xy, xz, yz), and Driven: a mechanism's part, moved by
         the study's Mechanism under the fluid's push.
         Inlets: the faces the fluid comes in through, each Source, Direction
-        (the way the fluid goes), Speed (m/s), Area (m^2), Middle (m), Start
-        and End (s; an End not after the Start is the run's).
+        (the way the fluid goes), Speed (m/s), Area (m^2), Reynolds (the
+        fluid's density, the speed and the width of a round face as large
+        as the inlet -- of a steady flow, as its part of the fluid's
+        space -- over the viscosity), Middle (m), Start and End (s; an End not
+        after the Start is the run's).
         Open: which sides of the space are open, -x, +x, -y, +y, -z, +z.
         Analysis: FreeSurface or Steady. A steady flow has as well
-        Iterations; Outlets, each Source, Pressure (Pa) and Area (m^2); and
+        Iterations; Turbulence, 'Laminar' or 'KOmegaSST'; Outlets, each
+        Source, Pressure (Pa) and Area (m^2); and
         Domain, the space the fluid fills: Triangles, Volume (m^3) and
         Areas (m^2) -- of its walls, then of each inlet, then of each
         outlet. Its space is the fluid's box.
@@ -80,7 +84,7 @@ class Study(DocumentObject):
     def getResults(self) -> Any:
         """
         The kept results, or None: Backend, Version, Kind ('Particles',
-        'Surface'), Times (the frames', s), Frames (how many), MonitorTimes
+        'Surface', 'Fields'), Times (the frames', s), Frames (how many), MonitorTimes
         (the monitors' own times, s: a solver reports them far oftener than
         it makes frames) and Monitors, each Object, Kind, Unit and Values
         (one per monitor time); and Bodies, the parts the fluid moved, each
@@ -96,7 +100,18 @@ class Study(DocumentObject):
         HandOverJudged, Made, MadeLimit and Lagged, the share of what was
         exchanged that the lag created. Rose or Lagged: the results are
         not to be trusted. Neither: nothing was found, which is not to say
-        the particles are fine enough.
+        the particles are fine enough. Steady, whether the results are a
+        steady flow's: its Times and MonitorTimes are then the steps it had
+        settled for; Settled, whether it settled before the steps it was
+        given were up; and it has Openings, each inlet then each outlet:
+        Object, Source, Kind ('Inlet', 'Outlet') and, one per frame,
+        Pressure (the mean over the face, Pa) and Flow (m^3/s, in through
+        an inlet and out through an outlet); Inside, the frames that
+        have the fluid inside kept (getInside(), getSection()); Turbulence,
+        'Laminar' or 'KOmegaSST'; Reynolds, the greatest Reynolds number of
+        its inlets (0 when not kept); and WallUnits, of a turbulent flow
+        how far the first cell at a wall is from it in the wall's own units
+        (y+), the least, the most and the mean, or None.
         """
         ...
 
@@ -105,9 +120,39 @@ class Study(DocumentObject):
         """
         One kept frame, read from the document when asked for: Time (s),
         Count (of points), Points (bytes: float32 x, y, z each, mm) and, for
-        a surface, Triangles (bytes: int32, three per triangle); and Bodies,
+        a surface, Triangles (bytes: int32, three per triangle); for
+        fields the triangles are the faces the fluid touches, with Values
+        (bytes: float32, the pressure at each point, Pa); and Bodies,
         where the parts the fluid moved are, in the results' order: each a
         Placement, the motion from where the part stood at the start.
+        """
+        ...
+
+    @constmethod
+    def getInside(self, index: int, /) -> dict:
+        """
+        The fluid inside at a kept frame, of the frames that have it (the
+        results' Inside lists them; of a steady flow its last): Count (of
+        the solver's cells), Points (bytes: float32 x, y, z each, mm, each
+        cell's centre), Velocity (bytes: float32 x, y, z each, m/s) and
+        Pressure (bytes: float32, Pa). Count is 0 for a frame without.
+        """
+        ...
+
+    @constmethod
+    def getSection(self, index: int, base: Any, normal: Any, step: float = 0.0, /) -> dict:
+        """
+        A flat cut through the fluid inside at a kept frame, by the plane
+        through base (mm) across normal: Count (of points), Points (bytes:
+        float32 x, y, z each, mm: a grid on the plane, those inside the
+        fluid), Triangles (bytes: int32, three per triangle), Velocity
+        (bytes: float32 x, y, z each, m/s), Pressure (bytes: float32, Pa),
+        Outline (bytes: float32, six a piece: the two ends, mm, of where the
+        plane cuts a face the fluid touches), Grid (bytes: int32, two a
+        point: how many steps along the plane's two axes it is) and Step
+        (mm, between the grid's points: as given, or half the run's
+        resolution). Count is 0
+        where the plane misses the fluid or the frame has none kept.
         """
         ...
 

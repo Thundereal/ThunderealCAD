@@ -71,6 +71,8 @@ SET(Fluid_SRCS
     ParticleSurface.h
     ResultsArchive.cpp
     ResultsArchive.h
+    Section.cpp
+    Section.h
     Study.cpp
     Study.h
     ${Module_SRCS}

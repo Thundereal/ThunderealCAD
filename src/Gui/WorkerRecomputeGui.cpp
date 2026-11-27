@@ -54,6 +54,8 @@ struct Watch
     long failed = 0;
     long unfit = 0;
     long cancelled = 0;
+    /// Asked for forced (Std_Refresh): run here that way if it comes to it
+    bool force = false;
 };
 
 std::map<std::string, Watch>& watched()
@@ -94,11 +96,17 @@ void onChanged(const App::Document& doc)
     watched().erase(it);
     const QString label = QString::fromUtf8(doc.Label.getValue());
     if (info.applied > was.applied || info.borrowed > was.borrowed) {
-        say(QObject::tr("%1 recomputed by a worker: %2 s there, %3 s putting it in")
-                .arg(label)
-                .arg(info.workerSeconds, 0, 'f', 1)
-                .arg(info.applySeconds, 0, 'f', 1),
-            8000);
+        QString text = QObject::tr("%1 recomputed by a worker: %2 s there, %3 s putting it in")
+                           .arg(label)
+                           .arg(info.workerSeconds, 0, 'f', 1)
+                           .arg(info.applySeconds, 0, 'f', 1);
+        if (info.applied > was.applied && info.leftOut > 0) {
+            // A split one with a part an edit dropped: that part is left as
+            // the edit left it (docs/WorkerProcess.md sec 77)
+            text += QObject::tr("; %1 objects left to recompute, the design changed under them")
+                        .arg(info.leftOut);
+        }
+        say(text, 8000);
         return;
     }
     if (info.cancelled > was.cancelled) {
@@ -115,13 +123,14 @@ void onChanged(const App::Document& doc)
             .arg(label, QString::fromUtf8(info.reason.c_str())),
         8000);
     const std::string name = doc.getName();
-    QTimer::singleShot(0, [name]() {
+    const bool force = was.force;
+    QTimer::singleShot(0, [name, force]() {
         auto d = App::GetApplication().getDocument(name.c_str());
         if (!d || App::WorkerRecompute::running(*d)) {
             return;
         }
         try {
-            d->recompute();
+            d->recompute({}, force);
         }
         catch (Base::Exception& e) {
             e.ReportException();
@@ -140,7 +149,7 @@ ParameterGrp::handle workerParams()
         "User parameter:BaseApp/Preferences/Workers");
 }
 
-bool handOver(App::Document& doc)
+bool handOver(App::Document& doc, bool force = false)
 {
     static fastsignals::scoped_connection conn =
         App::WorkerRecompute::signalChanged.connect(&onChanged);
@@ -149,11 +158,13 @@ bool handOver(App::Document& doc)
         return false;
     }
     std::string why;
-    if (!App::WorkerRecompute::start(doc, {}, &why)) {
+    if (!App::WorkerRecompute::start(doc, {}, &why, force)) {
         FC_LOG(doc.getName() << ": not recomputed by a worker: " << why);
         return false;
     }
-    watched()[doc.getName()] = watchOf(App::WorkerRecompute::info(doc));
+    Watch watch = watchOf(App::WorkerRecompute::info(doc));
+    watch.force = force;
+    watched()[doc.getName()] = watch;
     say(QObject::tr("%1: recomputing in a worker process")
             .arg(QString::fromUtf8(doc.Label.getValue())));
     return true;
@@ -161,13 +172,13 @@ bool handOver(App::Document& doc)
 
 }  // namespace
 
-bool Gui::recomputeByWorkers(App::Document& doc)
+bool Gui::recomputeByWorkers(App::Document& doc, bool force)
 {
     App::WorkerRecompute::trackTimes();
     if (!workerParams()->GetBool("RecomputeCommand", true)) {
         return false;
     }
-    return handOver(doc);
+    return handOver(doc, force);
 }
 
 bool Gui::editRecomputeIsLong(const App::Document& doc)

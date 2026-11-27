@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -27,6 +28,16 @@
 //                                 lag made and what went over (Backend.h)
 //   frames/000000.points.npy      (points, 3) float32, mm: one per frame
 //   frames/000000.triangles.npy   (triangles, 3) int32: a surface's frames
+//   frames/000000.values.npy      (points,) float32, Pa: the pressure at
+//                                 each point, of a frame of fields
+//   frames/000000.inside.npy      (cells, 7) float32: the fluid inside, of
+//                                 the frames that have it -- a steady
+//                                 flow's last: each cell's centre, mm, its
+//                                 velocity, m/s, and its pressure, Pa
+//   openings.npy  (frames, n, 2)  float64: of a steady flow, at each frame
+//                                 each inlet's then each outlet's mean
+//                                 pressure, Pa, and what goes through it,
+//                                 m^3/s
 //   bodies.npy    (frames, n, 7)  float64: where each wall the fluid moved
 //                                 is at each frame, as the motion from
 //                                 where it stood: the translation, mm, and
@@ -44,6 +55,13 @@ struct ArchivedMonitor
     Solver::MonitorKind kind = Solver::MonitorKind::Height;
 };
 
+// A face the fluid came in or went out through.
+struct ArchivedOpening
+{
+    std::string source;  // as the model names it
+    bool outlet = false;
+};
+
 struct ResultsIndex
 {
     std::string backend;
@@ -57,6 +75,23 @@ struct ResultsIndex
     std::vector<double> samples;  // the monitors' times, s
     std::vector<double> values;   // samples x monitors: Height mm, Pressure Pa, Force N
     std::vector<double> motions;  // frames x bodies x 7, as bodies.npy
+    // Of a steady flow: the frames' times are the steps it had settled
+    // for, and the samples' too.
+    bool steady = false;
+    // Whether it settled before the steps it was given were up.
+    bool settled = false;
+    std::vector<ArchivedOpening> openings;  // the inlets, then the outlets
+    std::vector<double> flows;  // frames x openings x 2, as openings.npy
+    std::vector<std::size_t> inside;  // the frames that have the fluid inside
+    // Of a steady flow with its eddies modelled: the model's name
+    // ("KOmegaSST"; none of a laminar flow), and how far the first cell at
+    // a wall is from it in the wall's own units (y+), the least, the most
+    // and the mean; zeros when the solver did not say.
+    std::string turbulence;
+    // Of a steady flow: the greatest Reynolds number of its inlets
+    // (Solver::reynolds); 0 in results made before it was kept.
+    double reynolds = 0.0;
+    std::array<double, 3> wallUnits {};
     // The fluid's energy as the run went, J; none from a solver that keeps
     // no account of it, or in results made before it was kept.
     std::vector<Solver::Energy> energy;
@@ -99,6 +134,10 @@ struct ArchivedFrame
     double time = 0.0;
     std::vector<float> points;
     std::vector<std::int32_t> triangles;
+    std::vector<float> values;  // a frame of fields: the pressure a point, Pa
+    // the fluid inside, when the frame has it: seven a cell, its centre, mm,
+    // its velocity, m/s, and its pressure, Pa
+    std::vector<float> inside;
     // the moved walls, in the index's order; the translation in mm
     std::vector<Solver::Motion> bodies;
 };

@@ -4443,6 +4443,8 @@ does not leave a higher high-water mark behind; the spread with a runtime is
 from run to run and between processes of the same run, the standby among
 them. About half of a worker's footprint with a runtime is one region kind
 (`footprint`: "app-specific tag 16", 72-82 MB dirty), the rest malloc.
+(That region is V8's own, and 18 MB of a worker's footprint was garbage
+the boot left: sec 78.)
 
 Two things the tests found on the way:
 
@@ -4862,3 +4864,398 @@ moved the shape, which called updateData of Shape again. Both const now
 
 Left out of the sweep: four Addon Manager fixtures that are not
 documents, and one that links to another (refused, sec 2).
+
+## 74. What reading the worker code over found (2026-11-26)
+
+The worker code read whole, for faults rather than for a feature: the pool,
+the recompute client, the helpers, the crash reports. What was fixed:
+
+**A worker's death could take this process with it.** `claim()` walked
+`procs` itself while it looked in on the other workers, and
+`releaseDirectory()` while it told them to quit. Both reach `finished()`,
+which takes a worker out of the list, and `claim()` reaches `grow()`, which
+adds one: a second worker dying, or its result starting a third, while a
+client waited in `claim()` left the loop on a list that had changed under
+it. Both walk a copy now, as `poll()`, `checkIdle()` and `submit()` always
+did; `gone` keeps the ended ones for as long as the call runs.
+
+**Std_Refresh did nothing on a document that skips recomputes.** The
+command forces its recompute (`recompute(None, True, True)`); handed to a
+worker, the result was put in by a recompute that was not forced, which
+`Document::recompute()` turns away at once on such a document
+(`Document::SkipRecompute`). The result's files were read and deleted, the
+status bar said "recomputed by a worker", and the document stayed touched.
+`WorkerRecompute::start()` takes `force` now (`pool.recompute(objs,
+force)`, `Gui::recomputeByWorkers(doc, force)`): not forced, such a
+document is not handed over ("the document skips recomputes") and its
+caller does what it did before; forced, the put-in is forced too, and so is
+the recompute run here when the workers fail. A recompute handed over for
+reaching what crashed a worker (sec 37) is forced where the document skips,
+as it is reached only from a recompute that is being made.
+
+**What had just crashed a worker was executed here.** A recompute run here
+while one is with a worker claims it and waits (sec 19). When the worker
+died in an object's `execute()` during that wait, the pool queued the job
+again and `claim()` said `Failed`, with nothing of where it died: the
+recompute went on and executed that object in this process. `claim()` tells
+its caller of the death now (`Result* death`: `diedAt`, `how`, `stack`,
+`crashLog`), the recompute puts it down to the object as after any crash
+(sec 34) before it runs, and the job is not queued again for another worker
+to start on (`Private::claiming`). One death is enough here, where the
+other way is to execute it in this process next.
+
+**Quitting inside a mesh ended the application badly.** `Service::stop()`
+waited 10 s for each helper's thread and deleted it whether it had ended or
+not; a thread in a call (to its timeout, 120 s) or starting a helper (60 s)
+had not, and Qt ends the process for a running thread deleted. `stopping`
+is read by the thread now where it waits -- in the call, and for the helper
+to connect -- which ends the helper and the call ("the helpers were
+stopped") within a moment, and `stop()` waits for the thread to its end. A
+call made while `stop()` waits is answered the same way at once: it used to
+start a thread that ended at once and stood in the list as an idle one,
+for the next call to wait on with no end.
+
+Smaller ones:
+
+- A helper's crash report was never found: `howEnded()` gave
+  `WorkerCrash::read()` the log's path, which takes what the log says.
+- A helper's end before it connected is asked of the process
+  (`waitForFinished(0)`): its thread turns no event loop, and `state()`
+  alone did not come to say it. A helper that could not be started is not
+  tried again for 30 s, so that not every call of a load waits for it.
+- A job queued again after its worker's death is offered at once to a
+  worker standing idle, not when the idle timer next looks (`IdleSeconds`
+  later).
+- `finished()` reads what the worker said last before it marks it over,
+  and a result among that had the next job sent to the dying worker and
+  counted as one it died over. `dispatch()` leaves one that is ending
+  alone.
+- `IdleSeconds` set to 0 lets go of a worker kept before (sec 70):
+  `keepOpenAllowed()` says "IdleSeconds is 0".
+- A result borrowed by a recompute that threw (the user's abort) stood as
+  the document's hook until the next whole recompute, and gave an object
+  recomputed by itself meanwhile the values made from what it read
+  before. `Supplier::make()` gives values only inside a recompute of the
+  document.
+
+Tests: `TestWorkerPool` 91 OK (new:
+`testADocumentThatSkipsRecomputesIsHandedOverOnlyForced`,
+`testAWorkersDeathUnderARecomputeHereIsPutDownToItsObject`,
+`testAKeptWorkerIsLetGoOfWhenNoneIdleIsAskedFor`),
+`parttests.MeshServiceTest` 7 OK, `tests/gui/refresh-by-worker.py` with the
+skipping document (8 claims), and the other ten worker GUI tests.
+
+Found and left as it is, by what it would cost (the first, the third and
+the fourth taken up in sec 75):
+
+- No stage of a worker's life but a claimed job has a deadline: one that
+  never says it is ready, or does not end when told to quit, stands in the
+  list and the queue waits behind it.
+- `send()` gives a write 2 s: a worker in a long job that is sent a large
+  setup, or this process busy as a worker sends a large result, ends the
+  worker.
+- A console line that is not UTF-8 makes the header's `dump()` throw, in
+  the worker's relay or in its result.
+- A recompute of part of the document run here takes the whole of a
+  worker's result and drops what it did not reach, which stays touched; a
+  split recompute's part dropped for an edit is made here as the other is
+  put in; a put-in that threw is counted as applied.
+- The directories in the system's temp have names that can be told
+  beforehand, and one found there is used; the helpers' sweep goes by the
+  directory's age alone.
+- A header of the wrong shape throws in a Qt slot; sizes past 4 GiB are
+  narrowed; `IdleSeconds` past 2.1e6 overflows the timer's interval.
+- The crash handler's other stack is the installing thread's only, and
+  the helpers read the parameters from their threads with no lock.
+
+## 75. A result not put in leaves its worker's copy ahead (2026-11-26)
+
+Taking up what sec 74 left found a fault older than any of it.
+
+**A worker's recompute changes its copy.** That is the design: its result
+brings the document here to where the copy is, and the worker then moves
+along the log from there (sec 29). A result that is not put in breaks it
+with nothing said: the copy is ahead, and the next recompute there makes
+the same values again, of which nothing came back: here the object was
+supplied with no value put in (no property of it changed in the put-in)
+and left up to date on what it held before. Why a value made the same is
+not recorded there was not traced; the measurement is what follows. Measured, console, one worker:
+`Slow.Input` 3 made by a worker (`Result` 6); `Input` set to 7, handed
+over, the result cancelled once made; handed over again, with no change:
+`Supplied` 1, nothing touched, `Slow.Result` still 6. A result dropped
+for an edit leaves its worker's copy ahead in the same way, for every
+object it had made that the edit does not reach; that case was not
+measured.
+
+A job says now that it writes its copy (`WorkerPool::Job::writes`, set for
+a recompute), and the worker that made one whose result is not put in is
+let go (`Private::retire()`, counted as `Spoiled` in `info()`): the next
+job is made by another, on a copy of the document as it is. Where:
+
+- the pool throws a result away, its job cancelled or dropped while it ran;
+- the recompute client drops a result that came -- the design changed, or
+  `cancel()` -- or cannot read it, or a recompute here used only part of
+  it (below): `WorkerPool::spoiled(job)`.
+
+What it costs is that worker's copy opened again by the next (1.2 s of the
+scanner, sec 69), in the cases where a result was thrown away already.
+
+**A recompute of part of the document took the whole result.** One run here
+while the document's is with a worker claims it (sec 19), and
+`signalBeforeRecompute` does not say what it is of: `doc.recompute([A])`
+took the result, used what it reached of it, and the rest was gone with the
+objects it was made for still touched and "recomputed by a worker" said.
+What the result was made for and that recompute did not reach is handed
+over again once the document is free (`State::again`, `startAgain()`);
+`recomputing()` stays true across it, so nothing is said or run here in
+between, and `waitRecompute()` waits for it.
+
+**A worker that does not answer is ended.** One started, or told to open or
+move, that is not ready after `Workers/ReadySeconds` (300), and one told to
+quit that has not gone after `Workers/QuitSeconds` (30), is ended
+(`checkStalled()`, each second while one is awaited, and in `poll()`; 0 for
+no end; `Stalled` in `info()`). Counted from when it was told or last said
+anything; not while it is in a job, whose time is the job's. Before, no
+other worker was started while one was not ready or was going (`grow()`),
+and the queue stood behind it with no end. One not ready counts as a
+worker that failed: three in a row stop the pool, and its jobs are told.
+
+**Text that is not UTF-8** in a header -- a console line with a path in the
+system's encoding, relayed -- is sent with the bytes replaced; `dump()`
+threw over it, out of whatever code had written the line.
+
+Tests (`TestWorkerPool`, 94 OK): `testAResultNotPutInIsNotBuiltOn`,
+`testARecomputeOfPartHereHandsTheRestOverAgain`,
+`testAWorkerNotReadyInTimeIsEnded` (`ReadySeconds` 0.001: every worker
+ended, the pool stopped, the job told Cancelled).
+
+Left of sec 74's list: `send()`'s 2 s, the temp directories' names, a
+header of the wrong shape in a slot, sizes past 4 GiB, a split part
+dropped for an edit made here, a put-in that threw counted as applied, the
+crash handler's stack and the helpers' unlocked parameter reads.
+
+## 76. The rest of what the reading found (2026-11-26)
+
+What sec 75 left of sec 74's list, by what each could cost:
+
+**A write that stood for 2 s ended the worker.** `send()` waited 2 s for
+the bytes to go and took a write still standing for the other end gone. A
+worker in a long job does not read: sent a setup larger than what the
+socket holds (`takeCopy()` tells every worker of a new copy, one in a
+job too), it was ended in the middle of the job, and this process stood
+2 s for each. The other way round, a worker sending a result while this
+process is busy gave up on it and left. Now `send()` waits a quarter of a
+second, and what has not gone stays with the socket, which writes it in
+its next wait and with the event loop; only a socket that is no longer
+connected is a failed send. A worker writes out what is left before it
+closes (`flush()`, 30 s at most). No test: the sizes that stand are the
+system's, and were not measured.
+
+**The directories in the system's temporary files** were
+`Workers-<pid>-<serial>` and `ThunderealService-<pid>`, and one found
+there was used: on a machine whose temporary files are shared, another
+user who made it first held the copies of the design and the
+configuration the workers are started with. They are made by
+`WorkerPool::privateDirectory()` now: `<kind>-<pid>-<what>-<8 random hex
+digits>`, made new (one that exists is not used), for the user alone. Its
+first call in a process removes those whose process no longer runs
+(`CacheSweep::processGone()`): what a crash of this process left, a
+document's whole copy among it, was never removed before, and the helpers'
+own sweep went by the directory's age alone, which could take a running
+session's after a day. Seen on the mini: two `Workers-*` directories of
+earlier runs that were killed, gone after the first run with this.
+
+**What a connection says before it is told apart** is read with nothing
+taken for granted (`saidText()`, `saidLong()`): `value()` of a key of
+another type throws, in the socket's slot, and anything of this user can
+connect. One that announces more than 64 KiB is closed, not gathered. A
+worker's own message that does not read as what it is taken for lets the
+worker go rather than leave through the slot.
+
+**Timer intervals** from `IdleSeconds`, `MoveWhenIdleSeconds` and
+`KeepOpenCheckSeconds` are held to what an int of milliseconds takes
+(`timerMs()`): 1e9 set for "never" overflowed.
+
+The helpers connect to the application's `aboutToQuit` once, not once
+more each time they are prepared again after a stop.
+
+Tests: `TestWorkerPool` 95 OK (new: `testThePoolsDirectoryIsItsOwn`),
+`parttests.MeshServiceTest` 7 OK, `TestAnimation` 78 OK, the eleven worker
+GUI tests.
+
+Still as it was: sizes past 4 GiB narrowed in a message; a split
+recompute's part dropped for an edit made here as the other is put in; a
+put-in that threw counted as applied; the crash handler's other stack on
+the installing thread only; the helpers reading the parameters from their
+threads with no lock.
+
+## 77. The last of what the reading found (2026-11-26)
+
+What sec 76 left of sec 74's list.
+
+**A size past 4 GiB was narrowed.** A message gives its header's length
+and its body's in four bytes each; one past that went with the length cut
+short, and the other end read the rest of it as messages. `message()`
+gives nothing for such a message now and `send()` fails on nothing, in the
+pool and in the helpers. A helper's call is answered at once, "the request
+is N bytes, more than a message carries", with no helper given it; a
+helper whose reply is that large answers so instead. The helpers' copy of
+a message also took its lengths as an `int`, which a body past 2 GiB
+turned negative. No test: 4 GiB is half of the mini's memory.
+
+**A split recompute's part dropped for an edit was made here.** An edit
+that reaches one part's objects drops that part's job and not the other's
+(sec 42); the other's result was put in as a recompute of everything the
+recompute was made for, and that executed the dropped part's objects here,
+in the put-in, with no worker's values for them. Each part keeps what it
+was handed and why it was dropped (`State::Part::names`, `dropped`), and
+the put-in leaves out what only a dropped part was handed, with the joins
+over the parts (sec 59): they are left to the next recompute, as an edit
+leaves what it drops when the recompute is not split (what the edit
+changed touched, what reads it out of date). `recomputeInfo()["LeftOut"]` counts
+them; the reason says "part of it was dropped", and the GUI's line says
+how many were left to recompute. A part that failed is put
+in as before, its objects executed here: a failure is what the client
+recomputes here.
+
+**A put-in that threw was counted as put in.** `Document::recompute()`
+lets one exception out, the user's abort (the progress bar's), and it
+stops the recompute where it is. The put-in counted it as applied, told
+the workers the rows it had written as theirs, and counted what it had
+made of a quarantined object as a clean run. Now an abort counts as a
+drop (`Cancelled`; the GUI then says so and runs nothing here) and
+anything else that comes out as a failure (`Failed`, which the GUI
+recomputes here); in both the workers' copies are let go (sec 75), as the
+document is not where they are. No test: an abort comes from the progress
+bar only, and `execute()` of a Python feature cannot make one (its error
+is a `Base::PyException`, which `_recomputeFeature()` takes for the
+object's failure).
+
+**The crash handler's stack was one thread's.** `sigaltstack()` sets the
+stack of the thread that calls it, and `install()` is the worker's main
+thread's: a thread of OCCT's pool, Qt's or Python's that ran out of stack
+faulted again in the handler, and the worker went with nothing said. On
+macOS every thread started once `install()` has run is given its own
+(256 KiB, mapped, so a page costs nothing until a crash writes it), by
+`pthread_create()` interposed (dyld's `__interpose`, which takes the place
+of the call in every image loaded at launch but the one interposing). A
+process that is not a worker never runs `install()` and is given none.
+Linux and Windows are as they were: Linux would need its own way in, and
+Windows has no such stack.
+
+**The helpers read the parameters on their own threads.** A call comes on
+a thread of the compute pool and an owner's loop runs on its own, and both
+read `Preferences/Workers` there; `prepare()`, on a call's thread, saved
+the whole user and system parameters for the helpers' copies. A parameter
+group has no lock: a read beside the application's write of the same
+group walks a tree being changed. `ServiceWorkers::init()`, called as the
+application starts, reads the four values on its thread and again there
+as `Preferences/Workers` changes, and makes the two copies there as text
+(as the QApplication is made, in the GUI, which is after `init()`; and
+again on that thread after any change of a parameter, once the event loop
+turns). `prepare()` writes the text it is given. The helpers start with
+the parameters as they were at the last copy, as before they started with
+those at the first call.
+
+**Why a worker did not send back a value made the same** (sec 75): with
+`Document/OptimizeRecompute` on, its default, `Property::aboutToSetValue()`
+keeps the old value and `hasSetValue()` returns before `touch()` when the
+new one is the same, so no `signalChangedObject` is sent and the worker's
+`Recorder`, which notes what an `execute()` writes from that signal, has
+nothing to note. In a copy ahead of the document the value is already
+there. Letting the worker go (sec 75) is then the fix, not a way round.
+Seen, console, an `App::FeatureTest` holding `Integer` 5 and an observer of
+`slotChangedObject`: `Integer = 5` is signalled 0 times with
+`OptimizeRecompute` on and once with it off; `Integer = 6` once with
+either.
+
+Tests: `TestWorkerPool` 97 OK, 1 skipped (new:
+`testAHalfAnEditDropsIsNotMadeHere`, whose put-in leaves 2 out and
+executes none here, the tail as it was; and
+`testAThreadAWorkerStartsHasTheCrashHandlersStack`, a thread started in a
+worker with a 256 KiB stack and one started in the test's process with
+none, macOS only), `parttests.MeshServiceTest` 7 OK, `TestAnimation` 78 OK,
+the eleven worker GUI tests and a new one, `tests/gui/helpers-parameters.py`:
+a parameter set on the GUI thread, the event loop let turn, the helpers'
+first call made from another thread -- by a helper, and their copy holds
+it. That checks the copy is made where it now is; a race is not a thing a
+test shows. Not tested: a message past 4 GiB, a put-in that threw.
+
+Nothing is left of sec 74's list.
+
+## 78. What sec 77 left open (2026-11-26)
+
+**A put-in the user stops, tested.** Sec 77 counted a put-in that threw
+an abort as a drop, untested: a Python feature's `execute()` cannot throw
+one (its `FreeCADAbort` is reported and rethrown as a `Base::PyException`
+by the hook's error policy, `ReportThrow`, so `_recomputeFeature()` takes
+it for the object's failure), and the abort comes from the progress bar.
+So the test presses the progress bar's key: `tests/gui/putin-stopped-by-worker.py`
+hands a cut's recompute to a worker with Std_Refresh, and a document
+observer, as the first `Shape` of the put-in goes in, sends Escape to the
+main window -- through the progress bar's event filter, which asks to
+cancel -- and answers the question that follows ("Do you really want to
+abort the operation?") Yes. The recompute's next step throws the abort.
+Seen: the question asked once, the put-in counted `Cancelled` 1, `Applied`
+0, its reason "putting it in was stopped"; the pool's `Spoiled` 1; the GUI
+ran nothing here after it (`Started` still 1, what was left touched still
+touched); the next Std_Refresh made by a new worker (pid 59764 before,
+59765 after), put in, nothing touched, the cut's volume that of the edited
+box, nothing executed here. A failure other than an abort (`Failed`) is
+still untested: what `Document::recompute()` lets out is an abort, and
+anything else in it is caught there.
+
+**Windows threads have the handler's room too.** Sec 77 gave each thread
+a worker starts on macOS a stack of its own for the crash handler. On
+Windows the handler, the unhandled-exception filter, runs on the faulting
+thread, and what it has left after a stack overflow is what
+`SetThreadStackGuarantee()` kept back; `install()` kept 64 KiB on its own
+thread only, so a thread of OCCT's pool, Qt's or Python's that overflowed
+had the guard page's few KiB to write the report in. Now `install()` sets
+a flag, and a TLS callback in FreeCADApp (`.CRT$XLF`, called by the loader
+on each thread as it starts, on that thread) keeps the same 64 KiB on
+every thread started after it. A process that is no worker keeps nothing
+more. The test, `testAThreadAWorkerStartsHasTheCrashHandlersStack`, now
+runs on Windows too: a thread started in a worker reports a guarantee of
+64 KiB (`SetThreadStackGuarantee` given 0 says what it is), one in the
+test's process less. Written on the mini, not built here: MSVC x64 only
+(`_WIN64`), for the Windows box to build and run. Linux is still as it
+was: it would take interposing `pthread_create()` in an ELF library, and
+there is no Linux box here to prove that on.
+
+**What "app-specific tag 16" is** (sec 69). The application-specific VM
+tags are 240 to 255, which `footprint` numbers 1 to 16
+(`VM_MEMORY_APPLICATION_SPECIFIC_1` is 240 and `_16` 255 in the SDK's
+`mach/vm_statistics.h`): tag 16 is 255. The runtime is V8
+(`libv8.14.6.202.34.dylib`), and V8's `mmap()` calls pass `0xff000000`
+(`VM_MAKE_TAG(255)`) as the descriptor of an anonymous map (`otool -tV`:
+`mov w4, #-0x1000000` before three of its thirteen calls; eight pass -1). A worker whose
+guest has not booted has none of that tag; one whose guest has, 250
+regions, 72.4 MB dirty -- a 4 GiB reservation in 128 MiB pieces (the size of
+V8's pointer-compression cage) and many 256 KiB pieces at scattered addresses.
+The runtime's own count (`ExpressionSandbox.memoryInfo()`, in a worker
+job): the guest's linear memory 36.0 MiB, V8's heap 26.3 MiB used, and
+30.4 MiB of array buffers, which come from the host's allocator and so
+count as malloc (`fcad-probes/worker/tag16.py`, `tag16mod.py`).
+
+**And 18 MB of it was garbage.** What the boot makes and lets go stays
+until V8 collects it, and a worker waiting for work runs nothing that
+would make it. `isolate->LowMemoryNotification()` after the boot, before
+the runtime is live, collects it. Measured on the mini, a pool worker with
+its guest booted, twice each way: footprint 145 MB -> 127 MB, the tag's
+dirty 72.4 -> 54.3 MB, V8's heap 26.3 -> 17.7 MiB, the buffers 30.4 ->
+24.9 MiB, the linear memory 36.0 either way. Its cost, the guest booted in
+the console process three times each way (`fcad-probes/worker/bootgc.py`):
+the boot 1.494-1.501 s without, 1.501-1.513 s with; the first four
+expressions after it 7.4-8.0, 3.0-3.2, 2.4, 0.05 ms either way. A worker
+boots while it waits for work (sec 67), so that is mostly not waited for.
+The standby and every worker with a runtime stand that much lighter; the
+GUI's own guest boots through the same code.
+
+Tests, on the mini: `TestWorkerPool` 97 OK with the runtime
+(`FREECAD_USER_HOME=~/works/sw/pyodide-home`, nothing skipped) and 97 OK,
+1 skipped, without; `TestPartApp` 453 OK with it; `SandboxProgram` 47 OK,
+`SandboxModelDump` 6 OK and the ten `ExpressionPyodide*` ctest entries
+pass with it; the new GUI test 9 of 9. The worker with the final build:
+footprint 124 MB, V8's heap 17.7 MiB. Not run here: the Windows code
+(the TLS callback and the test's Windows half).

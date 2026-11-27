@@ -38,6 +38,12 @@ class Frames:
         self.monitors = results["Monitors"] if self.valid else []
         # the monitors' own times, far more than the frames
         self.monitorTimes = list(results["MonitorTimes"]) if self.valid else []
+        # of a steady flow: the frames' times are the steps it had settled
+        # for; and its openings
+        self.steady = bool(results.get("Steady")) if self.valid else False
+        self.openings = results.get("Openings", []) if self.valid else []
+        # the frames that have the fluid inside kept, to cut through
+        self.inside = list(results.get("Inside", [])) if self.valid else []
         # the parts the fluid moved; None for one that is gone
         self.bodies = [body["Object"] for body in results["Bodies"]] if self.valid else []
 
@@ -77,6 +83,52 @@ class Frames:
             triangles = numpy.frombuffer(frame["Triangles"], dtype=numpy.int32).reshape(-1, 3)
         return points, triangles
 
+    def field(self, index):
+        """A frame of fields: its points, its triangles and the pressure at
+        each point, (n,) float32, Pa."""
+        import numpy
+
+        frame = self.study.getFrame(index)
+        points = numpy.frombuffer(frame["Points"], dtype=numpy.float32).reshape(-1, 3)
+        triangles = numpy.frombuffer(frame["Triangles"], dtype=numpy.int32).reshape(-1, 3)
+        values = numpy.frombuffer(frame.get("Values", b""), dtype=numpy.float32)
+        return points, triangles, values
+
+    def insideOf(self, index):
+        """The fluid inside at a frame that has it kept: each cell's centre,
+        (n, 3) float32, mm, its velocity there, (n, 3), m/s, and its
+        pressure, (n,), Pa. Of a frame without, none of each."""
+        import numpy
+
+        inside = self.study.getInside(index)
+        points = numpy.frombuffer(inside["Points"], dtype=numpy.float32).reshape(-1, 3)
+        velocity = numpy.frombuffer(inside["Velocity"], dtype=numpy.float32).reshape(-1, 3)
+        pressure = numpy.frombuffer(inside["Pressure"], dtype=numpy.float32)
+        return points, velocity, pressure
+
+    def section(self, index, base, normal, step=0.0):
+        """A flat cut through the fluid inside at a frame, by the plane
+        through 'base' (mm) across 'normal': a Cut, with no points where
+        the plane misses the fluid or the frame has none kept."""
+        import numpy
+
+        cut = self.study.getSection(index, base, normal, step)
+
+        def floats(name, width):
+            return numpy.frombuffer(cut[name], dtype=numpy.float32).reshape(-1, width)
+
+        return Cut(
+            floats("Points", 3),
+            numpy.frombuffer(cut["Triangles"], dtype=numpy.int32).reshape(-1, 3),
+            floats("Velocity", 3),
+            numpy.frombuffer(cut["Pressure"], dtype=numpy.float32),
+            floats("Outline", 3),
+            numpy.frombuffer(cut["Grid"], dtype=numpy.int32).reshape(-1, 2),
+            cut["Step"],
+            tuple(base),
+            tuple(normal),
+        )
+
     def surface(self, index):
         """The frame as a closed surface to draw: its points, triangles,
         the points' normals and the spray. A frame of particles is wrapped,
@@ -106,6 +158,18 @@ class Frames:
             return -1
         return max(bisect.bisect_right(self.monitorTimes, time + 1e-12) - 1, 0)
 
+    def openingsAt(self, index):
+        """Each opening at a frame: (label, kind, its mean pressure Pa, what
+        goes through it m^3/s)."""
+        rows = []
+        for opening in self.openings:
+            obj = opening["Object"]
+            label = obj.Label if obj is not None else opening["Source"]
+            rows.append(
+                (label, opening["Kind"], opening["Pressure"][index], opening["Flow"][index])
+            )
+        return rows
+
     def monitorsAt(self, index):
         """Each monitor at a frame's time: (label, kind, value, unit)."""
         sample = self.sampleAt(self.times[index])
@@ -116,6 +180,50 @@ class Frames:
             value = monitor["Values"][sample] if sample >= 0 else float("nan")
             rows.append((label, monitor["Kind"], value, monitor["Unit"]))
         return rows
+
+
+class Cut:
+    """A flat cut through the fluid: a grid of points on the plane, those
+    inside the fluid, (n, 3) mm; the triangles between them, (m, 3); the
+    velocity, (n, 3) m/s, and the pressure, (n,) Pa, at each; the outline,
+    (2k, 3) mm, two ends a piece of where the plane cuts the faces; where
+    on the grid each point is, (n, 2); the grid's step, mm; and the plane,
+    a point of it and what it lies across."""
+
+    def __init__(self, points, triangles, velocity, pressure, outline, grid, step, base, across):
+        self.base = base
+        self.across = across
+        self.points = points
+        self.triangles = triangles
+        self.velocity = velocity
+        self.pressure = pressure
+        self.outline = outline
+        self.grid = grid
+        self.step = step
+
+    def __len__(self):
+        return len(self.points)
+
+    def speed(self):
+        """How fast the fluid goes at each point, (n,) m/s."""
+        return speedOf(self.velocity)
+
+    def normal(self):
+        """What the plane lies across, of length one."""
+        import numpy
+
+        across = numpy.array(self.across, dtype=numpy.float64)
+        return across / numpy.sqrt((across**2).sum())
+
+    def axis(self):
+        """A direction in the plane, of length one."""
+        import numpy
+
+        normal = self.normal()
+        other = numpy.zeros(3)
+        other[int(numpy.argmin(abs(normal)))] = 1.0
+        axis = numpy.cross(normal, other)
+        return axis / numpy.sqrt((axis**2).sum())
 
 
 class MovedParts:
@@ -227,6 +335,7 @@ class FrameView:
     PARTICLES = 0
     SURFACE = 1
     BODY = 2
+    FIELD = 3
 
     def __init__(self, parent=None, color=WATER, pointSize=4.0, water=True):
         self.parent = parent
@@ -242,6 +351,8 @@ class FrameView:
         self.switch = None
         self.mistCoords = None
         self.mist = None
+        self.colors = None
+        self.field = None
 
     def _parent(self):
         if self.parent is not None:
@@ -299,10 +410,24 @@ class FrameView:
         for node in (hints, self.waterNode(), self.normals, binding, self.body):
             if node is not None:
                 body.addChild(node)
+        # a field: the faces in the colours of the values at their corners
+        field = coin.SoSeparator()
+        hints = coin.SoShapeHints()
+        hints.vertexOrdering = coin.SoShapeHints.COUNTERCLOCKWISE
+        hints.shapeType = coin.SoShapeHints.UNKNOWN_SHAPE_TYPE
+        hints.creaseAngle = 0.8
+        self.colors = coin.SoMaterial()
+        self.colors.specularColor = (0.1, 0.1, 0.1)
+        binding = coin.SoMaterialBinding()
+        binding.value = coin.SoMaterialBinding.PER_VERTEX_INDEXED
+        self.field = coin.SoIndexedFaceSet()
+        for node in (hints, self.colors, binding, self.field):
+            field.addChild(node)
         self.switch = coin.SoSwitch()
         self.switch.addChild(particles)
         self.switch.addChild(surface)
         self.switch.addChild(body)
+        self.switch.addChild(field)
         for node in (material, self.coords, self.switch):
             self.root.addChild(node)
         # the spray: unlit points of their own colour
@@ -370,9 +495,10 @@ class FrameView:
         index[:, :3] = triangles
         index = index.reshape(-1)
         faces = self.faces if normals is None else self.body
-        # the other set keeps nothing of an earlier frame
+        # the other sets keep nothing of an earlier frame
         other = self.body if normals is None else self.faces
         other.coordIndex.setNum(0)
+        self.field.coordIndex.setNum(0)
         faces.coordIndex.setNum(len(index))
         if len(index):
             faces.coordIndex.setValues(0, len(index), index)
@@ -386,6 +512,36 @@ class FrameView:
         self.switch.whichChild = self.BODY
         return True
 
+    def showField(self, points, triangles, values, low, high):
+        """Draws the triangles (m, 3) of the points (n, 3) in the colours of
+        the values at the points (n,), 'low' the ramp's first colour and
+        'high' its last; what was drawn before is replaced. False without a
+        view."""
+        import numpy
+
+        if self.root is None and not self._build():
+            return False
+        self.mist.numPoints = 0
+        points = numpy.ascontiguousarray(points, dtype=numpy.float32).reshape(-1, 3)
+        count = len(points)
+        self.coords.point.setNum(count)
+        colors = colorsOf(values, low, high)
+        self.colors.diffuseColor.setNum(len(colors))
+        if count:
+            self.coords.point.setValues(0, count, points)
+            self.colors.diffuseColor.setValues(0, len(colors), colors)
+        triangles = numpy.asarray(triangles, dtype=numpy.int32).reshape(-1, 3)
+        index = numpy.full((len(triangles), 4), -1, dtype=numpy.int32)
+        index[:, :3] = triangles
+        index = index.reshape(-1)
+        for other in (self.faces, self.body):
+            other.coordIndex.setNum(0)
+        self.field.coordIndex.setNum(len(index))
+        if len(index):
+            self.field.coordIndex.setValues(0, len(index), index)
+        self.switch.whichChild = self.FIELD
+        return True
+
     def count(self):
         return self.coords.point.getNum() if self.coords is not None else 0
 
@@ -396,13 +552,335 @@ class FrameView:
         self.coords = None
 
 
+class CutView:
+    """A cut through the fluid in the scene: its triangles in the colours
+    of a value at their corners, its outline, and arrows of the flow. Under
+    the node given, or the active 3D view's scene graph."""
+
+    INK = (0.05, 0.05, 0.05)
+
+    def __init__(self, parent=None):
+        self.parent = parent
+        self.root = None
+        self.coords = None
+        self.colors = None
+        self.faces = None
+        self.edgeCoords = None
+        self.edges = None
+        self.arrowCoords = None
+        self.arrows = None
+
+    def _build(self):
+        from pivy import coin
+
+        if self.parent is None:
+            import FreeCADGui as Gui
+
+            view = Gui.ActiveDocument.ActiveView if Gui.ActiveDocument else None
+            if view is None or not hasattr(view, "getSceneGraph"):
+                return False
+            self.parent = view.getSceneGraph()
+        self.root = coin.SoSeparator()
+        # the values are read off the colours: no light changes them, and
+        # the lines over the faces are not to fight them for the depth
+        light = coin.SoLightModel()
+        light.model = coin.SoLightModel.BASE_COLOR
+        faces = coin.SoSeparator()
+        offset = coin.SoPolygonOffset()
+        hints = coin.SoShapeHints()
+        hints.vertexOrdering = coin.SoShapeHints.COUNTERCLOCKWISE
+        hints.shapeType = coin.SoShapeHints.UNKNOWN_SHAPE_TYPE
+        self.coords = coin.SoCoordinate3()
+        self.colors = coin.SoMaterial()
+        binding = coin.SoMaterialBinding()
+        binding.value = coin.SoMaterialBinding.PER_VERTEX_INDEXED
+        self.faces = coin.SoIndexedFaceSet()
+        for node in (offset, hints, self.coords, self.colors, binding, self.faces):
+            faces.addChild(node)
+        lines = coin.SoSeparator()
+        ink = coin.SoMaterial()
+        ink.diffuseColor = self.INK
+        style = coin.SoDrawStyle()
+        style.lineWidth = 1.5
+        self.edgeCoords = coin.SoCoordinate3()
+        self.edges = coin.SoLineSet()
+        self.arrowCoords = coin.SoCoordinate3()
+        self.arrows = coin.SoIndexedLineSet()
+        for node in (ink, style, self.edgeCoords, self.edges, self.arrowCoords, self.arrows):
+            lines.addChild(node)
+        for node in (light, faces, lines):
+            self.root.addChild(node)
+        self.parent.addChild(self.root)
+        return True
+
+    def show(self, cut, values, low, high, arrows=None):
+        """Draws the cut in the colours of the values at its points (n,),
+        'low' the ramp's first colour and 'high' its last, and the arrows
+        given as arrowsOf() makes them; what was drawn before is replaced.
+        False without a view."""
+        import numpy
+
+        if self.root is None and not self._build():
+            return False
+        points = numpy.ascontiguousarray(cut.points, dtype=numpy.float32).reshape(-1, 3)
+        colors = colorsOf(values, low, high)
+        self.coords.point.setNum(len(points))
+        self.colors.diffuseColor.setNum(len(colors))
+        if len(points):
+            self.coords.point.setValues(0, len(points), points)
+            self.colors.diffuseColor.setValues(0, len(colors), colors)
+        index = numpy.full((len(cut.triangles), 4), -1, dtype=numpy.int32)
+        index[:, :3] = cut.triangles
+        index = index.reshape(-1)
+        self.faces.coordIndex.setNum(len(index))
+        if len(index):
+            self.faces.coordIndex.setValues(0, len(index), index)
+        outline = numpy.ascontiguousarray(cut.outline, dtype=numpy.float32).reshape(-1, 3)
+        self.edgeCoords.point.setNum(len(outline))
+        self.edges.numVertices.setNum(len(outline) // 2)
+        if len(outline):
+            self.edgeCoords.point.setValues(0, len(outline), outline)
+            self.edges.numVertices.setValues(
+                0, len(outline) // 2, numpy.full(len(outline) // 2, 2, dtype=numpy.int32)
+            )
+        tips, strokes = arrows if arrows is not None else arrowsOf(cut, 1, 0.0)
+        self.arrowCoords.point.setNum(len(tips))
+        self.arrows.coordIndex.setNum(len(strokes))
+        if len(strokes):
+            self.arrowCoords.point.setValues(0, len(tips), tips)
+            self.arrows.coordIndex.setValues(0, len(strokes), strokes)
+        return True
+
+    def count(self):
+        return self.coords.point.getNum() if self.coords is not None else 0
+
+    def arrowCount(self):
+        """How many arrows are drawn: each is seven places of its lines."""
+        return self.arrows.coordIndex.getNum() // 7 if self.arrows is not None else 0
+
+    def remove(self):
+        if self.root is not None and self.parent is not None:
+            self.parent.removeChild(self.root)
+        self.root = None
+        self.coords = None
+        self.arrows = None
+
+
+# From the least to the most: Google's Turbo, a rainbow whose brightness
+# goes evenly, at eleven places of it.
+RAMP = (
+    (0.190, 0.072, 0.232),
+    (0.271, 0.345, 0.796),
+    (0.259, 0.596, 0.997),
+    (0.118, 0.812, 0.839),
+    (0.165, 0.949, 0.624),
+    (0.467, 0.996, 0.341),
+    (0.741, 0.957, 0.204),
+    (0.953, 0.796, 0.200),
+    (0.992, 0.561, 0.141),
+    (0.906, 0.290, 0.051),
+    (0.647, 0.086, 0.004),
+)
+
+
+def colorsOf(values, low, high):
+    """A colour for each value, (n, 3) float32: the ramp's first at 'low'
+    and under, its last at 'high' and over."""
+    import numpy
+
+    values = numpy.asarray(values, dtype=numpy.float64)
+    span = high - low
+    share = (values - low) / span if span > 0.0 else numpy.zeros(len(values))
+    share = numpy.clip(numpy.nan_to_num(share), 0.0, 1.0)
+    ramp = numpy.array(RAMP)
+    at = numpy.linspace(0.0, 1.0, len(ramp))
+    colors = numpy.stack([numpy.interp(share, at, ramp[:, k]) for k in range(3)], axis=1)
+    return numpy.ascontiguousarray(colors, dtype=numpy.float32)
+
+
+def rangeOf(values):
+    """The least and the most of a field's values; (0, 0) of none."""
+    if len(values) == 0:
+        return 0.0, 0.0
+    return float(values.min()), float(values.max())
+
+
+def speedOf(velocity):
+    """The lengths of the velocities (n, 3): (n,)."""
+    import numpy
+
+    velocity = numpy.asarray(velocity, dtype=numpy.float64).reshape(-1, 3)
+    return numpy.sqrt((velocity**2).sum(axis=1))
+
+
+def behind(points, triangles, base, normal):
+    """The triangles (m, 3) with no corner of the points (n, 3) past the
+    plane through 'base' on the side its 'normal' points to: what is left
+    of the faces when the fluid is cut open there."""
+    import numpy
+
+    points = numpy.asarray(points, dtype=numpy.float64).reshape(-1, 3)
+    triangles = numpy.asarray(triangles, dtype=numpy.int32).reshape(-1, 3)
+    off = (points - numpy.array(tuple(base))) @ numpy.array(tuple(normal))
+    return triangles[(off[triangles] <= 1e-6).all(axis=1)]
+
+
+def arrowsOf(cut, every, fastest):
+    """Arrows of the cut's velocities at every 'every'th point of its grid
+    each way, the fastest 'fastest' long, mm: their points (k, 3) float32
+    and, for a set of lines, the places of each line's points with -1
+    after it. An arrow is its shaft and a head of two strokes; where the
+    fluid stands still there is none."""
+    import numpy
+
+    none = numpy.zeros((0, 3), dtype=numpy.float32), numpy.zeros(0, dtype=numpy.int32)
+    if len(cut) == 0:
+        return none
+    speed = cut.speed()
+    most = float(speed.max())
+    every = max(int(every), 1)
+    taken = ((cut.grid % every) == 0).all(axis=1) & (speed > 1e-3 * most)
+    if most <= 0.0 or not fastest > 0.0 or not taken.any():
+        return none
+    start = cut.points[taken].astype(numpy.float64)
+    shaft = cut.velocity[taken].astype(numpy.float64) * (fastest / most)
+    tip = start + shaft
+    # the head's strokes lie across the shaft: in the plane where the flow
+    # is in it, and for a flow straight through the plane, along the grid
+    lengths = numpy.sqrt((shaft**2).sum(axis=1))[:, None]
+    along = shaft / lengths
+    side = numpy.cross(along, cut.normal())
+    flat = numpy.sqrt((side**2).sum(axis=1)) < 0.2
+    side[flat] = numpy.cross(along[flat], cut.axis())
+    side /= numpy.sqrt((side**2).sum(axis=1))[:, None]
+    back = tip - 0.3 * shaft
+    left = back + 0.12 * lengths * side
+    right = back - 0.12 * lengths * side
+    count = len(start)
+    points = numpy.concatenate([start, tip, left, right]).astype(numpy.float32)
+    at = numpy.arange(count, dtype=numpy.int32)
+    lines = numpy.stack(
+        [
+            at,
+            at + count,
+            numpy.full(count, -1, dtype=numpy.int32),
+            at + 2 * count,
+            at + count,
+            at + 3 * count,
+            numpy.full(count, -1, dtype=numpy.int32),
+        ],
+        axis=1,
+    ).reshape(-1)
+    return points, lines
+
+
+def cutPlane(low, high, axis, share):
+    """The plane across an axis (0 x, 1 y, 2 z) of the box from 'low' to
+    'high', a 'share' of the way along it from 0 to 1: its base and what it
+    lies across. Kept off the box's very ends, where it would cut nothing."""
+    share = min(max(share, 0.002), 0.998)
+    base = [(low[k] + high[k]) / 2.0 for k in range(3)]
+    base[axis] = low[axis] + share * (high[axis] - low[axis])
+    normal = [0.0, 0.0, 0.0]
+    normal[axis] = 1.0
+    return App.Vector(*base), App.Vector(*normal)
+
+
+def flowText(flow):
+    """What goes through an opening, m^3/s, in a unit that reads."""
+    litres = flow * 1000.0
+    if abs(litres) >= 1.0:
+        return "{:.4g} l/s".format(litres)
+    return "{:.4g} ml/s".format(litres * 1000.0)
+
+
+# A pipe's flow stays in layers under a Reynolds number of some 2300.
+LAYERED_UNDER = 2300.0
+# The wall model of a turbulent flow is in its range when the first cell at
+# a wall is some 30 wall units from it or more; under that, in the pipes
+# measured (docs/FluidSimulation.md sec 14.6), the friction was 10% off.
+WALL_UNITS_FROM = 30.0
+# and no more than some 1000: at 1370 the one pipe measured was 6% off.
+WALL_UNITS_TO = 1000.0
+
+
+def flowDoubts(results):
+    """What a steady flow's Reynolds number and its cells at the walls have
+    against the way its eddies were had, each a sentence for the user."""
+    found = []
+    if not results.get("Steady"):
+        return found
+    reynolds = results.get("Reynolds") or 0.0
+    turbulent = results.get("Turbulence", "Laminar") != "Laminar"
+    if not turbulent and reynolds > LAYERED_UNDER:
+        found.append(
+            translate(
+                "Fluid",
+                "The study took the flow as in layers, and its Reynolds number is "
+                "{:.0f}: over some {:.0f} a flow does not stay in layers, and loses "
+                "more pressure than is shown here. Set the study's flow to turbulent.",
+            ).format(reynolds, LAYERED_UNDER)
+        )
+    if turbulent and 0.0 < reynolds < LAYERED_UNDER:
+        found.append(
+            translate(
+                "Fluid",
+                "The study took the flow as turbulent, and its Reynolds number is "
+                "{:.0f}: under some {:.0f} a flow stays in layers, and loses less "
+                "pressure than is shown here. Set the study's flow to laminar.",
+            ).format(reynolds, LAYERED_UNDER)
+        )
+    units = results.get("WallUnits")
+    if turbulent and units and units[2] < WALL_UNITS_FROM:
+        found.append(
+            translate(
+                "Fluid",
+                "The cells at the walls are too fine for the wall model of a "
+                "turbulent flow: they are {:.0f} wall units from the wall in the "
+                "mean ({:.0f} to {:.0f}), and under {:.0f} the friction can be a "
+                "tenth off. A resolution some {:.1f} times coarser is in its range.",
+            ).format(
+                units[2],
+                units[0],
+                units[1],
+                WALL_UNITS_FROM,
+                max(2.0 * WALL_UNITS_FROM / max(units[2], 1.0e-9), 1.1),
+            )
+        )
+    if turbulent and units and units[2] > WALL_UNITS_TO:
+        found.append(
+            translate(
+                "Fluid",
+                "The cells at the walls are too coarse for the wall model of a "
+                "turbulent flow: they are {:.0f} wall units from the wall in the "
+                "mean ({:.0f} to {:.0f}), and over {:.0f} the friction can be more "
+                "than a twentieth off. A resolution some {:.1f} times finer is in "
+                "its range.",
+            ).format(units[2], units[0], units[1], WALL_UNITS_TO, units[2] / (0.5 * WALL_UNITS_TO))
+        )
+    return found
+
+
 def doubts(results):
     """What a run's own account of its energy has against its results, each
     a sentence for the user; none when it has nothing, or kept no account.
     Nothing found is not the results proved: a run on particles too coarse
     for the question keeps its account in order."""
-    energy = (results or {}).get("Energy")
+    results = results or {}
     found = []
+    if results.get("Steady") and not results.get("Settled"):
+        times = results.get("Times") or [0.0]
+        found.append(
+            translate(
+                "Fluid",
+                "The flow had not settled in the {:.0f} steps it was given: the "
+                "pressures and what goes through the openings may still be on their "
+                "way. Give it more steps; a flow that never settles may be one that "
+                "does not stay steady.",
+            ).format(times[-1])
+        )
+    found.extend(flowDoubts(results))
+    energy = results.get("Energy")
     if not energy or not energy["Judged"]:
         return found
     if energy["Lagged"]:
@@ -524,6 +1002,16 @@ def addInlet(study, part, face, speed):
     inlet.Velocity = App.Units.Quantity(speed, "mm/s")
     study.Group = study.Group + [inlet]
     return inlet
+
+
+def addOutlet(study, part, face):
+    """The face (by its name, 'Face2') of the part as one a steady flow
+    leaves through, at the surroundings' pressure."""
+    outlet = study.Document.addObject("Fluid::Outlet", "Outlet")
+    outlet.Label = translate("Fluid", "Outlet at {} of {}").format(face, part.Label)
+    outlet.Face = (part, [face])
+    study.Group = study.Group + [outlet]
+    return outlet
 
 
 def addMonitor(study, kind, point):

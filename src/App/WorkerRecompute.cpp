@@ -1338,6 +1338,14 @@ public:
 
     bool make(DocumentObject& obj, Made& made) override
     {
+        // Only inside the recompute it was made for. One borrowed by a
+        // recompute that threw -- the user's abort -- still stands, as that
+        // recompute never said it was over: an object recomputed by itself
+        // after it (a task panel's preview) is executed, not given values
+        // made from what it read before
+        if (!doc.testStatus(Document::Recomputing)) {
+            return false;
+        }
         // Its class retrying the execute within the one recompute of it (a
         // Part feature on copies of its inputs): the answer it was given
         auto again = answered.find(&obj);
@@ -1537,6 +1545,13 @@ struct State
     std::string tables;
     bool applying = false;
     bool timer = false;
+    /// start() was told to force: the put-in is a forced recompute, which a
+    /// document that skips recomputes does not turn away
+    bool forced = false;
+    /// A recompute of part of the document run here took the result and
+    /// left objects it was made for touched: handed over again once the
+    /// document is free (sec 75)
+    bool again = false;
     /// Taken by a recompute run here: the hook for as long as it runs
     std::unique_ptr<Supplier> borrowed;
     /// Objects whose execute() crashed a worker on what they read now, each
@@ -1569,6 +1584,10 @@ struct State
         double setup = 0;
         double handler = 0;
         double returned = 0;
+        /// What it was handed, by name
+        std::vector<std::string> names;
+        /// Why its job was dropped -- an edit that reached it -- or nothing
+        std::string dropped;
     };
     std::vector<Part> parts;
     /// When the one with the workers was started, how long start() took,
@@ -1628,7 +1647,7 @@ State* stateByName(const std::string& name)
 
 void changed(State& s)
 {
-    s.info.running = making(s) || hasResult(s);
+    s.info.running = making(s) || hasResult(s) || s.again;
     s.info.crashed.clear();
     for (auto& [name, why] : s.crashed) {
         s.info.crashed.push_back(name);
@@ -1637,13 +1656,35 @@ void changed(State& s)
     WorkerRecompute::signalChanged(s.doc);
 }
 
+/// The workers whose results came are told these were not put in, or not
+/// all of them: each holds a copy that is where its result would have
+/// brought the document, and what its next recompute makes the same there
+/// would not be sent again (docs/WorkerProcess.md sec 75)
+void spoil(State& s)
+{
+    auto pool = WorkerPool::of(s.doc, false);
+    for (auto& p : s.parts) {
+        if (p.fileJob) {
+            if (pool) {
+                pool->spoiled(p.fileJob);
+            }
+            p.fileJob = 0;
+        }
+    }
+}
+
 void dropFile(State& s)
 {
+    bool any = false;
     for (auto& p : s.parts) {
         if (!p.file.empty()) {
             Base::FileInfo(p.file).deleteFile();
             p.file.clear();
+            any = true;
         }
+    }
+    if (any) {
+        spoil(s);
     }
 }
 
@@ -1726,6 +1767,7 @@ bool supplierFor(State& s, std::unique_ptr<Supplier>& supplier)
     if (!ok) {
         dropRest(base + 1);
         supplier.reset();
+        spoil(s);
         s.info.reason = "a worker's recompute not put in: " + why;
         ++s.info.failed;
         FC_WARN(s.doc.getName() << ": " << s.info.reason);
@@ -1845,8 +1887,40 @@ void apply(State& s)
         return;
     }
     times.read = now() - reading;
+    // Of a split one, what only a part that was dropped was handed, and the
+    // joins over the parts, are left out, to the next recompute, as an edit
+    // leaves what it drops. Put in, they would be executed here, with no
+    // worker's values for them (docs/WorkerProcess.md sec 77)
+    std::set<std::string> left;
+    std::string dropped;
+    if (s.parts.size() > 1) {
+        std::set<std::string> kept;
+        for (auto& p : s.parts) {
+            if (p.dropped.empty()) {
+                kept.insert(p.names.begin(), p.names.end());
+            }
+            else if (dropped.empty()) {
+                dropped = p.dropped;
+            }
+        }
+        for (auto& p : s.parts) {
+            if (!p.dropped.empty()) {
+                for (auto& name : p.names) {
+                    if (!kept.count(name)) {
+                        left.insert(name);
+                    }
+                }
+            }
+        }
+        if (!dropped.empty()) {
+            left.insert(s.joined.begin(), s.joined.end());
+        }
+    }
     std::vector<DocumentObject*> objs;
     for (auto& name : s.names) {
+        if (left.count(name)) {
+            continue;
+        }
         if (auto obj = s.doc.getObject(name.c_str())) {
             objs.push_back(obj);
         }
@@ -1854,13 +1928,27 @@ void apply(State& s)
     const double began = now();
     TransactionLog* log = s.doc.getTransactionLog();
     const int64_t before = log ? log->lastSeq() : 0;
+    // A put-in that threw stopped part way: what it had not come to is left
+    // touched, and the workers' copies are where the whole result would have
+    // brought the document (docs/WorkerProcess.md sec 77)
+    bool aborted = false;
+    std::string threw;
     {
         Base::FlagToggler<bool> applying(s.applying, false);
         try {
-            s.doc.recompute(objs);
+            s.doc.recompute(objs, s.forced);
+        }
+        catch (Base::AbortException& e) {
+            aborted = true;
+            threw = e.what();
         }
         catch (Base::Exception& e) {
             e.ReportException();
+            threw = e.what();
+        }
+        catch (std::exception& e) {
+            FC_ERR(s.doc.getName() << ": putting a worker's recompute in: " << e.what());
+            threw = e.what();
         }
     }
     // What the objects the worker made did to their views there, done to
@@ -1898,6 +1986,27 @@ void apply(State& s)
     times.apply = s.info.applySeconds;
     times.total = s.startedAt > 0 ? now() - s.startedAt : 0;
     s.info.times = times;
+    if (aborted || !threw.empty()) {
+        // Not counted as put in, and nothing in it trusted as made cleanly.
+        // A user's abort is a drop: what is touched stays touched, as after
+        // an edit. Anything else is a failure, which the client recomputes
+        // here
+        spoil(s);
+        noteSupplied(s, *supplier);
+        s.info.leftOut = static_cast<long>(left.size());
+        if (aborted) {
+            ++s.info.cancelled;
+            s.info.reason = "putting it in was stopped";
+        }
+        else {
+            ++s.info.failed;
+            s.info.reason = "putting it in threw: " + threw;
+        }
+        FC_WARN(s.doc.getName() << ": a worker's recompute not all put in: " << s.info.reason);
+        supplier.reset();
+        changed(s);
+        return;
+    }
     // The rows it was put in as, and what in them is the worker's: told to
     // the worker that made it, which keeps those values as it holds them
     // when it next moves across the rows (docs/WorkerProcess.md sec 29)
@@ -1943,9 +2052,33 @@ void apply(State& s)
         }
     }
     ++s.info.applied;
-    s.info.reason.clear();
+    s.info.leftOut = static_cast<long>(left.size());
+    s.info.reason = left.empty() ? std::string() : "part of it was dropped: " + dropped;
     supplier.reset();
     changed(s);
+}
+
+/// What a recompute of part of the document left of the one handed over,
+/// handed over again
+void startAgain(State& s)
+{
+    if (!s.again) {
+        return;
+    }
+    if (!safeNow(s.doc)) {
+        schedule(s);
+        return;
+    }
+    s.again = false;
+    std::string why;
+    if (!WorkerRecompute::start(s.doc, {}, &why, s.forced)) {
+        if (why != "nothing to recompute") {
+            // Its client recomputes here, as for one a worker could not make
+            ++s.info.failed;
+            s.info.reason = why;
+        }
+        changed(s);
+    }
 }
 
 void schedule(State& s)
@@ -1958,7 +2091,12 @@ void schedule(State& s)
     QTimer::singleShot(0, [name]() {
         if (auto s = stateByName(name)) {
             s->timer = false;
-            apply(*s);
+            if (s->again) {
+                startAgain(*s);
+            }
+            else {
+                apply(*s);
+            }
         }
     });
 }
@@ -2136,6 +2274,7 @@ void done(const std::string& name, WorkerPool::JobId id, WorkerPool::Result& r)
         case WorkerPool::Result::Status::Cancelled:
             ++s->info.cancelled;
             s->info.reason = r.error;
+            part->dropped = r.error.empty() ? std::string("dropped") : r.error;
             break;
     }
     if (!making(*s) && hasResult(*s)) {
@@ -2177,7 +2316,9 @@ bool handOverRisky(Document& doc, const std::vector<DocumentObject*>& objs)
         return false;
     }
     std::string why;
-    if (!WorkerRecompute::start(doc, objs, &why)) {
+    // Reached from a recompute that is being made: of a document that skips
+    // recomputes, a forced one
+    if (!WorkerRecompute::start(doc, objs, &why, doc.testStatus(Document::SkipRecompute))) {
         FC_LOG(doc.getName() << ": a recompute reaching what crashed a worker made here: " << why);
         return false;
     }
@@ -2219,10 +2360,17 @@ State& stateFor(Document& doc)
             }
             if (auto pool = WorkerPool::of(s.doc, false)) {
                 const WorkerPool::JobId id = *job;
-                if (pool->claim(id) != WorkerPool::Claim::Done && *job == id) {
+                WorkerPool::Result death;
+                if (pool->claim(id, &death) != WorkerPool::Claim::Done && *job == id) {
                     *job = 0;
                     ++s.info.cancelled;
                     s.info.reason = "recomputed here";
+                    // Its worker died in an object's execute() as this
+                    // waited: the recompute about to run here would execute
+                    // that object next, and go the same way (sec 34). Once
+                    // is enough here, where there is no second worker to
+                    // try it on first
+                    quarantine(s, death);
                 }
             }
             else {
@@ -2235,10 +2383,25 @@ State& stateFor(Document& doc)
         changed(s);
     }));
     s.conns.emplace_back(doc.signalRecomputed.connect(
-        [&s](const Document&, const std::vector<DocumentObject*>&) {
+        [&s](const Document&, const std::vector<DocumentObject*>& made) {
             if (s.borrowed && !s.applying) {
                 noteSupplied(s, *s.borrowed);
                 s.borrowed.reset();
+                // A recompute of part of the document: what the result was
+                // made for and it did not reach is touched still, and the
+                // result is spent. Handed over again
+                const std::set<DocumentObject*> reached(made.begin(), made.end());
+                for (auto& name : s.names) {
+                    auto obj = s.doc.getObject(name.c_str());
+                    if (obj && !reached.count(obj) && obj->mustRecompute()) {
+                        spoil(s);
+                        s.again = true;
+                        s.info.reason = "a recompute here took part of it";
+                        schedule(s);
+                        changed(s);
+                        break;
+                    }
+                }
             }
         }));
     // A change of what the result is made of, between its coming and its
@@ -2735,7 +2898,7 @@ double WorkerRecompute::expectedSeconds(const Document& doc,
 }
 
 bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& objs,
-                            std::string* why)
+                            std::string* why, bool force)
 {
     (void)registered;
     const double began = now();
@@ -2757,6 +2920,12 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     if (making(s) || hasResult(s)) {
         return refuse("a recompute is with the workers already");
     }
+    // As Document::recompute(): one not forced is not made at all, and the
+    // result of one could not be put in
+    if (!force && doc.testStatus(Document::SkipRecompute)) {
+        return refuse("the document skips recomputes");
+    }
+    s.forced = force;
     // What a recompute would reach: what is touched, or asked for, and
     // everything depending on it
     const std::set<DocumentObject*> all = reachOf(doc, objs);
@@ -2812,6 +2981,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         }
         WorkerPool::Job job;
         job.kind = RecomputeKind;
+        job.writes = true;
         job.tag = s.tag;
         job.reads = names;
         json view = json::object();
@@ -2859,8 +3029,9 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
             *slot = id;
             State::Part p;
             p.job = id;
-            made.push_back(std::move(p));
             sizes.push_back(static_cast<long>(partNames.size()));
+            p.names = std::move(partNames);
+            made.push_back(std::move(p));
         }
         for (auto obj : all) {
             names.emplace_back(obj->getNameInDocument());
@@ -2886,6 +3057,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         *slot = id;
         State::Part p;
         p.job = id;
+        p.names = names;
         made.push_back(std::move(p));
     }
     s.parts = std::move(made);
@@ -2907,7 +3079,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
 bool WorkerRecompute::running(const Document& doc)
 {
     auto s = stateOf(doc);
-    return s && (making(*s) || hasResult(*s));
+    return s && (making(*s) || hasResult(*s) || s->again);
 }
 
 bool WorkerRecompute::wait(Document& doc, double seconds)
@@ -2920,6 +3092,10 @@ bool WorkerRecompute::wait(Document& doc, double seconds)
         }
         if (hasResult(*s) && !making(*s) && safeNow(doc)) {
             apply(*s);
+            continue;
+        }
+        if (s->again && safeNow(doc)) {
+            startAgain(*s);
             continue;
         }
         if (!making(*s)) {
@@ -2941,6 +3117,9 @@ bool WorkerRecompute::wait(Document& doc, double seconds)
 void WorkerRecompute::cancel(Document& doc, const std::string& why)
 {
     State* s = stateOf(doc);
+    if (s) {
+        s->again = false;
+    }
     if (!s || (!making(*s) && !hasResult(*s))) {
         return;
     }

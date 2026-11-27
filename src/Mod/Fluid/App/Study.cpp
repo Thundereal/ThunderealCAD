@@ -349,6 +349,9 @@ struct Study::Run: public Solver::FrameSink
             if (status == Solver::Status::Ok) {
                 status = session->run(*this, why);
             }
+            // a steady flow stops when it has settled: short of its steps
+            index.settled = index.steady && status == Solver::Status::Ok
+                && writer->lastTime() < model.iterations;
             writer->close(index);
         }
         catch (const Base::Exception& e) {
@@ -391,6 +394,7 @@ struct Study::Run: public Solver::FrameSink
 PROPERTY_SOURCE_WITH_EXTENSIONS(Fluid::Study, App::DocumentObject)
 
 const char* Study::AnalysisEnums[] = {"Free surface", "Steady flow", nullptr};
+const char* Study::TurbulenceEnums[] = {"Laminar", "k-omega SST", nullptr};
 
 Study::Study()
 {
@@ -405,6 +409,11 @@ Study::Study()
     Analysis.setEnums(AnalysisEnums);
     ADD_PROPERTY_TYPE(Iterations, (2000), "Study", App::Prop_None,
                       "A steady flow's: how many steps it is given to settle in, at most");
+    ADD_PROPERTY_TYPE(Turbulence, (0L), "Study", App::Prop_None,
+                      "A steady flow's: in layers, with no eddies; or turbulent, its "
+                      "eddies had by their mean effect (Menter's k-omega SST model, the "
+                      "walls by wall functions)");
+    Turbulence.setEnums(TurbulenceEnums);
     ADD_PROPERTY_TYPE(TimeEnd, (1.0), "Study", App::Prop_None, "How long the run is");
     ADD_PROPERTY_TYPE(OutputInterval, (1.0e-2), "Study", App::Prop_None,
                       "The time between the frames the run keeps");
@@ -515,6 +524,8 @@ Solver::Model Study::buildModel() const
     const bool steady = Analysis.getValue() == 1;
     model.analysis = steady ? Solver::Analysis::Steady : Solver::Analysis::FreeSurface;
     model.iterations = static_cast<int>(Iterations.getValue());
+    model.turbulence = steady && Turbulence.getValue() == 1 ? Solver::Turbulence::KOmegaSST
+                                                            : Solver::Turbulence::Laminar;
     // The one face a link names, where it stands.
     const auto faceOf = [](const App::DocumentObject* asker, const App::PropertyLinkSub& link) {
         auto* owner = link.getValue();
@@ -854,7 +865,9 @@ Solver::Status Study::start(std::string& why)
         return Solver::Status::Failed;
     }
     const std::string name = Backend.getValue();
-    auto* backend = Solver::Registry::instance().select(name);
+    auto* backend = Solver::Registry::instance().select(
+        name,
+        Analysis.getValue() == 1 ? Solver::Analysis::Steady : Solver::Analysis::FreeSurface);
     if (!backend) {
         why = name.empty() ? std::string("no solver that can run on this machine was found")
                            : "there is no solver named " + name;
@@ -948,7 +961,9 @@ Solver::Status Study::start(std::string& why)
         }
     }
 #endif
-    if (!run->model.inlets.empty() && !backend->capabilities().inlets) {
+    // a steady flow's inlets are the flow itself: who runs one has them
+    const bool steadyRun = run->model.analysis == Solver::Analysis::Steady;
+    if (!steadyRun && !run->model.inlets.empty() && !backend->capabilities().inlets) {
         why = backend->label() + " cannot run an inlet";
         Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
         return Solver::Status::Unsupported;
@@ -965,10 +980,27 @@ Solver::Status Study::start(std::string& why)
     run->writer = std::make_unique<ArchiveWriter>(run->path);
     run->index.backend = backend->name();
     run->index.version = availability.version;
-    run->index.kind = backend->capabilities().results;
+    run->index.kind = steadyRun ? Solver::ResultKind::Fields : backend->capabilities().results;
+    run->index.steady = steadyRun;
+    if (run->model.turbulence == Solver::Turbulence::KOmegaSST) {
+        run->index.turbulence = "KOmegaSST";
+    }
+    if (steadyRun) {
+        for (std::size_t i = 0; i < run->model.inlets.size(); ++i) {
+            run->index.reynolds = std::max(run->index.reynolds, Solver::reynolds(run->model, i));
+        }
+    }
+    if (steadyRun) {
+        for (const auto& inlet : run->model.inlets) {
+            run->index.openings.push_back({inlet.source, false});
+        }
+        for (const auto& outlet : run->model.outlets) {
+            run->index.openings.push_back({outlet.source, true});
+        }
+    }
     run->index.signature = Solver::signature(run->model);
     run->index.spacing = run->model.resolution * 1000.0;
-    run->index.fed = !run->model.inlets.empty();
+    run->index.fed = !steadyRun && !run->model.inlets.empty();
     for (const auto& monitor : run->model.monitors) {
         run->index.monitors.push_back({monitor.source, monitor.kind});
     }

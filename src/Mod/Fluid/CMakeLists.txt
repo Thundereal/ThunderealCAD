@@ -25,6 +25,7 @@ SET(FluidIcons_SRCS
     Resources/icons/Fluid_AddFluid.svg
     Resources/icons/Fluid_AddBody.svg
     Resources/icons/Fluid_AddInlet.svg
+    Resources/icons/Fluid_AddOutlet.svg
     Resources/icons/Fluid_AddForceMonitor.svg
     Resources/icons/Fluid_AddMonitor.svg
     Resources/icons/Fluid_AddPressureMonitor.svg
@@ -45,6 +46,7 @@ SET(FluidTests_SRCS
     FluidTests/StillWater.py
     FluidTests/Floating.py
     FluidTests/Jet.py
+    FluidTests/Pipe.py
     FluidTests/Mechanism.py
     FluidTests/TestOpenFoam.py
     FluidTests/TestSplish.py

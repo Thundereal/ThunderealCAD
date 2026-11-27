@@ -24,6 +24,7 @@ class FluidWorkbench(Workbench):
             "Fluid_AddFluid",
             "Fluid_AddBody",
             "Fluid_AddInlet",
+            "Fluid_AddOutlet",
             "Fluid_AddMonitor",
             "Fluid_AddPressureMonitor",
             "Fluid_AddForceMonitor",

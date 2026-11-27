@@ -801,9 +801,9 @@ class TestSteady(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "do not open onto the same space"):
             self.study.buildModel()
 
-    def test_no_backend_runs_one_yet(self):
-        for backend in FluidApp.getBackends():
-            self.assertFalse(backend["Steady"], backend["Name"])
+    def test_who_runs_one(self):
+        steady = {backend["Name"] for backend in FluidApp.getBackends() if backend["Steady"]}
+        self.assertEqual(steady, {"OpenFOAM"})
         self.study.Backend = "FreeFall"
         self.assertEqual(self.study.run(), -2)
         self.assertIn("cannot run a steady flow", self.study.Status)

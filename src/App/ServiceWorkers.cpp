@@ -22,6 +22,7 @@
 
 #include "PreCompiled.h"
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -32,6 +33,7 @@
 #include <random>
 #include <set>
 #include <sstream>
+#include <thread>
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -41,17 +43,21 @@
 #include <QProcessEnvironment>
 #include <QStringList>
 #include <QThread>
+#include <QTimer>
 
 #include <nlohmann/json.hpp>
+#include <xercesc/framework/MemBufFormatTarget.hpp>
 
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
 #include <Base/Interpreter.h>
 #include <Base/Parameter.h>
+#include <Base/Stream.h>
 
 #include "Application.h"
 #include "ServiceWorkers.h"
 #include "WorkerCrash.h"
+#include "WorkerPool.h"
 
 FC_LOG_LEVEL_INIT("ServiceWorkers", true, true)
 
@@ -69,6 +75,108 @@ ParameterGrp::handle params()
     return GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers");
 }
 
+/** What the helpers are started by, read on the application's thread
+ * (ServiceWorkers::init()): a call comes on a thread of the compute pool,
+ * an owner's loop on its own, and a parameter group has no lock -- a read
+ * beside the application's write of the same group walks a tree being
+ * changed (docs/WorkerProcess.md sec 77).
+ */
+struct Settings
+{
+    long workers = 0;   ///< ServiceWorkers
+    long kept = 2;      ///< ServiceWorkersKept
+    double idle = 30.0; ///< ServiceIdleSeconds
+    std::string command;  ///< Command
+    /// The user's and the system's parameters as the helpers' own copies
+    /// are written, made on that thread too
+    std::string user;
+    std::string system;
+};
+
+std::mutex& settingsLock()
+{
+    static std::mutex m;
+    return m;
+}
+
+Settings& settings()
+{
+    static Settings s;
+    return s;
+}
+
+/// Whether the copies are older than a change since (set on any thread
+/// that changed a parameter, the application's)
+std::atomic<bool> copiesStale {true};
+std::atomic<bool> copyScheduled {false};
+std::thread::id appThread;
+
+bool onAppThread()
+{
+    return std::this_thread::get_id() == appThread;
+}
+
+std::string saved(const ParameterManager& manager)
+{
+    XERCES_CPP_NAMESPACE_QUALIFIER MemBufFormatTarget target;
+    manager.SaveDocument(&target);
+    return std::string(reinterpret_cast<const char*>(target.getRawBuffer()), target.getLen());
+}
+
+/// On the application's thread: the four values
+void readSettings()
+{
+    auto grp = params();
+    Settings read;
+    read.workers = grp->GetInt("ServiceWorkers", 0);
+    read.kept = grp->GetInt("ServiceWorkersKept", 2);
+    read.idle = grp->GetFloat("ServiceIdleSeconds", 30.0);
+    read.command = grp->GetASCII("Command", "");
+    std::lock_guard<std::mutex> lock(settingsLock());
+    auto& s = settings();
+    s.workers = read.workers;
+    s.kept = read.kept;
+    s.idle = read.idle;
+    s.command = std::move(read.command);
+}
+
+/// On the application's thread: the copies made again, if a parameter
+/// changed since
+void readCopies()
+{
+    if (!copiesStale.exchange(false)) {
+        return;
+    }
+    std::string user = saved(GetApplication().GetUserParameter());
+    std::string system = saved(GetApplication().GetSystemParameter());
+    std::lock_guard<std::mutex> lock(settingsLock());
+    settings().user = std::move(user);
+    settings().system = std::move(system);
+}
+
+/// The copies made again on the application's thread once its event loop
+/// turns, once for any number of changes
+void scheduleCopies()
+{
+    auto app = QCoreApplication::instance();
+    if (!app || copyScheduled.exchange(true)) {
+        return;
+    }
+    QTimer::singleShot(0, app, [] {
+        copyScheduled = false;
+        readCopies();
+    });
+}
+
+Settings settingsNow()
+{
+    if (onAppThread()) {
+        readCopies();
+    }
+    std::lock_guard<std::mutex> lock(settingsLock());
+    return settings();
+}
+
 double now()
 {
     using clock = std::chrono::steady_clock;
@@ -79,7 +187,11 @@ double now()
 /// workerProgram), Workers/Command if set
 std::string program()
 {
-    std::string set = params()->GetASCII("Command", "");
+    std::string set;
+    {
+        std::lock_guard<std::mutex> lock(settingsLock());
+        set = settings().command;
+    }
     if (!set.empty()) {
         return set;
     }
@@ -143,16 +255,37 @@ std::uint32_t get32(const char* p)
         | (static_cast<std::uint32_t>(b[2]) << 16) | (static_cast<std::uint32_t>(b[3]) << 24);
 }
 
-/// A message: the header's length, the body's, the header (JSON), the body
+/// The most a message's header, or its body, can be: each length is four
+/// bytes on the wire
+constexpr std::size_t MessageMost = 0xffffffffu;
+
+/// Why `size` bytes cannot go as a body, or nothing when they can
+std::string tooBig(std::size_t size)
+{
+    if (size <= MessageMost) {
+        return {};
+    }
+    return std::to_string(size) + " bytes, more than a message carries";
+}
+
+/// A message: the header's length, the body's, the header (JSON), the
+/// body. Nothing for one that does not fit -- a length narrowed to four
+/// bytes would have the other end read the rest of it as messages
+/// (docs/WorkerProcess.md sec 77) -- and send() fails on nothing.
 QByteArray message(const json& header, const std::string& body = {})
 {
-    const std::string head = header.dump();
+    // Text that is not UTF-8 -- a console line with a path in the system's
+    // encoding -- is sent with the bytes replaced, not thrown over
+    const std::string head = header.dump(-1, ' ', false, json::error_handler_t::replace);
+    if (head.size() > MessageMost || body.size() > MessageMost) {
+        return {};
+    }
     QByteArray out;
-    out.reserve(static_cast<int>(8 + head.size() + body.size()));
+    out.reserve(static_cast<qsizetype>(8 + head.size() + body.size()));
     put32(out, static_cast<std::uint32_t>(head.size()));
     put32(out, static_cast<std::uint32_t>(body.size()));
-    out.append(head.data(), static_cast<int>(head.size()));
-    out.append(body.data(), static_cast<int>(body.size()));
+    out.append(head.data(), static_cast<qsizetype>(head.size()));
+    out.append(body.data(), static_cast<qsizetype>(body.size()));
     return out;
 }
 
@@ -176,7 +309,7 @@ int take(std::string& buffer, json& header, std::string& body)
 
 bool send(QLocalSocket& socket, const QByteArray& bytes)
 {
-    if (socket.state() != QLocalSocket::ConnectedState) {
+    if (bytes.isEmpty() || socket.state() != QLocalSocket::ConnectedState) {
         return false;
     }
     if (socket.write(bytes) != bytes.size()) {
@@ -270,12 +403,26 @@ public:
                                const std::string& request, double timeout)
     {
         auto c = std::make_shared<Call>();
+        c->reply.error = tooBig(request.size());
+        if (!c->reply.error.empty()) {
+            // Not given to a helper: one sent a request it cannot read the
+            // end of would be ended for it
+            c->reply.error = "the request is " + c->reply.error;
+            return c->reply;
+        }
         c->kind = kind;
         c->module = module;
         c->request = request;
         c->timeout = timeout;
         const double began = now();
         std::unique_lock<std::mutex> lock(m);
+        if (stopping) {
+            // No owner is started while stop() waits for those it took: one
+            // would end at once and stand in `owners` as an idle one, for
+            // the next call to wait on for ever
+            c->reply.error = "the helpers were stopped";
+            return c->reply;
+        }
         if (!prepared) {
             prepare(lock);
         }
@@ -307,14 +454,19 @@ public:
             ending.swap(owners);
             cv.notify_all();
         }
+        // Each ends its call first: one in a call, or starting its helper,
+        // sees `stopping` within a moment and ends the helper (run(),
+        // start()). Waited for to its end: a thread still running is not
+        // deleted, which Qt ends the process for
         for (auto& o : ending) {
             if (o->thread) {
-                o->thread->wait(10000);
+                o->thread->wait();
                 delete o->thread;
             }
         }
         std::lock_guard<std::mutex> lock(m);
         stopping = false;
+        startFailedAt = 0;
         // The logs are kept where a helper died: the error names them
         if (prepared && died == 0 && !root.empty()) {
             std::error_code ec;
@@ -339,7 +491,11 @@ public:
      */
     static int helperLimit()
     {
-        const long set = params()->GetInt("ServiceWorkers", 0);
+        long set = 0;
+        {
+            std::lock_guard<std::mutex> lock(settingsLock());
+            set = settings().workers;
+        }
         if (set > 0) {
             return static_cast<int>(set);
         }
@@ -350,7 +506,14 @@ public:
     /// one past them ends its process once idle for ServiceIdleSeconds (30)
     static int helpersKept()
     {
-        return static_cast<int>(std::max(0L, params()->GetInt("ServiceWorkersKept", 2)));
+        std::lock_guard<std::mutex> lock(settingsLock());
+        return static_cast<int>(std::max(0L, settings().kept));
+    }
+
+    static double idleSeconds()
+    {
+        std::lock_guard<std::mutex> lock(settingsLock());
+        return std::max(0.0, settings().idle);
     }
 
     ServiceWorkers::Info info()
@@ -390,37 +553,37 @@ private:
     {
         prepared = true;
         ensureCore();
-        const std::string temp = Application::getTempPath();
-        sweep(temp);
-        root = temp + "ThunderealService-" + std::to_string(QCoreApplication::applicationPid());
-        Base::FileInfo(root).createDirectories();
-        // Their own copies: a helper saving its parameters at its exit
-        // must not write over this process's
-        GetApplication().GetUserParameter().SaveDocument((root + "/user.cfg").c_str());
-        GetApplication().GetSystemParameter().SaveDocument((root + "/system.cfg").c_str());
-        if (auto app = QCoreApplication::instance()) {
+        // Its own, made here: not one found there, and those of processes
+        // gone removed by whether they run, not by their age -- one a day
+        // old may be a session's still (docs/WorkerProcess.md sec 76)
+        root = WorkerPool::privateDirectory("ThunderealService", "helpers");
+        // Their own copies, a helper saving its parameters at its exit must
+        // not write over this process's: written from what the application's
+        // thread made of them, as this is a call's thread, any (sec 77)
+        if (!root.empty()) {
+            const Settings have = settingsNow();
+            if (have.user.empty()) {
+                FC_WARN("the helpers' parameters were not copied yet; they start with none");
+            }
+            auto write = [this](const char* name, const std::string& text) {
+                if (text.empty()) {
+                    return;
+                }
+                Base::FileInfo fi(root + "/" + name);
+                Base::ofstream out(fi, std::ios::out | std::ios::binary | std::ios::trunc);
+                out.write(text.data(), static_cast<std::streamsize>(text.size()));
+            };
+            write("user.cfg", have.user);
+            write("system.cfg", have.system);
+        }
+        // Once: prepared again after a stop(), it would be told to stop
+        // once more for each
+        static bool connected = false;
+        if (auto app = connected ? nullptr : QCoreApplication::instance()) {
+            connected = true;
             QObject::connect(app, &QCoreApplication::aboutToQuit, [] {
                 Service::instance().stop();
             });
-        }
-    }
-
-    /// The directories of processes that are gone, a day after they went
-    static void sweep(const std::string& temp)
-    {
-        namespace fs = std::filesystem;
-        std::error_code ec;
-        const std::string prefix = "ThunderealService-";
-        for (const auto& entry : fs::directory_iterator(fs::u8path(temp), ec)) {
-            const std::string name = entry.path().filename().string();
-            if (name.compare(0, prefix.size(), prefix) != 0) {
-                continue;
-            }
-            const auto age = fs::file_time_type::clock::now() - fs::last_write_time(entry, ec);
-            if (ec || age < std::chrono::hours(24)) {
-                continue;
-            }
-            fs::remove_all(entry.path(), ec);
         }
     }
 
@@ -449,6 +612,10 @@ private:
         const std::string exe = program();
         if (exe.empty()) {
             why = "no console program found to run the helpers";
+            return false;
+        }
+        if (root.empty()) {
+            why = "no directory could be made for the helpers in " + Application::getTempPath();
             return false;
         }
         std::string token = randomToken();
@@ -489,7 +656,14 @@ private:
         }
         const double deadline = now() + 60;
         while (!h.server->hasPendingConnections()) {
-            if (h.process->state() == QProcess::NotRunning) {
+            if (stopping) {
+                h.process->kill();
+                h.process->waitForFinished(2000);
+                why = "the helpers were stopped";
+                return false;
+            }
+            // Asked: without an event loop here its end is seen no other way
+            if (h.process->state() == QProcess::NotRunning || h.process->waitForFinished(0)) {
                 why = "the helper ended before it connected; its log: " + h.log;
                 return false;
             }
@@ -535,7 +709,17 @@ private:
                 how = "exited with code " + std::to_string(h.process->exitCode());
             }
         }
-        WorkerCrash::Report report = WorkerCrash::read(h.log);
+        // read() takes what the log says, not where it is
+        std::string said;
+        {
+            Base::ifstream in(Base::FileInfo(h.log), std::ios::in | std::ios::binary);
+            if (in) {
+                std::ostringstream all;
+                all << in.rdbuf();
+                said = all.str();
+            }
+        }
+        WorkerCrash::Report report = WorkerCrash::read(said);
         if (report.found) {
             how += " (" + WorkerCrash::what(report) + ")";
             FC_ERR("a helper crashed; its log: " << h.log << "\n" << WorkerCrash::text(report));
@@ -563,7 +747,7 @@ private:
                     // One past those kept: its process ends once idle
                     // long enough, and is started again by the next call
                     // that finds the others busy
-                    const double idle = std::max(0.0, params()->GetFloat("ServiceIdleSeconds", 30.0));
+                    const double idle = idleSeconds();
                     if (!cv.wait_for(lock, std::chrono::duration<double>(idle), wanted)) {
                         lock.unlock();
                         end(h);
@@ -587,15 +771,36 @@ private:
             const double began = now();
             if (!h.socket || h.socket->state() != QLocalSocket::ConnectedState) {
                 std::string why;
-                if (!start(me, h, why)) {
+                bool tried = false;
+                {
+                    // One that could not be started a moment ago is not
+                    // waited for again by every call of a load: each would
+                    // stand for as long as the first before it is made here
+                    std::lock_guard<std::mutex> lock(m);
+                    if (startFailedAt > 0 && now() - startFailedAt < StartAgainAfter) {
+                        why = startFailedWhy;
+                    }
+                    else {
+                        tried = true;
+                    }
+                }
+                if (!tried || !start(me, h, why)) {
                     c->reply.error = why;
                     h = Helper();
                     {
                         std::lock_guard<std::mutex> lock(m);
                         me.pid = 0;
+                        if (tried && !stopping) {
+                            startFailedAt = now();
+                            startFailedWhy = why;
+                        }
                     }
                     finish(me, c);
                     continue;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(m);
+                    startFailedAt = 0;
                 }
                 c->reply.started = now() - began;
             }
@@ -610,9 +815,20 @@ private:
             Got got = Got::Gone;
             if (send(*h.socket, bytes)) {
                 QProcess* process = h.process.get();
-                got = receive(*h.socket, h.buffer, header, body, now() + c->timeout, [process] {
-                    return process->state() != QProcess::NotRunning;
-                });
+                got = receive(*h.socket, h.buffer, header, body, now() + c->timeout,
+                              [this, process] {
+                                  // Not waited for past a stop(); and asked,
+                                  // as its end is seen no other way here
+                                  return !stopping && process->state() != QProcess::NotRunning
+                                      && !process->waitForFinished(0);
+                              });
+            }
+            if (got != Got::Message && stopping) {
+                // Stopped in the middle of it: not the call's doing
+                h.process->kill();
+                c->reply.error = "the helpers were stopped";
+                finish(me, c);
+                break;
             }
             if (got == Got::Message) {
                 c->reply.ok = header.value("ok", false);
@@ -658,8 +874,14 @@ private:
     std::condition_variable done;  ///< a call answered
     std::deque<std::shared_ptr<Call>> queue;
     std::vector<std::unique_ptr<Owner>> owners;
-    bool stopping = false;
+    /// Read by an owner in a call too, outside the lock
+    std::atomic<bool> stopping {false};
     bool prepared = false;
+    /// When a helper last could not be started, and why: not tried again
+    /// for StartAgainAfter seconds
+    static constexpr double StartAgainAfter = 30;
+    double startFailedAt = 0;
+    std::string startFailedWhy;
     std::string root;
     int spawned = 0;
     long idleEnded = 0;
@@ -688,6 +910,40 @@ ServiceWorkers::Reply ServiceWorkers::call(const std::string& kind, const std::s
 ServiceWorkers::Info ServiceWorkers::info()
 {
     return Service::instance().info();
+}
+
+void ServiceWorkers::init()
+{
+    appThread = std::this_thread::get_id();
+    readSettings();
+    copiesStale = true;
+    if (QCoreApplication::instance()) {
+        readCopies();
+    }
+    else {
+        // The GUI's QApplication is made after this: the copies are made as
+        // it is, here still. Left to the event loop, a load that meshes
+        // before the loop first turns would start the helpers with none
+        qAddPreRoutine([] {
+            if (onAppThread()) {
+                readCopies();
+            }
+        });
+    }
+    static fastsignals::scoped_connection changed;
+    // On the thread that changed it: the application's, the one that may
+    // read the groups
+    changed = GetApplication().GetUserParameter().signalParamChanged.connect(
+        [](ParameterGrp* grp, ParameterGrp::ParamType, const char*, const char*) {
+            if (!onAppThread()) {
+                return;
+            }
+            copiesStale = true;
+            if (grp && grp->GetPath().find("BaseApp/Preferences/Workers") != std::string::npos) {
+                readSettings();
+            }
+            scheduleCopies();
+        });
 }
 
 void ServiceWorkers::stop()
@@ -774,6 +1030,14 @@ int ServiceWorkers::serve()
             if (!error.empty()) {
                 reply["error"] = error;
             }
+        }
+        if (!tooBig(out.size()).empty()) {
+            // Said instead of sent: the call ends with why, the helper
+            // goes on
+            reply["ok"] = false;
+            reply["error"] = "the reply is " + tooBig(out.size());
+            out.clear();
+            out.shrink_to_fit();
         }
         reply["seconds"] = now() - began;
         if (!send(socket, message(reply, out))) {

@@ -144,6 +144,47 @@ def _param(doc, inputs, out):
             "Value": group.GetString(name) if name in group.GetStrings() else None}
 
 
+def _threadAltStack():
+    """The size of the alternate signal stack a thread started now has, 0
+    for none (macOS's stack_t; SS_DISABLE is 4 there). On Windows the room
+    its stack keeps back for the handler, its stack guarantee"""
+    import ctypes
+
+    if sys.platform == "win32":
+        got = []
+
+        def guarantee():
+            size = ctypes.c_ulong(0)
+            # 0 asks what it is and changes nothing
+            ctypes.windll.kernel32.SetThreadStackGuarantee(ctypes.byref(size))
+            got.append(size.value)
+
+        thread = threading.Thread(target=guarantee)
+        thread.start()
+        thread.join()
+        return got[0]
+
+    class Stack(ctypes.Structure):
+        _fields_ = [("sp", ctypes.c_void_p), ("size", ctypes.c_size_t), ("flags", ctypes.c_int)]
+
+    libc = ctypes.CDLL(None)
+    got = []
+
+    def look():
+        stack = Stack()
+        libc.sigaltstack(None, ctypes.byref(stack))
+        got.append(0 if stack.flags & 4 else stack.size)
+
+    thread = threading.Thread(target=look)
+    thread.start()
+    thread.join()
+    return got[0]
+
+
+def _altStack(doc, inputs, out):
+    return {"Pid": os.getpid(), "Size": _threadAltStack()}
+
+
 def _table(doc, inputs, out):
     """The strings of the worker's table spelled inputs["Spelled"], by that
     spelling: None for one it lacks"""
@@ -323,6 +364,7 @@ for _kind, _handler in (
     ("test.table", _table),
     ("test.guest", _guest),
     ("test.param", _param),
+    ("test.altstack", _altStack),
 ):
     worker.register(_kind, _handler)
 
@@ -425,6 +467,27 @@ class TestWorkerPool(unittest.TestCase):
                 return True
             self.pool.poll(50)
         return condition()
+
+    @unittest.skipUnless(sys.platform in ("darwin", "win32"),
+                         "a thread is given the handler's stack on macOS and Windows only"
+                         " (secs 77, 78)")
+    def testAThreadAWorkerStartsHasTheCrashHandlersStack(self):
+        """A thread a worker starts has a stack for the crash handler of its
+        own -- on Windows, room kept back on its stack: one that runs out of
+        stack is reported, not taken down again in the handler. A process
+        that is no worker gives none (docs/WorkerProcess.md secs 77, 78)"""
+        want = 64 * 1024 if sys.platform == "win32" else 256 * 1024
+        if sys.platform == "win32":
+            # what Windows keeps back of its own is not said to be none
+            self.assertLess(_threadAltStack(), want)
+        else:
+            self.assertEqual(_threadAltStack(), 0)
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        job = self.submit("test.altstack")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        out = self.pool.result(job)["Output"]
+        self.assertNotEqual(out["Pid"], os.getpid())
+        self.assertEqual(out["Size"], want, out)
 
     def testAWorkerWaitingForWorkHasItsGuestUp(self):
         """With a sandbox runtime installed a worker boots its guest as it
@@ -604,6 +667,61 @@ class TestWorkerPool(unittest.TestCase):
         self.assertTrue(self.waitFor(lambda: self.pool.info()["Workers"] == 0, 30),
                         self.pool.info())
         self.assertEqual(self.pool.info()["KeptOpenTimes"], 1)
+
+    def testAKeptWorkerIsLetGoOfWhenNoneIdleIsAskedFor(self):
+        """IdleSeconds set to 0 while a worker is kept: none idle is asked
+        for, and the kept one goes at the next look"""
+        self.settings(1, idle=0.3)
+        self.keepOpen()
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["KeptOpen"] == 1, 30),
+                        self.pool.info())
+        App.ParamGet("User parameter:BaseApp/Preferences/Workers").SetFloat("IdleSeconds", 0.0)
+        memory = self.pool.memory()
+        self.assertFalse(memory["KeepOpen"], memory)
+        self.assertEqual(memory["Why"], "IdleSeconds is 0")
+        self.assertTrue(self.waitFor(lambda: self.pool.info()["Workers"] == 0, 30),
+                        self.pool.info())
+        self.assertEqual(self.pool.info()["LetGo"], 1)
+
+    def testAWorkerNotReadyInTimeIsEnded(self):
+        """A worker that does not say it is ready within ReadySeconds is
+        ended, where the queue stood behind it with no end; one after the
+        other, the pool stops and its jobs are told (sec 75)"""
+        self.settings(1)
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetFloat("ReadySeconds", 0.001)
+        self.addCleanup(group.RemFloat, "ReadySeconds")
+        self.pool.start()
+        job = self.pool.submit("test.echo", {}, module=MODULE)
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        info = self.pool.info()
+        self.assertGreaterEqual(info["Stalled"], 1, info)
+        self.assertEqual(info["Workers"], 0, info)
+        if job:
+            result = self.pool.result(job)
+            self.assertIsNotNone(result, info)
+            self.assertEqual(result["Status"], "Cancelled", result)
+            self.assertEqual(result["Error"], "the workers exited", result)
+
+    def testThePoolsDirectoryIsItsOwn(self):
+        """What the workers are given and write is in a directory made for
+        this pool, under a name not to be told beforehand, the user's alone
+        (docs/WorkerProcess.md sec 76)"""
+        import re
+
+        self.settings(1)
+        self.assertTrue(self.pool.start(), self.pool.info()["Reason"])
+        where = self.pool.info()["Directory"]
+        self.assertTrue(os.path.isdir(where), where)
+        self.assertRegex(os.path.basename(where),
+                         r"^Workers-%d-\d+-[0-9a-f]{8}$" % os.getpid())
+        if os.name != "nt":
+            self.assertEqual(os.stat(where).st_mode & 0o777, 0o700)
+        self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
 
     def testOnlyTheLastIdleWorkerIsKept(self):
         self.settings(2, idle=0.3)
@@ -1565,6 +1683,39 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertLess(info["WorkerSeconds"], 2.0 + 1.0, info)
         self.assertLess(took, 2.0 + 1.5, info)
 
+    def testAHalfAnEditDropsIsNotMadeHere(self):
+        """An edit of Right while both halves are with their workers drops
+        the second half's job: the first half is put in, and Right and its
+        tail are left to the next recompute, as an edit leaves what it
+        drops -- not executed here as the first half is put in
+        (docs/WorkerProcess.md sec 77)"""
+        base, left, right, tails = self.splitChains()
+        made = right.MadeBy
+        base.Input = 2
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        deadline = time.time() + 60
+        while self.pool.info()["Busy"] < 2 and time.time() < deadline:
+            self.pool.wait(0.02)
+        self.assertEqual(self.pool.info()["Busy"], 2, self.pool.info())
+        cancelled = self.pool.recomputeInfo()["Cancelled"]
+        right.Sleep = 1.4
+        self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Split"], 1, info)
+        self.assertEqual(info["Applied"], 2, info)
+        self.assertEqual(info["Cancelled"], cancelled + 1, info)
+        self.assertEqual(info["LeftOut"], 2, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertTrue(info["Reason"].startswith("part of it was dropped"), info)
+        self.assertEqual((left.Result, tails[0].Result), (8, 16))
+        self.assertNotEqual(left.MadeBy, os.getpid())
+        # Right as the edit left it; its tail as it was, made from nothing
+        self.assertEqual(self.touched(), ["Right"])
+        self.assertEqual((right.MadeBy, right.Result, tails[1].Result), (made, 4, 8))
+        self.doc.recompute()
+        self.assertEqual((right.Result, tails[1].Result), (8, 16))
+        self.assertEqual(self.touched(), [])
+
     def testACrashInOneHalfIsPutDownToItsObject(self):
         """The worker of the second half dies in Right, twice: the first half
         is put in, Right is left in its error and not run here, what reads
@@ -2265,6 +2416,109 @@ class TestWorkerRecompute(unittest.TestCase):
                       else "crashed a worker process twice (signal 11", crash.getStatusString())
         self.assertEqual(self.pool.info()["Failed"], failed)
         self.assertTrue(pids <= set(self.pool.info()["Pids"]), self.pool.info()["Pids"])
+
+    def testAWorkersDeathUnderARecomputeHereIsPutDownToItsObject(self):
+        """A recompute here takes the one a worker is making and waits for
+        it; the worker dies in an object's execute() meanwhile. The object is
+        refused as after any crash, not executed here next
+        (docs/WorkerProcess.md sec 74)"""
+        warm = self.counted("Warm")
+        self.doc.recompute()
+        warm.Input = 1
+        self.byWorker()  # a worker standing, its copy open
+        before, crash, after = self.crashingChain()
+        before.Sleep = 1.5  # the worker is in the job when this claims it
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        deadline = time.time() + 60
+        while self.pool.info()["Busy"] == 0 and time.time() < deadline:
+            self.pool.wait(0.02)
+        self.assertEqual(self.pool.info()["Busy"], 1, self.pool.info())
+        self.doc.recompute()
+        self.assertNotIn("crashed here", _executions)
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Crashed"], ["Crash"], info)
+        self.assertIn("Invalid", crash.State)
+        self.assertIn("crashed a worker process", crash.getStatusString())
+        self.assertEqual(before.Result, 4)
+        self.assertEqual(before.MadeBy, os.getpid())
+        self.assertEqual(after.Result, 0)
+        # No other worker was started on what the recompute here took
+        self.assertEqual(self.pool.info()["Busy"], 0, self.pool.info())
+
+    def testARecomputeOfPartHereHandsTheRestOverAgain(self):
+        """A recompute of one object run here while the document's is with a
+        worker takes the worker's result and uses none of it: what the
+        result was made for is handed over again, not left touched with the
+        result spent (docs/WorkerProcess.md sec 75)"""
+        slow = self.counted("Slow", Input=2, Sleep=1.0)
+        tail = self.counted("Tail")
+        tail.setExpression("Input", "Slow.Result")
+        other = self.counted("Other", Input=5)
+        self.doc.recompute()
+        warm = self.counted("Warm")
+        self.doc.recompute()
+        warm.Input = 1
+        self.byWorker()
+        slow.Input = 3
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        deadline = time.time() + 60
+        while self.pool.info()["Busy"] == 0 and time.time() < deadline:
+            self.pool.wait(0.02)
+        started = self.pool.recomputeInfo()["Started"]
+        self.doc.recompute([other], True)
+        info = self.pool.recomputeInfo()
+        self.assertTrue(self.pool.recomputing(), info)
+        self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Started"], started + 1, info)
+        self.assertEqual(self.touched(), [])
+        self.assertEqual((slow.Result, tail.Result), (6, 12))
+        self.assertNotEqual(slow.MadeBy, os.getpid())
+
+    def testAResultNotPutInIsNotBuiltOn(self):
+        """A worker's recompute made and then dropped leaves its copy where
+        the result would have brought the document: what the next recompute
+        makes the same there is not written again, and would not come back.
+        Its worker is let go, and the next is made on a copy of the document
+        as it is (docs/WorkerProcess.md sec 75)"""
+        slow = self.counted("Slow", Input=2, Sleep=0.3)
+        tail = self.counted("Tail")
+        tail.setExpression("Input", "Slow.Result")
+        self.doc.recompute()
+        slow.Input = 3
+        self.byWorker()
+        self.assertEqual((slow.Result, tail.Result), (6, 12))
+        slow.Input = 7
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        deadline = time.time() + 60
+        while self.pool.info()["Done"] < 2 and time.time() < deadline:
+            self.pool.wait(0.02)
+        self.assertEqual(self.pool.info()["Done"], 2, self.pool.info())
+        pids = self.pool.info()["Pids"]
+        self.pool.cancelRecompute("the test's")
+        self.assertEqual(self.pool.info()["Spoiled"], 1, self.pool.info())
+        self.assertEqual(slow.Result, 6)
+        self.byWorker()
+        self.assertEqual((slow.Result, tail.Result), (14, 28))
+        self.assertEqual(self.touched(), [])
+        self.assertNotIn(slow.MadeBy, pids + [os.getpid()])
+
+    def testADocumentThatSkipsRecomputesIsHandedOverOnlyForced(self):
+        """A document that skips recomputes: not handed over unless forced,
+        as its own recompute() makes nothing unless forced; forced, the
+        worker's result is put in (docs/WorkerProcess.md sec 74)"""
+        one = self.counted("One", Input=3)
+        self.doc.RecomputesFrozen = True
+        self.assertFalse(self.pool.recompute())
+        self.assertEqual(self.pool.recomputeInfo()["Reason"], "the document skips recomputes")
+        self.assertEqual(one.Result, 0)
+        self.assertTrue(self.pool.recompute(None, True), self.pool.recomputeInfo()["Reason"])
+        self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
+        info = self.pool.recomputeInfo()
+        self.assertEqual(info["Applied"], 1, info)
+        self.assertEqual(one.Result, 6)
+        self.assertNotEqual(one.MadeBy, os.getpid())
+        self.assertEqual(self.touched(), [])
 
     @staticmethod
     def systemCrashReports():

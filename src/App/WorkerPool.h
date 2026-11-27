@@ -154,6 +154,12 @@ public:
         /// runs; a newer copy taken before a worker could be handed it hands
         /// it back Cancelled
         bool pinned = false;
+        /// The job changes the worker's copy of the document, and its
+        /// result is what brings the document here to where that copy is --
+        /// a recompute. Its result thrown away, or told spoiled(), the copy
+        /// is ahead of the document and its worker is let go: values the
+        /// next job makes the same there would not be sent again (sec 75)
+        bool writes = false;
         /// Called once, from the thread the pool runs in, unless the
         /// client cancels the job or claims it while it is queued
         std::function<void(Result&)> done;
@@ -185,6 +191,8 @@ public:
         int keptOpen = 0;
         long keptOpenTimes = 0;  ///< times one was kept so
         long letGo = 0;          ///< of them, let go of for the memory
+        long stalled = 0;        ///< ended for not answering in time (sec 75)
+        long spoiled = 0;        ///< let go of, their copy ahead of the document
         int busy = 0;      ///< running a job
         std::size_t queued = 0;
         std::size_t resident = 0;  ///< the most a worker said it held
@@ -229,6 +237,15 @@ public:
     /// Whether workers can be had: a build with processes, and Workers of
     /// Preferences/Workers not 0. `why` says why not
     static bool supported(std::string* why = nullptr);
+    /** A directory of this process's own in the system's temporary files,
+     * for what its helper processes are given and write: `<kind>-<pid>-
+     * <what>-<random>`, made here and for the user alone. Never one found
+     * there: the name cannot be told beforehand, and one that exists is
+     * not used (docs/WorkerProcess.md sec 76). Empty when none can be
+     * made. The first call removes those that processes no longer running
+     * left behind.
+     */
+    static std::string privateDirectory(const std::string& kind, const std::string& what);
     /// What this process holds in memory as the system counts it
     static std::size_t residentBytes();
 
@@ -269,8 +286,15 @@ public:
     /// Whether it has a copy standing and workers may run on it
     bool started() const;
     JobId submit(Job job);
-    /// The job is wanted now (docs/WorkerProcess.md sec 7): exactly once
-    Claim claim(JobId id);
+    /// The result of `job`, one that `writes`, was not put in, or not all
+    /// of it: the worker that made it holds a copy ahead of the document,
+    /// and is let go
+    void spoiled(JobId job);
+    /// The job is wanted now (docs/WorkerProcess.md sec 7): exactly once.
+    /// With Failed for its worker's death, `death` if given is told of it
+    /// as a result would be (died, diedAt, how, stack, crashLog): the
+    /// client that does the job itself is the one to know what it died in
+    Claim claim(JobId id, Result* death = nullptr);
     State state(JobId id) const;
     /// Drop the jobs whose tag `which` takes, without telling their
     /// clients: queued ones go, a running one's result is thrown away --

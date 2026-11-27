@@ -376,7 +376,7 @@ public:
         OpenFoam::CaseOptions options;
         options.processes = processesFor(given);
         if (!OpenFoam::makeCase(model, options, made, why)) {
-            return model.fluids.empty() ? Status::Empty : Status::Unsupported;
+            return model.fluids.empty() && !steady() ? Status::Empty : Status::Unsupported;
         }
         keep = preferences()->GetBool("KeepCase", false);
         try {
@@ -412,9 +412,17 @@ public:
 
     Status run(FrameSink& sink, std::string& why) override
     {
-        // The frame at the start is the model's own: the volumes as given
+        // The frame at the start is the model's own: the volumes as given,
+        // or the faces of the fluid's space with no pressure on them yet
         Frame first;
         first.time = 0.0;
+        if (steady()) {
+            first.points = model.domain.points;
+            first.triangles = model.domain.triangles;
+            first.values.assign(first.points.size(), 0.0);
+            first.openings.resize(model.inlets.size() + model.outlets.size());
+            liquidOf(model, liquid);
+        }
         for (const auto& fluid : model.fluids) {
             const int offset = static_cast<int>(first.points.size());
             first.points.insert(first.points.end(),
@@ -439,8 +447,7 @@ public:
                 },
                 [&] {
                     if (step.solver) {
-                        emitSamples(sink, false);
-                        emitFrames(sink, false);
+                        emit(sink, false);
                     }
                 });
             if (code == -7) {
@@ -453,14 +460,143 @@ public:
                 return Status::Failed;
             }
             if (step.solver) {
-                emitSamples(sink, true);
-                emitFrames(sink, true);
+                emit(sink, true);
             }
         }
         return Status::Ok;
     }
 
 private:
+    bool steady() const
+    {
+        return model.analysis == Analysis::Steady;
+    }
+
+    void emit(FrameSink& sink, bool finished)
+    {
+        if (steady()) {
+            emitProbes(sink, finished);
+            emitSkins(sink, finished);
+        }
+        else {
+            emitSamples(sink, finished);
+            emitFrames(sink, finished);
+        }
+    }
+
+    // A steady flow's pressure monitors, a row a step: the solver's
+    // pressure is over the density.
+    void emitProbes(FrameSink& sink, bool finished)
+    {
+        if (model.monitors.empty()) {
+            return;
+        }
+        const auto rows = OpenFoam::readTable(readFile(folder / "postProcessing/pressure/0/p"));
+        const std::size_t ready = finished || rows.empty() ? rows.size() : rows.size() - 1;
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        for (; sampled < ready; ++sampled) {
+            const auto& row = rows[sampled];
+            std::vector<double> values;
+            for (std::size_t m = 0; m < model.monitors.size(); ++m) {
+                values.push_back(m + 1 < row.size() ? row[m + 1] * liquid.density : nan);
+            }
+            sink.sample(row.front(), values);
+        }
+    }
+
+    // A steady flow's frames: the pressure on every patch as the solver
+    // wrote it at a step, the patches joined, and what each opening's
+    // tables have at that step. The latest is left while the solver runs.
+    void emitSkins(FrameSink& sink, bool finished)
+    {
+        std::vector<std::pair<double, fs::path>> times;
+        std::error_code ec;
+        for (const auto& entry : fs::directory_iterator(folder / "postProcessing" / "skin", ec)) {
+            try {
+                std::size_t used = 0;
+                const std::string name = entry.path().filename().string();
+                const double time = std::stod(name, &used);
+                if (used == name.size() && !emitted.contains(name)) {
+                    times.emplace_back(time, entry.path());
+                }
+            }
+            catch (const std::exception&) {
+            }
+        }
+        std::ranges::sort(times);
+        const std::size_t ready = finished ? times.size() : (times.empty() ? 0 : times.size() - 1);
+        const std::size_t openings = model.inlets.size() + model.outlets.size();
+        for (std::size_t i = 0; i < ready; ++i) {
+            Frame frame;
+            frame.time = times[i].first;
+            bool whole = true;
+            for (std::size_t k = 0; k <= openings && whole; ++k) {
+                const std::string name = k == 0 ? "wall" : OpenFoam::openingName(model, k - 1);
+                Frame patch;
+                whole = OpenFoam::readFieldVtk(readFile(times[i].second / (name + ".vtk")),
+                                               "p",
+                                               patch);
+                const int offset = static_cast<int>(frame.points.size());
+                frame.points.insert(frame.points.end(), patch.points.begin(), patch.points.end());
+                for (const auto& t : patch.triangles) {
+                    frame.triangles.push_back({t[0] + offset, t[1] + offset, t[2] + offset});
+                }
+                for (double value : patch.values) {
+                    frame.values.push_back(value * liquid.density);
+                }
+            }
+            if (!whole) {
+                if (!finished) {
+                    return;  // not whole yet: the next look takes it
+                }
+                continue;
+            }
+            for (std::size_t k = 0; k < openings; ++k) {
+                const std::string name = OpenFoam::openingName(model, k);
+                OpeningFlow opening;
+                const auto valueAt = [&](const char* what) {
+                    const auto table = OpenFoam::readTable(readFile(
+                        folder / "postProcessing" / (name + what) / "0" / "surfaceFieldValue.dat"));
+                    const auto* row = OpenFoam::rowAt(table, frame.time, 0.5);
+                    return row && row->size() > 1 ? (*row)[1]
+                                                  : std::numeric_limits<double>::quiet_NaN();
+                };
+                opening.pressure = valueAt("P") * liquid.density;
+                // the solver counts what leaves the mesh
+                opening.flow = k < model.inlets.size() ? -valueAt("Q") : valueAt("Q");
+                frame.openings.push_back(opening);
+            }
+            if (finished && i + 1 == ready) {
+                takeInside(frame);
+                OpenFoam::readWallUnits(
+                    readFile(folder / "postProcessing" / "yPlus" / "0" / "yPlus.dat"),
+                    frame.wallUnits);
+            }
+            sink.frame(frame);
+            emitted.insert(times[i].second.filename().string());
+        }
+    }
+
+    // The fluid inside as the solver left it, for the run's last frame: the
+    // function object writes it once, at the end, under the step it ended at.
+    void takeInside(Frame& frame) const
+    {
+        std::error_code ec;
+        for (const auto& entry : fs::directory_iterator(folder / "postProcessing" / "inside", ec)) {
+            Frame inside;
+            if (!OpenFoam::readInside(readFile(entry.path() / "cells_p_U.xy"), inside)) {
+                continue;
+            }
+            frame.centres = std::move(inside.centres);
+            frame.velocities = std::move(inside.velocities);
+            frame.pressures = std::move(inside.pressures);
+            for (double& pressure : frame.pressures) {
+                pressure *= liquid.density;
+            }
+            return;
+        }
+    }
+
     // As many processes as the mesh is worth: a share of the cores, and no
     // fewer than some twenty thousand cells each.
     int processesFor(const Model& given) const
@@ -570,6 +706,7 @@ private:
 
     OpenFoamInstall install;
     Model model;
+    Material liquid;  // a steady flow's
     OpenFoam::Case made;
     fs::path folder;
     bool keep = false;
@@ -583,6 +720,7 @@ Capabilities OpenFoamBackend::capabilities() const
     Capabilities can;
     can.results = ResultKind::Surface;
     can.freeSurface = true;
+    can.steady = true;
     can.inProcess = false;
     return can;
 }

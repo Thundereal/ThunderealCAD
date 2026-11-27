@@ -119,6 +119,195 @@ class TestDoubts(unittest.TestCase):
         self.assertEqual(both, [lag, rise])
 
 
+class TestSteadyDoubts(unittest.TestCase):
+    """What the panel says of a steady flow that had not settled."""
+
+    def test_a_flow_that_settled_has_nothing_against_it(self):
+        self.assertEqual(FluidPlayback.doubts({"Steady": True, "Settled": True}), [])
+        # nor has a run through time, which settles to nothing
+        self.assertEqual(FluidPlayback.doubts({"Steady": False, "Settled": False}), [])
+
+    def test_one_that_did_not_says_so(self):
+        (found,) = FluidPlayback.doubts({"Steady": True, "Settled": False, "Times": [0.0, 2000.0]})
+        self.assertIn("2000", found)
+        self.assertIn("settled", found)
+
+
+class TestFlowDoubts(unittest.TestCase):
+    """What the panel says of a steady flow whose Reynolds number, or whose
+    cells at the walls, do not go with the way its eddies were had."""
+
+    @staticmethod
+    def results(**changed):
+        results = {"Steady": True, "Settled": True, "Turbulence": "Laminar", "Reynolds": 10.0}
+        results.update(changed)
+        return results
+
+    def test_a_slow_flow_in_layers_has_nothing_against_it(self):
+        self.assertEqual(FluidPlayback.doubts(self.results()), [])
+        # nor results made before the number was kept
+        self.assertEqual(FluidPlayback.doubts(self.results(Reynolds=0.0)), [])
+        self.assertEqual(FluidPlayback.doubts({"Steady": True, "Settled": True}), [])
+        # nor a turbulent one that is fast, its wall cells in the model's range
+        fast = self.results(Turbulence="KOmegaSST", Reynolds=1.0e5, WallUnits=(15.0, 124.0, 84.0))
+        self.assertEqual(FluidPlayback.doubts(fast), [])
+        # a run through time is not asked
+        self.assertEqual(FluidPlayback.doubts({"Steady": False, "Reynolds": 1.0e6}), [])
+
+    def test_a_fast_flow_taken_as_in_layers_says_so(self):
+        (found,) = FluidPlayback.doubts(self.results(Reynolds=100000.0))
+        self.assertIn("100000", found)
+        self.assertIn("turbulent", found)
+
+    def test_a_slow_flow_taken_as_turbulent_says_so(self):
+        slow = self.results(Turbulence="KOmegaSST", Reynolds=500.0, WallUnits=None)
+        (found,) = FluidPlayback.doubts(slow)
+        self.assertIn("500", found)
+        self.assertIn("laminar", found)
+
+    def test_wall_cells_too_fine_say_so_and_by_how_much(self):
+        fine = self.results(Turbulence="KOmegaSST", Reynolds=3.0e4, WallUnits=(7.0, 41.0, 27.0))
+        (found,) = FluidPlayback.doubts(fine)
+        self.assertIn("27", found)
+        self.assertIn("2.2 times", found)
+        # and too coarse
+        coarse = self.results(
+            Turbulence="KOmegaSST", Reynolds=1.0e6, WallUnits=(272.0, 1915.0, 1370.0)
+        )
+        (found,) = FluidPlayback.doubts(coarse)
+        self.assertIn("1370", found)
+        self.assertIn("2.7 times finer", found)
+        # a laminar flow has no wall model to be out of range
+        self.assertEqual(FluidPlayback.doubts(self.results(WallUnits=(1.0, 2.0, 1.5))), [])
+
+
+class TestColors(unittest.TestCase):
+    """A field's values as colours: blue the least, red the most."""
+
+    def test_the_ends_and_between(self):
+        import numpy
+
+        values = numpy.array([0.0, 50.0, 100.0, -20.0, 300.0], dtype=numpy.float32)
+        colors = FluidPlayback.colorsOf(values, 0.0, 100.0)
+        self.assertEqual(colors.shape, (5, 3))
+        self.assertEqual(colors.dtype, numpy.float32)
+        low, middle, high, under, over = colors
+        self.assertGreater(low[2], low[0])
+        self.assertGreater(high[0], high[2])
+        self.assertGreater(middle[1], max(middle[0], middle[2]))
+        # what is past an end has the end's colour
+        self.assertEqual(tuple(under), tuple(low))
+        self.assertEqual(tuple(over), tuple(high))
+        # all of one value: no range to spread over, and no fault
+        flat = FluidPlayback.colorsOf(values, 5.0, 5.0)
+        self.assertEqual(flat.shape, (5, 3))
+        self.assertTrue(numpy.isfinite(flat).all())
+
+    def test_the_range_of_a_field(self):
+        import numpy
+
+        values = numpy.array([3.0, -1.0, 7.5], dtype=numpy.float32)
+        self.assertEqual(FluidPlayback.rangeOf(values), (-1.0, 7.5))
+        self.assertEqual(FluidPlayback.rangeOf(values[:0]), (0.0, 0.0))
+
+    def test_what_went_through(self):
+        # 7.854e-6 m^3/s is 7.854 ml/s
+        self.assertEqual(FluidPlayback.flowText(7.854e-6), "7.854 ml/s")
+        self.assertEqual(FluidPlayback.flowText(2.5e-3), "2.5 l/s")
+        self.assertEqual(FluidPlayback.flowText(0.0), "0 ml/s")
+
+
+def flatCut():
+    """A cut across z, 4 x 2 mm on a grid of 1 mm: the flow along x, as
+    fast (m/s) as it is far along y (mm)."""
+    import numpy
+
+    grid = numpy.array([[i, j] for j in range(3) for i in range(5)], dtype=numpy.int32)
+    points = numpy.array([[i, j, 0.0] for i, j in grid], dtype=numpy.float32)
+    velocity = numpy.array([[float(j), 0.0, 0.0] for _i, j in grid], dtype=numpy.float32)
+    triangles = numpy.array([[0, 1, 6], [0, 6, 5]], dtype=numpy.int32)
+    outline = numpy.array([[0, 0, 0], [4, 0, 0], [4, 0, 0], [4, 2, 0]], dtype=numpy.float32)
+    pressure = numpy.arange(15, dtype=numpy.float32)
+    return FluidPlayback.Cut(
+        points, triangles, velocity, pressure, outline, grid, 1.0, (0, 0, 0), (0, 0, 1)
+    )
+
+
+class TestCuts(unittest.TestCase):
+    """A cut through the fluid: what is left of the faces, and the arrows."""
+
+    def test_the_faces_behind_a_plane(self):
+        import numpy
+
+        points = numpy.array(
+            [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 5], [1, 0, 5], [0, 1, 5]],
+            dtype=numpy.float32,
+        )
+        triangles = numpy.array([[0, 1, 2], [3, 4, 5], [0, 1, 3]], dtype=numpy.int32)
+        # across z at 2: the face under it stays, the one over it and the
+        # one through it go
+        kept = FluidPlayback.behind(points, triangles, (0, 0, 2), (0, 0, 1))
+        self.assertEqual(kept.tolist(), [[0, 1, 2]])
+        # seen from the other side: the other one
+        kept = FluidPlayback.behind(points, triangles, (0, 0, 2), (0, 0, -1))
+        self.assertEqual(kept.tolist(), [[3, 4, 5]])
+
+    def test_how_fast(self):
+        speed = FluidPlayback.speedOf([[3.0, 4.0, 0.0], [0.0, 0.0, 0.0]])
+        self.assertEqual(speed.tolist(), [5.0, 0.0])
+        self.assertEqual(flatCut().speed().tolist()[5:7], [1.0, 1.0])
+
+    def test_arrows_of_the_flow(self):
+        cut = flatCut()
+        # every second point each way: x 0, 2, 4 at y 0 and 2 -- and the
+        # fluid stands still at y 0, so three
+        points, lines = FluidPlayback.arrowsOf(cut, 2, 1.5)
+        self.assertEqual(len(lines), 3 * 7)
+        self.assertEqual(len(points), 3 * 4)
+        self.assertEqual(lines[:7].tolist(), [0, 3, -1, 6, 3, 9, -1])
+        # the fastest is as long as asked, along the flow
+        self.assertEqual(points[0].tolist(), [0.0, 2.0, 0.0])
+        self.assertEqual(points[3].tolist(), [1.5, 2.0, 0.0])
+        # its head: two strokes back from the tip, either side, in the plane
+        left, right = points[6], points[9]
+        self.assertAlmostEqual(float(left[0]), 1.05, places=5)
+        self.assertAlmostEqual(float(left[1] + right[1]), 4.0, places=5)
+        self.assertNotAlmostEqual(float(left[1]), 2.0, places=2)
+        self.assertEqual(float(left[2]), 0.0)
+        # every point: the ten that move
+        points, lines = FluidPlayback.arrowsOf(cut, 1, 1.0)
+        self.assertEqual(len(lines), 10 * 7)
+        # none of nothing, and none of no length
+        self.assertEqual(len(FluidPlayback.arrowsOf(cut, 1, 0.0)[1]), 0)
+        import numpy
+
+        still = flatCut()
+        still.velocity = numpy.zeros_like(still.velocity)
+        self.assertEqual(len(FluidPlayback.arrowsOf(still, 1, 1.0)[1]), 0)
+
+    def test_a_flow_straight_through_the_plane(self):
+        import numpy
+
+        cut = flatCut()
+        cut.velocity = numpy.array([[0.0, 0.0, 2.0]] * 15, dtype=numpy.float32)
+        points, lines = FluidPlayback.arrowsOf(cut, 4, 1.0)
+        self.assertEqual(len(lines), 2 * 7)
+        self.assertTrue(numpy.isfinite(points).all())
+        self.assertEqual(points[2].tolist(), [0.0, 0.0, 1.0])
+
+    def test_the_plane_across_a_box(self):
+        base, normal = FluidPlayback.cutPlane((0, -5, -5), (100, 5, 5), 0, 0.25)
+        self.assertEqual(tuple(base), (25.0, 0.0, 0.0))
+        self.assertEqual(tuple(normal), (1.0, 0.0, 0.0))
+        base, normal = FluidPlayback.cutPlane((0, -5, -5), (100, 5, 5), 2, 0.5)
+        self.assertEqual(tuple(base), (50.0, 0.0, 0.0))
+        self.assertEqual(tuple(normal), (0.0, 0.0, 1.0))
+        # never on the box's very end
+        base, _normal = FluidPlayback.cutPlane((0, -5, -5), (100, 5, 5), 0, 1.0)
+        self.assertLess(base[0], 100.0)
+        self.assertGreater(base[0], 99.0)
+
+
 class TestSetUp(FluidCase):
     def test_active_study(self):
         self.assertEqual(FluidPlayback.activeStudy(), self.study)
@@ -279,6 +468,49 @@ class TestFrameView(unittest.TestCase):
         self.assertTrue(view.show(points))
         self.assertEqual(view.switch.whichChild.getValue(), 0)
         view.remove()
+
+    def test_a_field_is_coloured_by_its_values(self):
+        import numpy
+
+        view = FluidPlayback.FrameView(self.parent)
+        points = numpy.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=numpy.float32)
+        triangles = numpy.array([[0, 1, 2], [0, 2, 3]], dtype=numpy.int32)
+        values = numpy.array([0.0, 10.0, 20.0, 5.0], dtype=numpy.float32)
+        self.assertTrue(view.showField(points, triangles, values, 0.0, 20.0))
+        self.assertEqual(view.switch.whichChild.getValue(), view.FIELD)
+        self.assertEqual(view.field.coordIndex.getNum(), 8)
+        self.assertEqual(view.colors.diffuseColor.getNum(), 4)
+        want = FluidPlayback.colorsOf(values, 0.0, 20.0)
+        for got, expected in zip(view.colors.diffuseColor[2].getValue(), want[2]):
+            self.assertAlmostEqual(got, float(expected), places=5)
+        # the other shapes keep nothing, and a surface after it none of it
+        self.assertEqual(view.faces.coordIndex.getNum(), 0)
+        self.assertTrue(view.show(points, triangles))
+        self.assertEqual(view.switch.whichChild.getValue(), view.SURFACE)
+        self.assertEqual(view.field.coordIndex.getNum(), 0)
+        view.remove()
+
+    def test_a_cut_is_drawn_with_its_outline_and_arrows(self):
+        view = FluidPlayback.CutView(self.parent)
+        cut = flatCut()
+        arrows = FluidPlayback.arrowsOf(cut, 2, 1.5)
+        self.assertTrue(view.show(cut, cut.speed(), 0.0, 2.0, arrows))
+        self.assertEqual(view.count(), 15)
+        self.assertEqual(view.faces.coordIndex.getNum(), 8)
+        self.assertEqual(view.colors.diffuseColor.getNum(), 15)
+        want = FluidPlayback.colorsOf(cut.speed(), 0.0, 2.0)
+        for got, expected in zip(view.colors.diffuseColor[12].getValue(), want[12]):
+            self.assertAlmostEqual(got, float(expected), places=5)
+        # the outline: two pieces of two ends
+        self.assertEqual(view.edgeCoords.point.getNum(), 4)
+        self.assertEqual([view.edges.numVertices[k] for k in range(2)], [2, 2])
+        self.assertEqual(view.arrowCount(), 3)
+        # drawn again without arrows: none are left
+        self.assertTrue(view.show(cut, cut.pressure, 0.0, 14.0))
+        self.assertEqual(view.arrowCount(), 0)
+        self.assertEqual(view.count(), 15)
+        view.remove()
+        self.assertEqual(view.count(), 0)
 
     def test_body(self):
         import numpy

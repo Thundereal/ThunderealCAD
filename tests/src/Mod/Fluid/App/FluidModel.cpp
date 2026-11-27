@@ -3,6 +3,7 @@
 // The fluid workbench's solver-neutral model, its registry, the backend of
 // test data and the results' archive (docs/FluidSimulation.md secs 11, 12).
 
+#include <numbers>
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -103,11 +104,12 @@ struct Kept: public FrameSink
 class NamedBackend: public Backend
 {
 public:
-    NamedBackend(std::string n, bool test, bool here, int tag = 0)
+    NamedBackend(std::string n, bool test, bool here, int tag = 0, bool steady = false)
         : n(std::move(n))
         , test(test)
         , here(here)
         , tag(tag)
+        , steady(steady)
     {}
     std::string name() const override
     {
@@ -121,6 +123,7 @@ public:
     {
         Capabilities can;
         can.testData = test;
+        can.steady = steady;
         return can;
     }
     Availability availability() const override
@@ -137,6 +140,7 @@ private:
     bool test;
     bool here;
     int tag;
+    bool steady;
 };
 
 }  // namespace
@@ -268,6 +272,29 @@ TEST(FluidModel, inletsAndForces)
     none.surface.triangles.clear();
     EXPECT_FALSE(faceOf(none, area, middle, slant));
 
+    // as wide as a round face of its area; the Reynolds number by that
+    const double width = std::sqrt(4.0 * 0.0016 / std::numbers::pi);
+    EXPECT_NEAR(widthOf(model, 0), width, 1e-12);
+    Model water = model;
+    water.inlets[0].material = {1000.0, 1.0e-3};
+    EXPECT_NEAR(reynolds(water, 0), 1000.0 * 2.0 * width / 1.0e-3, 1e-6);
+    EXPECT_GT(reynolds(water, 0), 90000.0);
+    // of a steady flow the inlet is its part of the fluid's space: the face
+    // picked may be wider than the opening
+    Model steady = water;
+    steady.analysis = Analysis::Steady;
+    steady.domain = faceSurface(0.0, -0.01, 0.01, -0.01, 0.01);
+    steady.domain.patches.assign(steady.domain.triangles.size(), 1);
+    EXPECT_NEAR(widthOf(steady, 0), width / 2.0, 1e-12);
+    EXPECT_NEAR(reynolds(steady, 0), reynolds(water, 0) / 2.0, 1e-6);
+    // no such inlet, no face, no viscosity
+    EXPECT_EQ(widthOf(model, 1), 0.0);
+    EXPECT_EQ(reynolds(model, 1), 0.0);
+    water.inlets[0].material.viscosity = 0.0;
+    EXPECT_EQ(reynolds(water, 0), 0.0);
+    water.inlets[0] = none;
+    EXPECT_EQ(widthOf(water, 0), 0.0);
+
     // the liquid is the first volume's, or with none the first inlet's
     Material liquid;
     model.inlets[0].material = {800.0, 0.05};
@@ -321,6 +348,9 @@ TEST(FluidModel, aSteadyFlowsParts)
     other.iterations = 100;
     EXPECT_NE(first, signature(other));
     other = steady;
+    other.turbulence = Turbulence::KOmegaSST;
+    EXPECT_NE(first, signature(other));
+    other = steady;
     other.outlets.push_back({"Outlet", {}, 0.0});
     const auto withOutlet = signature(other);
     EXPECT_NE(first, withOutlet);
@@ -336,6 +366,7 @@ TEST(FluidModel, aSteadyFlowsParts)
     // and none of it tells in a free surface's
     other = model;
     other.iterations = 100;
+    other.turbulence = Turbulence::KOmegaSST;
     other.outlets.push_back({"Outlet", {}, 0.0});
     EXPECT_EQ(base, signature(other));
 
@@ -376,6 +407,14 @@ TEST(FluidRegistry, addFindRemoveSelect)
     EXPECT_EQ(registry.select("T-nobody"), nullptr);
     // unnamed: the first that is no test data and can run here
     EXPECT_EQ(registry.select(""), registry.find("T-here"));
+    // unnamed, for a steady flow: the first of them that runs one
+    EXPECT_EQ(registry.select("", Analysis::Steady), nullptr);
+    registry.add(std::make_unique<NamedBackend>("T-steady", false, true, 3, true));
+    EXPECT_EQ(registry.select("", Analysis::Steady), registry.find("T-steady"));
+    EXPECT_EQ(registry.select(""), registry.find("T-here"));
+    // by name it is that one still, and says itself what it cannot
+    EXPECT_EQ(registry.select("T-here", Analysis::Steady), registry.find("T-here"));
+    EXPECT_TRUE(registry.remove("T-steady"));
     EXPECT_TRUE(registry.remove("T-here"));
     EXPECT_FALSE(registry.remove("T-here"));
     EXPECT_EQ(registry.select(""), nullptr);
@@ -630,6 +669,87 @@ TEST(FluidArchive, framesReadBackOneAtATime)
         EXPECT_TRUE(reader.frame(0).bodies.empty());
         // nor of an energy it was told none of: results made before it was kept
         EXPECT_TRUE(reader.index().energy.empty());
+    }
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST(FluidArchive, aFieldOnFacesAndTheOpenings)
+{
+    const std::string path = Base::FileInfo::getTempFileName("FluidArchive");
+    Fluid::ResultsIndex index;
+    index.backend = "OpenFOAM";
+    index.kind = ResultKind::Fields;
+    index.steady = true;
+    index.settled = true;
+    index.openings = {{"Doc#Inlet", false}, {"Doc#Outlet", true}};
+    index.turbulence = "KOmegaSST";
+    index.reynolds = 30000.0;
+    {
+        Fluid::ArchiveWriter writer(path);
+        for (int k = 0; k < 2; ++k) {
+            Frame frame;
+            frame.time = 50.0 * k;
+            frame.points = {{0.0, 0.0, 0.0}, {0.001, 0.0, 0.0}, {0.0, 0.001, 0.0}};
+            frame.triangles.push_back({0, 1, 2});
+            frame.values = {100.0 * k, 50.0 * k, 0.25};
+            frame.openings = {{160.0 * k, 7.5e-6 * k}, {0.0, 7.5e-6 * k}};
+            if (k == 1) {
+                // the fluid inside, of the last frame only
+                frame.centres = {{0.001, 0.002, 0.003}, {0.004, 0.005, 0.006}};
+                frame.velocities = {{0.1, 0.0, 0.0}, {0.2, -0.1, 0.05}};
+                frame.pressures = {12.5, 3.0};
+                frame.wallUnits = {12.0, 79.0, 53.0};
+            }
+            writer.frame(frame);
+        }
+        writer.close(index);
+    }
+    {
+        const Fluid::ArchiveReader reader(path);
+        const auto& read = reader.index();
+        EXPECT_EQ(read.kind, ResultKind::Fields);
+        EXPECT_TRUE(read.steady);
+        EXPECT_TRUE(read.settled);
+        ASSERT_EQ(read.openings.size(), 2U);
+        EXPECT_EQ(read.openings[0].source, "Doc#Inlet");
+        EXPECT_FALSE(read.openings[0].outlet);
+        EXPECT_TRUE(read.openings[1].outlet);
+        // frames x openings x the mean pressure, Pa, and the flow, m^3/s
+        ASSERT_EQ(read.flows.size(), 8U);
+        EXPECT_NEAR(read.flows[4], 160.0, 1e-12);
+        EXPECT_NEAR(read.flows[5], 7.5e-6, 1e-18);
+        EXPECT_NEAR(read.flows[6], 0.0, 1e-12);
+        const auto frame = reader.frame(1);
+        ASSERT_EQ(frame.triangles.size(), 3U);
+        ASSERT_EQ(frame.values.size(), 3U);
+        EXPECT_FLOAT_EQ(frame.values[0], 100.0F);
+        EXPECT_FLOAT_EQ(frame.values[2], 0.25F);
+        // a cell a row: its centre in mm, its velocity, its pressure
+        EXPECT_EQ(read.inside, (std::vector<std::size_t> {1}));
+        EXPECT_EQ(frame.inside,
+                  (std::vector<float> {1.0F, 2.0F, 3.0F, 0.1F, 0.0F, 0.0F, 12.5F,
+                                       4.0F, 5.0F, 6.0F, 0.2F, -0.1F, 0.05F, 3.0F}));
+        EXPECT_TRUE(reader.frame(0).inside.empty());
+        // how the eddies were had, and what says whether to believe it
+        EXPECT_EQ(read.turbulence, "KOmegaSST");
+        EXPECT_EQ(read.reynolds, 30000.0);
+        EXPECT_EQ(read.wallUnits, (std::array<double, 3> {12.0, 79.0, 53.0}));
+    }
+    Base::FileInfo(path).deleteFile();
+    // results of a free surface say nothing of it
+    {
+        Fluid::ArchiveWriter writer(path);
+        Frame frame;
+        frame.points.push_back({0.0, 0.0, 0.0});
+        writer.frame(frame);
+        writer.close({});
+    }
+    {
+        const Fluid::ArchiveReader reader(path);
+        EXPECT_FALSE(reader.index().steady);
+        EXPECT_TRUE(reader.index().openings.empty());
+        EXPECT_TRUE(reader.frame(0).values.empty());
+        EXPECT_TRUE(reader.index().inside.empty());
     }
     Base::FileInfo(path).deleteFile();
 }

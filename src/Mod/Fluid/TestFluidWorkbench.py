@@ -9,7 +9,11 @@ from FluidTests.TestStudy import (
     TestResults,
 )
 from FluidTests.TestDownload import TestDownload
-from FluidTests.TestOpenFoam import TestOpenFoamDamBreak, TestOpenFoamStillWater
+from FluidTests.TestOpenFoam import (
+    TestOpenFoamDamBreak,
+    TestOpenFoamPipe,
+    TestOpenFoamStillWater,
+)
 from FluidTests.TestSplish import (
     TestSplishDamBreak,
     TestSplishFloating,
@@ -19,7 +23,9 @@ from FluidTests.TestSplish import (
     TestSplishStillWater,
 )
 from FluidTests.TestPlayback import (
+    TestColors,
     TestDoubts,
+    TestSteadyDoubts,
     TestFrames,
     TestMovedParts,
     TestSetUp,
@@ -47,3 +53,6 @@ True if TestInlets else False
 True if TestSplishJet else False
 True if TestSteady else False
 True if TestSplishMechanism else False
+True if TestOpenFoamPipe else False
+True if TestColors else False
+True if TestSteadyDoubts else False

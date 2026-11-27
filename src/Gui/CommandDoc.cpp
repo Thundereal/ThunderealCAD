@@ -1759,7 +1759,7 @@ void StdCmdRefresh::activated(int iMsg)
         // Made by a worker while the window stays free, where the user
         // asked for it (docs/WorkerProcess.md sec 19)
         if (auto doc = getActiveGuiDocument()->getDocument()) {
-            if (Gui::recomputeByWorkers(*doc))
+            if (Gui::recomputeByWorkers(*doc, true))
                 return;
         }
         App::AutoTransaction trans(App::DocumentParams::getTransactionOnRecompute() ? "Recompute" : nullptr);

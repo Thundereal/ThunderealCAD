@@ -58,13 +58,17 @@ std::vector<std::string> Registry::names() const
     return names;
 }
 
-Backend* Registry::select(std::string_view name) const
+Backend* Registry::select(std::string_view name, Analysis analysis) const
 {
     if (!name.empty()) {
         return find(name);
     }
     for (const auto& held : backends) {
-        if (!held->capabilities().testData && held->availability().available) {
+        const Capabilities can = held->capabilities();
+        if (analysis == Analysis::Steady && !can.steady) {
+            continue;
+        }
+        if (!can.testData && held->availability().available) {
             return held.get();
         }
     }

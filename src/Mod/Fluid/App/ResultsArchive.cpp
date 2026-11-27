@@ -194,6 +194,7 @@ struct ArchiveWriter::Private
     std::size_t bodies = 0;  // a frame, as the first frame has them
     std::vector<double> flows;
     std::size_t openings = 0;  // a frame, as the first frame has them
+    std::vector<std::size_t> inside;  // the frames written with the fluid inside
     bool sampled = false;
 };
 
@@ -240,6 +241,27 @@ void ArchiveWriter::frame(const Solver::Frame& frame)
         const std::vector<float> values(frame.values.begin(), frame.values.end());
         d->zip->putNextEntry(frameName(at, "values"));
         writeNpy(*d->zip, "<f4", {values.size()}, values.data(), values.size() * sizeof(float));
+    }
+    if (!frame.centres.empty() && frame.velocities.size() == frame.centres.size()
+        && frame.pressures.size() == frame.centres.size()) {
+        std::vector<float> inside;
+        inside.reserve(frame.centres.size() * 7);
+        for (std::size_t c = 0; c < frame.centres.size(); ++c) {
+            for (double v : frame.centres[c]) {
+                inside.push_back(static_cast<float>(v * 1000.0));
+            }
+            for (double v : frame.velocities[c]) {
+                inside.push_back(static_cast<float>(v));
+            }
+            inside.push_back(static_cast<float>(frame.pressures[c]));
+        }
+        d->zip->putNextEntry(frameName(at, "inside"));
+        writeNpy(*d->zip,
+                 "<f4",
+                 {frame.centres.size(), 7},
+                 inside.data(),
+                 inside.size() * sizeof(float));
+        d->inside.push_back(at);
     }
     if (at == 0) {
         d->bodies = frame.bodies.size();
@@ -344,6 +366,10 @@ void ArchiveWriter::close(ResultsIndex index)
         out["openings"] = openings;
     }
 
+    if (!d->inside.empty()) {
+        out["inside"] = d->inside;
+    }
+
     d->zip->setLevel(6);
     d->zip->putNextEntry("times.npy");
     writeNpy(*d->zip, "<f8", {frames}, d->times.data(), frames * sizeof(double));
@@ -424,6 +450,7 @@ ArchiveReader::ArchiveReader(const std::string& path)
                                            : Solver::ResultKind::Particles;
         d->index.signature = std::stoull(index.value("signature", std::string("0")));
         d->index.spacing = index.value("spacing", 0.0);
+        d->index.inside = index.value("inside", std::vector<std::size_t>());
         for (const auto& monitor : index.at("monitors")) {
             d->index.monitors.push_back(
                 {monitor.value("source", std::string()),
@@ -546,6 +573,12 @@ ArchivedFrame ArchiveReader::frame(std::size_t at) const
             std::unique_ptr<std::istream> vin(d->zip->getInputStream(frameName(at, "values")));
             if (vin) {
                 frame.values = readNpy<float>(*vin, "<f4", shape);
+            }
+            if (std::ranges::find(d->index.inside, at) != d->index.inside.end()) {
+                std::unique_ptr<std::istream> in7(d->zip->getInputStream(frameName(at, "inside")));
+                if (in7) {
+                    frame.inside = readNpy<float>(*in7, "<f4", shape);
+                }
             }
         }
     }

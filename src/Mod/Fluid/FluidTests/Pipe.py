@@ -132,6 +132,78 @@ class Pipe:
         points, triangles, values = frames.field(0)
         self.assertEqual(float(abs(values).max()), 0.0)
 
+    def test_the_flow_inside_is_poiseuilles(self):
+        import numpy
+
+        self.assertEqual(self.study.run(), 0, self.study.Status)
+        results = self.study.getResults()
+        frames = FluidPlayback.Frames(self.study)
+        last = len(frames) - 1
+        # the fluid inside is kept of the flow as it settled, and no other
+        self.assertEqual(results["Inside"], [last])
+        self.assertEqual(frames.inside, [last])
+        self.assertEqual(self.study.getInside(0)["Count"], 0)
+        points, velocity, pressure = frames.insideOf(last)
+        self.assertGreater(len(points), 10000)
+        self.assertEqual(len(velocity), len(points))
+        self.assertEqual(len(pressure), len(points))
+        radius = (points[:, 1] ** 2 + points[:, 2] ** 2) ** 0.5
+        self.assertLess(float(radius.max()), RADIUS)
+        self.assertGreater(float(points[:, 0].min()), 0.0)
+        self.assertLess(float(points[:, 0].max()), LENGTH)
+
+        # past where it has taken its shape the flow is along the pipe, a
+        # parabola across it: twice the mean speed on the axis and none at
+        # the wall. The mean is of the flow there was
+        mean = results["Openings"][1]["Flow"][-1] / (math.pi * (RADIUS * 1e-3) ** 2)
+        shaped = (points[:, 0] > 40.0) & (points[:, 0] < 90.0)
+        closed = 2.0 * mean * (1.0 - (radius[shaped] / RADIUS) ** 2)
+        along = velocity[shaped][:, 0]
+        self.assertLess(float(abs(along - closed).max()), 0.03 * 2.0 * mean)
+        self.assertLess(float(abs(velocity[shaped][:, 1:]).max()), 0.01 * mean)
+        # and the pressure is one across the pipe, falling along it
+        before, after = (monitor["Values"][-1] for monitor in results["Monitors"])
+        for x, monitor in ((40.0, before), (90.0, after)):
+            ring = pressure[abs(points[:, 0] - x) < 0.3]
+            self.assertGreater(len(ring), 50)
+            self.assertAlmostEqual(float(ring.mean()) / monitor, 1.0, delta=0.02)
+            self.assertLess(float(ring.max() - ring.min()), 0.02 * before)
+
+        # a cut across the pipe, half way: a disc of the pipe's bore
+        cut = frames.section(last, App.Vector(60, 0, 0), App.Vector(1, 0, 0))
+        self.assertGreater(len(cut), 1000)
+        # half the solver's cell, which is a twentieth of the bore
+        self.assertAlmostEqual(cut.step, 2.0 * RADIUS / 40.0, places=6)
+        self.assertLess(float(abs(cut.points[:, 0] - 60.0).max()), 1e-4)
+        across = (cut.points[:, 1] ** 2 + cut.points[:, 2] ** 2) ** 0.5
+        self.assertLess(float(across.max()), RADIUS + 0.05)
+        self.assertGreater(float(across.max()), RADIUS - cut.step)
+        area = len(cut.triangles) * cut.step**2 / 2.0
+        self.assertAlmostEqual(area / (math.pi * RADIUS**2), 1.0, delta=0.08)
+        # the speed on it: the parabola again, as near as values between
+        # the cells' centres come to it
+        speed = cut.speed()
+        centre = int(numpy.argmin(across))
+        self.assertAlmostEqual(float(speed[centre]) / (2.0 * mean), 1.0, delta=0.03)
+        inner = across < RADIUS - 1.0
+        closed = 2.0 * mean * (1.0 - (across[inner] / RADIUS) ** 2)
+        self.assertLess(float(abs(speed[inner] - closed).max()), 0.06 * 2.0 * mean)
+        self.assertLess(float(cut.pressure.max() - cut.pressure.min()), 0.02 * before)
+        # the outline is the bore's round
+        ring = (cut.outline[:, 1] ** 2 + cut.outline[:, 2] ** 2) ** 0.5
+        self.assertGreater(len(ring), 20)
+        self.assertLess(float(abs(ring - RADIUS).max()), 0.05)
+
+        # a cut along the pipe: all its length, and the flow in the plane
+        cut = frames.section(last, App.Vector(0, 0, 0), App.Vector(0, 0, 1))
+        self.assertGreater(float(cut.points[:, 0].max() - cut.points[:, 0].min()), LENGTH - 1.0)
+        self.assertLess(float(abs(cut.points[:, 2]).max()), 1e-4)
+        points, lines = FluidPlayback.arrowsOf(cut, 4, 2.0)
+        self.assertGreater(len(lines), 7 * 100)
+        # a plane past the pipe finds nothing, and a frame with none kept
+        self.assertEqual(len(frames.section(last, App.Vector(0, 0, 9), App.Vector(0, 0, 1))), 0)
+        self.assertEqual(len(frames.section(0, App.Vector(60, 0, 0), App.Vector(1, 0, 0))), 0)
+
     def test_the_results_are_kept_with_the_document(self):
         self.study.Iterations = 40
         # no solver named: the first that runs a steady flow
@@ -141,6 +213,8 @@ class Pipe:
         self.assertEqual(results["Backend"], self.BACKEND)
         self.assertEqual(results["Times"][-1], 40.0)
         self.assertFalse(results["Settled"])
+        self.count = self.study.getInside(results["Frames"] - 1)["Count"]
+        self.assertGreater(self.count, 10000)
         import os
         import tempfile
 
@@ -156,3 +230,8 @@ class Pipe:
         frames = FluidPlayback.Frames(study)
         points, _triangles, values = frames.field(len(frames) - 1)
         self.assertEqual(len(values), len(points))
+        # the fluid inside with them, though the flow had not settled
+        last = len(frames) - 1
+        self.assertEqual(again["Inside"], [last])
+        self.assertEqual(study.getInside(last)["Count"], self.count)
+        self.assertGreater(len(frames.section(last, App.Vector(60, 0, 0), App.Vector(1, 0, 0))), 0)

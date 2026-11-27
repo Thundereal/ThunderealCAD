@@ -4,8 +4,10 @@
 #include <App/Document.h>
 #include <App/DocumentObjectPy.h>
 #include <Base/PlacementPy.h>
+#include <Base/VectorPy.h>
 
 #include "ParticleSurface.h"
+#include "Section.h"
 #include "Solver/Model.h"
 
 // inclusion of the generated files (generated out of Study.pyi)
@@ -283,6 +285,11 @@ PyObject* StudyPy::getResults(PyObject* args) const
         ret.setItem("Bodies", bodies);
         ret.setItem("Steady", Py::Boolean(index.steady));
         ret.setItem("Settled", Py::Boolean(index.settled));
+        Py::List inside;
+        for (std::size_t frame : index.inside) {
+            inside.append(Py::Long(static_cast<long>(frame)));
+        }
+        ret.setItem("Inside", inside);
         if (!index.openings.empty()) {
             Py::List openings;
             const std::size_t count = index.openings.size();
@@ -374,6 +381,116 @@ PyObject* StudyPy::getFrame(PyObject* args) const
                             reinterpret_cast<const char*>(frame.values.data()),
                             static_cast<Py_ssize_t>(frame.values.size() * sizeof(float)))));
         }
+        return Py::new_reference_to(ret);
+    }
+    PY_CATCH
+}
+
+namespace
+{
+Py::Object bytesOf(const std::vector<float>& values)
+{
+    return Py::asObject(
+        PyBytes_FromStringAndSize(reinterpret_cast<const char*>(values.data()),
+                                  static_cast<Py_ssize_t>(values.size() * sizeof(float))));
+}
+}  // namespace
+
+PyObject* StudyPy::getInside(PyObject* args) const
+{
+    long at = 0;
+    if (!PyArg_ParseTuple(args, "l", &at)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        const auto* results = getStudyPtr()->results();
+        if (!results) {
+            THROWM(Base::RuntimeError, "the study keeps no results");
+        }
+        if (at < 0) {
+            THROWM(Base::IndexError, "a frame's index is not negative");
+        }
+        const auto frame = results->frame(static_cast<std::size_t>(at));
+        const std::size_t count = frame.inside.size() / 7;
+        std::vector<float> points;
+        std::vector<float> velocity;
+        std::vector<float> pressure;
+        points.reserve(count * 3);
+        velocity.reserve(count * 3);
+        pressure.reserve(count);
+        for (std::size_t c = 0; c < count; ++c) {
+            const float* row = frame.inside.data() + c * 7;
+            points.insert(points.end(), row, row + 3);
+            velocity.insert(velocity.end(), row + 3, row + 6);
+            pressure.push_back(row[6]);
+        }
+        Py::Dict ret;
+        ret.setItem("Count", Py::Long(static_cast<long>(count)));
+        ret.setItem("Points", bytesOf(points));
+        ret.setItem("Velocity", bytesOf(velocity));
+        ret.setItem("Pressure", bytesOf(pressure));
+        return Py::new_reference_to(ret);
+    }
+    PY_CATCH
+}
+
+PyObject* StudyPy::getSection(PyObject* args) const
+{
+    long at = 0;
+    PyObject* base = nullptr;
+    PyObject* normal = nullptr;
+    double step = 0.0;
+    if (!PyArg_ParseTuple(args,
+                          "lO!O!|d",
+                          &at,
+                          &Base::VectorPy::Type,
+                          &base,
+                          &Base::VectorPy::Type,
+                          &normal,
+                          &step)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        const auto* results = getStudyPtr()->results();
+        if (!results) {
+            THROWM(Base::RuntimeError, "the study keeps no results");
+        }
+        if (at < 0) {
+            THROWM(Base::IndexError, "a frame's index is not negative");
+        }
+        // results kept without the resolution: the study's own, as it is now
+        double cell = results->index().spacing;
+        if (!(cell > 0.0)) {
+            cell = getStudyPtr()->buildModel().resolution * 1000.0;
+        }
+        if (!(step > 0.0)) {
+            step = cell / 2.0;
+        }
+        const Base::Vector3d b = static_cast<Base::VectorPy*>(base)->value();
+        const Base::Vector3d n = static_cast<Base::VectorPy*>(normal)->value();
+        const auto section = Fluid::cut(results->frame(static_cast<std::size_t>(at)),
+                                        {b.x, b.y, b.z},
+                                        {n.x, n.y, n.z},
+                                        step,
+                                        cell);
+        Py::Dict ret;
+        ret.setItem("Count", Py::Long(static_cast<long>(section.pressures.size())));
+        ret.setItem("Points", bytesOf(section.points));
+        ret.setItem("Triangles",
+                    Py::asObject(PyBytes_FromStringAndSize(
+                        reinterpret_cast<const char*>(section.triangles.data()),
+                        static_cast<Py_ssize_t>(section.triangles.size()
+                                                * sizeof(std::int32_t)))));
+        ret.setItem("Velocity", bytesOf(section.velocities));
+        ret.setItem("Pressure", bytesOf(section.pressures));
+        ret.setItem("Outline", bytesOf(section.outline));
+        ret.setItem("Grid",
+                    Py::asObject(PyBytes_FromStringAndSize(
+                        reinterpret_cast<const char*>(section.grid.data()),
+                        static_cast<Py_ssize_t>(section.grid.size() * sizeof(std::int32_t)))));
+        ret.setItem("Step", Py::Float(step));
         return Py::new_reference_to(ret);
     }
     PY_CATCH

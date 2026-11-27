@@ -2007,9 +2007,71 @@ solver); `TestColors`, `TestSteadyDoubts`,
 `TestFrameView.test_a_field_is_coloured_by_its_values`.
 
 Open, the rest of F1: turbulence (k-omega SST) and its pipe against
-Haaland; the velocity, on a cut plane and at the openings -- the profile
-across the pipe is not checked; the lid-driven cavity and the
+Haaland; the velocity (built since, sec 14.5); the lid-driven cavity and the
 backward-facing step; meshing by the second route (sec 5.4); residuals
 shown as the run goes; an inlet by flow rate or pressure; the force on a
 part; lids the study finds itself; a warning when the Reynolds number
 says the flow is not laminar -- nothing tells the user now.
+
+### 14.5 F1 as built, step 3: the flow inside, and a cut through it (2026-11-27)
+
+The velocity is kept and shown: the fluid inside at every cell of the
+solver's, and a flat cut through it drawn in the colours of its speed or
+its pressure, with arrows.
+
+- **What is written back**: a `sets` function object of type
+  `cellCentre`, once, when the solver ends (`writeControl onEnd`): a row a
+  cell, its centre, p and U, each cell's own value. It is one file under
+  MPI too. `OpenFoam::readInside` reads it; the backend hands it over
+  with the run's last frame only (`Frame::centres`, `velocities`,
+  `pressures`). Of every frame it would be 16 bytes a cell a frame, 320
+  MB for a tube at 40 cells across that runs its 2000 steps; and a
+  steady flow's frames on the way are no flow that ever was.
+- **Kept** as `frames/N.inside.npy`, (cells, 7) float32: the centre in
+  mm, the velocity in m/s, the pressure in Pa. The index lists the frames
+  that have it (`inside`). `getResults()["Inside"]`, `getInside(i)`.
+- **The cut** (`App/Section.cpp`, `Fluid::cut`; `getSection(i, base,
+  normal, step)`): where the plane passes through the frame's own faces
+  is the cut's outline, a piece a triangle; a grid on the plane, half a
+  cell apart, is inside the fluid between an odd crossing of the outline
+  along its row and the next. The value at a grid point is of the cells
+  whose centres are within a cell of it, the nearer the more (Shepard's
+  weights, ((R - d) / (R d))^2); with none so near, the nearest about.
+  The squares with four corners inside are the cut's triangles. It works
+  on nothing of OpenFOAM's: the centres, and faces that close the fluid
+  in.
+- **Drawn** (`FluidPlayback.CutView`): the triangles unlit in the ramp's
+  colours, the outline, and arrows (`arrowsOf`) at every few grid points,
+  the fastest as long as the arrows are apart, some thirty along the
+  cut's longer side. The faces on the viewer's side of the plane are left
+  out (`behind`, whole triangles, in numpy: no clip plane, which not every
+  renderer has) and the rest drawn plain. The panel has "Cut through the
+  fluid": across X, Y or Z, how far along the fluid's box, speed or
+  pressure, arrows or not; the scale is of all the fluid inside, so it
+  stays as the cut moves. At a frame without the inside it says so and
+  draws the faces' pressure as before.
+
+Measured, the tube of sec 14.4 at the study's own 0.5 mm (61000 cells,
+104 steps): between 40 and 90 mm along, the velocity along the pipe at
+every cell against the parabola 2 U (1 - r^2 / R^2), U the mean speed of
+the flow there was: furthest off by 0.46% of the speed on the axis, 0.19%
+in the mean; on the axis 0.19993 m/s against 0.20016. A cut across at 60
+mm, 1245 points: within 4 mm of the axis furthest off by 5.3%, 2.2% in
+the mean. That is the blending between cells, not the solver: the cells
+have it to half a percent. A value fitted to the cells about a point,
+not blended from them, would do better and is open.
+
+Tests: `OpenFoamCase.theFluidInsideReadBack` and the `inside` lines in
+`filesOfASteadyFlow`; `FluidArchive.aFieldOnFacesAndTheOpenings` (the
+inside of the last frame only); `FluidSection.aCutAcrossABox`,
+`aSlantedCutAndOnesThatFindNothing`;
+`Pipe.test_the_flow_inside_is_poiseuilles` (the cells to 3%, the cut to
+6%, its area, its outline) and the inside kept with the document;
+`TestCuts`, `TestFrameView.test_a_cut_is_drawn_with_its_outline_and_arrows`.
+The panel's controls have no test of their own: the manual's script
+drives them (`fluid/study/flow-inside/video.py`).
+
+Open: the cut's edge is a stair of half cells inside the outline; a
+fitted value at a point; lines of the flow (streamlines); the speed at an
+opening's face; a cut of any slant from the panel (the script takes any
+plane); the inside of the frames on the way.

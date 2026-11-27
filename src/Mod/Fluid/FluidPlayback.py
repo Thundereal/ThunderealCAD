@@ -42,6 +42,8 @@ class Frames:
         # for; and its openings
         self.steady = bool(results.get("Steady")) if self.valid else False
         self.openings = results.get("Openings", []) if self.valid else []
+        # the frames that have the fluid inside kept, to cut through
+        self.inside = list(results.get("Inside", [])) if self.valid else []
         # the parts the fluid moved; None for one that is gone
         self.bodies = [body["Object"] for body in results["Bodies"]] if self.valid else []
 
@@ -91,6 +93,41 @@ class Frames:
         triangles = numpy.frombuffer(frame["Triangles"], dtype=numpy.int32).reshape(-1, 3)
         values = numpy.frombuffer(frame.get("Values", b""), dtype=numpy.float32)
         return points, triangles, values
+
+    def insideOf(self, index):
+        """The fluid inside at a frame that has it kept: each cell's centre,
+        (n, 3) float32, mm, its velocity there, (n, 3), m/s, and its
+        pressure, (n,), Pa. Of a frame without, none of each."""
+        import numpy
+
+        inside = self.study.getInside(index)
+        points = numpy.frombuffer(inside["Points"], dtype=numpy.float32).reshape(-1, 3)
+        velocity = numpy.frombuffer(inside["Velocity"], dtype=numpy.float32).reshape(-1, 3)
+        pressure = numpy.frombuffer(inside["Pressure"], dtype=numpy.float32)
+        return points, velocity, pressure
+
+    def section(self, index, base, normal, step=0.0):
+        """A flat cut through the fluid inside at a frame, by the plane
+        through 'base' (mm) across 'normal': a Cut, with no points where
+        the plane misses the fluid or the frame has none kept."""
+        import numpy
+
+        cut = self.study.getSection(index, base, normal, step)
+
+        def floats(name, width):
+            return numpy.frombuffer(cut[name], dtype=numpy.float32).reshape(-1, width)
+
+        return Cut(
+            floats("Points", 3),
+            numpy.frombuffer(cut["Triangles"], dtype=numpy.int32).reshape(-1, 3),
+            floats("Velocity", 3),
+            numpy.frombuffer(cut["Pressure"], dtype=numpy.float32),
+            floats("Outline", 3),
+            numpy.frombuffer(cut["Grid"], dtype=numpy.int32).reshape(-1, 2),
+            cut["Step"],
+            tuple(base),
+            tuple(normal),
+        )
 
     def surface(self, index):
         """The frame as a closed surface to draw: its points, triangles,
@@ -143,6 +180,50 @@ class Frames:
             value = monitor["Values"][sample] if sample >= 0 else float("nan")
             rows.append((label, monitor["Kind"], value, monitor["Unit"]))
         return rows
+
+
+class Cut:
+    """A flat cut through the fluid: a grid of points on the plane, those
+    inside the fluid, (n, 3) mm; the triangles between them, (m, 3); the
+    velocity, (n, 3) m/s, and the pressure, (n,) Pa, at each; the outline,
+    (2k, 3) mm, two ends a piece of where the plane cuts the faces; where
+    on the grid each point is, (n, 2); the grid's step, mm; and the plane,
+    a point of it and what it lies across."""
+
+    def __init__(self, points, triangles, velocity, pressure, outline, grid, step, base, across):
+        self.base = base
+        self.across = across
+        self.points = points
+        self.triangles = triangles
+        self.velocity = velocity
+        self.pressure = pressure
+        self.outline = outline
+        self.grid = grid
+        self.step = step
+
+    def __len__(self):
+        return len(self.points)
+
+    def speed(self):
+        """How fast the fluid goes at each point, (n,) m/s."""
+        return speedOf(self.velocity)
+
+    def normal(self):
+        """What the plane lies across, of length one."""
+        import numpy
+
+        across = numpy.array(self.across, dtype=numpy.float64)
+        return across / numpy.sqrt((across**2).sum())
+
+    def axis(self):
+        """A direction in the plane, of length one."""
+        import numpy
+
+        normal = self.normal()
+        other = numpy.zeros(3)
+        other[int(numpy.argmin(abs(normal)))] = 1.0
+        axis = numpy.cross(normal, other)
+        return axis / numpy.sqrt((axis**2).sum())
 
 
 class MovedParts:
@@ -471,6 +552,120 @@ class FrameView:
         self.coords = None
 
 
+class CutView:
+    """A cut through the fluid in the scene: its triangles in the colours
+    of a value at their corners, its outline, and arrows of the flow. Under
+    the node given, or the active 3D view's scene graph."""
+
+    INK = (0.05, 0.05, 0.05)
+
+    def __init__(self, parent=None):
+        self.parent = parent
+        self.root = None
+        self.coords = None
+        self.colors = None
+        self.faces = None
+        self.edgeCoords = None
+        self.edges = None
+        self.arrowCoords = None
+        self.arrows = None
+
+    def _build(self):
+        from pivy import coin
+
+        if self.parent is None:
+            import FreeCADGui as Gui
+
+            view = Gui.ActiveDocument.ActiveView if Gui.ActiveDocument else None
+            if view is None or not hasattr(view, "getSceneGraph"):
+                return False
+            self.parent = view.getSceneGraph()
+        self.root = coin.SoSeparator()
+        # the values are read off the colours: no light changes them, and
+        # the lines over the faces are not to fight them for the depth
+        light = coin.SoLightModel()
+        light.model = coin.SoLightModel.BASE_COLOR
+        faces = coin.SoSeparator()
+        offset = coin.SoPolygonOffset()
+        hints = coin.SoShapeHints()
+        hints.vertexOrdering = coin.SoShapeHints.COUNTERCLOCKWISE
+        hints.shapeType = coin.SoShapeHints.UNKNOWN_SHAPE_TYPE
+        self.coords = coin.SoCoordinate3()
+        self.colors = coin.SoMaterial()
+        binding = coin.SoMaterialBinding()
+        binding.value = coin.SoMaterialBinding.PER_VERTEX_INDEXED
+        self.faces = coin.SoIndexedFaceSet()
+        for node in (offset, hints, self.coords, self.colors, binding, self.faces):
+            faces.addChild(node)
+        lines = coin.SoSeparator()
+        ink = coin.SoMaterial()
+        ink.diffuseColor = self.INK
+        style = coin.SoDrawStyle()
+        style.lineWidth = 1.5
+        self.edgeCoords = coin.SoCoordinate3()
+        self.edges = coin.SoLineSet()
+        self.arrowCoords = coin.SoCoordinate3()
+        self.arrows = coin.SoIndexedLineSet()
+        for node in (ink, style, self.edgeCoords, self.edges, self.arrowCoords, self.arrows):
+            lines.addChild(node)
+        for node in (light, faces, lines):
+            self.root.addChild(node)
+        self.parent.addChild(self.root)
+        return True
+
+    def show(self, cut, values, low, high, arrows=None):
+        """Draws the cut in the colours of the values at its points (n,),
+        'low' the ramp's first colour and 'high' its last, and the arrows
+        given as arrowsOf() makes them; what was drawn before is replaced.
+        False without a view."""
+        import numpy
+
+        if self.root is None and not self._build():
+            return False
+        points = numpy.ascontiguousarray(cut.points, dtype=numpy.float32).reshape(-1, 3)
+        colors = colorsOf(values, low, high)
+        self.coords.point.setNum(len(points))
+        self.colors.diffuseColor.setNum(len(colors))
+        if len(points):
+            self.coords.point.setValues(0, len(points), points)
+            self.colors.diffuseColor.setValues(0, len(colors), colors)
+        index = numpy.full((len(cut.triangles), 4), -1, dtype=numpy.int32)
+        index[:, :3] = cut.triangles
+        index = index.reshape(-1)
+        self.faces.coordIndex.setNum(len(index))
+        if len(index):
+            self.faces.coordIndex.setValues(0, len(index), index)
+        outline = numpy.ascontiguousarray(cut.outline, dtype=numpy.float32).reshape(-1, 3)
+        self.edgeCoords.point.setNum(len(outline))
+        self.edges.numVertices.setNum(len(outline) // 2)
+        if len(outline):
+            self.edgeCoords.point.setValues(0, len(outline), outline)
+            self.edges.numVertices.setValues(
+                0, len(outline) // 2, numpy.full(len(outline) // 2, 2, dtype=numpy.int32)
+            )
+        tips, strokes = arrows if arrows is not None else arrowsOf(cut, 1, 0.0)
+        self.arrowCoords.point.setNum(len(tips))
+        self.arrows.coordIndex.setNum(len(strokes))
+        if len(strokes):
+            self.arrowCoords.point.setValues(0, len(tips), tips)
+            self.arrows.coordIndex.setValues(0, len(strokes), strokes)
+        return True
+
+    def count(self):
+        return self.coords.point.getNum() if self.coords is not None else 0
+
+    def arrowCount(self):
+        """How many arrows are drawn: each is seven places of its lines."""
+        return self.arrows.coordIndex.getNum() // 7 if self.arrows is not None else 0
+
+    def remove(self):
+        if self.root is not None and self.parent is not None:
+            self.parent.removeChild(self.root)
+        self.root = None
+        self.coords = None
+        self.arrows = None
+
+
 # From the least to the most: Google's Turbo, a rainbow whose brightness
 # goes evenly, at eleven places of it.
 RAMP = (
@@ -508,6 +703,87 @@ def rangeOf(values):
     if len(values) == 0:
         return 0.0, 0.0
     return float(values.min()), float(values.max())
+
+
+def speedOf(velocity):
+    """The lengths of the velocities (n, 3): (n,)."""
+    import numpy
+
+    velocity = numpy.asarray(velocity, dtype=numpy.float64).reshape(-1, 3)
+    return numpy.sqrt((velocity**2).sum(axis=1))
+
+
+def behind(points, triangles, base, normal):
+    """The triangles (m, 3) with no corner of the points (n, 3) past the
+    plane through 'base' on the side its 'normal' points to: what is left
+    of the faces when the fluid is cut open there."""
+    import numpy
+
+    points = numpy.asarray(points, dtype=numpy.float64).reshape(-1, 3)
+    triangles = numpy.asarray(triangles, dtype=numpy.int32).reshape(-1, 3)
+    off = (points - numpy.array(tuple(base))) @ numpy.array(tuple(normal))
+    return triangles[(off[triangles] <= 1e-6).all(axis=1)]
+
+
+def arrowsOf(cut, every, fastest):
+    """Arrows of the cut's velocities at every 'every'th point of its grid
+    each way, the fastest 'fastest' long, mm: their points (k, 3) float32
+    and, for a set of lines, the places of each line's points with -1
+    after it. An arrow is its shaft and a head of two strokes; where the
+    fluid stands still there is none."""
+    import numpy
+
+    none = numpy.zeros((0, 3), dtype=numpy.float32), numpy.zeros(0, dtype=numpy.int32)
+    if len(cut) == 0:
+        return none
+    speed = cut.speed()
+    most = float(speed.max())
+    every = max(int(every), 1)
+    taken = ((cut.grid % every) == 0).all(axis=1) & (speed > 1e-3 * most)
+    if most <= 0.0 or not fastest > 0.0 or not taken.any():
+        return none
+    start = cut.points[taken].astype(numpy.float64)
+    shaft = cut.velocity[taken].astype(numpy.float64) * (fastest / most)
+    tip = start + shaft
+    # the head's strokes lie across the shaft: in the plane where the flow
+    # is in it, and for a flow straight through the plane, along the grid
+    lengths = numpy.sqrt((shaft**2).sum(axis=1))[:, None]
+    along = shaft / lengths
+    side = numpy.cross(along, cut.normal())
+    flat = numpy.sqrt((side**2).sum(axis=1)) < 0.2
+    side[flat] = numpy.cross(along[flat], cut.axis())
+    side /= numpy.sqrt((side**2).sum(axis=1))[:, None]
+    back = tip - 0.3 * shaft
+    left = back + 0.12 * lengths * side
+    right = back - 0.12 * lengths * side
+    count = len(start)
+    points = numpy.concatenate([start, tip, left, right]).astype(numpy.float32)
+    at = numpy.arange(count, dtype=numpy.int32)
+    lines = numpy.stack(
+        [
+            at,
+            at + count,
+            numpy.full(count, -1, dtype=numpy.int32),
+            at + 2 * count,
+            at + count,
+            at + 3 * count,
+            numpy.full(count, -1, dtype=numpy.int32),
+        ],
+        axis=1,
+    ).reshape(-1)
+    return points, lines
+
+
+def cutPlane(low, high, axis, share):
+    """The plane across an axis (0 x, 1 y, 2 z) of the box from 'low' to
+    'high', a 'share' of the way along it from 0 to 1: its base and what it
+    lies across. Kept off the box's very ends, where it would cut nothing."""
+    share = min(max(share, 0.002), 0.998)
+    base = [(low[k] + high[k]) / 2.0 for k in range(3)]
+    base[axis] = low[axis] + share * (high[axis] - low[axis])
+    normal = [0.0, 0.0, 0.0]
+    normal[axis] = 1.0
+    return App.Vector(*base), App.Vector(*normal)
 
 
 def flowText(flow):

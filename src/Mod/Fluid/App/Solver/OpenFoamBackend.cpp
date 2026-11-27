@@ -566,8 +566,31 @@ private:
                 opening.flow = k < model.inlets.size() ? -valueAt("Q") : valueAt("Q");
                 frame.openings.push_back(opening);
             }
+            if (finished && i + 1 == ready) {
+                takeInside(frame);
+            }
             sink.frame(frame);
             emitted.insert(times[i].second.filename().string());
+        }
+    }
+
+    // The fluid inside as the solver left it, for the run's last frame: the
+    // function object writes it once, at the end, under the step it ended at.
+    void takeInside(Frame& frame) const
+    {
+        std::error_code ec;
+        for (const auto& entry : fs::directory_iterator(folder / "postProcessing" / "inside", ec)) {
+            Frame inside;
+            if (!OpenFoam::readInside(readFile(entry.path() / "cells_p_U.xy"), inside)) {
+                continue;
+            }
+            frame.centres = std::move(inside.centres);
+            frame.velocities = std::move(inside.velocities);
+            frame.pressures = std::move(inside.pressures);
+            for (double& pressure : frame.pressures) {
+                pressure *= liquid.density;
+            }
+            return;
         }
     }
 

@@ -663,6 +663,12 @@ TEST(FluidArchive, aFieldOnFacesAndTheOpenings)
             frame.triangles.push_back({0, 1, 2});
             frame.values = {100.0 * k, 50.0 * k, 0.25};
             frame.openings = {{160.0 * k, 7.5e-6 * k}, {0.0, 7.5e-6 * k}};
+            if (k == 1) {
+                // the fluid inside, of the last frame only
+                frame.centres = {{0.001, 0.002, 0.003}, {0.004, 0.005, 0.006}};
+                frame.velocities = {{0.1, 0.0, 0.0}, {0.2, -0.1, 0.05}};
+                frame.pressures = {12.5, 3.0};
+            }
             writer.frame(frame);
         }
         writer.close(index);
@@ -687,6 +693,12 @@ TEST(FluidArchive, aFieldOnFacesAndTheOpenings)
         ASSERT_EQ(frame.values.size(), 3U);
         EXPECT_FLOAT_EQ(frame.values[0], 100.0F);
         EXPECT_FLOAT_EQ(frame.values[2], 0.25F);
+        // a cell a row: its centre in mm, its velocity, its pressure
+        EXPECT_EQ(read.inside, (std::vector<std::size_t> {1}));
+        EXPECT_EQ(frame.inside,
+                  (std::vector<float> {1.0F, 2.0F, 3.0F, 0.1F, 0.0F, 0.0F, 12.5F,
+                                       4.0F, 5.0F, 6.0F, 0.2F, -0.1F, 0.05F, 3.0F}));
+        EXPECT_TRUE(reader.frame(0).inside.empty());
     }
     Base::FileInfo(path).deleteFile();
     // results of a free surface say nothing of it
@@ -702,6 +714,7 @@ TEST(FluidArchive, aFieldOnFacesAndTheOpenings)
         EXPECT_FALSE(reader.index().steady);
         EXPECT_TRUE(reader.index().openings.empty());
         EXPECT_TRUE(reader.frame(0).values.empty());
+        EXPECT_TRUE(reader.index().inside.empty());
     }
     Base::FileInfo(path).deleteFile();
 }

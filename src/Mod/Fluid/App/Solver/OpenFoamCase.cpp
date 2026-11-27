@@ -388,6 +388,12 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
                 << each << "        fields (p);\n        probeLocations (" << probes
                 << " );\n    }\n";
     }
+    // The fluid inside, each cell's own value at its centre, once: of the
+    // flow as it is left
+    control << "    inside\n    {\n        type sets;\n        libs (sampling);\n"
+               "        writeControl onEnd;\n        setFormat raw;\n"
+               "        interpolationScheme cell;\n        fields (p U);\n"
+               "        sets { cells { type cellCentre; } }\n    }\n";
     control << "}\n";
     files["system/controlDict"] = dictionary("controlDict", control.str());
     files["system/fvSchemes"] = dictionary("fvSchemes", steadySchemes);
@@ -781,6 +787,28 @@ bool Fluid::Solver::OpenFoam::readFieldVtk(const std::string& text,
     // a number cut short reads as a shorter number: the file is whole only
     // when its last line is
     return !text.empty() && text.back() == '\n';
+}
+
+bool Fluid::Solver::OpenFoam::readInside(const std::string& text, Frame& frame)
+{
+    frame.centres.clear();
+    frame.velocities.clear();
+    frame.pressures.clear();
+    if (text.empty() || text.back() != '\n') {
+        return false;
+    }
+    for (const auto& row : readTable(text)) {
+        if (row.size() != 7) {
+            frame.centres.clear();
+            frame.velocities.clear();
+            frame.pressures.clear();
+            return false;
+        }
+        frame.centres.push_back({row[0], row[1], row[2]});
+        frame.pressures.push_back(row[3]);
+        frame.velocities.push_back({row[4], row[5], row[6]});
+    }
+    return !frame.centres.empty();
 }
 
 std::vector<std::vector<double>> Fluid::Solver::OpenFoam::readTable(const std::string& text)

@@ -102,7 +102,8 @@ class Study(DocumentObject):
         given were up; and it has Openings, each inlet then each outlet:
         Object, Source, Kind ('Inlet', 'Outlet') and, one per frame,
         Pressure (the mean over the face, Pa) and Flow (m^3/s, in through
-        an inlet and out through an outlet).
+        an inlet and out through an outlet); and Inside, the frames that
+        have the fluid inside kept (getInside(), getSection()).
         """
         ...
 
@@ -116,6 +117,34 @@ class Study(DocumentObject):
         (bytes: float32, the pressure at each point, Pa); and Bodies,
         where the parts the fluid moved are, in the results' order: each a
         Placement, the motion from where the part stood at the start.
+        """
+        ...
+
+    @constmethod
+    def getInside(self, index: int, /) -> dict:
+        """
+        The fluid inside at a kept frame, of the frames that have it (the
+        results' Inside lists them; of a steady flow its last): Count (of
+        the solver's cells), Points (bytes: float32 x, y, z each, mm, each
+        cell's centre), Velocity (bytes: float32 x, y, z each, m/s) and
+        Pressure (bytes: float32, Pa). Count is 0 for a frame without.
+        """
+        ...
+
+    @constmethod
+    def getSection(self, index: int, base: Any, normal: Any, step: float = 0.0, /) -> dict:
+        """
+        A flat cut through the fluid inside at a kept frame, by the plane
+        through base (mm) across normal: Count (of points), Points (bytes:
+        float32 x, y, z each, mm: a grid on the plane, those inside the
+        fluid), Triangles (bytes: int32, three per triangle), Velocity
+        (bytes: float32 x, y, z each, m/s), Pressure (bytes: float32, Pa),
+        Outline (bytes: float32, six a piece: the two ends, mm, of where the
+        plane cuts a face the fluid touches), Grid (bytes: int32, two a
+        point: how many steps along the plane's two axes it is) and Step
+        (mm, between the grid's points: as given, or half the run's
+        resolution). Count is 0
+        where the plane misses the fluid or the frame has none kept.
         """
         ...
 

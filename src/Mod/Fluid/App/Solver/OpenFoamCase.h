@@ -85,6 +85,13 @@ FluidExport bool readSurfaceVtk(const std::string& text, Frame& frame);
 // no such field of one number a point, or is cut short.
 FluidExport bool readFieldVtk(const std::string& text, const std::string& field, Frame& frame);
 
+// The fluid inside as a steady case's 'inside' function object wrote it
+// (postProcessing/inside/<step>/cells_p_U.xy): a row a cell, its centre,
+// its pressure as the solver has it and its velocity. They fill the
+// frame's centres, pressures and velocities. False when a row is not seven
+// numbers, there is none, or the text is cut short.
+FluidExport bool readInside(const std::string& text, Frame& frame);
+
 // The name of a steady case's patch for an opening: the model's inlets
 // first, then its outlets.
 FluidExport std::string openingName(const Model& model, std::size_t opening);

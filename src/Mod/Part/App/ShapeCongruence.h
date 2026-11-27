@@ -93,6 +93,10 @@ public:
         bool lengthKnown = false;
         bool areaKnown = false;
         bool volumeKnown = false;
+        /// What integrating the area or the volume crosses (integrationSpans()),
+        /// which is what either costs
+        std::size_t spans = 0;
+        bool spansKnown = false;
     };
 
     /** Look for a shape congruent to \a shape among those added.
@@ -150,8 +154,22 @@ public:
         std::size_t lengths = 0;
         std::size_t areas = 0;
         std::size_t volumes = 0;
+        /// Shapes not integrated, so written unshared: too costly to
+        /// integrate at all, or the save's budget for it spent (affordable())
+        std::size_t refused = 0;
     };
     static Work work();
+
+    /** What integrating \a shape's area or volume crosses: per face, the knot
+     * spans of its surface and of its boundary's curves.
+     *
+     * The Gauss integration of BRepGProp takes its points per span, so this is
+     * what it costs, read off the geometry without integrating: about 2-3 ms a
+     * span here. A fillet of pipe.FCStd -- a surface of 5001 knots, degree 14,
+     * 65390 poles -- crosses some 15000, and took 50 s for its area and as
+     * much again for its volume; a box crosses a few dozen.
+     */
+    static std::size_t integrationSpans(const TopoDS_Shape& shape);
 
 private:
 
@@ -175,6 +193,21 @@ private:
     static double areaOf(const TopoDS_Shape& shape, Invariants& cache);
     static double volumeOf(const TopoDS_Shape& shape, Invariants& cache);
 
+    /** Whether \a shape's invariants may still be integrated in this save
+     *
+     * Not when its integration alone crosses more than DedupCongruentSpans
+     * spans (one integration cannot be stopped once started), nor once this
+     * save has spent DedupCongruentSeconds on integrating: a search whose gain
+     * is some bytes must not make a save -- or the snapshot a document's open
+     * takes, which is one -- cost minutes (smoke corpus 2026-11-27, B4). A
+     * shape refused for the budget is integrated by a later save: what a save
+     * does integrate is kept with the shape, so the budget moves on.
+     */
+    bool affordable(const TopoDS_Shape& shape, Invariants& cache) const;
+
+    std::size_t _spanLimit = 2000;
+    double _secondsLimit = 10.;
+
     /** What a save spent here, reported when the index is dropped.
      *
      * This costs a document's save real time -- 17s of it on the assembly of
@@ -189,6 +222,7 @@ private:
         std::size_t candidates = 0;
         std::size_t motions = 0;
         std::size_t matches = 0;
+        std::size_t refused = 0;
         double keySeconds = 0.;
         double invariantSeconds = 0.;
         double motionSeconds = 0.;

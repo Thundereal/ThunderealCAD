@@ -24,6 +24,10 @@
 
 #ifndef _PreComp_
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <Geom_BSplineSurface.hxx>
+#include <TopExp_Explorer.hxx>
 #include <BRepTools.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
@@ -42,8 +46,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #endif
 
+#include <App/Application.h>
 #include <Base/Console.h>
 
 #include "ShapeCongruence.h"
@@ -497,6 +503,78 @@ double CongruenceIndex::volumeOf(const TopoDS_Shape& shape, Invariants& cache)
     return cache.volume;
 }
 
+namespace
+{
+/// The knot spans of a curve, 1 for one that has none
+std::size_t curveSpans(const Adaptor3d_Curve& curve)
+{
+    if (curve.GetType() == GeomAbs_BSplineCurve) {
+        const occ::handle<Geom_BSplineCurve> spline = curve.BSpline();
+        return spline.IsNull() ? 1 : std::max(1, spline->NbKnots() - 1);
+    }
+    return 1;
+}
+
+/// The knot spans of a surface, U by V: a swept or offset surface takes its
+/// basis's
+std::size_t surfaceSpans(const Adaptor3d_Surface& surface, int depth = 0)
+{
+    switch (surface.GetType()) {
+        case GeomAbs_BSplineSurface: {
+            const occ::handle<Geom_BSplineSurface> spline = surface.BSpline();
+            if (spline.IsNull())
+                return 1;
+            return static_cast<std::size_t>(std::max(1, spline->NbUKnots() - 1))
+                * static_cast<std::size_t>(std::max(1, spline->NbVKnots() - 1));
+        }
+        case GeomAbs_SurfaceOfExtrusion:
+        case GeomAbs_SurfaceOfRevolution:
+            return curveSpans(*surface.BasisCurve());
+        case GeomAbs_OffsetSurface:
+            return depth < 4 ? surfaceSpans(*surface.BasisSurface(), depth + 1) : 1;
+        default:
+            return 1;
+    }
+}
+}  // namespace
+
+std::size_t CongruenceIndex::integrationSpans(const TopoDS_Shape& shape)
+{
+    std::size_t spans = 0;
+    try {
+        for (TopExp_Explorer faces(shape, TopAbs_FACE); faces.More(); faces.Next()) {
+            const TopoDS_Face& face = TopoDS::Face(faces.Current());
+            spans += surfaceSpans(BRepAdaptor_Surface(face, false));
+            for (TopExp_Explorer edges(face, TopAbs_EDGE); edges.More(); edges.Next()) {
+                const TopoDS_Edge& edge = TopoDS::Edge(edges.Current());
+                if (!BRep_Tool::Degenerated(edge) && BRep_Tool::IsGeometric(edge))
+                    spans += curveSpans(BRepAdaptor_Curve(edge));
+            }
+        }
+    }
+    catch (const Standard_Failure&) {
+        // what cannot be looked at is not integrated either
+        return std::numeric_limits<std::size_t>::max();
+    }
+    return spans;
+}
+
+bool CongruenceIndex::affordable(const TopoDS_Shape& shape, Invariants& cache) const
+{
+    if (cache.areaKnown && cache.volumeKnown)
+        return true;
+    if (!cache.spansKnown) {
+        cache.spans = integrationSpans(shape);
+        cache.spansKnown = true;
+    }
+    const double spent = theCost.lengthSeconds + theCost.areaSeconds + theCost.volumeSeconds;
+    if (cache.spans <= _spanLimit && spent <= _secondsLimit)
+        return true;
+    ++_cost.refused;
+    ++theWork.refused;
+    return false;
+}
+
 std::size_t CongruenceIndex::keyOf(const TopoDS_Shape& shape, Invariants* cache) const
 {
     if (cache && cache->keyKnown)
@@ -558,6 +636,14 @@ bool CongruenceIndex::find(const TopoDS_Shape& shape, Match& match, Invariants* 
         const double lengthScale = std::max(std::abs(ownLength), std::abs(theirLength));
         if (std::abs(ownLength - theirLength) > 1e-7 * std::max(lengthScale, 1.))
             continue;
+        // Area and volume are integrated -- the cost of this, which a shape
+        // too costly to integrate, or a save over its budget, does not pay:
+        // it is written unshared. Its own refusal ends the search; a
+        // candidate's moves on to the next.
+        if (!affordable(shape, own))
+            return false;
+        if (!affordable(entry.shape, *entry.invariants))
+            continue;
         const double ownArea = areaOf(shape, own);
         const double theirArea = areaOf(entry.shape, *entry.invariants);
         const double areaScale = std::max(std::abs(ownArea), std::abs(theirArea));
@@ -610,7 +696,9 @@ void CongruenceIndex::report() const
            << theCost.lengthSeconds << "s), " << theCost.computed << " areas ("
            << theCost.areaSeconds << "s) and " << theCost.volumes << " volumes ("
            << theCost.volumeSeconds << "s), motions "
-           << _cost.motionSeconds << "s");
+           << _cost.motionSeconds << "s; " << _cost.refused
+           << " not integrated (over " << _spanLimit << " spans, or over "
+           << _secondsLimit << "s)");
     theCost = GPropCost();
 }
 
@@ -636,6 +724,12 @@ CongruenceIndex* CongruenceIndex::forSave(std::uint64_t generation)
     if (built != generation) {
         built = generation;
         index.clear();
+        // Asked each save, so that a measurement can move them
+        auto group = App::GetApplication().GetParameterGroupByPath(
+            "User parameter:BaseApp/Preferences/Document");
+        index._spanLimit =
+            static_cast<std::size_t>(std::max(0L, group->GetInt("DedupCongruentSpans", 2000)));
+        index._secondsLimit = group->GetFloat("DedupCongruentSeconds", 10.);
     }
     return &index;
 }

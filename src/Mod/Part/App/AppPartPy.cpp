@@ -851,8 +851,9 @@ public:
         add_varargs_method("congruenceWork", &Module::congruenceWork,
             "congruenceWork() -> dict\n"
             "What the congruence search of saves (DedupCongruentShapes) has computed in\n"
-            "this process, never reset: keys, lengths, areas and volumes. A save of\n"
-            "shapes that were saved before computes none of them.\n"
+            "this process, never reset: keys, lengths, areas and volumes, and the\n"
+            "shapes refused (too costly to integrate, or the save's budget spent).\n"
+            "A save of shapes that were saved before computes none of them.\n"
         );
         add_varargs_method("saveAnalysisWork", &Module::saveAnalysisWork,
             "saveAnalysisWork() -> dict\n"
@@ -3187,6 +3188,7 @@ private:
         dict.setItem("lengths", Py::Long(static_cast<long>(work.lengths)));
         dict.setItem("areas", Py::Long(static_cast<long>(work.areas)));
         dict.setItem("volumes", Py::Long(static_cast<long>(work.volumes)));
+        dict.setItem("refused", Py::Long(static_cast<long>(work.refused)));
         return dict;
     }
 

@@ -57,6 +57,7 @@ against the tree before the change: see the commit message.
 import ctypes
 import os
 import re
+import sys
 import time
 import traceback
 
@@ -253,6 +254,12 @@ def finish():
 
 def build():
     try:
+        if not sys.platform.startswith("linux"):
+            # registered on Linux only (tests/gui/CMakeLists.txt): no other
+            # loader takes LD_PRELOAD, so a run elsewhere says why it claims nothing
+            note("SKIP: needs the LD_PRELOAD clock shim, Linux only")
+            finish()
+            return
         shim = ctypes.CDLL(os.environ["FC_CLOCK_SHIM"])
         shim.fc_clock_schedule.argtypes = [ctypes.c_double, ctypes.c_double, ctypes.c_double,
                                            ctypes.c_int]

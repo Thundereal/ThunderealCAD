@@ -24,6 +24,7 @@ Scored against the tree before the fix: see the commit message.
 """
 import ctypes
 import os
+import sys
 import time
 import traceback
 
@@ -190,6 +191,12 @@ def hover(stepped=False):
 
 def run():
     try:
+        if not sys.platform.startswith("linux"):
+            # registered on Linux only (tests/gui/CMakeLists.txt): no other
+            # loader takes LD_PRELOAD, so a run elsewhere says why it claims nothing
+            note("SKIP: needs the LD_PRELOAD clock shim, Linux only")
+            finish()
+            return
         path = os.environ.get("FC_CLOCK_SHIM", "")
         if not path or path not in os.environ.get("LD_PRELOAD", ""):
             note("ABORT: the clock shim is not preloaded (FC_CLOCK_SHIM / LD_PRELOAD)")

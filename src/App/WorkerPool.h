@@ -286,6 +286,16 @@ public:
     /// Whether it has a copy standing and workers may run on it
     bool started() const;
     JobId submit(Job job);
+    /** How many jobs submitted now would run side by side: the workers
+     * that are not busy and not leaving, less the jobs queued for them,
+     * and one more where grow() would start it for them -- under the
+     * pool's limit, every worker having made a job and the memory left
+     * fitting one more (docs/WorkerProcess.md sec 79).  With no worker
+     * at all, 1: submit() starts one.  It is the state of the moment:
+     * ask it when the jobs are made, not before.  0 for a pool not
+     * started
+     */
+    int sideBySide() const;
     /// The result of `job`, one that `writes`, was not put in, or not all
     /// of it: the worker that made it holds a copy ahead of the document,
     /// and is let go

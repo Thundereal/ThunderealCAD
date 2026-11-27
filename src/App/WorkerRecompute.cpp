@@ -1877,6 +1877,29 @@ void apply(State& s)
             last = &p;
         }
     }
+    // Side by side, as it was split for (sec 79): parts that came in and
+    // ran one after another -- the worker counted on did not come up in
+    // time, and the first part's took the next -- are not a split
+    if (s.parts.size() > 1) {
+        std::vector<std::pair<double, double>> ran;
+        for (auto& p : s.parts) {
+            if (!p.file.empty()) {
+                ran.emplace_back(p.queued, p.queued + p.returned);
+            }
+        }
+        std::sort(ran.begin(), ran.end());
+        bool together = ran.size() < 2;  // a part dropped or failed: not known
+        double end = ran.empty() ? 0 : ran[0].second;
+        for (std::size_t k = 1; k < ran.size() && !together; ++k) {
+            together = ran[k].first < end;
+            end = std::max(end, ran[k].second);
+        }
+        if (!together && s.info.split > 0) {
+            --s.info.split;
+            FC_LOG(s.doc.getName() << ": a recompute split over " << s.parts.size()
+                                   << " workers ran one part after another: not counted");
+        }
+    }
     WorkerRecompute::Info::Times times;
     times.start = s.startSeconds;
     if (last) {
@@ -3008,14 +3031,20 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         return job;
     };
     // Parts where more workers save enough (secs 42, 44): one, the longest
-    // chain of what it reaches and all after it; the others, the rest
+    // chain of what it reaches and all after it; the others, the rest.  As
+    // many parts as can run side by side NOW, not as the pool's limit
+    // allows (sec 79): a part with no worker to run it waits for the
+    // first part's worker, the halves run one after the other, and the
+    // split is slower than the recompute whole
+    const int sideBySide = pool->sideBySide();
+    s.info.splitWorkers = sideBySide;
     const double least = GetApplication()
                              .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
                              ->GetFloat("SplitSeconds", 2.0);
     double saving = 0;
     std::set<DocumentObject*> joined;
     const std::vector<std::set<DocumentObject*>> parts =
-        splitParts(doc, all, pool->info().limit, least, saving, joined, s.risky);
+        splitParts(doc, all, sideBySide, least, saving, joined, s.risky);
     std::vector<std::string> names;
     std::vector<State::Part> made;
     if (parts.size() > 1) {

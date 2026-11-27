@@ -5307,3 +5307,75 @@ Tests, on the mini: `TestWorkerPool` 97 OK with the runtime
 pass with it; the new GUI test 9 of 9. The worker with the final build:
 footprint 124 MB, V8's heap 17.7 MiB. Not run here: the Windows code
 (the TLS callback and the test's Windows half).
+
+## 79. A split takes the workers that can run now (2026-11-28)
+
+The coordinator, choosing between three ways (A below; the reporter may
+overrule it): "a split must never be slower than the unsplit recompute,
+and grow()'s memory rule stays whole".
+
+**What went wrong.** `WorkerRecompute::start()` asked `splitParts()` for
+as many parts as the pool's LIMIT allowed (`info().limit`, 2 by
+default). Whether a second worker would really run the second part was
+another rule: `WorkerPool::Private::grow()` starts one only once every
+worker has made a job, so what one holds is known, and only while the
+memory left holds one more like the biggest (sec 42). When grow() would
+not start one -- no worker standing, so the one submit() starts has made
+nothing; another worker busy with another job; too little memory, as on
+an 8 GB box -- the first part went to the one worker, the second waited
+in the queue, and dispatch() handed it to the same worker when the first
+was done. The halves ran one after the other, slower than the recompute
+whole (two hand-overs and a merge), and `Split` still counted 1. It is
+what dwin's Windows run of `testARecomputeIsSplitOverTwoWorkers` saw
+(both halves `MadeBy` one pid), and the mini showed it with the standing
+worker stopped: one pid throughout, the second job queued 2 s, no grow.
+
+**Now.** `WorkerPool::sideBySide()` says how many jobs submitted now
+would run side by side, and the split is asked at that moment, not from
+a cached count. It counts:
+- the workers not busy and not leaving, less the jobs already queued for
+  them;
+- one more where grow() would start it. That test is grow()'s own: the
+  rule is now `Private::roomForAnother()` (limit, each worker has made a
+  job, the memory test), which grow() calls too. For a client taking
+  results as they come (`consuming()`), grow() waits until a client had
+  to wait, so in that state the extra worker is not counted.
+With no worker at all it is 1, the one submit() starts. `splitParts()` is
+handed that count in place of the limit, so with one worker that can run,
+the recompute is not split; it runs whole on that worker, as it would
+unsplit. `recomputeInfo()["SplitWorkers"]` is the count the last split
+was given, and `info()["SideBySide"]` is the live answer.
+
+**Split counts what ran side by side.** Counting only the workers that
+can run makes that true by construction, with one gap: a worker grow()
+starts for a part may come up later than the first part's worker is
+free. So `apply()` looks at the parts that came in, each one's time from
+being handed to a worker to its result being read (`Result::queued`,
+`returned`). If none overlaps another, the parts ran one after another:
+`Split` is taken back down and the log says so. A part that was dropped
+or failed has no times, and then nothing is taken back.
+
+**Tests** (TestWorkerPool):
+- `testASplitWithNoWorkerStandingIsNotSplit`: the pool stopped, then an
+  edit that would split. `SplitWorkers` 1, `Split` unchanged, one job,
+  both halves `MadeBy` one worker. Before the change it split by the
+  limit: both halves made by the one new worker, one after the other,
+  and `Split` counted 1.
+- `testASplitTakesOnlyTheWorkersFreeNow`: two workers split as before
+  (`SplitWorkers` 2, two pids). Then one of them is busy with a 6 s
+  `test.sleep`, `SideBySide` is 1, and the next edit runs whole on the
+  free one while the other is still busy. Before the change it split,
+  the second half waiting for the first half's worker.
+- `testARecomputeIsSplitOverThreeWorkers` now reads as the pool grows:
+  with one worker standing the first split has two parts (the pool grows
+  to two), the next three (it grows to three), and the third is the one
+  timed. Before, the first had three parts with two workers, one part
+  waiting.
+
+**Not done: growing the pool for a split before any footprint is known**
+(B). It would split the first recompute too, starting a worker on an
+estimate -- the document's own process, or a setting -- with its boot
+seconds counted against the split's saving. grow()'s rule exists so that
+a worker that does not fit is not started on a small box, and the
+coordinator kept it. It is a measured follow-up, only if parallelism in
+the first recompute after the pool starts is asked for.

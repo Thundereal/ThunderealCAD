@@ -1770,6 +1770,62 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertLess(info["WorkerSeconds"], 2.0 + 1.0, info)
         self.assertLess(took, 2.0 + 1.5, info)
 
+    def testASplitWithNoWorkerStandingIsNotSplit(self):
+        """With no worker standing, a recompute that would save by a split
+        is not split: one worker can run now, and the split made by the
+        pool's limit ran its halves one after the other on that one -- the
+        second waiting for the first's worker, slower than whole, and
+        counted as a split (docs/WorkerProcess.md sec 79)"""
+        base, left, right, tails = self.splitChains()
+        split = self.pool.recomputeInfo()["Split"]
+        self.pool.stop("no worker standing")
+        base.Input = 2
+        info = self.byWorker()
+        self.assertEqual(info["SplitWorkers"], 1, info)
+        self.assertEqual(info["Split"], split, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertEqual((left.Result, right.Result), (8, 8))
+        self.assertEqual([t.Result for t in tails], [16, 16])
+        # one job, made by one worker, not here
+        self.assertEqual(left.MadeBy, right.MadeBy)
+        self.assertNotEqual(left.MadeBy, os.getpid())
+
+    def testASplitTakesOnlyTheWorkersFreeNow(self):
+        """Two workers, one of them busy with another job: the recompute
+        runs whole on the free one, not split into a half for each and
+        the second half left waiting for the busy worker or for the
+        first half's (docs/WorkerProcess.md sec 79).  The two of them
+        free, it splits as before"""
+        base, left, right, tails = self.splitChains()
+        base.Input = 2
+        info = self.byWorker()
+        self.assertEqual(info["Split"], 1, info)
+        self.assertEqual(info["SplitWorkers"], 2, info)
+        self.assertNotEqual(left.MadeBy, right.MadeBy)
+        split = info["Split"]
+        busy = self.pool.submit("test.sleep", {"Seconds": 6.0}, module=MODULE)
+        self.assertGreater(busy, 0, self.pool.info()["Reason"])
+        deadline = time.time() + 30
+        while self.pool.info()["Busy"] < 1 and time.time() < deadline:
+            self.pool.poll(20)
+        sleeping = time.time()
+        pool = self.pool.info()
+        self.assertEqual((pool["Workers"], pool["Busy"]), (2, 1), pool)
+        self.assertEqual(pool["SideBySide"], 1, pool)
+        base.Input = 3
+        info = self.byWorker()
+        self.assertEqual(info["SplitWorkers"], 1, info)
+        self.assertEqual(info["Split"], split, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertEqual((left.Result, right.Result), (12, 12))
+        self.assertEqual([t.Result for t in tails], [24, 24])
+        self.assertEqual(left.MadeBy, right.MadeBy)
+        self.assertNotEqual(left.MadeBy, os.getpid())
+        # made whole, in less than the 6 s the other worker was busy for:
+        # not waiting for it
+        self.assertLess(time.time() - sleeping, 6.0, info)
+        self.assertTrue(self.pool.wait(30), self.pool.info())
+
     def testAHalfAnEditDropsIsNotMadeHere(self):
         """An edit of Right while both halves are with their workers drops
         the second half's job: the first half is put in, and Right and its
@@ -1871,8 +1927,10 @@ class TestWorkerRecompute(unittest.TestCase):
     def testARecomputeIsSplitOverThreeWorkers(self):
         """Three branches of 2 s each under what all read, three workers
         allowed: three parts, each branch by a worker of its own, put in as
-        one recompute (docs/WorkerProcess.md sec 44). The first such
-        recompute grows the pool; the second is timed"""
+        one recompute (docs/WorkerProcess.md sec 44). A recompute is split
+        into as many parts as can run side by side (sec 79): with one
+        worker standing, two, the pool growing by one; then three, the
+        pool growing to three; the third is timed"""
         group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
         group.SetInt("Workers", 3)
         group.SetFloat("SplitSeconds", 1.0)
@@ -1891,17 +1949,23 @@ class TestWorkerRecompute(unittest.TestCase):
         base.Input = 2
         info = self.byWorker()
         self.assertEqual(info["Split"], 1, info)
-        self.assertEqual(len(info["SplitObjects"]), 3, info)
+        self.assertEqual(info["SplitWorkers"], 2, info)
+        self.assertEqual(len(info["SplitObjects"]), 2, info)
         base.Input = 3
+        info = self.byWorker()
+        self.assertEqual(info["Split"], 2, info)
+        self.assertEqual(info["SplitWorkers"], 3, info)
+        self.assertEqual(len(info["SplitObjects"]), 3, info)
+        base.Input = 4
         began = time.time()
         info = self.byWorker()
         took = time.time() - began
-        self.assertEqual(info["Split"], 2, info)
+        self.assertEqual(info["Split"], 3, info)
         self.assertEqual(len(info["SplitObjects"]), 3, info)
         self.assertGreaterEqual(info["SplitSaving"], 3.5, info)
         self.assertEqual(info["ExecutedHere"], 0, info)
         self.assertEqual(self.touched(), [])
-        self.assertEqual([b.Result for b in branches], [12, 12, 12])
+        self.assertEqual([b.Result for b in branches], [16, 16, 16])
         made = [b.MadeBy for b in branches]
         self.assertNotIn(os.getpid(), made)
         self.assertEqual(len(set(made)), 3, made)

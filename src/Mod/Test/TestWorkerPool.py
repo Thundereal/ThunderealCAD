@@ -150,8 +150,10 @@ def _param(doc, inputs, out):
 
 def _threadAltStack():
     """The size of the alternate signal stack a thread started now has, 0
-    for none (macOS's stack_t; SS_DISABLE is 4 there). On Windows the room
-    its stack keeps back for the handler, its stack guarantee"""
+    for none (stack_t as each system lays it out: macOS has ss_size before
+    ss_flags and SS_DISABLE 4, Linux ss_flags first and SS_DISABLE 2). On
+    Windows the room its stack keeps back for the handler, its stack
+    guarantee"""
     import ctypes
 
     if sys.platform == "win32":
@@ -168,8 +170,17 @@ def _threadAltStack():
         thread.join()
         return got[0]
 
-    class Stack(ctypes.Structure):
-        _fields_ = [("sp", ctypes.c_void_p), ("size", ctypes.c_size_t), ("flags", ctypes.c_int)]
+    if sys.platform.startswith("linux"):
+        disable = 2
+
+        class Stack(ctypes.Structure):
+            _fields_ = [("sp", ctypes.c_void_p), ("flags", ctypes.c_int), ("size", ctypes.c_size_t)]
+
+    else:
+        disable = 4
+
+        class Stack(ctypes.Structure):
+            _fields_ = [("sp", ctypes.c_void_p), ("size", ctypes.c_size_t), ("flags", ctypes.c_int)]
 
     libc = ctypes.CDLL(None)
     got = []
@@ -177,7 +188,7 @@ def _threadAltStack():
     def look():
         stack = Stack()
         libc.sigaltstack(None, ctypes.byref(stack))
-        got.append(0 if stack.flags & 4 else stack.size)
+        got.append(0 if stack.flags & disable else stack.size)
 
     thread = threading.Thread(target=look)
     thread.start()
@@ -473,14 +484,14 @@ class TestWorkerPool(unittest.TestCase):
             self.pool.poll(50)
         return condition()
 
-    @unittest.skipUnless(sys.platform in ("darwin", "win32"),
-                         "a thread is given the handler's stack on macOS and Windows only"
-                         " (secs 77, 78)")
+    @unittest.skipUnless(sys.platform in ("darwin", "win32") or sys.platform.startswith("linux"),
+                         "a thread is given the handler's stack on macOS, Linux and Windows"
+                         " only (secs 77, 78, 82)")
     def testAThreadAWorkerStartsHasTheCrashHandlersStack(self):
         """A thread a worker starts has a stack for the crash handler of its
         own -- on Windows, room kept back on its stack: one that runs out of
         stack is reported, not taken down again in the handler. A process
-        that is no worker gives none (docs/WorkerProcess.md secs 77, 78)"""
+        that is no worker gives none (docs/WorkerProcess.md secs 77, 78, 82)"""
         want = 64 * 1024 if sys.platform == "win32" else 256 * 1024
         if sys.platform == "win32":
             # what Windows keeps back of its own is not said to be none

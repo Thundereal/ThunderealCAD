@@ -5448,3 +5448,32 @@ behaviours are sec 77's code, unchanged:
 - The next edit is put in by a worker that is not the one let go.
 The code before has no hook, so there the test fails only because
 nothing throws. This is coverage of sec 77, not a fix.
+
+## 82. Linux threads have the handler's stack too (2026-11-28)
+
+Sec 77 gave each thread a worker starts its own alternate signal stack on
+macOS, by interposing `pthread_create()` through dyld's `__interpose`
+section. Sec 78 did the same for Windows with a TLS callback that keeps
+stack back. Linux was left out, and
+`testAThreadAWorkerStartsHasTheCrashHandlersStack` skipped there.
+
+**How.** ELF has no interpose section, but it does not need one. A call
+binds to the first definition in the process's global search order. That
+order is the executable, then what it links breadth-first, and libc comes
+after FreeCADApp, which `ThunderealCmd` and `Thundereal` link. So
+WorkerCrash.cpp defines `pthread_create` itself on Linux, exported, and
+every library's call reaches it: OCCT's thread pool, Qt's, Python's. It
+finds the system's with `dlsym(RTLD_NEXT, "pthread_create")`, once.
+Outside a worker, where `install()` never ran, it passes the call
+straight on. In a worker it starts the thread through the same `started()`
+as macOS: a 256 KiB stack is `mmap`ed, made the thread's with
+`sigaltstack()`, and dropped by a cleanup handler however the thread ends.
+
+The test reads the stack a new thread has through ctypes. Linux's
+`stack_t` has `ss_flags` before `ss_size` and `SS_DISABLE` 2, where macOS
+has them the other way round and 4, so `_threadAltStack()` lays the
+struct out for each.
+
+**Not proven here.** The mini is a mac: only the macOS build of the
+changed file and the macOS run of the test (OK) were done here. The Linux
+build and run are dell's, on the side branch.

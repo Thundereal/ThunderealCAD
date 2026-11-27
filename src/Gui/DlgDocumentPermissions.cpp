@@ -201,7 +201,11 @@ void DlgDocumentPermissions::refresh()
     for (const auto &req : rt.pendingRequests(docName)) {
         auto item = new QTreeWidgetItem(pendingTree);
         item->setText(0, permissionLabel(req.permission, std::string()));
-        item->setText(1, QString::fromStdString(req.target));
+        // the path as it was asked for; the stored form, which an answer
+        // must name, rides in RoleTarget and the tooltip
+        item->setText(1, QString::fromStdString(req.shown));
+        if (req.shown != req.target)
+            item->setToolTip(1, QString::fromStdString(req.target));
         item->setText(2, req.objectName.empty()
                 ? shortPrincipal(req.principal)
                 : QString::fromStdString(req.objectName));
@@ -218,7 +222,9 @@ void DlgDocumentPermissions::refresh()
                 Sec::Runtime::instance().activeGrants(principal)) {
             auto item = new QTreeWidgetItem(grantTree);
             item->setText(0, permissionLabel(g.permission, std::string()));
-            item->setText(1, QString::fromStdString(g.target));
+            item->setText(1, QString::fromStdString(g.shown));
+            if (g.shown != g.target)
+                item->setToolTip(1, QString::fromStdString(g.target));
             item->setText(2, g.allow ? tr("allow") : tr("deny"));
             item->setText(3, QString::fromStdString(g.scope));
             item->setData(0, RolePrincipal,

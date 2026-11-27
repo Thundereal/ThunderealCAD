@@ -3,6 +3,7 @@
 // A fluid model written as an OpenFOAM case, and what OpenFOAM writes read
 // back (docs/FluidSimulation.md sec 12, S2). Text only: no OpenFOAM is run.
 
+#include <numbers>
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -345,6 +346,10 @@ TEST(OpenFoamCase, filesOfASteadyFlow)
     EXPECT_TRUE(has(made.files["0/p"], "inlet0 { type zeroGradient; }"));
     EXPECT_TRUE(has(made.files["constant/transportProperties"], "nu 0.0001;"));
     EXPECT_TRUE(has(made.files["system/fvSchemes"], "steadyState"));
+    // the fluid inside is written once, at the end: each cell's own values
+    EXPECT_TRUE(has(made.files["system/controlDict"], "inside\n"));
+    EXPECT_TRUE(has(made.files["system/controlDict"], "writeControl onEnd;"));
+    EXPECT_TRUE(has(made.files["system/controlDict"], "cells { type cellCentre; }"));
     ASSERT_EQ(made.steps.size(), 3U);
     EXPECT_EQ(made.steps[0].name, "blockMesh");
     EXPECT_EQ(made.steps[1].name, "snappyHexMesh");
@@ -358,6 +363,68 @@ TEST(OpenFoamCase, filesOfASteadyFlow)
     EXPECT_EQ(made.steps[2].name, "decomposePar");
     EXPECT_EQ(made.steps[3].command, "mpirun -np 4 simpleFoam -parallel");
     EXPECT_TRUE(has(made.files["system/decomposeParDict"], "numberOfSubdomains 4;"));
+}
+
+TEST(OpenFoamCase, filesOfATurbulentFlow)
+{
+    Model model = ductModel();
+    Case made;
+    std::string why;
+    // a laminar flow has none of it
+    ASSERT_TRUE(makeCase(model, {}, made, why)) << why;
+    EXPECT_FALSE(made.files.contains("0/k"));
+    EXPECT_FALSE(has(made.files["system/controlDict"], "yPlus"));
+    EXPECT_TRUE(has(made.files["constant/turbulenceProperties"], "simulationType laminar;"));
+
+    model.turbulence = Turbulence::KOmegaSST;
+    // the eddies that come in are sized by the inlet's part of the fluid's
+    // space, 0.01 x 0.01: as wide as a round face of that area
+    Model none = model;
+    none.domain.patches.assign(none.domain.triangles.size(), 0);
+    none.domain.patches[10] = none.domain.patches[11] = 2;
+    EXPECT_FALSE(makeCase(none, {}, made, why));
+    EXPECT_TRUE(has(why, "Inlet"));
+    model.inlets[0].speed = 2.0;
+    ASSERT_TRUE(makeCase(model, {}, made, why)) << why;
+    for (const char* name : {"0/U", "0/p", "0/k", "0/omega", "0/nut"}) {
+        EXPECT_TRUE(made.files.contains(name)) << name;
+    }
+    EXPECT_TRUE(has(made.files["constant/turbulenceProperties"], "RASModel kOmegaSST;"));
+    // stirred a twentieth of its speed: k = 1.5 (0.05 x 2)^2
+    EXPECT_TRUE(has(made.files["0/k"], "inlet0 { type fixedValue; value uniform 0.015; }"));
+    EXPECT_TRUE(has(made.files["0/k"], "internalField uniform 0.015;"));
+    EXPECT_TRUE(has(made.files["0/k"], "outlet0 { type inletOutlet; inletValue uniform 0.015;"));
+    EXPECT_TRUE(has(made.files["0/k"], "kqRWallFunction"));
+    // in eddies 7% of the width across: omega = sqrt(k) / (0.09^0.25 0.07 w)
+    const double width = std::sqrt(4.0 * 1.0e-4 / std::numbers::pi);
+    const double rate = std::sqrt(0.015) / (std::pow(0.09, 0.25) * 0.07 * width);
+    const auto at = made.files["0/omega"].find("inlet0 { type fixedValue; value uniform ");
+    ASSERT_NE(at, std::string::npos);
+    EXPECT_NEAR(std::stod(made.files["0/omega"].substr(at + 40)), rate, 1e-4 * rate);
+    EXPECT_TRUE(has(made.files["0/omega"], "omegaWallFunction"));
+    EXPECT_TRUE(has(made.files["0/nut"], "nutkWallFunction"));
+    EXPECT_TRUE(has(made.files["system/fvSchemes"], "div(phi,omega)"));
+    EXPECT_TRUE(has(made.files["system/fvSchemes"], "wallDist"));
+    EXPECT_TRUE(has(made.files["system/fvSolution"], "\"(U|k|omega)\""));
+    EXPECT_TRUE(has(made.files["system/controlDict"], "type yPlus;"));
+}
+
+TEST(OpenFoamCase, theWallUnitsReadBack)
+{
+    const std::string text = "# y+ ()\n# Time \tpatch \tmin \tmax \taverage\n"
+                             "184 \tinlet0\t1 \t2 \t1.5\n"
+                             "184 \twall\t1.45822689e+01\t1.23885348e+02\t8.43915792e+01\n";
+    std::array<double, 3> units {};
+    ASSERT_TRUE(readWallUnits(text, units));
+    EXPECT_NEAR(units[0], 14.5822689, 1e-9);
+    EXPECT_NEAR(units[1], 123.885348, 1e-9);
+    EXPECT_NEAR(units[2], 84.3915792, 1e-9);
+    // nothing of the wall, a row cut short, and no file
+    std::array<double, 3> kept {1.0, 2.0, 3.0};
+    EXPECT_FALSE(readWallUnits("184 \tinlet0\t1 \t2 \t1.5\n", kept));
+    EXPECT_FALSE(readWallUnits("184 \twall\t14.5 \t123.8\n", kept));
+    EXPECT_FALSE(readWallUnits("", kept));
+    EXPECT_EQ(kept, (std::array<double, 3> {1.0, 2.0, 3.0}));
 }
 
 TEST(OpenFoamCase, whatCannotBeASteadyFlow)
@@ -402,4 +469,22 @@ TEST(OpenFoamCase, aFacesPressureReadBack)
     // a field that is not there, and a file cut short
     EXPECT_FALSE(readFieldVtk(text, "T", frame));
     EXPECT_FALSE(readFieldVtk(text.substr(0, text.size() - 8), "p", frame));
+}
+
+TEST(OpenFoamCase, theFluidInsideReadBack)
+{
+    const std::string text = "0.001 \t-0.002 \t0.003 \t0.5 \t0.1 \t0 \t-0.02\n"
+                             "0.002 \t-0.002 \t0.003 \t0.25 \t0.2 \t0.01 \t0\n";
+    Frame frame;
+    ASSERT_TRUE(readInside(text, frame));
+    ASSERT_EQ(frame.centres.size(), 2U);
+    EXPECT_EQ(frame.centres[1], (Vec3 {0.002, -0.002, 0.003}));
+    EXPECT_EQ(frame.pressures, (std::vector<double> {0.5, 0.25}));
+    EXPECT_EQ(frame.velocities[0], (Vec3 {0.1, 0.0, -0.02}));
+    EXPECT_EQ(frame.velocities[1], (Vec3 {0.2, 0.01, 0.0}));
+    // a file cut short, a row that is not a cell's, and none
+    EXPECT_FALSE(readInside(text.substr(0, text.size() - 3), frame));
+    EXPECT_TRUE(frame.centres.empty());
+    EXPECT_FALSE(readInside("0.001 0.002 0.003 0.5\n", frame));
+    EXPECT_FALSE(readInside("", frame));
 }

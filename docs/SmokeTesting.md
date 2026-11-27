@@ -1,4 +1,4 @@
-# Smoke testing: finding what unattended tests miss (2026-11-26, proposed)
+# Smoke testing: finding what unattended tests miss (2026-11-26; step 1 run 2026-11-27)
 
 Why the hands-on rounds keep finding defects the suites pass over, and a rig to
 find them without the reporter. Drawn from the 251 entries of
@@ -56,6 +56,9 @@ its own to find something.
 
 1. **The log.** No new Error or Warning in the Report view or the log file,
    against a baseline kept per document (scanner's Section003 is expected).
+   The clone is compared at the test profile's verbosity: the suite takes
+   `BaseApp/LogLevels` out of its copy of the profile and says so in
+   `summary.md`.
 2. **Dialogs.** Every message box is recorded with its text and dismissed by
    the sweeper; one the scenario did not expect is a finding.
 3. **Stalls.** A timer on the main loop; any gap over 300 ms is logged with
@@ -79,8 +82,13 @@ its own to find something.
    outside its window; no text clipped by its widget; text and icon contrast
    against their ground above a floor, in every theme.
 8. **The end.** Exit code 0, no crash log, no dump, no directory left in the
-   transient folder, no document open, the profile clone unchanged except
-   for the keys the scenario set.
+   transient folder, no document open, and no key of `user.cfg` changed
+   that the test did not set. A run that starts without a `user.cfg` (the
+   test profile) counts every key it writes as added. The suite holds a
+   clone run's keys against the normal run of the same test by key: a key
+   both runs wrote is the test's own write, or any profile's, and is not a
+   finding. A key the clone run removed is held only against a removal in
+   the normal run.
 
 ### 2.3 Where scenarios come from
 
@@ -124,3 +132,43 @@ Cheapest first; each step stands alone.
   warning gets in.
 - The tolerance of the picture twins; the engine and Legacy differ on
   purpose in places (face shading).
+
+## 5. What step 1 showed (2026-11-27)
+
+The rig is `scripts/gui-test.cmd` (GT_CLONE, GT_CHECKS), `scripts/gui-test-checks.py`,
+`scripts/gui-test-suite.py` and `scripts/gui-test-attribute.py`. One run of the
+420 registered GUI tests in both modes: 342 pass in both, 64 fail only under
+the clone of the reporter's profile, 3 only on the test profile, 11 in both.
+
+Out of the 64 came six candidates no test had named: a crash in a tool tip
+whose widget was gone, a command lost from a group and its record erased at
+every start, `menuBar()` giving an empty bar under the custom title bar, a
+main window asking for 3000 px, an empty 3D view on OpenGL at MSAA 4x, and a
+hang. By the profile key that made a test pass again: dock and overlay state
+21, theme colours 14, PerViewEdit 13, window geometry 6, MSAA 3, custom title
+bar 3, the commands record 3, a stored tab index 1.
+
+What the run corrected in this design:
+
+- **Check 8 needs a baseline.** A diff of `user.cfg` cannot tell the
+  program's writes from the test script's own `SetBool`/`SetInt`. The clone
+  run is compared against the normal run of the same test; only keys the
+  normal run did not write count. Done in d7f72c4ec6: on the first run's
+  data the `user.cfg` rows under the clone drop from 1791 to 571, and the
+  command record the program erased (410 rows) is still among them --
+  matching by key alone hid it, which is why a removal is held only
+  against a removal.
+- **Check 1 pins the log level.** The profile's own `LogLevels` change what
+  is printed; the comparison runs both modes at one level. Done in
+  d7f72c4ec6; it acts from the next suite run (the first ran at the
+  reporter's `Default=2`).
+- **An attribution is one run per step.** A test that fails by chance is
+  credited to the wrong step; a clone-only failure is called attributed
+  only when the step's run and one rerun agree.
+- **A preference pack carries more than colours.** Dark sets
+  `CustomTitleBar`, `TitleBarToolBars` and `ShowTabBar` too; a step taking
+  a pack's keys away takes only its colour keys.
+- **A failure under the clone is a test's assumption more often than a
+  defect.** Most of the theme and dock groups expect the light theme or the
+  default layout. They are sorted before they are counted, and a test that
+  assumes a setting says so and sets it.

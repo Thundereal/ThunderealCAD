@@ -2007,9 +2007,146 @@ solver); `TestColors`, `TestSteadyDoubts`,
 `TestFrameView.test_a_field_is_coloured_by_its_values`.
 
 Open, the rest of F1: turbulence (k-omega SST) and its pipe against
-Haaland; the velocity, on a cut plane and at the openings -- the profile
-across the pipe is not checked; the lid-driven cavity and the
+Haaland (built since, sec 14.6); the velocity (built since, sec 14.5); the lid-driven cavity and the
 backward-facing step; meshing by the second route (sec 5.4); residuals
 shown as the run goes; an inlet by flow rate or pressure; the force on a
 part; lids the study finds itself; a warning when the Reynolds number
-says the flow is not laminar -- nothing tells the user now.
+says the flow is not laminar (built since, sec 14.6).
+
+### 14.5 F1 as built, step 3: the flow inside, and a cut through it (2026-11-27)
+
+The velocity is kept and shown: the fluid inside at every cell of the
+solver's, and a flat cut through it drawn in the colours of its speed or
+its pressure, with arrows.
+
+- **What is written back**: a `sets` function object of type
+  `cellCentre`, once, when the solver ends (`writeControl onEnd`): a row a
+  cell, its centre, p and U, each cell's own value. It is one file under
+  MPI too. `OpenFoam::readInside` reads it; the backend hands it over
+  with the run's last frame only (`Frame::centres`, `velocities`,
+  `pressures`). Of every frame it would be 16 bytes a cell a frame, 320
+  MB for a tube at 40 cells across that runs its 2000 steps; and a
+  steady flow's frames on the way are no flow that ever was.
+- **Kept** as `frames/N.inside.npy`, (cells, 7) float32: the centre in
+  mm, the velocity in m/s, the pressure in Pa. The index lists the frames
+  that have it (`inside`). `getResults()["Inside"]`, `getInside(i)`.
+- **The cut** (`App/Section.cpp`, `Fluid::cut`; `getSection(i, base,
+  normal, step)`): where the plane passes through the frame's own faces
+  is the cut's outline, a piece a triangle; a grid on the plane, half a
+  cell apart, is inside the fluid between an odd crossing of the outline
+  along its row and the next. The value at a grid point is of the cells
+  whose centres are within a cell of it, the nearer the more (Shepard's
+  weights, ((R - d) / (R d))^2); with none so near, the nearest about.
+  The squares with four corners inside are the cut's triangles. It works
+  on nothing of OpenFOAM's: the centres, and faces that close the fluid
+  in.
+- **Drawn** (`FluidPlayback.CutView`): the triangles unlit in the ramp's
+  colours, the outline, and arrows (`arrowsOf`) at every few grid points,
+  the fastest as long as the arrows are apart, some thirty along the
+  cut's longer side. The faces on the viewer's side of the plane are left
+  out (`behind`, whole triangles, in numpy: no clip plane, which not every
+  renderer has) and the rest drawn plain. The panel has "Cut through the
+  fluid": across X, Y or Z, how far along the fluid's box, speed or
+  pressure, arrows or not; the scale is of all the fluid inside, so it
+  stays as the cut moves. At a frame without the inside it says so and
+  draws the faces' pressure as before.
+
+Measured, the tube of sec 14.4 at the study's own 0.5 mm (61000 cells,
+104 steps): between 40 and 90 mm along, the velocity along the pipe at
+every cell against the parabola 2 U (1 - r^2 / R^2), U the mean speed of
+the flow there was: furthest off by 0.46% of the speed on the axis, 0.19%
+in the mean; on the axis 0.19993 m/s against 0.20016. A cut across at 60
+mm, 1245 points: within 4 mm of the axis furthest off by 5.3%, 2.2% in
+the mean. That is the blending between cells, not the solver: the cells
+have it to half a percent. A value fitted to the cells about a point,
+not blended from them, would do better and is open.
+
+Tests: `OpenFoamCase.theFluidInsideReadBack` and the `inside` lines in
+`filesOfASteadyFlow`; `FluidArchive.aFieldOnFacesAndTheOpenings` (the
+inside of the last frame only); `FluidSection.aCutAcrossABox`,
+`aSlantedCutAndOnesThatFindNothing`;
+`Pipe.test_the_flow_inside_is_poiseuilles` (the cells to 3%, the cut to
+6%, its area, its outline) and the inside kept with the document;
+`TestCuts`, `TestFrameView.test_a_cut_is_drawn_with_its_outline_and_arrows`.
+The panel's controls have no test of their own: the manual's script
+drives them (`fluid/study/flow-inside/video.py`).
+
+Open: the cut's edge is a stair of half cells inside the outline; a
+fitted value at a point; lines of the flow (streamlines); the speed at an
+opening's face; a cut of any slant from the panel (the script takes any
+plane); the inside of the frames on the way.
+
+### 14.6 F1 as built, step 4: turbulent flow, and what says whether to believe it (2026-11-27)
+
+A steady flow is run in layers, as before, or turbulent; and the results
+say when the choice, or the mesh at the walls, is against them.
+
+- **The choice**: the study's `Turbulence`, `Laminar` (as files made
+  before have it) or `k-omega SST`; the panel's "Flow" for a steady
+  study. The model's `turbulence`; a laminar model's signature is what it
+  was.
+- **The case**: `simulationType RAS`, `kOmegaSST`; `k` and `omega`
+  carried upwind; the walls by wall functions (`kqRWallFunction`,
+  `omegaWallFunction`, `nutkWallFunction`) -- the mesh has no layers at
+  its walls, so the wall's own layer is not resolved and cannot be. What
+  comes in at an inlet is taken as stirred a twentieth of its speed, in
+  eddies 7% of the inlet's width across; the fluid starts as the first
+  inlet's, and what flows back in at an outlet is that too. It stops
+  when the residuals are under 1e-5 (p) and 1e-6 (U, k, omega): the
+  pipes below had not moved by a hundredth of a percent in their last
+  hundred steps.
+- **An inlet's width and Reynolds number** (`Solver::widthOf`,
+  `reynolds`): the width across a round face of the inlet's area, the
+  area of a steady flow that of the inlet's part of the fluid's space --
+  the face picked is often wider than the opening (a lid's whole face
+  over a bore). `buildModel()` has each inlet's `Reynolds`; the results
+  keep the greatest (`Reynolds`).
+- **The wall's units**: the `yPlus` function object says, at the end, how
+  far the first cell at the wall is from it in the wall's own units, the
+  least, the most and the mean. Kept with the results (`WallUnits`).
+- **What the panel says** (`FluidPlayback.flowDoubts`, with the other
+  doubts in orange): a laminar study whose Reynolds number is over 2300;
+  a turbulent one under it; a turbulent one whose wall cells are under 30
+  wall units in the mean, or over 1000, with the resolution that would
+  put it right.
+
+Measured, the pipe of sec 14.4 made 300 mm long, water (1000 kg/m^3,
+0.001 Pa s), the pressure lost between monitors on the axis at 150 and
+270 mm as a friction factor at the flow there was, against Haaland's for
+a smooth pipe, 1 / sqrt(f) = -1.8 log10(6.9 / Re):
+
+| Reynolds | Resolution | f | Haaland | Off | Wall units, least..most, mean | Steps | Time | The panel |
+|---|---|---|---|---|---|---|---|---|
+| 10000 | 1 mm | 0.02726 | 0.03084 | -11.6% | 6..29, 20 | 189 | 12 s | too fine |
+| 10000 | 0.5 mm | 0.02823 | 0.03088 | -8.6% | 4..16, 11 | 179 | 40 s | too fine |
+| 30000 | 1 mm | 0.02269 | 0.02329 | -2.6% | 11..81, 56 | 192 | 13 s | - |
+| 30000 | 0.5 mm | 0.02106 | 0.02331 | -9.7% | 6..40, 28 | 185 | 40 s | too fine |
+| 100000 | 1 mm | 0.01809 | 0.01781 | +1.6% | 28..238, 166 | 195 | 11 s | - |
+| 100000 | 0.5 mm | 0.01716 | 0.01782 | -3.7% | 12..119, 85 | 188 | 36 s | - |
+| 1000000 | 1 mm | 0.01224 | 0.01158 | +5.8% | 272..1915, 1370 | 198 | 11 s | too coarse |
+
+Sec 6 asks 5%. It is met where the wall cells are in the wall model's
+range, and missed by up to 12% where they are not -- and every case that
+misses is one the panel speaks against. A finer mesh is not a better one
+here: at 30000 half the cell takes the answer from 2.6% off to 9.7%.
+The wall units spread wide about their mean because the cells at a round
+wall are of a square mesh snapped to it. The pipe at 10000 has no good
+resolution with this mesh: coarse enough for the wall model is 3 cells
+across the bore. Layers of cells at the walls, their thickness chosen
+for the flow, are what mend it, and are open. Outside FreeCAD the same
+cases with `nutUSpaldingWallFunction` were no better (+10.5% at 10000,
++4.8% at 100000 on 1 mm).
+
+Tests: `OpenFoamCase.filesOfATurbulentFlow`, `theWallUnitsReadBack`;
+`FluidModel.inletsAndForces` (the width, the Reynolds number, of a
+steady flow by the fluid's space), `aSteadyFlowsParts` (the signature);
+`FluidArchive.aFieldOnFacesAndTheOpenings` (the model's name, the
+Reynolds number and the wall units kept); `TestFlowDoubts`;
+`Pipe.test_a_turbulent_pipe_loses_what_haaland_says` (Reynolds 30000 on
+1 mm, to 5%, nothing against it). The panel's "Flow" has no test of its
+own: the manual's script drives it (`fluid/study/turbulent-flow/video.py`).
+
+Open: layers of cells at the walls; a rough wall; the eddies that come
+in at an inlet as the user gives them; other models; the Reynolds number
+of a flow that is not a pipe's -- 2300 is a pipe's, and an opening's
+width is not always what the flow is as wide as.

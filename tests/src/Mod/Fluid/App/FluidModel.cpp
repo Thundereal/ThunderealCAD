@@ -3,6 +3,7 @@
 // The fluid workbench's solver-neutral model, its registry, the backend of
 // test data and the results' archive (docs/FluidSimulation.md secs 11, 12).
 
+#include <numbers>
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -271,6 +272,29 @@ TEST(FluidModel, inletsAndForces)
     none.surface.triangles.clear();
     EXPECT_FALSE(faceOf(none, area, middle, slant));
 
+    // as wide as a round face of its area; the Reynolds number by that
+    const double width = std::sqrt(4.0 * 0.0016 / std::numbers::pi);
+    EXPECT_NEAR(widthOf(model, 0), width, 1e-12);
+    Model water = model;
+    water.inlets[0].material = {1000.0, 1.0e-3};
+    EXPECT_NEAR(reynolds(water, 0), 1000.0 * 2.0 * width / 1.0e-3, 1e-6);
+    EXPECT_GT(reynolds(water, 0), 90000.0);
+    // of a steady flow the inlet is its part of the fluid's space: the face
+    // picked may be wider than the opening
+    Model steady = water;
+    steady.analysis = Analysis::Steady;
+    steady.domain = faceSurface(0.0, -0.01, 0.01, -0.01, 0.01);
+    steady.domain.patches.assign(steady.domain.triangles.size(), 1);
+    EXPECT_NEAR(widthOf(steady, 0), width / 2.0, 1e-12);
+    EXPECT_NEAR(reynolds(steady, 0), reynolds(water, 0) / 2.0, 1e-6);
+    // no such inlet, no face, no viscosity
+    EXPECT_EQ(widthOf(model, 1), 0.0);
+    EXPECT_EQ(reynolds(model, 1), 0.0);
+    water.inlets[0].material.viscosity = 0.0;
+    EXPECT_EQ(reynolds(water, 0), 0.0);
+    water.inlets[0] = none;
+    EXPECT_EQ(widthOf(water, 0), 0.0);
+
     // the liquid is the first volume's, or with none the first inlet's
     Material liquid;
     model.inlets[0].material = {800.0, 0.05};
@@ -324,6 +348,9 @@ TEST(FluidModel, aSteadyFlowsParts)
     other.iterations = 100;
     EXPECT_NE(first, signature(other));
     other = steady;
+    other.turbulence = Turbulence::KOmegaSST;
+    EXPECT_NE(first, signature(other));
+    other = steady;
     other.outlets.push_back({"Outlet", {}, 0.0});
     const auto withOutlet = signature(other);
     EXPECT_NE(first, withOutlet);
@@ -339,6 +366,7 @@ TEST(FluidModel, aSteadyFlowsParts)
     // and none of it tells in a free surface's
     other = model;
     other.iterations = 100;
+    other.turbulence = Turbulence::KOmegaSST;
     other.outlets.push_back({"Outlet", {}, 0.0});
     EXPECT_EQ(base, signature(other));
 
@@ -654,6 +682,8 @@ TEST(FluidArchive, aFieldOnFacesAndTheOpenings)
     index.steady = true;
     index.settled = true;
     index.openings = {{"Doc#Inlet", false}, {"Doc#Outlet", true}};
+    index.turbulence = "KOmegaSST";
+    index.reynolds = 30000.0;
     {
         Fluid::ArchiveWriter writer(path);
         for (int k = 0; k < 2; ++k) {
@@ -663,6 +693,13 @@ TEST(FluidArchive, aFieldOnFacesAndTheOpenings)
             frame.triangles.push_back({0, 1, 2});
             frame.values = {100.0 * k, 50.0 * k, 0.25};
             frame.openings = {{160.0 * k, 7.5e-6 * k}, {0.0, 7.5e-6 * k}};
+            if (k == 1) {
+                // the fluid inside, of the last frame only
+                frame.centres = {{0.001, 0.002, 0.003}, {0.004, 0.005, 0.006}};
+                frame.velocities = {{0.1, 0.0, 0.0}, {0.2, -0.1, 0.05}};
+                frame.pressures = {12.5, 3.0};
+                frame.wallUnits = {12.0, 79.0, 53.0};
+            }
             writer.frame(frame);
         }
         writer.close(index);
@@ -687,6 +724,16 @@ TEST(FluidArchive, aFieldOnFacesAndTheOpenings)
         ASSERT_EQ(frame.values.size(), 3U);
         EXPECT_FLOAT_EQ(frame.values[0], 100.0F);
         EXPECT_FLOAT_EQ(frame.values[2], 0.25F);
+        // a cell a row: its centre in mm, its velocity, its pressure
+        EXPECT_EQ(read.inside, (std::vector<std::size_t> {1}));
+        EXPECT_EQ(frame.inside,
+                  (std::vector<float> {1.0F, 2.0F, 3.0F, 0.1F, 0.0F, 0.0F, 12.5F,
+                                       4.0F, 5.0F, 6.0F, 0.2F, -0.1F, 0.05F, 3.0F}));
+        EXPECT_TRUE(reader.frame(0).inside.empty());
+        // how the eddies were had, and what says whether to believe it
+        EXPECT_EQ(read.turbulence, "KOmegaSST");
+        EXPECT_EQ(read.reynolds, 30000.0);
+        EXPECT_EQ(read.wallUnits, (std::array<double, 3> {12.0, 79.0, 53.0}));
     }
     Base::FileInfo(path).deleteFile();
     // results of a free surface say nothing of it
@@ -702,6 +749,7 @@ TEST(FluidArchive, aFieldOnFacesAndTheOpenings)
         EXPECT_FALSE(reader.index().steady);
         EXPECT_TRUE(reader.index().openings.empty());
         EXPECT_TRUE(reader.frame(0).values.empty());
+        EXPECT_TRUE(reader.index().inside.empty());
     }
     Base::FileInfo(path).deleteFile();
 }

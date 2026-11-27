@@ -45,6 +45,7 @@
 #include "Application.h"
 #include "BitmapFactory.h"
 #include "Command.h"
+#include "ControlRow.h"
 #include "DockWindowManager.h"
 #include "MainWindow.h"
 #include "Selection.h"
@@ -1952,9 +1953,14 @@ AnimationTimeline::AnimationTimeline(QWidget* parent)
     auto layout = new QVBoxLayout(this);
     layout->setContentsMargins(2, 2, 2, 2);
     layout->setSpacing(2);
-    auto bar = new QHBoxLayout;
+    // scrolled sideways when the dock is narrower than the row (ControlRow.h)
+    auto row = new ControlRow(this);
+    auto rowWidget = new QWidget(row);
+    auto bar = new QHBoxLayout(rowWidget);
+    bar->setContentsMargins(0, 0, 0, 0);
     bar->setSpacing(2);
-    layout->addLayout(bar);
+    row->setWidget(rowWidget);
+    layout->addWidget(row);
 
     auto cmdButton = [&](const char* cmd, const char* icon, const QString& tip) {
         auto b = new QToolButton(this);

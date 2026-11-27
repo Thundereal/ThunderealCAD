@@ -320,6 +320,9 @@ struct ApplicationP
     std::string initWorkbench;
     /// Handlers whose Initialize() has been run, so it is run only once
     std::set<std::string> initializedWorkbenches;
+    /// Handlers whose Initialize() is running now (a nested call must not
+    /// run it again, "fresh" or not)
+    std::set<std::string> initializingWorkbenches;
     QTimer timer;
     ViewProviderMap viewproviderMap;
     std::bitset<32> StatusBits;
@@ -1973,18 +1976,27 @@ struct ExecFileGuard
     ExecFileGuard(std::string &s, std::string *wb=nullptr, const char *initWb=nullptr)
         :execFile(s), saved(s), wb(wb)
     {
-        if (wb) *wb = initWb;
+        if (wb) {
+            savedWb = *wb;
+            *wb = initWb;
+        }
     }
 
+    // The workbench initialising before goes back, not nothing: a call nested
+    // in another workbench's Initialize() (a command lookup that follows the
+    // record of Preferences/Commands) cleared it, and every command the outer
+    // Initialize() added after was recorded under no workbench -- its record
+    // erased (CommandManager::addCommand).
     ~ExecFileGuard()
     {
         execFile = saved;
-        if (wb) wb->clear();
+        if (wb) *wb = savedWb;
     }
 
     std::string &execFile;
     std::string saved;
     std::string *wb;
+    std::string savedWb;
 };
 
 const char *Application::initializingWorkbench() const
@@ -2036,16 +2048,25 @@ std::string Application::initializeWorkbench(const char *name, Py::Object handle
             // whole of Initialize() a second time and doubling every message it
             // prints. Command.cpp's own _sPendingWorkbench guard does not cover
             // it, because the outer call came from activateWorkbench().
-            if (d->initializedWorkbenches.insert(name).second || fresh) {
+            // "fresh" holds for such a workbench too, all through its first
+            // Initialize(): so a call nested in its own Initialize() never
+            // runs it, fresh or not. That second run, nested, saw its module
+            // half imported -- PartDesign made its Design Generators group
+            // there, before the Sprocket was added, and kept that group.
+            const bool running = d->initializingWorkbenches.count(name) > 0;
+            if (!running && (d->initializedWorkbenches.insert(name).second || fresh)) {
+                d->initializingWorkbenches.insert(name);
                 try {
                     Py::Callable activate(handler.getAttr(std::string("Initialize")));
                     activate.apply(args);
                 }
                 catch (...) {
                     // an Initialize() that failed must stay retryable
+                    d->initializingWorkbenches.erase(name);
                     d->initializedWorkbenches.erase(name);
                     throw;
                 }
+                d->initializingWorkbenches.erase(name);
             }
 
             // Dependent on the implementation of a workbench handler the type

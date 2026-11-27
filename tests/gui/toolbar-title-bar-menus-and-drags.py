@@ -27,7 +27,8 @@ in the title bar's left area:
     Hide text, Collapse), and no other menu before it;
   - a right click on a tool button of File brings the window's toolbar
     menu (its Lock toolbars submenu), not the area's list;
-  - each title bar toolbar is movable, has its grip, and a drag by the grip
+  - each title bar toolbar is movable, has its grip -- after a workbench
+    switch too -- and a drag by the grip
     takes it out of the title bar;
   - a docked toolbar starts a drag by its handle: as set up, after a toolbar
     has been out of the title bar and docked again, after a workbench
@@ -277,11 +278,29 @@ def run():
         check("File docked again drags by its handle", drags_docked("File") is True)
         check_docked_drag("after a toolbar has left the title bar")
 
+        def check_title_grips(when):
+            # a workbench's toolbar setup took every action no command claims
+            # out of a toolbar, the grip's among them: still movable, no grip
+            for name in ("Workbench", "Edit"):
+                tb = toolbar(name)
+                if tb is None or not in_title(tb):
+                    continue
+                g = grips(tb)
+                ok = tb.isMovable() and len(g) == 1 and g[0].isVisible()
+                if old:
+                    check("before the fix: %s loses its grip %s" % (name, when),
+                          len(g) == 0, len(g))
+                else:
+                    check("%s in the title bar keeps its grip %s" % (name, when), ok,
+                          (tb.isMovable(), [(x.width(), x.isVisible()) for x in g]))
+
         FreeCADGui.activateWorkbench("PartWorkbench")
         settle(2)
+        check_title_grips("in another workbench")
         check_docked_drag("in another workbench")
         FreeCADGui.activateWorkbench("PartDesignWorkbench")
         settle(2)
+        check_title_grips("back in PartDesign")
         check_docked_drag("back in PartDesign")
 
         toggle_lock("Menu bar")

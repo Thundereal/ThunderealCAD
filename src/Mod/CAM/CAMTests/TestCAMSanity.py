@@ -710,6 +710,10 @@ class TestCAMSanity(PathTestBase):
         mock_job.Machine = "test_machine"
         mock_job.Tools.Group = []
         mock_job.Operations.Group = []
+        # Not post-processed. A MagicMock here would be taken for a path, and
+        # its __index__ is 1: os.path.isfile() asks about fd 1, and open()
+        # reads and then closes the suite's own stdout.
+        mock_job.LastPostProcessOutput = ""
 
         # Create a mock postprocessor with sanity checks
         class MockPostprocessor:
@@ -767,6 +771,7 @@ class TestCAMSanity(PathTestBase):
         mock_job.Machine = "error_machine"
         mock_job.Tools.Group = []
         mock_job.Operations.Group = []
+        mock_job.LastPostProcessOutput = ""  # not a path, nor fd 1 (see test320)
 
         class ErrorPostprocessor:
             def get_sanity_checks(self, job):
@@ -799,6 +804,7 @@ class TestCAMSanity(PathTestBase):
         mock_job = MagicMock()
         mock_job.Tools.Group = []
         mock_job.Operations.Group = []
+        mock_job.LastPostProcessOutput = ""  # not a path, nor fd 1 (see test320)
         # No machine attribute
 
         all_squawks, critical_squawks = Sanity.CAMSanity.validate_job(mock_job)

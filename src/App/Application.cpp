@@ -3677,6 +3677,10 @@ void Application::initApplication()
     // What killed or crashed processes left in the user cache that holds
     // nothing to recover (docs/WorkerProcess.md sec 49)
     CacheSweep::start();
+
+    // What the service helpers are started by, read on this thread: their
+    // calls come on any (docs/WorkerProcess.md sec 77)
+    ServiceWorkers::init();
 }
 
 std::list<std::string> Application::getCmdLineFiles()

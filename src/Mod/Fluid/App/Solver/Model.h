@@ -110,6 +110,14 @@ enum class Analysis
                   // at its inlets and out at its outlets, as it settles to
 };
 
+// How a steady flow's eddies are had.
+enum class Turbulence
+{
+    Laminar,    // there are none: the flow is in layers
+    KOmegaSST,  // by their mean effect, Menter's k-omega SST model, the
+                // walls by wall functions
+};
+
 // The box nothing leaves. A side that is open lets the fluid out, and it is
 // gone; the order is -x, +x, -y, +y, -z, +z.
 struct Space
@@ -153,6 +161,7 @@ struct Model
     Surface domain;
     // How many steps the flow is given to settle in, at most.
     int iterations = 2000;
+    Turbulence turbulence = Turbulence::Laminar;
     Space space;
     Vec3 gravity {0.0, 0.0, -9.80665};  // m/s^2
     double timeEnd = 1.0;               // s
@@ -191,6 +200,17 @@ FluidExport bool liquidOf(const Model& model, Material& liquid);
 // widest angle between a triangle and that plane. false for a face of no
 // area.
 FluidExport bool faceOf(const Inlet& inlet, double& area, Vec3& middle, double& slant);
+
+// How wide the model's inlet of that place is, m: across a round face of
+// its area. Of a steady flow the area is of the part of the fluid's space
+// that is the inlet's -- the face picked may be wider than the opening the
+// fluid comes through; else the face's. 0 with no area.
+FluidExport double widthOf(const Model& model, std::size_t inlet);
+
+// That inlet's Reynolds number: its fluid's density, its speed and its
+// width over the viscosity. A pipe's flow is in layers under some 2300 and
+// turbulent over some 4000. 0 with no area or a fluid of no viscosity.
+FluidExport double reynolds(const Model& model, std::size_t inlet);
 
 // What a closed surface wound outwards holds, m^3.
 FluidExport double volumeOf(const Surface& surface);

@@ -80,6 +80,16 @@ struct Frame
     std::vector<double> values;
     // Of a steady flow: each inlet of the model, then each outlet.
     std::vector<OpeningFlow> openings;
+    // Fields, of the frames that have it -- a steady flow's last: the fluid
+    // inside, at the centre of each cell of the solver's, its velocity
+    // there, m/s, and its pressure, Pa, over the surroundings'.
+    std::vector<Vec3> centres;
+    std::vector<Vec3> velocities;
+    std::vector<double> pressures;
+    // Of a steady flow with its eddies modelled, its last frame: how far
+    // the first cell at a wall is from it in the wall's own units (y+), the
+    // least, the most and the mean over the walls. Zeros when not known.
+    std::array<double, 3> wallUnits {};
     // Where the walls the fluid moves are: one per such wall, in the
     // model's order (freeWalls).
     std::vector<Motion> bodies;

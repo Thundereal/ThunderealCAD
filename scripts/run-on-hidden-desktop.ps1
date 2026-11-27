@@ -1,7 +1,8 @@
 # run-on-hidden-desktop.ps1 <command line>
 #
-# Runs `cmd /c <command line>` on a desktop of its own (WinSta0\fcad-gui-test),
-# waits for it and exits with its exit code. A GUI test run this way has real
+# Runs `cmd /c <command line>` on a desktop of its own (WinSta0\fcad-gui-test,
+# or GT_DESKTOP_NAME), waits for it and exits with its exit code. A GUI test run
+# this way has real
 # windows -- OpenGL and Direct3D work, unlike QT_QPA_PLATFORM=offscreen, where
 # on Windows a QOpenGLWidget is "not supported on this platform", the 3D view
 # never draws and every saveRenderDump times out -- and none of it shows on
@@ -100,5 +101,8 @@ public static class HiddenDesktop
 }
 '@
 
-$code = [HiddenDesktop]::Run('fcad-gui-test', $CommandLine)
+# GT_DESKTOP_NAME: a desktop of another name, for runs side by side that must
+# not take each other's focus (scripts/gui-test-suite.py gives each worker one)
+$name = if ($env:GT_DESKTOP_NAME) { $env:GT_DESKTOP_NAME } else { 'fcad-gui-test' }
+$code = [HiddenDesktop]::Run($name, $CommandLine)
 exit $code

@@ -506,6 +506,21 @@ class TaskFluidStudy:
         )
         self.iterations.setValue(study.Iterations)
         settings.addRow(translate("Fluid", "Steps at most"), self.iterations)
+        self.turbulence = QtWidgets.QComboBox()
+        self.turbulence.setToolTip(
+            translate(
+                "Fluid",
+                "How a steady flow's eddies are had. In layers: there are none, as "
+                "in a slow or a thick flow (a Reynolds number under some 2300). "
+                "Turbulent: by their mean effect, the k-omega SST model with the "
+                "walls by wall functions. The panel says when the run's Reynolds "
+                "number does not go with the choice.",
+            )
+        )
+        self.turbulence.addItem(translate("Fluid", "In layers (laminar)"), "Laminar")
+        self.turbulence.addItem(translate("Fluid", "Turbulent (k-omega SST)"), "k-omega SST")
+        self.turbulence.setCurrentIndex(max(self.turbulence.findData(study.Turbulence), 0))
+        settings.addRow(translate("Fluid", "Flow"), self.turbulence)
         self.mechanism = QtWidgets.QComboBox()
         self.mechanism.setToolTip(
             translate(
@@ -572,6 +587,48 @@ class TaskFluidStudy:
         self.legend.setVisible(False)
         layout.addWidget(self.legend)
         self.range = (0.0, 0.0)
+        # a cut through the fluid inside, of a frame that has it kept
+        self.cutBox = QtWidgets.QGroupBox(translate("Fluid", "Cut through the fluid"))
+        self.cutBox.setObjectName("FluidCut")
+        self.cutBox.setCheckable(True)
+        self.cutBox.setChecked(False)
+        self.cutBox.setToolTip(
+            translate(
+                "Fluid",
+                "Opens the fluid along a plane and shows the flow on it: how fast it "
+                "goes, or its pressure, and arrows of where it goes. The faces on the "
+                "viewer's side of the plane are left out. Of a steady flow the inside "
+                "is kept of its last frame only.",
+            )
+        )
+        cut = QtWidgets.QFormLayout(self.cutBox)
+        self.cutAxis = QtWidgets.QComboBox()
+        for label in ("X", "Y", "Z"):
+            self.cutAxis.addItem(label)
+        cut.addRow(translate("Fluid", "Across"), self.cutAxis)
+        self.cutAt = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.cutAt.setRange(0, 200)
+        self.cutAt.setValue(100)
+        cut.addRow(translate("Fluid", "At"), self.cutAt)
+        self.cutShows = QtWidgets.QComboBox()
+        self.cutShows.addItem(translate("Fluid", "Speed"), "Speed")
+        self.cutShows.addItem(translate("Fluid", "Pressure"), "Pressure")
+        cut.addRow(translate("Fluid", "Colours"), self.cutShows)
+        self.cutArrows = QtWidgets.QCheckBox(translate("Fluid", "Arrows of the flow"))
+        self.cutArrows.setChecked(True)
+        cut.addRow(self.cutArrows)
+        self.cutNote = QtWidgets.QLabel("")
+        self.cutNote.setWordWrap(True)
+        cut.addRow(self.cutNote)
+        self.cutBox.toggled.connect(self.onCut)
+        self.cutAxis.currentIndexChanged.connect(self.onCut)
+        self.cutAt.valueChanged.connect(self.onCut)
+        self.cutShows.currentIndexChanged.connect(self.onCut)
+        self.cutArrows.toggled.connect(self.onCut)
+        self.cutBox.setVisible(False)
+        layout.addWidget(self.cutBox)
+        self.cutView = FluidPlayback.CutView()
+        self.cutRanges = {}
         self.asSurface = QtWidgets.QCheckBox(translate("Fluid", "Particles as a surface"))
         self.asSurface.setToolTip(
             translate(
@@ -617,6 +674,7 @@ class TaskFluidStudy:
         self.settings.setRowVisible(self.interval, not steady)
         self.settings.setRowVisible(self.mechanism, not steady and self.mechanism.count() > 1)
         self.settings.setRowVisible(self.iterations, steady)
+        self.settings.setRowVisible(self.turbulence, steady)
 
     def fillBackends(self, chosen):
         """The solvers as they are on this machine now, that one chosen."""
@@ -669,6 +727,8 @@ class TaskFluidStudy:
         if study.Analysis != self.analysis.currentData():
             study.Analysis = self.analysis.currentData()
         study.Iterations = self.iterations.value()
+        if study.Turbulence != self.turbulence.currentData():
+            study.Turbulence = self.turbulence.currentData()
         study.Backend = self.backend.currentData() or ""
         study.Resolution = self.resolution.value()
         study.TimeEnd = self.timeEnd.value()
@@ -769,11 +829,18 @@ class TaskFluidStudy:
             text = translate("Fluid", "{} frames to step {:.0f}, from {}").format(
                 len(self.frames), self.frames.times[-1], self.frames.backend
             )
+        self.cutRanges = {}
         if self.frames.kind == "Fields":
             # one scale for every frame: the last one's, the flow as it settled
             self.range = FluidPlayback.rangeOf(self.frames.field(len(self.frames) - 1)[2])
-            self.legendLow.setText("{:.4g} Pa".format(self.range[0]))
-            self.legendHigh.setText("{:.4g} Pa".format(self.range[1]))
+            if self.frames.inside:
+                # and one for a cut wherever it is: of all the fluid inside
+                _points, velocity, pressure = self.frames.insideOf(self.frames.inside[-1])
+                self.cutRanges = {
+                    "Speed": (0.0, float(FluidPlayback.speedOf(velocity).max())),
+                    "Pressure": FluidPlayback.rangeOf(pressure),
+                }
+        self.cutBox.setVisible(bool(self.cutRanges))
         if stale:
             text += translate("Fluid", " -- of the study as it was before a change")
         self.summary.setText(text)
@@ -803,7 +870,7 @@ class TaskFluidStudy:
         if self.frames is None or not self.frames.valid:
             return
         if self.frames.kind == "Fields":
-            drawn = self.view.showField(*self.frames.field(index), *self.range)
+            drawn = self.showFields(index)
         elif self.frames.kind == "Particles" and self.asSurface.isChecked():
             drawn = self.view.show(*self.frames.surface(index))
         else:
@@ -830,6 +897,76 @@ class TaskFluidStudy:
         for row, (label, text) in enumerate(rows):
             self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(label))
             self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(text))
+
+    def cutting(self):
+        """Whether a cut is asked for and there is fluid inside to cut."""
+        return bool(self.cutRanges) and self.cutBox.isChecked()
+
+    def cutPlane(self, points):
+        """The plane the panel has: across its axis, as far along the
+        fluid's box -- that of the points -- as its slider is; and what it
+        lies across turned to the viewer, so that what is behind it stays."""
+        low = [float(v) for v in points.min(axis=0)]
+        high = [float(v) for v in points.max(axis=0)]
+        base, normal = FluidPlayback.cutPlane(
+            low, high, self.cutAxis.currentIndex(), self.cutAt.value() / self.cutAt.maximum()
+        )
+        try:
+            looking = Gui.ActiveDocument.ActiveView.getViewDirection()
+        except Exception:
+            looking = App.Vector(0, 0, -1)
+        if looking.dot(normal) > 0.0:
+            normal = -normal
+        return base, normal
+
+    def showFields(self, index):
+        """A frame of fields: the pressure on the faces the fluid touches;
+        or with a cut, the flow on the cut and the faces behind it plain."""
+        points, triangles, values = self.frames.field(index)
+        low, high = self.range
+        unit = "Pa"
+        note = ""
+        cut = None
+        if self.cutting():
+            if index in self.frames.inside and len(points):
+                base, normal = self.cutPlane(points)
+                cut = self.frames.section(index, base, normal)
+                if len(cut) == 0:
+                    cut = None
+                    note = translate("Fluid", "The plane cuts no fluid here.")
+            else:
+                note = translate(
+                    "Fluid", "The fluid inside is kept of the last frame only: no cut of this one."
+                )
+        self.cutNote.setText(note)
+        self.cutNote.setVisible(bool(note))
+        if cut is None:
+            self.cutView.remove()
+            drawn = self.view.showField(points, triangles, values, low, high)
+        else:
+            shows = self.cutShows.currentData()
+            low, high = self.cutRanges[shows]
+            unit = "m/s" if shows == "Speed" else "Pa"
+            arrows = None
+            if self.cutArrows.isChecked():
+                # some thirty arrows along the cut's longer side, the
+                # fastest as long as they are apart
+                span = int((cut.grid.max(axis=0) - cut.grid.min(axis=0)).max()) + 1
+                every = max(int(round(span / 30.0)), 1)
+                arrows = FluidPlayback.arrowsOf(cut, every, 0.9 * every * cut.step)
+            self.cutView.show(
+                cut, cut.speed() if shows == "Speed" else cut.pressure, low, high, arrows
+            )
+            drawn = self.view.show(
+                points, FluidPlayback.behind(points, triangles, cut.base, cut.across)
+            )
+        self.legendLow.setText("{:.4g} {}".format(low, unit))
+        self.legendHigh.setText("{:.4g} {}".format(high, unit))
+        return drawn
+
+    def onCut(self, *_args):
+        if self.frames is not None and self.frames.valid:
+            self.onFrame(self.slider.value())
 
     def onAsSurface(self, on):
         App.ParamGet("User parameter:BaseApp/Preferences/Mod/Fluid").SetBool(
@@ -875,6 +1012,7 @@ class TaskFluidStudy:
             self.study.cancel()
             self.study.finish()
         self.view.remove()
+        self.cutView.remove()
         self.putBack()
         for volume in self.hidden:
             try:

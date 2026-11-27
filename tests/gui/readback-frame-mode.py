@@ -43,7 +43,7 @@ import traceback
 import FreeCAD
 import FreeCADGui
 from PySide import QtCore, QtGui, QtWidgets
-from PySide6 import QtOpenGLWidgets
+from PySide6 import QtOpenGL, QtOpenGLWidgets
 
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
@@ -84,17 +84,32 @@ def held(tag):
     w = gl_widget()
     gl = ctypes.windll.opengl32 if os.name == "nt" else ctypes.CDLL("libGL.so.1")
     w.makeCurrent()
+    resolved = None
     try:
         ctx = QtGui.QOpenGLContext.currentContext()
-        ctx.functions().glBindFramebuffer(0x8D40, w.defaultFramebufferObject())
         dpr = w.devicePixelRatioF()
         pw, ph = int(w.width() * dpr), int(w.height() * dpr)
         buf = (ctypes.c_ubyte * (pw * ph * 4))()
         while gl.glGetError():
             pass
+        # With anti-aliasing on, the widget's framebuffer is multisampled,
+        # and glReadPixels from one is GL_INVALID_OPERATION: zeros read, and
+        # the error left queued for the renderer's next check to report as
+        # its own. Resolved into a plain framebuffer first, and read there.
+        resolved = QtOpenGL.QOpenGLFramebufferObject(pw, ph)
+        extra = ctx.extraFunctions()
+        extra.glBindFramebuffer(0x8CA8, w.defaultFramebufferObject())  # READ
+        extra.glBindFramebuffer(0x8CA9, resolved.handle())  # DRAW
+        extra.glBlitFramebuffer(0, 0, pw, ph, 0, 0, pw, ph, 0x4000, 0x2600)  # colour, NEAREST
+        extra.glBindFramebuffer(0x8D40, resolved.handle())
         gl.glPixelStorei(0x0D05, 1)
         gl.glReadPixels(0, 0, pw, ph, 0x1908, 0x1401, buf)
+        error = gl.glGetError()
+        if error:
+            note("NOTE reading the view: GL error 0x%x" % error)
+        extra.glBindFramebuffer(0x8D40, w.defaultFramebufferObject())
     finally:
+        resolved = None
         w.doneCurrent()
     img = QtGui.QImage(bytes(buf), pw, ph, pw * 4, QtGui.QImage.Format_RGBA8888).mirrored(False, True)
     img = img.convertToFormat(QtGui.QImage.Format_RGB32)

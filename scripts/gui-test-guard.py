@@ -96,6 +96,55 @@ if sys.platform == "win32" and os.environ.get("GT_DESKTOP", "").lower() == "scre
         ctypes.c_void_p(int(FreeCADGui.getMainWindow().winId())), ctypes.c_void_p(_HWND_TOPMOST),
         0, 0, 0, 0, _SWP_NOSIZE | _SWP_NOMOVE | _SWP_NOACTIVATE)
 
+# GT_CHECKS (scripts/gui-test.cmd): what has to hold whatever the test does, recorded for
+# scripts/gui-test-checks.py -- every message box shown, with its text, one left up for
+# 5 s closed so that the run goes on; and at quit, the documents still open.
+if os.environ.get("GT_CHECKS"):
+    from PySide import QtWidgets
+
+    _OUTDIR = os.path.dirname(RESULT)
+    _boxes = {}
+
+    def _checks_write(name, line):
+        with open(os.path.join(_OUTDIR, name), "a", encoding="utf-8") as f:
+            f.write(line.replace("\n", " ") + "\n")
+
+    def _box_sweep():
+        # Not an event filter: one on the application would run Python for every
+        # event and slow the tests it watches. The tests' own sweepers close a box
+        # at 100 to 200 ms, after this has seen it.
+        for w in QtWidgets.QApplication.topLevelWidgets():
+            if isinstance(w, QtWidgets.QMessageBox) and w.isVisible() and id(w) not in _boxes:
+                _boxes[id(w)] = [w, 0]
+                _checks_write("checks-dialogs.txt", "%s | %s | %s" % (
+                    w.windowTitle(), w.text(), w.informativeText()))
+        for key, entry in list(_boxes.items()):
+            box = entry[0]
+            try:
+                visible = box.isVisible()
+            except RuntimeError:
+                visible = False
+            if not visible:
+                del _boxes[key]
+                continue
+            entry[1] += 1
+            if entry[1] >= 100:
+                _checks_write("checks-dialogs.txt", "LEFT UP 5 s, closed | %s" % box.text())
+                box.close()
+                del _boxes[key]
+
+    _box_timer = QtCore.QTimer()
+    _box_timer.timeout.connect(_box_sweep)
+    _box_timer.start(50)
+
+    def _at_quit():
+        import FreeCAD
+
+        _checks_write("checks-end.txt", "documents open at quit: %s"
+                      % sorted(FreeCAD.listDocuments().keys()))
+
+    QtWidgets.QApplication.instance().aboutToQuit.connect(_at_quit)
+
 # FreeCAD puts the directory of a script it is handed on the path; this one is handed to
 # exec, so its helpers beside it (tests/gui/wsclient.py) would not be found
 sys.path.insert(0, os.path.dirname(os.path.abspath(SCRIPT)))

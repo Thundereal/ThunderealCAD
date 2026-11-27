@@ -783,6 +783,7 @@ SET(Dock_Windows_HPP_SRCS
     ReportView.h
     TransactionLogView.h
     AnimationTimeline.h
+    ControlRow.h
     PieMenu.h
     ToolBox.h
     Tree.h

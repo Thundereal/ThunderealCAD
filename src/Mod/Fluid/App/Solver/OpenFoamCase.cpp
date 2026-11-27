@@ -237,6 +237,45 @@ constexpr const char* steadySolution =
     "    residualControl { p 1e-7; U 1e-8; }\n}\n"
     "relaxationFactors { equations { U 0.9; } }\n";
 
+// With the eddies modelled (sec 14.6): k and omega carried upwind, the
+// distance to the wall their model asks for, and a stop the turbulent pipes
+// had long settled by.
+constexpr const char* eddySchemes =
+    "ddtSchemes { default steadyState; }\ngradSchemes { default Gauss linear; }\n"
+    "divSchemes\n{\n    default none;\n"
+    "    div(phi,U) bounded Gauss linearUpwind grad(U);\n"
+    "    div(phi,k) bounded Gauss upwind;\n    div(phi,omega) bounded Gauss upwind;\n"
+    "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
+    "laplacianSchemes { default Gauss linear corrected; }\n"
+    "interpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n"
+    "wallDist { method meshWave; }\n";
+
+constexpr const char* eddySolution =
+    "solvers\n{\n"
+    "    p { solver GAMG; smoother GaussSeidel; tolerance 1e-8; relTol 0.05; }\n"
+    "    \"(U|k|omega)\" { solver smoothSolver; smoother symGaussSeidel; tolerance 1e-9; "
+    "relTol 0.1; }\n"
+    "}\nSIMPLE\n{\n    nNonOrthogonalCorrectors 1;\n    consistent yes;\n"
+    "    residualControl { p 1e-5; U 1e-6; \"(k|omega)\" 1e-6; }\n}\n"
+    "relaxationFactors { equations { \".*\" 0.9; } }\n";
+
+// What comes in at an inlet is taken as stirred a twentieth of its speed,
+// in eddies 7% of the inlet's width across: a pipe's flow, come from
+// upstream.
+double eddyEnergy(const Inlet& inlet)
+{
+    const double stirred = 0.05 * inlet.speed;
+    return 1.5 * stirred * stirred;
+}
+
+double eddyRate(const Model& model, std::size_t inlet)
+{
+    const double width = Fluid::Solver::widthOf(model, inlet);
+    return width > 0.0 ? std::sqrt(eddyEnergy(model.inlets[inlet]))
+            / (std::sqrt(std::sqrt(0.09)) * 0.07 * width)
+                       : 0.0;
+}
+
 bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std::string& why)
 {
     if (model.resolution <= 0.0 || model.iterations <= 0) {
@@ -256,6 +295,16 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
     if (!(liquid.density > 0.0) || !(liquid.viscosity > 0.0)) {
         why = "the fluid's density and viscosity must be positive";
         return false;
+    }
+    if (model.turbulence == Turbulence::KOmegaSST) {
+        for (std::size_t i = 0; i < model.inlets.size(); ++i) {
+            if (!(widthOf(model, i) > 0.0)) {
+                why = "the fluid's space has nothing of the inlet, to size the eddies that "
+                      "come in by: "
+                    + model.inlets[i].source;
+                return false;
+            }
+        }
     }
     Vec3 low {};
     Vec3 high {};
@@ -388,10 +437,24 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
                 << each << "        fields (p);\n        probeLocations (" << probes
                 << " );\n    }\n";
     }
+    // The fluid inside, each cell's own value at its centre, once: of the
+    // flow as it is left
+    control << "    inside\n    {\n        type sets;\n        libs (sampling);\n"
+               "        writeControl onEnd;\n        setFormat raw;\n"
+               "        interpolationScheme cell;\n        fields (p U);\n"
+               "        sets { cells { type cellCentre; } }\n    }\n";
+    const bool eddies = model.turbulence == Turbulence::KOmegaSST;
+    if (eddies) {
+        // how far the first cell at the wall is from it, in the wall's own
+        // units: what says whether the wall functions were in their range
+        control << "    yPlus\n    {\n        type yPlus;\n        libs (fieldFunctionObjects);\n"
+                   "        writeControl onEnd;\n    }\n";
+    }
     control << "}\n";
     files["system/controlDict"] = dictionary("controlDict", control.str());
-    files["system/fvSchemes"] = dictionary("fvSchemes", steadySchemes);
-    files["system/fvSolution"] = dictionary("fvSolution", steadySolution);
+    files["system/fvSchemes"] = dictionary("fvSchemes", eddies ? eddySchemes : steadySchemes);
+    files["system/fvSolution"] =
+        dictionary("fvSolution", eddies ? eddySolution : steadySolution);
     files["system/decomposeParDict"] = dictionary(
         "decomposeParDict",
         "numberOfSubdomains " + std::to_string(std::max(options.processes, 1))
@@ -399,8 +462,10 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
     files["constant/transportProperties"] = dictionary(
         "transportProperties",
         "transportModel Newtonian;\nnu " + num(liquid.viscosity / liquid.density) + ";\n");
-    files["constant/turbulenceProperties"] =
-        dictionary("turbulenceProperties", "simulationType laminar;\n");
+    files["constant/turbulenceProperties"] = dictionary(
+        "turbulenceProperties",
+        eddies ? "simulationType RAS;\nRAS { RASModel kOmegaSST; turbulence on; printCoeffs off; }\n"
+               : "simulationType laminar;\n");
 
     std::string velocity = header("volVectorField", "U")
         + "dimensions [0 1 -1 0 0 0 0];\ninternalField uniform (0 0 0);\nboundaryField\n{\n";
@@ -424,6 +489,39 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
     }
     files["0/U"] = velocity + "    \".*\" { type noSlip; }\n}\n";
     files["0/p"] = pressure + "    \".*\" { type zeroGradient; }\n}\n";
+    if (eddies) {
+        // the fluid starts as the first inlet's comes; what flows back in
+        // at an outlet is taken as that too
+        const std::string energy = num(eddyEnergy(model.inlets.front()));
+        const std::string rate = num(eddyRate(model, 0));
+        const auto start = [](const char* name, const char* dimensions, const std::string& all) {
+            return header("volScalarField", name) + "dimensions " + dimensions
+                + ";\ninternalField uniform " + all + ";\nboundaryField\n{\n";
+        };
+        std::string k = start("k", "[0 2 -2 0 0 0 0]", energy);
+        std::string omega = start("omega", "[0 0 -1 0 0 0 0]", rate);
+        std::string nut = start("nut", "[0 2 -1 0 0 0 0]", "0");
+        for (std::size_t i = 0; i < model.inlets.size(); ++i) {
+            const std::string name = openingName(model, i);
+            k += "    " + name + " { type fixedValue; value uniform "
+                + num(eddyEnergy(model.inlets[i])) + "; }\n";
+            omega += "    " + name + " { type fixedValue; value uniform "
+                + num(eddyRate(model, i)) + "; }\n";
+            nut += "    " + name + " { type calculated; value uniform 0; }\n";
+        }
+        for (std::size_t j = 0; j < model.outlets.size(); ++j) {
+            const std::string name = openingName(model, model.inlets.size() + j);
+            k += "    " + name + " { type inletOutlet; inletValue uniform " + energy
+                + "; value uniform " + energy + "; }\n";
+            omega += "    " + name + " { type inletOutlet; inletValue uniform " + rate
+                + "; value uniform " + rate + "; }\n";
+            nut += "    " + name + " { type calculated; value uniform 0; }\n";
+        }
+        files["0/k"] = k + "    \".*\" { type kqRWallFunction; value uniform " + energy + "; }\n}\n";
+        files["0/omega"] =
+            omega + "    \".*\" { type omegaWallFunction; value uniform " + rate + "; }\n}\n";
+        files["0/nut"] = nut + "    \".*\" { type nutkWallFunction; value uniform 0; }\n}\n";
+    }
 
     made.steps.push_back({"blockMesh", "blockMesh"});
     made.steps.push_back({"snappyHexMesh", "snappyHexMesh -overwrite"});
@@ -781,6 +879,47 @@ bool Fluid::Solver::OpenFoam::readFieldVtk(const std::string& text,
     // a number cut short reads as a shorter number: the file is whole only
     // when its last line is
     return !text.empty() && text.back() == '\n';
+}
+
+bool Fluid::Solver::OpenFoam::readWallUnits(const std::string& text, std::array<double, 3>& units)
+{
+    bool found = false;
+    std::istringstream in(text);
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream row(line);
+        double step = 0.0;
+        std::string patch;
+        std::array<double, 3> read {};
+        if ((row >> step >> patch >> read[0] >> read[1] >> read[2]) && patch == "wall"
+            && std::isfinite(read[0]) && std::isfinite(read[1]) && std::isfinite(read[2])) {
+            units = read;
+            found = true;
+        }
+    }
+    return found;
+}
+
+bool Fluid::Solver::OpenFoam::readInside(const std::string& text, Frame& frame)
+{
+    frame.centres.clear();
+    frame.velocities.clear();
+    frame.pressures.clear();
+    if (text.empty() || text.back() != '\n') {
+        return false;
+    }
+    for (const auto& row : readTable(text)) {
+        if (row.size() != 7) {
+            frame.centres.clear();
+            frame.velocities.clear();
+            frame.pressures.clear();
+            return false;
+        }
+        frame.centres.push_back({row[0], row[1], row[2]});
+        frame.pressures.push_back(row[3]);
+        frame.velocities.push_back({row[4], row[5], row[6]});
+    }
+    return !frame.centres.empty();
 }
 
 std::vector<std::vector<double>> Fluid::Solver::OpenFoam::readTable(const std::string& text)

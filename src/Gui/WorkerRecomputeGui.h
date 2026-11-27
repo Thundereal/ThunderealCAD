@@ -41,9 +41,10 @@ namespace Gui
  * while a worker makes it, and its result is put in when it comes. False
  * when it is not handed over -- off, no workers, nothing to recompute --
  * and the caller recomputes here. A recompute the workers then fail or
- * cannot make is run here.
+ * cannot make is run here. `force` as Document::recompute()'s: Std_Refresh
+ * recomputes a document that skips recomputes, and so does this for it.
  */
-GuiExport bool recomputeByWorkers(App::Document& doc);
+GuiExport bool recomputeByWorkers(App::Document& doc, bool force = false);
 
 /** Whether the recompute an edit calls for -- the property editor's, as
  * it commits an edit -- is for the workers (docs/WorkerProcess.md sec 28):

@@ -2891,3 +2891,28 @@ fc_add_gui_test(GuiPMITargets_tests_run pmi-targets.py --timeout 300)
 # the frames made here, an export handing its frames to them, an edit
 # stopping them.
 fc_add_gui_test(GuiAnimationWorkers_tests_run animation-workers.py --timeout 600)
+# A tool tip asked for by a widget destroyed in the 80 ms the tip waits: no
+# crash from the show timer, and no tip for what is gone (SmokeTesting step 1).
+fc_add_gui_test(GuiTooltipWidgetGone_tests_run tooltip-widget-gone.py --timeout 300)
+# A workbench whose Initialize() asks for its own command, with the
+# Preferences/Commands record naming it: Initialize() runs once and the
+# records stay (PartDesign lost the Sprocket from Design Generators, and the
+# record at every start; SmokeTesting step 1).
+fc_add_gui_test(GuiWorkbenchInitCommandRecord_tests_run workbench-init-command-record.py
+                --timeout 300)
+# getMainWindow().menuBar() is the bar the user sees, in the custom title bar
+# too: not an empty hidden one Qt makes (SmokeTesting step 1).
+fc_add_gui_test(GuiMenuBarInTitleBar_tests_run menubar-in-title-bar.py --timeout 300)
+# The Animation timeline and the Transaction log, docked side by side, leave
+# the main window narrow enough for a 1920 screen (SmokeTesting step 1).
+fc_add_gui_test(GuiDocksFitTheScreen_tests_run docks-fit-the-screen.py --timeout 300)
+# bgfx on OpenGL at MSAA 4x shows the view, PBR and volumetrics on too; a
+# refused depth framebuffer no longer drops the colour blit (SmokeTesting step 1).
+fc_add_gui_test(GuiBgfxGlMsaaViewDrawn_tests_run bgfx-gl-msaa-view-drawn.py --timeout 300)
+# Entering and leaving a sketch does not restyle the whole task view: the
+# panels set their style sheet only when it changes (SmokeTesting step 1).
+fc_add_gui_test(GuiTaskViewNoRestyle_tests_run task-view-no-restyle.py --timeout 300)
+# A workbench switch, and so a sketch's edit, leaves no widgets behind: the
+# menus of the last switch are deleted, not only taken out (SmokeTesting step 1).
+fc_add_gui_test(GuiWorkbenchSwitchNoWidgetLeak_tests_run workbench-switch-no-widget-leak.py
+                --timeout 300)

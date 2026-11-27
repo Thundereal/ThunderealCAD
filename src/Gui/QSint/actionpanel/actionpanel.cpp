@@ -35,7 +35,13 @@ void ActionPanel::setScheme(ActionPanelScheme *scheme)
 {
   if (scheme) {
     myScheme = scheme;
-    setStyleSheet(myScheme->actionStyle);
+    // Only a sheet that differs: setStyleSheet() repolishes the whole
+    // subtree even when the sheet is the one it has, and the task view
+    // asks again at every edit's start and end -- some 3300 style
+    // changes each time, which an application style sheet makes cost
+    // a second and more (leaving a sketch: 1.6 s against 0.3).
+    if (styleSheet() != myScheme->actionStyle)
+        setStyleSheet(myScheme->actionStyle);
 
     // set scheme for children
     QObjectList list(children());

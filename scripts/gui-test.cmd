@@ -26,6 +26,19 @@ rem               run-time on PATH (the conda env, OCCT, Coin) and runs the
 rem               rest; without it the caller's PATH must already have them
 rem   GT_SEED_CFG a user.cfg the test starts from
 rem   GT_ADDONS   a Mod directory of addons, linked as the test's own Mod
+rem   GT_CLONE    a profile folder (%APPDATA%\Thundereal) to run on a COPY of:
+rem               its user.cfg and system.cfg, as the user has them -- the
+rem               test profile's normalising (gui-test-profile.py) is not
+rem               run, the window keeps its stored size (GT_SCREEN=full), the
+rem               screen keeps its own DPI, and GT_CHECKS is on
+rem               (docs/SmokeTesting.md sec 3, step 1). The folder is only
+rem               read; the copy is the test's own.
+rem   GT_CHECKS   1: the checks that hold whatever a test does -- the log's
+rem               errors and warnings, every message box, and the end (exit
+rem               code, crash files, transient folders left, documents left
+rem               open, the configuration's changed keys) -- into
+rem               <outdir>\checks.txt. Needs FC_PYTHON, a python to run
+rem               scripts\gui-test-checks.py with.
 rem
 rem The configuration and the app data live under <outdir>\home
 rem (FREECAD_USER_HOME): never the user's own.
@@ -55,6 +68,16 @@ mkdir "%OUT%\home"
 > "%OUT%\gui-test.out" echo %SCRIPT%
 if defined GT_SEED_CFG copy /y "%GT_SEED_CFG%" "%OUT%\home\user.cfg" > nul
 if defined GT_ADDONS if exist "%GT_ADDONS%" mklink /J "%OUT%\home\Mod" "%GT_ADDONS%" > nul
+if not defined GT_CLONE goto :cloned
+if not exist "%GT_CLONE%\user.cfg" goto :no_clone
+copy /y "%GT_CLONE%\user.cfg" "%OUT%\home\user.cfg" > nul
+if exist "%GT_CLONE%\system.cfg" copy /y "%GT_CLONE%\system.cfg" "%OUT%\home\system.cfg" > nul
+set "GT_NO_PROFILE=1"
+set "GT_SCREEN=full"
+set "GT_CHECKS=1"
+:cloned
+rem the configuration as the test got it, for the end check to compare with
+if defined GT_CHECKS if exist "%OUT%\home\user.cfg" copy /y "%OUT%\home\user.cfg" "%OUT%\user.cfg.start" > nul
 
 set "GT_OUT=%OUT%"
 set "GT_RESULT=%OUT%\result.txt"
@@ -69,11 +92,12 @@ rem against sizes set in logical units, and a monitor at 125% made every one
 rem of those 1.25x off (a maximized window: 4096 logical, 5120 real) -- 35 of the 52
 rem tests that failed on such a box passed with this. A test after another
 rem ratio still asks for it, QT_SCALE_FACTOR on top of this.
-if not defined QT_ENABLE_HIGHDPI_SCALING set "QT_ENABLE_HIGHDPI_SCALING=0"
+rem Not on a clone: it runs at the user's own scaling.
+if not defined GT_CLONE if not defined QT_ENABLE_HIGHDPI_SCALING set "QT_ENABLE_HIGHDPI_SCALING=0"
 rem Fonts at xvfb's 96 dpi too: without it a point is still 1.25 of xvfb's pixels
 rem at 125% (the ratio above stays 1), and widths fitted to text come out wider
 rem (a spin box's fitted minimum 87 px where 80 is the most it may be).
-if not defined QT_FONT_DPI set "QT_FONT_DPI=96"
+if not defined GT_CLONE if not defined QT_FONT_DPI set "QT_FONT_DPI=96"
 
 set "RUNCALL="
 if defined FC_RUNNER set RUNCALL=call "%FC_RUNNER%"
@@ -88,6 +112,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0run-on-hidden-desktop.
 set "RC=%errorlevel%"
 rem the redirect goes first: "EXIT 0>>" would redirect handle 0
 >> "%OUT%\run.log" echo EXIT %RC%
+rem The checks report; they do not change the test's verdict
+if not defined GT_CHECKS goto :checked
+if not defined FC_PYTHON (
+    echo gui-test: GT_CHECKS needs FC_PYTHON, checks SKIPPED
+    goto :checked
+)
+"%FC_PYTHON%" "%~dp0gui-test-checks.py" "%OUT%" %RC%
+:checked
 
 if not exist "%GT_RESULT%" goto :no_result
 type "%GT_RESULT%"
@@ -114,6 +146,9 @@ echo gui-test: no script "%SCRIPT%"
 exit /b 2
 :no_exe
 echo gui-test: no program "%FC_EXE%" (set FC_BUILD or FC_EXE)
+exit /b 2
+:no_clone
+echo gui-test: GT_CLONE "%GT_CLONE%" has no user.cfg
 exit /b 2
 :not_ours
 echo gui-test: "%OUT%" exists and is not a gui-test.cmd output directory; not touching it

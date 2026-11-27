@@ -9,7 +9,10 @@ when GT_CHECKS was on, and writes <outdir>\\checks.txt, one finding a line:
   dialog   a message box shown, with its text (check 2)
   end      the exit code, a crash log or dump in the test's home, a folder
            left in its transient folder, a document open at quit, a key of
-           user.cfg the run changed (check 8)
+           user.cfg the run changed (check 8). A run that started without a
+           user.cfg (the test profile's) counts every key it wrote as added:
+           that is the baseline the suite holds a clone run's keys against,
+           since most keys a run changes are the test script's own.
 
 Plain Python, no FreeCAD: run with any python 3.
 """
@@ -94,7 +97,9 @@ def end_findings(out, rc):
         found.append("no record of the quit (the program did not reach aboutToQuit)")
     before = cfg_values(os.path.join(out, "user.cfg.start"))
     after = cfg_values(os.path.join(home, "user.cfg"))
-    if before is not None and after is not None:
+    if before is None:
+        before = {}  # no user.cfg at the start: every key is the run's
+    if after is not None:
         for key in sorted(set(before) | set(after)):
             if before.get(key) != after.get(key):
                 what = ("added" if key not in before else

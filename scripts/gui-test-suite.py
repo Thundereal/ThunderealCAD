@@ -13,6 +13,17 @@ finding of the clone run that the normal run of the same test does not have
 is a finding of the clone. summary.md and summary.json in --out say how many
 pass in both, which fail only under the clone, and what the checks found.
 
+Two things keep that comparison about the profile and not the rig:
+
+- user.cfg keys (check 8) are held against the normal run by KEY: a key the
+  normal run of the same test wrote is the test's own (its SetBool/SetInt) or
+  any profile's, whether the clone run added it or changed it. A key the clone
+  run removed is held only against a removal: the normal run writing a key
+  the clone's run loses is a finding.
+- the log is compared at one verbosity: the clone's copy of the profile has
+  its BaseApp/LogLevels group taken out, as the test profile has none, so a
+  profile logging at a higher level does not count as new log lines.
+
 A run already in --out with its verdict is not run again (--again to redo):
 a suite of hours can be stopped and picked up.
 
@@ -117,6 +128,42 @@ def load(args, name, mode):
     return verdict
 
 
+CFG_FINDING = "end | user.cfg "
+
+
+def cfg_key(check):
+    """A check-8 finding ("end | user.cfg added /Root/...") as (wrote, key): wrote is
+    True for added or changed, False for removed; None for any other check"""
+    if not check.startswith(CFG_FINDING):
+        return None
+    parts = check[len(CFG_FINDING):].split(" ", 1)  # the kind, then the key
+    if len(parts) != 2:
+        return None
+    return (parts[0] != "removed", parts[1])
+
+
+def pin_log_levels(cfg):
+    """Take BaseApp/LogLevels out of the clone's copy of user.cfg (the test
+    profile has none); what it held, as "name=value" strings"""
+    import xml.etree.ElementTree as ET
+
+    if not os.path.exists(cfg):
+        return []
+    tree = ET.parse(cfg)
+    removed = []
+    for base in tree.getroot().iter("FCParamGroup"):
+        if base.get("Name") != "BaseApp":
+            continue
+        for group in list(base):
+            if group.tag == "FCParamGroup" and group.get("Name") == "LogLevels":
+                removed += ["%s=%s" % (c.get("Name"), c.get("Value", c.text or ""))
+                            for c in group]
+                base.remove(group)
+    if removed:
+        tree.write(cfg, encoding="utf-8", xml_declaration=True)
+    return removed
+
+
 def summarise(args, tests, modes):
     rows = []
     cfg_keys = {}
@@ -129,7 +176,12 @@ def summarise(args, tests, modes):
             row[m] = v[m]["passed"]
         if "clone" in modes and "normal" in modes:
             base = set(v["normal"]["checks"])
-            new = [c for c in v["clone"]["checks"] if c not in base]
+            # a key the clone run wrote and the normal run wrote too (added on the
+            # empty test profile, changed on the clone) is the same write; a key
+            # the clone run lost while the normal run wrote it is not
+            base_keys = {k for k in map(cfg_key, base) if k is not None}
+            new = [c for c in v["clone"]["checks"]
+                   if c not in base and cfg_key(c) not in base_keys]
             row["new_in_clone"] = new
             row["clone_fails"] = v["clone"]["fails"]
             for c in new:
@@ -145,6 +197,10 @@ def summarise(args, tests, modes):
     lines = ["# GUI suite: %s" % ", ".join(modes), ""]
     lines.append("%d tests with a verdict in every mode, of %d registered." % (
         len(rows), len(tests)))
+    pinned = read(os.path.join(args.out, "profile", "pinned.txt"))
+    if "clone" in modes and pinned:
+        lines.append("The clone's LogLevels taken out, as the test profile has none: %s." %
+                     ", ".join(pinned))
     if "clone" in modes and "normal" in modes:
         both = count(lambda r: r["normal"] and r["clone"])
         only_clone = count(lambda r: r["normal"] and not r["clone"])
@@ -218,6 +274,12 @@ def main():
                 src = os.path.join(args.clone, name)
                 if os.path.exists(src):
                     shutil.copy2(src, os.path.join(snap, name))
+        # the log compared at the test profile's verbosity; a copy made by an
+        # earlier run of the suite is pinned as well, once
+        removed = pin_log_levels(os.path.join(snap, "user.cfg"))
+        if removed:
+            with open(os.path.join(snap, "pinned.txt"), "a", encoding="utf-8") as f:
+                f.write("".join(r + "\n" for r in removed))
         args.clone = snap
     if not args.summary_only:
         work = [(t, m) for t in tests for m in modes]

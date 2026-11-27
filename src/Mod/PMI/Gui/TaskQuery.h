@@ -25,6 +25,7 @@
 #ifndef PMIGUI_TASKQUERY_H
 #define PMIGUI_TASKQUERY_H
 
+#include <string>
 #include <vector>
 
 #include <App/DocumentObserver.h>
@@ -35,6 +36,7 @@
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
+class QPushButton;
 
 namespace PMIGui
 {
@@ -44,6 +46,11 @@ namespace PMIGui
  * on it and the tolerances citing a datum on it. It follows the pick; a
  * pick of no face leaves the list as it is, so a callout clicked in the
  * list is selected -- its faces outlined -- and the list stays.
+ *
+ * Under the list, the coverage of the part picked (docs/GDandT.md sec 8,
+ * PMI::Api::coverage): how many of its faces a callout is on, how many only
+ * the set's general tolerance covers and how many nothing does, and a
+ * button selecting those last ones.
  */
 class TaskQuery: public QWidget, public Gui::SelectionObserver
 {
@@ -59,11 +66,22 @@ private:
     void onSelectionChanged(const Gui::SelectionChanges& msg) override;
     void update();
     void clicked(QListWidgetItem* item);
+    /// The coverage of the set of \a solid, picked through \a top and \a subname
+    void showCoverage(App::DocumentObject* top, const char* subname, App::DocumentObject* solid);
+    void selectUncovered();
 
     bool _pending = false;
+    /// Set while the panel selects: its own selection is no pick
+    bool _selecting = false;
     QLabel* _what;
     QListWidget* _list;
+    QLabel* _coverage;
+    QPushButton* _selectUncovered;
     std::vector<App::DocumentObjectT> _items;
+    /// What the button selects: through the pick's top object, the path to
+    /// each face nothing tolerances
+    App::DocumentObjectT _top;
+    std::vector<std::string> _uncovered;
 };
 
 class TaskDlgQuery: public Gui::TaskView::TaskDialog

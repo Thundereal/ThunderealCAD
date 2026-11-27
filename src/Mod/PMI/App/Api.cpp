@@ -27,6 +27,7 @@
 #include <cmath>
 #include <cstring>
 #include <algorithm>
+#include <map>
 #include <set>
 
 #include <BRepGProp.hxx>
@@ -402,6 +403,10 @@ std::vector<Api::Applies> Api::query(const App::DocumentObject* solid, const std
     const std::string name = Data::oldElementName(face.c_str());
     auto holds = [&](const TolerancedFeature* f) {
         const auto& objs = f->References.getValues();
+        // The whole part holds every face of it
+        if (f->getKind() == TolerancedFeature::WholePart) {
+            return !objs.empty() && objs.front() == solid;
+        }
         auto subs = f->References.getSubValues(false);
         for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
             if (objs[i] == solid && Data::oldElementName(subs[i].c_str()) == name) {
@@ -419,7 +424,8 @@ std::vector<Api::Applies> Api::query(const App::DocumentObject* solid, const std
         }
         for (auto f : featuresOf(c)) {
             if (holds(f)) {
-                out.push_back({c, "on"});
+                const bool whole = f->getKind() == TolerancedFeature::WholePart;
+                out.push_back({c, whole ? "all over" : "on"});
                 seen.insert(c);
                 if (auto datum = freecad_cast<Datum*>(c)) {
                     letters.insert(datum->Letter.getStrValue());
@@ -452,6 +458,69 @@ std::vector<Api::Applies> Api::query(const App::DocumentObject* solid, const std
         }
         if (!cited.empty()) {
             out.push_back({gt, "datum " + cited});
+        }
+    }
+    return out;
+}
+
+std::vector<Api::FaceCoverage> Api::coverage(const AnnotationSet* set)
+{
+    std::vector<FaceCoverage> out;
+    auto part = set ? set->getPart() : nullptr;
+    if (!part) {
+        return out;
+    }
+    std::vector<App::DocumentObject*> solids;
+    if (auto body = freecad_cast<Part::BodyBase*>(part)) {
+        solids = solidBodiesOf(body);
+    }
+    else {
+        solids.push_back(part);
+    }
+    // The faces a callout is on, by solid; a solid a callout is all over
+    std::map<const App::DocumentObject*, std::set<std::string>> on;
+    std::set<const App::DocumentObject*> allOver;
+    for (auto obj : set->Group.getValues()) {
+        auto c = freecad_cast<Callout*>(obj);
+        if (!c) {
+            continue;
+        }
+        for (auto f : featuresOf(c)) {
+            const auto& objs = f->References.getValues();
+            if (f->getKind() == TolerancedFeature::WholePart) {
+                if (!objs.empty()) {
+                    allOver.insert(objs.front());
+                }
+                continue;
+            }
+            auto subs = f->References.getSubValues(false);
+            for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
+                on[objs[i]].insert(Data::oldElementName(subs[i].c_str()));
+            }
+        }
+    }
+    const std::string general = set->GeneralTolerance.getStrValue();
+    const bool hasGeneral = general.find_first_not_of(" \t") != std::string::npos;
+    for (auto solid : solids) {
+        unsigned long count = 0;
+        try {
+            count = Part::Feature::getTopoShape(solid).countSubShapes(TopAbs_FACE);
+        }
+        catch (const Base::Exception&) {
+        }
+        catch (const Standard_Failure&) {
+        }
+        const auto& faces = on[solid];
+        for (unsigned long i = 1; i <= count; ++i) {
+            std::string face = "Face" + std::to_string(i);
+            Coverage how = Coverage::None;
+            if (allOver.count(solid) || faces.count(face)) {
+                how = Coverage::Annotated;
+            }
+            else if (hasGeneral) {
+                how = Coverage::General;
+            }
+            out.push_back({solid, std::move(face), how});
         }
     }
     return out;

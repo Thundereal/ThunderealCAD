@@ -25,17 +25,49 @@
 #include "PreCompiled.h"
 #include <QLabel>
 #include <QListWidget>
+#include <QPushButton>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <Base/Tools.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/TaskView/TaskView.h>
+#include <Mod/Part/App/BodyBase.h>
+#include <Mod/PMI/App/AnnotationSet.h>
 #include <Mod/PMI/App/Api.h>
 #include <Mod/PMI/App/Callout.h>
 #include "TaskQuery.h"
 
 using namespace PMIGui;
+
+namespace
+{
+/// The part of \a subname, picked through \a top, up to and including
+/// \a obj ("Part.Body."); empty for \a top itself. False when the path does
+/// not go through \a obj.
+bool pathTo(const App::DocumentObject* top, const char* subname, const App::DocumentObject* obj,
+            std::string& path)
+{
+    path.clear();
+    if (top == obj) {
+        return true;
+    }
+    const std::string name = obj->getNameInDocument();
+    const std::string sub = subname ? subname : "";
+    std::size_t pos = 0;
+    std::size_t dot;
+    while ((dot = sub.find('.', pos)) != std::string::npos) {
+        path += sub.substr(pos, dot + 1 - pos);
+        if (dot - pos == name.size() && sub.compare(pos, dot - pos, name) == 0) {
+            return true;
+        }
+        pos = dot + 1;
+    }
+    path.clear();
+    return false;
+}
+}  // namespace
 
 TaskQuery::TaskQuery(QWidget* parent)
     : QWidget(parent)
@@ -51,13 +83,23 @@ TaskQuery::TaskQuery(QWidget* parent)
     _list->setObjectName(QStringLiteral("applies"));
     layout->addWidget(_list);
     connect(_list, &QListWidget::itemClicked, this, &TaskQuery::clicked);
+    _coverage = new QLabel(this);
+    _coverage->setObjectName(QStringLiteral("coverage"));
+    _coverage->setWordWrap(true);
+    layout->addWidget(_coverage);
+    _selectUncovered = new QPushButton(tr("Select the faces nothing tolerances"), this);
+    _selectUncovered->setObjectName(QStringLiteral("selectUncovered"));
+    _selectUncovered->setEnabled(false);
+    layout->addWidget(_selectUncovered);
+    connect(_selectUncovered, &QPushButton::clicked, this, &TaskQuery::selectUncovered);
     update();
 }
 
 void TaskQuery::onSelectionChanged(const Gui::SelectionChanges& msg)
 {
-    if (msg.Type != Gui::SelectionChanges::AddSelection
-        && msg.Type != Gui::SelectionChanges::SetSelection) {
+    if (_selecting
+        || (msg.Type != Gui::SelectionChanges::AddSelection
+            && msg.Type != Gui::SelectionChanges::SetSelection)) {
         return;
     }
     if (!_pending) {
@@ -95,8 +137,9 @@ bool TaskQuery::show(App::DocumentObject* top, const char* subname)
                        .arg(QString::fromStdString(face),
                             QString::fromUtf8(solid->Label.getValue())));
     for (auto& a : applies) {
-        QString how = a.how == "on" ? tr("on it")
-                                    : tr("cites %1").arg(QString::fromStdString(a.how));
+        QString how = a.how == "on"         ? tr("on it")
+            : a.how == "all over"           ? tr("all over the part")
+                                            : tr("cites %1").arg(QString::fromStdString(a.how));
         QString text = QStringLiteral("%1  %2  (%3)")
                            .arg(QString::fromUtf8(a.callout->Label.getValue()),
                                 QString::fromUtf8(a.callout->EquivalentText.getValue()),
@@ -105,7 +148,63 @@ bool TaskQuery::show(App::DocumentObject* top, const char* subname)
         item->setData(Qt::UserRole, int(_items.size()));
         _items.emplace_back(a.callout);
     }
+    showCoverage(top, subname, solid);
     return true;
+}
+
+void TaskQuery::showCoverage(App::DocumentObject* top, const char* subname,
+                             App::DocumentObject* solid)
+{
+    _top = App::DocumentObjectT();
+    _uncovered.clear();
+    // A solid body is reached through its Body, the others' through it; the
+    // faces of a Body's every solid body are its part's
+    auto body = Part::BodyBase::findBodyOf(solid);
+    std::string path;
+    const bool reachable = pathTo(top, subname, body ? body : solid, path);
+    int annotated = 0;
+    int general = 0;
+    int none = 0;
+    for (auto& c : PMI::Api::coverage(PMI::AnnotationSet::find(solid))) {
+        if (c.coverage == PMI::Api::Coverage::Annotated) {
+            ++annotated;
+        }
+        else if (c.coverage == PMI::Api::Coverage::General) {
+            ++general;
+        }
+        else {
+            ++none;
+            if (reachable) {
+                _uncovered.push_back(
+                    path + (body ? std::string(c.solid->getNameInDocument()) + "." : std::string())
+                    + c.face);
+            }
+        }
+    }
+    if (reachable) {
+        _top = App::DocumentObjectT(top);
+    }
+    _coverage->setText(tr("Faces of the part: %1 toleranced, %2 by the general tolerance only, "
+                          "%3 by nothing")
+                           .arg(annotated)
+                           .arg(general)
+                           .arg(none));
+    _selectUncovered->setEnabled(!_uncovered.empty());
+}
+
+void TaskQuery::selectUncovered()
+{
+    auto top = _top.getObject();
+    if (!top || _uncovered.empty()) {
+        return;
+    }
+    // Not a pick: the list stays as it is
+    Base::StateLocker guard(_selecting);
+    Gui::Selection().clearSelection();
+    for (auto& sub : _uncovered) {
+        Gui::Selection().addSelection(top->getDocument()->getName(), top->getNameInDocument(),
+                                      sub.c_str());
+    }
 }
 
 void TaskQuery::clicked(QListWidgetItem* item)

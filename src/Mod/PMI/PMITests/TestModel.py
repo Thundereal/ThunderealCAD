@@ -1680,6 +1680,74 @@ class TestQuery(Base):
         with self.assertRaises(ValueError):
             PMI.query(self.body, "%s.Edge9999" % self.hole.Name)
 
+    def all_over(self):
+        """A profile all over the part, as NIST's general profile"""
+        whole = PMI.feature(self.set, self.solid, [], "WholePart")
+        drf = self.add("DatumReferenceFrame", "DRFA", Compartments=["A"])
+        gt = self.add("GeometricTolerance", "Profile", Characteristic="ProfileOfSurface",
+                      Value=0.5, Feature=whole, DatumSystem=drf)
+        self.recompute()
+        return gt
+
+    def test_a_tolerance_all_over_applies_to_every_face(self):
+        self.all_over()
+        self.assertEqual(self.query(BACK), [("Profile", "all over")])
+        self.assertEqual(self.query(TOP), [("Flatness", "on"), ("Profile", "all over")])
+        # Listed once, as all over, though it also cites the datum on it
+        self.assertEqual(self.query(BOTTOM), [("DatumA", "on"), ("Profile", "all over"),
+                                              ("Position", "datum A")])
+
+    def coverage(self):
+        out = {}
+        for solid, face, how in PMI.coverage(self.set):
+            self.assertEqual(solid, self.solid)
+            out[face] = how
+        self.assertEqual(len(out), len(self.solid.Shape.Faces))
+        return out
+
+    def at(self, point):
+        return face_at(self.solid.Shape, point)
+
+    def test_coverage(self):
+        """Faces no annotation is on (docs/GDandT.md sec 8): the front and the
+        back -- a datum cited is not its face toleranced"""
+        cov = self.coverage()
+        none = sorted(f for f, how in cov.items() if how == "None")
+        self.assertEqual(none, sorted([self.at(FRONT), self.at(BACK)]))
+        for p in (TOP, BOTTOM, LEFT, RIGHT, HOLE):
+            self.assertEqual(cov[self.at(p)], "Annotated", p)
+
+    def test_coverage_of_the_general_tolerance(self):
+        self.set.GeneralTolerance = "ISO 2768-mK"
+        self.recompute()
+        cov = self.coverage()
+        self.assertEqual(sorted(f for f, how in cov.items() if how == "General"),
+                         sorted([self.at(FRONT), self.at(BACK)]))
+        self.assertNotIn("None", cov.values())
+        self.set.GeneralTolerance = "  "
+        self.recompute()
+        self.assertEqual(list(self.coverage().values()).count("None"), 2)
+
+    def test_coverage_all_over(self):
+        self.all_over()
+        self.assertEqual(set(self.coverage().values()), {"Annotated"})
+
+    def test_coverage_follows_the_faces(self):
+        """A face the part gains is not covered; a feature's faces renamed by
+        an edit are followed"""
+        before = len(self.solid.Shape.Faces)
+        # A notch in the back right corner, clear of the points faces are
+        # found by
+        notch = self.body.newObjectAt("PartDesign::SubtractiveBox", "Notch")
+        notch.Length, notch.Width, notch.Height = 5, 5, 10
+        notch.Placement = App.Placement(V(35, 15, 0), App.Rotation())
+        self.recompute()
+        self.assertGreater(len(self.solid.Shape.Faces), before)
+        cov = self.coverage()
+        for p in (TOP, BOTTOM, LEFT, RIGHT, HOLE):
+            self.assertEqual(cov[self.at(p)], "Annotated", p)
+        self.assertEqual(list(cov.values()).count("Annotated"), 5)
+
 
 class TestApi(Base):
     """What the commands call (docs/GDandT.md sec 3, 4)"""

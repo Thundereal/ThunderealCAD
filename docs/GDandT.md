@@ -521,8 +521,9 @@ task panel and the tree:
   does not constrain what the characteristic needs (orientation needs a primary);
 - model: a broken or remapped feature, a dimension whose nominal and `Driver` disagree, a basic
   dimension with a tolerance;
-- coverage (later): faces of the part no annotation or the general tolerance covers -- the
-  "fully toleranced" question DimXpert's colours answer [A1].
+- coverage: faces of the part no annotation or the general tolerance covers -- the
+  "fully toleranced" question DimXpert's colours answer [A1]. On demand, not in the check: a
+  part being annotated has such faces until it is done (10.27).
 
 ## 9. TechDraw
 
@@ -2199,6 +2200,25 @@ compares; it took our curves for none.
   NIST writes and we do not are each face of a solid styled as the solid is, or a face of a
   surface model as its model is (`assertBodyColoured`). Not done: the five surfaces of
   STC-09 are written in the body's colour, their face each in its own (drawn the same).
+
+### 10.27 P5: coverage, and a tolerance all over in the query (2026-11-27)
+
+- **Coverage** (sec 8): `PMI::Api::coverage(set)`, Python `PMI.coverage(set)` -> (solid,
+  'FaceN', how) for every face of the set's part, each solid body of a Body: 'Annotated' when a
+  dimension, a tolerance, a datum, a datum target or a note is on a feature holding it, or one
+  is all over the part; else 'General' when the set has a general tolerance; else 'None'. A
+  datum cited is not its face toleranced. Not part of `PMI.check`: a part being annotated has
+  uncovered faces until it is done, and the check would flag every one meanwhile. The query
+  panel gives the part's counts under its list and a button selecting the faces nothing
+  tolerances -- the solid body's faces, through the Body, which the selection draws on the
+  feature showing the solid (`TestQuery.test_coverage*`, `tests/gui/pmi-query.py`).
+- **A tolerance all over the part** (a WholePart feature, NIST's general profile) names no
+  face, so the query listed it for none. It applies to every face: listed as 'all over' for
+  each (`test_a_tolerance_all_over_applies_to_every_face`).
+- Not done: colouring the faces by coverage, as DimXpert does -- the drawn faces are the
+  feature's showing the solid, numbered as its shape, not the solid body's; and whether a
+  face is fully constrained (size, form, orientation and location to the datums), which is
+  DimXpert's green rather than "something is on it".
 
 ## 11. Decisions (made 2026-11-19)
 

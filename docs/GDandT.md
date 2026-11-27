@@ -2074,9 +2074,9 @@ compares; it took our curves for none.
   `StepIntegerAttributes`, `StepRealAttributes` for numbers) and given back on export; a part
   the file gave geometric validation properties is marked `StepValidation` and written with
   them, computed of the shape written (OCCT names them its way: 'surface area measure', one
-  property each). Not written yet: the attribute validation property (counts of them), PMI
-  validation properties (each graphic's length, area, facets; NIST's of its own graphics) and
-  tessellated validation properties.
+  property each). The attribute and PMI validation properties: sec 10.28. Not written yet:
+  the graphics' own measures (curve length, segments, facets), tessellated validation
+  properties.
 - **Graphics as curves (CTC-05).** NIST draws CTC-05's PMI as annotation curve occurrences
   of polylines and circles, ours were always tessellated (SFA: 'Graphic PMI (polyline)'). A
   PMI whose graphic was curves is marked (`XCAFDoc_DimTolTool::SetPresentationCurves`,
@@ -2230,6 +2230,61 @@ compares; it took our curves for none.
   feature's showing the solid, numbered as its shape, not the solid body's; and whether a
   face is fully constrained (size, form, orientation and location to the datums), which is
   DimXpert's green rather than "something is on it".
+
+### 10.28 P5: validation properties other than geometric ones (2026-11-27)
+
+The CAx-IF recommended practices' attribute and PMI validation properties, which 12 of the 17
+NIST files carry (CTC-03: 61 of them), were read as nothing and written as nothing.
+
+- **Read.** OCCT's `characterized_definition` took none of what a PMI validation property is
+  of -- a size, a tolerance, a graphic's `characterized_item_within_representation`, a view's
+  `model_geometric_view` or characterized draughting model -- so the property's definition read
+  as nothing (the fork's select takes them now: sizes, tolerances, representations, and
+  entities the schema has no type of). `STEPCAFControl_Reader::ReadValidationItems` keeps,
+  for each property, its name and its items' names on the label of what it is of
+  (`XCAFDoc::ValidationItemsGUID`): a product's attribute validation property and a part's
+  PMI validation property on the product; a PMI's on its label, its graphic's there too
+  ('presentation'), a datum's of the datum itself, not its feature ('datum'); a view's on the
+  view. The import keeps them (`StepValidationItems`: on the part, the callout, the view) and
+  the export gives them back.
+- **Written, computed of what is written** (`writeAttributeValidation`,
+  `writePMIValidation`), each property with the items the file had that the writer
+  computes:
+  - a product's attribute counts: of the attributes written -- its text, integer and real
+    ones, those of the reals that are lengths; an edge's, a face's, a PMI's none (FreeCAD
+    keeps a product's only);
+  - a part's PMI counts: its dimensional locations, sizes (a size that is its own datum
+    feature one) and tolerances as entities written; its datums and targets as labels (NIST
+    counts a datum by its feature: CTC-02's 6, of 10 datum entities); its annotations its
+    PMI's graphics (a placeholder's callout not one); its views; its composite frames;
+  - a PMI's: its graphics (one drawn in another's graphic that one's), the area of the
+    faces it is on and the length of its edges (a datum target's: the target itself -- a
+    line's length, a rectangle's or a circle's area), the datums a tolerance cites as NIST
+    gives them ('A,B,C', a common datum 'H-J', 'none');
+  - a graphic's: the area and the length of what its PMI is on;
+  - a view's: the annotations it lists (of its model geometric view: none is written in a
+    file of AP242's first edition, so neither is the property).
+  Not computed, so not written: the equivalent unicode string, a graphic's own measures
+  (tessellated curve length, segments, facets, polyline length), a view's scale and
+  coordinates, the counts of semantic text notes, tessellated validation properties.
+- **What NIST's say, against what is written** (`test_validation_properties_as_the_file_has_them`,
+  every file): each property the file has is written again, but those of what is not read
+  -- CTC-01's two locations and CTC-03's Linear Size.10 given no value (read as notes,
+  sec 10.9), CTC-03's datum F, which no frame cites, not read at all -- and a view's where
+  no model geometric view is written. A part's counts are those of the file written, and
+  NIST's own are not always theirs: STC-10 gives 19 locations, its file has 2; CTC-05 gives
+  10 views, its file has 2 cameras. The datums cited are NIST's in every file. The
+  attribute counts are NIST's, but for what is not read whole: CTC-04's edge attribute, and
+  six reals given two or three times under one name, kept once each (XCAF's named data);
+  CTC-05's two integers, read as reals; FTC-07's measures other than lengths, read as reals.
+  The affected areas are NIST's to 1% in CTC-02, STC-08 and STC-10. Not in the others:
+  NIST uses square inches beside millimetres within one file (CTC-03), which the test reads
+  by each value's unit; STC-06 gives every area as 0; FTC-06's locations, FTC-07's,
+  STC-07's and FTC-08 -e4-tg's differ, not yet explained.
+- **Open, found by it:** a datum no frame cites is not read (CTC-03's F: OCCT's reader makes
+  a datum label for each time a frame cites one); NIST's view properties are of a
+  characterized draughting model where FreeCAD writes a plain one, so they are written of
+  the model geometric view.
 
 ## 11. Decisions (made 2026-11-19)
 

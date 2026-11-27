@@ -255,14 +255,11 @@ std::uint32_t get32(const char* p)
         | (static_cast<std::uint32_t>(b[2]) << 16) | (static_cast<std::uint32_t>(b[3]) << 24);
 }
 
-/// The most a message's header, or its body, can be: each length is four
-/// bytes on the wire
-constexpr std::size_t MessageMost = 0xffffffffu;
-
-/// Why `size` bytes cannot go as a body, or nothing when they can
+/// Why `size` bytes cannot go as a body, or nothing when they can: past
+/// WorkerPool::messageMost(), which a test may lower (sec 80)
 std::string tooBig(std::size_t size)
 {
-    if (size <= MessageMost) {
+    if (size <= WorkerPool::messageMost()) {
         return {};
     }
     return std::to_string(size) + " bytes, more than a message carries";
@@ -277,7 +274,8 @@ QByteArray message(const json& header, const std::string& body = {})
     // Text that is not UTF-8 -- a console line with a path in the system's
     // encoding -- is sent with the bytes replaced, not thrown over
     const std::string head = header.dump(-1, ' ', false, json::error_handler_t::replace);
-    if (head.size() > MessageMost || body.size() > MessageMost) {
+    const std::size_t most = WorkerPool::messageMost();
+    if (head.size() > most || body.size() > most) {
         return {};
     }
     QByteArray out;

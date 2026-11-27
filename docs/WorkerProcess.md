@@ -5379,3 +5379,59 @@ seconds counted against the split's saving. grow()'s rule exists so that
 a worker that does not fit is not started on a small box, and the
 coordinator kept it. It is a measured follow-up, only if parallelism in
 the first recompute after the pool starts is asked for.
+
+## 80. A message too big to go, tested (2026-11-28)
+
+Sec 77 made `message()` give nothing for a message past four bytes'
+worth of length, and `send()` fail on nothing. It left this untested,
+since 4 GiB is half the mini's memory. Testing it showed the
+refusal was right but what came after was not.
+
+**A job too big to send killed workers.** `sendJob()` sent the header
+and, when `send()` failed, `kill()`ed the worker. The job went back to
+the queue ("the death may not be the job's", sec 34), the next worker
+was killed for it too, and it failed as "its worker died over it
+(ended by the pool)", with `Died` set. It looked like a crash that never
+happened, and cost two workers. Now `sendJob()` builds the message
+before it marks anything sent. When it cannot, the job fails with
+"the job is H + B bytes, more than a message carries; not sent to a
+worker", `Died` false. The worker was never told it and is handed the
+next job (`dispatch()`). A security state that went with the refused
+header is not counted as told.
+
+**A result too big to send ended the worker.** The worker's loop left on
+a failed `send()`, so the worker exited and the pool read a death, with
+the same two deaths and the same "died over it". Now a result that will
+not fit is answered as a failure saying so ("its result is H + B bytes,
+more than a message carries"), with no output, and the worker goes on.
+The helpers already did this (sec 77, "the reply is ...").
+
+**The seam.** `WorkerPool::messageMost()` is the limit everywhere:
+`message()` in the pool and in the workers, and the helpers' `tooBig()`
+and `message()` (ServiceWorkers.cpp). The environment variable
+`FC_WORKER_MESSAGE_MOST` lowers it and can never raise it. It is read on
+each call, since a test sets it after the start, and the workers and
+helpers it starts inherit it. A worker or helper started before it was
+set keeps the old limit, so the tests turn off the standing worker
+(`Workers/Standby`) and end the pool's workers, or let the helpers end
+idle, before they measure. `WorkerPool::tooBig()` gives the reason.
+
+**Tests:**
+- TestWorkerPool `testAJobTooBigToSendFailsAndKeepsItsWorker`: limit
+  64 KiB, a 128 KiB `test.echo`. It fails with the reason, not
+  `Died`, and the next job is made by the same pid with nothing
+  spawned.
+- TestWorkerPool `testAResultTooBigToSendFailsAndKeepsItsWorker`: the
+  same for a `test.big` answering 128 KiB. A 1 KiB one after it is Done,
+  by the same pid.
+- MeshServiceTest `testAMessageTooBigForAHelperIsMeshedHere`. A box's
+  4.5 KB request past a 2000 byte limit is not given to a helper. A fine
+  sphere's 220 KB reply past 64 KiB, its request 1 KB, is said instead
+  of sent. Each is meshed here (`FellBack` + 1) to the digest a mesh
+  made here has, with `Died` unchanged, and the helper that refused the
+  reply meshes the next shape.
+With the seam but without the two fixes, both TestWorkerPool cases fail
+as "its worker died over it (ended by the pool)". The helpers' code was
+not changed beyond the seam: by its reading, sec 77 already ended such a
+call with why. Their case is new coverage, not a fix, and was not run
+without the seam, which the code before did not have.

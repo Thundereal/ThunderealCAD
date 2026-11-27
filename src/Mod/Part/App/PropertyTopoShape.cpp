@@ -1968,10 +1968,17 @@ void PropertyPartShape::Restore(Base::XMLReader &reader)
                     _VerRead = _Ver;
                 } else {
                     // version mismatch, signal for regenerating.
-                    static const char *warnedDoc=0;
-                    if(warnedDoc != owner->getDocument()->getName()) {
-                        warnedDoc = owner->getDocument()->getName();
-                        FC_WARN("Recomputation required for document '" << warnedDoc 
+                    // Once for each document: by the document and its name,
+                    // not by the address of its name alone -- a document
+                    // opened after one closed can have its name where the
+                    // other's was, and was then not said at all
+                    static const App::Document *warnedDoc = nullptr;
+                    static std::string warnedName;
+                    if(warnedDoc != owner->getDocument()
+                            || warnedName != owner->getDocument()->getName()) {
+                        warnedDoc = owner->getDocument();
+                        warnedName = owner->getDocument()->getName();
+                        FC_WARN("Recomputation required for document '" << warnedName 
                                 << "' on geo element version change in " << getFullName()
                                 << ": " << _Ver << " -> " << ver);
                     }
@@ -2055,10 +2062,14 @@ void PropertyPartShape::afterRestore()
                 && TopoShape::isOlderNamingVersion(read.c_str())
                 && owner && owner->getNameInDocument() && owner->getDocument()
                 && !owner->getDocument()->testStatus(App::Document::PartialDoc)) {
-            static const char *warnedDoc = nullptr;
-            if (warnedDoc != owner->getDocument()->getName()) {
-                warnedDoc = owner->getDocument()->getName();
-                FC_WARN("Recomputation required for document '" << warnedDoc
+            // once for each document, as above
+            static const App::Document *warnedDoc = nullptr;
+            static std::string warnedName;
+            if (warnedDoc != owner->getDocument()
+                    || warnedName != owner->getDocument()->getName()) {
+                warnedDoc = owner->getDocument();
+                warnedName = owner->getDocument()->getName();
+                FC_WARN("Recomputation required for document '" << warnedName
                         << "' on geo element version change in " << getFullName()
                         << ": " << read << " -> " << owner->getElementMapVersion(this));
             }

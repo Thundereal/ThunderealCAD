@@ -223,8 +223,10 @@ def digest(text):
 
 
 SKIP_TYPES = ("App::PropertyPythonObject",)
-# A cache, made again when wanted, not saved
-SKIP_NAMES = {"_Part_ShapeCache"}
+# A cache, made again when wanted, not saved; and an origin's features,
+# which asking for by name makes where an older file's origin has fewer
+# (App::Origin::getPropertyByName): read, they were "objects only here"
+SKIP_NAMES = {"_Part_ShapeCache", "OriginFeatures"}
 
 
 FILE_TYPES = ("App::PropertyFileIncluded", "App::PropertyFile", "App::PropertyPath")
@@ -244,7 +246,10 @@ def transient(holder, name):
     """Not saved by design, so neither a reopen nor a worker has to give it:
     an edit preview's shapes, a binder's copy, a legacy name's value"""
     try:
-        if "Transient" in holder.getTypeOfProperty(name):
+        kind = holder.getTypeOfProperty(name)
+        # NoPersist: a process's own cache, a binder's _CopiedLink to the copy
+        # it keeps in a temporary document of its own
+        if "Transient" in kind or "NoPersist" in kind:
             return True
         # and Legacy: a compatibility name for what is kept elsewhere
         # (_ObjectUUID, added when an older file is read), never saved
@@ -436,6 +441,7 @@ def run():
                 settle(doc, "the recompute here")
                 if twin:
                     here = snapshot(doc, views=False)
+                    note("INFO objects: %d after the worker, %d after here" % (len(by_worker), len(here)))
                     n = compare("twin", by_worker, here, "worker", "here",
                                 keys=("type", "state", "props", "census"))
                     note("INFO worker against here: %d differences" % n)

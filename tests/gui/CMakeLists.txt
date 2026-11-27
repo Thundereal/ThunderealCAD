@@ -1432,6 +1432,13 @@ fc_add_gui_test(GuiOlderLooksOpenTime_tests_run
                 older-looks-open-time.py
                 --timeout 300)
 
+# Nested links read from an older file open without searching every path
+# through them for each link's Selectable: an Assembly3 assembly of 187 KB
+# spun twenty minutes in its open (smoke corpus 2026-11-27, finding B1).
+fc_add_gui_test(GuiLinkSelectableRestore_tests_run
+                link-selectable-restore.py
+                --timeout 240)
+
 # An instanced Part object draws a uniform face colour list at the
 # transparency the list says: the uniform branch took the colour's alpha,
 # an opacity, for the transparency, so an opaque list drew invisible

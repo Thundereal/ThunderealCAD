@@ -403,7 +403,13 @@ void ViewProviderDocumentObject::onChanged(const App::Property* prop)
             } else
                 root->selectionStyle = SoFCSelectionRoot::Unpickable;
         }
-        if(prop == &Selectable)
+        // The nodes are made selectable -- SoFCSelection's defaults are
+        // what setSelectable(true) sets -- so a restore that reads true has
+        // nothing to undo, and the search is no small thing: a link's root
+        // holds what it links, shared, and every path through it is
+        // listed, once per link (an assembly of 187 KB spun for twenty
+        // minutes in its open, smoke corpus 2026-11-27, finding B1)
+        if(prop == &Selectable && !(Selectable.getValue() && isRestoring()))
             setSelectable(Selectable.getValue());
     }
 

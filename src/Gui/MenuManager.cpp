@@ -200,6 +200,12 @@ MenuManager::MenuManager() = default;
 
 MenuManager::~MenuManager() = default;
 
+namespace {
+// on the menu bar entries setup() makes, so that the next switch deletes those
+// and no others
+constexpr const char* MadeByMenuManager = "_fc_made_by_menu_manager";
+}
+
 void MenuManager::setup(MenuItem* menuItems) const
 {
     if (!menuItems) {
@@ -244,6 +250,27 @@ void MenuManager::setup(MenuItem* menuItems) const
     //
     // Clearing the menu bar, and recreate it every time when switching
     // workbench with only the active actions can solve this problem.
+    //
+    // clear() only takes the actions out: the menus addMenu() made below on
+    // the last switch stay the menu bar's children, hidden and unreachable,
+    // with every submenu in them -- some 350 widgets left behind by each
+    // switch into a workbench and out again (Sketcher's, so by every sketch
+    // edit). They are deleted here, later, since a switch may run from one
+    // of those very menus. Only the ones made here, which carry the mark: a
+    // menu an addon put on the bar with menuBar().addMenu() is the addon's
+    // -- it may hold it and put it back at its next activation -- and is
+    // only taken out, as before.
+    for (QAction* action : menuBar->actions()) {
+        if (!action->property(MadeByMenuManager).toBool()) {
+            continue;
+        }
+        if (QMenu* menu = action->menu()) {
+            menu->deleteLater();
+        }
+        else if (action->parent() == menuBar) {
+            action->deleteLater();  // the separator
+        }
+    }
     menuBar->clear();
 #endif
 
@@ -259,6 +286,7 @@ void MenuManager::setup(MenuItem* menuItems) const
             if ((*it)->command() == "Separator") {
                 action = menuBar->addSeparator();
                 action->setObjectName(QStringLiteral("Separator"));
+                action->setProperty(MadeByMenuManager, true);
             }
             else {
                 // create a new menu
@@ -268,6 +296,7 @@ void MenuManager::setup(MenuItem* menuItems) const
                 action = menu->menuAction();
                 menu->setObjectName(QString::fromUtf8(menuName.c_str()));
                 action->setObjectName(QString::fromUtf8(menuName.c_str()));
+                action->setProperty(MadeByMenuManager, true);
             }
 
             // set the menu user data

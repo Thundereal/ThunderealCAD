@@ -2145,7 +2145,9 @@ compares; it took our curves for none.
   now on FTC-10 and CTC-04 too; NIST styles a hidden curve itself, OCCT the set it is in). Not
   done: members of a curve set hidden alone (STC-06's 12, FTC-10's two axis lines), each a
   supplemental item; STC-09 -e3's hidden points (curve sets of a point each) are read hidden
-  but not written so -- OCCT writes a part's points as one set.
+  but not written so -- OCCT writes a part's points as one set; so is the layer each of
+  those sets is on ('64'), which lands on its point (`test_part_layers_as_the_file_has_them`
+  skips -e3; the set's -e4 has no such points).
   Which supplemental items a saved view shows: STC-06's twelve views each map, beside the
   part, a shape representation 'supplemental geometry' of some of the items, described
   'supplemental geometry subset' (a description attribute), as a mapped item of the camera

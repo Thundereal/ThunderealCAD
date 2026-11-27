@@ -3454,7 +3454,7 @@ bool WorkerPool::started() const
     return !d->copy.empty();
 }
 
-int WorkerPool::sideBySide() const
+int WorkerPool::standingFree() const
 {
     if (d->copy.empty()) {
         return 0;
@@ -3462,22 +3462,36 @@ int WorkerPool::sideBySide() const
     if (d->procs.empty()) {
         return 1;
     }
-    // Free for a job now: one starting counts, it takes the job when its
-    // copy is open; one told to go does not
+    // Free for a job now: up -- it has opened a copy once, so a move to a
+    // newer one, which an edit sends it as the recompute is asked for, is
+    // all it has to do first -- and idle. One still starting is not
+    // counted on: what is left of its start is not known (sec 83). One
+    // told to go is not either
     int free = 0;
     for (auto& proc : d->procs) {
-        if (!proc->job && !proc->quitting && !proc->over) {
+        if (!proc->copyDir.empty() && !proc->job && !proc->quitting && !proc->over) {
             ++free;
         }
     }
     free = std::max(0, free - static_cast<int>(d->queue.size()));
-    // And the one grow() would start for jobs left waiting.  For a client
+    return std::clamp(free, 1, std::max(1, d->limit));
+}
+
+bool WorkerPool::startsAnother() const
+{
+    // The one grow() would start for jobs left waiting.  For a client
     // taking results as they come, grow() waits until it had to wait, so
     // that one is not counted on
-    if ((!d->consuming() || d->starved) && d->roomForAnother()) {
-        ++free;
+    return !d->copy.empty() && !d->procs.empty() && (!d->consuming() || d->starved)
+        && d->roomForAnother();
+}
+
+int WorkerPool::sideBySide() const
+{
+    if (d->copy.empty()) {
+        return 0;
     }
-    return std::clamp(free, 1, std::max(1, d->limit));
+    return std::min(standingFree() + (startsAnother() ? 1 : 0), std::max(1, d->limit));
 }
 
 WorkerPool::JobId WorkerPool::submit(Job job)
@@ -5241,6 +5255,7 @@ public:
         dict.setItem("HandedOver", Py::Long(i.handedOver));
         dict.setItem("Split", Py::Long(i.split));
         dict.setItem("SplitWorkers", Py::Long(i.splitWorkers));
+        dict.setItem("SplitStartWeighed", Py::Float(i.splitStartWeighed));
         dict.setItem("SplitSaving", Py::Float(i.splitSaving));
         Py::Tuple parts(i.splitObjects.size());
         for (std::size_t k = 0; k < i.splitObjects.size(); ++k) {

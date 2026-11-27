@@ -130,6 +130,9 @@ public:
         /// side by side at that moment (WorkerPool::sideBySide, sec 79),
         /// the most it was split into
         long splitWorkers = 0;
+        /// Of the last one asked to split that would have needed a worker
+        /// yet to start: the start it was weighed with (sec 83), 0 for none
+        double splitStartWeighed = 0;
         double splitSaving = 0;
         std::vector<long> splitObjects;
         /// Of the last one split, the joins left out of its parts: cheap

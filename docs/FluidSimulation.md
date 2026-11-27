@@ -2146,6 +2146,14 @@ Reynolds number and the wall units kept); `TestFlowDoubts`;
 1 mm, to 5%, nothing against it). The panel's "Flow" has no test of its
 own: the manual's script drives it (`fluid/study/turbulent-flow/video.py`).
 
+Corrected the same day: the two sentences on the Reynolds number said
+which way the pressure was off (a laminar run over 2300 "loses more
+pressure than is shown"). That is a pipe's case, where the loss is the
+wall's friction. A block with a bore that parts in two, water at 6 m/s,
+showed 50 kPa lost run in layers and 38 kPa run turbulent, neither
+settled. The sentences now say the pressures are not the flow's own, and
+no direction.
+
 Open: layers of cells at the walls; a rough wall; the eddies that come
 in at an inlet as the user gives them; other models; the Reynolds number
 of a flow that is not a pipe's -- 2300 is a pipe's, and an opening's

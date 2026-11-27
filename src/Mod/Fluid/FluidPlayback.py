@@ -817,8 +817,8 @@ def flowDoubts(results):
             translate(
                 "Fluid",
                 "The study took the flow as in layers, and its Reynolds number is "
-                "{:.0f}: over some {:.0f} a flow does not stay in layers, and loses "
-                "more pressure than is shown here. Set the study's flow to turbulent.",
+                "{:.0f}: over some {:.0f} a flow does not stay in layers, and the "
+                "pressures shown here are not its own. Set the study's flow to turbulent.",
             ).format(reynolds, LAYERED_UNDER)
         )
     if turbulent and 0.0 < reynolds < LAYERED_UNDER:
@@ -826,8 +826,8 @@ def flowDoubts(results):
             translate(
                 "Fluid",
                 "The study took the flow as turbulent, and its Reynolds number is "
-                "{:.0f}: under some {:.0f} a flow stays in layers, and loses less "
-                "pressure than is shown here. Set the study's flow to laminar.",
+                "{:.0f}: under some {:.0f} a flow stays in layers, and the pressures "
+                "shown here are not its own. Set the study's flow to laminar.",
             ).format(reynolds, LAYERED_UNDER)
         )
     units = results.get("WallUnits")

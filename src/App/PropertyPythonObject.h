@@ -95,6 +95,14 @@ public:
 
     bool isSame(const Property &other) const override;
 
+    /** The class a restore could not make, as `module.class` (a legacy pickle
+     * names it in its own text: "pickle"), or empty: the Proxy is None, and
+     * what the file said of it is kept as read and saved back unchanged, so
+     * that a document opened without an addon keeps the addon's objects for
+     * when it is there again. Any value set drops it.
+     */
+    std::string unrestoredClass() const;
+
     /** Bump the proxy-chain generation, then notify as usual
      *
      * A ProxyExp element's methods may be attributes of this kind -- a Proxy
@@ -111,6 +119,23 @@ private:
     std::string decodeValue(const std::string& str) const;
     void loadPickle(const std::string& str);
     Py::Object object;
+
+    /// What the file said of a Proxy whose class could not be made
+    struct Unrestored
+    {
+        std::string module;  ///< empty for a legacy pickle, which names it itself
+        std::string cls;
+        std::string value;  ///< the state as read: JSON, or the whole pickle
+        bool object = false;   ///< the file's object="yes"
+        bool vobject = false;  ///< the file's vobject="yes"
+        bool operator==(const Unrestored& other) const
+        {
+            return module == other.module && cls == other.cls && value == other.value
+                && object == other.object && vobject == other.vobject;
+        }
+    };
+    /// Shared by the copies the undo system takes: never changed once made
+    std::shared_ptr<const Unrestored> unrestored;
 };
 
 

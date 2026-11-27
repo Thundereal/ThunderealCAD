@@ -69,6 +69,7 @@ void PropertyPythonObject::setValue(Py::Object o)
     Base::PyGILStateLocker lock;
     aboutToSetValue();
     this->object = o;
+    this->unrestored.reset();
     hasSetValue();
 }
 
@@ -87,6 +88,7 @@ void PropertyPythonObject::setPyObject(PyObject * obj)
     Base::PyGILStateLocker lock;
     aboutToSetValue();
     this->object = obj;
+    this->unrestored.reset();
     hasSetValue();
 }
 
@@ -110,8 +112,20 @@ std::string PropertyPythonObject::stateOf(const PropertyContainer& container)
     return state;
 }
 
+std::string PropertyPythonObject::unrestoredClass() const
+{
+    if (!unrestored)
+        return {};
+    if (unrestored->module.empty())
+        return "pickle";
+    return unrestored->module + "." + unrestored->cls;
+}
+
 std::string PropertyPythonObject::toString() const
 {
+    // A Proxy whose class could not be made: what the file said, not None
+    if (unrestored)
+        return unrestored->value;
     std::string repr;
     Base::PyGILStateLocker lock;
     try {
@@ -330,6 +344,22 @@ void PropertyPythonObject::restoreObject(Base::XMLReader &reader)
 void PropertyPythonObject::Save (Base::Writer &writer) const
 {
     writer.Stream() << writer.ind() << "<Python ";
+    if (unrestored) {
+        // As it was read: its module and class (a legacy pickle names them in
+        // its text), and the state in the one form every reader takes, an
+        // encoded value -- not a file entry, which a pickle is not read from
+        const auto& kept = *unrestored;
+        if (!kept.module.empty())
+            writer.Stream() << " module=\"" << encodeValue(kept.module) << "\""
+                            << " class=\"" << encodeValue(kept.cls) << "\"";
+        if (kept.object)
+            writer.Stream() << " object=\"yes\"";
+        if (kept.vobject)
+            writer.Stream() << " vobject=\"yes\"";
+        writer.Stream() << " value=\"" << base64_encode(kept.value.c_str(), kept.value.size())
+                        << "\" encoded=\"yes\"/>\n";
+        return;
+    }
     Base::PyGILStateLocker lock;
     try {
         if (this->object.hasAttr("__module__") && this->object.hasAttr("__class__")) {
@@ -395,7 +425,8 @@ bool proxyModuleAllowed(const App::Property& prop, const char* module, const cha
         who += std::string(".") + prop.getName();
     Base::Console().Error("PropertyPythonObject::Restore: %s names Proxy %s.%s, and '%s' is"
                           " not a FreeCAD module (not loaded and not under a Mod directory);"
-                          " not imported, the object is left without a Proxy\n",
+                          " not imported, the object is left without a Proxy, and what the"
+                          " file says of it is kept and saved back unchanged\n",
                           who.c_str(), module, cls, module);
     return false;
 }
@@ -432,9 +463,17 @@ void PropertyPythonObject::Restore(Base::XMLReader &reader)
     }
 
     aboutToSetValue();
+    this->unrestored.reset();
 
     // The class tried, for the restore-failed observer
     std::string tried;
+    // What the import raised, for the log
+    std::string why;
+    // The class as the file names it, kept if it cannot be made; empty
+    // module for a legacy pickle, whose text names it
+    std::string keptModule;
+    std::string keptClass;
+    const std::string original = buffer;
     try {
         Base::PyGILStateLocker lock;
         static boost::regex pickle(R"(^\(i(\w+)\n(\w+)\n)");
@@ -445,6 +484,8 @@ void PropertyPythonObject::Restore(Base::XMLReader &reader)
         if (reader.hasAttribute("module") && reader.hasAttribute("class")) {
             const char* module = reader.getAttribute("module");
             const char* cls = reader.getAttribute("class");
+            keptModule = module;
+            keptClass = cls;
             auto* owner = dynamic_cast<App::DocumentObject*>(getContainer());
             if (!proxyModuleAllowed(*this, module, cls)) {
                 (void)owner;
@@ -499,30 +540,66 @@ void PropertyPythonObject::Restore(Base::XMLReader &reader)
         e.ReportException();
         this->object = Py::None();
         load_failed = true;
+        why = e.what();
         if (restoreFailedObserver()) {
             restoreFailedObserver()(*this, tried, e.what());
         }
     }
 
-    restoreObject(reader);
+    // What the file says of a Proxy whose class could not be made -- its
+    // module missing, the import raising, or refused -- is kept as read
+    // and saved back unchanged: None in its place would be written as the
+    // state, and the addon's objects lost for good on the first save of a
+    // document opened without it
+    const bool keep = load_failed || refused;
+    std::shared_ptr<Unrestored> kept;
+    if (keep) {
+        kept = std::make_shared<Unrestored>();
+        kept->module = keptModule;
+        kept->cls = keptClass;
+        // a legacy pickle: the whole text, which names the class
+        kept->value = keptModule.empty() ? original : buffer;
+        kept->object = reader.hasAttribute("object")
+            && strcmp(reader.getAttribute("object"), "yes") == 0;
+        kept->vobject = reader.hasAttribute("vobject")
+            && strcmp(reader.getAttribute("vobject"), "yes") == 0;
+    }
+    else {
+        restoreObject(reader);
+    }
 
     if(reader.getAttributeAsInteger("cdata","")) {
         buffer = reader.readCharacters();
         reader.readEndElement("Python");
-    } else if (reader.hasAttribute("file") && !refused) {
-        // an archive entry nobody registers is skipped by the reader
+        if (kept)
+            kept->value = buffer;
+    } else if (reader.hasAttribute("file")) {
+        // an archive entry nobody registers is skipped by the reader; for
+        // a kept Proxy RestoreDocFile keeps the text and makes nothing of it
         std::string file(reader.getAttribute("file"));
         reader.addFile(file.c_str(),this);
-    } 
-    
-    if(refused)
-        buffer.clear();
-    if(!buffer.empty()) {
+    }
+
+    if (kept) {
+        this->unrestored = kept;
+        if (load_failed) {
+            const App::PropertyContainer* owner = getContainer();
+            std::string who = owner ? owner->getFullName() : std::string("?");
+            if (getName())
+                who += std::string(".") + getName();
+            Base::Console().Error("PropertyPythonObject::Restore: %s: the class %s could not be"
+                                  " made (%s); the object is left without a Proxy, and what the"
+                                  " file says of it is kept and saved back unchanged\n",
+                                  who.c_str(), unrestoredClass().c_str(), why.c_str());
+        }
+    }
+    else if(!buffer.empty()) {
         if (load_json)
             this->fromString(buffer);
         else if (load_pickle)
             this->loadPickle(buffer);
-        else if (load_failed)
+        else
+            // neither a class, nor JSON, nor a pickle: what this reads not
             Base::Console().Error("PropertyPythonObject::Restore: unsupported serialisation: %s\n", buffer.c_str());
     }
     hasSetValue();
@@ -538,6 +615,13 @@ void PropertyPythonObject::RestoreDocFile(Base::Reader &reader)
 {
     std::stringstream ss;
     reader >> ss.rdbuf();
+    if (unrestored) {
+        // the state of a Proxy whose class could not be made: kept, not made
+        auto kept = std::make_shared<Unrestored>(*unrestored);
+        kept->value = ss.str();
+        unrestored = kept;
+        return;
+    }
     aboutToSetValue();
     this->fromString(ss.str());
     hasSetValue();
@@ -553,6 +637,7 @@ Property *PropertyPythonObject::Copy() const
     PropertyPythonObject *p = new PropertyPythonObject();
     Base::PyGILStateLocker lock;
     p->object = this->object;
+    p->unrestored = this->unrestored;
     return p;
 }
 
@@ -562,6 +647,7 @@ void PropertyPythonObject::Paste(const Property &from)
         Base::PyGILStateLocker lock;
         aboutToSetValue();
         this->object = static_cast<const PropertyPythonObject&>(from).object;
+        this->unrestored = static_cast<const PropertyPythonObject&>(from).unrestored;
         hasSetValue();
     }
 }
@@ -572,6 +658,9 @@ bool PropertyPythonObject::isSame(const Property &_other) const
         return false;
 
     const auto &other = static_cast<const PropertyPythonObject &>(_other);
+    // Two kept states are the same when they say the same; None is not one
+    if (unrestored || other.unrestored)
+        return unrestored && other.unrestored && *unrestored == *other.unrestored;
     if(object.ptr() == other.object.ptr())
         return true;
     if(object.isNone() || other.object.isNone())

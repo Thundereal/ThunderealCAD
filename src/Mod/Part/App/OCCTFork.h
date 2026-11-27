@@ -336,6 +336,10 @@ PartExport const Standard_GUID *occtCitedDocumentsGUID();
 /// The GUID the fork keeps an attribute's measures under
 /// (XCAFDoc_AttributeMeasuresGUID); null without it, where none are read
 PartExport const Standard_GUID *occtAttributeMeasuresGUID();
+/// The GUID the fork keeps the validation properties a label was read with
+/// under, other than its geometric ones (XCAFDoc_ValidationItemsGUID); null
+/// without it, where none are kept
+PartExport const Standard_GUID *occtValidationItemsGUID();
 
 } // namespace Part
 

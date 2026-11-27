@@ -2626,6 +2626,32 @@ void ImportOCAF2::applyMetadata(bool progressive)
                 prop->setValues(values);
             }
         }
+        // Its validation properties other than geometric ones (NIST CTC-03's attribute
+        // validation property, its pmi validation property): which, written again computed
+        // of what is written
+        Handle(TDataStd_ExtStringList) validation;
+        const Standard_GUID* validationGUID = Part::occtValidationItemsGUID();
+        if (validationGUID && label.FindAttribute(*validationGUID, validation)) {
+            std::vector<std::string> values;
+            using List = NCollection_List<TCollection_ExtendedString>;
+            for (List::Iterator it(validation->List()); it.More(); it.Next()) {
+                values.push_back(utf8(it.Value()));
+            }
+            auto prop = freecad_cast<App::PropertyStringList*>(
+                obj->getPropertyByName(ExportOCAF2::ValidationItemsProperty));
+            if (!prop) {
+                prop = freecad_cast<App::PropertyStringList*>(obj->addDynamicProperty(
+                    "App::PropertyStringList",
+                    ExportOCAF2::ValidationItemsProperty,
+                    "STEP",
+                    "The validation properties the STEP file gave it other than geometric "
+                    "ones, written again computed of what is written: each what it is of, its "
+                    "name and its items' names, '|'-separated"));
+            }
+            if (prop) {
+                prop->setValues(values);
+            }
+        }
     }
 }
 

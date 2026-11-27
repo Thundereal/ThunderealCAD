@@ -201,6 +201,13 @@ public:
     /// The documents its GD&T cites (the standards it follows): PropertyStringList, each
     /// its fields one a line, as STEPCAFControl_Reader keeps them (XCAFDoc::CitedDocumentsGUID)
     static constexpr const char* DocumentsProperty = "StepDocuments";
+    /// The validation properties other than geometric ones the file it came from gave it,
+    /// written again computed of what is written (its attribute validation property, the
+    /// counts of its attributes; a part's pmi validation property, the counts of its GD&T):
+    /// PropertyStringList, each what it is of, its name and its items' names, '|'-separated,
+    /// as STEPCAFControl_Reader keeps them (XCAFDoc::ValidationItemsGUID). A PMI and a view
+    /// have one of this name too (the PMI module's)
+    static constexpr const char* ValidationItemsProperty = "StepValidationItems";
     //@}
 
 private:

@@ -52,6 +52,7 @@
 #include <Quantity_Color.hxx>
 #include <Standard_Failure.hxx>
 #include <TCollection_HAsciiString.hxx>
+#include <TDataStd_ExtStringList.hxx>
 #include <TDF_Label.hxx>
 #include <TDF_Tool.hxx>
 #include <TopExp.hxx>
@@ -64,6 +65,7 @@
 #include <XCAFDimTolObjects_DimensionObject.hxx>
 #include <XCAFDimTolObjects_GeomToleranceObject.hxx>
 #include <XCAFDoc_Datum.hxx>
+#include <XCAFDoc.hxx>
 #include <XCAFDoc_DimTolTool.hxx>
 #include <XCAFDoc_Dimension.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
@@ -312,6 +314,7 @@ public:
                 }
             }
             giveUUID(obj, l);
+            giveValidation(obj, l);
         }
         // A product's, on its label: its object's, or its container's (one shape of it)
         for (auto& [part, ex] : _parts) {
@@ -900,6 +903,25 @@ private:
         XCAFDoc_DimTolTool::SetUUID(l,
                                     ascii(prop->getValues()[0])->String(),
                                     ascii(prop->getValues()[1])->String());
+    }
+
+    /// The validation properties an object was read with (its
+    /// StepValidationItems) given to its label: the writer writes them again,
+    /// computed of what it writes
+    static void giveValidation(const App::DocumentObject* obj, const TDF_Label& l)
+    {
+        auto prop = obj ? freecad_cast<App::PropertyStringList*>(
+                              obj->getPropertyByName("StepValidationItems"))
+                        : nullptr;
+        if (!prop || prop->getValues().empty() || l.IsNull()
+            || l.IsAttribute(XCAFDoc::ValidationItemsGUID())) {
+            return;
+        }
+        Handle(TDataStd_ExtStringList) list =
+            TDataStd_ExtStringList::Set(l, XCAFDoc::ValidationItemsGUID());
+        for (auto& value : prop->getValues()) {
+            list->Append(TCollection_ExtendedString(value.c_str(), Standard_True));
+        }
     }
 
     /// The set's holes (AP242 ed3 hole features) given to XCAF: each
@@ -1721,6 +1743,7 @@ private:
         XCAFDoc_View::Set(l)->SetObject(obj);
         tool->SetView(shapes, gdts, planes, l);
         XCAFDoc_DimTolTool::SetViewSupplemental(l, supplementals);
+        giveValidation(v, l);
         ++_report.views;
     }
 

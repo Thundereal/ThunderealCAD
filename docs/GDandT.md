@@ -900,8 +900,9 @@ or a rectangle marked within its size, the rules, saved and restored), `TestNist
 with its own leader; drawn).
 
 Open: a line target on an edge lies on both its faces and takes the first found (the file's z
-runs along the edge, nothing to choose by). A movable target has no symbol of its own yet. A
-datum from targets is their compound, not the plane, axis or point they establish.
+runs along the edge, nothing to choose by). A movable target has no symbol of its own yet.
+A datum from targets is the plane, line or point they establish since 10.27; targets in no one
+plane are still their compound.
 
 - Next in P2: slots and counterbores as features of size (10.12); edge and point references.
 
@@ -2201,7 +2202,7 @@ compares; it took our curves for none.
   surface model as its model is (`assertBodyColoured`). Not done: the five surfaces of
   STC-09 are written in the body's colour, their face each in its own (drawn the same).
 
-### 10.27 P5: coverage, and a tolerance all over in the query (2026-11-27)
+### 10.27 P5: coverage, a tolerance all over in the query, datums from targets (2026-11-27)
 
 - **Coverage** (sec 8): `PMI::Api::coverage(set)`, Python `PMI.coverage(set)` -> (solid,
   'FaceN', how) for every face of the set's part, each solid body of a Body: 'Annotated' when a
@@ -2215,6 +2216,14 @@ compares; it took our curves for none.
 - **A tolerance all over the part** (a WholePart feature, NIST's general profile) names no
   face, so the query listed it for none. It applies to every face: listed as 'all over' for
   each (`test_a_tolerance_all_over_applies_to_every_face`).
+- **A datum from targets** (10.11) is what they establish, no longer their compound: the plane
+  they lie in -- three or more points, an area, a rectangle, a circle -- facing out of the
+  part as the first target does and as far as they reach; the line through two points or a
+  line target; the point of one. Targets in no one plane stay the datum themselves: stepped
+  ones, and those on opposed faces for a centre plane (CTC-02's B, two points each side of
+  the part). The NIST set: CTC-02's A a plane facing down, C a point, K (DIA 85) a plane;
+  CTC-05's C and D planes facing apart; FTC-06's J and K (two lines each) planes, G and H
+  (a circular curve each) their circles' planes (`TestDatumTarget`).
 - Not done: colouring the faces by coverage, as DimXpert does -- the drawn faces are the
   feature's showing the solid, numbered as its shape, not the solid body's; and whether a
   face is fully constrained (size, form, orientation and location to the datums), which is

@@ -29,13 +29,24 @@
 #include <set>
 
 #include <BRep_Builder.hxx>
+#include <BRep_Tool.hxx>
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <ElCLib.hxx>
+#include <ElSLib.hxx>
+#include <GProp_PEquation.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Lin.hxx>
+#include <gp_Pln.hxx>
 #include <gp_Trsf.hxx>
 #include <TopLoc_Location.hxx>
 #include <TopoDS_Compound.hxx>
@@ -114,15 +125,100 @@ TopoDS_Shape Datum::fromTargets() const
     TopoDS_Compound comp;
     BRep_Builder builder;
     builder.MakeCompound(comp);
+    // The targets' points: their vertices, and points along their edges --
+    // a circle has one vertex, a line two
+    std::vector<gp_Pnt> points;
+    // Out of the part: the first target's z (sec 10.11)
+    gp_Dir out(0, 0, 1);
     bool any = false;
     for (auto t : getTargets()) {
         TopoDS_Shape s = t->Shape.getShape().getShape();
-        if (!s.IsNull()) {
-            builder.Add(comp, s);
-            any = true;
+        if (s.IsNull()) {
+            continue;
+        }
+        builder.Add(comp, s);
+        if (!any) {
+            Base::Vector3d z = t->Target.getValue().getRotation().multVec(Base::Vector3d(0, 0, 1));
+            if (z.Length() > 1e-12) {
+                out = gp_Dir(z.x, z.y, z.z);
+            }
+        }
+        any = true;
+        for (TopExp_Explorer xp(s, TopAbs_VERTEX); xp.More(); xp.Next()) {
+            points.push_back(BRep_Tool::Pnt(TopoDS::Vertex(xp.Current())));
+        }
+        for (TopExp_Explorer xp(s, TopAbs_EDGE); xp.More(); xp.Next()) {
+            BRepAdaptor_Curve curve(TopoDS::Edge(xp.Current()));
+            const double first = curve.FirstParameter();
+            const double last = curve.LastParameter();
+            for (int i = 0; i <= 8; ++i) {
+                points.push_back(curve.Value(first + (last - first) * i / 8));
+            }
         }
     }
-    return any ? TopoDS_Shape(comp) : TopoDS_Shape();
+    if (!any) {
+        return {};
+    }
+    if (points.empty()) {
+        return comp;
+    }
+    TColgp_Array1OfPnt arr(1, static_cast<int>(points.size()));
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        arr.SetValue(static_cast<int>(i) + 1, points[i]);
+    }
+    GProp_PEquation eq(arr, 1e-6);
+    if (eq.IsPoint()) {
+        return BRepBuilderAPI_MakeVertex(eq.Point()).Shape();
+    }
+    if (eq.IsLinear()) {
+        // The line, from the first target point along it to the last
+        const gp_Lin line = eq.Line();
+        double lo = 0;
+        double hi = 0;
+        bool first = true;
+        for (auto& p : points) {
+            double u = ElCLib::Parameter(line, p);
+            lo = first ? u : std::min(lo, u);
+            hi = first ? u : std::max(hi, u);
+            first = false;
+        }
+        if (hi - lo > 1e-9) {
+            return BRepBuilderAPI_MakeEdge(line, lo, hi).Shape();
+        }
+        return comp;
+    }
+    if (eq.IsPlanar()) {
+        // The plane, facing out of the part, as far as the targets reach
+        gp_Ax3 ax = eq.Plane().Position();
+        if (ax.Direction().Dot(out) < 0) {
+            // Right-handed still: a plane's normal is D1U x D1V, which an
+            // indirect frame (ZReverse) would leave as it was
+            ax = gp_Ax3(ax.Location(), ax.Direction().Reversed(), ax.XDirection());
+        }
+        const gp_Pln plane(ax);
+        double u0 = 0;
+        double u1 = 0;
+        double v0 = 0;
+        double v1 = 0;
+        bool first = true;
+        for (auto& p : points) {
+            double u;
+            double v;
+            ElSLib::Parameters(plane, p, u, v);
+            u0 = first ? u : std::min(u0, u);
+            u1 = first ? u : std::max(u1, u);
+            v0 = first ? v : std::min(v0, v);
+            v1 = first ? v : std::max(v1, v);
+            first = false;
+        }
+        if (u1 - u0 > 1e-9 && v1 - v0 > 1e-9) {
+            return BRepBuilderAPI_MakeFace(plane, u0, u1, v0, v1).Shape();
+        }
+    }
+    // Targets in no one plane -- stepped, each at its own height, or on
+    // opposed faces for a centre plane between them (NIST CTC-02's B) --
+    // simulate no plane of their own here: the datum is the targets
+    return comp;
 }
 
 bool Datum::isLegalLetter(const std::string& letter, bool asme, std::string& why)

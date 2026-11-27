@@ -1463,7 +1463,9 @@ class TestDatumTarget(Base):
         datum = self.add("Datum", "A", Letter="A", Targets=targets)
         self.recompute()
         self.assertEqual(datum.Condition, "Ok", datum.ConditionMessage)
-        self.assertEqual(len(datum.Shape.Vertexes), 3)
+        # The plane they simulate: the bottom's, facing out of the part (down,
+        # as the targets do), as far as they reach
+        self.assert_plane(datum, 0, V(0, 0, -1), points)
         self.assertTrue(datum.Presentation.isNull())
         for t in targets:
             self.assertEqual(t.Condition, "Ok", t.ConditionMessage)
@@ -1478,6 +1480,62 @@ class TestDatumTarget(Base):
                       Feature=self.feature(TOP), Value=0.1, DatumSystem=drf)
         self.recompute()
         self.assertEqual(self.issues(gt), [])
+
+    def assert_plane(self, datum, z, normal, points):
+        shape = datum.Shape
+        self.assertEqual(shape.ShapeType, "Face")
+        self.assertEqual(shape.Surface.TypeId, "Part::GeomPlane")
+        n = shape.normalAt(0, 0)
+        self.assertTrue(n.isEqual(normal, 1e-9), n)
+        box = shape.BoundBox
+        self.assertAlmostEqual(box.ZMin, z, places=9)
+        self.assertAlmostEqual(box.ZMax, z, places=9)
+        for p in points:
+            self.assertLess(shape.distToShape(Part.Vertex(p))[0], 1e-6, p)
+        # No larger than they reach
+        self.assertAlmostEqual(box.XMin, min(p.x for p in points), places=6)
+        self.assertAlmostEqual(box.XMax, max(p.x for p in points), places=6)
+
+    def test_a_datum_from_two_points_is_a_line(self):
+        a, b = V(5, 0, 5), V(35, 0, 5)
+        targets = [self.target("Point", p, i + 1) for i, p in enumerate((a, b))]
+        datum = self.add("Datum", "B", Letter="B", Targets=targets)
+        self.recompute()
+        self.assertEqual(datum.Shape.ShapeType, "Edge")
+        ends = sorted((v.Point for v in datum.Shape.Vertexes), key=lambda p: p.x)
+        self.assertTrue(ends[0].isEqual(a, 1e-9) and ends[1].isEqual(b, 1e-9), ends)
+
+    def test_a_datum_from_a_line_target_is_its_line(self):
+        t = self.target("Line", V(20, 0, 5), 1, Length=30)
+        datum = self.add("Datum", "B", Letter="B", Targets=[t])
+        self.recompute()
+        self.assertEqual(datum.Shape.ShapeType, "Edge")
+        self.assertAlmostEqual(datum.Shape.Length, 30, places=9)
+
+    def test_a_datum_from_one_point_is_the_point(self):
+        t = self.target("Point", V(5, 5, 10), 1)
+        datum = self.add("Datum", "C", Letter="C", Targets=[t])
+        self.recompute()
+        self.assertEqual(datum.Shape.ShapeType, "Vertex")
+        self.assertTrue(datum.Shape.Point.isEqual(V(5, 5, 10), 1e-9))
+
+    def test_a_datum_from_rectangles_is_their_plane(self):
+        # Two rectangles on the top, NIST CTC-05's C and D are of this kind
+        targets = [self.target("Rectangle", V(x, 10, 10), i + 1, Length=6, Width=4)
+                   for i, x in enumerate((8, 32))]
+        datum = self.add("Datum", "C", Letter="C", Targets=targets)
+        self.recompute()
+        self.assert_plane(datum, 10, V(0, 0, 1), [V(5, 8, 10), V(35, 12, 10)])
+
+    def test_targets_in_no_one_plane_are_the_datum(self):
+        """Stepped targets, each at its own height, simulate no plane of
+        their own: the datum is the targets"""
+        points = [V(5, 5, 0), V(35, 5, 0), V(20, 15, 10), V(20, 5, 10)]
+        targets = [self.target("Point", p, i + 1) for i, p in enumerate(points)]
+        datum = self.add("Datum", "A", Letter="A", Targets=targets)
+        self.recompute()
+        self.assertEqual(datum.Shape.ShapeType, "Compound")
+        self.assertEqual(len(datum.Shape.Vertexes), 4)
 
     def test_the_letter_is_the_datums(self):
         t = self.target("Point", V(5, 5, 0), 2)

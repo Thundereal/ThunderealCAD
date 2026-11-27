@@ -48,6 +48,7 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <atomic>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -61,6 +62,7 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <pthread.h>
+#include <sys/mman.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
 #else
@@ -114,6 +116,59 @@ constexpr std::size_t AltSize = 256 * 1024;
 char altStack[AltSize];
 constexpr int Signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP};
 
+#if defined(FC_OS_MACOSX)
+
+// Every thread its own stack for the handler (docs/WorkerProcess.md sec
+// 75). An alternate stack is the thread's that set it: with the
+// installing thread's alone, a thread of OCCT's pool, Qt's or Python's
+// that ran out of stack faulted again in the handler, and the worker went
+// with nothing said. A thread started once install() has run is given one
+// as it starts, by pthread_create() interposed below; in a process that is
+// no worker, install() never runs and nothing is given.
+std::atomic<bool> threadStacks {false};
+
+struct Start
+{
+    void* (*routine)(void*);
+    void* arg;
+};
+
+void dropStack(void* stack)
+{
+    stack_t off;
+    std::memset(&off, 0, sizeof(off));
+    off.ss_flags = SS_DISABLE;
+    sigaltstack(&off, nullptr);
+    munmap(stack, AltSize);
+}
+
+void* started(void* given)
+{
+    const Start start = *static_cast<Start*>(given);
+    std::free(given);
+    // Mapped, not allocated: a page costs nothing until a crash writes it
+    void* stack = mmap(nullptr, AltSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (stack == MAP_FAILED) {
+        return start.routine(start.arg);
+    }
+    stack_t ss;
+    std::memset(&ss, 0, sizeof(ss));
+    ss.ss_sp = stack;
+    ss.ss_size = AltSize;
+    if (sigaltstack(&ss, nullptr) != 0) {
+        munmap(stack, AltSize);
+        return start.routine(start.arg);
+    }
+    void* result = nullptr;
+    // Dropped however the thread ends: returning, pthread_exit(), cancelled
+    pthread_cleanup_push(dropStack, stack);
+    result = start.routine(start.arg);
+    pthread_cleanup_pop(1);
+    return result;
+}
+
+#endif  // FC_OS_MACOSX
+
 void put(const char* text)
 {
     std::size_t left = std::strlen(text);
@@ -130,6 +185,17 @@ void put(const char* text)
 #else  // FC_OS_WIN32
 
 volatile LONG entered = 0;
+// Room kept back on a thread's stack for the report when the stack itself
+// overflowed: Windows' way to an alternate stack
+constexpr ULONG Guarantee = 64 * 1024;
+// Every thread that room (docs/WorkerProcess.md sec 78), as a thread on
+// macOS is given its own stack: with the installing thread's alone, a
+// thread of OCCT's pool, Qt's or Python's that ran out of stack had the
+// guard page's few KiB for the handler, and faulted again in it. A thread
+// started once install() has run is given it as it starts, by the TLS
+// callback at the end of this file; a process that is no worker is given
+// nothing
+std::atomic<bool> threadGuarantees {false};
 // The worker's stderr, its log: taken at install, written with WriteFile
 HANDLE errors = INVALID_HANDLE_VALUE;
 // An image's path, for a frame: not on the heap, which a crash may have broken
@@ -589,6 +655,9 @@ void WorkerCrash::install()
     ss.ss_sp = altStack;
     ss.ss_size = AltSize;
     sigaltstack(&ss, nullptr);
+#if defined(FC_OS_MACOSX)
+    threadStacks = true;
+#endif
     struct sigaction act;
     std::memset(&act, 0, sizeof(act));
     act.sa_sigaction = handler;
@@ -616,9 +685,11 @@ void WorkerCrash::install()
         }
     }
     // Room for the report when the stack itself overflowed: kept back on the
-    // thread that makes the jobs, this one
-    ULONG reserve = 64 * 1024;
+    // thread that makes the jobs, this one, and on every thread started from
+    // now on
+    ULONG reserve = Guarantee;
     ::SetThreadStackGuarantee(&reserve);
+    threadGuarantees = true;
     // Not a vectored handler: that one hears first-chance exceptions too,
     // which something may yet catch (ctypes does, for one)
     ::SetUnhandledExceptionFilter(unhandled);
@@ -1136,3 +1207,68 @@ std::string WorkerCrash::text(const Report& report)
     }
     return ss.str();
 }
+
+#if defined(FC_OS_MACOSX)
+
+/// pthread_create() as every image of the process calls it: dyld puts this
+/// in its place in all the images loaded at launch but this one, so the
+/// call below is the system's own (docs/WorkerProcess.md sec 77)
+extern "C" int fcWorkerCrashPthreadCreate(pthread_t* thread, const pthread_attr_t* attr,
+                                          void* (*routine)(void*), void* arg)
+{
+    if (!threadStacks.load(std::memory_order_relaxed)) {
+        return pthread_create(thread, attr, routine, arg);
+    }
+    auto start = static_cast<Start*>(std::malloc(sizeof(Start)));
+    if (!start) {
+        return pthread_create(thread, attr, routine, arg);
+    }
+    start->routine = routine;
+    start->arg = arg;
+    const int result = pthread_create(thread, attr, started, start);
+    if (result != 0) {
+        std::free(start);
+    }
+    return result;
+}
+
+namespace
+{
+struct Interpose
+{
+    const void* replacement;
+    const void* replacee;
+};
+__attribute__((used)) const Interpose interposed[] __attribute__((section("__DATA,__interpose"))) = {
+    {reinterpret_cast<const void*>(&fcWorkerCrashPthreadCreate),
+     reinterpret_cast<const void*>(&pthread_create)},
+};
+}  // namespace
+
+#endif  // FC_OS_MACOSX
+
+#if defined(FC_OS_WIN32) && defined(_MSC_VER) && defined(_WIN64)
+
+namespace
+{
+/// Called by the loader on each thread as it starts, before the thread's
+/// routine, on that thread: the place to keep its room back
+/// (docs/WorkerProcess.md sec 78)
+void NTAPI threadStarted(PVOID /*image*/, DWORD reason, PVOID /*reserved*/)
+{
+    if (reason == DLL_THREAD_ATTACH && threadGuarantees.load(std::memory_order_relaxed)) {
+        ULONG reserve = Guarantee;
+        ::SetThreadStackGuarantee(&reserve);
+    }
+}
+}  // namespace
+
+// The image's TLS directory, and this callback kept in it: neither is
+// referred to, so each is named to the linker
+#pragma comment(linker, "/INCLUDE:_tls_used")
+#pragma comment(linker, "/INCLUDE:fcWorkerCrashThreadStarted")
+#pragma const_seg(".CRT$XLF")
+extern "C" const PIMAGE_TLS_CALLBACK fcWorkerCrashThreadStarted = threadStarted;
+#pragma const_seg()
+
+#endif  // FC_OS_WIN32

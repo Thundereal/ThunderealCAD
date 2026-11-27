@@ -9,7 +9,9 @@ Claims:
     still with a worker, the document still touched;
   - its result is put in: nothing touched after, the cut's volume that of
     the edited box, nothing executed here;
-  - set off, Std_Refresh recomputes here at once.
+  - set off, Std_Refresh recomputes here at once;
+  - a document that skips recomputes is recomputed by Std_Refresh through
+    a worker too (sec 74).
 """
 import os
 import time
@@ -80,11 +82,29 @@ def run():
         check("... the cut's volume that of the edited box", abs(cut.Shape.Volume - want) < 1e-6,
               cut.Shape.Volume)
 
+        # A document that skips recomputes: Std_Refresh recomputes it all the
+        # same, forced, and the worker's result is put in forced too
+        # (docs/WorkerProcess.md sec 74)
+        doc.RecomputesFrozen = True
+        box.Length = 16
+        FreeCADGui.runCommand("Std_Refresh")
+        check("a document that skips recomputes is handed over as well", pool.recomputing(),
+              pool.recomputeInfo())
+        end = time.time() + 120
+        while pool.recomputing() and time.time() < end:
+            pump(0.05)
+        info = pool.recomputeInfo()
+        want = 16 * 10 * 10 - 3.141592653589793 * 4 * 10
+        check("... and its result is put in",
+              info["Applied"] == 2 and touched(doc) == [] and abs(cut.Shape.Volume - want) < 1e-6,
+              (info, touched(doc), cut.Shape.Volume))
+        doc.RecomputesFrozen = False
+
         WORKERS.SetBool("RecomputeCommand", False)
         box.Length = 15
         FreeCADGui.runCommand("Std_Refresh")
         check("set off, Std_Refresh recomputes here at once",
-              not pool.recomputing() and touched(doc) == [] and pool.recomputeInfo()["Started"] == 1,
+              not pool.recomputing() and touched(doc) == [] and pool.recomputeInfo()["Started"] == 2,
               (pool.recomputeInfo(), touched(doc)))
     except Exception:
         note("ABORT " + traceback.format_exc().replace("\n", " | "))

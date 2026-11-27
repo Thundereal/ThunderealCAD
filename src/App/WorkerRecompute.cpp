@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <stdexcept>
 #include <deque>
 #include <fstream>
 #include <functional>
@@ -1151,6 +1152,10 @@ public:
     explicit Supplier(Document& doc)
         : RecomputeHook(doc)
         , doc(doc)
+        // A test's fault (docs/WorkerProcess.md sec 81): read once, here
+        , fault(GetApplication()
+                    .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+                    ->GetASCII("PutInFault", ""))
     {}
 
     /// Read a worker's file; false, `why` set, when it does not read
@@ -1339,6 +1344,16 @@ public:
         auto it = answered.find(&obj);
         const bool supplied = it != answered.end() && it->second.first;
         times()[&doc].seconds[obj.getID()] = supplied ? it->second.second.seconds : took;
+        // Workers/PutInFault, a test's: once the object it names is put in,
+        // what a put-in that is not the user's abort meets -- a
+        // std::exception out of the recompute's own code, between two
+        // objects, where Document::recompute() catches only an abort and
+        // Base::Exception (a bad_alloc, a JSON error).  Never set by the
+        // application
+        if (supplied && !fault.empty() && fault == obj.getNameInDocument()) {
+            throw std::runtime_error("a fault put in by Workers/PutInFault after "
+                                     + fault);
+        }
     }
 
     bool make(DocumentObject& obj, Made& made) override
@@ -1519,6 +1534,8 @@ public:
     /// Made from the worker's values, by name: what the worker holds as
     /// they were put in (docs/WorkerProcess.md sec 29)
     std::set<std::string> fromWorker;
+    /// Workers/PutInFault: the object after whose put-in it throws, a test's
+    const std::string fault;
     long madeByType = 0;  ///< executed here by their type (madeHere())
     /// A split one's joins, sent to no worker: made here (sec 59)
     std::set<std::string> joined;

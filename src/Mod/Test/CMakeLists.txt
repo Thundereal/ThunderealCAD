@@ -46,6 +46,7 @@ SET(Test_SRCS
     PartGroupView.py
     TreeEntries.py
     FeaturePythonChain.py
+    ProxyKeptAsRead.py
     SandboxProgram.py
     SandboxProgramFixtures.py
 )

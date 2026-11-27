@@ -356,30 +356,6 @@ bool setOCCTGDTPresentationColor(STEPCAFControl_Writer &writer, const Quantity_C
     return true;
 }
 
-typedef void (*FuncAddItemLayer)(const TDF_Label &, const XCAFDoc_LayerTool::ItemLayer &);
-
-bool addOCCTItemLayer(const TDF_Label &item, const XCAFDoc_LayerTool::ItemLayer &layer)
-{
-    static const auto func =
-        (FuncAddItemLayer)lookUpOCCT("TKXCAF", "XCAFDoc_LayerTool_AddItemLayer");
-    if (!func)
-        return false;
-    func(item, layer);
-    return true;
-}
-
-typedef bool (*FuncGetItemLayers)(const TDF_Label &,
-                                  NCollection_Sequence<XCAFDoc_LayerTool::ItemLayer> &);
-
-bool getOCCTItemLayers(const TDF_Label &item,
-                       NCollection_Sequence<XCAFDoc_LayerTool::ItemLayer> &layers)
-{
-    static const auto func =
-        (FuncGetItemLayers)lookUpOCCT("TKXCAF", "XCAFDoc_LayerTool_GetItemLayers");
-    layers.Clear();
-    return func && func(item, layers);
-}
-
 typedef const Standard_GUID &(*FuncGUID)();
 
 const Standard_GUID *occtCitedDocumentsGUID()

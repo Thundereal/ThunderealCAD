@@ -45,6 +45,16 @@ def wait(pool, seconds):
     return not pool.recomputing()
 
 
+def loaded(doc):
+    """Until the document's progressive load is over: touched and handed
+    over before, a document still filling had a part of its objects swept"""
+    end = time.time() + 600
+    while (doc.Restoring or doc.LiveImport) and time.time() < end:
+        QtWidgets.QApplication.processEvents()
+        time.sleep(0.02)
+    return not doc.Restoring and not doc.LiveImport
+
+
 def dismiss():
     """A box a document's open raises (a missing file, an old format): no
     one is there to answer it"""
@@ -65,7 +75,8 @@ def run():
         sweeper.timeout.connect(dismiss)
         sweeper.start(500)
         report = T.sweep(T.documents(), wait,
-                         lambda p: note("INFO sweeping %s" % os.path.relpath(p, FreeCAD.getHomePath())))
+                         lambda p: note("INFO sweeping %s" % os.path.relpath(p, FreeCAD.getHomePath())),
+                         loaded)
         sweeper.stop()
         swept = [e for e in report if "skipped" not in e]
         for e in report:

@@ -94,6 +94,7 @@
 #include <Mod/Part/App/FeatureCompound.h>
 #include <Mod/Part/App/Interface.h>
 #include <Mod/Part/App/OCCTFork.h>
+#include "OCCTForkOCAF.h"
 #include <Mod/Part/App/OCAF/ImportExportSettings.h>
 
 #include "ExportOCAF2.h"
@@ -959,7 +960,7 @@ static std::vector<std::string> itemLayers(const Handle(XCAFDoc_ShapeTool)& tool
     auto add = [&](const TDF_Label& l, const std::string& element) {
         // The fork's, looked up (Part/App/OCCTFork.h): without it, none read
         NCollection_Sequence<XCAFDoc_LayerTool::ItemLayer> layers;
-        if (!Part::getOCCTItemLayers(l, layers)) {
+        if (!Import::getOCCTItemLayers(l, layers)) {
             return;
         }
         for (const auto& layer : layers) {

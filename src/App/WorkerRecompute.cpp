@@ -406,10 +406,15 @@ public:
         std::vector<std::string> views;
     };
 
-    /// The one recording, for noteFaked()
+    /// The one recording, for noteFaked(): the recompute's thread's. What
+    /// another thread uses is not the executing object's -- the guest's
+    /// boot, on a thread of its own while the worker waits for work
+    /// (WorkerPool.cpp, BootSandbox), reads FreeCAD.GuiUp, and on a loaded
+    /// box got to it during a job, which charged it to whatever object was
+    /// executing then (docs/WorkerProcess.md sec 73)
     static Recorder*& active()
     {
-        static Recorder* recorder = nullptr;
+        static thread_local Recorder* recorder = nullptr;
         return recorder;
     }
 

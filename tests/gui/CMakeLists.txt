@@ -1424,6 +1424,14 @@ fc_add_gui_test(GuiBinderMapColorRestore_tests_run
                 binder-map-color-restore.py
                 --timeout 240)
 
+# An older file whose looks are taken from its view providers opens in
+# about the time the same file saved now does: taking them gathered and
+# sorted each object's whole in-list, quadratic in the objects (smoke
+# corpus 2026-11-27, finding B2: MiSTer_binary did not open in 18 min).
+fc_add_gui_test(GuiOlderLooksOpenTime_tests_run
+                older-looks-open-time.py
+                --timeout 300)
+
 # An instanced Part object draws a uniform face colour list at the
 # transparency the list says: the uniform branch took the colour's alpha,
 # an opacity, for the transparency, so an opaque list drew invisible

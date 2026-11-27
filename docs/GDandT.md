@@ -521,8 +521,9 @@ task panel and the tree:
   does not constrain what the characteristic needs (orientation needs a primary);
 - model: a broken or remapped feature, a dimension whose nominal and `Driver` disagree, a basic
   dimension with a tolerance;
-- coverage (later): faces of the part no annotation or the general tolerance covers -- the
-  "fully toleranced" question DimXpert's colours answer [A1].
+- coverage: faces of the part no annotation or the general tolerance covers -- the
+  "fully toleranced" question DimXpert's colours answer [A1]. On demand, not in the check: a
+  part being annotated has such faces until it is done (10.27).
 
 ## 9. TechDraw
 
@@ -899,8 +900,9 @@ or a rectangle marked within its size, the rules, saved and restored), `TestNist
 with its own leader; drawn).
 
 Open: a line target on an edge lies on both its faces and takes the first found (the file's z
-runs along the edge, nothing to choose by). A movable target has no symbol of its own yet. A
-datum from targets is their compound, not the plane, axis or point they establish.
+runs along the edge, nothing to choose by). A movable target has no symbol of its own yet.
+A datum from targets is the plane, line or point they establish since 10.27; targets in no one
+plane are still their compound.
 
 - Next in P2: slots and counterbores as features of size (10.12); edge and point references.
 
@@ -2072,9 +2074,9 @@ compares; it took our curves for none.
   `StepIntegerAttributes`, `StepRealAttributes` for numbers) and given back on export; a part
   the file gave geometric validation properties is marked `StepValidation` and written with
   them, computed of the shape written (OCCT names them its way: 'surface area measure', one
-  property each). Not written yet: the attribute validation property (counts of them), PMI
-  validation properties (each graphic's length, area, facets; NIST's of its own graphics) and
-  tessellated validation properties.
+  property each). The attribute and PMI validation properties: sec 10.28. Not written yet:
+  the graphics' own measures (curve length, segments, facets), tessellated validation
+  properties.
 - **Graphics as curves (CTC-05).** NIST draws CTC-05's PMI as annotation curve occurrences
   of polylines and circles, ours were always tessellated (SFA: 'Graphic PMI (polyline)'). A
   PMI whose graphic was curves is marked (`XCAFDoc_DimTolTool::SetPresentationCurves`,
@@ -2143,7 +2145,9 @@ compares; it took our curves for none.
   now on FTC-10 and CTC-04 too; NIST styles a hidden curve itself, OCCT the set it is in). Not
   done: members of a curve set hidden alone (STC-06's 12, FTC-10's two axis lines), each a
   supplemental item; STC-09 -e3's hidden points (curve sets of a point each) are read hidden
-  but not written so -- OCCT writes a part's points as one set.
+  but not written so -- OCCT writes a part's points as one set; so is the layer each of
+  those sets is on ('64'), which lands on its point (`test_part_layers_as_the_file_has_them`
+  skips -e3; the set's -e4 has no such points).
   Which supplemental items a saved view shows: STC-06's twelve views each map, beside the
   part, a shape representation 'supplemental geometry' of some of the items, described
   'supplemental geometry subset' (a description attribute), as a mapped item of the camera
@@ -2199,6 +2203,88 @@ compares; it took our curves for none.
   NIST writes and we do not are each face of a solid styled as the solid is, or a face of a
   surface model as its model is (`assertBodyColoured`). Not done: the five surfaces of
   STC-09 are written in the body's colour, their face each in its own (drawn the same).
+
+### 10.27 P5: coverage, a tolerance all over in the query, datums from targets (2026-11-27)
+
+- **Coverage** (sec 8): `PMI::Api::coverage(set)`, Python `PMI.coverage(set)` -> (solid,
+  'FaceN', how) for every face of the set's part, each solid body of a Body: 'Annotated' when a
+  dimension, a tolerance, a datum, a datum target or a note is on a feature holding it, or one
+  is all over the part; else 'General' when the set has a general tolerance; else 'None'. A
+  datum cited is not its face toleranced. Not part of `PMI.check`: a part being annotated has
+  uncovered faces until it is done, and the check would flag every one meanwhile. The query
+  panel gives the part's counts under its list and a button selecting the faces nothing
+  tolerances -- the solid body's faces, through the Body, which the selection draws on the
+  feature showing the solid (`TestQuery.test_coverage*`, `tests/gui/pmi-query.py`).
+- **A tolerance all over the part** (a WholePart feature, NIST's general profile) names no
+  face, so the query listed it for none. It applies to every face: listed as 'all over' for
+  each (`test_a_tolerance_all_over_applies_to_every_face`).
+- **A datum from targets** (10.11) is what they establish, no longer their compound: the plane
+  they lie in -- three or more points, an area, a rectangle, a circle -- facing out of the
+  part as the first target does and as far as they reach; the line through two points or a
+  line target; the point of one. Targets in no one plane stay the datum themselves: stepped
+  ones, and those on opposed faces for a centre plane (CTC-02's B, two points each side of
+  the part). The NIST set: CTC-02's A a plane facing down, C a point, K (DIA 85) a plane;
+  CTC-05's C and D planes facing apart; FTC-06's J and K (two lines each) planes, G and H
+  (a circular curve each) their circles' planes (`TestDatumTarget`).
+- Not done: colouring the faces by coverage, as DimXpert does -- the drawn faces are the
+  feature's showing the solid, numbered as its shape, not the solid body's; and whether a
+  face is fully constrained (size, form, orientation and location to the datums), which is
+  DimXpert's green rather than "something is on it".
+
+### 10.28 P5: validation properties other than geometric ones (2026-11-27)
+
+The CAx-IF recommended practices' attribute and PMI validation properties, which 12 of the 17
+NIST files carry (CTC-03: 61 of them), were read as nothing and written as nothing.
+
+- **Read.** OCCT's `characterized_definition` took none of what a PMI validation property is
+  of -- a size, a tolerance, a graphic's `characterized_item_within_representation`, a view's
+  `model_geometric_view` or characterized draughting model -- so the property's definition read
+  as nothing (the fork's select takes them now: sizes, tolerances, representations, and
+  entities the schema has no type of). `STEPCAFControl_Reader::ReadValidationItems` keeps,
+  for each property, its name and its items' names on the label of what it is of
+  (`XCAFDoc::ValidationItemsGUID`): a product's attribute validation property and a part's
+  PMI validation property on the product; a PMI's on its label, its graphic's there too
+  ('presentation'), a datum's of the datum itself, not its feature ('datum'); a view's on the
+  view. The import keeps them (`StepValidationItems`: on the part, the callout, the view) and
+  the export gives them back.
+- **Written, computed of what is written** (`writeAttributeValidation`,
+  `writePMIValidation`), each property with the items the file had that the writer
+  computes:
+  - a product's attribute counts: of the attributes written -- its text, integer and real
+    ones, those of the reals that are lengths; an edge's, a face's, a PMI's none (FreeCAD
+    keeps a product's only);
+  - a part's PMI counts: its dimensional locations, sizes (a size that is its own datum
+    feature one) and tolerances as entities written; its datums and targets as labels (NIST
+    counts a datum by its feature: CTC-02's 6, of 10 datum entities); its annotations its
+    PMI's graphics (a placeholder's callout not one); its views; its composite frames;
+  - a PMI's: its graphics (one drawn in another's graphic that one's), the area of the
+    faces it is on and the length of its edges (a datum target's: the target itself -- a
+    line's length, a rectangle's or a circle's area), the datums a tolerance cites as NIST
+    gives them ('A,B,C', a common datum 'H-J', 'none');
+  - a graphic's: the area and the length of what its PMI is on;
+  - a view's: the annotations it lists (of its model geometric view: none is written in a
+    file of AP242's first edition, so neither is the property).
+  Not computed, so not written: the equivalent unicode string, a graphic's own measures
+  (tessellated curve length, segments, facets, polyline length), a view's scale and
+  coordinates, the counts of semantic text notes, tessellated validation properties.
+- **What NIST's say, against what is written** (`test_validation_properties_as_the_file_has_them`,
+  every file): each property the file has is written again, but those of what is not read
+  -- CTC-01's two locations and CTC-03's Linear Size.10 given no value (read as notes,
+  sec 10.9), CTC-03's datum F, which no frame cites, not read at all -- and a view's where
+  no model geometric view is written. A part's counts are those of the file written, and
+  NIST's own are not always theirs: STC-10 gives 19 locations, its file has 2; CTC-05 gives
+  10 views, its file has 2 cameras. The datums cited are NIST's in every file. The
+  attribute counts are NIST's, but for what is not read whole: CTC-04's edge attribute, and
+  six reals given two or three times under one name, kept once each (XCAF's named data);
+  CTC-05's two integers, read as reals; FTC-07's measures other than lengths, read as reals.
+  The affected areas are NIST's to 1% in CTC-02, STC-08 and STC-10. Not in the others:
+  NIST uses square inches beside millimetres within one file (CTC-03), which the test reads
+  by each value's unit; STC-06 gives every area as 0; FTC-06's locations, FTC-07's,
+  STC-07's and FTC-08 -e4-tg's differ, not yet explained.
+- **Open, found by it:** a datum no frame cites is not read (CTC-03's F: OCCT's reader makes
+  a datum label for each time a frame cites one); NIST's view properties are of a
+  characterized draughting model where FreeCAD writes a plain one, so they are written of
+  the model geometric view.
 
 ## 11. Decisions (made 2026-11-19)
 

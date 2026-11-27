@@ -10,7 +10,10 @@ the hole to |A|B. Seen from the top, what is checked:
     bottom face datum A and the position citing it; a face with nothing on
     it lights nothing; a face preselected lights as a pick does;
   - the query panel lists what applies to the face picked, keeps the list
-    when a callout in it is clicked, and the click selects that callout.
+    when a callout in it is clicked, and the click selects that callout;
+  - it gives the part's coverage (4 faces toleranced, 3 by nothing), and its
+    button selects those 3 faces -- the list staying -- which show selected
+    on the feature that draws the solid.
 
   scripts/gui-test.sh tests/gui/pmi-query.py /tmp/pmi-query
 """
@@ -197,6 +200,33 @@ def run():
         sel = Gui.Selection.getSelection()
         check("a callout clicked in the list is selected, and the list stays",
               sel == [pos] and listing.count() == 2, ([o.Name for o in sel], listing.count()))
+
+        # The part's coverage: the top, the bottom, the left and the hole
+        # have a callout on them; the right, the front and the back nothing
+        cover = panel[0].findChild(QtWidgets.QLabel, "coverage")
+        check("the panel gives the part's coverage: 4 faces toleranced, 3 by nothing",
+              "4 toleranced" in cover.text() and "3 by nothing" in cover.text(), cover.text())
+        view.viewIsometric()
+        Gui.SendMsgToActiveView("ViewFit")
+        pump(60)
+        Gui.Selection.clearSelection()
+        pump(10)
+        g0, _ = colours(view, "uncovered-none.png")
+        button = panel[0].findChild(QtWidgets.QPushButton, "selectUncovered")
+        check("its button is offered", button is not None and button.isEnabled())
+        button.click()
+        pump(20)
+        # By their old names: a selection keeps the mapped one too,
+        # 'Solid.;Front;...F.Face2'
+        subs = sorted(s.split(".", 1)[0] + "." + s.rsplit(".", 1)[-1]
+                      for e in Gui.Selection.getSelectionEx("", 0) for s in e.SubElementNames)
+        want = sorted("%s.%s" % (solid.Name, face_at(solid.Shape, p))
+                      for p in (V(40, 5, 5), V(5, 0, 5), V(5, 20, 5)))
+        check("it selects the faces nothing tolerances, and the list stays",
+              subs == want and listing.count() == 2, (subs, want, listing.count()))
+        g1, _ = colours(view, "uncovered-selected.png")
+        check("they show selected: the right and the front face turn green",
+              g1 > g0 + 1000, (g0, g1))
         for box_ in Gui.getMainWindow().findChildren(QtWidgets.QDialogButtonBox):
             b = box_.button(QtWidgets.QDialogButtonBox.Close)
             if b is not None and b.isVisible():

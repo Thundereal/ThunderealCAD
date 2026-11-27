@@ -50,6 +50,7 @@
 #include <NCollection_Sequence.hxx>
 #include <Standard_Failure.hxx>
 #include <TCollection_HAsciiString.hxx>
+#include <TDataStd_ExtStringList.hxx>
 #include <TDF_Label.hxx>
 #include <TDF_Tool.hxx>
 #include <TopExp.hxx>
@@ -956,6 +957,35 @@ private:
         }
     }
 
+    /// The validation properties a label was read with other than geometric
+    /// ones (XCAFDoc::ValidationItemsGUID: a PMI's, its graphic's, a view's pmi
+    /// validation properties, NIST CTC-03's) kept on \a obj: which, written
+    /// again computed of what is written (docs/GDandT.md sec 10.28)
+    static void keepValidation(App::DocumentObject* obj, const TDF_Label& l)
+    {
+        Handle(TDataStd_ExtStringList) list;
+        if (!obj || l.IsNull() || !l.FindAttribute(XCAFDoc::ValidationItemsGUID(), list)) {
+            return;
+        }
+        std::vector<std::string> values;
+        for (NCollection_List<TCollection_ExtendedString>::Iterator it(list->List()); it.More();
+             it.Next()) {
+            values.emplace_back(TCollection_AsciiString(it.Value(), '?').ToCString());
+        }
+        auto prop =
+            freecad_cast<App::PropertyStringList*>(obj->getPropertyByName("StepValidationItems"));
+        if (!prop) {
+            prop = freecad_cast<App::PropertyStringList*>(obj->addDynamicProperty(
+                "App::PropertyStringList", "StepValidationItems", "STEP",
+                "The validation properties the STEP file gave it, written again computed of "
+                "what is written: each what it is of ('presentation' its graphic), its name "
+                "and its items' names, '|'-separated"));
+        }
+        if (prop) {
+            prop->setValues(values);
+        }
+    }
+
     /// The holes a file defines (AP242 ed3 hole features: NIST STC-09's 8
     /// basic_round_hole, of 25 occurrences): each occurrence a hole of the
     /// part's set, on the faces it is of, with its definition, to be written
@@ -1041,6 +1071,9 @@ private:
             }
             if (c && !c->getPropertyByName("StepUUID")) {
                 keepUUID(c, l);
+            }
+            if (c && !c->getPropertyByName("StepValidationItems")) {
+                keepValidation(c, l);
             }
         }
     }
@@ -2710,6 +2743,7 @@ private:
             views.push_back(v);
             c->Views.setValues(views);
         }
+        keepValidation(v, l);
         ++_report.views;
     }
 

@@ -94,7 +94,12 @@ public:
                            "the set's last one on its feature, or None");
         add_varargs_method("query", &Module::query,
                            "query(obj, subname) -> [(callout, how)]: what applies to a face, "
-                           "picked or of a solid -- 'on' it, or 'datum A' citing a datum on it");
+                           "picked or of a solid -- 'on' it, 'all over' its part, or 'datum A' "
+                           "citing a datum on it");
+        add_varargs_method("coverage", &Module::coverage,
+                           "coverage(set) -> [(solid, 'FaceN', how)]: every face of the set's "
+                           "part and what tolerances it -- 'Annotated', 'General' (only the "
+                           "set's general tolerance) or 'None'");
         add_varargs_method("advise", &Module::advise,
                            "advise(feature, characteristic=None) -> {'characteristics': [...], "
                            "and with a characteristic 'zoneShapes': [...], 'materialCondition': "
@@ -319,6 +324,24 @@ private:
         Py::List out;
         for (auto& a : Api::query(solid, face)) {
             out.append(Py::TupleN(Py::asObject(a.callout->getPyObject()), Py::String(a.how)));
+        }
+        return out;
+    }
+
+    Py::Object coverage(const Py::Tuple& args)
+    {
+        PyObject* pyset;
+        if (!PyArg_ParseTuple(args.ptr(), "O", &pyset)) {
+            throw Py::Exception();
+        }
+        Py::List out;
+        for (auto& c : Api::coverage(toSet(pyset))) {
+            const char* how = c.coverage == Api::Coverage::Annotated ? "Annotated"
+                : c.coverage == Api::Coverage::General              ? "General"
+                                                                    : "None";
+            auto solid = const_cast<App::DocumentObject*>(c.solid);
+            out.append(Py::TupleN(Py::asObject(solid->getPyObject()), Py::String(c.face),
+                                  Py::String(how)));
         }
         return out;
     }

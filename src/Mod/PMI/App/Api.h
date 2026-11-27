@@ -94,10 +94,37 @@ struct Applies
 
 /** What applies to one face of a solid (docs/GDandT.md sec 6.5; upstream's
  * query of a feature's specifications): the callouts on a feature holding
- * the face, then the tolerances whose datum frame cites a datum on it --
- * the datum letters are the solid's own. In the set's order, each once.
+ * the face ("on" it, or "all over" for one on the whole part), then the
+ * tolerances whose datum frame cites a datum on it -- the datum letters are
+ * the solid's own. In the set's order, each once.
  */
 PMIExport std::vector<Applies> query(const App::DocumentObject* solid, const std::string& face);
+
+/// What tolerances a face (docs/GDandT.md sec 8, coverage)
+enum class Coverage
+{
+    /// Nothing: no callout is on it and the set has no general tolerance
+    None,
+    /// Only the set's general tolerance
+    General,
+    /// A callout on it, or one all over its part
+    Annotated,
+};
+
+struct FaceCoverage
+{
+    const App::DocumentObject* solid;
+    std::string face;
+    Coverage coverage;
+};
+
+/** Every face of the set's part -- of each solid body of a Body -- and
+ * what tolerances it: the "fully toleranced" question DimXpert's colours
+ * answer. A face is annotated when a dimension, a tolerance, a datum, a
+ * datum target or a note is on a feature holding it; a datum cited is not
+ * the face toleranced. Faces in order, solid by solid.
+ */
+PMIExport std::vector<FaceCoverage> coverage(const AnnotationSet* set);
 }  // namespace Api
 
 }  // namespace PMI

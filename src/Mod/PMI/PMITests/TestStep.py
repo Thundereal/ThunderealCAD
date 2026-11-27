@@ -55,6 +55,149 @@ DEPTHS = (
 )
 
 
+# The items of validation properties other than geometric ones the writer computes, by name
+VALIDATION_COMPUTED = {
+    "part user attributes", "text user attributes", "integer user attributes",
+    "real user attributes", "measure value user attributes", "boolean user attributes",
+    "edge user attributes", "face user attributes", "geometric set user attributes",
+    "pmi user attributes",
+    "number of annotations", "number of PMI presentation elements", "number of views",
+    "number of semantic pmi elements", "number of dimensional locations",
+    "number of dimensional sizes", "number of geometric tolerances",
+    "number of composite tolerances", "number of datums", "number of datum features",
+    "number of datum targets",
+    "affected area", "affected curve length", "datum references",
+}
+
+
+# What each NIST file's validation properties are of that is not read (docs/GDandT.md sec
+# 10.9): by property and what it is of, how many are not written again
+VALIDATION_LOST = {
+    # Its four dimensions given no value, read as notes: its two locations' properties
+    "nist_ctc_01_asme1_ap242-e1.stp": {("pmi validation property", "pmi"): 2},
+    # Linear Size.10, given no value, read as a note, and datum F, which no frame cites, not
+    # read (sec 10.28): their properties, and the size's graphic's
+    "nist_ctc_03_asme1_ap242-e2.stp": {("pmi validation property", "pmi"): 2,
+                                       ("pmi validation property", "graphic"): 1},
+}
+
+# NIST's validation properties written with fewer items, those computed of nothing: what they
+# were, what they are written as, how many
+VALIDATION_WRITTEN_AS = {
+    # Its four directed locations' graphics give a curve length their locations do not: the
+    # locations are of faces, no edge
+    "nist_stc_07_asme1_ap242-e3.stp": [
+        (("pmi validation property", "graphic", ("affected area", "affected curve length")),
+         ("affected area",), 4),
+    ],
+}
+
+# The attributes counted where what was read of them is not the file's whole: the counts of
+# what is written
+VALIDATION_ATTRIBUTES = {
+    # An edge's attribute is not read (a product's only); of its reals three are given twice and
+    # three three times under one name, kept once each (XCAF's named data)
+    "nist_ctc_04_asme1_ap242-e2.stp": {"edge user attributes": 0, "part user attributes": 28,
+                                       "real user attributes": 25,
+                                       "measure value user attributes": 6},
+    # Its two integers (numeric measures) are read as reals
+    "nist_ctc_05_asme1_ap242-e1.stp": {"integer user attributes": 0},
+    # Its measures other than lengths (areas, a mass, volumes) are read as reals
+    "nist_ftc_07_asme1_ap242-e2.stp": {"measure value user attributes": 3},
+}
+
+# The files whose PMI's affected areas are NIST's, by what the properties are of: the others'
+# are not (STC-06's are all 0; FTC-06's locations', FTC-07's, STC-07's and FTC-08 -e4-tg's
+# differ, docs/GDandT.md sec 10.28)
+VALIDATION_AREAS = {
+    "nist_ctc_02_asme1_ap242-e2.stp": ("pmi", "graphic"),
+    "nist_stc_08_asme1_ap242-e3.stp": ("pmi", "graphic"),
+    "nist_stc_10_asme1_ap242-e2.stp": ("pmi",),
+}
+
+
+def step_unit(ents, ref):
+    """mm per unit of a unit entity of a STEP file (mm^2 per unit of an area's)"""
+    v = ents[ref]
+    m = re.match(r"\s*DERIVED_UNIT\(\(\s*#(\d+)", v)
+    if m:
+        e = re.match(r"DERIVED_UNIT_ELEMENT\(\s*#(\d+)\s*,\s*([-0-9.]+)", ents[m.group(1)])
+        return step_unit(ents, e.group(1)) ** float(e.group(2))
+    m = re.search(r"CONVERSION_BASED_UNIT\(\s*'[^']*'\s*,\s*#(\d+)", v)
+    if m:
+        w = re.search(r"MEASURE\(\s*([-+0-9.E]+)\s*\)\s*,\s*#(\d+)", ents[m.group(1)])
+        return float(w.group(1)) * step_unit(ents, w.group(2))
+    m = re.search(r"SI_UNIT\(\s*([.A-Z$]+)\s*,\s*\.METRE\.", v)
+    if m:
+        return {"$": 1000.0, ".MILLI.": 1.0, ".CENTI.": 10.0, ".MICRO.": 1e-3}[m.group(1)]
+    return 1.0
+
+
+def validation_groups(path):
+    """The validation properties of a STEP file other than geometric ones: (name, what it is
+    of -- 'part', 'graphic', 'view', 'pmi' -- {item: value}), lengths and areas in mm"""
+    with open(path, errors="replace") as f:
+        text = re.sub(r"\s+", " ", f.read())
+    ents = dict(re.findall(r"#(\d+)\s*=\s*([^;]*);", text))
+    reps = collections.defaultdict(list)
+    for v in ents.values():
+        m = re.match(r"PROPERTY_DEFINITION_REPRESENTATION\(\s*#(\d+)\s*,\s*#(\d+)", v)
+        if m:
+            reps[m.group(1)].append(m.group(2))
+    classes = {"PRODUCT_DEFINITION": "part", "PRODUCT_DEFINITION_SHAPE": "part",
+               "CHARACTERIZED_ITEM_WITHIN_REPRESENTATION": "graphic",
+               "MODEL_GEOMETRIC_VIEW": "view", "CHARACTERIZED_OBJECT": "view"}
+    groups = []
+    for k, v in ents.items():
+        m = re.match(r"PROPERTY_DEFINITION\(\s*'([^']*validation property)'\s*,"
+                     r"\s*(?:'[^']*'|\$)\s*,\s*#(\d+)\s*\)", v)
+        if not m or m.group(1) == "geometric validation property":
+            continue
+        kind = re.match(r"\(?\s*([A-Z_0-9]+)", ents[m.group(2)]).group(1)
+        items = {}
+        for r in reps[k]:
+            listed = re.search(r"\(([^()]*)\)", ents[r])
+            for i in re.findall(r"#(\d+)", listed.group(1) if listed else ""):
+                item = ents[i]
+                name = re.search(r"'([^']*)'", item).group(1)
+                number = re.search(r"(?:MEASURE\(|',)\s*([-+0-9.E]+)\s*\)", item)
+                if item.startswith("DESCRIPTIVE"):
+                    items[name] = re.findall(r"'([^']*)'", item)[1]
+                elif number and "MEASURE(" in item and "NUMERIC_MEASURE" not in item:
+                    u = re.search(r"MEASURE\(\s*[-+0-9.E]+\s*\)\s*,\s*#(\d+)", item)
+                    scale = step_unit(ents, u.group(1)) if u else 1.0
+                    items[name] = float(number.group(1)) * scale
+                elif number:
+                    items[name] = int(float(number.group(1)))
+        groups.append((m.group(1), classes.get(kind, "pmi"), items))
+    return groups
+
+
+def gdt_counts(text):
+    """The dimensions, the tolerances and the views of a STEP file's text, by the names a
+    part's pmi validation property counts them under"""
+    text = re.sub(r"\s+", "", text)
+    sizes = locations = tolerances = views = 0
+    for v in re.findall(r"#\d+=([^;]*);", text):
+        if v.startswith("("):
+            names = re.findall(r"(?:^|\()([A-Z_0-9]+)\(", v)
+        else:
+            names = [v.split("(")[0]]
+        if any(n in ("ANGULAR_SIZE", "DIMENSIONAL_SIZE", "DIMENSIONAL_SIZE_WITH_PATH",
+                     "DIMENSIONAL_SIZE_WITH_DATUM_FEATURE") for n in names):
+            sizes += 1
+        elif any(n in ("ANGULAR_LOCATION", "DIMENSIONAL_LOCATION",
+                       "DIRECTED_DIMENSIONAL_LOCATION", "DIMENSIONAL_LOCATION_WITH_PATH")
+                 for n in names):
+            locations += 1
+        elif any(n.endswith("_TOLERANCE") and n != "PLUS_MINUS_TOLERANCE" for n in names):
+            tolerances += 1
+        elif any(n.startswith("CAMERA_MODEL_D3") for n in names):
+            views += 1
+    return {"number of dimensional sizes": sizes, "number of dimensional locations": locations,
+            "number of geometric tolerances": tolerances, "number of views": views}
+
+
 def edition(path):
     """A NIST file whatever its edition: nist_ctc_04_asme1_ap242-e1.stp is
     -e2 in a newer zip, ftc_08's -e1-tg -e4-tg (dwin, p9). The one named if it
@@ -1669,6 +1812,10 @@ class TestNistSet(Base):
                 want = layered(path)
                 if not want:
                     continue
+                if path.endswith("nist_stc_09_asme1_ap242-e3.stp"):
+                    # Its points are a curve set each, layered: OCCT writes a part's points as
+                    # one set, each point's layer on the point (docs/GDandT.md sec 10.26)
+                    self.skipTest("STC-09 -e3's one-point curve sets are written as one set")
                 doc = self.read(path)
                 read = [o for o in doc.Objects if getattr(o, "StepLayers", None)]
                 self.assertTrue(read, "no object keeps its layers")
@@ -1721,6 +1868,85 @@ class TestNistSet(Base):
                                  sum(want.values()))
                 self.write_and_read(doc)
                 self.assertEqual(cited(self.written), want)
+
+    def test_validation_properties_as_the_file_has_them(self):
+        """The validation properties other than geometric ones a file gives its
+        part, its PMI, their graphics and its views (CAx-IF recommended
+        practices: the counts of a product's attributes and of a part's PMI, a
+        PMI's graphics, the area of the faces it is on, the datums it cites, a
+        view's annotations) are kept, which ones (StepValidationItems), and
+        written again computed of what is written: each the file has, with the
+        items the writer computes; a part's counts those of the file written;
+        the datums cited, the attributes counted and the areas NIST's, where
+        what was read is the file's whole (docs/GDandT.md sec 10.28)"""
+        nist = os.environ["FC_PMI_NIST"]
+        for path in sorted(glob.glob(os.path.join(nist, "nist_*.stp"))):
+            name = os.path.basename(path)
+            want = validation_groups(path)
+            if not want:
+                continue
+            with self.subTest(name):
+                doc = self.read(path)
+                self.assertTrue([o for o in doc.Objects if getattr(o, "StepValidationItems", [])],
+                                "nothing keeps its validation properties")
+                self.write_and_read(doc)
+                got = validation_groups(self.written)
+                with open(self.written, errors="replace") as f:
+                    written = f.read()
+
+                # Which: each the file has, but those of what is not read (sec 10.9) and a
+                # view's where no model geometric view is written (AP242's first edition)
+                def which(groups):
+                    return collections.Counter(
+                        (g[0], g[1], tuple(sorted(n for n in g[2] if n in VALIDATION_COMPUTED)))
+                        for g in groups if set(g[2]) & VALIDATION_COMPUTED)
+
+                expected = which(want)
+                for key, items, n in VALIDATION_WRITTEN_AS.get(name, ()):
+                    expected[key] -= n
+                    expected[key[:2] + (items,)] += n
+                if "MODEL_GEOMETRIC_VIEW" not in written:
+                    expected = collections.Counter(
+                        {k: n for k, n in expected.items() if k[1] != "view"})
+                self.assertEqual(sorted((which(got) - expected).items()), [], "not the file's")
+                missing = collections.Counter()
+                for k, n in (expected - which(got)).items():
+                    missing[k[0], k[1]] += n
+                self.assertEqual(sorted(missing.items()),
+                                 sorted(VALIDATION_LOST.get(name, {}).items()), "not written")
+
+                # A part's counts: of the file written
+                counts = gdt_counts(written)
+                for prop, cls, items in got:
+                    for item, value in items.items():
+                        if cls == "part" and item in counts:
+                            self.assertEqual(value, counts[item], item)
+
+                # The datums cited, as NIST gives them
+                def cited(groups):
+                    return sorted(v for g in groups for n, v in g[2].items()
+                                  if n == "datum references")
+
+                self.assertEqual(cited(got), cited(want))
+
+                # The attributes counted: NIST's but where the file's are not all read so
+                def counted(groups):
+                    return {n: v for g in groups if g[0] == "attribute validation property"
+                            for n, v in g[2].items() if n in VALIDATION_COMPUTED}
+
+                theirs = counted(want)
+                theirs.update(VALIDATION_ATTRIBUTES.get(name, {}))
+                self.assertEqual(counted(got), theirs)
+
+                # The areas of the faces a PMI is on, NIST's to 1% where its PMI are read whole
+                for cls in VALIDATION_AREAS.get(name, ()):
+                    ours = sorted(v for g in got if g[1] == cls
+                                  for n, v in g[2].items() if n == "affected area")
+                    nists = sorted(v for g in want if g[1] == cls
+                                   for n, v in g[2].items() if n == "affected area")
+                    self.assertEqual(len(ours), len(nists), cls)
+                    for x, y in zip(ours, nists):
+                        self.assertLess(abs(x - y), 1e-2 * y, (cls, ours, nists))
 
     def test_view_supplemental_geometry_as_the_file_has_it(self):
         """The supplemental geometry each saved view shows -- a 'supplemental

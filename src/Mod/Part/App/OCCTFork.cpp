@@ -370,4 +370,10 @@ const Standard_GUID *occtAttributeMeasuresGUID()
     return func ? &func() : nullptr;
 }
 
+const Standard_GUID *occtValidationItemsGUID()
+{
+    static const auto func = (FuncGUID)lookUpOCCT("TKXCAF", "XCAFDoc_ValidationItemsGUID");
+    return func ? &func() : nullptr;
+}
+
 } // namespace Part

@@ -85,8 +85,10 @@ protected:
 private:
     /// The simulated datum Shape is: of its feature, else of its targets
     TopoDS_Shape simulated() const;
-    /// The datum its targets simulate: a plane through three or more
-    /// points, a line through two, a point
+    /// The datum its targets simulate: the plane they lie in (three or more
+    /// points, an area, a rectangle, a circle), facing as the first target
+    /// does and as far as they reach; the line through them (two points, a
+    /// line); the point. Targets in no one plane are the datum themselves.
     TopoDS_Shape fromTargets() const;
 };
 

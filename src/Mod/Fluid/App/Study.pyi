@@ -157,6 +157,22 @@ class Study(DocumentObject):
         ...
 
     @constmethod
+    def getPaths(self, index: int, seeds: bytes, interval: float = 0.0, most: int = 2000, /) -> dict:
+        """
+        Tracers let go in the fluid inside at a kept frame and followed
+        through it, one from each seed (bytes: float32 x, y, z each, mm): a
+        point each interval (s), most points a path at most. With no
+        interval given, one that takes the fastest of the fluid half a cell
+        a point. Count (of paths), Points (bytes: float32 x, y, z each, mm,
+        one path after another), Speeds (bytes: float32, m/s, the fluid's at
+        each point), Starts (bytes: int32, where each path starts in the
+        points and, after the last, where they end) and Interval (s). A
+        path ends where the tracer leaves the fluid or stands still; no
+        paths of a frame without the fluid inside.
+        """
+        ...
+
+    @constmethod
     def getBodies(self, index: int, /) -> list:
         """
         Where the parts the fluid moved are at a kept frame, in the order

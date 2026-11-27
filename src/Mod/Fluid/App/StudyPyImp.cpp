@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
+#include <cstring>
+
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObjectPy.h>
@@ -8,6 +10,7 @@
 
 #include "ParticleSurface.h"
 #include "Section.h"
+#include "Tracers.h"
 #include "Solver/Model.h"
 
 // inclusion of the generated files (generated out of Study.pyi)
@@ -510,6 +513,60 @@ PyObject* StudyPy::getSection(PyObject* args) const
                         reinterpret_cast<const char*>(section.grid.data()),
                         static_cast<Py_ssize_t>(section.grid.size() * sizeof(std::int32_t)))));
         ret.setItem("Step", Py::Float(step));
+        return Py::new_reference_to(ret);
+    }
+    PY_CATCH
+}
+
+PyObject* StudyPy::getPaths(PyObject* args) const
+{
+    long at = 0;
+    Py_buffer given {};
+    double interval = 0.0;
+    long most = 2000;
+    if (!PyArg_ParseTuple(args, "ly*|dl", &at, &given, &interval, &most)) {
+        return nullptr;
+    }
+    std::vector<float> seeds(static_cast<std::size_t>(given.len) / sizeof(float));
+    if (!seeds.empty()) {
+        std::memcpy(seeds.data(), given.buf, seeds.size() * sizeof(float));
+    }
+    const bool whole = static_cast<std::size_t>(given.len) % (3 * sizeof(float)) == 0;
+    PyBuffer_Release(&given);
+    PY_TRY
+    {
+        if (!whole) {
+            THROWM(Base::ValueError, "the seeds are float32, three a seed: x, y, z in mm");
+        }
+        const auto* results = getStudyPtr()->results();
+        if (!results) {
+            THROWM(Base::RuntimeError, "the study keeps no results");
+        }
+        if (at < 0) {
+            THROWM(Base::IndexError, "a frame's index is not negative");
+        }
+        if (most < 0) {
+            THROWM(Base::ValueError, "a path has no fewer than no points");
+        }
+        double cell = results->index().spacing;
+        if (!(cell > 0.0)) {
+            cell = getStudyPtr()->buildModel().resolution * 1000.0;
+        }
+        const auto paths = Fluid::trace(results->frame(static_cast<std::size_t>(at)),
+                                        seeds,
+                                        cell,
+                                        interval,
+                                        static_cast<std::size_t>(most));
+        Py::Dict ret;
+        ret.setItem("Count",
+                    Py::Long(static_cast<long>(paths.starts.empty() ? 0 : paths.starts.size() - 1)));
+        ret.setItem("Points", bytesOf(paths.points));
+        ret.setItem("Speeds", bytesOf(paths.speeds));
+        ret.setItem("Starts",
+                    Py::asObject(PyBytes_FromStringAndSize(
+                        reinterpret_cast<const char*>(paths.starts.data()),
+                        static_cast<Py_ssize_t>(paths.starts.size() * sizeof(std::int32_t)))));
+        ret.setItem("Interval", Py::Float(paths.interval));
         return Py::new_reference_to(ret);
     }
     PY_CATCH

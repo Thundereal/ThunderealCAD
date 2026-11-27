@@ -2072,7 +2072,8 @@ The panel's controls have no test of their own: the manual's script
 drives them (`fluid/study/flow-inside/video.py`).
 
 Open: the cut's edge is a stair of half cells inside the outline; a
-fitted value at a point; lines of the flow (streamlines); the speed at an
+fitted value at a point (built since, sec 14.7); lines of the flow
+(tracers, sec 14.7); the speed at an
 opening's face; a cut of any slant from the panel (the script takes any
 plane); the inside of the frames on the way.
 
@@ -2133,7 +2134,8 @@ The wall units spread wide about their mean because the cells at a round
 wall are of a square mesh snapped to it. The pipe at 10000 has no good
 resolution with this mesh: coarse enough for the wall model is 3 cells
 across the bore. Layers of cells at the walls, their thickness chosen
-for the flow, are what mend it, and are open. Outside FreeCAD the same
+for the flow, are what mend it, and are open (tried since, sec 14.8:
+not so simply, and part of this row's error is the pipe's length). Outside FreeCAD the same
 cases with `nutUSpaldingWallFunction` were no better (+10.5% at 10000,
 +4.8% at 100000 on 1 mm).
 
@@ -2158,3 +2160,100 @@ Open: layers of cells at the walls; a rough wall; the eddies that come
 in at an inlet as the user gives them; other models; the Reynolds number
 of a flow that is not a pipe's -- 2300 is a pipe's, and an opening's
 width is not always what the flow is as wide as.
+
+### 14.7 F1 as built, step 5: tracers in the flow, and a truer value at a point (2026-11-27)
+
+On the branch `FluidDynamics`. A steady flow is one state and nothing in
+it moves; tracers are what is put in it to be seen moving.
+
+- **`Fluid::trace`** (`App/Tracers.cpp`): a tracer from each seed,
+  followed through the frame's fluid inside by the flow half a step on
+  (the midpoint rule), a point each interval -- even times, so that
+  playing them is a point a tick and the fast parts of the flow are seen
+  fast. With no interval given, one that takes the fastest of the fluid
+  half a cell a point. A path ends where no cell is near (the tracer has
+  left by an outlet) or the fluid stands still, or at the most points
+  asked.
+- **A value at a point** (`App/InsideCells.h`, shared with the cut): a
+  plane fitted by least squares through the cells within a cell and a
+  half, the nearer the more, held within what those cells have; with too
+  few for a fit, their mean by nearness as before. Sec 14.5's "a fitted
+  value at a point" is this.
+- **Python**: `study.getPaths(i, seeds, interval, most)`;
+  `FluidPlayback.Frames.paths` -> `Paths` (`at(tick, every)`: the
+  tracers there are at a tick, one let go at each seed each so many
+  ticks; `lines()`); `seedsAt` (the first cells inside an inlet's plane,
+  thinned); `facingAway` (the faces on the other side of the fluid);
+  `TracerView` (points in the colours of the speed, the paths as faint
+  lines).
+- **The panel**: "Tracers in the flow", for results that keep the fluid
+  inside: 80 seeds over the inlets, one tracer let go at each every 40
+  ticks, 25 ticks a second; the faces towards the viewer left out, the
+  scale the speed's. With a cut, the cut under them.
+
+Measured, the pipe of sec 14.5 (0.5 mm, 61000 cells):
+
+| | Before the fit | With it |
+|---|---|---|
+| A cut across at 60 mm, within 4 mm of the axis, against the parabola: furthest, mean | 5.3%, 2.2% | 0.68%, 0.51% |
+| The same within 4.75 mm | - | 0.71%, 0.52% |
+
+A tracer let go half a mm off the axis reaches the outlet, 100 mm on, in
+0.518 s; at twice the mean speed all the way it would be 0.500 s, and the
+flow takes some 6 mm to get its shape. The block of sec 14.4: of 80
+tracers 66 leave by the wide branch and 11 by the narrow (82.5% and
+13.8%; the flow parts 85.7% and 14.3%), 3 are still inside at 6000
+points, in the slow fluid at the walls.
+
+Tests: `FluidTracers.carriedAlongAStraightFlow`,
+`roundATurnAndBackToTheStart` (a turn of 200 points keeps its radius to
+2%), `whatIsNotFollowed`; `TestTracers`,
+`TestFrameView.test_tracers_are_drawn_with_their_paths`; in
+`Pipe.test_the_flow_inside_is_poiseuilles` the tracers from the inlet (to
+the outlet, in time, none back or through the wall). The panel's box has
+no test of its own: the manual's script drives it.
+
+Open: the tracers are let go at the inlets only; a place picked in the
+view; a backward-facing step, in layers and turbulent, as the case to
+show them on and to check against Armaly et al.
+
+### 14.8 Layers of cells at the walls: tried, not built (2026-11-27)
+
+Sec 14.6 named layers as what would mend a turbulent flow whose wall
+cells are out of the wall model's range. Tried outside FreeCAD on the
+pipe, `snappyHexMesh`'s `addLayers`, 30 runs; the friction factor
+against Haaland's, the wall units in the mean:
+
+| Reynolds | Cells | Layers (count, growth, last as a share of the cell) | Wall units | Off |
+|---|---|---|---|---|
+| 10000 | 1 mm | 1, -, 0.3 | 9 | -1.0% (short pipe) |
+| 10000 | 0.5 mm | 1, -, 0.3 | 5 | +6.1% (short pipe) |
+| 30000 | 0.5 mm | 1, -, 0.5 | 18 | -16.0% |
+| 10000 | 0.5 mm | 8, 1.3, 0.6 | 1 | -10.6% (short pipe) |
+| 10000 | 1 mm, 800 long | 8, 1.3, 0.6 | 1 | -1.4% |
+| 10000 | 1 mm, 800 long | 10, 1.4, 0.5 | 0.4 | +3.1% |
+| 10000 | 1 mm, 800 long | 14, 1.25, 0.5 | 0.4 | +4.3% |
+| 30000 | 0.5 mm | 8, 1.3, 0.6 | 4 | -1.3% |
+| 30000 | 0.5 mm | 10, 1.4, 0.5 | 1 | -9.3% |
+| 30000 | 1 mm | 5 or 8, 1.2 or 1.3, 0.4 or 0.6 (8 runs) | 3..12 | -8.4% to +13.1% |
+| 100000 | 1 mm | the same 8 | 9..35 | -4.4% to +10.0% |
+| 1000000 | 1 mm | 10, 1.4, 0.5 | 28 | +6.6%, not settled in 3000 steps |
+
+What they say:
+
+- **The pipe at 10000 was too short.** Its flow has not its shape 15 to
+  27 widths in: with no layers the 800 mm pipe, measured 40 to 72 widths
+  in, is 6.7% under where the 300 mm one is 11.6% under. Some 5% of sec
+  14.6's worst row was the test's pipe, not the solver.
+- **Between 5 and 30 wall units is worse than either side**, whichever
+  wall function: 5% to 16% off. A thin layer or two puts the first cell
+  there. Under some 2, or over 30, it is within some 4%.
+- **No setting held across the cases.** Two reasonable ones at 30000
+  differ by 8 points. On 1 mm cells the layers went on over half the
+  wall only, whatever was asked, and 18 thin ones not at all. Eight
+  layers cost 5 to 8 times the run.
+
+So an automatic mode cannot be built on this yet, and it is not built.
+The warning of sec 14.6 stands: it speaks against the cases that are
+off. What would be worth trying next is a mesh made for its walls
+(sec 5.4's second route) rather than layers pushed into a snapped one.

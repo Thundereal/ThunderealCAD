@@ -67,6 +67,7 @@ SET(Solver_SRCS
 SOURCE_GROUP("Solver" FILES ${Solver_SRCS})
 
 SET(Fluid_SRCS
+    InsideCells.h
     ParticleSurface.cpp
     ParticleSurface.h
     ResultsArchive.cpp
@@ -75,6 +76,8 @@ SET(Fluid_SRCS
     Section.h
     Study.cpp
     Study.h
+    Tracers.cpp
+    Tracers.h
     ${Module_SRCS}
     ${Solver_SRCS}
     ${Python_SRCS}

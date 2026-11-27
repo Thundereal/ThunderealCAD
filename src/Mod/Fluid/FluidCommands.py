@@ -629,6 +629,27 @@ class TaskFluidStudy:
         layout.addWidget(self.cutBox)
         self.cutView = FluidPlayback.CutView()
         self.cutRanges = {}
+        # tracers carried by a steady flow, let go at its inlets
+        self.tracerBox = QtWidgets.QCheckBox(translate("Fluid", "Tracers in the flow"))
+        self.tracerBox.setObjectName("FluidTracers")
+        self.tracerBox.setToolTip(
+            translate(
+                "Fluid",
+                "Lets points go at the inlets and plays them carried through the "
+                "flow, in the colours of how fast they go: fast where the flow is "
+                "fast, turning where it turns back on itself. The faces on the "
+                "viewer's side are left out. Of a steady flow, as it settled.",
+            )
+        )
+        self.tracerBox.toggled.connect(self.onTracers)
+        self.tracerBox.setVisible(False)
+        layout.addWidget(self.tracerBox)
+        self.tracerView = FluidPlayback.TracerView()
+        self.tracerPaths = None
+        self.tracerTick = 0
+        self.tracerTimer = QtCore.QTimer(self.form)
+        self.tracerTimer.setInterval(40)
+        self.tracerTimer.timeout.connect(self.tracerStep)
         self.asSurface = QtWidgets.QCheckBox(translate("Fluid", "Particles as a surface"))
         self.asSurface.setToolTip(
             translate(
@@ -841,6 +862,11 @@ class TaskFluidStudy:
                     "Pressure": FluidPlayback.rangeOf(pressure),
                 }
         self.cutBox.setVisible(bool(self.cutRanges))
+        # the tracers are of these results: let go again when asked
+        self.tracerPaths = None
+        self.tracerBox.setVisible(bool(self.cutRanges))
+        if not self.cutRanges and self.tracerBox.isChecked():
+            self.tracerBox.setChecked(False)
         if stale:
             text += translate("Fluid", " -- of the study as it was before a change")
         self.summary.setText(text)
@@ -919,9 +945,73 @@ class TaskFluidStudy:
             normal = -normal
         return base, normal
 
+    # A tracer is let go at each seed each so many ticks, and some so many
+    # seeds in all.
+    TRACER_EVERY = 40
+    TRACER_SEEDS = 80
+
+    def tracing(self, index):
+        """Whether tracers are asked for and this frame has the fluid
+        inside they are carried by."""
+        return (
+            bool(self.cutRanges)
+            and self.tracerBox.isChecked()
+            and self.frames is not None
+            and index in self.frames.inside
+        )
+
+    def tracers(self):
+        """The paths of the tracers of the results shown, followed when
+        first asked for: from the first cells inside each inlet."""
+        import numpy
+
+        if self.tracerPaths is None:
+            last = self.frames.inside[-1]
+            points, velocity, _pressure = self.frames.insideOf(last)
+            model = self.study.buildModel()
+            cell = model["Resolution"] * 1000.0
+            inlets = model["Inlets"]
+            seeds = [
+                FluidPlayback.seedsAt(
+                    points,
+                    velocity,
+                    [1000.0 * v for v in inlet["Middle"]],
+                    inlet["Direction"],
+                    cell,
+                    self.TRACER_SEEDS // max(len(inlets), 1),
+                )
+                for inlet in inlets
+            ]
+            seeds = numpy.concatenate(seeds) if seeds else numpy.zeros((0, 3), numpy.float32)
+            self.tracerPaths = self.frames.paths(last, seeds, 0.0, 6000)
+            self.tracerView.showPaths(self.tracerPaths)
+        return self.tracerPaths
+
+    def onTracers(self, on):
+        if on and self.frames is not None and self.frames.valid and self.cutRanges:
+            self.tracerTick = 0
+            self.tracerTimer.start()
+        else:
+            self.tracerTimer.stop()
+            self.tracerView.remove()
+        if self.frames is not None and self.frames.valid:
+            self.onFrame(self.slider.value())
+
+    def tracerStep(self):
+        """The tracers a tick on. A script calls it to play them itself."""
+        index = self.slider.value()
+        if not self.tracing(index):
+            self.tracerView.show((), (), 0.0, 1.0)
+            return
+        paths = self.tracers()
+        self.tracerTick += 1
+        low, high = self.cutRanges["Speed"]
+        self.tracerView.show(*paths.at(self.tracerTick, self.TRACER_EVERY), low, high)
+
     def showFields(self, index):
         """A frame of fields: the pressure on the faces the fluid touches;
-        or with a cut, the flow on the cut and the faces behind it plain."""
+        or with a cut, the flow on the cut and the faces behind it plain;
+        or with tracers, the faces on the other side of the fluid plain."""
         points, triangles, values = self.frames.field(index)
         low, high = self.range
         unit = "Pa"
@@ -940,7 +1030,17 @@ class TaskFluidStudy:
                 )
         self.cutNote.setText(note)
         self.cutNote.setVisible(bool(note))
-        if cut is None:
+        if cut is None and self.tracing(index):
+            # the tracers are inside the faces: those towards the viewer go
+            self.cutView.remove()
+            try:
+                looking = Gui.ActiveDocument.ActiveView.getViewDirection()
+            except Exception:
+                looking = App.Vector(0, 0, -1)
+            drawn = self.view.show(points, FluidPlayback.facingAway(points, triangles, looking))
+            low, high = self.cutRanges["Speed"]
+            unit = "m/s"
+        elif cut is None:
             self.cutView.remove()
             drawn = self.view.showField(points, triangles, values, low, high)
         else:
@@ -1013,6 +1113,8 @@ class TaskFluidStudy:
             self.study.finish()
         self.view.remove()
         self.cutView.remove()
+        self.tracerTimer.stop()
+        self.tracerView.remove()
         self.putBack()
         for volume in self.hidden:
             try:

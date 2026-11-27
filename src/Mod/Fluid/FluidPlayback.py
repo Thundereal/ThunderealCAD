@@ -129,6 +129,21 @@ class Frames:
             tuple(normal),
         )
 
+    def paths(self, index, seeds, interval=0.0, most=2000):
+        """Tracers let go at the seeds (n, 3), mm, in the fluid inside at a
+        frame and followed through it: a Paths, with none of a frame that
+        has no fluid inside kept."""
+        import numpy
+
+        seeds = numpy.ascontiguousarray(seeds, dtype=numpy.float32).reshape(-1, 3)
+        found = self.study.getPaths(index, seeds.tobytes(), interval, most)
+        return Paths(
+            numpy.frombuffer(found["Points"], dtype=numpy.float32).reshape(-1, 3),
+            numpy.frombuffer(found["Speeds"], dtype=numpy.float32),
+            numpy.frombuffer(found["Starts"], dtype=numpy.int32),
+            found["Interval"],
+        )
+
     def surface(self, index):
         """The frame as a closed surface to draw: its points, triangles,
         the points' normals and the spray. A frame of particles is wrapped,
@@ -224,6 +239,51 @@ class Cut:
         other[int(numpy.argmin(abs(normal)))] = 1.0
         axis = numpy.cross(normal, other)
         return axis / numpy.sqrt((axis**2).sum())
+
+
+class Paths:
+    """Tracers followed through a steady flow: where each is at even times,
+    points (n, 3) float32 in mm, one path after another; how fast the fluid
+    goes there, speeds (n,), m/s; where each path starts in them and after
+    the last where they end, starts (paths + 1,); and the time from a point
+    to the next, interval, s. Played, a tracer is let go at each seed every
+    so many points, and each goes a point a tick: fast where the flow is."""
+
+    def __init__(self, points, speeds, starts, interval):
+        import numpy
+
+        self.points = points
+        self.speeds = speeds
+        self.starts = starts
+        self.interval = interval
+        # how far along its own path each point is
+        self.along = numpy.zeros(len(speeds), dtype=numpy.int64)
+        for path in range(len(self)):
+            first, after = int(starts[path]), int(starts[path + 1])
+            self.along[first:after] = numpy.arange(after - first)
+
+    def __len__(self):
+        return max(len(self.starts) - 1, 0)
+
+    def longest(self):
+        """The most points a path has."""
+        return int(self.along.max()) + 1 if len(self.along) else 0
+
+    def at(self, tick, every):
+        """The tracers there are at a tick, one let go at each seed each
+        'every' ticks since ever: their places (m, 3) and the fluid's speed
+        at each (m,)."""
+        there = (self.along - tick) % max(int(every), 1) == 0
+        return self.points[there], self.speeds[there]
+
+    def lines(self):
+        """The paths as lines to draw: the points, and how many each line
+        has -- the paths of one point left out."""
+        import numpy
+
+        counts = numpy.diff(self.starts) if len(self) else numpy.zeros(0, dtype=numpy.int32)
+        keep = numpy.repeat(counts > 1, counts)
+        return self.points[keep], counts[counts > 1].astype(numpy.int32)
 
 
 class MovedParts:
@@ -666,6 +726,107 @@ class CutView:
         self.arrows = None
 
 
+class TracerView:
+    """Tracers in the scene: points in the colours of how fast the fluid
+    carries them, and the paths they go by as faint lines. Under the node
+    given, or the active 3D view's scene graph."""
+
+    FAINT = (0.45, 0.45, 0.45)
+
+    def __init__(self, parent=None, pointSize=4.0):
+        self.parent = parent
+        self.pointSize = pointSize
+        self.root = None
+        self.coords = None
+        self.colors = None
+        self.points = None
+        self.lineCoords = None
+        self.lines = None
+
+    def _build(self):
+        from pivy import coin
+
+        if self.parent is None:
+            import FreeCADGui as Gui
+
+            view = Gui.ActiveDocument.ActiveView if Gui.ActiveDocument else None
+            if view is None or not hasattr(view, "getSceneGraph"):
+                return False
+            self.parent = view.getSceneGraph()
+        self.root = coin.SoSeparator()
+        light = coin.SoLightModel()
+        light.model = coin.SoLightModel.BASE_COLOR
+        lines = coin.SoSeparator()
+        faint = coin.SoMaterial()
+        faint.diffuseColor = self.FAINT
+        faint.transparency = 0.6
+        self.lineCoords = coin.SoCoordinate3()
+        self.lines = coin.SoLineSet()
+        for node in (faint, self.lineCoords, self.lines):
+            lines.addChild(node)
+        dots = coin.SoSeparator()
+        style = coin.SoDrawStyle()
+        style.pointSize = self.pointSize
+        self.coords = coin.SoCoordinate3()
+        self.colors = coin.SoMaterial()
+        binding = coin.SoMaterialBinding()
+        binding.value = coin.SoMaterialBinding.PER_VERTEX
+        self.points = coin.SoPointSet()
+        for node in (style, self.coords, self.colors, binding, self.points):
+            dots.addChild(node)
+        for node in (light, lines, dots):
+            self.root.addChild(node)
+        self.parent.addChild(self.root)
+        return True
+
+    def showPaths(self, paths):
+        """Draws the lines the tracers go by; None or no paths: none. False
+        without a view."""
+        import numpy
+
+        if self.root is None and not self._build():
+            return False
+        points, counts = paths.lines() if paths is not None else ((), ())
+        points = numpy.ascontiguousarray(points, dtype=numpy.float32).reshape(-1, 3)
+        self.lineCoords.point.setNum(len(points))
+        self.lines.numVertices.setNum(len(counts))
+        if len(points):
+            self.lineCoords.point.setValues(0, len(points), points)
+            self.lines.numVertices.setValues(0, len(counts), counts)
+        return True
+
+    def show(self, points, speeds, low, high):
+        """Draws the tracers at the points (n, 3) in the colours of the
+        speeds (n,), 'low' the ramp's first colour and 'high' its last;
+        those drawn before are replaced. False without a view."""
+        import numpy
+
+        if self.root is None and not self._build():
+            return False
+        points = numpy.ascontiguousarray(points, dtype=numpy.float32).reshape(-1, 3)
+        colors = colorsOf(speeds, low, high)
+        self.coords.point.setNum(len(points))
+        self.colors.diffuseColor.setNum(max(len(colors), 1))
+        if len(points):
+            self.coords.point.setValues(0, len(points), points)
+            self.colors.diffuseColor.setValues(0, len(colors), colors)
+        self.points.numPoints = len(points)
+        return True
+
+    def count(self):
+        return self.points.numPoints.getValue() if self.points is not None else 0
+
+    def lineCount(self):
+        return self.lines.numVertices.getNum() if self.lines is not None else 0
+
+    def remove(self):
+        if self.root is not None and self.parent is not None:
+            self.parent.removeChild(self.root)
+        self.root = None
+        self.points = None
+        self.lines = None
+
+
 # From the least to the most: Google's Turbo, a rainbow whose brightness
 # goes evenly, at eleven places of it.
 RAMP = (
@@ -723,6 +884,42 @@ def behind(points, triangles, base, normal):
     triangles = numpy.asarray(triangles, dtype=numpy.int32).reshape(-1, 3)
     off = (points - numpy.array(tuple(base))) @ numpy.array(tuple(normal))
     return triangles[(off[triangles] <= 1e-6).all(axis=1)]
+
+
+def seedsAt(points, velocity, middle, direction, cell, count):
+    """Where to let tracers go at an inlet: of the cells' centres, points
+    (n, 3) in mm with the velocity there (n, 3), those within a cell of the
+    plane through 'middle' (mm) across 'direction' where the fluid goes the
+    inlet's way -- the first cells inside the opening -- thinned evenly to
+    some 'count' of them. (m, 3) float32; none when no cell is there."""
+    import numpy
+
+    points = numpy.asarray(points, dtype=numpy.float32).reshape(-1, 3)
+    way = numpy.asarray(direction, dtype=numpy.float64)
+    way = way / max(float(numpy.linalg.norm(way)), 1.0e-30)
+    past = (points - numpy.asarray(middle, dtype=numpy.float64)) @ way
+    going = numpy.asarray(velocity, dtype=numpy.float64).reshape(-1, 3) @ way
+    first = points[(past > 0.0) & (past < cell) & (going > 0.0)]
+    if len(first) <= count or count <= 0:
+        return numpy.ascontiguousarray(first)
+    return numpy.ascontiguousarray(
+        first[numpy.linspace(0, len(first) - 1, count).round().astype(int)]
+    )
+
+
+def facingAway(points, triangles, looking):
+    """Of the triangles (m, 3) of a closed surface wound outwards, those
+    that face away from one who looks along 'looking': the walls on the
+    other side of the fluid, with what is inside it seen before them."""
+    import numpy
+
+    points = numpy.asarray(points, dtype=numpy.float64).reshape(-1, 3)
+    triangles = numpy.asarray(triangles, dtype=numpy.int32).reshape(-1, 3)
+    if not len(triangles):
+        return triangles
+    a, b, c = (points[triangles[:, k]] for k in range(3))
+    out = numpy.cross(b - a, c - a)
+    return triangles[out @ numpy.asarray(tuple(looking), dtype=numpy.float64) > 0.0]
 
 
 def arrowsOf(cut, every, fastest):

@@ -7,5 +7,6 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/OpenFoamCase.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/ParticleSurface.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Section.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/Tracers.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/SplishCase.cpp
 )

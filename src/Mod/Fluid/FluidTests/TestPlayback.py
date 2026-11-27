@@ -233,6 +233,93 @@ def flatCut():
     )
 
 
+def twoPaths():
+    """A path of five points along x and one of three along y, a point
+    each ms."""
+    import numpy
+
+    points = numpy.array(
+        [[0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0], [4, 0, 0], [0, 1, 0], [0, 2, 0], [0, 3, 0]],
+        dtype=numpy.float32,
+    )
+    speeds = numpy.array([1, 1, 2, 2, 1, 3, 3, 3], dtype=numpy.float32)
+    return FluidPlayback.Paths(points, speeds, numpy.array([0, 5, 8], dtype=numpy.int32), 0.001)
+
+
+class TestTracers(unittest.TestCase):
+    """Tracers in a steady flow: where they are let go, where they are at a
+    tick, and the faces they are seen before."""
+
+    def test_the_tracers_at_a_tick(self):
+        paths = twoPaths()
+        self.assertEqual(len(paths), 2)
+        self.assertEqual(paths.longest(), 5)
+        # one let go each third tick: at tick 0 those 0 and 3 points along
+        points, speeds = paths.at(0, 3)
+        self.assertEqual(points.tolist(), [[0, 0, 0], [3, 0, 0], [0, 1, 0]])
+        self.assertEqual(speeds.tolist(), [1.0, 2.0, 3.0])
+        # a tick on each has gone a point
+        points, _speeds = paths.at(1, 3)
+        self.assertEqual(points.tolist(), [[1, 0, 0], [4, 0, 0], [0, 2, 0]])
+        # and after three ticks it is as it was
+        self.assertEqual(paths.at(3, 3)[0].tolist(), paths.at(0, 3)[0].tolist())
+        # every tick: all of them
+        self.assertEqual(len(paths.at(7, 1)[0]), 8)
+
+    def test_the_paths_as_lines(self):
+        import numpy
+
+        paths = twoPaths()
+        points, counts = paths.lines()
+        self.assertEqual(len(points), 8)
+        self.assertEqual(counts.tolist(), [5, 3])
+        # a path of one point is no line; no paths, none
+        one = FluidPlayback.Paths(
+            paths.points[:6], paths.speeds[:6], numpy.array([0, 5, 6], dtype=numpy.int32), 0.001
+        )
+        points, counts = one.lines()
+        self.assertEqual((len(points), counts.tolist()), (5, [5]))
+        none = FluidPlayback.Paths(
+            paths.points[:0], paths.speeds[:0], numpy.zeros(0, dtype=numpy.int32), 0.0
+        )
+        self.assertEqual((len(none), none.longest(), len(none.at(0, 2)[0])), (0, 0, 0))
+        self.assertEqual(len(none.lines()[1]), 0)
+
+    def test_seeds_at_an_inlet(self):
+        import numpy
+
+        # cells 1 mm apart from x 0.5 to 9.5, four across; the fluid goes
+        # along x but for one cell of the first layer, which goes back
+        points = numpy.array(
+            [[0.5 + i, 0.5 + j, 0.5] for i in range(10) for j in range(4)], dtype=numpy.float32
+        )
+        velocity = numpy.tile(numpy.array([1.0, 0.0, 0.0], dtype=numpy.float32), (40, 1))
+        velocity[3] = (-1.0, 0.0, 0.0)
+        seeds = FluidPlayback.seedsAt(points, velocity, (0, 2, 0.5), (1, 0, 0), 1.0, 10)
+        self.assertEqual(seeds.tolist(), [[0.5, 0.5, 0.5], [0.5, 1.5, 0.5], [0.5, 2.5, 0.5]])
+        # thinned evenly to as many as asked, the ends kept
+        seeds = FluidPlayback.seedsAt(points, velocity, (0, 2, 0.5), (1, 0, 0), 1.0, 2)
+        self.assertEqual(seeds.tolist(), [[0.5, 0.5, 0.5], [0.5, 2.5, 0.5]])
+        # the plane the other way about: nothing comes in there
+        self.assertEqual(
+            len(FluidPlayback.seedsAt(points, velocity, (0, 2, 0.5), (-1, 0, 0), 1.0, 10)), 0
+        )
+
+    def test_the_faces_seen_from_inside(self):
+        import numpy
+
+        # a tetrahedron wound outwards
+        points = numpy.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=numpy.float32)
+        triangles = numpy.array([[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]], dtype=numpy.int32)
+        # looking down z: the floor faces away, the three above it do not
+        kept = FluidPlayback.facingAway(points, triangles, (0, 0, -1))
+        self.assertEqual(kept.tolist(), [[0, 2, 1]])
+        # looking up: the slanted one only
+        kept = FluidPlayback.facingAway(points, triangles, (0, 0, 1))
+        self.assertEqual(kept.tolist(), [[1, 2, 3]])
+        self.assertEqual(len(FluidPlayback.facingAway(points, triangles[:0], (0, 0, 1))), 0)
+
+
 class TestCuts(unittest.TestCase):
     """A cut through the fluid: what is left of the faces, and the arrows."""
 
@@ -509,6 +596,28 @@ class TestFrameView(unittest.TestCase):
         self.assertTrue(view.show(cut, cut.pressure, 0.0, 14.0))
         self.assertEqual(view.arrowCount(), 0)
         self.assertEqual(view.count(), 15)
+        view.remove()
+        self.assertEqual(view.count(), 0)
+
+    def test_tracers_are_drawn_with_their_paths(self):
+        view = FluidPlayback.TracerView(self.parent)
+        paths = twoPaths()
+        self.assertTrue(view.showPaths(paths))
+        self.assertEqual(view.lineCount(), 2)
+        self.assertEqual([view.lines.numVertices[k] for k in range(2)], [5, 3])
+        points, speeds = paths.at(0, 3)
+        self.assertTrue(view.show(points, speeds, 0.0, 3.0))
+        self.assertEqual(view.count(), 3)
+        want = FluidPlayback.colorsOf(speeds, 0.0, 3.0)
+        for got, expected in zip(view.colors.diffuseColor[2].getValue(), want[2]):
+            self.assertAlmostEqual(got, float(expected), places=5)
+        # the next tick's replace them; none, and none are left
+        self.assertTrue(view.show(*paths.at(1, 5), 0.0, 3.0))
+        self.assertEqual(view.count(), 2)
+        self.assertTrue(view.show(points[:0], speeds[:0], 0.0, 3.0))
+        self.assertEqual(view.count(), 0)
+        self.assertTrue(view.showPaths(None))
+        self.assertEqual(view.lineCount(), 0)
         view.remove()
         self.assertEqual(view.count(), 0)
 

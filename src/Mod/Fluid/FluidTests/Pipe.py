@@ -204,6 +204,34 @@ class Pipe:
         self.assertEqual(len(frames.section(last, App.Vector(0, 0, 9), App.Vector(0, 0, 1))), 0)
         self.assertEqual(len(frames.section(0, App.Vector(60, 0, 0), App.Vector(1, 0, 0))), 0)
 
+        # tracers let go in the first cells inside the inlet are carried to
+        # the outlet, the one nearest the axis at twice the mean speed once
+        # the flow has its shape: 100 mm in a little over half a second
+        cell = self.study.buildModel()["Resolution"] * 1000.0
+        cells, flow, _pressure = frames.insideOf(last)
+        seeds = FluidPlayback.seedsAt(cells, flow, (0, 0, 0), (1, 0, 0), cell, 40)
+        self.assertEqual(len(seeds), 40)
+        self.assertLess(float(seeds[:, 0].max()), cell)
+        paths = frames.paths(last, seeds, 0.0, 20000)
+        self.assertEqual(len(paths), 40)
+        # the fastest of the fluid goes half a cell a point
+        fastest = float(((flow**2).sum(axis=1) ** 0.5).max())
+        self.assertAlmostEqual(paths.interval, 0.5 * cell * 1e-3 / fastest, delta=1e-9)
+        nearest = int(((seeds[:, 1] ** 2 + seeds[:, 2] ** 2)).argmin())
+        first, after = int(paths.starts[nearest]), int(paths.starts[nearest + 1])
+        along = paths.points[first:after]
+        self.assertGreater(float(along[-1, 0]), LENGTH - cell)
+        self.assertLess(float(abs(along[:, 1:]).max()), 2.0 * cell)
+        took = (after - first) * paths.interval
+        self.assertAlmostEqual(took, 0.53, delta=0.04)
+        # each goes on along the pipe, none back, and none through the wall
+        for path in range(len(paths)):
+            went = paths.points[int(paths.starts[path]) : int(paths.starts[path + 1])]
+            self.assertTrue((went[1:, 0] >= went[:-1, 0]).all())
+            self.assertLess(float((went[:, 1] ** 2 + went[:, 2] ** 2).max()) ** 0.5, RADIUS + cell)
+        # of a frame with no fluid inside kept: no paths
+        self.assertEqual(len(frames.paths(0, seeds)), 0)
+
     def test_a_turbulent_pipe_loses_what_haaland_says(self):
         """Water at 3 m/s along the pipe made 300 long, a Reynolds number of
         30000 (docs/FluidSimulation.md sec 14.6): the friction factor between

@@ -56,6 +56,9 @@ its own to find something.
 
 1. **The log.** No new Error or Warning in the Report view or the log file,
    against a baseline kept per document (scanner's Section003 is expected).
+   The clone is compared at the test profile's verbosity: the suite takes
+   `BaseApp/LogLevels` out of its copy of the profile and says so in
+   `summary.md`.
 2. **Dialogs.** Every message box is recorded with its text and dismissed by
    the sweeper; one the scenario did not expect is a finding.
 3. **Stalls.** A timer on the main loop; any gap over 300 ms is logged with
@@ -79,8 +82,13 @@ its own to find something.
    outside its window; no text clipped by its widget; text and icon contrast
    against their ground above a floor, in every theme.
 8. **The end.** Exit code 0, no crash log, no dump, no directory left in the
-   transient folder, no document open, the profile clone unchanged except
-   for the keys the scenario set.
+   transient folder, no document open, and no key of `user.cfg` changed
+   that the test did not set. A run that starts without a `user.cfg` (the
+   test profile) counts every key it writes as added. The suite holds a
+   clone run's keys against the normal run of the same test by key: a key
+   both runs wrote is the test's own write, or any profile's, and is not a
+   finding. A key the clone run removed is held only against a removal in
+   the normal run.
 
 ### 2.3 Where scenarios come from
 
@@ -145,9 +153,15 @@ What the run corrected in this design:
 - **Check 8 needs a baseline.** A diff of `user.cfg` cannot tell the
   program's writes from the test script's own `SetBool`/`SetInt`. The clone
   run is compared against the normal run of the same test; only keys the
-  normal run did not write count.
+  normal run did not write count. Done in d7f72c4ec6: on the first run's
+  data the `user.cfg` rows under the clone drop from 1791 to 571, and the
+  command record the program erased (410 rows) is still among them --
+  matching by key alone hid it, which is why a removal is held only
+  against a removal.
 - **Check 1 pins the log level.** The profile's own `LogLevels` change what
-  is printed; the comparison runs both modes at one level.
+  is printed; the comparison runs both modes at one level. Done in
+  d7f72c4ec6; it acts from the next suite run (the first ran at the
+  reporter's `Default=2`).
 - **An attribution is one run per step.** A test that fails by chance is
   credited to the wrong step; a clone-only failure is called attributed
   only when the step's run and one rerun agree.

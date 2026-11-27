@@ -80,6 +80,13 @@ def answer():
             w.reject()
 
 
+def marked_for_migration(doc):
+    """Whether the open left an object of `doc` marked for the migration
+    (its State's MigrationPending): read off the document itself, not
+    off a console line said once"""
+    return any("MigrationPending" in o.State for o in doc.Objects)
+
+
 def copy(name):
     path = os.path.join(OUT, name + ".FCStd")
     shutil.copyfile(SHAPE, path)
@@ -102,7 +109,7 @@ def run():
         doc = FreeCAD.openDocument(copy("hidden"), hidden=True)
         settle()
         check("1: the case arose: the hidden open marked it for migration",
-              len(marked.lines) > before, marked.lines[before:])
+              marked_for_migration(doc), marked.lines[before:])
         check("1: no view was made for it",
               not FreeCADGui.getDocument(doc.Name).mdiViewsOfType("Gui::View3DInventor"))
         check("1: no question about the hidden document", not state["asked"], state["asked"])
@@ -114,7 +121,7 @@ def run():
         doc = FreeCAD.openDocument(copy("shown"))
         settle()
         check("2: the case arose: the open marked it for migration",
-              len(marked.lines) > before, marked.lines[before:])
+              marked_for_migration(doc), marked.lines[before:])
         check("2: the question was put, once", len(state["asked"]) == 1, state["asked"])
         FreeCAD.closeDocument(doc.Name)
         settle()
@@ -137,7 +144,7 @@ def run():
         settle()
         loaded = sorted(FreeCAD.listDocuments())
         check("3: the case arose: the part came in with the assembly, marked",
-              "part" in loaded and any("'part'" in l for l in marked.lines[before:]),
+              "part" in loaded and marked_for_migration(FreeCAD.getDocument("part")),
               (loaded, marked.lines[before:]))
         check("3: the part has no view of its own",
               "part" in loaded

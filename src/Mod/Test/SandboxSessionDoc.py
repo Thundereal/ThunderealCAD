@@ -623,9 +623,14 @@ class SandboxSessionDocTest(unittest.TestCase):
 
         outcome, got = self.drive("saveas_picked", name_it)
         self.assertEqual(outcome, ["ok"])
-        self.assertEqual(got, [picked, picked])
+        # In Qt's spelling, '/' between the parts on every system: what
+        # the dialog returns, and so what host code asking it gets too --
+        # the guest is told the same. Not normcase: a wrong letter case
+        # would be a wrong answer
+        qt = picked.replace(os.sep, "/")
+        self.assertEqual(got, [qt, qt])
         self.assertTrue(os.path.isfile(picked))
-        self.assertEqual(self.doc.FileName, picked)
+        self.assertEqual(self.doc.FileName, qt)
         # saveAs to a path the guest made up: refused, nothing written
         madeup = os.path.join(self.tmp, "madeup.FCStd")
         self.param(madeup=madeup)
@@ -633,7 +638,7 @@ class SandboxSessionDocTest(unittest.TestCase):
         self.assertIn("PermissionError", got)
         self.assertIn("file dialog", got)
         self.assertFalse(os.path.exists(madeup))
-        self.assertEqual(self.doc.FileName, picked)
+        self.assertEqual(self.doc.FileName, qt)
 
 
     # ---- 8. Gui.doCommand in the guest (S2) -----------------------------

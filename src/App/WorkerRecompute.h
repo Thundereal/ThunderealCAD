@@ -126,6 +126,10 @@ public:
         /// split, the seconds it was expected to save and the objects of
         /// each part (what two read is in both)
         long split = 0;
+        /// Of the last one asked to split: the parts the pool could run
+        /// side by side at that moment (WorkerPool::sideBySide, sec 79),
+        /// the most it was split into
+        long splitWorkers = 0;
         double splitSaving = 0;
         std::vector<long> splitObjects;
         /// Of the last one split, the joins left out of its parts: cheap

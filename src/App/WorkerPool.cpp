@@ -1329,6 +1329,16 @@ struct WorkerPool::Private
     /// Cancelled; true if one is made there now
     bool keepPinned(const std::string& was, std::vector<std::pair<std::function<void(Result&)>, Result>>& told);
     void grow();
+    /// grow()'s rule for whether another worker may start, the demand
+    /// aside: under the limit, each worker having made a job -- so what
+    /// one holds is known -- and the memory left fitting one more
+    bool roomForAnother() const;
+    /// grow()'s demand side for a client taking results as they come:
+    /// another worker only once it had to wait for one
+    bool consuming() const
+    {
+        return now() - lastClaim < 2.0;
+    }
     void deliver(JobId id, Result& result);
     /// What the job's workers said, into its result
     static void takeMessages(Entry& entry, Result& result)
@@ -3091,45 +3101,50 @@ void WorkerPool::Private::checkStalled()
     }
 }
 
-void WorkerPool::Private::grow()
+bool WorkerPool::Private::roomForAnother() const
 {
-    if (copy.empty() || static_cast<int>(procs.size()) >= limit || queue.empty()) {
-        return;
+    if (copy.empty() || static_cast<int>(procs.size()) >= limit) {
+        return false;
     }
     // One at a time, and once each has done a job: then what one holds is
     // known, and the memory left says whether another fits
     std::size_t biggest = 0;
     for (auto& proc : procs) {
         if (!proc->made || proc->quitting) {
-            return;
+            return false;
         }
         biggest = std::max(biggest, proc->resident);
     }
     if (!biggest) {
-        return;
-    }
-    // With a client taking the results as they come, another worker only
-    // when it had to wait for one or do one itself; with none, when there
-    // are more jobs, running and queued, than workers -- a recompute split
-    // in two has one running and one waiting (docs/WorkerProcess.md sec 42)
-    const bool consuming = now() - lastClaim < 2.0;
-    std::size_t running = 0;
-    for (auto& proc : procs) {
-        running += proc->job ? 1 : 0;
-    }
-    if (consuming ? !starved : queue.size() + running <= procs.size()) {
-        return;
+        return false;
     }
     const std::size_t total = totalMemory();
     const std::size_t reserve = std::max<std::size_t>(std::size_t(1) << 30, total / 7);
     const std::size_t available = availableMemory();
     const std::size_t need = biggest + biggest / 4;
     if (available) {
-        if (available < reserve + need) {
-            return;
-        }
+        return available >= reserve + need;
     }
-    else if (total && (procs.size() + 1) * biggest > total / 2) {
+    return !total || (procs.size() + 1) * biggest <= total / 2;
+}
+
+void WorkerPool::Private::grow()
+{
+    if (copy.empty() || queue.empty()) {
+        return;
+    }
+    // With a client taking the results as they come, another worker only
+    // when it had to wait for one or do one itself; with none, when there
+    // are more jobs, running and queued, than workers -- a recompute split
+    // in two has one running and one waiting (docs/WorkerProcess.md sec 42)
+    std::size_t running = 0;
+    for (auto& proc : procs) {
+        running += proc->job ? 1 : 0;
+    }
+    if (consuming() ? !starved : queue.size() + running <= procs.size()) {
+        return;
+    }
+    if (!roomForAnother()) {
         return;
     }
     starved = false;
@@ -3371,6 +3386,32 @@ bool WorkerPool::start()
 bool WorkerPool::started() const
 {
     return !d->copy.empty();
+}
+
+int WorkerPool::sideBySide() const
+{
+    if (d->copy.empty()) {
+        return 0;
+    }
+    if (d->procs.empty()) {
+        return 1;
+    }
+    // Free for a job now: one starting counts, it takes the job when its
+    // copy is open; one told to go does not
+    int free = 0;
+    for (auto& proc : d->procs) {
+        if (!proc->job && !proc->quitting && !proc->over) {
+            ++free;
+        }
+    }
+    free = std::max(0, free - static_cast<int>(d->queue.size()));
+    // And the one grow() would start for jobs left waiting.  For a client
+    // taking results as they come, grow() waits until it had to wait, so
+    // that one is not counted on
+    if ((!d->consuming() || d->starved) && d->roomForAnother()) {
+        ++free;
+    }
+    return std::clamp(free, 1, std::max(1, d->limit));
 }
 
 WorkerPool::JobId WorkerPool::submit(Job job)
@@ -4931,6 +4972,7 @@ public:
         dict.setItem("Stalled", Py::Long(i.stalled));
         dict.setItem("Spoiled", Py::Long(i.spoiled));
         dict.setItem("Busy", Py::Long(i.busy));
+        dict.setItem("SideBySide", Py::Long(p.sideBySide()));
         dict.setItem("Queued", Py::Long(static_cast<unsigned long>(i.queued)));
         dict.setItem("Resident", Py::Long(static_cast<unsigned long>(i.resident)));
         dict.setItem("Done", Py::Long(i.done));
@@ -5121,6 +5163,7 @@ public:
         dict.setItem("Risky", risky);
         dict.setItem("HandedOver", Py::Long(i.handedOver));
         dict.setItem("Split", Py::Long(i.split));
+        dict.setItem("SplitWorkers", Py::Long(i.splitWorkers));
         dict.setItem("SplitSaving", Py::Float(i.splitSaving));
         Py::Tuple parts(i.splitObjects.size());
         for (std::size_t k = 0; k < i.splitObjects.size(); ++k) {

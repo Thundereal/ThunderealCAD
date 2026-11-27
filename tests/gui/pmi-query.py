@@ -72,14 +72,17 @@ def changed(a, b, left):
     return n
 
 
-def colours(view, name, left=1.0):
-    """(green, blue) pixels of a capture, in its left fraction"""
+def colours(view, name, left=1.0, pale=False):
+    """(green, blue) pixels of a capture, in its left fraction. pale: the green counted
+    includes the pale one a selected face is filled with, (119, 189, 134), not only the
+    edges' saturated one"""
     img = capture(view, name)
     green = blue = 0
+    over = (40, 30) if pale else (60, 60)
     for y in range(0, img.height(), 2):
         for x in range(0, int(img.width() * left), 2):
             c = QtGui.QColor(img.pixel(x, y))
-            if c.green() > 120 and c.green() - c.red() > 60 and c.green() - c.blue() > 60:
+            if c.green() > 120 and c.green() - c.red() > over[0] and c.green() - c.blue() > over[1]:
                 green += 1
             if c.blue() > 110 and c.blue() - c.red() > 60 and c.blue() - c.green() > 30:
                 blue += 1
@@ -211,7 +214,7 @@ def run():
         pump(60)
         Gui.Selection.clearSelection()
         pump(10)
-        g0, _ = colours(view, "uncovered-none.png")
+        g0, _ = colours(view, "uncovered-none.png", pale=True)
         button = panel[0].findChild(QtWidgets.QPushButton, "selectUncovered")
         check("its button is offered", button is not None and button.isEnabled())
         button.click()
@@ -224,9 +227,11 @@ def run():
                       for p in (V(40, 5, 5), V(5, 0, 5), V(5, 20, 5)))
         check("it selects the faces nothing tolerances, and the list stays",
               subs == want and listing.count() == 2, (subs, want, listing.count()))
-        g1, _ = colours(view, "uncovered-selected.png")
+        g1, _ = colours(view, "uncovered-selected.png", pale=True)
+        # The faces filled, not only their edges: the edges alone give about 1000 samples,
+        # the two faces' fill about 4000 more (Windows, 2026-11-28: 0 -> 5567)
         check("they show selected: the right and the front face turn green",
-              g1 > g0 + 1000, (g0, g1))
+              g1 > g0 + 2500, (g0, g1))
         for box_ in Gui.getMainWindow().findChildren(QtWidgets.QDialogButtonBox):
             b = box_.button(QtWidgets.QDialogButtonBox.Close)
             if b is not None and b.isVisible():

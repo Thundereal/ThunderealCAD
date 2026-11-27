@@ -86,6 +86,21 @@ def dark(img):
     return n
 
 
+def darker(a, b):
+    """How many pixels of b are darker than a's by more than 60 (summed over r, g, b): ink
+    added, however thin -- at the size the page is shown a callout's strokes come out a
+    light grey that dark() does not count"""
+    if a.size() != b.size():
+        return -1
+    n = 0
+    for y in range(a.height()):
+        for x in range(a.width()):
+            p, q = a.pixel(x, y), b.pixel(x, y)
+            if sum(((p >> s) & 255) - ((q >> s) & 255) for s in (0, 8, 16)) > 60:
+                n += 1
+    return n
+
+
 def vg(tag):
     import TechDrawGui
     from PySide import QtGui
@@ -121,7 +136,9 @@ def before():
     STATE["paths0"], _ = export("0-before")
     STATE["vg0"] = vg("0-before-vg")
     v = page_view()
-    STATE["dark0"] = dark(v.grab().toImage()) if v else -1
+    STATE["img0"] = v.grab().toImage() if v else None
+    if v is not None:
+        STATE["img0"].save(os.path.join(OUT, "0-before.png"))
     check("the page is shown", v is not None)
 
 
@@ -149,9 +166,8 @@ def drawn():
     if v is not None:
         img = v.grab().toImage()
         img.save(os.path.join(OUT, "1-imported.png"))
-        n = dark(img)
-        check("the page shows them", n > STATE["dark0"] + 50,
-              "%d dark pixels, %d before" % (n, STATE["dark0"]))
+        n = darker(STATE["img0"], img)
+        check("the page shows them", n > 150, "%d pixels darker than before" % n)
     n = vg("1-imported-vg")
     check("the vg renderer draws them", n > STATE["vg0"] + 50,
           "%d dark pixels, %d before" % (n, STATE["vg0"]))

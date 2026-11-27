@@ -1163,7 +1163,12 @@ LoadPreMeshState &loadPreMeshState()
         // partial reload takes an early return before that signal -- and
         // the close is the last moment they can be dropped while the
         // TShapes they are keyed on still exist.
-        App::GetApplication().signalDeleteDocument.connect(forget);
+        App::GetApplication().signalDeleteDocument.connect(
+                [forget](const App::Document &doc) {
+                    // Its claims no worker has go with it (sec 18.19)
+                    dropPreMeshClaims(doc.getName());
+                    forget(doc);
+                });
         return true;
     }();
     (void)observing;
@@ -1181,6 +1186,43 @@ LoadPreMeshState &loadPreMeshState()
 /// Called at every mutation of the map rather than derived on demand,
 /// because the map is a static of this translation unit and the readers
 /// are in Gui, which must not depend on a workbench.
+/// The documents filling in, in the order they are served
+/// (docs/DocumentLoad.md sec 18.15): the active view's first, then the
+/// later opened ahead of the earlier. The visual drain's order, and the
+/// pre-mesh hand-out's (sec 18.19), asked as each slice or hand-out is
+/// made: a view made the active one mid-load re-orders both
+std::vector<std::string> drainOrder()
+{
+    const DeferredVisuals &visuals = deferredVisuals();
+    std::string activeName;
+    if (Gui::Application::Instance) {
+        if (auto gdoc = Gui::Application::Instance->activeDocument()) {
+            if (auto adoc = gdoc->getDocument())
+                activeName = adoc->getName();
+        }
+    }
+    std::vector<std::string> order;
+    order.reserve(visuals.docs.size());
+    for (const auto &e : visuals.docs)
+        order.push_back(e.first);
+    std::stable_sort(order.begin(), order.end(),
+                     [&visuals, &activeName](const std::string &a,
+                                             const std::string &b) {
+                         const bool aActive = a == activeName;
+                         const bool bActive = b == activeName;
+                         if (aActive != bActive)
+                             return aActive;
+                         return visuals.docs.at(a).opened
+                             > visuals.docs.at(b).opened;
+                     });
+    // The active view's document asks first even with no visuals left to
+    // build: its refinements' meshes are what the user is looking at
+    if (!activeName.empty()
+            && std::find(order.begin(), order.end(), activeName) == order.end())
+        order.insert(order.begin(), activeName);
+    return order;
+}
+
 void syncBuildingVisuals()
 {
     if (Gui::Application::Instance)
@@ -6604,6 +6646,9 @@ static void collectPreMeshItems(App::Document *doc,
                                 const std::vector<ViewProviderPartExt *> &vps,
                                 std::vector<PreMeshItem> &items)
 {
+    // The claims go out in the drain's order (docs/DocumentLoad.md sec
+    // 18.19): set where they are made, so it is there before the first
+    setPreMeshOrder(&drainOrder);
     const int coarseLvl = coarseTessellationLevel(doc);
     const long deferFaces = Gui::RenderParams::getCoarseDeferFaces();
     const bool instancing = shapeInstancingActive();
@@ -6697,6 +6742,7 @@ static void collectPreMeshItems(App::Document *doc,
         item.angle = angle;
         item.skipResident = skipResident;
         item.acceptFiner = acceptFiner;
+        item.document = doc->getName();
         items.push_back(std::move(item));
     }
 }
@@ -6890,25 +6936,7 @@ void ViewProviderPartExt::runDeferredVisualSlice()
     // in at half speed, and the one in front of the user no sooner than
     // the one behind. A document that gets nothing is not left for dead:
     // see `served`.
-    std::string activeName;
-    if (auto gdoc = Gui::Application::Instance->activeDocument()) {
-        if (auto adoc = gdoc->getDocument())
-            activeName = adoc->getName();
-    }
-    std::vector<std::string> order;
-    order.reserve(visuals.docs.size());
-    for (const auto &e : visuals.docs)
-        order.push_back(e.first);
-    std::stable_sort(order.begin(), order.end(),
-                     [&visuals, &activeName](const std::string &a,
-                                             const std::string &b) {
-                         const bool aActive = a == activeName;
-                         const bool bActive = b == activeName;
-                         if (aActive != bActive)
-                             return aActive;
-                         return visuals.docs.at(a).opened
-                             > visuals.docs.at(b).opened;
-                     });
+    const std::vector<std::string> order = drainOrder();
     bool more = false;
     bool builtAny = false;
     // Whether any queue had something to do. A slice that found every

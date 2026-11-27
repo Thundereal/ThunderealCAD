@@ -27,6 +27,8 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <map>
+#include <string>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -87,6 +89,8 @@ struct Claim
     double angle = 0.0;
     bool skipResident = true;
     bool acceptFiner = false;
+    /// The document it was claimed for (PreMeshItem::document)
+    std::string document;
     /// The faces and edges of the shape, by TShape: what a mesh is put
     /// on, and what this claim holds in s_parts until it is done.
     std::vector<const void *> parts;
@@ -127,8 +131,64 @@ std::unordered_map<const void *, int> s_parts;
 /// The faces and edges of every claim that is OUT, to that claim: a face
 /// is in one twin at a time, so that it is meshed once.
 std::unordered_map<const void *, Claim *> s_outParts;
-/// Claims not yet handed out, in the order they came.
-std::deque<ClaimPtr> s_pending;
+/// Claims not yet handed out, by document, each document's in the order
+/// they came (docs/DocumentLoad.md sec 18.19). One queue for every
+/// document handed a later opened document's shapes out behind an
+/// earlier one's, and the document in front of the user waited on the
+/// meshes of the one behind it.
+struct DocClaims
+{
+    std::deque<ClaimPtr> claims;
+    /// When its first claim came (s_arrivals), for the documents the
+    /// order does not name
+    std::uint64_t first = 0;
+};
+std::map<std::string, DocClaims> s_pending;
+std::uint64_t s_arrivals = 0;
+/// The documents' order, the drain's (setPreMeshOrder)
+std::vector<std::string> (*s_order)() = nullptr;
+
+DocClaims &pendingOf(const std::string &document)
+{
+    auto it = s_pending.find(document);
+    if (it == s_pending.end()) {
+        it = s_pending.emplace(document, DocClaims()).first;
+        it->second.first = ++s_arrivals;
+    }
+    return it->second;
+}
+
+/// Every claim no worker has, taken out of the queues
+std::vector<ClaimPtr> takeAllPending()
+{
+    std::vector<ClaimPtr> all;
+    for (auto &entry : s_pending)
+        for (ClaimPtr &claim : entry.second.claims)
+            all.push_back(std::move(claim));
+    s_pending.clear();
+    return all;
+}
+
+/// The queues in the order they are served: those `named` names, in its
+/// order, then the rest by when their first claim came
+std::vector<DocClaims *> pendingInOrder(const std::vector<std::string> &named)
+{
+    std::vector<DocClaims *> order;
+    std::vector<DocClaims *> rest;
+    for (const std::string &name : named) {
+        auto it = s_pending.find(name);
+        if (it != s_pending.end())
+            order.push_back(&it->second);
+    }
+    for (auto &entry : s_pending) {
+        if (std::find(named.begin(), named.end(), entry.first) == named.end())
+            rest.push_back(&entry.second);
+    }
+    std::sort(rest.begin(), rest.end(),
+              [](const DocClaims *a, const DocClaims *b) { return a->first < b->first; });
+    order.insert(order.end(), rest.begin(), rest.end());
+    return order;
+}
 /// Claims the workers have handed back, to be taken by the GUI thread.
 std::vector<ClaimPtr> s_finished;
 /// How many claims are out, and how many faces and edges they hold.
@@ -300,7 +360,7 @@ void publishLocked(ClaimPtr claim, bool meshed)
         if (s_stopping.load(std::memory_order_acquire))
             publishLocked(*it, false);
         else
-            s_pending.push_front(*it);
+            pendingOf((*it)->document).claims.push_front(*it);
     }
 }
 
@@ -351,15 +411,27 @@ void dispatch()
 {
     const std::size_t floor = windowFloor();
     for (;;) {
+        // The documents' order as it is now: the active view's first,
+        // then the later opened (sec 18.19). Asked outside the lock -- it
+        // reads the GUI's state -- and at each hand-out
+        const std::vector<std::string> named = s_order ? s_order() : std::vector<std::string>();
         std::vector<ClaimPtr> go;
         {
             std::lock_guard<std::mutex> guard(s_mutex);
             if (s_stopping.load(std::memory_order_acquire))
                 return;
-            while (!s_pending.empty()
+            std::vector<DocClaims *> queues = pendingInOrder(named);
+            std::size_t at = 0;
+            while (at < queues.size()
                    && (s_out < floor || s_outWeight < kWindowParts)) {
-                ClaimPtr claim = std::move(s_pending.front());
-                s_pending.pop_front();
+                // The first document of the order that has one: the one
+                // behind it gets a claim only when this has none left
+                if (queues[at]->claims.empty()) {
+                    ++at;
+                    continue;
+                }
+                ClaimPtr claim = std::move(queues[at]->claims.front());
+                queues[at]->claims.pop_front();
                 if (claim->state != Claim::State::Pending)
                     continue;
                 // A face is in one twin at a time. Two twins holding it
@@ -385,6 +457,14 @@ void dispatch()
                 ++s_out;
                 s_outWeight += claim->parts.size();
                 go.push_back(std::move(claim));
+            }
+            // A document with none left is in the order no more; its next
+            // claim is counted as it comes
+            for (auto it = s_pending.begin(); it != s_pending.end();) {
+                if (it->second.claims.empty())
+                    it = s_pending.erase(it);
+                else
+                    ++it;
             }
         }
         if (go.empty())
@@ -506,6 +586,7 @@ void submitPreMesh(std::vector<PreMeshItem> &&items)
             claim->angle = item.angle;
             claim->skipResident = item.skipResident;
             claim->acceptFiner = item.acceptFiner;
+            claim->document = item.document;
             claim->parts = std::move(parts[index]);
             claim->generation = generation;
             for (const void *part : claim->parts)
@@ -514,7 +595,7 @@ void submitPreMesh(std::vector<PreMeshItem> &&items)
             if (s_claimed++ == 0)
                 s_first = std::chrono::steady_clock::now();
             s_claims[tshape] = claim;
-            s_pending.push_back(std::move(claim));
+            pendingOf(claim->document).claims.push_back(std::move(claim));
         }
     }
     // Before the application leaves, once: the event loop's end is ahead
@@ -625,9 +706,7 @@ void stopPreMesh()
     {
         // What no worker has: ended unmeshed, here.
         std::lock_guard<std::mutex> guard(s_mutex);
-        std::deque<ClaimPtr> pending;
-        pending.swap(s_pending);
-        for (const ClaimPtr &claim : pending) {
+        for (const ClaimPtr &claim : takeAllPending()) {
             if (claim->state == Claim::State::Pending)
                 publishLocked(claim, false);
         }
@@ -664,8 +743,7 @@ void clearPreMeshClaims()
     // A claim no worker has is dropped. "No build is going to ask again"
     // is what the callers know, and with nothing of it out there is
     // nothing to wait for.
-    std::deque<ClaimPtr> pending;
-    pending.swap(s_pending);
+    const std::vector<ClaimPtr> pending = takeAllPending();
     std::vector<ClaimPtr> waiting;
     for (auto &entry : s_claims) {
         if (entry.second->state == Claim::State::Out) {
@@ -698,6 +776,41 @@ void clearPreMeshClaims()
     }
     s_claimed = s_meshed = s_failed = 0;
     s_wall = 0.0;
+    s_handedBack.notify_all();
+}
+
+void setPreMeshOrder(std::vector<std::string> (*order)())
+{
+    s_order = order;
+}
+
+void dropPreMeshClaims(const std::string &document)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    std::vector<ClaimPtr> ended;
+    auto it = s_pending.find(document);
+    if (it != s_pending.end()) {
+        for (ClaimPtr &claim : it->second.claims)
+            ended.push_back(std::move(claim));
+        s_pending.erase(it);
+    }
+    // And those of it waiting behind a claim that is out, for a face they
+    // share: they would go to a worker when that one is back
+    for (auto &entry : s_claims) {
+        auto &waiters = entry.second->waiters;
+        for (auto w = waiters.begin(); w != waiters.end();) {
+            if ((*w)->document == document) {
+                ended.push_back(std::move(*w));
+                w = waiters.erase(w);
+            }
+            else
+                ++w;
+        }
+    }
+    for (const ClaimPtr &claim : ended) {
+        if (claim->state == Claim::State::Pending)
+            publishLocked(claim, false);
+    }
     s_handedBack.notify_all();
 }
 

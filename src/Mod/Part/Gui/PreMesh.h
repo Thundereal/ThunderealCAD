@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include <Bnd_Box.hxx>
@@ -107,6 +108,9 @@ struct PreMeshItem
     bool skipResident = true;
     /// Render_MeshSkipFinerResident, for that check.
     bool acceptFiner = false;
+    /// The document whose load asks it, by name: what the claims are
+    /// handed out in the order of (setPreMeshOrder).
+    std::string document;
 };
 
 /// Does the mesh \a shape holds already answer an ask for \a deflection?
@@ -119,6 +123,17 @@ PartGuiExport bool meshAnswersAsk(const TopoDS_Shape &shape, double deflection,
 /// once; \a items is consumed. An item whose TShape is already in flight
 /// is left to the claim that has it.
 PartGuiExport void submitPreMesh(std::vector<PreMeshItem> &&items);
+
+/// The order the documents' claims are handed out to the workers in
+/// (docs/DocumentLoad.md sec 18.19): `order` gives the names, first to
+/// last, and is asked at each hand-out, so a view made the active one
+/// mid-load re-orders what has not gone yet. A document it does not name
+/// goes after those it does, in the order its first claim came. With none
+/// set, the documents go in that order.
+PartGuiExport void setPreMeshOrder(std::vector<std::string> (*order)());
+/// A document closed: its claims no worker has end unmeshed, and its
+/// queue goes. One that is out ends as it comes back.
+PartGuiExport void dropPreMeshClaims(const std::string &document);
 
 /// Is a pre-mesh of \a tshape still to come? A build leaves the shape to
 /// it while it is.

@@ -67,6 +67,11 @@ from PySide import QtCore
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
 FILES = {"Old": ("A", 40), "New": ("B", 80), "Small": ("C", 20)}
+# Each file's solids its own: identical geometry is held once across
+# documents (one TShape, docs/DocumentLoad.md sec 18.19), so Small's 20
+# were New's first 20 and were meshed as New's -- what the order sequences
+# measured was then not the order at all
+RADIUS = {"A": 30.0, "B": 31.0, "C": 32.0}
 QUIET = 4.0
 
 VISUAL = re.compile(r"progressive load (\S+): (\d+) of (\d+) visuals in (\d+) slices")
@@ -335,7 +340,7 @@ def build():
             doc = FreeCAD.newDocument(name)
             for i in range(n):
                 obj = doc.addObject("Part::Feature", "%s%d" % (letter, i))
-                obj.Shape = prism(990, 30.0 + 0.01 * i, 10)
+                obj.Shape = prism(990, RADIUS[letter] + 0.01 * i, 10)
                 obj.Placement.Base = FreeCAD.Vector(90 * (i % 10), 90 * (i // 10), 0)
             doc.recompute()
             FreeCADGui.SendMsgToActiveView("ViewFit")

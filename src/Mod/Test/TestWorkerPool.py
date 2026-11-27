@@ -30,6 +30,10 @@ def _sleep(doc, inputs, out):
     return {"Pid": os.getpid()}
 
 
+def _big(doc, inputs, out):
+    return {"Big": "x" * inputs.get("Bytes", 0), "Pid": os.getpid()}
+
+
 def _fail(doc, inputs, out):
     raise ValueError("asked to fail")
 
@@ -350,6 +354,7 @@ for _kind, _handler in (
     ("test.echo", _echo),
     ("test.sleep", _sleep),
     ("test.fail", _fail),
+    ("test.big", _big),
     ("test.unfit", _unfit),
     ("test.dieonce", _dieOnce),
     ("test.fault", _fault),
@@ -1075,6 +1080,69 @@ class TestWorkerPool(unittest.TestCase):
         job = self.submit("test.echo", {"After": True})
         self.assertTrue(self.pool.wait(120))
         self.assertEqual(self.pool.result(job)["Status"], "Done")
+
+    def messageMost(self, most):
+        """Messages past `most` bytes refused, for this test: the seam of
+        WorkerPool::messageMost() (docs/WorkerProcess.md sec 80), which a
+        worker reads from its environment -- so no standing worker, which
+        was started before it was set, and the pool's workers ended"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("Standby", False)
+        self.addCleanup(group.RemBool, "Standby")
+        os.environ["FC_WORKER_MESSAGE_MOST"] = str(most)
+        self.addCleanup(os.environ.pop, "FC_WORKER_MESSAGE_MOST", None)
+        self.newWorker()
+
+    def testAJobTooBigToSendFailsAndKeepsItsWorker(self):
+        """A job past what a message carries is not sent: it fails saying
+        so, and the worker it was for is kept. Sent, the length cut short,
+        the worker read the rest as messages and was ended for it, the job
+        went to another to end that one too, and it failed as a death
+        (docs/WorkerProcess.md secs 77, 80)"""
+        self.messageMost(64 * 1024)
+        first = self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        pid = self.pool.result(first)["Output"]["Pid"]
+        spawned = self.pool.info()["Spawned"]
+        big = self.submit("test.echo", {"Text": "x" * (128 * 1024)})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(big)
+        self.assertEqual(result["Status"], "Failed", result)
+        self.assertIn("more than a message carries", result["Error"])
+        self.assertFalse(result["Died"], result)
+        # the same worker makes the next one
+        after = self.submit("test.echo", {"After": True})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(after)
+        self.assertEqual(result["Status"], "Done", result)
+        self.assertEqual(result["Output"]["Pid"], pid)
+        self.assertEqual(self.pool.info()["Spawned"], spawned)
+
+    def testAResultTooBigToSendFailsAndKeepsItsWorker(self):
+        """A worker's result past what a message carries is answered as a
+        failure saying so, and the worker goes on to the next job. Before,
+        its send failed, the worker ended, and the job went to another to
+        end that one too: a death over nothing it did (sec 80)"""
+        self.messageMost(64 * 1024)
+        first = self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        pid = self.pool.result(first)["Output"]["Pid"]
+        spawned = self.pool.info()["Spawned"]
+        big = self.submit("test.big", {"Bytes": 128 * 1024})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(big)
+        self.assertEqual(result["Status"], "Failed", result)
+        self.assertIn("its result is", result["Error"])
+        self.assertIn("more than a message carries", result["Error"])
+        self.assertFalse(result["Died"], result)
+        # under the size it is sent
+        small = self.submit("test.big", {"Bytes": 1024})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(small)
+        self.assertEqual(result["Status"], "Done", result)
+        self.assertEqual(len(result["Output"]["Big"]), 1024)
+        self.assertEqual(result["Output"]["Pid"], pid)
+        self.assertEqual(self.pool.info()["Spawned"], spawned)
 
     def testAnAddonsGuiCallsAreThereInAWorker(self):
         """An addon's module calls FreeCADGui at import: in a worker the

@@ -75,6 +75,16 @@ public:
     /// "Pad (worker 2)")
     static void show(const Message& message);
 
+    /** The most a message's header, or its body, can be: 4 GiB less a
+     * byte, each length being four bytes on the wire -- or less, where
+     * the environment's FC_WORKER_MESSAGE_MOST says so: a test's seam,
+     * the size past which the refusals are tested (docs/WorkerProcess.md
+     * sec 80), only ever lower
+     */
+    static std::size_t messageMost();
+    /// Why a message of these sizes cannot go, or nothing when it can
+    static std::string tooBig(std::size_t header, std::size_t body);
+
     /// What became of a job, handed to its client once
     struct Result
     {

@@ -159,3 +159,63 @@ class MeshServiceTest(unittest.TestCase):
         self.assertTrue(Part.meshShape(shape, 0.1, 0.5, "worker"))
         self.assertFalse(Part.meshDigest(shape).startswith("faces 0 "))
         self.assertGreater(Part.meshServiceInfo()["Spawned"], info["Spawned"])
+
+    def testAMessageTooBigForAHelperIsMeshedHere(self):
+        """A request, or a helper's reply, past what a message carries is
+        not sent: the call ends saying why, the shape is meshed here, and
+        the helper goes on (docs/WorkerProcess.md secs 77, 80). The size is
+        lowered by the test's seam, FC_WORKER_MESSAGE_MOST, which a helper
+        reads from its environment: so the helpers standing end first, and
+        the one the call starts has it"""
+        import os
+        import time
+
+        self.setting("Int", "ServiceWorkersKept", 0)
+        self.setting("Float", "ServiceIdleSeconds", 0.3)
+
+        def most(n):
+            # a call under these settings first: a helper left idle before
+            # them ends by the settings it went idle under
+            os.environ.pop("FC_WORKER_MESSAGE_MOST", None)
+            self.assertTrue(Part.meshShape(Part.makeBox(1, 2, 3), 0.1, 0.5, "worker"))
+            os.environ["FC_WORKER_MESSAGE_MOST"] = str(n)
+            end = time.time() + 20
+            while Part.meshServiceInfo()["Helpers"] and time.time() < end:
+                time.sleep(0.05)
+            self.assertEqual(Part.meshServiceInfo()["Helpers"], 0)
+
+        self.addCleanup(os.environ.pop, "FC_WORKER_MESSAGE_MOST", None)
+
+        def meshed(shape, deflection):
+            here = shape.copy()
+            there = shape.copy()
+            self.assertTrue(Part.meshShape(here, deflection, 0.5, "here"))
+            self.assertTrue(Part.meshShape(there, deflection, 0.5, "worker"))
+            return Part.meshDigest(here), Part.meshDigest(there)
+
+        # the request: a box's is some 4.5 KB
+        most(2000)
+        before = Part.meshServiceInfo()
+        here, there = meshed(Part.makeBox(10, 20, 30), 0.1)
+        info = Part.meshServiceInfo()
+        self.assertEqual(here, there)
+        self.assertEqual(info["FellBack"], before["FellBack"] + 1, info)
+        self.assertEqual(info["Died"], before["Died"], info)
+        self.assertEqual(info["Worker"], before["Worker"], info)
+        # the reply: a fine sphere's is some 220 KB, its request 1 KB
+        most(64 * 1024)
+        before = Part.meshServiceInfo()
+        here, there = meshed(Part.makeSphere(7), 0.01)
+        info = Part.meshServiceInfo()
+        self.assertEqual(here, there)
+        self.assertEqual(info["FellBack"], before["FellBack"] + 1, info)
+        self.assertEqual(info["Died"], before["Died"], info)
+        self.assertEqual(info["Spawned"], before["Spawned"] + 1, info)
+        # the helper that refused it meshes the next
+        pids = info["Pids"]
+        shape = Part.makeBox(1, 2, 3)
+        self.assertTrue(Part.meshShape(shape, 0.1, 0.5, "worker"))
+        after = Part.meshServiceInfo()
+        self.assertEqual(after["Worker"], info["Worker"] + 1, after)
+        self.assertEqual(after["Spawned"], info["Spawned"], after)
+        self.assertEqual(after["Pids"], pids)

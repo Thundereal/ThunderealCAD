@@ -50,6 +50,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -390,17 +391,55 @@ std::uint32_t get32(const char* p)
 /// bytes on the wire
 constexpr std::size_t MessageMost = 0xffffffffu;
 
+}  // namespace
+
+std::size_t WorkerPool::messageMost()
+{
+    // A test's seam (docs/WorkerProcess.md sec 80): 4 GiB is half of the
+    // memory of the smallest box these run on, so the refusals are tested
+    // at a size it sets.  Only ever lower; read each time, as a test sets
+    // it after the start, and the workers and helpers it starts inherit it
+    if (const char* most = std::getenv("FC_WORKER_MESSAGE_MOST")) {
+        char* end = nullptr;
+        const unsigned long long n = std::strtoull(most, &end, 10);
+        if (end != most && n > 0 && n < MessageMost) {
+            return static_cast<std::size_t>(n);
+        }
+    }
+    return MessageMost;
+}
+
+std::string WorkerPool::tooBig(std::size_t header, std::size_t body)
+{
+    const std::size_t most = messageMost();
+    if (header <= most && body <= most) {
+        return {};
+    }
+    return std::to_string(header) + " + " + std::to_string(body)
+        + " bytes, more than a message carries";
+}
+
+namespace
+{
+
 /// A message, or nothing for one that does not fit: a length narrowed to
 /// four bytes would have the other end read the rest of it as messages
-/// (docs/WorkerProcess.md sec 77). send() fails on nothing.
-QByteArray message(const json& header, const std::string& body = std::string())
+/// (docs/WorkerProcess.md sec 77). send() fails on nothing.  `why`, when
+/// given, takes the reason and nothing is logged: the caller tells it
+QByteArray message(const json& header, const std::string& body = std::string(),
+                   std::string* why = nullptr)
 {
     // Text that is not UTF-8 -- a console line with a path in the system's
     // encoding -- is sent with the bytes replaced, not thrown over
     const std::string text = header.dump(-1, ' ', false, json::error_handler_t::replace);
-    if (text.size() > MessageMost || body.size() > MessageMost) {
-        FC_ERR("a message of " << text.size() << " + " << body.size()
-                               << " bytes is more than a message carries; not sent");
+    std::string big = WorkerPool::tooBig(text.size(), body.size());
+    if (!big.empty()) {
+        if (why) {
+            *why = std::move(big);
+        }
+        else {
+            FC_ERR("a message of " << big << "; not sent");
+        }
         return {};
     }
     QByteArray out;
@@ -457,12 +496,11 @@ bool saysTooMuch(const std::string& buffer)
 /// Out now: with an event loop a socket writes when the loop next runs,
 /// and a job waited for inside an evaluation would wait for a worker
 /// never told it
-bool send(QLocalSocket& socket, const json& header)
+bool send(QLocalSocket& socket, const QByteArray& bytes)
 {
     if (socket.state() != QLocalSocket::ConnectedState) {
         return false;
     }
-    QByteArray bytes = message(header);
     if (bytes.isEmpty() || socket.write(bytes) != bytes.size()) {
         return false;
     }
@@ -484,6 +522,11 @@ bool send(QLocalSocket& socket, const json& header)
         }
     }
     return true;
+}
+
+bool send(QLocalSocket& socket, const json& header)
+{
+    return send(socket, message(header));
 }
 
 /// What send() left with the socket, out before it is closed
@@ -2910,8 +2953,31 @@ void WorkerPool::Private::sendJob(Proc& proc, JobId id)
     // before the job does: a job it runs is never decided by an answer
     // this process no longer gives
     std::string security = ExpressionSecurity::Runtime::instance().exportState();
-    if (security != proc.security) {
+    const bool told = security != proc.security;
+    if (told) {
         header["security"] = security;
+    }
+    // One too big to go fails here, its worker not told it and kept for
+    // the next: sent, it would have ended the worker, and the job gone to
+    // another to end that too, a death over nothing it did (sec 80)
+    std::string why;
+    const QByteArray bytes = message(header, std::string(), &why);
+    if (bytes.isEmpty()) {
+        ++failed;
+        Result result;
+        result.id = id;
+        result.kind = it->second.job.kind;
+        result.tag = it->second.job.tag;
+        result.status = Result::Status::Failed;
+        result.error = "the job is " + why + "; not sent to a worker";
+        FC_LOG(doc.getName() << ": " << result.error);
+        takeMessages(it->second, result);
+        deliver(id, result);
+        changedNotice();
+        dispatch(proc);
+        return;
+    }
+    if (told) {
         proc.security = std::move(security);
     }
     it->second.running = true;
@@ -2924,7 +2990,7 @@ void WorkerPool::Private::sendJob(Proc& proc, JobId id)
     proc.began = it->second.sentAt;
     proc.idleSince = 0;
     proc.keptOpen = false;
-    if (!send(*proc.socket, header)) {
+    if (!send(*proc.socket, bytes)) {
         kill(proc);
     }
 }
@@ -4640,7 +4706,18 @@ int WorkerPool::serve()
         relay->flush();  // what other threads said, before the result
         lastJob = header.value("job", JobId(0));
         setUpSince = false;
-        if (!send(socket, answer)) {
+        // A result too big to go is answered as a failure saying so: not
+        // sent, the worker would end and its job go to another (sec 80)
+        std::string why;
+        QByteArray bytes = message(answer, std::string(), &why);
+        if (bytes.isEmpty()) {
+            answer["ok"] = false;
+            answer["unfit"] = false;
+            answer["output"] = json::object();
+            answer["error"] = "its result is " + why;
+            bytes = message(answer);
+        }
+        if (!send(socket, bytes)) {
             break;
         }
     }

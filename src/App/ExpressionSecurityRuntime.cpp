@@ -521,6 +521,30 @@ static std::vector<std::string> targetChain(Permission perm, const std::string &
 Decision Runtime::resolve(const std::string &principal, Permission perm,
         const std::string &target)
 {
+    return resolveStored(principal, perm, hostTarget(perm, target));
+}
+
+std::string Runtime::shownTarget(const std::string &target) const
+{
+    std::lock_guard<std::recursive_mutex> guard(mutex);
+    auto it = spellings.find(target);
+    return it == spellings.end() ? target : it->second;
+}
+
+void Runtime::noteSpelling(const std::string &target, const std::string &asked)
+{
+    if (target.empty() || asked.empty() || target == "*")
+        return;
+    std::lock_guard<std::recursive_mutex> guard(mutex);
+    if (asked == target)
+        spellings.erase(target);
+    else
+        spellings[target] = asked;
+}
+
+Decision Runtime::resolveStored(const std::string &principal, Permission perm,
+        const std::string &target)
+{
     std::lock_guard<std::recursive_mutex> guard(mutex);
     ensureLoaded();
     auto pclass = principalClass(principal);
@@ -573,7 +597,7 @@ void Runtime::check(Permission perm, const std::string &target)
     // every grant (RemoteClient::readOnly)
     Decision decision = top.readOnly && perm == Permission::DocWriteSelf
         ? Decision::Deny
-        : resolve(principal, perm, target);
+        : resolveStored(principal, perm, hostTarget(perm, target));
     if (decision == Decision::Allow)
         return;
 
@@ -668,7 +692,8 @@ void Runtime::grant(const std::string &principal, Permission perm,
         const std::string &target, bool allow, const std::string &scope,
         const std::string &displayLabel, const std::string &displayPath)
 {
-    std::string t = target.empty() ? std::string("*") : target;
+    std::string t = target.empty() ? std::string("*") : hostTarget(perm, target);
+    noteSpelling(t, target);
     if (auto pclass = principalClass(principal)) {
         if (!isGrantable(*pclass, perm))
             THROWM(Base::ValueError, std::string(permissionName(perm))
@@ -715,8 +740,12 @@ std::size_t Runtime::revoke(const std::string &principal, Permission perm,
     {
         std::lock_guard<std::recursive_mutex> guard(mutex);
         ensureLoaded();
-        std::string t = target.empty() ? std::string("*") : target;
+        std::string t = target.empty() ? std::string("*") : hostTarget(perm, target);
         count = _store.remove(principal, perm, t);
+        // a grants.json entry written before path targets were stored
+        // resolved still names the path as typed
+        if (t != target && !target.empty())
+            count += _store.remove(principal, perm, target);
         // in-memory answers of the same shape go too
         for (auto *answers : {&onceAnswers, &sessionAnswers}) {
             for (auto it = answers->begin(); it != answers->end();) {
@@ -756,7 +785,7 @@ void Runtime::clearOnce()
 void Runtime::addProcessGrant(Permission perm, const std::string &target)
 {
     std::lock_guard<std::recursive_mutex> guard(mutex);
-    std::string t = target.empty() ? std::string("*") : target;
+    std::string t = target.empty() ? std::string("*") : hostTarget(perm, target);
     processOverrides[permissionName(perm) + (SEP + t)] = Decision::Allow;
 }
 
@@ -774,6 +803,7 @@ std::vector<Runtime::ActiveGrant> Runtime::activeGrants(const std::string &princ
         auto perm = permissionFromName(g.permission, &module);
         a.permission = perm ? *perm : Permission::DocReadSelf;
         a.target = g.target;
+        a.shown = shownTarget(g.target);
         a.allow = g.allow;
         a.scope = "always";
         a.granted = g.grantedUtc;
@@ -796,6 +826,7 @@ std::vector<Runtime::ActiveGrant> Runtime::activeGrants(const std::string &princ
                 continue;
             a.permission = *perm;
             a.target = v.first.substr(pos2 + 1);
+            a.shown = shownTarget(a.target);
             a.allow = v.second == Decision::Allow;
             a.scope = scope;
             result.push_back(std::move(a));
@@ -813,15 +844,18 @@ std::vector<PendingRequest> Runtime::pendingRequests(
     std::vector<PendingRequest> result;
     for (auto &r : pending) {
         if (documentName.empty() || r.documentName.empty()
-                || r.documentName == documentName)
+                || r.documentName == documentName) {
             result.push_back(r);
+            result.back().shown = shownTarget(r.target);
+        }
     }
     return result;
 }
 
 void Runtime::clearPending(const std::string &principal, Permission perm,
-        const std::string &target)
+        const std::string &rawTarget)
 {
+    const std::string target = hostTarget(perm, rawTarget);
     bool changed = false;
     {
         std::lock_guard<std::recursive_mutex> guard(mutex);
@@ -874,6 +908,7 @@ void checkHostPath(Permission perm, const std::string &path)
     if (!Runtime::scopeActive())
         return;
     const std::string target = normalizeHostPath(path);
+    Runtime::instance().noteSpelling(target, path);
     // Consent is a capability, not a list (S1): a picker-driven command
     // runs its modal INSIDE the guest's scope, so the path the user just
     // chose there is theirs to hand back -- refusing it would refuse

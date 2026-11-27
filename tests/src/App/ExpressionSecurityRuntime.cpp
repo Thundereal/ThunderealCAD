@@ -1,7 +1,12 @@
 #include "gtest/gtest.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
+#include <random>
 
 #include "App/Application.h"
 #include "App/Document.h"
@@ -150,6 +155,126 @@ TEST_F(ExpressionSecurityRuntimeTest, saveAsIsGatedAtThePrimitive)
     // refused before anything was written
     std::ifstream written(path.c_str());
     EXPECT_FALSE(written.good());
+}
+
+namespace {
+namespace fs = std::filesystem;
+
+/// A directory link the test owns: a symlink, or on Windows a junction
+/// (which needs no privilege; a directory symlink does).
+bool makeDirLink(const fs::path &target, const fs::path &link)
+{
+#ifdef _WIN32
+    std::string cmd = "mklink /J \"" + link.string() + "\" \"" + target.string() + "\" >NUL";
+    return std::system(cmd.c_str()) == 0 && fs::exists(link);
+#else
+    std::error_code ec;
+    fs::create_directory_symlink(target, link, ec);
+    return !ec;
+#endif
+}
+
+void removeDirLink(const fs::path &link)
+{
+    // the link itself goes, not what it points at (a junction too: it is
+    // removed as an empty directory)
+    std::error_code ec;
+    fs::remove(link, ec);
+}
+
+void touch(const fs::path &p)
+{
+    std::ofstream(p.string()) << "x";
+}
+
+std::string flipCase(std::string s)
+{
+    for (auto &c : s)
+        c = std::isupper((unsigned char)c) ? (char)std::tolower((unsigned char)c)
+                                           : (char)std::toupper((unsigned char)c);
+    return s;
+}
+}  // namespace
+
+TEST_F(ExpressionSecurityRuntimeTest, aPathGrantAndItsCheckCompareOneSpelling)
+{
+    // A grant names a FILE, whatever spelling it was typed in, and the
+    // check compares the same form.  Before, the check resolved links
+    // and the grant kept the path as typed, so a grant made through a
+    // link -- /var on macOS is one, every mkdtemp path is under it --
+    // never matched the check it answered.
+    clearBlessedPaths();
+    auto &rt = Runtime::instance();
+    const std::string principal = rt.documentPrincipal(_doc);
+    std::mt19937_64 rng(std::random_device {}());
+    const fs::path base = fs::temp_directory_path() / ("fcx-grantlink-" + std::to_string(rng()));
+    fs::create_directories(base / "real1");
+    fs::create_directories(base / "real2");
+    touch(base / "real1" / "a.FCStd");
+    touch(base / "real2" / "a.FCStd");
+    const fs::path link = base / "link";
+    ASSERT_TRUE(makeDirLink(base / "real1", link)) << "could not make " << link.string();
+
+    const std::string viaLink = (link / "a.FCStd").string();
+    const std::string real1 = (base / "real1" / "a.FCStd").string();
+    const std::string real2 = (base / "real2" / "a.FCStd").string();
+    rt.grant(principal, Permission::FsRead, viaLink, true, "session");
+    {
+        Runtime::Scope scope(_obj);
+        EXPECT_NO_THROW(checkHostPath(Permission::FsRead, real1))
+            << "a grant made through a link does not reach the file it named";
+        EXPECT_NO_THROW(checkHostPath(Permission::FsRead, viaLink));
+    }
+    // the panel lists the grant in the spelling the user gave, and keeps
+    // the stored form for its answers
+    std::string stored;
+    for (auto &g : rt.activeGrants(principal)) {
+        if (g.permission == Permission::FsRead && g.target == normalizeHostPath(real1)) {
+            stored = g.target;
+            EXPECT_EQ(g.shown, viaLink);
+        }
+    }
+    ASSERT_FALSE(stored.empty()) << "the grant is not stored as the file it names";
+
+    // the link repointed: the grant stays with the file it named and does
+    // not follow the link to its new one
+    removeDirLink(link);
+    ASSERT_TRUE(makeDirLink(base / "real2", link));
+    {
+        Runtime::Scope scope(_obj);
+        EXPECT_THROW(checkHostPath(Permission::FsRead, viaLink), PermissionNeededException);
+        EXPECT_THROW(checkHostPath(Permission::FsRead, real2), PermissionNeededException);
+        EXPECT_NO_THROW(checkHostPath(Permission::FsRead, real1));
+    }
+
+    // a file not yet there resolves through its existing parent
+    const std::string newViaLink = (link / "new.FCStd").string();
+    rt.grant(principal, Permission::FsWrite, newViaLink, true, "session");
+    {
+        Runtime::Scope scope(_obj);
+        EXPECT_NO_THROW(checkHostPath(Permission::FsWrite, (base / "real2" / "new.FCStd").string()));
+    }
+
+    // another letter case of the same file, where the volume folds case
+    // (APFS and NTFS by default): the file system says whether it is the
+    // same file, and when it is, so does the gate
+    const fs::path upper = base / flipCase("real1") / "a.FCStd";
+    std::error_code ec;
+    if (fs::exists(upper, ec) && fs::equivalent(upper, real1, ec)) {
+        Runtime::Scope scope(_obj);
+        EXPECT_NO_THROW(checkHostPath(Permission::FsRead, upper.string()))
+            << "a case spelling of a granted file was refused";
+    }
+
+    // revoking by the stored form, as the panel does, takes it away
+    EXPECT_EQ(rt.revoke(principal, Permission::FsRead, stored), 1u);
+    EXPECT_EQ(rt.revoke(principal, Permission::FsWrite, newViaLink), 1u);
+    {
+        Runtime::Scope scope(_obj);
+        EXPECT_THROW(checkHostPath(Permission::FsRead, real1), PermissionNeededException);
+    }
+    removeDirLink(link);
+    fs::remove_all(base, ec);
 }
 
 TEST_F(ExpressionSecurityRuntimeTest, theInterpreterFileGuardRefusesHostCode)

@@ -33,6 +33,13 @@
 
 #include <nlohmann/json.hpp>
 
+#ifdef __APPLE__
+# include <fcntl.h>
+# include <strings.h>
+# include <sys/param.h>
+# include <unistd.h>
+#endif
+
 #include <Base/FileInfo.h>
 
 #include "ExpressionSecurity.h"
@@ -270,6 +277,64 @@ bool isGrantable(PrincipalClass pclass, Permission perm)
 // The host file and code chokepoints (F1, docs/Sandbox.md 7.14, 7.29)
 //
 
+#ifdef __APPLE__
+/// The spelling the file system stores for an existing path, or "" when
+/// it cannot be had.  realpath(3) -- and so weakly_canonical -- keeps
+/// the letter case it was given, and APFS is case-insensitive by
+/// default, so /Users/a/X and /users/A/x would be two targets for one
+/// file.  F_GETPATH answers with the stored name and with every link
+/// resolved.  For a directory that answer is the only one there is.  A
+/// regular file can have more than one hard link, and F_GETPATH may name
+/// another of them, so a file's answer is kept only when it sits in the
+/// same directory under the same name, letter case aside.
+static std::string storedSpelling(const std::filesystem::path &p, bool isDir)
+{
+    auto getPath = [](const std::filesystem::path &q) -> std::string {
+        int fd = ::open(q.c_str(), O_EVTONLY | O_CLOEXEC);
+        if (fd < 0)
+            return {};
+        char buf[MAXPATHLEN];
+        bool ok = ::fcntl(fd, F_GETPATH, buf) != -1;
+        ::close(fd);
+        return ok ? std::string(buf) : std::string();
+    };
+    if (isDir)
+        return getPath(p);
+    std::string dir = getPath(p.parent_path());
+    if (dir.empty())
+        return {};
+    std::filesystem::path guess = std::filesystem::path(dir) / p.filename();
+    std::filesystem::path got(getPath(p));
+    if (!got.empty() && got.parent_path() == std::filesystem::path(dir)
+            && ::strcasecmp(got.filename().c_str(), p.filename().c_str()) == 0)
+        return got.string();
+    return guess.string();
+}
+
+/// Apply storedSpelling to the longest part of `p` that exists; the
+/// rest, a file about to be saved, is kept as written.
+static std::filesystem::path withStoredCase(const std::filesystem::path &p)
+{
+    std::filesystem::path head = p;
+    std::vector<std::filesystem::path> tail;
+    std::error_code ec;
+    while (head.has_relative_path() && !std::filesystem::exists(head, ec)) {
+        tail.push_back(head.filename());
+        head = head.parent_path();
+    }
+    if (!head.has_relative_path())
+        return p;
+    bool isDir = std::filesystem::is_directory(head, ec);
+    std::string stored = storedSpelling(head, isDir);
+    if (stored.empty())
+        return p;
+    std::filesystem::path out(stored);
+    for (auto it = tail.rbegin(); it != tail.rend(); ++it)
+        out /= *it;
+    return out;
+}
+#endif
+
 std::string normalizeHostPath(const std::string &path)
 {
     if (path.empty())
@@ -277,17 +342,37 @@ std::string normalizeHostPath(const std::string &path)
     std::error_code ec;
     // weakly_canonical resolves what exists (symlinks included) and keeps
     // the rest lexically: a path being SAVED to does not exist yet, and
-    // must still normalize to what a later read of it would see.
+    // must still normalize to what a later read of it would see.  On
+    // Windows the existing part comes back from GetFinalPathNameByHandle,
+    // which already resolves junctions and 8.3 short names and gives the
+    // stored letter case; macOS needs the case step below.
     std::filesystem::path p = std::filesystem::weakly_canonical(path, ec);
     if (ec)
         p = std::filesystem::absolute(std::filesystem::path(path), ec);
     if (ec)
         p = std::filesystem::path(path).lexically_normal();
+#ifdef __APPLE__
+    else
+        p = withStoredCase(p);
+#endif
     std::string s = p.generic_string();
     // a trailing separator would make one directory two targets
     while (s.size() > 1 && s.back() == '/')
         s.pop_back();
     return s;
+}
+
+bool isHostPathPermission(Permission perm)
+{
+    return perm == Permission::FsRead || perm == Permission::FsWrite
+        || perm == Permission::HostExec;
+}
+
+std::string hostTarget(Permission perm, const std::string &target)
+{
+    if (!isHostPathPermission(perm) || target.empty() || target == "*")
+        return target;
+    return normalizeHostPath(target);
 }
 
 static std::set<std::string> &blessedPaths()

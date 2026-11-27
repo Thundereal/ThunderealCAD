@@ -131,8 +131,11 @@ PyObject* StudyPy::buildModel(PyObject* args) const
             open.setItem(side, Py::Boolean(model.space.open[side]));
         }
         ret.setItem("Open", open);
-        const bool steady = model.analysis == Solver::Analysis::Steady;
-        ret.setItem("Analysis", Py::String(steady ? "Steady" : "FreeSurface"));
+        const bool steady = Solver::fillsItsSpace(model);
+        ret.setItem("Analysis",
+                    Py::String(model.analysis == Solver::Analysis::Steady
+                                   ? "Steady"
+                                   : (steady ? "Unsteady" : "FreeSurface")));
         if (steady) {
             ret.setItem("Iterations", Py::Long(static_cast<long>(model.iterations)));
             ret.setItem("Turbulence",
@@ -152,13 +155,14 @@ PyObject* StudyPy::buildModel(PyObject* args) const
             domain.setItem("Triangles",
                            Py::Long(static_cast<long>(model.domain.triangles.size())));
             domain.setItem("Volume", Py::Float(Solver::volumeOf(model.domain)));
-            const auto areas =
-                Solver::patchAreas(model.domain, 1 + model.inlets.size() + model.outlets.size());
-            Py::Tuple each(static_cast<int>(areas.size()));
-            for (std::size_t i = 0; i < areas.size(); ++i) {
+            const std::size_t crossed = 1 + model.inlets.size() + model.outlets.size();
+            const auto areas = Solver::patchAreas(model.domain, crossed + 1);
+            Py::Tuple each(static_cast<int>(crossed));
+            for (std::size_t i = 0; i < crossed; ++i) {
                 each.setItem(i, Py::Float(areas[i]));
             }
             domain.setItem("Areas", each);
+            domain.setItem("Slides", Py::Float(areas[crossed]));
             ret.setItem("Domain", domain);
         }
         return Py::new_reference_to(ret);

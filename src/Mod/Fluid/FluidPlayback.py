@@ -297,6 +297,71 @@ class Paths:
         return self.points[keep], counts[counts > 1].astype(numpy.int32)
 
 
+class Streaks:
+    """Tracers carried by a flow through time: one let go at each seed at
+    every frame that has the fluid inside kept, and each carried from a
+    frame to the next by the flow of the frame it leaves -- what smoke let
+    out at the seeds would draw. 'frames' is a Frames (its inside, times,
+    insideOf and paths are what is asked of it), the seeds (n, 3) in mm,
+    'cell' the solver's cell, mm. A frame's tracers are found when first
+    asked for, from the nearest frame before that has them."""
+
+    def __init__(self, frames, seeds, cell):
+        import numpy
+
+        self.frames = frames
+        self.seeds = numpy.ascontiguousarray(seeds, dtype=numpy.float32).reshape(-1, 3)
+        self.cell = float(cell)
+        self.order = sorted(frames.inside)
+        self.held = {}
+
+    def _placed(self, index, points):
+        """The points that are in the fluid at a frame, and its speed at
+        each."""
+        found = self.frames.paths(index, points, 1.0, 1)
+        return found.points, found.speeds
+
+    def _carried(self, index, points, time):
+        """Where the frame's flow has the points after a time, s: those
+        that left the fluid, or stand still, are gone."""
+        import numpy
+
+        if len(points) == 0 or not time > 0.0:
+            return points
+        _cells, velocity, _pressure = self.frames.insideOf(index)
+        fastest = float(speedOf(velocity).max()) if len(velocity) else 0.0
+        # half a cell a step at the fastest
+        steps = int(numpy.ceil(time * fastest * 1000.0 / (0.5 * self.cell))) if fastest else 1
+        steps = min(max(steps, 1), 400)
+        found = self.frames.paths(index, points, time / steps, steps + 1)
+        ends = found.starts[1:]
+        whole = numpy.diff(found.starts) == steps + 1
+        return found.points[ends[whole] - 1]
+
+    def at(self, index):
+        """The tracers there are at a frame: their places (m, 3), mm, and
+        the fluid's speed at each (m,), m/s. None of a frame without the
+        fluid inside."""
+        import numpy
+
+        none = numpy.zeros((0, 3), numpy.float32), numpy.zeros(0, numpy.float32)
+        if index not in self.order or len(self.seeds) == 0:
+            return none
+        place = self.order.index(index)
+        start = place
+        while start > 0 and self.order[start] not in self.held:
+            start -= 1
+        if self.order[start] not in self.held:
+            self.held[self.order[start]] = self._placed(self.order[start], self.seeds)
+        for k in range(start, place):
+            here, there = self.order[k], self.order[k + 1]
+            moved = self._carried(
+                here, self.held[here][0], self.frames.times[there] - self.frames.times[here]
+            )
+            self.held[there] = self._placed(there, numpy.concatenate([moved, self.seeds]))
+        return self.held[index]
+
+
 class MovedParts:
     """The parts the fluid moved, put where a frame has them: by their own
     Placement, as an assembly's simulation shows its parts, and put back
@@ -1296,6 +1361,24 @@ def addOutlet(study, part, face):
     outlet.Face = (part, [face])
     study.Group = study.Group + [outlet]
     return outlet
+
+
+def toggleSlides(study, faces):
+    """Each face, (part, 'Face2'), among those the study's fluid slides
+    along (its Slides) when it was not, and out of them when it was."""
+    held = []
+    for part, names in study.Slides:
+        held += [(part, name) for name in names]
+    for face in faces:
+        if face in held:
+            held.remove(face)
+        else:
+            held.append(face)
+    parts = []
+    for part, _name in held:
+        if part not in parts:
+            parts.append(part)
+    study.Slides = [(part, tuple(n for p, n in held if p is part)) for part in parts]
 
 
 def addMonitor(study, kind, point):

@@ -68,6 +68,9 @@ Backend* Registry::select(std::string_view name, Analysis analysis) const
         if (analysis == Analysis::Steady && !can.steady) {
             continue;
         }
+        if (analysis == Analysis::Unsteady && !can.unsteady) {
+            continue;
+        }
         if (!can.testData && held->availability().available) {
             return held.get();
         }

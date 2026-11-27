@@ -2354,3 +2354,100 @@ says so, a click on the cut at 5.
 
 Not done: a click picks no depth without a cut; the places are not kept;
 no way to take away one click's tracers and keep another's.
+
+### 14.11 A flow through time, and the eddies behind a cylinder (2026-11-28)
+
+The start of F4. A third kind of study, **Flow in time**
+(`Analysis::Unsteady`): the one fluid of a steady flow in the same closed
+space, from rest, followed through time -- for what does not settle. And
+faces the fluid slides along, which the case it is tested on needs.
+
+- **The case** (`steadyCase`, the same writer): `pimpleFoam`, second
+  order in time (`backward`), the convection `linearUpwind` and not held
+  bounded, two pressure corrections a step. The step is the solver's own,
+  no longer than the fluid crosses a cell in (`maxCo 1`) nor than the
+  frames are apart; the first a fifth of a cell at the fastest inlet's
+  speed. It runs to the study's `TimeEnd` and writes each
+  `OutputInterval`. An outlet lets fluid back in at rest (`inletOutlet`):
+  an eddy that reaches it draws some. With the eddies modelled
+  (`Turbulence`) it is refused, not run yet. A height or force monitor is
+  refused as of a steady flow.
+- **Frames**: `ResultKind::Fields` as a steady flow's, but a frame's time
+  is seconds and the archive's `steady` is not set. The fluid inside
+  (sec 14.5) is written with every frame, not once at the end, and every
+  frame after the start's keeps it: 28 bytes a cell a frame before the
+  archive packs them. Measured 1.3 MB a frame at 59000 cells, 311 MB for
+  240 frames in the document. The cells' centres are the same in every
+  frame and are kept in every one: open.
+- **Faces the fluid slides along** (`Study.Slides`, faces of the walls;
+  `Fluid_AddSlide` puts the picked faces among them or takes them out):
+  held by nothing, not passed. A plane the flow is the same on both sides
+  of, or a wall too far off to slow it. They are the domain's patch after
+  the last outlet's (`slidePatch`), one patch `slide` in the case. A
+  steady flow takes them too. The patch is a plain one with `slip` on the
+  velocity: as one of the mesher's `symmetry` type it was not drawn onto
+  its surface -- a channel 3 cells deep came out 2 deep, and two thirds
+  of the flow came in. `buildModel()` has the area as `Domain.Slides`.
+- **The panel**: "Study of" has the third kind, with the end time and
+  the frames' interval in place of the steps. The frames play from the
+  start, ten a second where the run's own time would be slower. A cut
+  (sec 14.5) is of the frame shown.
+- **Tracers through time** (`FluidPlayback.Streaks`): one let go at each
+  seed at every frame, each carried from a frame to the next by the flow
+  of the frame it leaves, in steps of half a cell at the fastest
+  (`getPaths` of that frame, sec 14.7) -- what smoke let out at the seeds
+  would draw. Found frame by frame when first asked for and kept. The
+  panel's tracers are these for a flow through time: they move as the
+  frames do, with no paths drawn; a quarter of the seeds at the inlets
+  (20), or the lines fill the view; clicks add seeds as in sec 14.10. A
+  frame's flow is held still for the time to the next: frames far apart
+  against the flow's changes carry the tracers wrong.
+- **Fixed on the way**: the model's triangles were the shape's own, which
+  the 3D view keeps as fine as it last drew them. With a round wall the
+  model was another after the view had drawn it, and results just kept
+  read "of the study as it was before a change" in the panel. The model
+  now meshes a copy of each shape (`meshOf`, `spacesInside`).
+
+Measured: a cylinder 10 mm across in water at 10 mm/s (a Reynolds number
+of 100), its axis across a channel the fluid slides along on all four
+faces, cells of 1 mm (10 across the cylinder). The eddies leave its two
+sides in turn; how often is the Strouhal number, the cylinder's width
+over the speed and the time between two eddies of one side. In a stream
+without walls it is measured at 0.164 to 0.165 (Williamson; from memory,
+not checked against the paper); a channel's faces speed the fluid past
+the cylinder and raise it.
+
+| Channel (long x high), cylinder's share of the height | Cells | Strouhal number | Run |
+|---|---|---|---|
+| 250 x 120 mm, 8.3% | 59000 | 0.171 (by hand, from the lift, 16 periods) | 208 s for 200 s of flow, 4 processes |
+| 200 x 100 mm, 10% (the manual's) | 40000 | 0.177 | 400 s for 110 s, beside the panel |
+| 150 x 80 mm, 12.5% (the test's) | 23000 | 0.178 | 155 s for 64 s, 1 process |
+
+By hand the drag coefficient was 1.46 and the lift swung by 0.41 of the
+stream's pressure on the cylinder's front; no monitor of the study
+reports a force of a flow that fills its space yet. From rest the wake
+is two still eddies for some 20 s, wavers, and sheds fully by 45 s.
+
+Not measured: finer cells, and a channel wide enough to compare with the
+open stream's number -- both were started and stopped. In the channel 240
+high the grid fell on the cylinder so that one cell came out 14 times
+longer than thick, and the step followed that cell: 0.005 s against
+0.058, twelve times the steps. How the grid falls on a round body sets
+the cost of the run, and nothing tells the user. Open.
+
+Tests: `OpenFoamCase.filesOfAFlowThroughTime`,
+`facesTheFluidSlidesAlong`; `FluidTests/Shedding.py` run as
+`TestOpenFoamShedding` (the slid area, a frame each half second each with
+the fluid inside, in equal to the speed times the face and to out, no
+swing at first and one of 0.4 of the stream late, a Strouhal number of
+0.16 to 0.20, tracers swept to both sides of the wake, kept with the
+document); `TestTracers.test_tracers_carried_through_time`;
+`TestSteady.test_the_signature_is_not_of_how_finely_a_wall_was_drawn`.
+The panel's part has no test of its own: the manual's script drives it
+(`fluid/study/vortex-street/video.py`).
+
+Open: the force on a part (lift and drag are what this flow is measured
+by); the cells' centres kept once; what the step is, shown as it runs;
+going on from a kept run; turbulence through time; the tracers' lines
+drawn; the fluid's spin as a colour for the cut; rotating parts (the
+rest of F4).

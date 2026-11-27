@@ -38,8 +38,13 @@ public:
     App::PropertyLinkListGlobal Walls;
     /// What kind of flow the study is of: a liquid under the air from how
     /// it stands at the start; or one fluid filling the closed space inside
-    /// the walls, from its inlets to its outlets, as it settles to
+    /// the walls, from its inlets to its outlets, as it settles to; or that
+    /// fluid in that space from rest, through time
     App::PropertyEnumeration Analysis;
+    /// Of a fluid that fills its space: the faces of the walls it slides
+    /// along, held by nothing, and does not pass -- a plane the flow is the
+    /// same on both sides of, or a wall too far off to slow it
+    App::PropertyLinkSubListGlobal Slides;
     /// A steady flow's: how many steps it is given to settle in, at most
     App::PropertyInteger Iterations;
     /// A steady flow's: in layers, or turbulent with its eddies modelled

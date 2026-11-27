@@ -294,6 +294,75 @@ class TestTracers(unittest.TestCase):
         self.assertEqual((len(none), none.longest(), len(none.at(0, 2)[0])), (0, 0, 0))
         self.assertEqual(len(none.lines()[1]), 0)
 
+    def test_tracers_carried_through_time(self):
+        import numpy
+
+        class Along:
+            """Four frames a second apart, the last three with the fluid
+            inside: a box from x 0 to 10 mm, all of it going 2 mm/s along
+            x, then 1 mm/s along y."""
+
+            inside = [1, 2, 3]
+            times = [0.0, 1.0, 2.0, 3.0]
+            asked = []
+
+            def flow(self, index):
+                return (0.002, 0.0, 0.0) if index < 2 else (0.0, 0.001, 0.0)
+
+            def insideOf(self, index):
+                cells = numpy.zeros((1, 3), numpy.float32)
+                return cells, numpy.array([self.flow(index)], numpy.float32), cells[:, 0]
+
+            def paths(self, index, seeds, interval=0.0, most=2000):
+                self.asked.append((index, most))
+                points, starts = [], [0]
+                flow = numpy.array(self.flow(index)) * 1000.0
+                for seed in numpy.asarray(seeds, dtype=numpy.float64).reshape(-1, 3):
+                    for k in range(most):
+                        at = seed + flow * interval * k
+                        if not 0.0 <= at[0] <= 10.0:
+                            break
+                        points.append(at)
+                    starts.append(len(points))
+                points = numpy.array(points, numpy.float32).reshape(-1, 3)
+                return FluidPlayback.Paths(
+                    points,
+                    numpy.full(len(points), numpy.linalg.norm(self.flow(index)), numpy.float32),
+                    numpy.array(starts, numpy.int32),
+                    interval,
+                )
+
+        frames = Along()
+        streaks = FluidPlayback.Streaks(frames, [[1.0, 0.0, 0.0], [9.0, 0.0, 0.0]], 1.0)
+        # the frame without the fluid inside has none
+        self.assertEqual(len(streaks.at(0)[0]), 0)
+        # the first with it: the seeds themselves
+        points, speeds = streaks.at(1)
+        self.assertEqual(points.tolist(), [[1, 0, 0], [9, 0, 0]])
+        self.assertEqual(speeds.tolist(), [numpy.float32(0.002)] * 2)
+        # a frame on: the first seed's tracer 2 mm along, the second's
+        # gone out of the fluid, and a new one at each seed
+        points, _speeds = streaks.at(2)
+        numpy.testing.assert_allclose(points, [[3, 0, 0], [1, 0, 0], [9, 0, 0]], atol=1e-5)
+        # carried in steps of half a cell at the fastest: four of them, or
+        # five as the speed is rounded
+        self.assertTrue({(1, 5), (1, 6)} & set(frames.asked), frames.asked)
+        # the next frame's flow is another: by the flow of the frame left
+        points, speeds = streaks.at(3)
+        numpy.testing.assert_allclose(
+            points, [[3, 1, 0], [1, 1, 0], [9, 1, 0], [1, 0, 0], [9, 0, 0]], atol=1e-5
+        )
+        self.assertEqual(speeds.tolist(), [numpy.float32(0.001)] * 5)
+        # asked again nothing is followed again; asked first of the last
+        # frame, the ones before are found on the way
+        count = len(frames.asked)
+        streaks.at(3), streaks.at(2)
+        self.assertEqual(len(frames.asked), count)
+        again = FluidPlayback.Streaks(frames, [[1.0, 0.0, 0.0], [9.0, 0.0, 0.0]], 1.0)
+        numpy.testing.assert_allclose(again.at(3)[0], points, atol=1e-5)
+        # no seeds, no tracers
+        self.assertEqual(len(FluidPlayback.Streaks(frames, [], 1.0).at(3)[0]), 0)
+
     def test_seeds_at_an_inlet(self):
         import numpy
 

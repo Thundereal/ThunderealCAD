@@ -45,6 +45,7 @@ struct Capabilities
     bool drivenWalls = false;  // walls moved from outside as the run goes
     bool heat = false;
     bool steady = false;
+    bool unsteady = false;  // one fluid filling its space, through time
     bool repeatable = false;  // the same model gives the same frames, bit for bit
     bool inProcess = true;    // a library stepped here, or a program run over files
     // Test data, not a simulation: never offered for a study, only named.

@@ -7,6 +7,7 @@
 
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepGProp.hxx>
@@ -68,12 +69,15 @@ Part::TopoShape solidOf(const App::DocumentObject* obj, const char* role)
     return shape;
 }
 
-// mm to m
+// mm to m. The triangles are of a copy of the shape: the shape's own are
+// the 3D view's, as fine as it last drew them, and a model that took those
+// would be another each time they changed -- its results read as stale.
 Solver::Surface meshOf(const Part::TopoShape& shape, double accuracy)
 {
     std::vector<Base::Vector3d> points;
     std::vector<Data::ComplexGeoData::Facet> facets;
-    shape.getFaces(points, facets, accuracy);
+    const Part::TopoShape own(BRepBuilderAPI_Copy(shape.getShape(), false, false).Shape());
+    own.getFaces(points, facets, accuracy);
     Solver::Surface surface;
     surface.points.reserve(points.size());
     for (const auto& p : points) {
@@ -149,7 +153,9 @@ std::vector<TopoDS_Shape> spacesInside(const std::vector<Part::TopoShape>& parts
         const bool outside = a0 < low.X() + reach || b0 < low.Y() + reach || c0 < low.Z() + reach
             || a1 > high.X() - reach || b1 > high.Y() - reach || c1 > high.Z() - reach;
         if (!outside) {
-            spaces.push_back(each.Current());
+            // a copy: its faces are meshed anew, and those the cut left as
+            // they were are the walls' own, with the 3D view's triangles
+            spaces.push_back(BRepBuilderAPI_Copy(each.Current(), false, false).Shape());
         }
     }
     return spaces;
@@ -217,6 +223,12 @@ bool flatOf(const Solver::Surface& surface, Base::Vector3d& out, bool& hasArea)
     double slant = 0.0;
     Solver::Vec3 middle {};
     return Solver::faceOf(probe, area, middle, slant) && slant <= 1.0e-3;
+}
+
+Solver::Analysis analysisOf(long chosen)
+{
+    return chosen == 1 ? Solver::Analysis::Steady
+                       : (chosen == 2 ? Solver::Analysis::Unsteady : Solver::Analysis::FreeSurface);
 }
 
 const char* statusText(Solver::Status status)
@@ -393,7 +405,7 @@ struct Study::Run: public Solver::FrameSink
 
 PROPERTY_SOURCE_WITH_EXTENSIONS(Fluid::Study, App::DocumentObject)
 
-const char* Study::AnalysisEnums[] = {"Free surface", "Steady flow", nullptr};
+const char* Study::AnalysisEnums[] = {"Free surface", "Steady flow", "Flow in time", nullptr};
 const char* Study::TurbulenceEnums[] = {"Laminar", "k-omega SST", nullptr};
 
 Study::Study()
@@ -405,8 +417,12 @@ Study::Study()
     ADD_PROPERTY_TYPE(Analysis, (0L), "Study", App::Prop_None,
                       "A liquid under the air, from how it stands at the start; or one "
                       "fluid filling the closed space inside the walls, from its inlets "
-                      "to its outlets, as it settles to");
+                      "to its outlets, as it settles to; or that fluid in that space "
+                      "from rest, through time");
     Analysis.setEnums(AnalysisEnums);
+    ADD_PROPERTY_TYPE(Slides, (nullptr), "Study", App::Prop_None,
+                      "Of a fluid that fills its space: the faces of the walls it slides "
+                      "along, held by nothing, and does not pass");
     ADD_PROPERTY_TYPE(Iterations, (2000), "Study", App::Prop_None,
                       "A steady flow's: how many steps it is given to settle in, at most");
     ADD_PROPERTY_TYPE(Turbulence, (0L), "Study", App::Prop_None,
@@ -521,10 +537,11 @@ Solver::Model Study::buildModel() const
         Part::TopoShape face;
     };
     std::vector<Let> outlets;
-    const bool steady = Analysis.getValue() == 1;
-    model.analysis = steady ? Solver::Analysis::Steady : Solver::Analysis::FreeSurface;
+    // one fluid filling the space inside the walls: settled, or through time
+    const bool steady = Analysis.getValue() != 0;
+    model.analysis = analysisOf(Analysis.getValue());
     model.iterations = static_cast<int>(Iterations.getValue());
-    model.turbulence = steady && Turbulence.getValue() == 1 ? Solver::Turbulence::KOmegaSST
+    model.turbulence = Analysis.getValue() == 1 && Turbulence.getValue() == 1 ? Solver::Turbulence::KOmegaSST
                                                             : Solver::Turbulence::Laminar;
     // The one face a link names, where it stands.
     const auto faceOf = [](const App::DocumentObject* asker, const App::PropertyLinkSub& link) {
@@ -558,8 +575,8 @@ Solver::Model Study::buildModel() const
     for (auto* child : Group.getValues()) {
         if (steady && (freecad_cast<InitialFluid*>(child) || freecad_cast<FreeBody*>(child))) {
             FC_THROWM(Base::ValueError,
-                      child->getFullLabel() << " is of a free surface's study: a steady "
-                                               "flow's fluid fills the space inside the "
+                      child->getFullLabel() << " is of a free surface's study: here "
+                                               "the fluid fills the space inside the "
                                                "walls, and moves no part");
         }
         if (auto* fluid = freecad_cast<InitialFluid*>(child)) {
@@ -611,9 +628,9 @@ Solver::Model Study::buildModel() const
         else if (auto* outlet = freecad_cast<Outlet*>(child)) {
             if (!steady) {
                 FC_THROWM(Base::ValueError,
-                          outlet->getFullLabel() << " is of a steady flow's study: a free "
-                                                    "surface's fluid leaves by the open "
-                                                    "sides of its space");
+                          outlet->getFullLabel() << " is of a study whose fluid fills its "
+                                                    "space: a free surface's fluid leaves "
+                                                    "by the open sides of its space");
             }
             outlets.push_back({outlet, faceOf(outlet, outlet->Face)});
         }
@@ -701,10 +718,31 @@ Solver::Model Study::buildModel() const
             return std::max(0.01 * (asked > 0.0 ? asked : side / 20.0), 1.0e-4);
         };
         std::vector<int> spaceOf(crossed.size(), -1);
+        // The faces the fluid slides along, each where it stands
+        std::vector<TopoDS_Shape> slid;
+        {
+            const auto& owners = Slides.getValues();
+            const auto& subs = Slides.getSubValues();
+            for (std::size_t k = 0; k < owners.size() && k < subs.size(); ++k) {
+                Part::TopoShape face = owners[k]
+                    ? Part::Feature::getTopoShape(owners[k], subs[k].c_str(), true)
+                    : Part::TopoShape();
+                if (face.isNull() || face.countSubShapes("Face") != 1) {
+                    FC_THROWM(Base::ValueError,
+                              "the fluid is to slide along "
+                                  << subs[k] << " of "
+                                  << (owners[k] ? owners[k]->getFullLabel() : std::string("nothing"))
+                                  << ", which is not a face");
+                }
+                slid.push_back(face.getShape());
+            }
+        }
+        std::vector<bool> slidOnto(slid.size(), false);
         for (int pass = 0; pass < 2; ++pass) {
             const double deflection = deflectionOf(smallestOf(spaces));
             model.domain = Solver::Surface {};
             std::ranges::fill(spaceOf, -1);
+            slidOnto.assign(slid.size(), false);
             std::vector<Solver::Surface> surfaces(spaces.size());
             for (std::size_t i = 0; i < spaces.size(); ++i) {
                 BRepTools::Clean(spaces[i]);
@@ -716,6 +754,7 @@ Solver::Model Study::buildModel() const
                         continue;
                     }
                     const TopoDS_Vertex probe = BRepBuilderAPI_MakeVertex(within);
+                    bool isCrossed = false;
                     for (std::size_t k = 0; k < crossed.size(); ++k) {
                         BRepExtrema_DistShapeShape gap(probe, crossed[k].second);
                         if (gap.IsDone() && gap.Value() < 1.0e-6) {
@@ -723,6 +762,17 @@ Solver::Model Study::buildModel() const
                                 surfaces[i].patches[t] = static_cast<int>(k) + 1;
                             }
                             spaceOf[k] = static_cast<int>(i);
+                            isCrossed = true;
+                            break;
+                        }
+                    }
+                    for (std::size_t k = 0; k < slid.size() && !isCrossed; ++k) {
+                        BRepExtrema_DistShapeShape gap(probe, slid[k]);
+                        if (gap.IsDone() && gap.Value() < 1.0e-6) {
+                            for (std::size_t t = from; t < surfaces[i].triangles.size(); ++t) {
+                                surfaces[i].patches[t] = static_cast<int>(crossed.size()) + 1;
+                            }
+                            slidOnto[k] = true;
                             break;
                         }
                     }
@@ -741,6 +791,15 @@ Solver::Model Study::buildModel() const
                               crossed[0].first->getFullLabel()
                                   << " and " << crossed[k].first->getFullLabel()
                                   << " do not open onto the same space");
+                }
+            }
+            for (std::size_t k = 0; k < slid.size(); ++k) {
+                if (!slidOnto[k]) {
+                    FC_THROWM(Base::ValueError,
+                              "the fluid is to slide along "
+                                  << Slides.getSubValues()[k] << " of "
+                                  << Slides.getValues()[k]->getFullLabel()
+                                  << ", which is no face of a closed space inside the walls");
                 }
             }
             const auto which = static_cast<std::size_t>(spaceOf[0]);
@@ -867,7 +926,7 @@ Solver::Status Study::start(std::string& why)
     const std::string name = Backend.getValue();
     auto* backend = Solver::Registry::instance().select(
         name,
-        Analysis.getValue() == 1 ? Solver::Analysis::Steady : Solver::Analysis::FreeSurface);
+        analysisOf(Analysis.getValue()));
     if (!backend) {
         why = name.empty() ? std::string("no solver that can run on this machine was found")
                            : "there is no solver named " + name;
@@ -895,6 +954,11 @@ Solver::Status Study::start(std::string& why)
     }
     if (run->model.analysis == Solver::Analysis::Steady && !backend->capabilities().steady) {
         why = backend->label() + " cannot run a steady flow";
+        Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
+        return Solver::Status::Unsupported;
+    }
+    if (run->model.analysis == Solver::Analysis::Unsteady && !backend->capabilities().unsteady) {
+        why = backend->label() + " cannot run a flow that fills its space through time";
         Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
         return Solver::Status::Unsupported;
     }
@@ -962,7 +1026,7 @@ Solver::Status Study::start(std::string& why)
     }
 #endif
     // a steady flow's inlets are the flow itself: who runs one has them
-    const bool steadyRun = run->model.analysis == Solver::Analysis::Steady;
+    const bool steadyRun = Solver::fillsItsSpace(run->model);
     if (!steadyRun && !run->model.inlets.empty() && !backend->capabilities().inlets) {
         why = backend->label() + " cannot run an inlet";
         Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
@@ -981,7 +1045,7 @@ Solver::Status Study::start(std::string& why)
     run->index.backend = backend->name();
     run->index.version = availability.version;
     run->index.kind = steadyRun ? Solver::ResultKind::Fields : backend->capabilities().results;
-    run->index.steady = steadyRun;
+    run->index.steady = run->model.analysis == Solver::Analysis::Steady;
     if (run->model.turbulence == Solver::Turbulence::KOmegaSST) {
         run->index.turbulence = "KOmegaSST";
     }

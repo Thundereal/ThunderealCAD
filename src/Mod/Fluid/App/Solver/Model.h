@@ -108,6 +108,7 @@ enum class Analysis
                   // through time
     Steady,       // one fluid filling the closed space inside the walls, in
                   // at its inlets and out at its outlets, as it settles to
+    Unsteady,     // that fluid in that space, from rest, through time
 };
 
 // How a steady flow's eddies are had.
@@ -157,7 +158,9 @@ struct Model
     std::vector<Outlet> outlets;
     // The space the fluid fills, closed, its triangles wound outwards. Its
     // patches say what each triangle is: 0 a wall, 1 + i the model's inlet
-    // i, 1 + the count of inlets + j its outlet j.
+    // i, 1 + the count of inlets + j its outlet j, and one more than the
+    // last outlet's a face the fluid slides along, held by nothing but
+    // kept from passing.
     Surface domain;
     // How many steps the flow is given to settle in, at most.
     int iterations = 2000;
@@ -183,6 +186,16 @@ FluidExport bool inside(const Surface& surface, const Vec3& point);
 // centre of a cube of the spacing's side; the grid starts half a spacing in
 // from the surface's box, so a box of whole spacings is filled exactly.
 FluidExport std::vector<Vec3> sampled(const Surface& surface, double spacing);
+
+// Whether the model's fluid fills the closed space inside its walls, steady
+// or through time: not a liquid under the air.
+FluidExport bool fillsItsSpace(const Model& model);
+
+// The patch of the domain's triangles the fluid slides along.
+FluidExport int slidePatch(const Model& model);
+
+// Whether the domain has any.
+FluidExport bool anySlide(const Model& model);
 
 // The walls that move in a run, the fluid's own and the driven ones, as
 // their places in the model's walls.

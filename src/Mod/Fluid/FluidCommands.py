@@ -202,9 +202,10 @@ class CommandAddOutlet:
             "MenuText": QT_TRANSLATE_NOOP("Fluid_AddOutlet", "Outlet"),
             "ToolTip": QT_TRANSLATE_NOOP(
                 "Fluid_AddOutlet",
-                "A steady flow leaves through the flat faces selected, each the face "
-                "of a lid on the fluid's side, held at the surroundings' pressure. "
-                "Pressure can be set afterwards. The study becomes one of a steady flow.",
+                "A fluid that fills its space leaves through the flat faces selected, "
+                "each the face of a lid on the fluid's side, held at the surroundings' "
+                "pressure. Pressure can be set afterwards. A study of a free surface "
+                "becomes one of a steady flow.",
             ),
         }
 
@@ -215,13 +216,39 @@ class CommandAddOutlet:
         study = FluidPlayback.activeStudy(selected())
         doc = study.Document
         doc.openTransaction(translate("Fluid", "Add outlet"))
-        if study.Analysis != "Steady flow":
+        if study.Analysis == "Free surface":
             study.Analysis = "Steady flow"
             App.Console.PrintMessage(
                 translate("Fluid", "{} is now a study of a steady flow.").format(study.Label) + "\n"
             )
         for part, face in facesPicked():
             FluidPlayback.addOutlet(study, part, face)
+        doc.commitTransaction()
+        doc.recompute()
+
+
+class CommandAddSlide:
+    def GetResources(self):
+        return {
+            "Pixmap": FluidPlayback.iconPath("Fluid_AddSlide.svg"),
+            "MenuText": QT_TRANSLATE_NOOP("Fluid_AddSlide", "Slide Along"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Fluid_AddSlide",
+                "A fluid that fills its space slides along the faces selected, held "
+                "by nothing, and does not pass them: a plane the flow is the same on "
+                "both sides of, or a wall too far off to slow it. They are the "
+                "study's Slides; a face already among them is taken out again.",
+            ),
+        }
+
+    def IsActive(self):
+        return FluidPlayback.activeStudy(selected()) is not None and len(facesPicked()) > 0
+
+    def Activated(self):
+        study = FluidPlayback.activeStudy(selected())
+        doc = study.Document
+        doc.openTransaction(translate("Fluid", "Slide along faces"))
+        FluidPlayback.toggleSlides(study, facesPicked())
         doc.commitTransaction()
         doc.recompute()
 
@@ -446,11 +473,14 @@ class TaskFluidStudy:
                 "A free surface: a liquid under the air, from how it stands at the "
                 "start, through time. A steady flow: one fluid filling the closed "
                 "space inside the walls, in at its inlets and out at its outlets, as "
-                "it settles to.",
+                "it settles to. A flow in time: that fluid in that space from rest, "
+                "through time -- what does not settle, as the eddies shed behind a "
+                "body.",
             )
         )
         self.analysis.addItem(translate("Fluid", "Free surface"), "Free surface")
         self.analysis.addItem(translate("Fluid", "Steady flow"), "Steady flow")
+        self.analysis.addItem(translate("Fluid", "Flow in time"), "Flow in time")
         self.analysis.setCurrentIndex(max(self.analysis.findData(study.Analysis), 0))
         self.analysis.currentIndexChanged.connect(self.showKind)
         settings.addRow(translate("Fluid", "Study of"), self.analysis)
@@ -678,6 +708,8 @@ class TaskFluidStudy:
         self.pickCallback = None
         self.tracerView = FluidPlayback.TracerView()
         self.tracerPaths = None
+        self.tracerStreaks = None
+        self.tracerShown = None
         self.tracerTick = 0
         self.tracerTimer = QtCore.QTimer(self.form)
         self.tracerTimer.setInterval(40)
@@ -723,9 +755,10 @@ class TaskFluidStudy:
     def showKind(self, *_args):
         """The settings of the kind of study chosen, and no others."""
         steady = self.steady()
+        free = self.analysis.currentData() == "Free surface"
         self.settings.setRowVisible(self.timeEnd, not steady)
         self.settings.setRowVisible(self.interval, not steady)
-        self.settings.setRowVisible(self.mechanism, not steady and self.mechanism.count() > 1)
+        self.settings.setRowVisible(self.mechanism, free and self.mechanism.count() > 1)
         self.settings.setRowVisible(self.iterations, steady)
         self.settings.setRowVisible(self.turbulence, steady)
 
@@ -896,6 +929,8 @@ class TaskFluidStudy:
         self.cutBox.setVisible(bool(self.cutRanges))
         # the tracers are of these results: let go again when asked
         self.tracerPaths = None
+        self.tracerStreaks = None
+        self.tracerShown = None
         self.tracerPicked = []
         self.tracerClear.setEnabled(False)
         self.tracerNote.setVisible(False)
@@ -1005,12 +1040,15 @@ class TaskFluidStudy:
         first asked for: from the first cells inside each inlet."""
         import numpy
 
-        if self.tracerPaths is None:
+        if self.tracerPaths is None and self.tracerStreaks is None:
             last = self.frames.inside[-1]
             points, velocity, _pressure = self.frames.insideOf(last)
             model = self.study.buildModel()
             cell = model["Resolution"] * 1000.0
             inlets = model["Inlets"]
+            # through time one is let go at each seed at every frame: fewer
+            # seeds, or the lines of them fill the view
+            count = self.TRACER_SEEDS if self.frames.steady else self.TRACER_SEEDS // 4
             seeds = [
                 FluidPlayback.seedsAt(
                     points,
@@ -1018,15 +1056,19 @@ class TaskFluidStudy:
                     [1000.0 * v for v in inlet["Middle"]],
                     inlet["Direction"],
                     cell,
-                    self.TRACER_SEEDS // max(len(inlets), 1),
+                    count // max(len(inlets), 1),
                 )
                 for inlet in inlets
             ]
             seeds = seeds + list(self.tracerPicked)
             seeds = numpy.concatenate(seeds) if seeds else numpy.zeros((0, 3), numpy.float32)
+            if not self.frames.steady:
+                # through time: carried from frame to frame, no paths to draw
+                self.tracerStreaks = FluidPlayback.Streaks(self.frames, seeds, cell)
+                return self.tracerStreaks
             self.tracerPaths = self.frames.paths(last, seeds, 0.0, 6000)
             self.tracerView.showPaths(self.tracerPaths)
-        return self.tracerPaths
+        return self.tracerPaths if self.tracerStreaks is None else self.tracerStreaks
 
     def onTracers(self, on):
         self.tracerRow.setVisible(bool(on) and bool(self.cutRanges))
@@ -1039,6 +1081,7 @@ class TaskFluidStudy:
         else:
             self.tracerTimer.stop()
             self.tracerView.remove()
+        self.tracerShown = None
         if self.frames is not None and self.frames.valid:
             self.onFrame(self.slider.value())
 
@@ -1047,10 +1090,18 @@ class TaskFluidStudy:
         index = self.slider.value()
         if not self.tracing(index):
             self.tracerView.show((), (), 0.0, 1.0)
+            self.tracerShown = None
             return
         paths = self.tracers()
         self.tracerTick += 1
         low, high = self.cutRanges["Speed"]
+        if self.tracerStreaks is not None:
+            # of a flow through time: the frame's own, and they go on as
+            # the frames do
+            if self.tracerShown != (index, id(paths)):
+                self.tracerView.show(*paths.at(index), low, high)
+                self.tracerShown = (index, id(paths))
+            return
         self.tracerView.show(
             *paths.at(self.tracerTick, self.TRACER_EVERY, self.TRACER_MOST), low, high
         )
@@ -1137,6 +1188,8 @@ class TaskFluidStudy:
         self.tracerPicked.append(seeds)
         self.tracerClear.setEnabled(True)
         self.tracerPaths = None
+        self.tracerStreaks = None
+        self.tracerShown = None
         self.tracerStep()
         return len(seeds)
 
@@ -1145,6 +1198,8 @@ class TaskFluidStudy:
         self.tracerClear.setEnabled(False)
         self.tracerNote.setVisible(False)
         self.tracerPaths = None
+        self.tracerStreaks = None
+        self.tracerShown = None
         self.tracerStep()
 
     def showFields(self, index):
@@ -1163,10 +1218,12 @@ class TaskFluidStudy:
                 if len(cut) == 0:
                     cut = None
                     note = translate("Fluid", "The plane cuts no fluid here.")
-            else:
+            elif self.frames.steady:
                 note = translate(
                     "Fluid", "The fluid inside is kept of the last frame only: no cut of this one."
                 )
+            else:
+                note = translate("Fluid", "The fluid inside is not kept of this frame: no cut.")
         self.cutNote.setText(note)
         self.cutNote.setVisible(bool(note))
         if cut is None and self.tracing(index):
@@ -1225,6 +1282,10 @@ class TaskFluidStudy:
         if self.frames.steady:
             # steps, not seconds: five frames a second
             step = 0.2
+        elif self.frames.kind == "Fields":
+            # a flow through time may be minutes long: ten frames a second
+            # where the run's own time would be slower
+            step = min(step, 0.1)
         self.playTimer.setInterval(max(int(step * 1000.0), 15))
         self.playTimer.start()
         self.playButton.setText(translate("Fluid", "Pause"))
@@ -1371,6 +1432,7 @@ Gui.addCommand("Fluid_AddFluid", CommandAddFluid())
 Gui.addCommand("Fluid_AddBody", CommandAddBody())
 Gui.addCommand("Fluid_AddInlet", CommandAddInlet())
 Gui.addCommand("Fluid_AddOutlet", CommandAddOutlet())
+Gui.addCommand("Fluid_AddSlide", CommandAddSlide())
 Gui.addCommand("Fluid_AddForceMonitor", CommandAddForceMonitor())
 Gui.addCommand("Fluid_AddMonitor", CommandAddMonitor())
 Gui.addCommand("Fluid_AddPressureMonitor", CommandAddPressureMonitor())

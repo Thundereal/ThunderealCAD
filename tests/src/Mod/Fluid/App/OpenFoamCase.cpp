@@ -365,6 +365,103 @@ TEST(OpenFoamCase, filesOfASteadyFlow)
     EXPECT_TRUE(has(made.files["system/decomposeParDict"], "numberOfSubdomains 4;"));
 }
 
+TEST(OpenFoamCase, filesOfAFlowThroughTime)
+{
+    Model model = ductModel();
+    model.analysis = Analysis::Unsteady;
+    model.timeEnd = 4.0;
+    model.outputInterval = 0.25;
+    Case made;
+    std::string why;
+    ASSERT_TRUE(makeCase(model, {}, made, why)) << why;
+    const std::string& control = made.files["system/controlDict"];
+    EXPECT_TRUE(has(control, "application pimpleFoam;"));
+    EXPECT_TRUE(has(control, "endTime 4;"));
+    // the step is the solver's own, no longer than the frames are apart,
+    // and the first a fifth of a cell at the inlet's speed
+    EXPECT_TRUE(has(control, "adjustTimeStep yes;"));
+    EXPECT_TRUE(has(control, "maxCo 1;"));
+    EXPECT_TRUE(has(control, "maxDeltaT 0.25;"));
+    EXPECT_TRUE(has(control, "deltaT 0.002;"));
+    EXPECT_TRUE(has(control, "writeControl adjustable;\nwriteInterval 0.25;"));
+    // the fluid inside with every frame, not once at the end
+    EXPECT_TRUE(has(control, "inside\n"));
+    EXPECT_TRUE(has(control, "writeControl writeTime;\n        setFormat raw;"));
+    EXPECT_FALSE(has(control, "writeControl onEnd;"));
+    for (const char* name : {"inlet0P", "inlet0Q", "outlet0P", "outlet0Q", "skin", "pressure"}) {
+        EXPECT_TRUE(has(control, std::string("    ") + name + "\n")) << name;
+    }
+    EXPECT_TRUE(has(made.files["system/fvSchemes"], "ddtSchemes { default backward; }"));
+    EXPECT_FALSE(has(made.files["system/fvSchemes"], "steadyState"));
+    EXPECT_TRUE(has(made.files["system/fvSolution"], "PIMPLE"));
+    EXPECT_FALSE(has(made.files["system/fvSolution"], "SIMPLE"));
+    // what an eddy draws back in at the outlet comes at rest
+    EXPECT_TRUE(has(made.files["0/U"], "outlet0 { type inletOutlet; inletValue uniform (0 0 0);"));
+    EXPECT_TRUE(has(made.files["0/U"], "inlet0 { type fixedValue; value uniform (0.1 0 0); }"));
+    ASSERT_EQ(made.steps.size(), 3U);
+    EXPECT_EQ(made.steps[2].name, "pimpleFoam");
+    EXPECT_TRUE(made.steps[2].solver);
+    CaseOptions four;
+    four.processes = 4;
+    ASSERT_TRUE(makeCase(model, four, made, why)) << why;
+    EXPECT_EQ(made.steps[3].command, "mpirun -np 4 pimpleFoam -parallel");
+
+    // what it cannot be
+    Model bad = model;
+    bad.timeEnd = 0.0;
+    EXPECT_FALSE(makeCase(bad, {}, made, why));
+    EXPECT_TRUE(has(why, "end time"));
+    bad = model;
+    bad.outputInterval = 0.0;
+    EXPECT_FALSE(makeCase(bad, {}, made, why));
+    bad = model;
+    bad.turbulence = Turbulence::KOmegaSST;
+    EXPECT_FALSE(makeCase(bad, {}, made, why));
+    EXPECT_TRUE(has(why, "eddies"));
+}
+
+TEST(OpenFoamCase, facesTheFluidSlidesAlong)
+{
+    Model model = ductModel();
+    // none: no patch of them, and no line in the fields
+    EXPECT_FALSE(anySlide(model));
+    EXPECT_EQ(slidePatch(model), 3);
+    Case made;
+    std::string why;
+    ASSERT_TRUE(makeCase(model, {}, made, why)) << why;
+    EXPECT_FALSE(made.files.contains("constant/triSurface/slide.stl"));
+    EXPECT_FALSE(has(made.files["0/U"], "slide"));
+
+    // two triangles of the wall's eight
+    model.domain.patches[0] = model.domain.patches[1] = slidePatch(model);
+    EXPECT_TRUE(anySlide(model));
+    EXPECT_NE(signature(model), signature(ductModel()));
+    for (Analysis analysis : {Analysis::Steady, Analysis::Unsteady}) {
+        model.analysis = analysis;
+        ASSERT_TRUE(makeCase(model, {}, made, why)) << why;
+        ASSERT_TRUE(made.files.contains("constant/triSurface/slide.stl"));
+        const std::string& snappy = made.files["system/snappyHexMeshDict"];
+        EXPECT_TRUE(has(snappy, "slide { type triSurfaceMesh; file \"slide.stl\"; }"));
+        // a plain patch: one of the mesher's symmetry type is not drawn
+        // onto its surface
+        EXPECT_TRUE(has(snappy, "slide { level (0 0); patchInfo { type patch; } }"));
+        EXPECT_TRUE(has(snappy, "wall { level (0 0); patchInfo { type wall; } }"));
+        EXPECT_TRUE(has(made.files["0/U"], "slide { type slip; }"));
+        EXPECT_TRUE(has(made.files["0/p"], "slide { type zeroGradient; }"));
+        // its pressure is drawn with the rest
+        EXPECT_TRUE(has(made.files["system/controlDict"], "slide { type patch; patches (slide);"));
+    }
+    // the patch's line comes before the walls' catch-all
+    const std::string& velocity = made.files["0/U"];
+    EXPECT_LT(velocity.find("slide { type slip; }"), velocity.find("\".*\" { type noSlip; }"));
+    model.analysis = Analysis::Steady;
+    model.turbulence = Turbulence::KOmegaSST;
+    ASSERT_TRUE(makeCase(model, {}, made, why)) << why;
+    EXPECT_TRUE(has(made.files["0/k"], "slide { type zeroGradient; }"));
+    EXPECT_TRUE(has(made.files["0/omega"], "slide { type zeroGradient; }"));
+    EXPECT_TRUE(has(made.files["0/nut"], "slide { type calculated; value uniform 0; }"));
+}
+
 TEST(OpenFoamCase, filesOfATurbulentFlow)
 {
     Model model = ductModel();

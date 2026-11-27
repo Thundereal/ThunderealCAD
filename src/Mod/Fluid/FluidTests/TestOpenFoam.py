@@ -9,6 +9,7 @@ import unittest
 
 from FluidTests.DamBreak import DamBreak, G
 from FluidTests.Pipe import Pipe
+from FluidTests.Shedding import Shedding
 from FluidTests.Step import Step
 from FluidTests.StillWater import StillWater
 
@@ -36,4 +37,8 @@ class TestOpenFoamPipe(Pipe, unittest.TestCase):
 
 
 class TestOpenFoamStep(Step, unittest.TestCase):
+    BACKEND = "OpenFOAM"
+
+
+class TestOpenFoamShedding(Shedding, unittest.TestCase):
     BACKEND = "OpenFOAM"

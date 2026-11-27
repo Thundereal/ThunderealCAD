@@ -467,9 +467,14 @@ public:
     }
 
 private:
+    // one fluid filling its space: settling, or through time
     bool steady() const
     {
-        return model.analysis == Analysis::Steady;
+        return fillsItsSpace(model);
+    }
+    bool unsteady() const
+    {
+        return model.analysis == Analysis::Unsteady;
     }
 
     void emit(FrameSink& sink, bool finished)
@@ -526,12 +531,21 @@ private:
         std::ranges::sort(times);
         const std::size_t ready = finished ? times.size() : (times.empty() ? 0 : times.size() - 1);
         const std::size_t openings = model.inlets.size() + model.outlets.size();
+        // the patches in the case's order: the wall, the openings, and
+        // what the fluid slides along
+        std::vector<std::string> patches {"wall"};
+        for (std::size_t k = 0; k < openings; ++k) {
+            patches.push_back(OpenFoam::openingName(model, k));
+        }
+        if (anySlide(model)) {
+            patches.emplace_back("slide");
+        }
         for (std::size_t i = 0; i < ready; ++i) {
             Frame frame;
             frame.time = times[i].first;
             bool whole = true;
-            for (std::size_t k = 0; k <= openings && whole; ++k) {
-                const std::string name = k == 0 ? "wall" : OpenFoam::openingName(model, k - 1);
+            for (std::size_t k = 0; k < patches.size() && whole; ++k) {
+                const std::string& name = patches[k];
                 Frame patch;
                 whole = OpenFoam::readFieldVtk(readFile(times[i].second / (name + ".vtk")),
                                                "p",
@@ -557,7 +571,13 @@ private:
                 const auto valueAt = [&](const char* what) {
                     const auto table = OpenFoam::readTable(readFile(
                         folder / "postProcessing" / (name + what) / "0" / "surfaceFieldValue.dat"));
-                    const auto* row = OpenFoam::rowAt(table, frame.time, 0.5);
+                    // a steady flow's rows are a step apart; through time
+                    // the row is the step the frame was written at, and no
+                    // step is longer than the frames are apart
+                    const auto* row = OpenFoam::rowAt(
+                        table,
+                        frame.time,
+                        unsteady() ? 0.5 * model.outputInterval : 0.5);
                     return row && row->size() > 1 ? (*row)[1]
                                                   : std::numeric_limits<double>::quiet_NaN();
                 };
@@ -566,8 +586,13 @@ private:
                 opening.flow = k < model.inlets.size() ? -valueAt("Q") : valueAt("Q");
                 frame.openings.push_back(opening);
             }
-            if (finished && i + 1 == ready) {
-                takeInside(frame);
+            if (unsteady()) {
+                if (!takeInside(frame, times[i].second.filename().string()) && !finished) {
+                    return;  // the cells are not written yet
+                }
+            }
+            else if (finished && i + 1 == ready) {
+                takeInside(frame, {});
                 OpenFoam::readWallUnits(
                     readFile(folder / "postProcessing" / "yPlus" / "0" / "yPlus.dat"),
                     frame.wallUnits);
@@ -579,10 +604,15 @@ private:
 
     // The fluid inside as the solver left it, for the run's last frame: the
     // function object writes it once, at the end, under the step it ended at.
-    void takeInside(Frame& frame) const
+    // Through time it writes it with every frame: 'time' is then the
+    // folder's name, the frame's own.
+    bool takeInside(Frame& frame, const std::string& time) const
     {
         std::error_code ec;
         for (const auto& entry : fs::directory_iterator(folder / "postProcessing" / "inside", ec)) {
+            if (!time.empty() && entry.path().filename().string() != time) {
+                continue;
+            }
             Frame inside;
             if (!OpenFoam::readInside(readFile(entry.path() / "cells_p_U.xy"), inside)) {
                 continue;
@@ -593,8 +623,9 @@ private:
             for (double& pressure : frame.pressures) {
                 pressure *= liquid.density;
             }
-            return;
+            return true;
         }
+        return false;
     }
 
     // As many processes as the mesh is worth: a share of the cores, and no
@@ -721,6 +752,7 @@ Capabilities OpenFoamBackend::capabilities() const
     can.results = ResultKind::Surface;
     can.freeSurface = true;
     can.steady = true;
+    can.unsteady = true;
     can.inProcess = false;
     return can;
 }

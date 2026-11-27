@@ -750,6 +750,17 @@ class TestSteady(unittest.TestCase):
         self.study.Iterations = 500
         self.assertNotEqual(other, self.study.buildModel()["Signature"])
 
+    def test_the_signature_is_not_of_how_finely_a_wall_was_drawn(self):
+        # the 3D view keeps triangles on a part's faces, as fine as it
+        # draws them: the model's own are of the shape alone, or results
+        # just kept would read as of another study
+        base = self.study.buildModel()
+        for wall in self.study.Walls:
+            wall.Shape.tessellate(0.001)
+        fine = self.study.buildModel()
+        self.assertEqual(fine["Triangles"], base["Triangles"])
+        self.assertEqual(fine["Signature"], base["Signature"])
+
     def test_what_a_steady_flow_needs(self):
         self.study.Group = [self.inlet]
         with self.assertRaisesRegex(ValueError, "needs an outlet"):

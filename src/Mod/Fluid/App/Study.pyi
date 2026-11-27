@@ -34,12 +34,15 @@ class Study(DocumentObject):
         space -- over the viscosity), Middle (m), Start and End (s; an End not
         after the Start is the run's).
         Open: which sides of the space are open, -x, +x, -y, +y, -z, +z.
-        Analysis: FreeSurface or Steady. A steady flow has as well
-        Iterations; Turbulence, 'Laminar' or 'KOmegaSST'; Outlets, each
-        Source, Pressure (Pa) and Area (m^2); and
-        Domain, the space the fluid fills: Triangles, Volume (m^3) and
+        Analysis: FreeSurface, Steady or Unsteady (one fluid filling its
+        space through time). A fluid that fills its space, steady or not,
+        has as well Iterations; Turbulence, 'Laminar' or 'KOmegaSST';
+        Outlets, each Source, Pressure (Pa) and Area (m^2); and
+        Domain, the space the fluid fills: Triangles, Volume (m^3),
         Areas (m^2) -- of its walls, then of each inlet, then of each
-        outlet. Its space is the fluid's box.
+        outlet -- and Slides (m^2), of the faces it slides along (the
+        study's Slides; they are not among the walls' area). Its space is
+        the fluid's box.
         """
         ...
 
@@ -132,7 +135,8 @@ class Study(DocumentObject):
     def getInside(self, index: int, /) -> dict:
         """
         The fluid inside at a kept frame, of the frames that have it (the
-        results' Inside lists them; of a steady flow its last): Count (of
+        results' Inside lists them; of a steady flow its last, of a flow
+        through time every one after the start's): Count (of
         the solver's cells), Points (bytes: float32 x, y, z each, mm, each
         cell's centre), Velocity (bytes: float32 x, y, z each, m/s) and
         Pressure (bytes: float32, Pa). Count is 0 for a frame without.

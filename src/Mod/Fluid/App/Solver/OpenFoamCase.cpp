@@ -237,6 +237,28 @@ constexpr const char* steadySolution =
     "    residualControl { p 1e-7; U 1e-8; }\n}\n"
     "relaxationFactors { equations { U 0.9; } }\n";
 
+// Through time (sec 14.11): second order in time, the convection not held
+// bounded -- a street of eddies is what there is to see; two pressure
+// corrections a step.
+constexpr const char* timeSchemes =
+    "ddtSchemes { default backward; }\ngradSchemes { default Gauss linear; }\n"
+    "divSchemes\n{\n    default none;\n"
+    "    div(phi,U) Gauss linearUpwind grad(U);\n"
+    "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
+    "laplacianSchemes { default Gauss linear corrected; }\n"
+    "interpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n";
+
+constexpr const char* timeSolution =
+    "solvers\n{\n"
+    "    p { solver GAMG; smoother GaussSeidel; tolerance 1e-7; relTol 0.01; }\n"
+    "    pFinal { $p; relTol 0; }\n"
+    "    \"(U|UFinal)\" { solver smoothSolver; smoother symGaussSeidel; tolerance 1e-8; "
+    "relTol 0; }\n"
+    "}\nPIMPLE\n{\n    nOuterCorrectors 1;\n    nCorrectors 2;\n"
+    "    nNonOrthogonalCorrectors 1;\n}\n";
+
+constexpr const char* slideName = "slide";
+
 // With the eddies modelled (sec 14.6): k and omega carried upwind, the
 // distance to the wall their model asks for, and a stop the turbulent pipes
 // had long settled by.
@@ -278,8 +300,17 @@ double eddyRate(const Model& model, std::size_t inlet)
 
 bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std::string& why)
 {
+    const bool unsteady = model.analysis == Analysis::Unsteady;
     if (model.resolution <= 0.0 || model.iterations <= 0) {
         why = "the resolution and the count of steps must be positive";
+        return false;
+    }
+    if (unsteady && (model.timeEnd <= 0.0 || model.outputInterval <= 0.0)) {
+        why = "the end time and the time between frames must be positive";
+        return false;
+    }
+    if (unsteady && model.turbulence != Turbulence::Laminar) {
+        why = "a flow through time with its eddies modelled is not run yet";
         return false;
     }
     if (model.inlets.empty()) {
@@ -358,6 +389,11 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
     for (std::size_t k = 0; k < openings; ++k) {
         patches.push_back(openingName(model, k));
     }
+    // what the fluid slides along, after the openings as its patch is
+    const bool slides = anySlide(model);
+    if (slides) {
+        patches.emplace_back(slideName);
+    }
     auto& files = made.files;
     files["system/blockMeshDict"] = blockMeshDict(around, made.cells);
     std::ostringstream snappy;
@@ -402,10 +438,30 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
     const int every = std::max(model.iterations / 40, 1);
     const std::string each = "        writeControl timeStep;\n        writeInterval 1;\n";
     std::ostringstream control;
-    control << "application simpleFoam;\nstartFrom startTime;\nstartTime 0;\nstopAt endTime;\n"
-            << "endTime " << model.iterations << ";\ndeltaT 1;\nwriteControl timeStep;\n"
-            << "writeInterval " << every
-            << ";\npurgeWrite 1;\nwriteFormat binary;\nwritePrecision 8;\ntimeFormat general;\n"
+    if (unsteady) {
+        // Through time: the step is the solver's own, as long as the fluid
+        // crosses no more than a cell in it, and starts as if it came in
+        // at the fastest inlet's speed
+        double fastest = 0.0;
+        for (const auto& inlet : model.inlets) {
+            fastest = std::max(fastest, inlet.speed);
+        }
+        const double first =
+            std::min(fastest > 0.0 ? 0.2 * cell / fastest : model.outputInterval,
+                     model.outputInterval);
+        control << "application pimpleFoam;\nstartFrom startTime;\nstartTime 0;\n"
+                << "stopAt endTime;\nendTime " << num(model.timeEnd) << ";\ndeltaT "
+                << num(first) << ";\nadjustTimeStep yes;\nmaxCo 1;\nmaxDeltaT "
+                << num(model.outputInterval)
+                << ";\nwriteControl adjustable;\nwriteInterval " << num(model.outputInterval)
+                << ";\n";
+    }
+    else {
+        control << "application simpleFoam;\nstartFrom startTime;\nstartTime 0;\n"
+                << "stopAt endTime;\nendTime " << model.iterations
+                << ";\ndeltaT 1;\nwriteControl timeStep;\nwriteInterval " << every << ";\n";
+    }
+    control << "purgeWrite 1;\nwriteFormat binary;\nwritePrecision 8;\ntimeFormat general;\n"
             << "timePrecision 10;\nrunTimeModifiable no;\nfunctions\n{\n"
             << "    skin\n    {\n        type surfaces;\n        libs (sampling);\n"
                "        writeControl writeTime;\n        surfaceFormat vtk;\n"
@@ -437,10 +493,11 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
                 << each << "        fields (p);\n        probeLocations (" << probes
                 << " );\n    }\n";
     }
-    // The fluid inside, each cell's own value at its centre, once: of the
-    // flow as it is left
+    // The fluid inside, each cell's own value at its centre: once, of a
+    // steady flow as it is left; with every frame of one through time
     control << "    inside\n    {\n        type sets;\n        libs (sampling);\n"
-               "        writeControl onEnd;\n        setFormat raw;\n"
+            << "        writeControl " << (unsteady ? "writeTime" : "onEnd")
+            << ";\n        setFormat raw;\n"
                "        interpolationScheme cell;\n        fields (p U);\n"
                "        sets { cells { type cellCentre; } }\n    }\n";
     const bool eddies = model.turbulence == Turbulence::KOmegaSST;
@@ -452,9 +509,12 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
     }
     control << "}\n";
     files["system/controlDict"] = dictionary("controlDict", control.str());
-    files["system/fvSchemes"] = dictionary("fvSchemes", eddies ? eddySchemes : steadySchemes);
-    files["system/fvSolution"] =
-        dictionary("fvSolution", eddies ? eddySolution : steadySolution);
+    files["system/fvSchemes"] = dictionary(
+        "fvSchemes",
+        unsteady ? timeSchemes : (eddies ? eddySchemes : steadySchemes));
+    files["system/fvSolution"] = dictionary(
+        "fvSolution",
+        unsteady ? timeSolution : (eddies ? eddySolution : steadySolution));
     files["system/decomposeParDict"] = dictionary(
         "decomposeParDict",
         "numberOfSubdomains " + std::to_string(std::max(options.processes, 1))
@@ -483,12 +543,24 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
     }
     for (std::size_t j = 0; j < model.outlets.size(); ++j) {
         const std::string name = openingName(model, model.inlets.size() + j);
-        velocity += "    " + name + " { type zeroGradient; }\n";
+        // through time an eddy may reach the outlet and draw fluid back
+        // in: that comes at rest
+        velocity += "    " + name
+            + (unsteady ? " { type inletOutlet; inletValue uniform (0 0 0); "
+                          "value uniform (0 0 0); }\n"
+                        : " { type zeroGradient; }\n");
         pressure += "    " + name + " { type fixedValue; value uniform "
             + num(model.outlets[j].pressure / liquid.density) + "; }\n";
     }
-    files["0/U"] = velocity + "    \".*\" { type noSlip; }\n}\n";
-    files["0/p"] = pressure + "    \".*\" { type zeroGradient; }\n}\n";
+    // What the fluid slides along is a plain patch with the sliding said in
+    // the fields: a patch of the mesher's 'symmetry' type is not drawn
+    // onto its surface -- measured, a channel 3 cells deep came out 2
+    const auto slid = [&](const char* how) {
+        return slides ? "    " + std::string(slideName) + " { type " + how + "; }\n"
+                      : std::string();
+    };
+    files["0/U"] = velocity + slid("slip") + "    \".*\" { type noSlip; }\n}\n";
+    files["0/p"] = pressure + slid("zeroGradient") + "    \".*\" { type zeroGradient; }\n}\n";
     if (eddies) {
         // the fluid starts as the first inlet's comes; what flows back in
         // at an outlet is taken as that too
@@ -517,23 +589,27 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
                 + "; value uniform " + rate + "; }\n";
             nut += "    " + name + " { type calculated; value uniform 0; }\n";
         }
-        files["0/k"] = k + "    \".*\" { type kqRWallFunction; value uniform " + energy + "; }\n}\n";
+        files["0/k"] = k + slid("zeroGradient") + "    \".*\" { type kqRWallFunction; value uniform " + energy + "; }\n}\n";
         files["0/omega"] =
-            omega + "    \".*\" { type omegaWallFunction; value uniform " + rate + "; }\n}\n";
-        files["0/nut"] = nut + "    \".*\" { type nutkWallFunction; value uniform 0; }\n}\n";
+            omega + slid("zeroGradient") + "    \".*\" { type omegaWallFunction; value uniform " + rate + "; }\n}\n";
+        files["0/nut"] = nut
+            + (slides ? "    " + std::string(slideName) + " { type calculated; value uniform 0; }\n"
+                      : std::string())
+            + "    \".*\" { type nutkWallFunction; value uniform 0; }\n}\n";
     }
 
     made.steps.push_back({"blockMesh", "blockMesh"});
     made.steps.push_back({"snappyHexMesh", "snappyHexMesh -overwrite"});
+    const std::string solver = unsteady ? "pimpleFoam" : "simpleFoam";
     if (options.processes > 1) {
         made.steps.push_back({"decomposePar", "decomposePar"});
-        made.steps.push_back({"simpleFoam",
-                              "mpirun -np " + std::to_string(options.processes)
-                                  + " simpleFoam -parallel",
+        made.steps.push_back({solver,
+                              "mpirun -np " + std::to_string(options.processes) + " " + solver
+                                  + " -parallel",
                               true});
     }
     else {
-        made.steps.push_back({"simpleFoam", "simpleFoam", true});
+        made.steps.push_back({solver, solver, true});
     }
     return true;
 }
@@ -672,7 +748,7 @@ bool Fluid::Solver::OpenFoam::makeCase(const Model& model,
                                        std::string& why)
 {
     made = Case {};
-    if (model.analysis == Analysis::Steady) {
+    if (fillsItsSpace(model)) {
         return steadyCase(model, options, made, why);
     }
     if (model.resolution <= 0.0 || model.outputInterval <= 0.0 || model.timeEnd <= 0.0) {

@@ -193,13 +193,29 @@ std::uint64_t Fluid::Solver::signature(const Model& model)
     return hash.value;
 }
 
+bool Fluid::Solver::fillsItsSpace(const Model& model)
+{
+    return model.analysis != Analysis::FreeSurface;
+}
+
+int Fluid::Solver::slidePatch(const Model& model)
+{
+    return static_cast<int>(model.inlets.size() + model.outlets.size()) + 1;
+}
+
+bool Fluid::Solver::anySlide(const Model& model)
+{
+    return std::ranges::find(model.domain.patches, slidePatch(model))
+        != model.domain.patches.end();
+}
+
 double Fluid::Solver::widthOf(const Model& model, std::size_t inlet)
 {
     if (inlet >= model.inlets.size()) {
         return 0.0;
     }
     double area = 0.0;
-    if (model.analysis == Analysis::Steady && !model.domain.triangles.empty()) {
+    if (fillsItsSpace(model) && !model.domain.triangles.empty()) {
         area = patchAreas(model.domain, inlet + 2)[inlet + 1];
     }
     else {

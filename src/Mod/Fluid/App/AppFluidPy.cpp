@@ -24,7 +24,7 @@ public:
             "(what a study's Backend property takes), Label, Available and, when it\n"
             "is not, Reason; Version; Results ('Particles', 'Surface', 'Fields');\n"
             "FreeSurface, Inlets, MovingWalls, FreeBodies, Mechanisms, Heat, Steady,\n"
-            "Repeatable, InProcess; TestData (test data, never chosen for a study by itself)."
+            "Unsteady, Repeatable, InProcess; TestData (test data, never chosen for a study by itself)."
         );
         add_varargs_method(
             "refreshBackends",
@@ -98,6 +98,7 @@ private:
             entry.setItem("Forces", Py::Boolean(can.forces));
             entry.setItem("Heat", Py::Boolean(can.heat));
             entry.setItem("Steady", Py::Boolean(can.steady));
+            entry.setItem("Unsteady", Py::Boolean(can.unsteady));
             entry.setItem("Mechanisms", Py::Boolean(can.drivenWalls));
             entry.setItem("Repeatable", Py::Boolean(can.repeatable));
             entry.setItem("InProcess", Py::Boolean(can.inProcess));

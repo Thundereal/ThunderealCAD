@@ -5495,9 +5495,25 @@ The test reads the stack a new thread has through ctypes. Linux's
 has them the other way round and 4, so `_threadAltStack()` lays the
 struct out for each.
 
-**Not proven here.** The mini is a mac: only the macOS build of the
-changed file and the macOS run of the test (OK) were done here. The Linux
-build and run are dell's, on the side branch.
+**On Linux** (dell's box, the side branch at 058f76f136, OCCT
+9a93f1b0fb). The build is clean: gcc takes the `noexcept` against glibc's
+declaration, and `--no-undefined` is fine. `nm -D` shows libFreeCADApp
+exporting `T pthread_create`. TestWorkerPool ran 110 with nothing skipped:
+the thread test runs there now, and passes. ExpressionSecurity* 29/29.
+
+**Who binds to it** (`LD_DEBUG=bindings`). In `ThunderealCmd`, these
+libraries' `pthread_create` binds to libFreeCADApp's: libpython,
+libQt6Core, glib, libgomp, libv8, sqlite, zstd, IlmThread, openjp2, webp,
+lzma, crypto and libFreeCADBase. libFreeCADApp's own lookup (`RTLD_NEXT`)
+goes to libc. OCCT's TKernel made no call to it in that run, so its
+binding was not seen; it resolves in the same global scope.
+
+**Where it does nothing.** In a FreeCAD imported into a Python of its own
+(`import FreeCAD` from a plain interpreter), every library binds to libc.
+FreeCADApp arrives there by `dlopen`, local to the import, so it is not
+in the global scope ahead of libc. That costs nothing, since a worker is
+always `ThunderealCmd`. But a FreeCAD imported that way has no handler's
+stack on its threads.
 
 ## 83. A split weighs the start of a worker it would wait for (2026-11-28)
 

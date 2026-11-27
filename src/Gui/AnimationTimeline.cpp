@@ -2177,6 +2177,12 @@ App::Animation* AnimationTimeline::animation() const
 void AnimationTimeline::onSlotChangedObject(const App::DocumentObject& obj,
                                             const App::Property& prop)
 {
+    // Every change of every object comes here, thousands of them while a
+    // large document loads, and animation() may scan the whole document
+    // for its Animation: ask the cheap question first
+    if (!obj.isDerivedFrom(App::Animation::getClassTypeId())) {
+        return;
+    }
     auto anim = animation();
     if (&obj != anim) {
         // An animated object's change can change a track's state; a value

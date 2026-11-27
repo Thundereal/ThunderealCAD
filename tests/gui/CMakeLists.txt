@@ -1432,6 +1432,13 @@ fc_add_gui_test(GuiOlderLooksOpenTime_tests_run
                 older-looks-open-time.py
                 --timeout 300)
 
+# Nested links read from an older file open without searching every path
+# through them for each link's Selectable: an Assembly3 assembly of 187 KB
+# spun twenty minutes in its open (smoke corpus 2026-11-27, finding B1).
+fc_add_gui_test(GuiLinkSelectableRestore_tests_run
+                link-selectable-restore.py
+                --timeout 240)
+
 # An instanced Part object draws a uniform face colour list at the
 # transparency the list says: the uniform branch took the colour's alpha,
 # an opacity, for the transparency, so an opaque list drew invisible
@@ -2853,6 +2860,12 @@ fc_add_gui_test(GuiFemWorkbench_tests_run
 # property editor's marks and I key, Record of a property and of a view's,
 # none of it marking the document modified.
 fc_add_gui_test(GuiAnimationTimeline_tests_run animation-timeline.py --timeout 240)
+
+# The timeline costs nothing per change in a large document: a change in
+# 20000 objects at most twice one in 50 (it scanned the document for its
+# Animation on every change of every object, dell 2026-11-27).
+fc_add_gui_test(GuiAnimationTimelineLargeDocument_tests_run
+                animation-timeline-large-document.py --timeout 600)
 
 # The PMI workbench driven as a user drives it (docs/GDandT.md sec 3, 5-8):
 # picks on the Body's tip become solid references, the commands make a

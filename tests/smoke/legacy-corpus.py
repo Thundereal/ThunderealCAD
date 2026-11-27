@@ -421,16 +421,23 @@ def run():
                 for f in info["Faked"]:
                     finding("twin", "%s made here: %s used %s" % (f["Object"], f["Class"], f["Used"]),
                             "built-in" if f["BuiltIn"] else "an addon's")
-                by_worker = snapshot(doc, views=False)
+                # A worker that put nothing in has no twin: what it would be
+                # compared with is the document as opened, not recomputed
+                # (604 differences on a document whose worker was unfit)
+                twin = not (info["Failed"] or info["Unfit"]) and info["Applied"] > 0
+                by_worker = snapshot(doc, views=False) if twin else None
 
                 phase("here")
                 touch_all(doc)
                 doc.recompute()
                 settle(doc, "the recompute here")
-                here = snapshot(doc, views=False)
-                n = compare("twin", by_worker, here, "worker", "here",
-                            keys=("type", "state", "props", "census"))
-                note("INFO worker against here: %d differences" % n)
+                if twin:
+                    here = snapshot(doc, views=False)
+                    n = compare("twin", by_worker, here, "worker", "here",
+                                keys=("type", "state", "props", "census"))
+                    note("INFO worker against here: %d differences" % n)
+                else:
+                    note("INFO worker against here: not compared, the worker put nothing in")
             else:
                 note("INFO not recomputed by a worker: %s" % pool.recomputeInfo()["Reason"])
                 phase("here")

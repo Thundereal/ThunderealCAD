@@ -106,6 +106,15 @@ find "$ISO/cache" -mindepth 1 -maxdepth 1 ! -name 'qtshadercache*' -exec rm -rf 
 # ~/.local/share/FreeCAD ("Copied the user settings and files from ...")
 # and wrote there -- a crash log of a test landed in the user's profile.
 mkdir -p "$ISO/cache" "$ISO/config" "$ISO/data"
+# And FreeCAD's own user home, as gui-test.cmd has it on Windows: XDG's
+# variables say nothing on macOS, where a run without this read and wrote
+# ~/Library -- and found there the transient folders that processes long
+# dead left, which open Document Recovery at the start
+# (close-during-view-provider-drain failed on it, 2026-11-28). Wiped each
+# run like the rest.
+rm -rf "$ISO/home"
+mkdir -p "$ISO/home"
+HOME_ENV=(FREECAD_USER_HOME="$ISO/home")
 # What a browser test's driver wrote in an earlier run: appended to, so a
 # second run read the first's phases and sampled the host at the wrong times.
 rm -f "$OUT/phases.txt"
@@ -154,8 +163,34 @@ RESULT="$OUT/result.txt"
 LOG="$OUT/run.log"
 
 echo "GUI test $(basename "$SCRIPT") (log: $LOG)"
-if [ "$WINDOW" = 1 ]; then
+if [ "$(uname -s)" = Darwin ]; then
+    # macOS: no X server and no xvfb -- the window is the platform's own,
+    # as the tests are run on the mac -- and no timeout(1): a watchdog
+    # ends the process, found by its own user.cfg, at the deadline, and
+    # the run reads as one that timed out. The process runs in the
+    # foreground: launched in the background and waited for, it exited 1
+    # where the same run in the foreground exits 0.
+    rm -f "$ISO/timed-out"
+    ( sleep "$TIMEOUT"; touch "$ISO/timed-out"; pkill -TERM -f -- "$ISO/user.cfg"
+      sleep 15; pkill -KILL -f -- "$ISO/user.cfg" ) &
+    watchdog=$!
+    # (each array spelled so that bash 3.2, macOS's, takes an empty one
+    # under set -u)
+    env ${MESA_ENV[@]+"${MESA_ENV[@]}"} ${FONT_ENV[@]+"${FONT_ENV[@]}"} "${HOME_ENV[@]}" \
+        XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" XDG_DATA_HOME="$ISO/data" \
+        GT_OUT="$OUT" GT_RESULT="$RESULT" \
+        "$RUN" "$FCBIN" --user-cfg "$ISO/user.cfg" \
+        "$REPO/scripts/gui-test-profile.py" "$SCRIPT" \
+        > "$LOG" 2>&1 </dev/null
+    status=$?
+    kill "$watchdog" 2>/dev/null
+    wait "$watchdog" 2>/dev/null
+    [ -f "$ISO/timed-out" ] && status=124
+    # what the status=$? after this if is to read
+    (exit "$status")
+elif [ "$WINDOW" = 1 ]; then
     env -u WAYLAND_DISPLAY DISPLAY="${GT_DISPLAY:-:0}" "${GL[@]}" "${MESA_ENV[@]}" "${FONT_ENV[@]}" \
+        "${HOME_ENV[@]}" \
         XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" XDG_DATA_HOME="$ISO/data" \
         GT_OUT="$OUT" GT_RESULT="$RESULT" \
         QT_QPA_PLATFORM=xcb \
@@ -165,6 +200,7 @@ if [ "$WINDOW" = 1 ]; then
         > "$LOG" 2>&1 </dev/null
 else
     env -u WAYLAND_DISPLAY "${GL[@]}" "${MESA_ENV[@]}" "${FONT_ENV[@]}" \
+        "${HOME_ENV[@]}" \
         XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" XDG_DATA_HOME="$ISO/data" \
         GT_OUT="$OUT" GT_RESULT="$RESULT" \
         QT_QPA_PLATFORM=xcb \

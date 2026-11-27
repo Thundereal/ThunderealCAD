@@ -363,7 +363,7 @@ public:
         funcs["Monochrome"] = &TechDrawParamsP::updateMonochrome;
         LabelFont = this->subHandles[6]->GetASCII("LabelFont", "osifont");
         funcs["LabelFont"] = &TechDrawParamsP::updateLabelFont;
-        LabelSize = this->subHandles[6]->GetFloat("LabelSize", 5.0);
+        LabelSize = this->subHandles[6]->GetFloat("LabelSize", 2.5);
         funcs["LabelSize"] = &TechDrawParamsP::updateLabelSize;
         AutoHorizontal = this->subHandles[7]->GetBool("AutoHorizontal", true);
         funcs["AutoHorizontal"] = &TechDrawParamsP::updateAutoHorizontal;
@@ -455,9 +455,9 @@ public:
         funcs["LineSpacingFactorISO"] = &TechDrawParamsP::updateLineSpacingFactorISO;
         SectionUpdateDelay = this->subHandles[0]->GetInt("SectionUpdateDelay", 300);
         funcs["SectionUpdateDelay"] = &TechDrawParamsP::updateSectionUpdateDelay;
-        ArrowSize = this->subHandles[2]->GetFloat("ArrowSize", 3.5);
+        ArrowSize = this->subHandles[2]->GetFloat("ArrowSize", 1.5);
         funcs["ArrowSize"] = &TechDrawParamsP::updateArrowSize;
-        FontSize = this->subHandles[2]->GetFloat("FontSize", 5.0);
+        FontSize = this->subHandles[2]->GetFloat("FontSize", 2.5);
         funcs["FontSize"] = &TechDrawParamsP::updateFontSize;
         DiameterSymbol = this->subHandles[2]->GetASCII("DiameterSymbol", "\342\214\200");
         funcs["DiameterSymbol"] = &TechDrawParamsP::updateDiameterSymbol;
@@ -805,7 +805,7 @@ public:
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateLabelSize(TechDrawParamsP *self) {
-        self->LabelSize = self->subHandles[6]->GetFloat("LabelSize", 5.0);
+        self->LabelSize = self->subHandles[6]->GetFloat("LabelSize", 2.5);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateAutoHorizontal(TechDrawParamsP *self) {
@@ -989,11 +989,11 @@ public:
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateArrowSize(TechDrawParamsP *self) {
-        self->ArrowSize = self->subHandles[2]->GetFloat("ArrowSize", 3.5);
+        self->ArrowSize = self->subHandles[2]->GetFloat("ArrowSize", 1.5);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateFontSize(TechDrawParamsP *self) {
-        self->FontSize = self->subHandles[2]->GetFloat("FontSize", 5.0);
+        self->FontSize = self->subHandles[2]->GetFloat("FontSize", 2.5);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateDiameterSymbol(TechDrawParamsP *self) {
@@ -1388,7 +1388,7 @@ static const App::ParamRegistry::Registrar _TechDrawParamsRegistrar({
         .setTitle("Label font")
         .setDoc("Font of view labels, and the font new dimensions, balloons and\n"
 "annotations start with."),
-    App::ParamInfo("TechDraw", "TechDrawParams", "User parameter:BaseApp/Preferences/Mod/TechDraw/Labels", "LabelSize", "LabelSize", App::ParamInfo::Float, 5.0)
+    App::ParamInfo("TechDraw", "TechDrawParams", "User parameter:BaseApp/Preferences/Mod/TechDraw/Labels", "LabelSize", "LabelSize", App::ParamInfo::Float, 2.5)
         .setTitle("Label size")
         .setDoc("Text size of view labels in mm, and the size new annotations start\n"
 "with."),
@@ -1623,11 +1623,11 @@ static const App::ParamRegistry::Registrar _TechDrawParamsRegistrar({
         .setDoc("Time in milliseconds between a change in the section view dialog\n"
 "and the update of the section while live update is on. At least\n"
 "100."),
-    App::ParamInfo("TechDraw", "TechDrawParams", "User parameter:BaseApp/Preferences/Mod/TechDraw/Dimensions", "ArrowSize", "ArrowSize", App::ParamInfo::Float, 3.5)
+    App::ParamInfo("TechDraw", "TechDrawParams", "User parameter:BaseApp/Preferences/Mod/TechDraw/Dimensions", "ArrowSize", "ArrowSize", App::ParamInfo::Float, 1.5)
         .setTitle("Arrow size")
         .setDoc("Size in mm of dimension arrowheads. Applies to dimensions created\n"
 "afterwards; each dimension has its own Arrow Size property."),
-    App::ParamInfo("TechDraw", "TechDrawParams", "User parameter:BaseApp/Preferences/Mod/TechDraw/Dimensions", "FontSize", "FontSize", App::ParamInfo::Float, 5.0)
+    App::ParamInfo("TechDraw", "TechDrawParams", "User parameter:BaseApp/Preferences/Mod/TechDraw/Dimensions", "FontSize", "FontSize", App::ParamInfo::Float, 2.5)
         .setTitle("Dimension font size")
         .setDoc("Text size in mm of dimensions and of other annotation text that\n"
 "follows it. Applies to dimensions created afterwards."),
@@ -3938,7 +3938,7 @@ const double & TechDrawParams::getLabelSize() {
 
 // Auto generated code (Tools/params_utils.py:413)
 const double & TechDrawParams::defaultLabelSize() {
-    const static double def = 5.0;
+    const static double def = 2.5;
     return def;
 }
 
@@ -5281,7 +5281,7 @@ const double & TechDrawParams::getArrowSize() {
 
 // Auto generated code (Tools/params_utils.py:413)
 const double & TechDrawParams::defaultArrowSize() {
-    const static double def = 3.5;
+    const static double def = 1.5;
     return def;
 }
 
@@ -5310,7 +5310,7 @@ const double & TechDrawParams::getFontSize() {
 
 // Auto generated code (Tools/params_utils.py:413)
 const double & TechDrawParams::defaultFontSize() {
-    const static double def = 5.0;
+    const static double def = 2.5;
     return def;
 }
 

@@ -58,8 +58,11 @@
 #endif
 
 #include <QCoreApplication>
+#include <regex>
 
 #include <App/Application.h>
+#include <App/Document.h>
+#include <App/PropertyUnits.h>
 #include <Base/Console.h>
 #include <Base/Parameter.h>
 #include <Base/Quantity.h>
@@ -243,6 +246,11 @@ DrawViewDimension::DrawViewDimension()
     ADD_PROPERTY_TYPE(SavedNames, () ,"References",(App::PropertyType)(App::Prop_None),
                       "Names of the projected elements the 2D references point at");
     SavedNames.setStatus(App::Property::Hidden, true);
+    ADD_PROPERTY_TYPE(Source, (nullptr), "PMI", App::Prop_None,
+                      "The PMI dimension of the 3D model shown: its tolerance, basic flag and "
+                      "decimals are the 3D one's, edited here or there");
+    // On the page, of an object inside the part's Body
+    Source.setScope(App::LinkScope::Global);
 
     // hide the DrawView properties that don't apply to Dimensions
     ScaleType.setStatus(App::Property::ReadOnly, true);
@@ -320,9 +328,23 @@ void DrawViewDimension::onChanged(const App::Property* prop)
         return;
     }
 
+    if (prop == &OverTolerance || prop == &UnderTolerance || prop == &TheoreticalExact) {
+        writeToSource(prop);
+    }
+    else if (prop == &Source) {
+        syncFromSource();
+    }
+
+    // an undo or redo puts what was saved of the references back itself: saving
+    // it again from the references it restores would throw that away -- a
+    // Cancel of the edit that took a reference by its name left the file's
+    // name recorded over with the element it was left on
+    const bool undoing = getDocument() && getDocument()->isPerformingTransaction();
     if (prop == &References2D) {
-        updateSavedGeometry();
-        updateSavedNames();
+        if (!undoing) {
+            updateSavedGeometry();
+            updateSavedNames();
+        }
     } else if (prop == &References3D) {
         // remove the old measurement object
         clear3DMeasurements();
@@ -333,7 +355,9 @@ void DrawViewDimension::onChanged(const App::Property* prop)
         else if (MeasureType.isValue("True")) {//empty 3dRefs, but True
             MeasureType.touch();               //run MeasureType logic for this case
         }
-        updateSavedGeometry();
+        if (!undoing) {
+            updateSavedGeometry();
+        }
         return;
     }
     else if (prop == &Type) {//why??
@@ -421,6 +445,119 @@ void DrawViewDimension::onChanged(const App::Property* prop)
     DrawView::onChanged(prop);
 }
 
+namespace
+{
+// The precision of a printf-style spec ("%.2f", "R%.3w", "%+.2f") set to n places
+std::string withPlaces(const std::string& spec, int n)
+{
+    static const std::regex re("%([+]?)(\\.[0-9]+)?([a-zA-Z])");
+    return std::regex_replace(spec, re, "%$1." + std::to_string(n) + "$3");
+}
+
+template<class P>
+P* sourceProperty(App::DocumentObject* src, const char* name)
+{
+    return src ? freecad_cast<P*>(src->getPropertyByName(name)) : nullptr;
+}
+}  // namespace
+
+void DrawViewDimension::syncFromSource()
+{
+    App::DocumentObject* src = Source.getValue();
+    auto basic = sourceProperty<App::PropertyBool>(src, "Basic");
+    auto upper = sourceProperty<App::PropertyQuantity>(src, "Upper");
+    auto lower = sourceProperty<App::PropertyQuantity>(src, "Lower");
+    if (!basic || !upper || !lower) {
+        return;  // none, or not a PMI dimension
+    }
+    Base::StateLocker guard(m_syncing);
+    auto fitProp = sourceProperty<App::PropertyString>(src, "Fit");
+    std::string fit = fitProp ? fitProp->getValue() : "";
+    auto placesProp = sourceProperty<App::PropertyInteger>(src, "DecimalPlaces");
+    int places = placesProp ? placesProp->getValue() : -1;
+    if (places < 0) {
+        // The set's
+        for (App::DocumentObject* in : src->getInList()) {
+            if (in->getTypeId().getName() == std::string("PMI::AnnotationSet")) {
+                if (auto p = sourceProperty<App::PropertyInteger>(in, "DecimalPlaces")) {
+                    places = p->getValue();
+                }
+                break;
+            }
+        }
+    }
+
+    bool isBasic = basic->getValue();
+    if (TheoreticalExact.getValue() != isBasic) {
+        TheoreticalExact.setValue(isBasic);
+    }
+    // A basic dimension has no tolerance, one with a fit shows the fit
+    double over = (isBasic || !fit.empty()) ? 0.0 : upper->getValue();
+    double under = (isBasic || !fit.empty()) ? 0.0 : lower->getValue();
+    bool equal = over > 0.0 && std::abs(over + under) < 1e-12;
+    if (EqualTolerance.getValue() != equal) {
+        EqualTolerance.setValue(equal);
+    }
+    if (OverTolerance.getValue() != over) {
+        OverTolerance.setValue(over);
+    }
+    if (!equal && UnderTolerance.getValue() != under) {
+        UnderTolerance.setValue(under);
+    }
+
+    std::string spec = getDefaultFormatSpec();
+    std::string tolSpec = getDefaultFormatSpec(true);
+    if (places >= 0) {
+        spec = withPlaces(spec, places);
+        tolSpec = withPlaces(tolSpec, places);
+    }
+    if (!fit.empty()) {
+        spec += " " + fit;
+    }
+    if (spec != FormatSpec.getValue()) {
+        FormatSpec.setValue(spec);
+    }
+    if (!ArbitraryTolerances.getValue() && tolSpec != FormatSpecOverTolerance.getValue()) {
+        FormatSpecOverTolerance.setValue(tolSpec);
+        FormatSpecUnderTolerance.setValue(tolSpec);
+    }
+}
+
+void DrawViewDimension::writeToSource(const App::Property* prop)
+{
+    App::DocumentObject* src = Source.getValue();
+    if (!src || m_syncing || isRestoring() || src->isRestoring()
+        || (getDocument() && getDocument()->isPerformingTransaction())) {
+        return;
+    }
+    auto basic = sourceProperty<App::PropertyBool>(src, "Basic");
+    auto upper = sourceProperty<App::PropertyQuantity>(src, "Upper");
+    auto lower = sourceProperty<App::PropertyQuantity>(src, "Lower");
+    if (!basic || !upper || !lower) {
+        return;
+    }
+    if (prop == &TheoreticalExact) {
+        if (basic->getValue() != TheoreticalExact.getValue()) {
+            basic->setValue(TheoreticalExact.getValue());
+        }
+        return;
+    }
+    if (TheoreticalExact.getValue()) {
+        return;  // its zeroed tolerance is not the 3D one's
+    }
+    // A tolerance typed in replaces a fit
+    auto fit = sourceProperty<App::PropertyString>(src, "Fit");
+    if (fit && *fit->getValue()) {
+        fit->setValue("");
+    }
+    if (prop == &OverTolerance && upper->getValue() != OverTolerance.getValue()) {
+        upper->setValue(OverTolerance.getValue());
+    }
+    else if (prop == &UnderTolerance && lower->getValue() != UnderTolerance.getValue()) {
+        lower->setValue(UnderTolerance.getValue());
+    }
+}
+
 void DrawViewDimension::Restore(Base::XMLReader& reader)
 // Old drawings did not have the equal tolerance options.
 // We cannot just introduce it as being set to true because that would e.g. destroy tolerances like +1-2
@@ -489,6 +626,7 @@ short DrawViewDimension::mustExecute() const
 App::DocumentObjectExecReturn* DrawViewDimension::execute()
 {
 //    Base::Console().Message("DVD::execute() - %s\n", getNameInDocument());
+    syncFromSource();
     if (!okToProceed()) {
         // A view done projecting with nothing drawn will not recompute this:
         // the dimension would keep the points of what it measured before
@@ -551,8 +689,9 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
 
     try {
         // the first rung of the recovery ladder: an element that still carries the
-        // name the reference was made against is the element the reference means,
-        // whatever number the projection gives it now.  the geometry comparison
+        // name the reference was made against, and has its saved geometry, is the
+        // element the reference means, whatever number the projection gives it
+        // now -- the name tells it from a coincident copy.  the geometry search
         // below is the fallback for a reference this cannot place.
         fixByName();
 
@@ -572,6 +711,15 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
                     handleNoExactMatch();
                 }
             }
+        }
+
+        // a reference neither rung found, whose name is another element's now:
+        // the user's to settle.  its saved name is kept for their edit, not
+        // recorded over with the element it is left on.
+        std::string moved = isRestoring() ? std::string() : whyNameMoved();
+        if (!moved.empty()) {
+            references = getEffectiveReferences();
+            return described(moved);
         }
 
         // record the names of the references we believe in.  that is what gives a
@@ -1809,25 +1957,25 @@ void DrawViewDimension::updateSavedNames()
     }
 }
 
-//! Repoint any 2D reference whose stored name belongs to a different element
-//! now.  Nothing here remembers whether it has run: while the view has not
-//! projected there is no name to find and the answer is simply no, and the
+//! Each 2D reference whose stored name belongs to a different element now.
+//! Nothing here remembers whether it has run: while the view has not
+//! projected there is no name to find and the answer is simply none, and the
 //! next execute asks again (sec 3.7).
-bool DrawViewDimension::fixByName()
+std::vector<DrawViewDimension::NameMatch> DrawViewDimension::findByName() const
 {
+    std::vector<NameMatch> found;
     const std::vector<std::string> savedNames = SavedNames.getValues();
     if (savedNames.empty()) {
-        return false;
+        return found;
     }
 
     ReferenceVector references = getReferences2d();
     if (references.size() != savedNames.size()) {
         // out of step with the references, so we can not tell which name
         // belongs to which.  updateSavedNames puts them back in step.
-        return false;
+        return found;
     }
 
-    std::vector<std::pair<int, std::string>> fixes;
     for (size_t iRef = 0; iRef < references.size(); iRef++) {
         if (savedNames.at(iRef).empty()) {
             continue;
@@ -1842,16 +1990,97 @@ bool DrawViewDimension::fixByName()
             // or the reference already points where it should
             continue;
         }
-        fixes.emplace_back(int(iRef), subName);
+        found.push_back({int(iRef), references.at(iRef).getSubName(), subName,
+                         hasSavedGeometry(int(iRef), dvp, subName)});
+    }
+    return found;
+}
+
+//! The saved geometry is of the effective references, one entry each; it
+//! speaks for the 2D references only while there are no 3D ones.
+bool DrawViewDimension::hasSavedGeometry(int iRef, DrawViewPart* dvp,
+                                         const std::string& subName) const
+{
+    if (!References3D.getValues().empty() || !dvp) {
+        return false;
+    }
+    const std::vector<TopoShape> saved = SavedGeometry.getValues();
+    if (saved.size() != getReferences2d().size() || iRef < 0 || iRef >= int(saved.size())
+        || saved.at(iRef).isNull()) {
+        return false;
+    }
+    ReferenceEntry now(dvp, subName);
+    if (!now.isValid()) {
+        return false;
+    }
+    return m_matcher->compareGeometry(saved.at(iRef), now.asCanonicalTopoShape());
+}
+
+//! In a recompute a reference is repointed by its name only where the
+//! element that carries the name now is also what was saved of it: a name
+//! can land on another element altogether -- the line a distance was on
+//! named a B-spline after the projection was made again, and the dimension
+//! failed ("Edge21 is a BSpline, not a straight line"). The reporter: "the
+//! auto reference fix should only be done if geometry search found the match
+//! instead of pure naming match". A pure name match is the user's to take,
+//! on their edit of the dimension (repointByName()).
+bool DrawViewDimension::fixByName()
+{
+    std::vector<std::pair<int, std::string>> fixes;
+    for (auto& match : findByName()) {
+        if (match.sameGeometry) {
+            fixes.emplace_back(match.index, match.now);
+        }
     }
 
     repointReferences(fixes, false);
     if (!fixes.empty()) {
-        Base::Console().Log("%s - %d 2d reference(s) found again by name\n",
+        Base::Console().Log("%s - %d 2d reference(s) found again by name and geometry\n",
                             getNameInDocument(), int(fixes.size()));
     }
 
     return !fixes.empty();
+}
+
+std::vector<DrawViewDimension::NameMatch> DrawViewDimension::repointByName()
+{
+    std::vector<NameMatch> moved = findByName();
+    std::vector<std::pair<int, std::string>> fixes;
+    for (auto& match : moved) {
+        fixes.emplace_back(match.index, match.now);
+    }
+    repointReferences(fixes, false);
+    return moved;
+}
+
+//! A reference the ladder left where it was, on an element that does not
+//! have its saved geometry, while its saved name is another element's now:
+//! which of the two it means is not for a recompute to guess. Said, and the
+//! dimension left in error until the user's edit takes the name's element or
+//! reattaches the reference (TaskDimension).
+std::string DrawViewDimension::whyNameMoved() const
+{
+    std::string why;
+    ReferenceVector references = getReferences2d();
+    for (auto& match : findByName()) {
+        auto dvp = dynamic_cast<TechDraw::DrawViewPart*>(references.at(match.index).getObject());
+        if (match.sameGeometry || hasSavedGeometry(match.index, dvp, match.was)) {
+            continue;
+        }
+        QString text = QCoreApplication::translate(
+                           "TechDraw", "the reference on %1 has a name that is %2's now, and "
+                                       "neither has the geometry it was made on")
+                           .arg(QString::fromStdString(match.was),
+                                QString::fromStdString(match.now));
+        why += (why.empty() ? std::string() : std::string("; ")) + text.toStdString();
+    }
+    if (!why.empty()) {
+        why += QCoreApplication::translate(
+                   "TechDraw", ". Not repointed: edit the dimension to take the element by its "
+                               "name, or reattach the reference")
+                   .toStdString();
+    }
+    return why;
 }
 
 // routines related to detecting that references no longer point to the same geometry as

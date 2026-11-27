@@ -646,6 +646,9 @@ PyObject* ViewProviderPy::getEdgeInfo(PyObject* args) const
                      Py::TupleN(Py::Float(c.r), Py::Float(c.g), Py::Float(c.b), Py::Float(c.a)));
         dict.setItem("Width", Py::Float(info.width));
         dict.setItem("Label", Py::String(info.label));
+        dict.setItem("Styled", Py::Boolean(info.styled));
+        dict.setItem("OncePerLabel", Py::Boolean(info.oncePerLabel));
+        dict.setItem("Bubble", Py::String(info.bubble));
         return Py::new_reference_to(dict);
     } PY_CATCH
 }

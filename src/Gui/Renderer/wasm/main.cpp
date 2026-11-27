@@ -2487,6 +2487,85 @@ extern "C" EMSCRIPTEN_KEEPALIVE void fcviewer_navi_action(int action)
     interact();
 }
 
+// The camera the host asks this view to take ({"cmd":"camera"}): a PMI view
+// made active in it (docs/GDandT.md sec 6.3). The camera from before the
+// first such ask is kept, and {"cmd":"camera","restore":true} -- the PMI
+// view let go -- takes the view back to it.
+struct StashedCamera {
+    bool have = false;
+    float center[3] = {0.0f, 0.0f, 0.0f};
+    float panX = 0.0f, panY = 0.0f, yaw = 0.0f, pitch = 0.0f, roll = 0.0f, dist = 0.0f;
+};
+static StashedCamera s_stashedCam;
+
+/// The \a n numbers of the array after \a key in \a json
+static bool parseNumbers(const char *json, const char *key, float *out, int n)
+{
+    const char *p = std::strstr(json, key);
+    p = p ? std::strchr(p, '[') : nullptr;
+    if (!p)
+        return false;
+    ++p;
+    for (int i = 0; i < n; ++i) {
+        char *end = nullptr;
+        out[i] = std::strtof(p, &end);
+        if (end == p)
+            return false;
+        p = end;
+        while (*p == ',' || *p == ' ')
+            ++p;
+    }
+    return true;
+}
+
+static void applyHostCamera(const char *json)
+{
+    if (std::strstr(json, "\"restore\":true")) {
+        if (!s_stashedCam.have)
+            return;
+        const StashedCamera &c = s_stashedCam;
+        std::memcpy(s_center, c.center, sizeof(s_center));
+        s_panX = c.panX;
+        s_panY = c.panY;
+        s_yaw = c.yaw;
+        s_pitch = c.pitch;
+        s_roll = c.roll;
+        s_dist = c.dist;
+        s_stashedCam.have = false;
+        interact();
+        return;
+    }
+    float q[4], at[3];
+    if (!parseNumbers(json, "\"q\"", q, 4) || !parseNumbers(json, "\"at\"", at, 3))
+        return;
+    float height = 0.0f;
+    if (const char *h = std::strstr(json, "\"height\":"))
+        height = std::strtof(h + 9, nullptr);
+    if (!s_stashedCam.have) {
+        StashedCamera &c = s_stashedCam;
+        std::memcpy(c.center, s_center, sizeof(s_center));
+        c.panX = s_panX;
+        c.panY = s_panY;
+        c.yaw = s_yaw;
+        c.pitch = s_pitch;
+        c.roll = s_roll;
+        c.dist = s_dist;
+        c.have = true;
+    }
+    orientToQuat(q[0], q[1], q[2], q[3]);
+    if (height > 0.0f) {
+        // The height shows at the target: this camera's field of view is
+        // fixed, so it stands as far off as that takes
+        std::memcpy(s_center, at, sizeof(s_center));
+        s_panX = s_panY = 0.0f;
+        s_dist = 0.5f * height / std::tan(0.5f * bx::toRad(kFovY));
+    }
+    else {
+        fitCamera();
+    }
+    interact();
+}
+
 // Hover highlight state: a local setHighlight() built from the hit
 // draw (no server round trip). The next streamed snapshot replaces it
 // with the desktop's highlight feed until the mouse moves again.
@@ -10737,6 +10816,11 @@ static void handleControlMessage(const char *json)
                 markDirty();
             }
         }
+    }
+    else if (std::strstr(json, "\"cmd\":\"camera\"")) {
+        // The host asking this view to take a camera, or to go back to the
+        // one it had (a PMI view made active here, and let go)
+        applyHostCamera(json);
     }
     else if (std::strstr(json, "\"cmd\":\"onview\"")) {
         // The entry boxes this client's edit session has open (sec 8.7).

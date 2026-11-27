@@ -774,7 +774,9 @@ void MDIViewPage::refreshSelectedFrames()
             return;
         }
         self->m_frameRefreshPending = false;
-        if (!self->m_scene || self->m_vpPage->getFrameState()) {
+        // Its document closed since (the page view is deleted later): the
+        // items' objects are gone, and the view provider with them
+        if (!self->getGuiDocument() || !self->m_scene || self->m_vpPage->getFrameState()) {
             return;
         }
         for (QGIView* view : self->m_scene->getViews()) {
@@ -857,6 +859,15 @@ void MDIViewPage::onSelectionChanged(const Gui::SelectionChanges& msg)
             }
         };
         bool highlighted = msg.Type == Gui::SelectionChanges::SetPreselect;
+        if (QGIView::preselectingFromScene()) {
+            // the mouse over an item of this scene: the item lights itself, as
+            // hover always has -- lighting its view too would light the view's
+            // frame and label for every edge under the mouse. What another
+            // view lit is put out.
+            resetHighlight();
+            blockSceneSelection(false);
+            return;
+        }
         if (auto view = findViewOfHatch(selObj)) {
             for (auto face : view->getHatchedFaces(selObj)) {
                 face->setPreselect(highlighted);

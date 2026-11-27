@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from Base.Metadata import export
+from typing import List, Tuple
+
+from Base.Metadata import constmethod, export
+
+from App.DocumentObject import DocumentObject
 from Spreadsheet.Sheet import Sheet
 
 @export(
@@ -17,3 +21,19 @@ class BomObject(Sheet):
     Author: Ondsel (development@ondsel.com)
     License: LGPL-2.1-or-later
     """
+
+    @constmethod
+    def getRows(self) -> List[Tuple[str, DocumentObject]]:
+        """
+        Not upstream: each row's index ("1", "1.2") and object, in order, as
+        the last recompute made them.
+        """
+        ...
+
+    @constmethod
+    def getIndexOf(self, obj: DocumentObject, /) -> str:
+        """
+        Not upstream: the index of the row of obj, a link's being its linked
+        object's as the BOM files it; empty if it has none.
+        """
+        ...

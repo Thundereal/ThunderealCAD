@@ -113,6 +113,7 @@ SET(Draw_SRCS
     DimensionGeometry.h
     DimensionReferences.cpp
     DimensionReferences.h
+    ReferenceNameMatch.h
     DimensionFormatter.cpp
     DimensionFormatter.h
     GeometryMatcher.cpp
@@ -121,6 +122,8 @@ SET(Draw_SRCS
     DrawViewBalloon.h
     DrawEdgeLabel.cpp
     DrawEdgeLabel.h
+    DrawPMICallout.cpp
+    DrawPMICallout.h
     DrawViewSection.cpp
     DrawViewSection.h
     DrawHatch.cpp

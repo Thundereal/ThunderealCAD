@@ -305,6 +305,28 @@ class TestAnimation(unittest.TestCase):
         self.anim.stop()
         self.assertEqual(self.doc.UndoCount, count)
 
+    def testUndoOfAnEditOfAShapedPartWhilePlaying(self):
+        """A part whose shape follows its placement: an edit of the placement
+        while it plays records the design's placement and shape as the values
+        before, so its undo puts the design back, not the pose"""
+        box = self.doc.addObject("Part::Box", "Box")
+        box.Placement = App.Placement(App.Vector(30, 0, 0), App.Rotation())
+        self.anim.addKey("Box.Placement", 0.0, App.Placement(App.Vector(30, 0, 0), App.Rotation()))
+        self.anim.addKey("Box.Placement", 1.0, App.Placement(App.Vector(30, 0, 20), App.Rotation()))
+        self.doc.recompute()
+        if self.doc.HasPendingTransaction:
+            self.doc.commitTransaction()
+        self.anim.Time = 1.0
+        self.assertAlmostEqual(box.Placement.Base.z, 20)
+        self.doc.openTransaction("move")
+        box.Placement = App.Placement(App.Vector(0, 0, 100), App.Rotation())
+        self.doc.commitTransaction()
+        self.anim.stop()
+        self.assertAlmostEqual(box.Placement.Base.z, 100)
+        self.doc.undo()
+        self.assertTrue(box.Placement.Base.isEqual(App.Vector(30, 0, 0), 1e-9), box.Placement)
+        self.assertAlmostEqual(box.Shape.BoundBox.XMin, 30)
+
     def testUndoKeyEdit(self):
         self.doc.openTransaction("key 1")
         self.anim.addKey("Obj.F", 0.0, 0.0)
@@ -1817,7 +1839,9 @@ class TestAnimation(unittest.TestCase):
         self.anim.waitWorkers(120)
         info = self.anim.workerInfo()
         self.assertFalse(info["Running"])
-        self.assertIn("no Python class here", info["Reason"])
+        # The copy's restore names the class it could not make
+        # (docs/WorkerProcess.md sec 72)
+        self.assertIn("TestAnimation.Twice) cannot be restored in a worker", info["Reason"])
         self.assertEqual(self.anim.cacheInfo()["Prepared"], 0)
         for t in self.anim.frames():
             self.anim.Time = t

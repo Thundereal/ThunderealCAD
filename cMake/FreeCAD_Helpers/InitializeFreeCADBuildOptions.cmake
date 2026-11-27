@@ -173,6 +173,13 @@ macro(InitializeFreeCADBuildOptions)
     # The Assembly's Chrono solver backend and Project Chrono's core library
     # (submodule src/3rdParty/chrono); the module builds and runs without it.
     option(BUILD_ASSEMBLY_CHRONO "Build the Assembly's Chrono solver backend (Project Chrono core)" OFF)
+    # The fluid simulation workbench (docs/FluidSimulation.md).
+    option(BUILD_FLUID "Build the FreeCAD Fluid module" ON)
+    # FluidSplish, the program the Fluid module runs SPlisHSPlasH by: needs
+    # the solver built from source, FLUID_SPLISHSPLASH_SOURCE its tree and
+    # FLUID_SPLISHSPLASH_BUILD where it was built (docs/FluidSimulation.md
+    # sec 12 S3). The module builds and runs without it.
+    option(BUILD_FLUID_SPLISHSPLASH "Build FluidSplish, the Fluid module's SPlisHSPlasH runner" OFF)
     option(BUILD_PLOT "Build the FreeCAD plot module" ON)
     option(BUILD_POINTS "Build the FreeCAD points module" ON)
     option(BUILD_REVERSEENGINEERING "Build the FreeCAD reverse engineering module" ON)
@@ -193,6 +200,7 @@ macro(InitializeFreeCADBuildOptions)
     # takes to get the module back.
     option(BUILD_WEB "Build the FreeCAD web module (needs Qt WebEngine; skipped with a warning without it)" ON)
     option(BUILD_SURFACE "Build the FreeCAD surface module" ON)
+    option(BUILD_PMI "Build the FreeCAD PMI module (GD&T on a part, docs/GDandT.md)" ON)
     option(BUILD_VR "Build the FreeCAD Oculus Rift support (need Oculus SDK 4.x or higher)" OFF)
     option(BUILD_CLOUD "Build the FreeCAD cloud module" OFF)
     option(BUILD_BGFX "Build bgfx renderer module" ON)

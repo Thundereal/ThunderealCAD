@@ -23,7 +23,7 @@ import zipfile
 import FreeCAD
 
 import SandboxProgramFixtures as Fixtures
-from FeaturePythonChain import CALLS, FeatureProxy, hooks, recordingDecline
+from FeaturePythonChain import CALLS, FeatureProxy, assertSameBreps, hooks, recordingDecline
 
 BRACKETS = (
     "k = 3\n"
@@ -715,54 +715,9 @@ class SandboxProgramFixtureCases(unittest.TestCase):
         finally:
             closeAll()
 
-    @staticmethod
-    def brepNumber(token):
-        """The token as a float, or None if it is not a floating point number.
-
-        A BRep writes counts, indices and flags as plain integers, and a
-        tolerant comparison of a vertex INDEX would hide a real topology
-        change, so a token without a fraction or an exponent is not a
-        number here -- it has to match exactly, like any other word.
-        """
-        if not any(c in token for c in ".eE"):
-            return None
-        try:
-            return float(token)
-        except ValueError:
-            return None
-
     def assertSameBreps(self, routed, native, ulps=4):
-        """Byte for byte, or else every NUMBER the BRep carries within `ulps`.
-
-        Byte-exactness across libms was always luck, not a guarantee: the
-        guest's sin and cos round differently from the host's for some
-        arguments, and a third libm breaks the tie -- MSVC's sin(pi/4) is
-        one ULP from glibc's, which moves a 45 degree bolt hole's placement
-        by one ULP and nothing else.  So the byte comparison stays the fast
-        path and the fallback bounds EVERY number in the serialization, not
-        just the vertices: the BRep is whitespace separated ASCII, so the
-        token lists must agree in length, every non-numeric token must be
-        identical, and the numbers must agree to `ulps`.
-        """
-        self.assertEqual(sorted(routed), sorted(native))
-        for name in routed:
-            self.assertTrue(routed[name], name)
-            if routed[name] == native[name]:
-                continue
-            r, n = routed[name].split(), native[name].split()
-            self.assertEqual(len(r), len(n), "%s: the BRep differs in size" % name)
-            for a, b in zip(r, n):
-                if a == b:
-                    continue
-                x, y = self.brepNumber(a), self.brepNumber(b)
-                self.assertTrue(
-                    x is not None and y is not None,
-                    "%s: the BRep differs at %r against %r" % (name, a, b),
-                )
-                bound = ulps * math.ulp(max(abs(x), abs(y), 1.0))
-                self.assertLessEqual(
-                    abs(x - y), bound, "%s: the BRep differs at %r against %r" % (name, a, b)
-                )
+        """Byte for byte, or else every NUMBER within `ulps`: FeaturePythonChain."""
+        assertSameBreps(self, routed, native, ulps)
 
     def assertSameGeometry(self, routed, native, ulps=4):
         """Byte for byte, or else every vertex within `ulps` ULPs of native.
@@ -803,11 +758,16 @@ class SandboxProgramFixtureCases(unittest.TestCase):
         drift = base.replace("-0.5", repr(math.nextafter(-0.5, 0.0)))
         self.assertNotEqual(drift, base)
         self.assertSameBreps(one(base), one(drift))
+        # OCCT writes a whole real without a fraction, and the other libm's
+        # value one ULP off it with one: a mixed pair is compared as numbers
+        whole = base.replace(" 2 ", " 11 ")
+        self.assertSameBreps(one(whole), one(whole.replace(" 11 ", " 11.000000000000002 ")))
         for changed in (
             base.replace(" 2 ", " 3 "),  # an index or a count: exact or nothing
             base.replace("CARTESIAN", "CYLINDER"),  # so is a word
             base.replace("-0.5", "-0.5000001"),  # a float, but far past 4 ULPs
             base + " 7",  # a different token count is a different shape
+            base.replace(" 2 ", " 2.5 "),  # a whole number against a real far off it
         ):
             with self.assertRaises(AssertionError):
                 self.assertSameBreps(one(base), one(changed))

@@ -71,6 +71,8 @@ public:
     int openStream();
     void transferRootRange(Handle(TDocStd_Document) hDoc, int first, int last);
     void closeStream();
+    /// Whether a file's PMI is read (Preferences, Import-Export, STEP; on by default)
+    static bool readPMI();
     //@}
 
     /** @name Streamed component reading

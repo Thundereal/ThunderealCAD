@@ -639,6 +639,12 @@ public:
         LinkSyncSubObject, // used by DlgPropertyLink
         LinkNewElement, // return new element name in getPyObject
         LinkSilentRestore, // do not report error on restore (e.g. missing external link)
+        // Only refers to what it links, owns none of it: in a GeoFeatureGroup
+        // with no view provider, what a child links to is taken for what it
+        // claims, except through a Global link or one with this flag -- one
+        // whose scope must stay what it is (a Hidden link that is no
+        // dependency, and must not be one)
+        LinkReferOnly,
     };
     inline bool testFlag(int flag) const {
         return _Flags.test((std::size_t)flag);
@@ -649,6 +655,9 @@ public:
     void setReturnNewElement(bool enable);
 
     void setSilentRestore(bool enable);
+
+    /// Refers only, claims nothing (LinkReferOnly)
+    void setReferOnly(bool enable) { setFlag(LinkReferOnly, enable); }
 
     fastsignals::signal<void(const std::string &, const std::string &)> signalUpdateElementReference;
 

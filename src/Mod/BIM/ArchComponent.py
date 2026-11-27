@@ -844,22 +844,26 @@ class Component(ArchIFC.IfcProduct):
             The name of the property that has changed.
         """
 
-        if FreeCAD.GuiUp:
-            if prop in ["Additions", "Subtractions"]:
-                if hasattr(obj, prop):
-                    for o in getattr(obj, prop):
-                        if (Draft.getType(o) != "Window") and (
-                            not Draft.isClone(o, "Window", True)
-                        ):
-                            if Draft.getType(obj) == "Wall":
-                                if Draft.getType(o) == "Roof":
-                                    continue
+        # By what changed first, and by the view object, not FreeCAD.GuiUp:
+        # with no view provider ViewObject is None, and a worker process's
+        # view object takes the hide(), done again to the view provider
+        # where the result is put in (docs/WorkerProcess.md sec 73)
+        if prop in ["Additions", "Subtractions"]:
+            if hasattr(obj, prop):
+                for o in getattr(obj, prop):
+                    if (Draft.getType(o) != "Window") and (
+                        not Draft.isClone(o, "Window", True)
+                    ):
+                        if Draft.getType(obj) == "Wall":
+                            if Draft.getType(o) == "Roof":
+                                continue
+                        if o.ViewObject:
                             o.ViewObject.hide()
-            elif prop == "HiRes":
-                if hasattr(obj, prop):
-                    o = getattr(obj, prop)
-                    if o:
-                        o.ViewObject.hide()
+        elif prop == "HiRes":
+            if hasattr(obj, prop):
+                o = getattr(obj, prop)
+                if o and o.ViewObject:
+                    o.ViewObject.hide()
 
     def handleComponentRemoval(self, obj, subobject):
         """

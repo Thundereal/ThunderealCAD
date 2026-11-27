@@ -25,6 +25,8 @@
 #ifndef _PreComp_
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <map>
 
 #include <QEvent>
 #include <QKeyEvent>
@@ -124,6 +126,21 @@ public:
     /// an edit session's hides and shows (setEditVisibilities).
     ViewVisibility visibility;
     std::function<void()> onVisibilityChanged;
+    /// The edit session's entries and each owner's layer, merged into the
+    /// table's transient entries, the session's first
+    std::vector<VisibilityEntry> editEntries;
+    std::map<std::string, std::vector<VisibilityEntry>> layers;
+
+    void applyTransient()
+    {
+        std::vector<VisibilityEntry> all = editEntries;
+        for (const auto& layer : layers) {
+            all.insert(all.end(), layer.second.begin(), layer.second.end());
+        }
+        if (visibility.setTransient(std::move(all)) && onVisibilityChanged) {
+            onVisibilityChanged();
+        }
+    }
 
     /// The client's, as of its last 'C' frame.
     MirrorViewer::Camera state;
@@ -234,6 +251,8 @@ public:
     /// The hint shown at the client's pointer (setHint())
     QString hint;
     std::function<void()> onHintChanged;
+    /// The control channel to the client, for a camera it is asked to take
+    std::function<void(const std::string&)> sendCamera;
     /** The key frame being routed into an entry box, if any.
      *
      * The box may hand the key back (DrawSketchKeyboardManager decides
@@ -1090,10 +1109,24 @@ bool MirrorViewer::setEditVisibilities(const std::vector<VisibilityEntry>& entri
     if (!pimpl->cacheManager) {
         return false;
     }
-    if (pimpl->visibility.setTransient(std::vector<VisibilityEntry>(entries))
-        && pimpl->onVisibilityChanged) {
-        pimpl->onVisibilityChanged();
+    pimpl->editEntries = entries;
+    pimpl->applyTransient();
+    return true;
+}
+
+bool MirrorViewer::setVisibilityLayer(const std::string& owner,
+                                      std::vector<VisibilityEntry>&& entries)
+{
+    if (!pimpl->cacheManager) {
+        return false;
     }
+    if (entries.empty()) {
+        pimpl->layers.erase(owner);
+    }
+    else {
+        pimpl->layers[owner] = std::move(entries);
+    }
+    pimpl->applyTransient();
     return true;
 }
 
@@ -1145,6 +1178,40 @@ QString MirrorViewer::hint() const
 void MirrorViewer::setHintCallback(std::function<void()> callback)
 {
     pimpl->onHintChanged = std::move(callback);
+}
+
+void MirrorViewer::setCameraSender(std::function<void(const std::string&)> send)
+{
+    pimpl->sendCamera = std::move(send);
+}
+
+bool MirrorViewer::turnClientCamera(const SbRotation& orientation, const SbVec3f& target,
+                                    float height)
+{
+    if (!pimpl->sendCamera) {
+        return false;
+    }
+    // {"cmd":"camera","q":[x,y,z,w],"at":[x,y,z],"height":h}: the client
+    // turns its own camera, and its next 'C' frame says where it ended up
+    float q[4];
+    orientation.getValue(q[0], q[1], q[2], q[3]);
+    const SbVec3f& at = target;
+    char buf[256];
+    std::snprintf(buf, sizeof(buf),
+                  "{\"cmd\":\"camera\",\"q\":[%.9g,%.9g,%.9g,%.9g],"
+                  "\"at\":[%.9g,%.9g,%.9g],\"height\":%.9g}",
+                  q[0], q[1], q[2], q[3], at[0], at[1], at[2], height > 0 ? height : 0.0f);
+    pimpl->sendCamera(buf);
+    return true;
+}
+
+bool MirrorViewer::restoreClientCamera()
+{
+    if (!pimpl->sendCamera) {
+        return false;
+    }
+    pimpl->sendCamera("{\"cmd\":\"camera\",\"restore\":true}");
+    return true;
 }
 
 double MirrorViewer::devicePixelRatio() const

@@ -95,12 +95,16 @@ QVariant QGIPrimPath::itemChange(GraphicsItemChange change, const QVariant &valu
 
 void QGIPrimPath::hoverEnterEvent(QGraphicsSceneHoverEvent *event)
 {
+    // named in the status bar, as the 3D view's hover names what it is over;
+    // before the light, which the page would otherwise put out with the last
+    QGIView::preselectItem(this, event->scenePos());
     setPreselect(true);
     inherited::hoverEnterEvent(event);
 }
 
 void QGIPrimPath::hoverLeaveEvent(QGraphicsSceneHoverEvent *event)
 {
+    QGIView::unpreselectItem(this);
     setPreselect(false);
     inherited::hoverLeaveEvent(event);
 }

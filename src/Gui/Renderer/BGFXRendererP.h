@@ -4411,36 +4411,31 @@ inline void setDrawTransform(const Render::DrawCall &draw,
                 row[3] = 0.0f;
             }
             if (entry.datumFlip && viewMatrix) {
-                // Keep the glyph in its dimension plane but mirror its local
-                // X/Y so the number reads upright from the current viewpoint —
-                // a per-frame port of SoDatumLabel::GLRender's projected-axis +
-                // backfacing test. Row 0/1 of m are the glyph's local X/Y axes
-                // in world space; project them onto the view axes to see which
-                // way they point on screen (row-vector: dir_view = dir_world*V).
+                // Keep the glyph in its plane but mirror its local X/Y so it
+                // reads upright from the current viewpoint, per frame. Rows 0/1
+                // of m are its local X/Y; dir_view = dir_world*V.
+                // A copy of SoAutoZoomTranslation::datumFlips (the renderer
+                // does not link Gui): the screen decides. X reads to the right,
+                // or upwards on end (from 80 deg below the screen's x to 100
+                // above: the cut off the vertical); Y then lies to its left on
+                // the screen, so the glyph is never mirrored. Edge on, Y just
+                // points up.
                 const float *V = viewMatrix;
-                const float projX = m[0]*V[0] + m[1]*V[4] + m[2]*V[8];   // screen-x of local +X
-                const float projY = m[4]*V[1] + m[5]*V[5] + m[6]*V[9];   // screen-y of local +Y
-                // reflection in the model matrix inverts the decision
-                const float det =
-                    m[0]*(m[5]*m[10] - m[6]*m[9])
-                  - m[1]*(m[4]*m[10] - m[6]*m[8])
-                  + m[2]*(m[4]*m[9]  - m[5]*m[8]);
-                const float margin = det < 0.f ? -1e-3f : 1e-3f;
-                float xfactor = (-2.0f*projX < margin) ? 0.5f : -0.5f;
-                float yfactor = (-2.0f*projY < margin) ? 0.5f : -0.5f;
-                // backfacing: does the plane normal point away from the camera?
-                // camera "toward viewer" world axis = view-matrix z column.
-                const float *N = entry.normal;
-                const float ndotz = N[0]*V[2] + N[1]*V[6] + N[2]*V[10];
-                const bool backfacing = ndotz < 0.f;
-                bool flip = backfacing ? (xfactor*yfactor > 0.f)
-                                       : (xfactor*yfactor < 0.f);
-                if (det < 0.f)
-                    flip = !flip;
-                if (flip)
-                    xfactor = -xfactor;
-                if (xfactor < 0.f) { m[0] = -m[0]; m[1] = -m[1]; m[2] = -m[2]; }
-                if (yfactor < 0.f) { m[4] = -m[4]; m[5] = -m[5]; m[6] = -m[6]; }
+                const float x0 = m[0]*V[0] + m[1]*V[4] + m[2]*V[8];
+                const float x1 = m[0]*V[1] + m[1]*V[5] + m[2]*V[9];
+                const float y0 = m[4]*V[0] + m[5]*V[4] + m[6]*V[8];
+                const float y1 = m[4]*V[1] + m[5]*V[5] + m[6]*V[9];
+                const float lx = std::sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
+                const float ly = std::sqrt(m[4]*m[4] + m[5]*m[5] + m[6]*m[6]);
+                const float ey = 1e-3f*ly;
+                const bool flipX = x0*0.98480775f + x1*0.17364818f < 0.f;
+                const float sx0 = flipX ? -x0 : x0, sx1 = flipX ? -x1 : x1;
+                const float cross = sx0*y1 - sx1*y0;
+                const bool flipY = std::fabs(cross) > 1e-3f*lx*ly
+                    ? cross < 0.f
+                    : (y1 < -ey || (y1 <= ey && y0 > ey));
+                if (flipX) { m[0] = -m[0]; m[1] = -m[1]; m[2] = -m[2]; }
+                if (flipY) { m[4] = -m[4]; m[5] = -m[5]; m[6] = -m[6]; }
             }
         }
         m[15] = 1.0f;  // the translation row m[12..14] stays
@@ -4765,6 +4760,11 @@ public:
                             // an unblurred tint edge would stay hard
                             // inside the smoothed penumbra) ...
         ViewShadowTintBlurV, // ... and vertical back into the tint map
+        ViewShadowNear,     // the light window depth of the NEAREST
+                            // translucent or glass caster, per texel
+                            // (cleared to 0): a receiver takes the tint
+                            // only behind it, so a translucent part does
+                            // not shade itself nor what stands on it
         ViewBulbShadow0,    // shadow-map tiles of shadow-casting
         ViewBulbShadow1,    // light-source bodies (Render_LightShadow):
         ViewBulbShadow2,    // plain VSM moments of a wide downward
@@ -4781,6 +4781,41 @@ public:
         ViewBulbShadow13,
         ViewBulbShadow14,
         ViewBulbShadow15,
+        ViewBulbTint0,   // per tile, what translucent and glass casters
+                            // let through of the bulb's light (cleared to
+                            // white), against the tile's moments depth
+        ViewBulbTint1,
+        ViewBulbTint2,
+        ViewBulbTint3,
+        ViewBulbTint4,
+        ViewBulbTint5,
+        ViewBulbTint6,
+        ViewBulbTint7,
+        ViewBulbTint8,
+        ViewBulbTint9,
+        ViewBulbTint10,
+        ViewBulbTint11,
+        ViewBulbTint12,
+        ViewBulbTint13,
+        ViewBulbTint14,
+        ViewBulbTint15,
+        ViewBulbNear0,   // per tile, the nearest translucent caster's
+                            // depth (cleared to 0): the tint only behind it
+        ViewBulbNear1,
+        ViewBulbNear2,
+        ViewBulbNear3,
+        ViewBulbNear4,
+        ViewBulbNear5,
+        ViewBulbNear6,
+        ViewBulbNear7,
+        ViewBulbNear8,
+        ViewBulbNear9,
+        ViewBulbNear10,
+        ViewBulbNear11,
+        ViewBulbNear12,
+        ViewBulbNear13,
+        ViewBulbNear14,
+        ViewBulbNear15,
         ViewAOPrepass,      // SSAO depth+normal prepass of opaque scene
                             // triangles into a non-MSAA RGBA16F target
                             // (own framebuffer, own depth)
@@ -5340,6 +5375,8 @@ public:
         fn(bloomFbo, LifeSized);
         fn(bloomBlurFbo, LifeSized);
         fn(bulbShadowFbo, LifeSized);
+        fn(bulbTintFbo, LifeSized);
+        fn(bulbNearFbo, LifeSized);
         fn(waterFrontFbo, LifeSized);
         fn(waterBackFbo, LifeSized);
         fn(glassFrontFbo, LifeSized);
@@ -5361,6 +5398,9 @@ public:
         fn(bloomBlurTex, LifeSized);
         fn(bulbShadowTex, LifeProgram);
         fn(bulbShadowDepth, LifeProgram);
+        fn(bulbTintTex, LifeProgram);
+        fn(bulbNearTex, LifeProgram);
+        fn(bulbNearDepth, LifeProgram);
         fn(waterFrontTex, LifeSized);
         fn(waterBackTex, LifeSized);
         fn(waterFrontDepth, LifeSized);
@@ -5466,18 +5506,23 @@ public:
         fn(shadowTintFbo, LifeSized);
         fn(shadowTintBlurFbo, LifeSized);
         fn(shadowTintBlurBackFbo, LifeSized);
+        fn(shadowNearFbo, LifeSized);
         fn(shadowTex, LifeSized);
         fn(shadowDepth, LifeSized);
         fn(shadowBlurTex, LifeSized);
         fn(shadowTintTex, LifeSized);
         fn(shadowTintBlurTex, LifeSized);
+        fn(shadowNearTex, LifeSized);
+        fn(shadowNearDepth, LifeSized);
         fn(m_progShadow, LifeProgram);
         fn(m_progShadowClip, LifeProgram);
         fn(m_progShadowInst, LifeProgram);
         fn(m_progShadowBlur, LifeProgram);
         fn(m_progShadowTint, LifeProgram);
+        fn(m_progShadowTintClip, LifeProgram);
         fn(s_texShadow, LifeProgram);
         fn(s_texShadowTint, LifeProgram);
+        fn(s_texShadowNear, LifeProgram);
         fn(s_texAOScreen, LifeProgram);
         fn(u_debugParams, LifeProgram);
         fn(s_texDebugScene, LifeProgram);
@@ -5500,6 +5545,8 @@ public:
         fn(u_bloomBlur, LifeProgram);
         fn(u_sunParams, LifeProgram);
         fn(s_texBulbShadow, LifeProgram);
+        fn(s_texBulbTint, LifeProgram);
+        fn(s_texBulbNear, LifeProgram);
         fn(u_bulbShadowMtx, LifeProgram);
         fn(u_bulbShadowConf, LifeProgram);
         fn(u_bulbShadowRot, LifeProgram);
@@ -6522,11 +6569,26 @@ public:
     /// Render a caster into one bulb shadow atlas tile (plain VSM
     /// moments — the tiles skip the smooth-border blur).
     void submitBulbShadowCaster(const Render::DrawCall &draw, int tile);
+    /// A translucent or glass caster into a bulb tile's tint and near
+    /// maps, as submitShadowTint() and submitShadowNear() for the scene
+    /// light.
+    void submitBulbShadowTint(const Render::DrawCall &draw, int tile, bool translucent);
+    void submitBulbShadowNear(const Render::DrawCall &draw, int tile);
+    /// The two above into a pass of either light.
+    void submitTintTo(const Render::DrawCall &draw, bool translucent, int pass);
+    void submitNearTo(const Render::DrawCall &draw, int pass);
 
     /// Render a glass caster's light transmittance into the shadow
     /// tint map (multiplicative onto the white-cleared target; front
     /// faces only so one glass body multiplies once, no depth).
-    void submitShadowTint(const Render::DrawCall &draw);
+    /// A glass caster's, or a translucent one's: what it lets through
+    /// of the light, multiplied into the tint map; a translucent part
+    /// (\a translucent) lets (1 - opacity) x mix(white, its colour,
+    /// opacity) through. Depth-tested against the opaque casters, so a
+    /// part behind one as the light sees it casts nothing.
+    void submitShadowTint(const Render::DrawCall &draw, bool translucent = false);
+    /// Its depth into the near map (ViewShadowNear).
+    void submitShadowNear(const Render::DrawCall &draw);
 
     /// Separable gaussian blur of the shadow moments (the Shadow draw
     /// style's SmoothBorder, 0..100): horizontal into the ping texture,
@@ -7450,6 +7512,7 @@ public:
             case ViewOutline: return "outline";
             case ViewShadow: return "shadow";
             case ViewShadowTint: return "shadowtint";
+            case ViewShadowNear: return "shadownear";
             case ViewAOPrepass: return "aoprepass";
             case ViewAOGen: return "aogen";
             case ViewAOBlur: return "aoblur";
@@ -7471,6 +7534,10 @@ public:
             }
             if (p >= ViewBulbShadow0 && p <= ViewBulbShadow15)
                 return "bulbshadow" + std::to_string(p - ViewBulbShadow0);
+            if (p >= ViewBulbTint0 && p <= ViewBulbTint15)
+                return "bulbtint" + std::to_string(p - ViewBulbTint0);
+            if (p >= ViewBulbNear0 && p <= ViewBulbNear15)
+                return "bulbnear" + std::to_string(p - ViewBulbNear0);
             if (p < 0)
                 return "unmarked";
             return "pass" + std::to_string(p);
@@ -7907,7 +7974,14 @@ public:
     bgfx::FrameBufferHandle shadowTintBlurFbo = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle shadowTintBlurBackFbo = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle m_progShadowTint = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle m_progShadowTintClip = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_texShadowTint = BGFX_INVALID_HANDLE;
+    // The nearest translucent caster's light window depth (.x), the
+    // moments' format, its own depth buffer.
+    bgfx::TextureHandle shadowNearTex = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle shadowNearDepth = BGFX_INVALID_HANDLE;
+    bgfx::FrameBufferHandle shadowNearFbo = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texShadowNear = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle shadowDepth = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle shadowFbo = BGFX_INVALID_HANDLE;
     // ShadowSmoothBorder blur ping texture and the two color-only
@@ -8073,6 +8147,17 @@ public:
     bgfx::TextureHandle bulbShadowDepth = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle bulbShadowFbo = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_texBulbShadow = BGFX_INVALID_HANDLE;
+    /// The scene light's tint and near maps, for the bulbs: an atlas of
+    /// what translucent and glass casters let through (RGBA8, white,
+    /// over the moments' depth) and one of the nearest such caster's
+    /// depth, the tiles where the moments' are.
+    bgfx::TextureHandle bulbTintTex = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle bulbNearTex = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle bulbNearDepth = BGFX_INVALID_HANDLE;
+    bgfx::FrameBufferHandle bulbTintFbo = BGFX_INVALID_HANDLE;
+    bgfx::FrameBufferHandle bulbNearFbo = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texBulbTint = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle s_texBulbNear = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_bulbShadowMtx = BGFX_INVALID_HANDLE;
     /// Camera-view-space -> atlas uv/depth per tile, refreshed every
     /// frame (the camera moves); identity-w row zeroed when inactive.
@@ -8488,6 +8573,7 @@ public:
     X(volHistTex) X(volHistFrontTex) X(volAccumFrames) \
     X(bloomFbo) X(bloomBlurFbo) X(bloomTex) X(bloomBlurTex) \
     X(bulbShadowFbo) X(bulbShadowValid) X(bulbShadowHash) \
+    X(bulbTintFbo) X(bulbNearFbo) \
     X(waterFrontFbo) X(waterBackFbo) X(glassFrontFbo) X(glassBackFbo) \
     X(cloudFrontFbo) X(cloudBackFbo) X(fireFrontFbo) X(fireBackFbo) \
     X(waterFrontTex) X(waterBackTex) X(waterFrontDepth) X(waterBackDepth) \
@@ -8503,6 +8589,7 @@ public:
     X(shadowBlurTex) X(shadowBlurFbo) X(shadowBlurBackFbo) \
     X(shadowTintTex) X(shadowTintFbo) X(shadowTintBlurTex) \
     X(shadowTintBlurFbo) X(shadowTintBlurBackFbo) X(shadowMapHash) \
+    X(shadowNearTex) X(shadowNearDepth) X(shadowNearFbo) \
     X(m_lineQuadVb) X(m_lineQuadIb) \
     X(camFrameHash) X(warmup) X(targetsFailed) \
     X(effectFailed) X(glassSeen)

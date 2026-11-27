@@ -59,6 +59,19 @@ from AssemblyTests.TestAsm3Bundle import TestAsm3Bundle
 from AssemblyTests.TestElementJoint import TestElementJoint
 from AssemblyTests.TestMigrateJoints import TestMigrateJoints
 from AssemblyTests.TestMigrateTwins import TestMigrateTwins
+from AssemblyTests.TestExplodedView import (
+    TestExplodedView,
+    TestExplodedViewShown,
+    TestExplodedViewInTree,
+    TestExplodeTrack,
+    TestExplodedViewAnimate,
+    TestExplodedShape,
+    TestExplodedViewDrawn,
+    TestExplodedViewAtSteps,
+    TestExplodedViewRedrawn,
+    TestExplodedViewBalloons,
+    TestAutoExplode,
+)
 from AssemblyTests.TestAssemblyGroups import TestAssemblyGroups
 from AssemblyTests.TestInterference import (
     TestDragCollision,
@@ -122,6 +135,17 @@ True if TestAsm3Bundle else False
 True if TestElementJoint else False
 True if TestMigrateJoints else False
 True if TestMigrateTwins else False
+True if TestExplodedView else False
+True if TestExplodedViewShown else False
+True if TestExplodedViewInTree else False
+True if TestExplodeTrack else False
+True if TestExplodedViewAnimate else False
+True if TestExplodedShape else False
+True if TestExplodedViewDrawn else False
+True if TestExplodedViewAtSteps else False
+True if TestExplodedViewRedrawn else False
+True if TestExplodedViewBalloons else False
+True if TestAutoExplode else False
 True if TestAssemblyGroups else False
 True if TestInterference else False
 True if TestInterferenceOverFrames else False

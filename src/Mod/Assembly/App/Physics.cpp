@@ -644,7 +644,11 @@ Bushing::Bushing()
 
 PROPERTY_SOURCE(Assembly::ContactSet, Assembly::PhysicsItem)
 
-const char* ContactSet::StiffnessFromEnums[] = {"Materials", "Value", "Penetration", nullptr};
+const char* ContactSet::StiffnessFromEnums[] = {"Materials",
+                                                "Value",
+                                                "Penetration",
+                                                "Pressure",
+                                                nullptr};
 const char* ContactSet::RadiusFromEnums[] = {"Patch", "Part", nullptr};
 const char* ContactSet::DampingFromEnums[] = {"Restitution", "Value", nullptr};
 const char* ContactSet::FrictionFromEnums[] = {"Materials", "Value", nullptr};
@@ -670,7 +674,11 @@ ContactSet::ContactSet()
                       "Materials: Hertz's law from the components' materials, a stiffness of "
                       "4/3 E* R^0.5 and an exponent of 1.5.\nValue: Stiffness and Exponent as "
                       "given.\nPenetration: the stiffness at which the lighter part of each "
-                      "pair sinks AllowedPenetration under its weight, at Exponent.");
+                      "pair sinks AllowedPenetration under its weight, at Exponent.\nPressure: "
+                      "Stiffness a pressure per depth^Exponent, in N/mm^(Exponent + 2), over "
+                      "the area where the components overlap -- a ball's force grows as the "
+                      "depth^(Exponent + 1), a cylinder's along its side as the "
+                      "depth^(Exponent + 0.5), a flat face's with its area.");
     StiffnessFrom.setEnums(StiffnessFromEnums);
     ADD_PROPERTY_TYPE(AllowedPenetration,
                       (0.01),
@@ -1100,7 +1108,9 @@ FlexibleBody::FlexibleBody()
                       App::Prop_None,
                       "How many times its bending is drawn over a run's frames, 1 as it is; "
                       "0: what shows it, its largest a tenth of the part's size, or as it is "
-                      "where that is a twentieth or more");
+                      "where that is a twentieth or more, or where the run presses it on something. "
+                      "Scaled, it is drawn held at its joint and where it is pressed, its "
+                      "bending between them scaled");
     static const App::PropertyFloatConstraint::Constraints drawn = {0.0, 1.0e6, 1.0};
     BendingScale.setConstraints(&drawn);
 

@@ -170,6 +170,50 @@ then the command as plain arguments, not as one quoted string.
 A single module instead of everything: `FreeCADCmd -t TestPartApp`, or from
 the Python console `import Test; Test.runTestApp()`.
 
+#### Python, split by module
+
+    scripts/pytest-split.sh
+
+runs every module of `FreeCAD.__unit_test__` in a `FreeCADCmd` of its own,
+six at a time, each with its own profile and temporary directory, and
+prints a line per module and the totals (`--help` has the options; module
+names as arguments run only those). Measured 2026-11-13 on this box (20
+cores): 150 s for the 358 s of `-t 0`, and the same 4388 tests, 53 skipped,
+6 expected failures. The longest modules set the time: `TestPartDesignApp`
+137 s, `Document` 68 s, `TestPartApp` 59 s.
+
+**Why it exists: `-t 0` under an address-space limit dies, and not on a
+test.** One process running everything reserves 16.8 GB of address space
+and uses 1.1 to 1.6 GB of it. What is reserved, at 15.2 GB:
+
+| | reserved | why |
+|---|---|---|
+| glibc malloc arenas | 5.6 GB | 90 arenas of 64 MB, one per thread; about 110 threads, from pools sized to the cores (OpenBLAS 19 on `import numpy`, OCCT 15, Qt 19, libgomp 19, V8 15, Python 21) |
+| V8 | 4.8 GB | the expression sandbox (Pyodide on V8): a 4 GB wasm memory reservation and a 512 MB code range |
+| OpenBLAS | 2.5 GB | 20 buffers of 128 MB |
+| thread stacks | 0.9 GB | |
+| libraries | 0.6 GB | |
+
+Under `ulimit -v 16000000` the run gets to its last modules and then a
+thread cannot be created: "terminate called without an active exception"
+out of `App::Document::saveToFile`, which reads like a crash in the test
+that happened to be saving. It is the limit. Three ways round it, any one
+of which is enough:
+
+- no limit, or one of 32 GB;
+- `MALLOC_ARENA_MAX=8 OPENBLAS_NUM_THREADS=1` in the environment, with
+  which the same single process peaks at 7.65 GB in the same time;
+- the split, which sets those two and gives each process 8 GB
+  (`--cap`).
+
+Two things the split has to get right, both of which cost a wrong answer
+when they were missed: each process needs its own `FREECAD_USER_HOME`
+*and* its own `TMPDIR`, because tests save documents under fixed names;
+and the expression sandbox's guest lives in the profile, so a scratch
+profile without it skips 29 sandbox tests ("no sandbox guest in this
+build") -- the script links the user's `Pyodide` directory into each
+profile.
+
 #### Audit the Python environment first, on a new box
 
 A green `ctest` says nothing about the Python side: `FreeCADCmd` links no
@@ -1256,6 +1300,50 @@ hidden desktop takes real input: QTest events reach the widgets, the system
 pointer and `SetCursorPos` do not, and a modal box nobody sweeps waits for
 the guard's timeout. `GT_DESKTOP=screen` puts the window on the user's
 screen; `GT_DESKTOP=offscreen` is for a test that needs no pixels.
+Nor can the screen be read there (2026-11-24): nothing is composed for a
+window on a desktop not on display, and `QScreen::grabWindow()`, `BitBlt`
+from its DC and `PrintWindow` all hand out the pixels of the desktop that
+is -- the user's own screen, title bar aside. A widget's `grab()` and a
+view's `saveRenderDump` are unaffected. A test that reads the screen has
+to check that the screen shows its window, as
+`view-cell-close-keeps-the-picture.py` does with the menu bar, and say
+SKIP where it does not; that one had passed and failed on what the user
+had open. On the user's screen (`GT_DESKTOP=screen`) the guard makes the
+main window topmost, as Windows will not let it come to the front. And
+the display has to be awake: with the monitor asleep a screen read sees a
+window that holds a `QOpenGLWidget` -- all of it, Qt draws such a window
+with GL -- as a flat grey (8d8d8d), a bare PySide window as much as
+FreeCAD, while a window without one still reads as drawn. A 1 px
+`SendInput` mouse nudge wakes it; awake, `view-cell-close-keeps-the-picture.py`
+passes on the screen.
+
+**A Windows run is shaped like the xvfb one** (2026-11-24): the tests count
+pixels, pick and measure widgets against `gui-test.sh`'s screen, and a
+wide high-DPI monitor is not that screen. `gui-test.cmd` sets
+`QT_ENABLE_HIGHDPI_SCALING=0` (device pixel ratio 1) and `QT_FONT_DPI=96`
+(a point is the pixels it is on xvfb, not 1.25 of them at 125% scaling: a
+spin box's fitted minimum came out at 87 px where the test wants below
+80), and `gui-test-guard.py` gives the main window a maximum size of
+1280x1024 (`GT_SCREEN=WxH` another size, `GT_SCREEN=full` the monitor):
+maximized on a 5120x1440 monitor a 3D view is 4700x930, and a sketch
+marker measured 12x17 where it is 7. A maximum size and not a restored
+window, because Windows keeps a maximized window within it: a test that
+maximizes has a maximized window, with its own restore rect. A test that
+sizes the window past the bound itself gets that size, as X gives it
+past the screen; a maximize after that is not bounded again. Changing
+the window state from the guard behind a test's back was tried and broke
+three tests (a restore rect, a dialog, a layout). Together these took a
+5120x1440, 125% box from 13 failures a 1080p box does not have to 2,
+counting the 3D-view `grab()` fix (`Gui: a 3D view's grab() draws the
+frame it reads back`) for the ones that failed only on NVIDIA. The last
+two were the Windows 11 style, not the screen: its header sections are
+filled with a translucent white, which showed a section the sticky
+element title was drawn over (`PD: the sticky element title is not
+drawn over the section under it`), and its frames are 2 px, which moved
+the backend hatch test's strip onto an outline (`tests: the backend
+hatch test reads its strip where the view draws it`). A test that maps
+scene or widget points into a `grab()` of a scroll area takes the
+viewport's offset in it, which is the style's frame width.
 
 Before the driver, a test was run by hand under cdb, which is still the
 way to catch a crash's stack:
@@ -1695,6 +1783,20 @@ upstream's rewrite.**
 
 The expected failures are all in `CAMTests.TestOpenSBPPost` and the
 post-processor sanity checks.
+
+**One skip is ours, and it hides a suite.** `PMITests.TestStep.TestNistSet` -- 18 of the PMI
+module's STEP tests, the only coverage of reading and writing depths, composite frames, fits,
+datum targets, tolerances per unit, supplemental geometry and placeholder graphics -- is one
+skipped class unless `FC_PMI_NIST` names a folder holding NIST's PMI test files (the
+`NIST-PMI-STEP-Files` folder of the MBE PMI Validation and Conformance Testing download, 17
+files). A green run without it has tested none of that. The suites use NIST's February 2026
+update, the one SFA ships (`Release/NIST-PMI-STEP-Files.zip` of github.com/usnistgov/SFA;
+CTC-01, CTC-04, FTC-08's -e4-tg, FTC-11 and STC-09 newer than the 2021 download's); the tests
+find a file of either edition:
+
+```
+FC_PMI_NIST=$HOME/works/sw/pmi-data/sfa-2026-02/NIST-PMI-STEP-Files ./bin/FreeCADCmd -t TestPMIApp
+```
 
 ### On another OCCT than the fork (2026-10-15)
 

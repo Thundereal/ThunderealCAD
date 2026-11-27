@@ -22,9 +22,14 @@
 
 #include "PreCompiled.h"
 #ifndef _PreComp_
+# include <algorithm>
 # include <cmath>
+# include <QListWidget>
 # include <QMessageBox>
+# include <QTimer>
 #endif // #ifndef _PreComp_
+
+#include <Base/Console.h>
 
 #include <App/Document.h>
 #include <Gui/BitmapFactory.h>
@@ -137,10 +142,195 @@ TaskDimension::TaskDimension(QGIViewDimension *parent, ViewProviderDimension *di
     connect(ui->pbExtUseDefault, &QPushButton::clicked, this, &TaskDimension::onExtUseDefaultClicked);
     connect(ui->pbExtUseSelection, &QPushButton::clicked, this, &TaskDimension::onExtUseSelectionClicked);
 
+    // References
+    connect(ui->pbReattach, &QPushButton::toggled, this, &TaskDimension::onReattachToggled);
+    fillReferences();
+    showMessage();
+
     if (!m_steps->isOn()) {
         Gui::Document* doc = m_dimensionVP->getDocument();
         doc->openCommand("TaskDimension");
     }
+    // once the edit is up, so the change is the edit's: its step, or in the
+    // transaction it holds
+    QTimer::singleShot(0, this, [this]() { takeByName(); });
+}
+
+TechDraw::DrawViewDimension* TaskDimension::getDim() const
+{
+    return m_dimensionVP
+        ? dynamic_cast<TechDraw::DrawViewDimension*>(m_dimensionVP->getObject())
+        : nullptr;
+}
+
+void TaskDimension::takeByName()
+{
+    auto dim = getDim();
+    if (!dim || dim->findByName().empty()) {
+        return;
+    }
+    if (m_steps->isOn()) {
+        m_steps->step();
+    }
+    m_refound = dim->repointByName();
+    if (m_refound.empty()) {
+        return;
+    }
+    for (auto& found : m_refound) {
+        Base::Console().Warning("%s: reference %s taken by its name, now %s; check it, then OK "
+                                "keeps it, Cancel leaves the reference as it was\n",
+                                dim->Label.getValue(), found.was.c_str(), found.now.c_str());
+    }
+    recomputeFeature();
+}
+
+void TaskDimension::fillReferences()
+{
+    auto dim = getDim();
+    if (!dim) {
+        return;
+    }
+    const int current = ui->lwReferences->currentRow();
+    ui->lwReferences->clear();
+    const std::vector<std::string> subs = dim->References2D.getSubValues();
+    for (size_t i = 0; i < subs.size(); i++) {
+        if (subs[i].empty()) {
+            continue;
+        }
+        auto item = new QListWidgetItem(QString::fromStdString(subs[i]), ui->lwReferences);
+        item->setData(Qt::UserRole, int(i));
+        for (auto& found : m_refound) {
+            if (found.index == int(i) && found.now == subs[i]) {
+                item->setForeground(QColor(0xb0, 0x70, 0x00));
+                item->setToolTip(tr("Was %1: found again by its name when this panel opened. "
+                                    "OK keeps it, Cancel leaves the reference as it was.")
+                                     .arg(QString::fromStdString(found.was)));
+            }
+        }
+    }
+    // 3D references are listed, not reattached here: they are picked in the
+    // model's view (TechDraw_DimensionRepair)
+    const std::vector<App::DocumentObject*> objs = dim->References3D.getValues();
+    const std::vector<std::string> subs3d = dim->References3D.getSubValues();
+    for (size_t i = 0; i < objs.size() && i < subs3d.size(); i++) {
+        if (!objs[i]) {
+            continue;
+        }
+        auto item = new QListWidgetItem(
+            QStringLiteral("%1: %2").arg(QString::fromUtf8(objs[i]->Label.getValue()),
+                                         QString::fromStdString(subs3d[i])),
+            ui->lwReferences);
+        item->setFlags(item->flags() & ~(Qt::ItemIsSelectable | Qt::ItemIsEnabled));
+        item->setToolTip(tr("A 3D reference: change it with Repair Dimension"));
+    }
+    if (current >= 0 && current < ui->lwReferences->count()) {
+        ui->lwReferences->setCurrentRow(current);
+    }
+    else if (!m_refound.empty()) {
+        // the one taken by name, ready for Reattach
+        for (int row = 0; row < ui->lwReferences->count(); row++) {
+            if (ui->lwReferences->item(row)->data(Qt::UserRole).toInt()
+                == m_refound.front().index) {
+                ui->lwReferences->setCurrentRow(row);
+                break;
+            }
+        }
+    }
+}
+
+void TaskDimension::showMessage()
+{
+    auto dim = getDim();
+    QString text;
+    if (dim && dim->isError()) {
+        const char* status = dim->getStatusString();
+        text = QStringLiteral("<font color='red'>%1<br/>%2</font>")
+                   .arg(tr("Recompute failed"),
+                        QString::fromUtf8(status ? status : "").toHtmlEscaped());
+    }
+    if (!m_refound.empty()) {
+        QStringList said;
+        for (auto& found : m_refound) {
+            said << tr("%1 is now %2").arg(QString::fromStdString(found.was),
+                                           QString::fromStdString(found.now));
+        }
+        QString note = tr("Found again by name: %1. Its geometry is not what the reference was "
+                          "made on: check it, then OK keeps it, Cancel leaves the reference as "
+                          "it was, or Reattach puts it on another element.")
+                           .arg(said.join(QStringLiteral("; ")));
+        if (!text.isEmpty()) {
+            text += QStringLiteral("<br/>");
+        }
+        text += QStringLiteral("<font color='#b07000'>%1</font>").arg(note.toHtmlEscaped());
+    }
+    ui->lMessage->setText(text);
+    ui->lMessage->setVisible(!text.isEmpty());
+}
+
+void TaskDimension::onReattachToggled(bool checked)
+{
+    if (checked) {
+        auto item = ui->lwReferences->currentItem();
+        if (!item || !(item->flags() & Qt::ItemIsEnabled)) {
+            QSignalBlocker block(ui->pbReattach);
+            ui->pbReattach->setChecked(false);
+            QMessageBox::warning(Gui::getMainWindow(), tr("No reference selected"),
+                                 tr("Select the reference to reattach first."));
+            return;
+        }
+        // the next element picked is the one taken
+        Gui::Selection().clearSelection();
+    }
+}
+
+void TaskDimension::onSelectionChanged(const Gui::SelectionChanges& msg)
+{
+    if (msg.Type != Gui::SelectionChanges::AddSelection || !ui->pbReattach->isChecked()) {
+        return;
+    }
+    auto dim = getDim();
+    auto item = ui->lwReferences->currentItem();
+    if (!dim || !item || !msg.pObjectName || !msg.pSubName) {
+        return;
+    }
+    TechDraw::DrawViewPart* dvp = dim->getViewPart();
+    std::string sub(msg.pSubName);
+    std::string::size_type dot = sub.rfind('.');
+    if (dot != std::string::npos) {
+        sub = sub.substr(dot + 1);
+    }
+    const std::string kind = DrawUtil::getGeomTypeFromName(sub);
+    if (!dvp || dvp->getDocument() != dim->getDocument()
+        || std::string(msg.pDocName ? msg.pDocName : "") != dim->getDocument()->getName()
+        || std::string(msg.pObjectName) != dvp->getNameInDocument()
+        || (kind != "Edge" && kind != "Vertex")) {
+        // not an element of the dimension's view: wait for one
+        return;
+    }
+    const int index = item->data(Qt::UserRole).toInt();
+    TechDraw::ReferenceVector refs = dim->getReferences2d();
+    if (index < 0 || index >= int(refs.size())) {
+        return;
+    }
+    {
+        QSignalBlocker block(ui->pbReattach);
+        ui->pbReattach->setChecked(false);
+    }
+    if (refs.at(index).getSubName() == sub) {
+        return;
+    }
+    if (m_steps->isOn()) {
+        m_steps->step();
+    }
+    refs.at(index).setSubName(sub);
+    dim->setReferences2d(refs);
+    // what was taken by name is settled for this one
+    m_refound.erase(std::remove_if(m_refound.begin(), m_refound.end(),
+                                   [index](const TechDraw::DrawViewDimension::NameMatch& m) {
+                                       return m.index == index;
+                                   }),
+                    m_refound.end());
+    recomputeFeature();
 }
 
 TaskDimension::~TaskDimension()
@@ -192,6 +382,8 @@ void TaskDimension::recomputeFeature()
     App::DocumentObject* objVP = m_dimensionVP->getObject();
     assert(objVP);
     objVP->getDocument()->recomputeFeature(objVP);
+    fillReferences();
+    showMessage();
 }
 
 void TaskDimension::onTheoreticallyExactChanged()

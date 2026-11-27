@@ -86,6 +86,8 @@ TopTools_ListOfShape Part::FaceMakerBuildFace::splitSelfIntersecting(
 )
 {
     const Standard_Real tol = Precision::Confusion();
+    // how near the curve a point of its own intersection is
+    const Standard_Real onCurve = 100.0 * Precision::Confusion();
     TopTools_ListOfShape result;
 
     for (TopTools_ListIteratorOfListOfShape it(edges); it.More(); it.Next()) {
@@ -112,6 +114,15 @@ TopTools_ListOfShape Part::FaceMakerBuildFace::splitSelfIntersecting(
             for (int i = 1; i <= selfInt.NbPoints(); i++) {
                 Geom2dAPI_ProjectPointOnCurve proj(selfInt.Point(i), curve2d, first, last);
                 for (int j = 1; j <= proj.NbPoints(); j++) {
+                    // Only where the curve passes through the point. The
+                    // projection also gives the foot of every other normal
+                    // from the point to the curve, and a closed curve meets
+                    // itself at its seam: an oval that crosses nowhere was
+                    // cut in two at the foot opposite its seam, and a figure
+                    // of eight in eight.
+                    if (proj.Distance(j) > onCurve) {
+                        continue;
+                    }
                     Standard_Real p = proj.Parameter(j);
                     if (p - first > tol && last - p > tol) {
                         params.push_back(p);
@@ -133,11 +144,26 @@ TopTools_ListOfShape Part::FaceMakerBuildFace::splitSelfIntersecting(
             );
             Standard_Real prev = first;
             TopTools_ListOfShape fragments;
+            // A piece is known no better than the edge it is cut from: an
+            // edge that says how far it may be from what it stands for (a
+            // sketch's simplified reference curve, realthunder/FreeCAD#617)
+            // must not come out of the split at the default 1e-7.
+            auto piece = [&fragments, &edge](const TopoDS_Edge& made) {
+                const double edgeTol = BRep_Tool::Tolerance(edge);
+                if (edgeTol > BRep_Tool::Tolerance(made)) {
+                    BRep_Builder builder;
+                    builder.UpdateEdge(made, edgeTol);
+                    for (TopExp_Explorer exp(made, TopAbs_VERTEX); exp.More(); exp.Next()) {
+                        builder.UpdateVertex(TopoDS::Vertex(exp.Current()), edgeTol);
+                    }
+                }
+                fragments.Append(made);
+            };
             for (Standard_Real p : params) {
                 if (p - prev > tol) {
                     BRepBuilderAPI_MakeEdge me(curve, prev, p);
                     if (me.IsDone()) {
-                        fragments.Append(me.Edge());
+                        piece(me.Edge());
                     }
                     prev = p;
                 }
@@ -145,7 +171,7 @@ TopTools_ListOfShape Part::FaceMakerBuildFace::splitSelfIntersecting(
             if (last - prev > tol) {
                 BRepBuilderAPI_MakeEdge me(curve, prev, last);
                 if (me.IsDone()) {
-                    fragments.Append(me.Edge());
+                    piece(me.Edge());
                 }
             }
             if (fragments.Size() > 0) {

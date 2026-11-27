@@ -51,6 +51,23 @@ class TopoShape;
 namespace Import
 {
 
+/** What an export pass is given (ExportOCAF2::addPostExport): the XCAF
+ * document as exportObjects() has filled it, before a writer writes it, and
+ * the label each object exported went to. The PMI module adds its GD&T here
+ * (docs/GDandT.md sec 5.2), as it reads a file's after an import
+ * (PostImport).
+ */
+struct ImportExport PostExport
+{
+    Handle(TDocStd_Document) hDoc;
+    /// The objects exported, every one with a label: the containers' and
+    /// what they hold, and what links stand for
+    std::vector<App::DocumentObject*> objects;
+    /// The label \a obj went to -- an assembly component, or the shape --
+    /// or a null label
+    std::function<TDF_Label(App::DocumentObject*)> labelOf;
+};
+
 struct ImportExport ExportOCAFOptions
 {
     ExportOCAFOptions();
@@ -130,6 +147,37 @@ public:
     void exportObjects(std::vector<App::DocumentObject*>& objs, const char* name = nullptr);
     bool canFallback(std::vector<App::DocumentObject*> objs);
 
+    /** Run \a pass at the end of every exportObjects(), replacing the one
+     * of that name: it adds to the document what a module of its own
+     * makes of the objects exported (the PMI module, their GD&T)
+     */
+    static void addPostExport(const std::string& name,
+                              std::function<void(const PostExport&)> pass);
+
+    /** @name What an object says of how it is written
+     *
+     * Dynamic properties an import gives (the PMI module's, of a STEP file:
+     * docs/GDandT.md sec 10.26), read by exportObjects()
+     */
+    //@{
+    /// An App::Part written as one shape -- one STEP product, each child a
+    /// representation of it -- not as an assembly of its children: a
+    /// PropertyBool of this name, true
+    static constexpr const char* OneShapeProperty = "ExportAsOneShape";
+    /// An object left out of the shapes written, and what it holds: a part's
+    /// supplemental geometry, which the PMI pass writes as such (a group
+    /// with a PropertyBool of this name, true)
+    static constexpr const char* SupplementalProperty = "SupplementalGeometry";
+    /// Whether \a obj is left out (SupplementalProperty)
+    static bool isSupplemental(const App::DocumentObject* obj);
+    /// Whether \a obj is written as one shape (OneShapeProperty)
+    static bool isOneShape(const App::DocumentObject* obj);
+    /// The container an import made of a file's several free shapes (NIST
+    /// FTC-09's four products, of no assembly): written as they were, each a
+    /// free shape, not an assembly of them -- a PropertyBool of this name, true
+    static constexpr const char* FreeShapesProperty = "ExportAsFreeShapes";
+    //@}
+
 private:
     TDF_Label exportObject(App::DocumentObject* obj,
                            const char* sub,
@@ -144,6 +192,8 @@ private:
     void setName(TDF_Label label, App::DocumentObject* obj, const char* name = nullptr);
     void setInvisible(TDF_Label label);
     TDF_Label findComponent(const char* subname, TDF_Label label, TDF_LabelSequence& labels);
+    /// Run the passes added by addPostExport()
+    void runPostExport();
 
 private:
     Handle(TDocStd_Document) pDoc;
@@ -151,6 +201,10 @@ private:
     Handle(XCAFDoc_ColorTool) aColorTool;
 
     std::unordered_map<App::DocumentObject*, TDF_Label> myObjects;
+    /// The children of a container written as one shape (OneShapeProperty): its label
+    std::unordered_map<App::DocumentObject*, TDF_Label> myWithin;
+    /// setupObject() gives an object's own colours only, not its elements'
+    bool myObjectColorsOnly = false;
 
     std::unordered_map<TDF_Label, std::vector<std::string>, LabelHasher> myNames;
 

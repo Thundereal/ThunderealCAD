@@ -159,14 +159,43 @@ PartExport bool setOCCTFilletFaceDepth(BRepFilletAPI_MakeFillet &mkFillet,
 /// or makes only what was refused (an invalid result is refused), is made at
 /// every level and needs none: below the latest, a fillet the level set does
 /// not make, where a correction above it would have made it differently, is
-/// computed again at the latest.
+/// computed again at each level above it in turn, and the first that makes
+/// it is its shape -- whatever levels come after.
 ///  1 -- a chamfer's guide has an end moved to the edge beyond moved over its
 ///       last quarter alone, not bent whole to it: #631's arm, a chamfer of
 ///       0.8 from 0.52 to 1.37 wide along its edge, exact now (the fork's
 ///       tests/fork/fillet/README.md, "A chamfer's guide bent at its other
 ///       end"). Fillets on such edges move by their section planes, up to
 ///       0.008 of volume. An OCCT without it makes level 1 as level 0.
-constexpr int OCCTFilletFixLevelLatest = 1;
+///  2 -- at a corner the surfaces of a fillet or chamfer kept are those at
+///       that end of it: one run on past the other end, starting on an edge
+///       that is beside the filleted one at both its ends (a chord across a
+///       cup's top, the rim beside it filleted), is not taken for the one
+///       at this vertex. It makes the chamfer of such a rim, refused before
+///       (at every level, so), and four fillets at the vertices of
+///       realthunder/FreeCAD#474's coil differently, by 0.2 mm3 of 1830
+///       (the fork's tests/fork/fillet/README.md, "A chamfer of a rim
+///       beside a chord"). An OCCT without it makes level 2 as level 1.
+///  3 -- at a corner of several edges, the line of a fillet or chamfer that
+///       no neighbour crosses and that runs on past the vertex by more than
+///       one and a half times its size is cut at the vertex: a fillet of two
+///       planes is as long as the planes, and its far end was taken for the
+///       corner's reach. It makes the fillets of two edges in one line with
+///       different neighbours, refused before (at every level, so:
+///       realthunder/FreeCAD#962's rail along its teeth), and chamfers of
+///       creases of #273's cup differently, which went on 5.8 past their
+///       end (the fork's tests/fork/fillet/README.md, "Fix level 3"). An
+///       OCCT without it makes level 3 as level 2.
+///  4 -- a fillet whose result is invalid where several of its corners were
+///       closed by a filling patch has each of those corners set back alone
+///       first, and all of them together only where none alone makes it:
+///       set back together, the sound corners lost their shape with the one
+///       at fault. 25 fillets at the vertices of realthunder/FreeCAD#474's
+///       coil are made differently by it, nearer the same edges filleted
+///       alone and with tolerances of 0.0005 for 0.066; it makes nothing
+///       that was refused (the fork's tests/fork/fillet/README.md, "Fix
+///       level 4"). An OCCT without it makes level 4 as level 3.
+constexpr int OCCTFilletFixLevelLatest = 4;
 
 /// Sets, for the calling thread, the OCCT fork's fillet fix level
 /// (ChFi3d_SetFixLevel): which of the fork's corrections to fillets and
@@ -225,7 +254,22 @@ private:
 ///       pcurves; and a peak's offset is carried to the axis on its own
 ///       circle with the Intersection join (sec 59). An OCCT without it makes
 ///       level 3 as the highest level it has.
-constexpr int OCCTOffsetFixLevelLatest = 3;
+///  4 -- two faces that meet at a slight angle are no longer taken for
+///       tangent where their offsets would miss each other by more than
+///       0.001 (they were, up to 0.1 rad): the offsets are cut by each other
+///       or joined by a tube, not left apart under a loose edge. #613's
+///       part, a cone 1.5 deg off the cylinder it stands on, 2 inward: the
+///       two walls missed by 0.052 and the solid's volume was 46 short of
+///       10240 (sec 74). An OCCT without it makes level 4 as the highest
+///       level it has.
+///  5 -- a thickness whose removed face is narrower, between two of its
+///       edges where it is tangent to its neighbours, than twice the
+///       thickness is refused: the two rounded ends that close those edges
+///       pass through each other, and the solid made of them was valid and
+///       not the skin -- a tube's rim fillet of 1 removed 1 outward, 6476.71
+///       where the whole tube is 2391.17 (sec 78). An OCCT without it makes
+///       level 5 as the highest level it has.
+constexpr int OCCTOffsetFixLevelLatest = 5;
 
 /// Sets, for the calling thread, the OCCT fork's offset fix level
 /// (BRepOffset_SetFixLevel): which of the fork's corrections to the offset

@@ -6,7 +6,10 @@
 # on Windows a QOpenGLWidget is "not supported on this platform", the 3D view
 # never draws and every saveRenderDump times out -- and none of it shows on
 # the user's screen. Nothing there takes input: QTest events still reach the
-# widgets, the system pointer and SetCursorPos do not. A box left open is
+# widgets, the system pointer and SetCursorPos do not. Nor is anything there
+# composed: a screen read (QScreen::grabWindow, BitBlt, PrintWindow) returns
+# the pixels of the desktop on display, the user's -- a widget's grab() and
+# saveRenderDump are what reads a window here. A box left open is
 # unseen as well: the test's own sweeper and the guard's timeout end it
 # (scripts/gui-test-guard.py).
 #

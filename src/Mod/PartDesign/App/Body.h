@@ -311,6 +311,10 @@ private:
     void addAutoAuxGroups(bool surfacesOnly);
 
 private:
+    /// The tip shape Shape was last set from (execute())
+    TopoDS_Shape lastTipShape;
+    std::size_t lastTipMapSize = 0;
+
     bool showTip = false;
     /// The card before a change of ShapeMaterial
     QString oldMaterial;

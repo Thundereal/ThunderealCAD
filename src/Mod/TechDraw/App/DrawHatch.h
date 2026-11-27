@@ -28,6 +28,8 @@
 #include <App/PropertyFile.h>
 #include <Mod/TechDraw/TechDrawGlobal.h>
 
+#include "ReferenceNameMatch.h"
+
 
 namespace Base {
 class Color;
@@ -55,6 +57,10 @@ public:
     //! subname.  A face is numbered by its area, so the number is the one
     //! thing about it that will not last; the name is what finds it again.
     App::PropertyStringList  SavedNames;
+    //! what each face of Source was when it was picked -- its area and centre
+    //! (DrawViewPart::geometrySignature()) -- one entry per subname: a name
+    //! is taken in a recompute only where the face that carries it is this
+    App::PropertyStringList  SavedGeometry;
 
     App::DocumentObjectExecReturn *execute() override;
 
@@ -73,7 +79,16 @@ public:
     //! postFaceExtractionTasks: before the faces exist there is nothing to
     //! record and nothing to find.
     void updateSavedNames();
+    //! the recompute's: repoint only where the geometry agrees
+    //! (DrawViewPart::repointByName()); a face found by its name alone is
+    //! kept for the user's edit, and said (whyNameMoved())
     bool fixByName();
+    //! the faces of Source whose name another face carries now, its geometry other
+    std::vector<ReferenceNameMatch> findByName() const;
+    //! the edit's: those taken by name, whatever their geometry. Returns them.
+    std::vector<ReferenceNameMatch> repointByName();
+    //! why fixByName() left a face where it was, or empty
+    std::string whyNameMoved() const;
     bool affectsFace(int i);
     bool removeSub(std::string toRemove);
     bool removeSub(int i);
@@ -92,6 +107,10 @@ protected:
     void replaceFileIncluded(std::string newSvgFile);
 
 private:
+    //! what the last fixByName() found by name alone and left, for the edit
+    std::vector<ReferenceNameMatch> m_nameOnly;
+    //! fixByName() is setting Source
+    bool m_fixing = false;
 
 };
 

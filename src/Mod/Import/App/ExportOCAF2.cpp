@@ -47,6 +47,7 @@
 #include <XCAFDoc_ShapeMapTool.hxx>
 #include <BRep_Builder.hxx>
 #include <TopoDS_Compound.hxx>
+#include <TopoDS_Iterator.hxx>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
@@ -89,6 +90,58 @@ ExportOCAF2::ExportOCAF2(Handle(TDocStd_Document) h, GetShapeColorsFunc func)
     aColorTool = XCAFDoc_DocumentTool::ColorTool(pDoc->Main());
 
     Part::Interface::writeStepAssembly(Part::Interface::Assembly::Auto);
+}
+
+namespace
+{
+std::map<std::string, std::function<void(const PostExport&)>>& postExports()
+{
+    static std::map<std::string, std::function<void(const PostExport&)>> passes;
+    return passes;
+}
+}  // namespace
+
+void ExportOCAF2::addPostExport(const std::string& name,
+                                std::function<void(const PostExport&)> pass)
+{
+    postExports()[name] = std::move(pass);
+}
+
+void ExportOCAF2::runPostExport()
+{
+    if (postExports().empty()) {
+        return;
+    }
+    PostExport info;
+    info.hDoc = pDoc;
+    info.objects.reserve(myObjects.size() + myWithin.size());
+    for (auto& [obj, label] : myObjects) {
+        info.objects.push_back(obj);
+    }
+    for (auto& [obj, label] : myWithin) {
+        if (!myObjects.count(obj)) {
+            info.objects.push_back(obj);
+        }
+    }
+    info.labelOf = [this](App::DocumentObject* obj) {
+        auto it = myObjects.find(obj);
+        if (it != myObjects.end()) {
+            return it->second;
+        }
+        it = myWithin.find(obj);
+        return it == myWithin.end() ? TDF_Label() : it->second;
+    };
+    for (auto& [name, pass] : postExports()) {
+        try {
+            pass(info);
+        }
+        catch (const Base::Exception& e) {
+            FC_ERR("Export pass '" << name << "' failed: " << e.what());
+        }
+        catch (const Standard_Failure& e) {
+            FC_ERR("Export pass '" << name << "' failed: " << e.GetMessageString());
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -501,6 +554,9 @@ void ExportOCAF2::setupObject(TDF_Label label,
                 aColorTool->SetColor(nodeLabel, color, colorType);
                 continue;
             }
+            if (myObjectColorsOnly) {
+                continue;
+            }
 
             if (nodeLabel != label || aShapeTool->IsComponent(label)) {
                 // OCCT 7 seems to only support "Recommended practices for
@@ -586,16 +642,43 @@ void ExportOCAF2::setInvisible(TDF_Label label)
     aColorTool->SetVisibility(label, Standard_False);
 }
 
+namespace
+{
+bool markedBy(const App::DocumentObject* obj, const char* name)
+{
+    auto prop = obj ? freecad_cast<App::PropertyBool*>(obj->getPropertyByName(name)) : nullptr;
+    return prop && prop->getValue();
+}
+}  // namespace
+
 void ExportOCAF2::exportObjects(std::vector<App::DocumentObject*>& objs, const char* name)
 {
     if (objs.empty()) {
         return;
     }
+    // A file's several free shapes, imported in one container: free shapes again
+    std::vector<App::DocumentObject*> roots;
+    if (objs.size() == 1 && markedBy(objs.front(), FreeShapesProperty)) {
+        for (auto& sub : objs.front()->getSubObjects()) {
+            auto child = objs.front()->getSubObject(sub.c_str());
+            if (child && !isSupplemental(child)
+                && (options.exportHidden || child->Visibility.getValue())) {
+                roots.push_back(child);
+            }
+        }
+    }
     myObjects.clear();
     myNames.clear();
     mySetups.clear();
     bool exported = false;
-    if (objs.size() == 1) {
+    if (!roots.empty()) {
+        for (auto obj : roots) {
+            if (!exportObject(obj, nullptr, TDF_Label()).IsNull()) {
+                exported = true;
+            }
+        }
+    }
+    else if (objs.size() == 1) {
         exported = !exportObject(objs.front(), nullptr, TDF_Label()).IsNull();
     }
     else {
@@ -626,6 +709,9 @@ void ExportOCAF2::exportObjects(std::vector<App::DocumentObject*>& objs, const c
     if (!exported) {
         FC_THROWM(Base::RuntimeError, "Nothing to export: every object has an empty shape");
     }
+
+    // What other modules add of the objects exported: their GD&T
+    runPostExport();
 
     if (FC_LOG_INSTANCE.isEnabled(FC_LOGLEVEL_LOG)) {
         Tools::dumpLabels(pDoc->Main(), aShapeTool, aColorTool);
@@ -730,6 +816,57 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
     }
 
     auto subs = obj->getSubObjects();
+    // A container written as one shape: the compound of its children's,
+    // each in its coordinates, as a shape's of no container is
+    std::vector<App::DocumentObject*> within;
+    std::vector<bool> withinShown;
+    if (!subs.empty() && isOneShape(obj)) {
+        std::vector<TopoDS_Shape> shapes;
+        // Its children, and those of a container in it written as one shape too (a group
+        // of the product's representations: NIST CTC-02's two surfaces), each in its
+        // coordinates; hidden in one, hidden
+        std::function<void(const std::string&, App::DocumentObject*, bool)> gather =
+            [&](const std::string& path, App::DocumentObject* sobj, bool shown) {
+                if (!sobj || isSupplemental(sobj)) {
+                    return;
+                }
+                shown = shown && sobj->Visibility.getValue();
+                if (!options.exportHidden && !shown) {
+                    return;
+                }
+                if (isOneShape(sobj)) {
+                    for (auto& s : sobj->getSubObjects()) {
+                        gather(path + s, sobj->getSubObject(s.c_str()), shown);
+                    }
+                    return;
+                }
+                auto child =
+                    Part::Feature::getTopoShape(obj, path.c_str(), false, nullptr, nullptr, true,
+                                                false);
+                if (child.isNull()) {
+                    return;
+                }
+                shapes.push_back(child.getShape());
+                within.push_back(sobj);
+                withinShown.push_back(shown);
+            };
+        for (auto& subobj : subs) {
+            gather(subobj, obj->getSubObject(subobj.c_str()), true);
+        }
+        if (!shapes.empty()) {
+            TopoDS_Compound comp;
+            BRep_Builder builder;
+            builder.MakeCompound(comp);
+            for (auto& sh : shapes) {
+                builder.Add(comp, sh);
+            }
+            Base::Matrix4D at = shape.getTransform();
+            shape.setShape(comp);
+            shape.setTransform(at);
+            linkedShape = shape;
+            subs.clear();
+        }
+    }
     // subs empty means obj is not a container.
     if (subs.empty()) {
 
@@ -791,6 +928,64 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
         for (auto link : links) {
             myObjects.emplace(link, label);
         }
+        // Each child's looks on its part of the shape, as its own label had
+        // them: the compound's children, in the order they were added
+        if (!within.empty()) {
+            TDF_Label shapeL = label;
+            if (XCAFDoc_ShapeTool::IsReference(label)) {
+                XCAFDoc_ShapeTool::GetReferredShape(label, shapeL);
+            }
+            std::size_t i = 0;
+            for (TopoDS_Iterator it(aShapeTool->GetShape(shapeL), false, false);
+                 it.More() && i < within.size();
+                 it.Next(), ++i) {
+                TDF_Label sub = aShapeTool->AddSubShape(shapeL, it.Value());
+                if (sub.IsNull()) {
+                    continue;
+                }
+                // Its own colours on its sub-shape; its elements' below
+                myObjectColorsOnly = true;
+                setupObject(sub, within[i], Part::TopoShape(it.Value()), prefix, nullptr, true);
+                myObjectColorsOnly = false;
+                // Hidden, a part of the shape written hidden (STEP: its style listed by an
+                // invisibility; NIST STC-08's surface beside its solid)
+                if (!withinShown[i]) {
+                    aColorTool->SetVisibility(sub, Standard_False);
+                }
+                // Its faces' and edges' own colours: sub-shapes of the shape, where the
+                // writer reads them -- a sub-shape of the child's sub-shape is none XCAF
+                // takes (NIST STC-09's 163 face colours were lost so)
+                if (!getShapeColors) {
+                    continue;
+                }
+                Part::TopoShape child(it.Value());
+                for (const char* kind : {"Face*", "Edge*"}) {
+                    for (auto& [element, color] : getShapeColors(within[i], kind)) {
+                        if (element.find('.') != std::string::npos || element == "Face"
+                            || element == "Edge") {
+                            continue;
+                        }
+                        TopoDS_Shape el = child.getSubShape(element.c_str(), true);
+                        if (el.IsNull()) {
+                            continue;
+                        }
+                        TDF_Label up;
+                        if (!aShapeTool->FindSubShape(shapeL, el, up)) {
+                            up = aShapeTool->AddSubShape(shapeL, el);
+                        }
+                        if (!up.IsNull()) {
+                            aColorTool->SetColor(up,
+                                                 Tools::convertColor(color),
+                                                 kind[0] == 'F' ? XCAFDoc_ColorSurf
+                                                                : XCAFDoc_ColorCurv);
+                        }
+                    }
+                }
+            }
+        }
+        for (auto child : within) {
+            myWithin.emplace(child, label);
+        }
         return label;
     }
 
@@ -813,6 +1008,9 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
         auto sobj = obj->resolve(subobj.c_str(), &parentGrp, &childName);
         if (!sobj) {
             FC_WARN("Cannot find object " << obj->getFullName() << '.' << subobj);
+            continue;
+        }
+        if (isSupplemental(sobj)) {
             continue;
         }
         int vis = -1;
@@ -873,6 +1071,16 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
         setupObject(label, name ? parentObj : obj, shape, prefix, name);
     }
     return label;
+}
+
+bool ExportOCAF2::isSupplemental(const App::DocumentObject* obj)
+{
+    return markedBy(obj, SupplementalProperty);
+}
+
+bool ExportOCAF2::isOneShape(const App::DocumentObject* obj)
+{
+    return markedBy(obj, OneShapeProperty);
 }
 
 bool ExportOCAF2::canFallback(std::vector<App::DocumentObject*> objs)

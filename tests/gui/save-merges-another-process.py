@@ -47,8 +47,10 @@ def settle(ms=0):
 
 
 def other(path, code):
-    exe = os.path.join(FreeCAD.getHomePath(), "bin",
-                       "FreeCADCmd" + (".exe" if sys.platform == "win32" else ""))
+    # Named after the program (src/Main/CMakeLists.txt): ThunderealCmd on a
+    # Thundereal build, where a FreeCADCmd is nowhere.
+    exe = os.path.join(FreeCAD.getHomePath(), "bin", FreeCAD.ConfigGet("ExeName") + "Cmd"
+                       + (".exe" if sys.platform == "win32" else ""))
     # A name of its own each run: the script is imported, and a cached one
     # of the same size written within the same second would run instead.
     other.runs = getattr(other, "runs", 0) + 1

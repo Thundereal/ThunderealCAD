@@ -90,6 +90,16 @@ public:
      */
     static void allowType(Base::Type type, const char* kind = nullptr);
     static bool isTypeAllowed(Base::Type type);
+    /** Have a body holding an object of \a type give its solid a solid body
+     * even when it is the only one (PartDesign::SolidBody), as sheet metal
+     * has: what such an object refers to is a solid's faces, and a solid
+     * body is what names a solid whichever its features are -- the body's
+     * own shape is its tip's, which moves to another solid when one is
+     * added (docs/GDandT.md sec 3). The type must be allowed too.
+     */
+    static void requireSolidBody(Base::Type type);
+    /// Whether \a type, or a type it derives from, asked for a solid body
+    static bool needsSolidBody(Base::Type type);
     /// The kind \a type, or a type it derives from, was registered with;
     /// empty if none
     static std::string typeKind(Base::Type type);

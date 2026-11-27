@@ -42,6 +42,8 @@
 #include <Standard_Version.hxx>
 #include <BRepAlgo_NormalProjection.hxx>
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -70,6 +72,8 @@
 #include <gp_Dir.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
+#include <algorithm>
+#include <cmath>
 #include <sstream>
 #endif
 
@@ -89,6 +93,7 @@
 #include <Mod/Part/App/WireJoiner.h>
 
 #include "Cosmetic.h"
+#include "DimensionReferences.h"
 #include "CenterLine.h"
 #include "DrawGeomHatch.h"
 #include "DrawHatch.h"
@@ -436,6 +441,19 @@ void DrawViewPart::buildGeometryObject(const Part::TopoShape& shape, const gp_Ax
         //the polygon approximation HLR process runs quickly, so doesn't need to be in a
         //separate thread
         go->projectShapeWithPolygonAlgo(shape, viewAxis);
+        onHlrFinished(go);
+    }
+    else if (!QCoreApplication::instance()) {
+        // Headless, with no Qt application: no event loop would deliver a
+        // worker's end, and the view would never be drawn -- projected here
+        try {
+            go->projectShape(shape, viewAxis);
+        }
+        catch (Standard_Failure& e) {
+            FC_THROWM(Base::CADKernelError, "The hidden line projection failed: "
+                          << (e.GetMessageString() ? e.GetMessageString()
+                                                   : "an OpenCASCADE failure with no message"));
+        }
         onHlrFinished(go);
     }
     else {
@@ -840,16 +858,31 @@ void DrawViewPart::postFaceExtractionTasks()
 
     // A face is numbered by its area, so a hatch's reference into this view can
     // only be checked now that the faces exist -- and it is checked by name,
-    // which the numbering does not disturb.
+    // which the numbering does not disturb, with the face's geometry to
+    // confirm it.  One found by its name alone is not moved: the hatch is in
+    // error, saying so, until the user's edit settles it.
+    auto nameMoved = [this](App::DocumentObject* hatch, const std::string& why) {
+        if (why.empty()) {
+            return false;
+        }
+        Base::Console().Error("%s: %s\n", hatch->Label.getValue(), why.c_str());
+        getDocument()->setErrorDescription(hatch, why.c_str());
+        getDocument()->signalRecomputedObject(*hatch);
+        return true;
+    };
     for (auto& hatch : getHatches()) {
         hatch->fixByName();
         hatch->updateSavedNames();
-        checkHatchFaces(hatch, hatch->Source.getSubValues());
+        if (!nameMoved(hatch, hatch->whyNameMoved())) {
+            checkHatchFaces(hatch, hatch->Source.getSubValues());
+        }
     }
     for (auto& hatch : getGeomHatches()) {
         hatch->fixByName();
         hatch->updateSavedNames();
-        checkHatchFaces(hatch, hatch->Source.getSubValues());
+        if (!nameMoved(hatch, hatch->whyNameMoved())) {
+            checkHatchFaces(hatch, hatch->Source.getSubValues());
+        }
         // trimmed to the faces now, once, not at each redraw
         hatch->makeTrimmedLines();
     }
@@ -1419,33 +1452,255 @@ std::vector<std::string> DrawViewPart::geometryNamesOf(const App::DocumentObject
     return names;
 }
 
-//! move every reference whose stored name belongs to another element now
-bool DrawViewPart::repointByName(const App::DocumentObject* obj,
-                                 const std::vector<std::string>& geometryNames,
-                                 std::vector<std::string>& subNames)
+std::string DrawViewPart::geometrySignature(const std::string& subName) const
 {
+    std::string kind;
+    try {
+        if (DrawUtil::getIndexFromName(subName) < 0) {
+            return {};
+        }
+        kind = DrawUtil::getGeomTypeFromName(subName);
+    }
+    catch (const Base::Exception&) {
+        return {};
+    }
+    const double scale = getScale();
+    if (scale <= 0.0 || (kind != "Vertex" && kind != "Edge" && kind != "Face")) {
+        return {};
+    }
+    TopoDS_Shape shape;
+    try {
+        // the element as the view has it, scaled and rotated
+        ReferenceEntry entry(const_cast<DrawViewPart*>(this), subName);
+        shape = entry.getGeometry();
+    }
+    catch (const Base::Exception&) {
+        return {};
+    }
+    catch (const Standard_Failure&) {
+        return {};
+    }
+    if (shape.IsNull()) {
+        return {};
+    }
+    // into the frame a reference is kept in: neither the view's scale nor
+    // its rotation moves it
+    shape = ShapeUtils::scaleShape(shape, 1.0 / scale);
+    shape = ReferenceEntry::unrotateForView(Part::TopoShape(shape), *this).getShape();
+
+    std::ostringstream out;
+    out.precision(10);
+    auto put = [&out](const gp_Pnt& p) { out << ' ' << p.X() << ' ' << p.Y() << ' ' << p.Z(); };
+    try {
+        if (shape.ShapeType() == TopAbs_VERTEX) {
+            out << 'V';
+            put(BRep_Tool::Pnt(TopoDS::Vertex(shape)));
+        }
+        else if (shape.ShapeType() == TopAbs_EDGE) {
+            BRepAdaptor_Curve curve(TopoDS::Edge(shape));
+            const double first = curve.FirstParameter();
+            const double last = curve.LastParameter();
+            out << 'E';
+            put(curve.Value(first));
+            put(curve.Value(last));
+            put(curve.Value((first + last) / 2.0));
+        }
+        else if (shape.ShapeType() == TopAbs_FACE) {
+            GProp_GProps props;
+            BRepGProp::SurfaceProperties(shape, props);
+            out << 'F' << ' ' << props.Mass();
+            put(props.CentreOfMass());
+        }
+        else {
+            return {};
+        }
+    }
+    catch (const Standard_Failure&) {
+        return {};
+    }
+    return out.str();
+}
+
+std::vector<std::string> DrawViewPart::geometrySignaturesOf(const App::DocumentObject* obj,
+                                                            const std::vector<std::string>& subNames)
+{
+    std::vector<std::string> signatures;
+    auto dvp = dynamic_cast<const DrawViewPart*>(obj);
+    for (auto& subName : subNames) {
+        signatures.push_back(dvp ? dvp->geometrySignature(subName) : std::string());
+    }
+    return signatures;
+}
+
+bool DrawViewPart::sameSignature(const std::string& a, const std::string& b)
+{
+    if (a.empty() || b.empty() || a[0] != b[0]) {
+        return false;
+    }
+    auto read = [](const std::string& text) {
+        std::istringstream in(text.substr(1));
+        std::vector<double> values;
+        double value;
+        while (in >> value) {
+            values.push_back(value);
+        }
+        return values;
+    };
+    const std::vector<double> va = read(a);
+    const std::vector<double> vb = read(b);
+    if (va.size() != vb.size() || va.empty()) {
+        return false;
+    }
+    auto point = [](const std::vector<double>& v, size_t at) {
+        return gp_Pnt(v.at(at), v.at(at + 1), v.at(at + 2));
+    };
+    switch (a[0]) {
+        case 'V':
+            return va.size() == 3 && point(va, 0).IsEqual(point(vb, 0), EWTOLERANCE);
+        case 'E': {
+            if (va.size() != 9 || !point(va, 6).IsEqual(point(vb, 6), EWTOLERANCE)) {
+                return false;
+            }
+            // the same edge, run either way
+            bool along = point(va, 0).IsEqual(point(vb, 0), EWTOLERANCE)
+                && point(va, 3).IsEqual(point(vb, 3), EWTOLERANCE);
+            bool against = point(va, 0).IsEqual(point(vb, 3), EWTOLERANCE)
+                && point(va, 3).IsEqual(point(vb, 0), EWTOLERANCE);
+            return along || against;
+        }
+        case 'F': {
+            if (va.size() != 4) {
+                return false;
+            }
+            const double area = std::max(std::fabs(va[0]), std::fabs(vb[0]));
+            return std::fabs(va[0] - vb[0]) <= std::max(1e-5 * area, EWTOLERANCE * EWTOLERANCE)
+                && point(va, 1).IsEqual(point(vb, 1), 10.0 * EWTOLERANCE);
+        }
+        default:
+            return false;
+    }
+}
+
+std::vector<std::string> DrawViewPart::mergeSaved(const std::vector<std::string>& fresh,
+                                                  const std::vector<std::string>& saved,
+                                                  const std::vector<ReferenceNameMatch>& keep)
+{
+    if (saved.size() != fresh.size()) {
+        // while the view has nothing projected there is nothing to record, and
+        // recording nothing would throw away what the document brought with it
+        bool any = std::any_of(fresh.begin(), fresh.end(),
+                               [](const std::string& item) { return !item.empty(); });
+        return any || saved.empty() ? fresh : saved;
+    }
+    std::vector<std::string> merged = fresh;
+    for (size_t i = 0; i < merged.size(); i++) {
+        bool kept = std::any_of(keep.begin(), keep.end(), [i](const ReferenceNameMatch& m) {
+            return m.index == int(i);
+        });
+        if (merged[i].empty() || kept) {
+            merged[i] = saved[i];
+        }
+    }
+    return merged;
+}
+
+std::vector<ReferenceNameMatch>
+DrawViewPart::repointByName(const App::DocumentObject* obj,
+                            const std::vector<std::string>& geometryNames,
+                            const std::vector<std::string>& signatures,
+                            std::vector<std::string>& subNames,
+                            bool takeNameOnly,
+                            bool* moved)
+{
+    std::vector<ReferenceNameMatch> nameOnly;
+    if (moved) {
+        *moved = false;
+    }
     auto dvp = dynamic_cast<const DrawViewPart*>(obj);
     if (!dvp || geometryNames.size() != subNames.size()) {
         //out of step with the references, so we can not tell which name
         //belongs to which
-        return false;
+        return nameOnly;
     }
+    // a signature list out of step is no signature at all
+    const bool haveSignatures = signatures.size() == subNames.size();
 
-    bool moved{false};
+    // the one element of `kind` with the signature, if there is just one
+    auto search = [dvp](const std::string& kind, const std::string& signature) {
+        size_t count = 0;
+        if (kind == "Edge") {
+            count = dvp->getEdgeGeometry().size();
+        }
+        else if (kind == "Vertex") {
+            count = dvp->getVertexGeometry().size();
+        }
+        else if (kind == "Face") {
+            count = dvp->getFaceGeometry().size();
+        }
+        std::string found;
+        for (size_t i = 0; i < count; i++) {
+            std::string candidate = DrawUtil::makeGeomName(kind, int(i));
+            if (sameSignature(dvp->geometrySignature(candidate), signature)) {
+                if (!found.empty()) {
+                    return std::string();
+                }
+                found = candidate;
+            }
+        }
+        return found;
+    };
+
     for (size_t i = 0; i < subNames.size(); i++) {
-        if (geometryNames.at(i).empty()) {
+        const std::string signature = haveSignatures ? signatures.at(i) : std::string();
+        const std::string& current = subNames.at(i);
+        std::string byName = geometryNames.at(i).empty()
+            ? std::string()
+            : dvp->getGeometryReference(geometryNames.at(i));
+        auto take = [&](const std::string& subName) {
+            subNames.at(i) = subName;
+            if (moved) {
+                *moved = true;
+            }
+        };
+
+        if (!byName.empty() && byName != current) {
+            if (sameSignature(dvp->geometrySignature(byName), signature)) {
+                take(byName);
+                continue;
+            }
+            if (sameSignature(dvp->geometrySignature(current), signature)) {
+                // the geometry says it is where it was; its name has moved on
+                continue;
+            }
+        }
+        else if (byName == current || signature.empty()
+                 || sameSignature(dvp->geometrySignature(current), signature)) {
+            // where its name is, or nothing to tell otherwise by
             continue;
         }
-        std::string subName = dvp->getGeometryReference(geometryNames.at(i));
-        if (subName.empty() || subName == subNames.at(i)) {
-            //nothing carries that name now, or the reference already points at it
+
+        std::string kind;
+        try {
+            kind = DrawUtil::getGeomTypeFromName(current);
+        }
+        catch (const Base::Exception&) {
+        }
+        std::string byGeometry = signature.empty() ? std::string() : search(kind, signature);
+        if (!byGeometry.empty()) {
+            if (byGeometry != current) {
+                take(byGeometry);
+            }
             continue;
         }
-        subNames.at(i) = subName;
-        moved = true;
+        if (!byName.empty() && byName != current) {
+            nameOnly.push_back({int(i), current, byName, false});
+            if (takeNameOnly) {
+                take(byName);
+            }
+        }
     }
 
-    return moved;
+    return nameOnly;
 }
 
 const std::vector<TechDraw::FacePtr> DrawViewPart::getFaceGeometry() const

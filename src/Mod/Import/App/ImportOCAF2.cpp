@@ -52,6 +52,10 @@
 # include <XCAFDoc_VisMaterialTool.hxx>
 # include <Image_Texture.hxx>
 #endif
+#include <NCollection_IndexedMap.hxx>
+#include <NCollection_Sequence.hxx>
+#include <TopTools_ShapeMapHasher.hxx>
+#include <XCAFDoc_DimTolTool.hxx>
 
 #include <algorithm>
 #include <cmath>
@@ -72,6 +76,7 @@
 #include <App/Part.h>
 #include <App/PropertyAppearance.h>
 #include <Base/Console.h>
+#include <Base/Interpreter.h>
 #include <Base/Base64.h>
 #include <Base/FileInfo.h>
 #include <Base/Parameter.h>
@@ -79,6 +84,7 @@
 #include <Mod/Part/App/Interface.h>
 #include <Mod/Part/App/OCAF/ImportExportSettings.h>
 
+#include "ExportOCAF2.h"
 #include "ImportOCAF2.h"
 
 
@@ -449,6 +455,43 @@ void ImportOCAF2::scanElementColors(TDF_Label label,
 {
     Part::TopoShape &tshape = colors.tshape;
     TDF_LabelSequence seq;
+    if (!label.IsNull() && aShapeTool->GetSubShapes(label, seq)) {
+        // Hidden whole by its own parts' invisibility (STEP: a style each of them
+        // is shown with, listed by an INVISIBILITY -- NIST STC-08's and CTC-02's
+        // shells): every face of it, or every edge of one with none
+        TopoDS_Shape base = tshape.getShape().Located(TopLoc_Location());
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faces, edges, hidden;
+        TopExp::MapShapes(base, TopAbs_FACE, faces);
+        TopExp::MapShapes(base, TopAbs_EDGE, edges);
+        bool whole = false;
+        for (int i = 1; i <= seq.Length(); ++i) {
+            if (aColorTool->IsVisible(seq.Value(i))) {
+                continue;
+            }
+            TopoDS_Shape sub = aShapeTool->GetShape(seq.Value(i));
+            if (sub.IsNull()) {
+                continue;
+            }
+            whole = whole || sub.TShape() == base.TShape();
+            for (auto type : {TopAbs_FACE, TopAbs_EDGE}) {
+                for (TopExp_Explorer xp(sub, type); xp.More(); xp.Next()) {
+                    hidden.Add(xp.Current());
+                }
+            }
+        }
+        using Map = NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>;
+        auto covered = [&](const Map& m) {
+            for (int i = 1; i <= m.Extent(); ++i) {
+                if (!hidden.Contains(m(i))) {
+                    return false;
+                }
+            }
+            return m.Extent() > 0;
+        };
+        if (whole || (faces.Extent() ? covered(faces) : covered(edges))) {
+            myHiddenShapes.insert(base);
+        }
+    }
     if(!label.IsNull() && aShapeTool->GetSubShapes(label,seq)) {
         colors.faceColors.assign(tshape.countSubShapes(TopAbs_FACE),info.faceColor);
         colors.edgeColors.assign(tshape.countSubShapes(TopAbs_EDGE),info.edgeColor);
@@ -1155,6 +1198,7 @@ App::DocumentObject* ImportOCAF2::loadShapes()
         Info info;
         if (createGroup(pDocument, info, TopoDS_Shape(), objs, vis)) {
             ret = info.obj;
+            markFreeShapes(ret);
         }
     }
     if (ret) {
@@ -1180,6 +1224,11 @@ App::DocumentObject* ImportOCAF2::loadShapes()
         ret->recomputeFeature(true);
     }
     sequencer = nullptr;
+    // Merged, the objects the passes would refer to are gone
+    if (!options.merge) {
+        hideInvisible(false);
+        runPostImport(false);
+    }
     for (auto doc : myNewDocuments)
         doc->setUndoMode(1);
     return ret;
@@ -2143,7 +2192,105 @@ App::DocumentObject* ImportOCAF2::finishOps()
     if (ret) {
         ret->recomputeFeature(true);
     }
+    if (ret && myProgRoot >= 0 && myProgRoot < int(myProgOps.size())
+        && myProgOps[myProgRoot].type == ProgOp::Group) {
+        markFreeShapes(ret);
+    }
+    hideInvisible(true);
+    runPostImport(true);
     return ret;
+}
+
+void ImportOCAF2::markFreeShapes(App::DocumentObject* group)
+{
+    if (!group || !group->hasExtension(App::GeoFeatureGroupExtension::getExtensionClassTypeId())) {
+        return;
+    }
+    auto prop = freecad_cast<App::PropertyBool*>(group->addDynamicProperty(
+        "App::PropertyBool",
+        ExportOCAF2::FreeShapesProperty,
+        "Export",
+        "Written to STEP as the file's several free shapes it holds, not as an assembly"));
+    if (prop) {
+        prop->setValue(true);
+    }
+}
+
+void ImportOCAF2::hideInvisible(bool progressive)
+{
+    for (auto& base : myHiddenShapes) {
+        App::DocumentObject* obj = nullptr;
+        if (progressive) {
+            auto it = myShapeNodes.find(base);
+            obj = it == myShapeNodes.end() ? nullptr : progObject(it->second);
+        }
+        else {
+            auto it = myShapes.find(base);
+            obj = it == myShapes.end() ? nullptr : it->second.obj;
+        }
+        if (obj && obj->isDerivedFrom<Part::Feature>()) {
+            obj->Visibility.setValue(false);
+        }
+    }
+}
+
+namespace
+{
+std::map<std::string, std::function<void(const PostImport&)>>& postImports()
+{
+    static std::map<std::string, std::function<void(const PostImport&)>> passes;
+    return passes;
+}
+}  // namespace
+
+void ImportOCAF2::addPostImport(const std::string& name,
+                                std::function<void(const PostImport&)> pass)
+{
+    postImports()[name] = std::move(pass);
+}
+
+void ImportOCAF2::runPostImport(bool progressive)
+{
+    if (!Tools::hasGDT(pDoc)) {
+        return;
+    }
+    if (postImports().empty()) {
+        try {
+            Base::Interpreter().runString("import PMI");
+        }
+        catch (const Base::Exception& e) {
+            FC_WARN("The file has GD&T, and the PMI module could not be loaded to read it: "
+                    << e.what());
+            return;
+        }
+    }
+    PostImport info;
+    info.hDoc = pDoc;
+    info.doc = pDocument;
+    info.objectOf = [this, progressive](const TDF_Label& label) -> App::DocumentObject* {
+        TopoDS_Shape shape = aShapeTool->GetShape(label);
+        if (shape.IsNull()) {
+            return nullptr;
+        }
+        shape = shape.Located(TopLoc_Location());
+        if (progressive) {
+            auto it = myShapeNodes.find(shape);
+            return it == myShapeNodes.end() ? nullptr : progObject(it->second);
+        }
+        auto it = myShapes.find(shape);
+        return it == myShapes.end() ? nullptr : it->second.obj;
+    };
+    for (auto& [name, pass] : postImports()) {
+        try {
+            pass(info);
+        }
+        catch (const Base::Exception& e) {
+            FC_ERR("Import pass '" << name << "' failed: " << e.what());
+        }
+        catch (const Standard_Failure& e) {
+            FC_ERR("Import pass '" << name << "' failed: " << e.GetMessageString());
+        }
+    }
 }
 
 void ImportOCAF2::getSHUOColors(TDF_Label label,

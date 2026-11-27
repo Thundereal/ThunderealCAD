@@ -307,7 +307,9 @@ class TaskFlexibleBody(QtCore.QObject):
                 "Assembly",
                 "How many times its bending is drawn over a run's frames, 1 as it is.\n"
                 "Automatic: what shows it, its largest a tenth of the part's size, or as\n"
-                "it is where that is a twentieth or more",
+                "it is where that is a twentieth or more, or where the run presses it on\n"
+                "something. Scaled, it is drawn held at its joint and where it is\n"
+                "pressed, its bending between them scaled",
             )
         )
         self.scaleBox.valueChanged.connect(self.onScale)
@@ -414,9 +416,14 @@ class TaskFlexibleBody(QtCore.QObject):
                     interfaceName(self.doc, label), len(ids)
                 )
             )
-        self.interfacesLabel.setText(
-            "\n".join(held) if held else translate("Assembly", "nothing yet")
-        )
+        if held:
+            text = "\n".join(held)
+        elif state in ("none", "stale"):
+            text = translate("Assembly", "nothing yet")
+        else:
+            # Meshed as the model is, and no joint on it: it moves free
+            text = translate("Assembly", "nothing: no joint holds it")
+        self.interfacesLabel.setText(text)
         self.showMeshBox.setEnabled(state != "none")
         if self.meshRoot is not None:
             self.showMesh(False)

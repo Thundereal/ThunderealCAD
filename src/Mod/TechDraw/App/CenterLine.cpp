@@ -37,6 +37,8 @@
 #include <boost/random.hpp>
 
 #include <BRepTools.hxx>
+#include <QCoreApplication>
+#include <QStringList>
 
 #include <Base/Console.h>
 
@@ -388,34 +390,193 @@ std::string CenterLine::toString() const
     return clCSV + ", $$$, " + fmtCSV;
 }
 
-//! point the stored references at whatever elements carry their names now
+namespace
+{
+//! the ladder over one of the three lists; its matches indexed from `offset`
+std::vector<ReferenceNameMatch> repointList(const DrawViewPart* partFeat,
+                                            const std::vector<std::string>& names,
+                                            const std::vector<std::string>& geometry,
+                                            std::vector<std::string>& subNames, bool takeNameOnly,
+                                            int offset, bool& moved)
+{
+    bool movedHere = false;
+    auto found = DrawViewPart::repointByName(partFeat, names, geometry, subNames, takeNameOnly,
+                                             &movedHere);
+    moved = moved || movedHere;
+    for (auto& match : found) {
+        match.index += offset;
+    }
+    return found;
+}
+
+//! those of `all` that fall in the list starting at `offset` of `size`,
+//! indexed in it
+std::vector<ReferenceNameMatch> inList(const std::vector<ReferenceNameMatch>& all, int offset,
+                                       int size)
+{
+    std::vector<ReferenceNameMatch> part;
+    for (auto match : all) {
+        if (match.index >= offset && match.index < offset + size) {
+            match.index -= offset;
+            part.push_back(match);
+        }
+    }
+    return part;
+}
+}  // namespace
+
 bool CenterLine::fixByName(const TechDraw::DrawViewPart* partFeat)
 {
-    bool moved = DrawViewPart::repointByName(partFeat, m_faceNames, m_faces);
-    moved = DrawViewPart::repointByName(partFeat, m_edgeNames, m_edges) || moved;
-    moved = DrawViewPart::repointByName(partFeat, m_vertNames, m_verts) || moved;
+    bool moved = false;
+    const int faces = int(m_faces.size());
+    const int edges = int(m_edges.size());
+    m_nameOnly = repointList(partFeat, m_faceNames, m_faceGeometry, m_faces, false, 0, moved);
+    auto more = repointList(partFeat, m_edgeNames, m_edgeGeometry, m_edges, false, faces, moved);
+    m_nameOnly.insert(m_nameOnly.end(), more.begin(), more.end());
+    more = repointList(partFeat, m_vertNames, m_vertGeometry, m_verts, false, faces + edges,
+                       moved);
+    m_nameOnly.insert(m_nameOnly.end(), more.begin(), more.end());
     return moved;
 }
 
-//! record the name of each element the centre line is built from
+std::vector<ReferenceNameMatch> CenterLine::findByName(const TechDraw::DrawViewPart* partFeat) const
+{
+    bool moved = false;
+    std::vector<std::string> faces = m_faces;
+    std::vector<std::string> edges = m_edges;
+    std::vector<std::string> verts = m_verts;
+    auto found = repointList(partFeat, m_faceNames, m_faceGeometry, faces, false, 0, moved);
+    auto more = repointList(partFeat, m_edgeNames, m_edgeGeometry, edges, false,
+                            int(m_faces.size()), moved);
+    found.insert(found.end(), more.begin(), more.end());
+    more = repointList(partFeat, m_vertNames, m_vertGeometry, verts, false,
+                       int(m_faces.size() + m_edges.size()), moved);
+    found.insert(found.end(), more.begin(), more.end());
+    return found;
+}
+
+std::vector<ReferenceNameMatch> CenterLine::repointByName(const TechDraw::DrawViewPart* partFeat)
+{
+    bool moved = false;
+    const int faces = int(m_faces.size());
+    const int edges = int(m_edges.size());
+    auto taken = repointList(partFeat, m_faceNames, m_faceGeometry, m_faces, true, 0, moved);
+    auto more = repointList(partFeat, m_edgeNames, m_edgeGeometry, m_edges, true, faces, moved);
+    taken.insert(taken.end(), more.begin(), more.end());
+    more = repointList(partFeat, m_vertNames, m_vertGeometry, m_verts, true, faces + edges,
+                       moved);
+    taken.insert(taken.end(), more.begin(), more.end());
+    // settled: what they are on now is what is recorded of them
+    m_nameOnly.clear();
+    updateSavedNames(partFeat);
+    return taken;
+}
+
+std::string CenterLine::whyNameMoved() const
+{
+    QStringList said;
+    for (auto& match : m_nameOnly) {
+        said << QCoreApplication::translate("TechDraw", "%1's name is %2's now")
+                    .arg(QString::fromStdString(match.was), QString::fromStdString(match.now));
+    }
+    if (said.isEmpty()) {
+        return {};
+    }
+    return QCoreApplication::translate(
+               "TechDraw", "%1, and neither is the element it was made on. Not moved: edit the "
+                           "centre line to take the element by its name, or reattach it")
+        .arg(said.join(QStringLiteral("; ")))
+        .toStdString();
+}
+
+std::vector<std::string> CenterLine::allReferences() const
+{
+    std::vector<std::string> all = m_faces;
+    all.insert(all.end(), m_edges.begin(), m_edges.end());
+    all.insert(all.end(), m_verts.begin(), m_verts.end());
+    return all;
+}
+
+bool CenterLine::replaceReference(const TechDraw::DrawViewPart* partFeat, int index,
+                                  const std::string& subName)
+{
+    const int faces = int(m_faces.size());
+    const int edges = int(m_edges.size());
+    std::vector<std::string>* list = nullptr;
+    std::vector<std::string>* names = nullptr;
+    std::vector<std::string>* geometry = nullptr;
+    int at = index;
+    if (at >= 0 && at < faces) {
+        list = &m_faces, names = &m_faceNames, geometry = &m_faceGeometry;
+    }
+    else if (at >= faces && at < faces + edges) {
+        list = &m_edges, names = &m_edgeNames, geometry = &m_edgeGeometry;
+        at -= faces;
+    }
+    else if (at >= faces + edges && at < faces + edges + int(m_verts.size())) {
+        list = &m_verts, names = &m_vertNames, geometry = &m_vertGeometry;
+        at -= faces + edges;
+    }
+    if (!list || DrawUtil::getGeomTypeFromName(subName)
+                     != DrawUtil::getGeomTypeFromName(list->at(at))) {
+        // a face's place is a face's, and so on: the centre line is built by kind
+        return false;
+    }
+    list->at(at) = subName;
+    if (partFeat) {
+        if (names->size() == list->size()) {
+            names->at(at) = partFeat->getGeometryName(subName);
+        }
+        if (geometry->size() == list->size()) {
+            geometry->at(at) = partFeat->geometrySignature(subName);
+        }
+    }
+    m_nameOnly.erase(std::remove_if(m_nameOnly.begin(), m_nameOnly.end(),
+                                    [index](const ReferenceNameMatch& m) {
+                                        return m.index == index;
+                                    }),
+                     m_nameOnly.end());
+    updateSavedNames(partFeat);
+    return true;
+}
+
+//! record the name and the geometry of each element the centre line is built from
 bool CenterLine::updateSavedNames(const TechDraw::DrawViewPart* partFeat)
 {
     // while the view has not projected there is nothing to record, and
-    // recording nothing would throw away what the document brought with it
-    auto keep = [](const std::vector<std::string>& fresh,
-                   std::vector<std::string>& stored) {
-        bool anyNamed = std::any_of(fresh.begin(), fresh.end(),
-                                    [](const std::string& name) { return !name.empty(); });
-        if ((!anyNamed && !stored.empty()) || fresh == stored) {
+    // recording nothing would throw away what the document brought with it;
+    // one left for the user to settle is kept as it was (mergeSaved())
+    auto keep = [](const std::vector<std::string>& fresh, std::vector<std::string>& stored,
+                   const std::vector<ReferenceNameMatch>& left) {
+        std::vector<std::string> merged = DrawViewPart::mergeSaved(fresh, stored, left);
+        if (merged == stored) {
             return false;
         }
-        stored = fresh;
+        stored = merged;
         return true;
     };
 
-    bool changed = keep(DrawViewPart::geometryNamesOf(partFeat, m_faces), m_faceNames);
-    changed = keep(DrawViewPart::geometryNamesOf(partFeat, m_edges), m_edgeNames) || changed;
-    changed = keep(DrawViewPart::geometryNamesOf(partFeat, m_verts), m_vertNames) || changed;
+    const int faces = int(m_faces.size());
+    const int edges = int(m_edges.size());
+    const int verts = int(m_verts.size());
+    auto leftFaces = inList(m_nameOnly, 0, faces);
+    auto leftEdges = inList(m_nameOnly, faces, edges);
+    auto leftVerts = inList(m_nameOnly, faces + edges, verts);
+    bool changed =
+        keep(DrawViewPart::geometryNamesOf(partFeat, m_faces), m_faceNames, leftFaces);
+    changed = keep(DrawViewPart::geometryNamesOf(partFeat, m_edges), m_edgeNames, leftEdges)
+        || changed;
+    changed = keep(DrawViewPart::geometryNamesOf(partFeat, m_verts), m_vertNames, leftVerts)
+        || changed;
+    changed = keep(DrawViewPart::geometrySignaturesOf(partFeat, m_faces), m_faceGeometry,
+                   leftFaces)
+        || changed;
+    changed = keep(DrawViewPart::geometrySignaturesOf(partFeat, m_edges), m_edgeGeometry,
+                   leftEdges)
+        || changed;
+    changed = keep(DrawViewPart::geometrySignaturesOf(partFeat, m_verts), m_vertGeometry,
+                   leftVerts)
+        || changed;
     return changed;
 }
 
@@ -888,6 +1049,8 @@ void CenterLine::Save(Base::Writer &writer) const
             << writer.ind()
             << "<Face value=\"" << m_faces.at(i)
             << "\" name=\"" << (i < m_faceNames.size() ? m_faceNames.at(i) : std::string())
+            << "\" geometry=\""
+            << (i < m_faceGeometry.size() ? m_faceGeometry.at(i) : std::string())
             << "\"/>" << std::endl;
     }
     writer.decInd();
@@ -906,6 +1069,8 @@ void CenterLine::Save(Base::Writer &writer) const
             << writer.ind()
             << "<Edge value=\"" << m_edges.at(i)
             << "\" name=\"" << (i < m_edgeNames.size() ? m_edgeNames.at(i) : std::string())
+            << "\" geometry=\""
+            << (i < m_edgeGeometry.size() ? m_edgeGeometry.at(i) : std::string())
             << "\"/>" << std::endl;
     }
     writer.decInd();
@@ -923,6 +1088,8 @@ void CenterLine::Save(Base::Writer &writer) const
             << writer.ind()
             << "<CLPoint value=\"" << m_verts.at(i)
             << "\" name=\"" << (i < m_vertNames.size() ? m_vertNames.at(i) : std::string())
+            << "\" geometry=\""
+            << (i < m_vertGeometry.size() ? m_vertGeometry.at(i) : std::string())
             << "\"/>" << std::endl;
     }
     writer.decInd();
@@ -1003,6 +1170,8 @@ void CenterLine::Restore(Base::XMLReader &reader)
         m_faces.push_back(f);
         m_faceNames.push_back(
             reader.hasAttribute("name") ? reader.getAttribute("name") : std::string());
+        m_faceGeometry.push_back(
+            reader.hasAttribute("geometry") ? reader.getAttribute("geometry") : std::string());
     }
     reader.readEndElement("Faces");
 
@@ -1016,6 +1185,8 @@ void CenterLine::Restore(Base::XMLReader &reader)
         m_edges.push_back(e);
         m_edgeNames.push_back(
             reader.hasAttribute("name") ? reader.getAttribute("name") : std::string());
+        m_edgeGeometry.push_back(
+            reader.hasAttribute("geometry") ? reader.getAttribute("geometry") : std::string());
     }
     reader.readEndElement("Edges");
 
@@ -1029,6 +1200,8 @@ void CenterLine::Restore(Base::XMLReader &reader)
         m_verts.push_back(p);
         m_vertNames.push_back(
             reader.hasAttribute("name") ? reader.getAttribute("name") : std::string());
+        m_vertGeometry.push_back(
+            reader.hasAttribute("geometry") ? reader.getAttribute("geometry") : std::string());
     }
     reader.readEndElement("CLPoints");
 
@@ -1102,6 +1275,9 @@ CenterLine* CenterLine::copy() const
     newCL->m_faceNames = m_faceNames;
     newCL->m_edgeNames = m_edgeNames;
     newCL->m_vertNames = m_vertNames;
+    newCL->m_faceGeometry = m_faceGeometry;
+    newCL->m_edgeGeometry = m_edgeGeometry;
+    newCL->m_vertGeometry = m_vertGeometry;
 
     TechDraw::BaseGeomPtr newGeom = m_geometry->copy();
     newCL->m_geometry = newGeom;

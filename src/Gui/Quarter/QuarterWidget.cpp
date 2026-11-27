@@ -202,11 +202,23 @@ public:
     // gl = mdi.findChild(QtWidgets.QOpenGLWidget)
     // img = gl.grabFramebuffer()
     // \endcode
+    //
+    // Frames are drawn by QuarterWidget::paintEvent, which takes this
+    // viewport's paint events, so Qt reaches paintGL() only through
+    // render() -- grab(), grabFramebuffer(), a QWidget::render of a parent.
+    // There it has to draw, now: render() invalidates the framebuffer
+    // first (QOpenGLWidget::NoPartialUpdate, once a frame has been
+    // composed) and reads it back right after. Scheduling a redraw, as this
+    // did, read back whatever the invalidate left -- the last frame on most
+    // drivers, discarded memory on NVIDIA's, where every grab of a 3D view
+    // came back as noise. The paint event takes the same path as a frame
+    // does; QPainter inside paintGL() is redirected to the framebuffer.
     void paintGL() override
     {
         QuarterWidget* qw = qobject_cast<QuarterWidget*>(parentWidget());
         if (qw) {
-            qw->redraw();
+            QPaintEvent event(rect());
+            QCoreApplication::sendEvent(this, &event);
         }
     }
     void aboutToDestroyGLContext()

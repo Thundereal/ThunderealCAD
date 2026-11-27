@@ -56,6 +56,8 @@ public:
 
     enum {Type = QGraphicsItem::UserType + 109};
     int type() const override { return Type;}
+    /// the head's outline and its fill as one area (see the .cpp)
+    QPainterPath shape() const override;
 
 public:
     void draw();

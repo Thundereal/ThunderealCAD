@@ -14,6 +14,9 @@
 # include <sys/wait.h>
 # include <unistd.h>
 #endif
+#ifdef __linux__
+# include <sys/resource.h>
+#endif
 
 #include <QString>
 
@@ -262,6 +265,58 @@ TEST_F(FileElsewhereTest, aFolderSaveMovesInOnlyWhatChanged)
     // Not moved, not touched: the same file as before.
     EXPECT_TRUE(DiskStamp::of((folder / "Same.xml").string()).sameAs(same));
 }
+
+#ifdef __linux__
+// The files of a save are flushed several at a time, on threads. A process
+// that can have no more threads -- at its limit of them, or of address
+// space for their stacks -- saves all the same, on the thread it is on.
+// The thread that could not be made was an exception: with none made yet,
+// as here, the save failed of it; with some made it went past a vector of
+// threads still running, and the process was gone ("terminate called
+// without an active exception"), in the middle of a save.
+TEST_F(FileElsewhereTest, aFolderSaveGoesInWhenNoThreadCanBeMade)
+{
+    if (geteuid() == 0) {
+        GTEST_SKIP() << "root is not held to the limit of processes";
+    }
+    const fs::path folder = _root / "Doc";
+    fs::create_directories(folder);
+    const fs::path stage = App::FolderSave::freshStage(folder.string());
+    const int count = 64;   // enough for a pool of threads
+    for (int i = 0; i < count; ++i) {
+        write((stage / ("File" + std::to_string(i) + ".brp")).string(), std::to_string(i));
+    }
+
+    const pid_t child = fork();
+    ASSERT_GE(child, 0);
+    if (child == 0) {
+        // No more threads for this user than there are: the next one fails.
+        rlimit limit {};
+        getrlimit(RLIMIT_NPROC, &limit);
+        limit.rlim_cur = 1;
+        if (setrlimit(RLIMIT_NPROC, &limit) != 0) {
+            _exit(3);
+        }
+        try {
+            App::FolderSave::commit(folder.string(), {});
+        }
+        catch (...) {
+            _exit(2);
+        }
+        for (int i = 0; i < count; ++i) {
+            if (readAll(folder / ("File" + std::to_string(i) + ".brp")) != std::to_string(i)) {
+                _exit(1);
+            }
+        }
+        _exit(0);
+    }
+    int status = 0;
+    ASSERT_EQ(waitpid(child, &status, 0), child);
+    ASSERT_TRUE(WIFEXITED(status)) << "the save ended the process, signal "
+                                   << (WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+    EXPECT_EQ(WEXITSTATUS(status), 0);
+}
+#endif
 
 TEST_F(FileElsewhereTest, aStageWithoutItsRecordIsThrownAway)
 {

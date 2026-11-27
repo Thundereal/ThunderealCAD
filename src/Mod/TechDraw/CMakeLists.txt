@@ -8,6 +8,7 @@ endif(BUILD_GUI)
 
 set(TechDraw_Scripts
     Init.py
+    TechDrawPMI.py
     TestTechDrawApp.py
     TestTechDrawGui.py
 )
@@ -25,6 +26,8 @@ set(TechDraw_ToolsScripts
     TechDrawTools/CommandFillTemplateFields.py
     TechDrawTools/CommandVertexCreations.py
     TechDrawTools/CommandHoleShaftFit.py
+    TechDrawTools/CommandImportModelAnnotations.py
+    TechDrawTools/CommandPageFromPMIViews.py
     TechDrawTools/TaskMoveView.py
     TechDrawTools/TaskShareView.py
     TechDrawTools/TaskFillTemplateFields.py
@@ -209,6 +212,8 @@ SET(TDTest_SRCS
     TDTest/DrawViewUndoTest.py
     TDTest/RestoredEnumerationTest.py
     TDTest/DimensionReferenceTest.py
+    TDTest/ReferenceByNameTest.py
+    TDTest/DefaultSizesTest.py
     TDTest/TechDrawTestUtilities.py
 )
 

@@ -236,6 +236,21 @@ bool same(const Flexible& a, const Flexible& b)
             return false;
         }
     }
+    if (a.trueFaces.size() != b.trueFaces.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.trueFaces.size(); ++i) {
+        const auto& x = a.trueFaces[i];
+        const auto& y = b.trueFaces[i];
+        if (x.corners != y.corners || x.face != y.face) {
+            return false;
+        }
+        for (std::size_t k = 0; k < x.offsets.size(); ++k) {
+            if (!same(x.offsets[k], y.offsets[k])) {
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -485,7 +500,10 @@ Model Assembly::Solver::scaled(const Model& model, double length)
         // length to the 1 - e; its damping, a force over a speed, not at all
         for (auto& contact : out.dynamics->contacts) {
             ContactLaw& law = contact.law;
-            law.stiffness *= std::pow(length, 1.0 - law.exponent);
+            // A pressure's, a force over a length to the e + 2
+            law.stiffness *= law.from == ContactLaw::Stiffness::Pressure
+                ? std::pow(length, -1.0 - law.exponent)
+                : std::pow(length, 1.0 - law.exponent);
             law.penetration *= length;
             law.allowance *= length;
             law.vStiction *= length;
@@ -496,6 +514,11 @@ Model Assembly::Solver::scaled(const Model& model, double length)
         for (auto& flexible : out.dynamics->flexibles) {
             for (auto& node : flexible.nodes) {
                 node = node * length;
+            }
+            for (auto& face : flexible.trueFaces) {
+                for (auto& offset : face.offsets) {
+                    offset = offset * length;
+                }
             }
             flexible.youngs /= length;
             flexible.density /= length * length * length;

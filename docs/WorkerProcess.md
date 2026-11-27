@@ -4609,6 +4609,262 @@ Tests (`parttests.MeshServiceTest`): `testTheHelpersAreOneAThreadByDefault`,
 `ServiceIdleSeconds` 0.3: its process ends, and the next call meshes in a
 new one). TestPartApp 453 OK.
 
+## 72. An addon's FreeCADGui in a worker (2026-11-26)
+
+The report (the reporter's staged be01cc13ab, scanner.FCStd): sixteen times
+at the worker's open of its copy, OpticsWorkbench's `OpticalObject.py` line
+483, `Gui.addCommand('Emitter', OpticalEmitter())` -- `AttributeError:
+module 'FreeCADGui' has no attribute 'addCommand'` -- each followed by
+`PropertyPythonObject::Restore: unsupported serialisation`. The copy's
+optical objects had no class, and the worker went on to recompute the
+document. The reporter's ruling, in order: a partial FreeCADGui in the
+worker, real where it needs no event loop and faked where it does; or the
+cost of a real event loop measured; and, as the last resort, the user
+warned and the recompute taken back here.
+
+**A real FreeCADGui in a worker: measured, not taken.**
+`FreeCADGui.setupWithoutGUI()` runs in a worker (7 ms) and gives nothing:
+`Gui::Application(false)` registers its Python functions only when the GUI
+is enabled (`Gui/Application.cpp`, the block under `if (GUIenabled)`), so
+addCommand, Selection and Control are still missing after it. The real API
+is `Gui::Application(true)` over a QApplication, and that makes a
+Gui::Document and a view provider for every object of the copy
+(`slotNewDocument`), its Coin nodes and its tessellation, in every worker at
+every open. `Thundereal.exe` under `QT_QPA_PLATFORM=offscreen` stood at
+605 MB before its script had run, and then hung (offscreen on Windows has no
+GL); `ThunderealCmd` peaked at 405 MB with the same document open and
+recomputed (`hole_puzzle`, 65 objects, 3.5 s). So at least 200 MB a worker
+before any view provider, in a program that does not start headless.
+
+**`freecad.worker_gui`**, pure Python, is `sys.modules["FreeCADGui"]` in a
+worker: `freecad.worker.serve()` installs it before the copy opens, and no
+GUI library is loaded. A FreeCADGui imported before (an Init.py) is given
+the same names.
+
+- *Real, needing no event loop:* the command registry (`addCommand`,
+  `listCommands`, `isCommandActive` false, `runCommand` running nothing),
+  `addIcon`, `addIconPath`, `addLanguagePath`, `addPreferencePage`,
+  `updateLocale`, `updateGui`, `translate`, `Workbench` and
+  `addWorkbench`/`listWorkbenches`/`getWorkbench`/`removeWorkbench`,
+  workbench manipulators, `doCommand` (run in `__main__`), `addModule`, a
+  `Selection` with nothing selected whose observers are kept, a `Control`
+  with no dialog, `getDocument`/`activeDocument`/`ActiveDocument` giving
+  the App document with no view.
+- *Faked:* `getMainWindow()`, a name the module does not know, and every
+  attribute of a view object, answer an inert object that takes any call,
+  attribute or item and never raises; it is false and empty. Each use is a
+  fake, told to the recompute (`FreeCAD._workerFaked`).
+- *A view object for each object of the copy*
+  (`WorkerPool.cpp`, `attachViewStandIns`, at each setup): `ViewObject` is
+  never saved and does not touch its object, and a worker's was None, on
+  which `Ray.execute` failed -- it writes `fp.ViewObject.LineColor` after it
+  sets its shape. The stand-in is true, so that `if obj.ViewObject:` takes
+  the GUI's path. What a view provider has of its object's is real (the
+  reporter: "most of the view object appearance property is actually a
+  stand in for app namespace property"). Where the looks are the object's
+  -- a `Part::Feature` -- `ViewProviderPartExt::onChanged` gives a write of
+  these to the object, through the functions the object's own names call
+  (ShapeAppearanceDesign.md sec 14.6.1), and so does the stand-in:
+  - the same name on the object, read and written there: `LineColor`,
+    `PointColor` (`Feature::writeColors`), `ShapeColor` (`writeOwnColor`),
+    `Transparency`, `ShapeAppearance`, the five `Map*` flags; `Visibility`
+    on any object, with `hide()`, `show()`, `isVisible()`; `Object`;
+  - no name on the object, written as the view provider writes the store
+    (`Part._writeViewLook`, the value read by the view property's own App
+    type): `LineMaterial`, `PointMaterial` (`ElementAppearance.setBase`),
+    `LineColorArray`, `PointColorArray` (`writeColors`); a read is a fake;
+  - `MappedColors`, which does nothing to the object where its looks are
+    the object's: kept by the stand-in.
+  So `Ray.execute`'s colour is the object's look, made by the worker and
+  sent back with the rest. Everything else -- the view's own (`LineWidth`,
+  `DisplayMode`, `Deviation`, the `Render_*` properties), the view
+  provider's Proxy, `ShapeMaterial` and `DiffuseColor` (written through
+  accessors of the GUI's own types) -- is a fake.
+
+The two addons here call, at import: `addCommand` (22 times),
+`addWorkbench`, `addLanguagePath`, `updateLocale`, `getMainWindow`.
+
+**What used a fake is made here.** The Recorder notes each fake against the
+object being executed. After the recompute, such an object's entry is made
+the other process's (`here`): its values are not sent, and the recompute
+here executes it, with the view it has. The Report view says so, once a
+session for each class of a document: "AddonByWorker#Wide (Wide), of
+WorkerGuiProbe.Wide is recomputed in this process, not by a worker: its
+execute() uses ViewObject.LineWidth, which a worker process has not got".
+Its value
+there was made without what it asked for, so the whole job is unfit instead
+when another object of the job reads it, when it ran inside another's
+execute(), or when it recomputed another itself. A job of a Python kind
+(`freecad.worker._run`: an export) that used a fake is answered unfit: an
+exporter reading a view object's colour is not making the file the GUI
+would.
+
+**The copy whose restore failed is not worked on.** The pool's list of
+objects with a class (sec 2) is the pool's view of its own document. Now
+the copy's restore reports each Python object it could not make
+(`PropertyPythonObject::setRestoreFailed`, the class tried and what its
+import raised), and the setup answers unfit with it: "...#OnlyHere
+(TestWorkerPool._OnlyHere) cannot be restored in a worker: ...".
+
+**And an unfit setup is the client's to do.** `pool.stop()` handed every
+job back Cancelled; the GUI reads Cancelled as "the design changed under
+it" and leaves the document touched (`WorkerRecomputeGui.cpp`). The test
+below, on the tree before: Std_Refresh found "Plain has no Python class
+here", and nothing was recomputed anywhere. Now an unfit setup stops the
+pool with its jobs Unfit (`WorkerPool::stop(why, true)`), the GUI
+recomputes here, and the Report view says why ("...: done in this
+process").
+
+**Not reproduced: why the guard did not fire on the reporter's box.**
+Here, in the console and in the GUI, an object whose class the worker
+cannot import is in the pool's list, and the setup answers unfit. The
+reporter's log has no unfit and no reason, and the worker recomputed the
+whole document after the failed restores (the migration recompute after
+the open, `Application.cpp`). With the restore's own report the copy is
+refused whatever the list says, and with the stand-in the import does not
+fail.
+
+**A missing file is a delete done.** `Base::FileInfo`'s retry
+(`attempt`): a delete refused for a moment, which then does not find its
+file on the next try, was reported "still refused after 2 tries ... No
+such file or directory (2)" and failed. The file went while it waited (a
+file pending deletion refuses the next open): it is a delete that went
+through.
+
+Not done:
+
+- The view's own properties, which only GuiDocument.xml has: the
+  reporter asked for a general way (2026-11-26, "dig deep to see what are
+  and aren't possible to expose without FreeCADGui module"); the findings
+  are with the reporter -- the copy's GuiDocument.xml is current by both
+  copy paths, every saved type but Sketcher's layer list is an App type or
+  one, its `<Defaults>` block gives what a save elides, a view provider's
+  Python proxy imports; an enumeration is saved as its index alone; 71 ms
+  to parse 1.84 MB of 2400 view providers.
+- An addon that guards its view writes with `FreeCAD.GuiUp`, which is
+  false in a worker, skips them there, and the worker's value is sent
+  without them. Not seen in the two addons.
+- A class that used a fake is not remembered: each recompute executes it
+  in the worker first.
+
+Tests: `tests/gui/addon-gui-by-worker.py` (`Mod/Test/WorkerGuiProbe.py`, an
+addon module calling `addCommand` and `addIconPath` at import, with a
+feature writing its view's `LineColor` and one writing its `LineWidth` in
+their execute(); and, with OpticsWorkbench under `GT_ADDONS`, a ray on a
+mirror, its length and wavelength edited). On the tree before: 5 of 6 of
+the probe's claims failed. Now 13 of 13: the ray made by the worker, its
+colour that of the new wavelength; the line width's feature alone made
+here. TestWorkerPool: `testAnAddonsGuiCallsAreThereInAWorker`,
+`testAJobThatUsedAStandInIsUnfit`,
+`testAClassAWorkerCannotRestoreMakesTheRecomputeUnfit`, and
+`TestWorkerViewObject` (the looks and Visibility through the stand-in, the
+view's own a fake).
+
+## 73. Every built-in object made by a worker (2026-11-26)
+
+The reporter: "fix the code to make any built-in objects to recompute in
+worker, the fallback is only for external addon code"; and, of the view
+object, "let's find a more general way to expose those property as well
+... simple property read write should able to pass through"; and "be
+careful about view vs app space visibility discrepency problem".
+
+**Whose code.** A fake (sec 72) is told with the class of the object that
+used it and whether it is built-in (`freecad.worker_gui.origin`): the
+proxy's module under the install's home (`App.getHomePath()`: its Mod,
+Ext, lib) and not under the user's data or macro directory; an object
+with no proxy is its C++ type's, built-in. A module may say it stands for
+an addon's (`__freecad_addon__ = True`, `Mod/Test/WorkerGuiProbe.py`).
+`recomputeInfo()["Faked"]` lists each made-here or taken-back object --
+`Object`, `Class`, `Used` (with the file and line that used it),
+`BuiltIn` -- and the Report view calls a built-in one a fault. A built-in
+fake still falls back to made-here, so that nothing is made wrong, and
+the tests fail on it.
+
+**The view provider's saved properties.** A worker reads its copy's
+GuiDocument.xml: the version's entry in the store at each setup (a move
+along the log reads it anew), or the copy's file. Both are current: a
+probe set a view's LineWidth after the save, and both copy paths had the
+new value. An object's view properties are its class's `<Defaults>`
+(`App::SharedDefaults`, which a save elides against) with its own over
+them, by its stored view provider type, made when first asked.
+
+- A read is the saved value (`FreeCAD._propertyValue(type, xml)`, the
+  value read by a property of its type; the GUI's colour and appearance
+  types are App's underneath and read as those). A name the view provider
+  has not is an AttributeError, as on the real one, so `hasattr(obj.
+  ViewObject, "DisplayLength")` is right.
+- A write is kept for what reads it later in the job, and done again to
+  the real view provider where the result is put in, after the put-in's
+  recompute, in the worker's order (`freecad.worker_gui.replay`), as are
+  `update()`, `signalChangeIcon()`, `hide()`, `show()` and a call of the
+  view provider proxy's methods (its plain state read from the instance
+  the saved views restore; a method called returns None there).
+- Sec 72's looks (A) and their store writes (B) stay as they were: the
+  object's own look written there, which another object of the job may
+  read, and sent as the object's data.
+- What stays a fake: the scene (RootNode and the rest), an enumeration's
+  names (a save writes the index alone), a value held in an archive file
+  of its own, Sketcher's layer list, a view property no save writes.
+
+**Visibility.** `ViewProviderDocumentObject::onChanged` of Visibility
+calls show() or hide() and writes the object's Visibility -- under
+NoModify unless TouchDocument, not for a secondary view, not under the
+User1 guard. A restore reads each from its own file under that guard, so
+an object's and its view provider's can differ after an open; updateData
+runs under it too. `vp.isVisible()` is the mode switch, which follows
+Visibility outside updateData. So a worker reads the view provider's
+saved Visibility, not the object's (the object's where the copy has no
+saved views), and a write of it -- `obj.Base.ViewObject.show()` -- is
+the object's too, as onChanged makes it, and done again to the view
+provider, even where the object's does not change. Per-view visibility
+(`ObjectVisibilities`, CoinRetirement.md sec 5.18) changes neither
+Visibility nor the mode switch: an execute reading the view object sees
+the same in both processes, a view asked directly is a fake, and the
+entries stay the views'. A TempoVis hide in an edit with per-view tables
+is such an entry; outside one it writes Visibility, which the copy has.
+`tests/gui/views-by-worker.py` holds the census.
+
+**The camera.** Draft's `get_normal` turns a plane's normal toward the
+active 3D view's camera, and ArchComponent extrudes a structure's base by
+it: in the GUI a structure's direction depends on where the camera looks
+when it is recomputed. The GUI says its active view's direction with each
+recompute job (`WorkerRecompute::setViewState`), and a worker's
+`gui_utils.get_3d_view()` answers a view of that direction
+(`FreeCADGui.worker_active_view`), its other methods fakes.
+
+**The sweep.** `Mod/Test/TestWorkerBuiltIns.py` opens every FCStd under
+the install's home, touches every object, and has a worker recompute it
+with `Workers/NoteGuiUp` on, a diagnostic: `FreeCAD.GuiUp` read inside an
+execute is a fake, as an execute that skips work without a GUI sends a
+result without it. `tests/gui/builtins-by-worker.py` runs it in the GUI,
+where the copies carry the views as the GUI saves them; the console's
+own copies have none (a console session writes no GuiDocument.xml), so
+there view reads are fakes the GUI does not have.
+
+What it found, and what was done (built-in code fixed, none faked):
+
+| | found | done |
+|---|---|---|
+| Draft Dimension, `App.GuiUp and obj.ViewObject: update()` | skipped in a worker | `if obj.ViewObject:`, the update replayed |
+| Draft WorkingPlaneProxy, ArchSectionPlane, Shape2DView: a size from a view property | a fake | the saved value |
+| BIM Site, `if GuiUp:` its view proxy's terrain switches | skipped | `if vobj and vobj.Proxy`, the call replayed |
+| BIM components, `hideSubobjects` read GuiUp at every onChanged | skipped | by the property first, `o.ViewObject.hide()` replayed |
+| ArchStructure through Draft `get_normal`, the camera | the normal unturned | the asking process's camera |
+| CAM `waiting_effects`, GuiUp for a wait cursor | a fake, nothing different | asks Qt for a widget application |
+| CAM LeadInOut, `ViewObject.signalChangeIcon()` | a fake | replayed |
+| Sketcher sketches of CAM's tool bits (console only) | a view read with no saved views | none in the GUI |
+
+**And a crash the sweep met.** Opening `draft_test_objects.FCStd` or
+`EngineBlock.FCStd` -- any document with a Draft BSpline -- ended the GUI
+in a stack overflow, worker or none: `RotationPy.xml` did not mark
+`inverted()` and `isSame()` const, so `obj.Placement.Rotation.inverted()`
+in the wire view's updateData of Shape wrote the placement back, which
+moved the shape, which called updateData of Shape again. Both const now
+(`tests/gui/draft-bspline-reopen.py`).
+
+Left out of the sweep: four Addon Manager fixtures that are not
+documents, and one that links to another (refused, sec 2).
+
 ## 74. What reading the worker code over found (2026-11-26)
 
 The worker code read whole, for faults rather than for a feature: the pool,

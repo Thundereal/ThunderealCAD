@@ -1642,7 +1642,7 @@ RendererBridge::translate(const SoFCRenderCache::VertexCacheMap & vcachemap,
 
             // Measured once per entry per publish: the draw-entry build
             // above asked the same question of the same entry.
-            const SbBox3f & bbox = ventry.getBoundingBox();
+            const SbBox3f bbox = SoFCRenderCache::drawBoundingBox(material, ventry);
             if (!bbox.isEmpty()) {
                 bbox.getMin().getValue(
                         draw.bboxMin[0], draw.bboxMin[1], draw.bboxMin[2]);

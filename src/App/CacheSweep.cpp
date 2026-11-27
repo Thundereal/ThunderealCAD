@@ -5,10 +5,9 @@
 
 #include "PreCompiled.h"
 
-#include <thread>
-
 #include <cerrno>
 #include <cstdlib>
+#include <thread>
 
 #ifdef _WIN32
 # include <windows.h>
@@ -165,9 +164,8 @@ void App::CacheSweep::start()
         Counts counts;
         try {
             counts = run(cache, exe, before, []() {
-                // Between Windows' MainGui reading its arguments through a
-                // QCoreApplication of its own and the QApplication made
-                // after init, closingDown() still says that first one went
+                // closingDown() says so only of an application there is:
+                // with none (yet) it is the flag a gone one left
                 return App::isShuttingDown()
                     || (QCoreApplication::instance() && QCoreApplication::closingDown());
             });
@@ -183,8 +181,11 @@ void App::CacheSweep::start()
                                 counts.failed);
         }
     };
-    // Qt has no global pool while it is closing down, and in that same
-    // window on Windows (above) globalInstance() is null: a thread of its own
+    // No global pool where a QCoreApplication has come and gone before this
+    // one: the Windows GUI's main makes one only to read its arguments,
+    // before App::Application::init, and Qt gives no pool from then until
+    // the QApplication is made. Every start crashed on the null pool. The
+    // sweep needs nothing of Qt's threads: a thread of its own, then.
     if (QThreadPool* pool = QThreadPool::globalInstance()) {
         pool->start(sweep);
     }

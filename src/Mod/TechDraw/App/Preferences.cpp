@@ -44,8 +44,8 @@
 
 using namespace TechDraw;
 
-const double Preferences::DefaultFontSizeInMM = 5.0;
-const double Preferences::DefaultArrowSize = 3.5;
+const double Preferences::DefaultFontSizeInMM = 2.5;
+const double Preferences::DefaultArrowSize = 1.5;
 
 //! Returns the TechDraw preference group
 Base::Reference<ParameterGrp> Preferences::getPreferenceGroup(const char* Name)

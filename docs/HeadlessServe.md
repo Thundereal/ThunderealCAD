@@ -442,6 +442,20 @@ streamed viewer whose camera is not the producer's
 `fcscenediff` could not see this: it compares serving against serving, and
 both sides published the same wrong flag. What does see it is a picture.
 
+## 4.3 Where the server listens (2026-11-25)
+
+On this machine only, by default: `127.0.0.1` and `::1`. It used to bind one dual-stack socket
+on every interface, so every `serveDocument`, every `FC_BGFX_SERVE_SCENE` run and every test
+that served was open to the network -- unseen where a firewall is off (company policy turns it
+off on the dwin box), an "allow this app?" box on a Windows desktop that has it, once per
+program (`thundereal.exe`, `publishonly_tests_run.exe`, `sceneserverwire_tests_run.exe`).
+`SceneStreamServer::setListenAddress()` says where the next start listens: `loopback`, `any`
+(every interface, the dual-stack socket as before), or an address; `FC_SERVE_BIND` presets it
+and `Gui.serveAddress(address)` sets it from Python. The Share dialog asks for `any` for the
+LAN and own doors, which another machine opens, and moves a listener a script left on loopback
+out to it; a quick tunnel's cloudflared dials it on this machine and leaves it there. A viewer
+on a phone or another machine for a scripted serve needs `FC_SERVE_BIND=any`.
+
 ## 5. What this does not do
 
 The source publishes; it does not render. There is deliberately no offscreen-image path here —

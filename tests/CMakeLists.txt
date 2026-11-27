@@ -32,6 +32,11 @@ if(WIN32)
     add_definitions(-DCOIN_DLL)
 endif(WIN32)
 
+# The name the program goes by, as src/Main/CMakeLists.txt gives the
+# executables: tests::initApplication() starts the Application under it, so a
+# test finds the per-user files the program put there.
+add_compile_definitions(FREECAD_APP_NAME="${FREECAD_APP_NAME}")
+
 if(NOT BUILD_DYNAMIC_LINK_PYTHON)
     list(APPEND Google_Tests_LIBS
         ${PYTHON_LIBRARIES}
@@ -87,6 +92,9 @@ set(TestExecutables
 )
 if(BUILD_ASSEMBLY)
     list(APPEND TestExecutables Assembly_tests_run)
+endif()
+if(BUILD_FLUID)
+    list(APPEND TestExecutables Fluid_tests_run)
 endif()
 
 # -------------------------

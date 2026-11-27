@@ -1883,6 +1883,9 @@ void SketchObject::rebuildExternalGeometry(bool defining)
     // We use a vector here to keep the order (roughly) the same as ExternalGeometry
     std::vector<std::vector<std::unique_ptr<Part::Geometry> > > newGeos;
     newGeos.reserve(Objects.size());
+    // The lines that could as well run the other way: a full circle seen
+    // edge on has no start of its own (see where the ids are given out)
+    std::set<const Part::Geometry*> eitherWay;
 
     for (int i=0; i < int(Objects.size()); i++) {
         const App::DocumentObject *Obj=Objects[i];
@@ -2349,6 +2352,7 @@ void SketchObject::rebuildExternalGeometry(bool defining)
                             invPlm.multVec(p2, p2);
                             projectedSegment->setPoints(p1, p2);
                             GeometryFacade::setConstruction(projectedSegment, true);
+                            eitherWay.insert(projectedSegment);
                             geos.emplace_back(projectedSegment);
                         }
                     } else {  
@@ -2958,6 +2962,36 @@ void SketchObject::rebuildExternalGeometry(bool defining)
             }
             else
                 ids[i] = newGeoId();
+        }
+
+        // In a sketch from before version 3 a line that could as well run
+        // the other way runs the way the line it replaces ran, so that what
+        // is constrained to its start stays at that end. A full circle seen
+        // edge on was a line from its box's lower to its upper bound until
+        // 83ace59e43 (2023-08) and is one along the cross product of the
+        // two normals since, which may be the opposite: a sketch saved
+        // before, constrained to the start of such a line, had its profile
+        // reach to the other end of the circle when it was made again
+        // (realthunder/FreeCAD#613's Pocket, 48986.71 for the file's
+        // 51256.43, with no error). No version tells those sketches from
+        // the ones saved since -- _Version came after both -- and the stored
+        // line does, for both: an old sketch stays as its file has it. One
+        // made at version 3 has the line along the cross product, whatever
+        // is stored.
+        for (std::size_t i = 0; i < geos.size() && _Version.getValue() < 3; ++i) {
+            if (!eitherWay.count(geos[i].get()))
+                continue;
+            auto it = externalGeoMap.find(ids[i]);
+            if (it == externalGeoMap.end())
+                continue;
+            auto old = Base::freecad_dynamic_cast<const Part::GeomLineSegment>(
+                    ExternalGeo[it->second]);
+            if (!old)
+                continue;
+            auto line = static_cast<Part::GeomLineSegment*>(geos[i].get());
+            const Base::Vector3d start = line->getStartPoint(), end = line->getEndPoint();
+            if ((old->getEndPoint() - old->getStartPoint()) * (end - start) < 0)
+                line->setPoints(end, start);
         }
 
         // In case a projection reduces output geometries, delete them

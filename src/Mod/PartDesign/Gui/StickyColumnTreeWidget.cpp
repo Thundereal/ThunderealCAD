@@ -26,6 +26,7 @@
 # include <QMouseEvent>
 # include <QPaintEvent>
 # include <QPainter>
+# include <QPixmap>
 # include <QScrollBar>
 # include <QStyle>
 # include <QToolTip>
@@ -116,13 +117,33 @@ void StickyColumnHeader::paintSection(QPainter *painter, const QRect &rect, int 
     }
     // the first one is painted at the left by paintEvent(), the others
     // only beside it
-    if (logicalIndex == stickySection())
+    if (logicalIndex == stickySection() || rect.right() < width)
         return;
-    painter->save();
-    painter->setClipRect(QRect(width, 0, viewport()->width() - width, viewport()->height()),
-                         Qt::IntersectClip);
-    QHeaderView::paintSection(painter, rect, logicalIndex);
-    painter->restore();
+    if (rect.left() >= width) {
+        QHeaderView::paintSection(painter, rect, logicalIndex);
+        return;
+    }
+    // A section under the first title is cut at its edge. Not with the
+    // painter's clip: QCommonStyle's CE_Header sets its own clip to the
+    // section, which replaces ours, and the section was drawn whole under the
+    // first title -- unseen where a style fills a section opaquely, but the
+    // Windows 11 style fills it with a translucent white, so the first title
+    // came out a shade lighter and the label under it showed through. Drawn
+    // aside, and only the part beside the first title is kept.
+    const qreal ratio = devicePixelRatio();
+    QPixmap aside(rect.size() * ratio);
+    aside.setDevicePixelRatio(ratio);
+    aside.fill(Qt::transparent);
+    {
+        QPainter p(&aside);
+        p.setFont(painter->font());
+        p.translate(-rect.topLeft());
+        QHeaderView::paintSection(&p, rect, logicalIndex);
+    }
+    const int cut = width - rect.left();
+    painter->drawPixmap(QPoint(width, rect.top()), aside,
+                        QRect(QPoint(cut * ratio, 0),
+                              QSize((rect.width() - cut) * ratio, rect.height() * ratio)));
 }
 
 void StickyColumnHeader::mousePressEvent(QMouseEvent *e)

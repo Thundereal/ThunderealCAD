@@ -28,6 +28,7 @@
 #if OCC_VERSION_HEX < 0x070800
 #include <TDF_LabelMapHasher.hxx>
 #endif
+#include <TDocStd_Document.hxx>
 #include <TopoDS_Shape.hxx>
 #include <XCAFDoc_ColorTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
@@ -72,6 +73,10 @@ struct Tools
                            Handle(XCAFDoc_ShapeTool) aShapeTool,
                            Handle(XCAFDoc_ColorTool) aColorTool,
                            int depth = 0);
+
+    /// Whether \a hDoc has GD&T: datums, dimensions or tolerances in its
+    /// DimTolTool (docs/GDandT.md sec 5). Asks without making the tool.
+    static bool hasGDT(const Handle(TDocStd_Document) & hDoc);
 };
 
 }  // namespace Import

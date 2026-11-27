@@ -1540,6 +1540,19 @@ public:
                     splitted.emplace_back();
                     auto &entry = splitted.back();
                     entry.edge = mkEdge.Edge();
+                    // A piece is known no better than the edge it is cut
+                    // from: an edge that says how far it may be from what it
+                    // stands for (a sketch's simplified reference curve,
+                    // realthunder/FreeCAD#617) must not come out of the split
+                    // at the default 1e-7.
+                    const double tol = BRep_Tool::Tolerance(info.edge);
+                    if (tol > BRep_Tool::Tolerance(entry.edge)) {
+                        BRep_Builder builder;
+                        builder.UpdateEdge(entry.edge, tol);
+                        for (TopExp_Explorer exp(entry.edge, TopAbs_VERTEX); exp.More(); exp.Next()) {
+                            builder.UpdateVertex(TopoDS::Vertex(exp.Current()), tol);
+                        }
+                    }
                     entry.intersectShape = intersectShape;
                     if (getBBox(entry.edge, entry.bbox))
                         itPrevParam = itParam;

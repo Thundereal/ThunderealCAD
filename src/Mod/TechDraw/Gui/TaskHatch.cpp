@@ -24,6 +24,9 @@
 #include "PreCompiled.h"
 #ifndef _PreComp_
 # include <cmath>
+# include <QBoxLayout>
+# include <QGroupBox>
+# include <QTimer>
 #endif // #ifndef _PreComp_
 
 #include <App/Document.h>
@@ -41,6 +44,7 @@
 #include <Mod/TechDraw/App/DrawViewPart.h>
 
 #include "TaskHatch.h"
+#include "TaskReferenceList.h"
 #include "ui_TaskHatch.h"
 #include "ViewProviderHatch.h"
 
@@ -87,6 +91,59 @@ TaskHatch::TaskHatch(TechDrawGui::ViewProviderHatch* inVp) :
 
     saveHatchState();
     setUiEdit();
+    addReferences();
+    QTimer::singleShot(0, this, [this]() { takeByName(); });
+}
+
+void TaskHatch::addReferences()
+{
+    auto box = new QGroupBox(tr("Faces"), this);
+    auto boxLayout = new QVBoxLayout(box);
+    TechDraw::DrawHatch* hatch = m_hatch;
+    TechDraw::DrawViewPart* dvp = m_dvp;
+    m_refs = new TaskReferenceList(
+        dvp, QStringList {QStringLiteral("Face")},
+        [hatch]() { return hatch->Source.getSubValues(); },
+        [hatch, dvp](int index, const std::string& subName) {
+            std::vector<std::string> subs = hatch->Source.getSubValues();
+            if (index < 0 || index >= int(subs.size())) {
+                return false;
+            }
+            Command::openCommand(QT_TRANSLATE_NOOP("Command", "Reattach Hatch Face"));
+            subs.at(index) = subName;
+            hatch->Source.setValue(dvp, subs);
+            Command::updateActive();
+            Command::commitCommand();
+            return true;
+        },
+        [hatch]() {
+            const char* status = hatch->isError() ? hatch->getStatusString() : nullptr;
+            return std::string(status ? status : "");
+        },
+        box);
+    boxLayout->addWidget(m_refs);
+    if (auto vbox = qobject_cast<QBoxLayout*>(layout())) {
+        vbox->insertWidget(0, box);
+    }
+}
+
+void TaskHatch::takeByName()
+{
+    if (!m_hatch || m_hatch->findByName().empty()) {
+        return;
+    }
+    Command::openCommand(QT_TRANSLATE_NOOP("Command", "Take Hatch Face by Name"));
+    std::vector<TechDraw::ReferenceNameMatch> taken = m_hatch->repointByName();
+    Command::updateActive();
+    Command::commitCommand();
+    for (auto& found : taken) {
+        Base::Console().Warning("%s: face %s taken by its name, now %s; check it, then OK keeps "
+                                "it, Cancel leaves the face as it was\n",
+                                m_hatch->Label.getValue(), found.was.c_str(), found.now.c_str());
+    }
+    if (m_refs) {
+        m_refs->setRefound(taken);
+    }
 }
 TaskHatch::~TaskHatch()
 {
@@ -125,7 +182,9 @@ void TaskHatch::saveHatchState()
     m_saveColor = m_vp->HatchColor.getValue();
     m_saveRotation = m_vp->HatchRotation.getValue();
     m_saveOffset = m_vp->HatchOffset.getValue();
-
+    m_saveSubs = m_hatch->Source.getSubValues();
+    m_saveNames = m_hatch->SavedNames.getValues();
+    m_saveGeometry = m_hatch->SavedGeometry.getValues();
 }
 
 //restore the start conditions
@@ -138,6 +197,15 @@ void TaskHatch::restoreHatchState()
         m_vp->HatchColor.setValue(m_saveColor);
         m_vp->HatchRotation.setValue(m_saveRotation);
         m_vp->HatchOffset.setValue(m_saveOffset);
+        if (m_refs && m_hatch->Source.getSubValues() != m_saveSubs) {
+            // the faces as they were, and what was saved of them: what the
+            // panel took by name or reattached, taken back
+            m_hatch->Source.setValue(m_dvp, m_saveSubs);
+            m_hatch->SavedNames.setValues(m_saveNames);
+            m_hatch->SavedGeometry.setValues(m_saveGeometry);
+            m_hatch->touch();
+            Gui::Command::updateActive();
+        }
     }
 }
 

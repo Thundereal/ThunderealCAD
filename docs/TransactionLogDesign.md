@@ -1476,6 +1476,7 @@ Journal: 21 (panel), 22.2, 26.7, 28.6, 31.12-31.13, 32.9-32.20, 33.11-33.13,
 | `FC_ELEMENTMAP_CHECK` (`=abort`) | report an edit of a held element map |
 | `FC_TXN_MEASURE`, `FC_TXN_MEASURE_DUMP` | transaction cost measurement |
 | `FC_SERVE_IDENTITY_DOOR`, `FC_SERVE_IDENTITY_HEADER`, `FC_SERVE_TRUST_PROXY`, `FC_SERVE_INVITE`, `FC_SERVE_UPLOAD_MB`, `FC_SERVE_REQUESTS_MB` | the served door and upload limits |
+| `FC_SERVE_BIND` (`loopback`, `any`, an address) | where the scene server listens; this machine only when unset (`SceneServer.h`, `setListenAddress`) |
 
 ### 13.4 Python API
 

@@ -250,6 +250,14 @@ class _Counted:
         return None
 
 
+if not getattr(sys.modules.get("FreeCADGui"), "_worker_stand_in", False):
+
+    class _OnlyHere(_Counted):
+        """A Python feature whose class a worker has not got: this module
+        has it only where FreeCADGui is not the worker's stand-in -- an
+        addon whose import fails in a worker (docs/WorkerProcess.md sec 72)"""
+
+
 class _Polygon:
     """A Part Python feature: a face of Sides sides"""
 
@@ -309,7 +317,36 @@ class _Crashing(_Counted):
         super().execute(obj)
 
 
+def _guiRegistry(doc, inputs, out):
+    """What an addon calls of FreeCADGui at import, real in a worker
+    (freecad.worker_gui, docs/WorkerProcess.md sec 72)"""
+    import FreeCADGui as Gui
+
+    class _Cmd:
+        def GetResources(self):
+            return {"MenuText": "x"}
+
+    Gui.addCommand("TestWorkerPool_Cmd", _Cmd())
+    Gui.addIconPath(os.path.dirname(__file__))
+    Gui.addLanguagePath(os.path.dirname(__file__))
+    Gui.updateLocale()
+    Gui.updateGui()
+    return {"Commands": Gui.listCommands(), "Translated": Gui.translate("ctx", "text"),
+            "Selection": len(Gui.Selection.getSelectionEx()),
+            "Dialog": Gui.Control.activeDialog(), "Standing": Gui._worker_stand_in}
+
+
+def _guiFake(doc, inputs, out):
+    """What a worker only stands in for: the main window"""
+    import FreeCADGui as Gui
+
+    Gui.getMainWindow().statusBar().showMessage("from a worker")
+    return {}
+
+
 for _kind, _handler in (
+    ("test.guiregistry", _guiRegistry),
+    ("test.guifake", _guiFake),
     ("test.echo", _echo),
     ("test.sleep", _sleep),
     ("test.fail", _fail),
@@ -330,6 +367,72 @@ for _kind, _handler in (
     ("test.altstack", _altStack),
 ):
     worker.register(_kind, _handler)
+
+
+class TestWorkerViewObject(unittest.TestCase):
+    """A worker's view object (freecad.worker_gui.view_object): what a view
+    provider has of its object's is written to the object as the view
+    provider writes it, the rest is a fake (docs/WorkerProcess.md sec 72).
+    Made here: it needs no worker"""
+
+    def setUp(self):
+        self.doc = App.newDocument("WorkerViewObject")
+        self.box = self.doc.addObject("Part::Box", "Box")
+        self.doc.recompute()
+        from freecad import worker_gui
+
+        self.gui = worker_gui
+        self.view = worker_gui.view_object(self.box)
+
+    def tearDown(self):
+        App.closeDocument(self.doc.Name)
+
+    def same(self, a, b):
+        return all(abs(x - y) < 1e-3 for x, y in zip(a[:3], b[:3]))
+
+    def testALookIsTheObjects(self):
+        before = self.gui.faked()
+        self.view.LineColor = (1.0, 0.0, 0.0)
+        self.view.ShapeColor = (0.0, 0.5, 0.0)
+        self.view.PointColor = (0.0, 0.0, 1.0)
+        self.view.Transparency = 40
+        self.assertTrue(self.same(self.box.LineColor, (1.0, 0.0, 0.0)), self.box.LineColor)
+        self.assertTrue(self.same(self.box.ShapeColor, (0.0, 0.5, 0.0)), self.box.ShapeColor)
+        self.assertTrue(self.same(self.box.PointColor, (0.0, 0.0, 1.0)), self.box.PointColor)
+        self.assertEqual(self.box.Transparency, 40)
+        # read back from the object
+        self.assertTrue(self.same(self.view.LineColor, (1.0, 0.0, 0.0)))
+        self.view.MapFaceColor = not self.box.MapFaceColor
+        self.assertEqual(self.view.MapFaceColor, self.box.MapFaceColor)
+        self.assertIs(self.view.Object, self.box)
+        self.view.hide()
+        self.assertFalse(self.box.Visibility)
+        self.view.show()
+        self.assertTrue(self.box.Visibility and self.view.isVisible())
+        self.assertEqual(self.gui.faked(), before)
+
+    def testALookWithNoNameOnTheObjectIsWrittenAsTheViewWritesIt(self):
+        before = self.gui.faked()
+        self.view.LineMaterial = App.Material(DiffuseColor=(0.0, 0.0, 1.0))
+        self.assertTrue(self.same(self.box.ElementAppearance.Edge.DiffuseColor, (0.0, 0.0, 1.0)),
+                        self.box.ElementAppearance.Edge.DiffuseColor)
+        self.view.PointMaterial = App.Material(DiffuseColor=(1.0, 1.0, 0.0))
+        self.assertTrue(self.same(self.box.ElementAppearance.Vertex.DiffuseColor, (1.0, 1.0, 0.0)))
+        self.view.LineColorArray = [(0.0, 1.0, 0.0)]
+        self.assertTrue(self.same(self.box.LineColor, (0.0, 1.0, 0.0)), self.box.LineColor)
+        self.assertEqual(self.gui.faked(), before)
+
+    def testWhatIsTheViewsOwnIsAFake(self):
+        before = self.gui.faked()
+        self.view.LineWidth = 3.0
+        self.assertFalse(self.view.DisplayMode)
+        self.view.DiffuseColor = [(1.0, 0.0, 0.0)]
+        self.assertEqual(self.gui.faked(), before + 3)
+        feature = self.doc.addObject("App::FeaturePython", "Plain")
+        view = self.gui.view_object(feature)
+        view.LineColor = (1.0, 0.0, 0.0)  # not a Part::Feature: none of its own
+        self.assertEqual(self.gui.faked(), before + 4)
+        self.assertTrue(view)
 
 
 class TestWorkerPool(unittest.TestCase):
@@ -973,6 +1076,29 @@ class TestWorkerPool(unittest.TestCase):
         self.assertTrue(self.pool.wait(120))
         self.assertEqual(self.pool.result(job)["Status"], "Done")
 
+    def testAnAddonsGuiCallsAreThereInAWorker(self):
+        """An addon's module calls FreeCADGui at import: in a worker the
+        registry is real and nothing raises (docs/WorkerProcess.md sec 72)"""
+        self.assertTrue(self.pool.start())
+        job = self.submit("test.guiregistry")
+        self.assertTrue(self.pool.wait(120))
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Done", result)
+        out = result["Output"]
+        self.assertIn("TestWorkerPool_Cmd", out["Commands"])
+        self.assertEqual((out["Translated"], out["Selection"], out["Dialog"], out["Standing"]),
+                         ("text", 0, False, True))
+
+    def testAJobThatUsedAStandInIsUnfit(self):
+        """A job of a Python kind that used what a worker only stands in for
+        is unfit, done by the client (sec 72)"""
+        self.assertTrue(self.pool.start())
+        job = self.submit("test.guifake")
+        self.assertTrue(self.pool.wait(120))
+        result = self.pool.result(job)
+        self.assertEqual(result["Status"], "Unfit", result)
+        self.assertIn("FreeCADGui", result["Error"])
+
     def testAFileWritten(self):
         self.assertTrue(self.pool.start())
         job = self.submit("test.write", {"Text": "made there"})
@@ -1512,6 +1638,23 @@ class TestWorkerRecompute(unittest.TestCase):
         warm.Input = 1
         self.byWorker()
         return base, left, right, tails
+
+    def testAClassAWorkerCannotRestoreMakesTheRecomputeUnfit(self):
+        """The copy's restore could not make a Python object: the copy is
+        not worked on, the recompute answered unfit -- not cancelled, which
+        left a recompute asked in the GUI undone -- naming the class and
+        why (docs/WorkerProcess.md sec 72)"""
+        obj = self.doc.addObject("App::FeaturePython", "OnlyHere")
+        _OnlyHere(obj)
+        obj.Input = 2
+        self.doc.recompute()
+        obj.Input = 3
+        self.assertTrue(self.pool.recompute(), self.pool.recomputeInfo()["Reason"])
+        self.assertTrue(self.pool.waitRecompute(120), self.pool.recomputeInfo())
+        info = self.pool.recomputeInfo()
+        self.assertEqual((info["Unfit"], info["Cancelled"], info["Applied"]), (1, 0, 0), info)
+        self.assertIn("TestWorkerPool._OnlyHere", info["Reason"])
+        self.assertIn("cannot be restored in a worker", info["Reason"])
 
     def testARecomputeIsSplitOverTwoWorkers(self):
         """Two branches that take long, under what both read: split over two

@@ -119,12 +119,35 @@ class ExplodedView:
     def setMovesChangedCallback(self, callback):
         self.stepsChangedCallback = callback
 
+    def gltfLines(self, expView):
+        """Not upstream: the steps' trails as they are on show, for the glTF
+        export of an Animation (freecad.animationgltf): a step's Trail is
+        its segments' ends in pairs, in the document's frame, in the steps'
+        line colour (docs/AssemblyExplode.md sec 4)"""
+        packed = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly").GetUnsigned(
+            "StepLineColor", 0xCC333300
+        )
+        color = tuple(((packed >> shift) & 0xFF) / 255.0 for shift in (24, 16, 8))
+        out = []
+        for step in expView.Group:
+            points = list(getattr(step, "Trail", []))
+            segments = [(points[i], points[i + 1]) for i in range(0, len(points) - 1, 2)]
+            out.append((step.Label, color, segments))
+        return out
+
     def execute(self, fp):
         """Do something when doing a recomputation, this method is mandatory"""
         # App.Console.PrintMessage("Recompute Python Box feature\n")
         pass
 
     def applyMoves(self, viewObj, com=None, size=None):
+        # Not upstream: the C++ view calculates (Assembly::ExplodedView), from
+        # where the parts are now, with the assembly's center and size of its
+        # own; the panel's com and size are for the Python steps below
+        if viewObj.isDerivedFrom("Assembly::ExplodedView"):
+            moves, trails = viewObj.explodedAt(None, True)
+            return _writeExplosion(viewObj.getSteps(), moves, trails)
+
         positions = []  # [[p1start, p1end], [p2start, p2end], ...]
         if com is None:
             com, size = UtilsAssembly.getComAndSize(self.getAssembly(viewObj))
@@ -134,6 +157,10 @@ class ExplodedView:
         return positions
 
     def explodeTemporarily(self, viewObj):
+        # Not upstream: shown as an Animation plays, not an edit
+        if viewObj.isDerivedFrom("Assembly::ExplodedView"):
+            viewObj.pose()
+            return
         self.initialPlcs = UtilsAssembly.saveAssemblyPartsPlacements(self.getAssembly(viewObj))
         self.applyMoves(viewObj)
         for move in viewObj.Group:
@@ -170,6 +197,9 @@ class ExplodedView:
         return None
 
     def restoreAssembly(self, viewObj):
+        if viewObj.isDerivedFrom("Assembly::ExplodedView"):
+            viewObj.unpose()
+            return
         if self.initialPlcs is None:
             return
 
@@ -186,6 +216,11 @@ class ExplodedView:
             - A dictionary mapping {part_object: final_placement}.
             - A list of [start_pos, end_pos] for explosion lines.
         """
+        # Not upstream: the C++ view calculates
+        if viewObj.isDerivedFrom("Assembly::ExplodedView"):
+            moves, trails = viewObj.explodedAt()
+            return dict(moves), [[a, b] for _step, a, b in trails]
+
         final_placements = {}
         line_positions = []
         factor = 1
@@ -245,6 +280,10 @@ class ExplodedView:
         Generates a compound shape of the exploded assembly in memory
         without modifying the document. Returns a single Part.Compound.
         """
+        # Not upstream: the C++ view makes it, its trails named
+        if viewObj.isDerivedFrom("Assembly::ExplodedView"):
+            shape = viewObj.getExplodedShape()
+            return None if shape.isNull() else shape
         final_placements, line_positions = self._calculateExplodedPlacements(viewObj)
 
         exploded_shapes = []
@@ -347,6 +386,70 @@ class ViewProviderExplodedView:
             dialog.setDocumentName(App.ActiveDocument.Name)
 
         return True
+
+    def setupContextMenu(self, vobj, menu):
+        # Not upstream: play the explode in an Animation
+        explodedView = vobj.Object
+        if not explodedView.isDerivedFrom("Assembly::ExplodedView"):
+            return
+        action = menu.addAction(App.Qt.translate("Assembly", "Animate"))
+        action.setToolTip(
+            App.Qt.translate(
+                "Assembly",
+                "Make an animation playing this exploded view, a second a step;\n"
+                "a strip of it in reverse assembles",
+            )
+        )
+        action.triggered.connect(lambda: self._animate(explodedView))
+        action = menu.addAction(App.Qt.translate("Assembly", "Drawing of each step"))
+        action.setToolTip(
+            App.Qt.translate(
+                "Assembly",
+                "Make a TechDraw page with a view of each step of this exploded view,\n"
+                "its trails dashed",
+            )
+        )
+        action.triggered.connect(lambda: self._stepDrawings(explodedView))
+        if drawingsOf(explodedView):
+            action = menu.addAction(App.Qt.translate("Assembly", "Number parts in drawings"))
+            action.setToolTip(
+                App.Qt.translate(
+                    "Assembly",
+                    "A balloon on each part in the drawings of this exploded view,\n"
+                    "its number in the bill of materials; again, brings them up to date",
+                )
+            )
+            action.triggered.connect(lambda: self._balloons(explodedView))
+
+    def _animate(self, explodedView):
+        Gui.addModule("CommandCreateView")
+        Gui.ActiveDocument.openCommand("Animate Exploded View")
+        Gui.doCommand(
+            f'anim = CommandCreateView.makeExplodeAnimation(App.ActiveDocument.getObject("{explodedView.Name}"))'
+        )
+        Gui.ActiveDocument.commitCommand()
+        anim = Gui.doCommandEval("anim")
+        # Active, with the timeline raised
+        Gui.ActiveDocument.setEdit(anim)
+
+    def _balloons(self, explodedView):
+        Gui.addModule("CommandCreateView")
+        for drawing in drawingsOf(explodedView):
+            Gui.doCommand(
+                "CommandCreateView.addBomBalloons("
+                f'App.ActiveDocument.getObject("{drawing.Name}"))'
+            )
+
+    def _stepDrawings(self, explodedView):
+        Gui.addModule("CommandCreateView")
+        Gui.ActiveDocument.openCommand("Drawing of Each Step")
+        Gui.doCommand(
+            "page = CommandCreateView.makeStepDrawings("
+            f'App.ActiveDocument.getObject("{explodedView.Name}"))'
+        )
+        Gui.ActiveDocument.commitCommand()
+        page = Gui.doCommandEval("page")
+        page.ViewObject.show()
 
     def onDelete(self, vobj, subelements):
         for obj in self.claimChildren():
@@ -608,6 +711,11 @@ class ExplodedViewStep:
         if not UtilsAssembly.isRefValid(move.References, 1):
             return
 
+        # Not upstream: the C++ step calculates (Assembly::ExplodedViewStep)
+        if move.isDerivedFrom("Assembly::ExplodedViewStep"):
+            moves, trails = move.explodeFrom(com, size, 1.0, True)
+            return _writeExplosion([move], moves, [(0, a, b, path) for a, b, path in trails])
+
         positions = []
         if move.MoveType == "Radial":
             distance = move.MovementTransform.Base.Length
@@ -639,6 +747,484 @@ class ExplodedViewStep:
             move.ViewObject.Proxy.redrawLines(move, positions)
 
         return positions
+
+
+def makeExplodeAnimation(explodedView, secondsPerStep=1.0):
+    """Not upstream: an Animation playing `explodedView`'s explode -- an Explode
+    track from 0 to the count of its steps, a step each `secondsPerStep`,
+    linear (docs/AssemblyExplode.md sec 4). A strip of it in Reverse
+    assembles."""
+    doc = explodedView.Document
+    steps = len(explodedView.getSteps())
+    anim = doc.addObject("App::Animation", "ExplodeAnimation")
+    anim.Label = explodedView.Label + " animation"
+    path = "Explode:" + explodedView.Name
+    anim.addKey(path, 0.0, 0.0, interp="Linear")
+    anim.addKey(path, max(steps, 1) * secondsPerStep, float(steps), interp="Linear")
+    return anim
+
+
+def trailPolylines(segments):
+    """Not upstream: segments [(a, b), ...] joined where one ends at the next's
+    start, as point lists"""
+    polylines = []
+    for a, b in segments:
+        if polylines and polylines[-1][-1].isEqual(a, 1e-9):
+            polylines[-1].append(b)
+        else:
+            polylines.append([a, b])
+    return polylines
+
+
+def _defaultTemplate():
+    """TechDraw's default template: the user's, else A4 landscape"""
+    import os
+
+    pref = App.ParamGet("User parameter:BaseApp/Preferences/Mod/TechDraw/Files")
+    path = pref.GetString("TemplateFile", "")
+    if path and os.path.isfile(path):
+        return path
+    return os.path.join(App.getResourceDir(), "Mod", "TechDraw", "Templates", "A4_LandscapeTD.svg")
+
+
+def makeStepDrawings(explodedView, page=None, direction=None, xdirection=None):
+    """Not upstream: a TechDraw page with a view of each step of
+    `explodedView` (docs/AssemblyExplode.md sec 8): step k drawn at the end of
+    step k, through an Assembly::ExplodedViewAt, its trails dashed, captioned
+    with the step's label; laid out in a grid above the title block, all at
+    one scale. A new page on TechDraw's default template unless `page` is
+    given. Returns the page."""
+    import math
+
+    import TechDraw  # noqa: F401 -- the page's types
+
+    doc = explodedView.Document
+    steps = explodedView.getSteps()
+    if not steps:
+        raise ValueError("the exploded view has no steps")
+    if direction is None:
+        direction = App.Vector(1, -1, 1)
+        xdirection = App.Vector(1, 1, 0)
+    if xdirection is None:
+        xdirection = App.Vector(1, 0, 0)
+    if page is None:
+        page = doc.addObject("TechDraw::DrawPage", "ExplodedSteps")
+        page.Label = explodedView.Label + " steps"
+        template = doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        template.Template = _defaultTemplate()
+        page.Template = template
+    width, height = page.PageWidth, page.PageHeight
+    # The area above the title block and inside the frame
+    left, right, top, bottom = 20.0, width - 20.0, height - 20.0, 70.0
+    # Each step's outline as the view projects it, the largest of them: a
+    # step's shape is not the end's (a turn half open stands taller)
+    xd = App.Vector(xdirection)
+    zd = App.Vector(direction)
+    zd.normalize()
+    xd = xd - zd * xd.dot(zd)
+    xd.normalize()
+    yd = zd.cross(xd)
+    outlineW = outlineH = 1e-6
+    for k in range(len(steps)):
+        points = [
+            p for e in explodedView.getExplodedShape(k + 1).Edges for p in e.discretize(12)
+        ]
+        if points:
+            xs = [p.dot(xd) for p in points]
+            ys = [p.dot(yd) for p in points]
+            outlineW = max(outlineW, max(xs) - min(xs))
+            outlineH = max(outlineH, max(ys) - min(ys))
+    # Room round a view for its balloons (a ring a balloon out,
+    # docs/AssemblyExplode.md sec 9), and under it for its caption
+    margin, captionH = 18.0, 10.0
+    best = None
+    for cols in range(1, len(steps) + 1):
+        rows = int(math.ceil(len(steps) / cols))
+        cellW, cellH = (right - left) / cols, (top - bottom) / rows
+        fit = min(
+            (cellW - 2 * margin) / outlineW, (cellH - 2 * margin - captionH) / outlineH
+        )
+        if best is None or fit > best[0]:
+            best = (fit, cols, cellW, cellH)
+    fit, cols, cellW, cellH = best
+    # The fit to two figures, down: a scale to write, without the half a
+    # standard scale (1, 2, 5 times a power of ten) can throw away
+    scale = fit
+    if fit > 0:
+        power = 10.0 ** (math.floor(math.log10(fit)) - 1)
+        scale = math.floor(fit / power * (1 + 1e-9)) * power
+    group = doc.addObject("App::DocumentObjectGroup", "ExplodedStepViews")
+    group.Label = explodedView.Label + " at each step"
+    for k, step in enumerate(steps):
+        row, col = divmod(k, cols)
+        x = left + (col + 0.5) * cellW
+        y = top - (row + 0.5) * cellH + captionH / 2
+        at = doc.addObject("Assembly::ExplodedViewAt", "ExplodedViewAt")
+        at.View = explodedView
+        at.Progress = k + 1
+        at.Label = "%s at %d" % (explodedView.Label, k + 1)
+        group.addObject(at)
+        view = doc.addObject("TechDraw::DrawViewPart", "StepView")
+        view.Label = "Step %d" % (k + 1)
+        page.addView(view)
+        view.Source = [at]
+        view.Direction = direction
+        view.XDirection = xdirection
+        view.ScaleType = "Custom"
+        view.Scale = scale
+        view.X, view.Y = x, y
+        caption = doc.addObject("TechDraw::DrawViewAnnotation", "StepCaption")
+        page.addView(caption)
+        caption.Text = ["%d. %s" % (k + 1, step.Label)]
+        # Under the ring of balloons
+        caption.X, caption.Y = x, y - outlineH * scale / 2 - margin - captionH / 2
+    doc.recompute()
+    return page
+
+
+def explodedViewOf(drawing):
+    """Not upstream: the exploded view a TechDraw view draws, through an
+    Assembly::ExplodedViewAt or directly; None if it draws none"""
+    for source in getattr(drawing, "Source", []):
+        if source.isDerivedFrom("Assembly::ExplodedView"):
+            return source
+        if source.isDerivedFrom("Assembly::ExplodedViewAt") and source.View:
+            return source.View
+    return None
+
+
+def drawingsOf(explodedView):
+    """Not upstream: the TechDraw views that draw `explodedView`"""
+    return [
+        o
+        for o in explodedView.Document.Objects
+        if o.isDerivedFrom("TechDraw::DrawViewPart") and explodedViewOf(o) == explodedView
+    ]
+
+
+def assemblyBom(assembly):
+    """Not upstream: the assembly's bill of materials, made if it has none"""
+    group = UtilsAssembly.getBomGroup(assembly)
+    for obj in group.Group:
+        if obj.isDerivedFrom("Assembly::BomObject"):
+            return obj
+    # Made as the Bill of Materials command makes it: its columns
+    # (CommandCreateBom.ColumnNames, a module that needs the GUI), so a link
+    # is counted in its part's row, and its preferences
+    pref = Preferences.preferences()
+    bom = group.newObject("Assembly::BomObject", "Bill of Materials")
+    bom.columnsNames = ["Index", "Name", "Description", "File Name", "Quantity"]
+    bom.onlyParts = pref.GetBool("BOMOnlyParts", False)
+    bom.detailParts = pref.GetBool("BOMDetailParts", True)
+    bom.detailSubAssemblies = pref.GetBool("BOMDetailSubAssemblies", True)
+    return bom
+
+
+def addBomBalloons(drawing, bom=None):
+    """Not upstream: a balloon on each part a TechDraw view of an exploded view
+    shows, its number in `bom` (the view's Bom, else the assembly's, made if
+    none), on the longest piece of the part the drawing shows
+    (docs/AssemblyExplode.md sec 9). TechDraw's Import Edge Labels makes them:
+    run again, they move with their parts, keep a number you wrote, and go
+    with a part gone. Needs the GUI. Returns the balloons."""
+    import FreeCADGui as Gui
+
+    explodedView = explodedViewOf(drawing)
+    if explodedView is None:
+        raise ValueError("%s draws no exploded view" % drawing.Label)
+    if bom is None:
+        bom = explodedView.Bom or assemblyBom(explodedView.getAssembly())
+    if explodedView.Bom != bom:
+        explodedView.Bom = bom
+    bom.recompute()
+    Gui.Selection.clearSelection()
+    Gui.Selection.addSelection(drawing)
+    Gui.runCommand("TechDraw_ImportEdgeLabels")
+    Gui.Selection.clearSelection()
+    return [
+        o
+        for o in drawing.Document.Objects
+        if o.isDerivedFrom("TechDraw::DrawEdgeLabel") and o.SourceView == drawing
+    ]
+
+
+def _subnameIn(assembly, obj):
+    """The subname of `obj` from `assembly`, through the groups between;
+    None if it is not in it"""
+    path = []
+    o = obj
+    while o is not None and o != assembly:
+        path.insert(0, o.Name)
+        # A plain group's, else the Part's -- the assembly is one
+        o = o.getParentGroup() or o.getParentGeoFeatureGroup()
+    return ".".join(path) + "." if o is not None else None
+
+
+def _extentAlong(box, way):
+    """The length of a bounding box along the unit vector `way`"""
+    return abs(way.x) * box.XLength + abs(way.y) * box.YLength + abs(way.z) * box.ZLength
+
+
+def _overlap(a, b, tol):
+    """Whether two bounding boxes share more than a touch"""
+    return (
+        min(a.XMax, b.XMax) - max(a.XMin, b.XMin) > tol
+        and min(a.YMax, b.YMax) - max(a.YMin, b.YMin) > tol
+        and min(a.ZMax, b.ZMax) - max(a.ZMin, b.ZMin) > tol
+    )
+
+
+def autoExplodeSteps(assembly, factor=1.5):
+    """Not upstream: the steps auto explode makes of `assembly`'s joints
+    (docs/AssemblyExplode.md sec 10), in the order to play them, as
+    [(parts, move, label)], each move an App.Vector in the assembly's frame.
+
+    The parts are the assembly's, an App::Part one part. From the grounded
+    ones -- the largest part when none is grounded -- the joints are walked
+    outwards. A part moves along its joint's axis (the Z of the joint's
+    frame on the side of the part it is joined to), the way out of that
+    part, by
+    `factor` times its own size that way; the parts furthest out move
+    first, and a part takes with it the parts outside it, moved already.
+    Parts at one depth moving the same way move in one step. A part no joint
+    reaches -- loose: nothing holds it, it holds nothing -- moves before
+    them all, away from the middle of the parts the joints reach, by
+    `factor` times its own size that way; up, at that middle. Where that way
+    runs into another part's box, the clear axis of the assembly nearest it
+    (up first); a part it starts in does not count, it comes out of that.
+    With no joint at all the largest part stays and the others are loose."""
+    import JointObject
+    import Part
+
+    # Not the element bindings the joints hold, kept in the assembly
+    parts = [
+        p
+        for p in UtilsAssembly.getMovablePartsWithin(assembly, True)
+        if not p.isDerivedFrom("Part::ElementBinding")
+    ]
+    if not parts:
+        return []
+    index = {p.Name: i for i, p in enumerate(parts)}
+    boxes = {}
+    for p in parts:
+        try:
+            box = Part.getShape(p).BoundBox
+        except Exception:
+            box = None
+        # A shape not made yet has no box, not an endless one
+        boxes[p.Name] = box if box is not None and box.isValid() else None
+    inverse = assembly.getGlobalPlacement().inverse()
+    joints = []  # (part1, part2, joint)
+    grounded = []
+    for joint in UtilsAssembly.getJointGroup(assembly).Group:
+        if getattr(joint, "Suppressed", False):
+            continue
+        ground = getattr(joint, "ObjectToGround", None)
+        if ground is not None:
+            if ground.Name in index:
+                grounded.append(ground)
+            continue
+        if not hasattr(joint, "JointType"):
+            continue
+        try:
+            p1 = JointObject.sideMovingPart(joint, 1)
+            p2 = JointObject.sideMovingPart(joint, 2)
+        except Exception:
+            continue
+        if p1 is None or p2 is None or p1 == p2:
+            continue
+        if p1.Name in index and p2.Name in index:
+            joints.append((p1, p2, joint))
+
+    def volume(p):
+        box = boxes[p.Name]
+        return box.XLength * box.YLength * box.ZLength if box is not None else 0.0
+
+    if not grounded:
+        joined = [p for p in parts if any(p in (a, b) for a, b, _j in joints)]
+        grounded = [max(joined or parts, key=lambda p: (volume(p), -index[p.Name]))]
+    # Outwards from the ground: each part's depth and the joint it is reached by
+    depth = {p.Name: 0 for p in grounded}
+    reached = {}  # name: (inner part, joint, side of the part)
+    front = sorted(grounded, key=lambda p: index[p.Name])
+    while front:
+        nextFront = []
+        for inner in front:
+            for a, b, joint in joints:
+                for outer, side in ((b, 2), (a, 1)):
+                    other = a if side == 2 else b
+                    if other != inner or outer.Name in depth:
+                        continue
+                    depth[outer.Name] = depth[inner.Name] + 1
+                    reached[outer.Name] = (inner, joint, side)
+                    nextFront.append(outer)
+        front = sorted(nextFront, key=lambda p: index[p.Name])
+
+    def way(p):
+        """The way `p` leaves the part it is joined to: the axis of the
+        joint's frame on that part's side, pointing out of that part --
+        from its middle to where the joint sits on it. A bolt through a lid
+        has its middle below the lid's: the middles alone would send it in."""
+        inner, joint, side = reached[p.Name]
+        frame = inverse * JointObject.sideJcsGlobal(joint, 3 - side)
+        axis = frame.Rotation.multVec(App.Vector(0, 0, 1))
+        box, innerBox = boxes[p.Name], boxes[inner.Name]
+        if innerBox is None:
+            return axis
+        tol = 1e-6 * max(innerBox.DiagonalLength, 1.0)
+        out = axis.dot(frame.Base - innerBox.Center)
+        if abs(out) <= tol and box is not None:
+            # On the inner part's middle (a pin in a hole): the middles say
+            out = axis.dot(box.Center - innerBox.Center)
+        return -axis if out < -tol else axis
+
+    def outside(p):
+        """The parts reached through `p`, all the way out"""
+        found = []
+        for name, (inner, _j, _s) in reached.items():
+            if inner == p:
+                o = parts[index[name]]
+                found.append(o)
+                found.extend(outside(o))
+        return found
+
+    steps = []
+    # Loose: away from the middle of what the joints hold together, first
+    held = App.BoundBox()
+    for name in depth:
+        if boxes[name] is not None:
+            held.add(boxes[name])
+    toGlobal = inverse.Rotation.inverted()
+    tol = 1e-6 * max(held.DiagonalLength, 1.0) if held.isValid() else 1e-6
+
+    def clear(p, box, w):
+        """Whether `box` goes `w` (the assembly's frame) without running into
+        another part's box -- one it starts in aside"""
+        shift = toGlobal.multVec(w * (factor * _extentAlong(box, w)))
+        end = App.BoundBox(box)
+        end.move(shift)
+        swept = App.BoundBox(box)
+        swept.add(end)
+        for o in parts:
+            other = boxes[o.Name]
+            if o == p or other is None or _overlap(box, other, tol):
+                continue
+            if _overlap(swept, other, tol):
+                return False
+        return True
+
+    axes = [App.Vector(0, 0, 1), App.Vector(0, 0, -1)] + [
+        App.Vector(*v) for v in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0))
+    ]
+    loose = []  # [way, [parts]]
+    for p in parts:
+        box = boxes[p.Name]
+        if p.Name in depth or box is None or not held.isValid():
+            continue
+        w = inverse.Rotation.multVec(box.Center - held.Center)
+        if w.Length <= tol:
+            w = App.Vector(0, 0, 1)
+        w.normalize()
+        if not clear(p, box, w):
+            # The clear axis nearest the way out, up first among equals
+            order = sorted(range(len(axes)), key=lambda i: (-axes[i].dot(w), i))
+            for i in order:
+                if clear(p, box, axes[i]):
+                    w = axes[i]
+                    break
+        for g in loose:
+            if g[0].dot(w) > 1 - 1e-9:
+                g[1].append(p)
+                break
+        else:
+            loose.append([w, [p]])
+    for w, group in loose:
+        distance = factor * max(_extentAlong(boxes[p.Name], w) for p in group)
+        labels = [p.Label for p in group]
+        label = "Move " + ", ".join(labels[:3]) + (", ..." if len(labels) > 3 else "")
+        steps.append((group, w * distance, label))
+    moving = sorted(reached, key=lambda n: (-depth[n], index[n]))
+    groups = []  # [depth, way, [parts]]
+    for name in moving:
+        p = parts[index[name]]
+        w = way(p)
+        for g in groups:
+            if g[0] == depth[name] and g[1].dot(w) > 1 - 1e-9:
+                g[2].append(p)
+                break
+        else:
+            groups.append([depth[name], w, [p]])
+    for _d, w, group in groups:
+        distance = factor * max(
+            (_extentAlong(boxes[p.Name], w) for p in group if boxes[p.Name] is not None),
+            default=0.0,
+        )
+        if distance <= 0:
+            continue
+        taken = list(group)
+        for p in group:
+            for o in outside(p):
+                if o not in taken:
+                    taken.append(o)
+        labels = [p.Label for p in group]
+        label = "Move " + ", ".join(labels[:3]) + (", ..." if len(labels) > 3 else "")
+        steps.append((taken, w * distance, label))
+    return steps
+
+
+def makeAutoExplode(assembly, explodedView=None, factor=1.5):
+    """Not upstream: an exploded view of `assembly` made from its joints
+    (autoExplodeSteps(), docs/AssemblyExplode.md sec 10): its steps added
+    after those of `explodedView`, or of a new view. Returns the view."""
+    if explodedView is None:
+        group = UtilsAssembly.getViewGroup(assembly)
+        explodedView = group.newObject("Assembly::ExplodedViewPython", "Exploded View")
+        ExplodedView(explodedView)
+        if App.GuiUp:
+            ViewProviderExplodedView(explodedView.ViewObject)
+    steps = list(explodedView.Group)
+    for parts, move, label in autoExplodeSteps(assembly, factor):
+        subs = [s for s in (_subnameIn(assembly, p) for p in parts) if s]
+        if not subs:
+            continue
+        step = assembly.newObject("Assembly::ExplodedViewStepPython", "Move")
+        ExplodedViewStep(step, 0)
+        if App.GuiUp:
+            ViewProviderExplodedViewStep(step.ViewObject)
+        step.MovementTransform = App.Placement(move, App.Rotation())
+        step.References = [assembly, subs]
+        step.Label = label
+        step.Visibility = False
+        steps.append(step)
+    explodedView.Group = steps
+    return explodedView
+
+
+def _unposeViews(assembly):
+    group = UtilsAssembly.getViewGroup(assembly) if assembly else None
+    for explodedView in group.Group if group else []:
+        if explodedView.isDerivedFrom("Assembly::ExplodedView"):
+            explodedView.unpose()
+
+
+def _writeExplosion(steps, moves, trails):
+    """Put the parts where `moves` say, as the panel's edit does, and give
+    each of `steps` the trails it made (step, start, end, path), as
+    segments for its view provider to draw.
+    Returns the trails as upstream's applyMoves did: [[start, end], ...]"""
+    for obj, placement in moves:
+        obj.Placement = placement
+        obj.purgeTouched()
+    perStep = [[] for _ in steps]
+    for step, _start, _end, path in trails:
+        if 0 <= step < len(steps):
+            # As segments: a turn's arc is several
+            for a, b in zip(path, path[1:]):
+                perStep[step] += [a, b]
+    for step, points in zip(steps, perStep):
+        if hasattr(step, "Trail"):
+            step.Trail = points
+    return [[start, end] for _step, start, end, _path in trails]
 
 
 class ViewProviderExplodedViewStep:
@@ -673,7 +1259,26 @@ class ViewProviderExplodedViewStep:
     def updateData(self, stepObj, prop):
         """If a property of the handled feature has changed we have the chance to handle this here"""
         # stepObj is the handled feature, prop is the name of the property that has changed
-        pass
+        # Not upstream: the C++ step keeps the trails it made
+        if prop == "Trail" and hasattr(self, "lineSetGroup"):
+            points = list(stepObj.Trail)
+            self.drawPolylines(trailPolylines(list(zip(points[0::2], points[1::2]))))
+
+    def drawPolylines(self, polylines):
+        """Not upstream: each run of joined segments one line set, so a turn's
+        arc is dashed end to end (the pattern starts again on each line set)"""
+        self.lineSetGroup.removeAllChildren()
+        for points in polylines:
+            line = coin.SoLineSet()
+            line.numVertices.setValue(len(points))
+            coords = coin.SoCoordinate3()
+            coords.point.setValues(0, points)
+            sep = coin.SoSeparator()
+            sep.addChild(self.draw_style)
+            sep.addChild(self.so_color)
+            sep.addChild(coords)
+            sep.addChild(line)
+            self.lineSetGroup.addChild(sep)
 
     def redrawLines(self, stepObj, positions):
         # Clear existing lines
@@ -783,10 +1388,14 @@ class TaskAssemblyCreateView(QtCore.QObject):
         self.form.btnAlignDragger.setEnabled(False)
         self.form.btnAlignDragger.setText("Select a part")
         self.form.btnRadialExplosion.clicked.connect(self.onRadialClicked)
+        self.form.btnAutoExplosion.clicked.connect(self.onAutoClicked)
 
         pref = Preferences.preferences()
         self.form.CheckBox_PartsAsSingleSolid.setChecked(pref.GetBool("PartsAsSingleSolid", True))
 
+        # Not upstream: a view shown from the tree is put back first, so the
+        # panel starts from, and goes back to, the design
+        _unposeViews(self.assembly)
         self.initialPlcs = UtilsAssembly.saveAssemblyPartsPlacements(self.assembly)
         self.moveSpinboxes = {}
         self.moveDirections = {}
@@ -1180,6 +1789,20 @@ class TaskAssemblyCreateView(QtCore.QObject):
         self.setDragger()
 
         self.radialExplosion = True
+
+    def onAutoClicked(self):
+        """Not upstream: steps made from the joints, after the view's own
+        (docs/AssemblyExplode.md sec 10), worked out from the design"""
+        self.dismissCurrentStep()
+        UtilsAssembly.restoreAssemblyPartsPlacements(self.assembly, self.initialPlcs)
+        Gui.doCommand(
+            "CommandCreateView.makeAutoExplode("
+            f'App.ActiveDocument.getObject("{self.assembly.Name}"), '
+            f'App.ActiveDocument.getObject("{self.viewObj.Name}"))'
+        )
+        for move in self.viewObj.Group:  # shown while the panel is open
+            move.Visibility = True
+        self.onMovesChanged()
 
     def onAlignTo(self):
         self.alignMode = "Custom"

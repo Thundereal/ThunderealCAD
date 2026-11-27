@@ -28,6 +28,7 @@ projection and a pick where the cube is drawn agree with that frame.
 """
 import colorsys
 import os
+import time
 import traceback
 
 import FreeCAD
@@ -66,22 +67,6 @@ def check(name, cond, detail=""):
 def settle():
     for _ in range(10):
         QtCore.QCoreApplication.processEvents()
-
-
-def rest(view, seconds=5.0):
-    """Until the camera stands still: viewFront() animates, and a pick
-    sweep begun before it comes to rest misses by a few pixels (found on
-    the Windows box, 2 to 8 px from run to run). Five reads unchanged."""
-    import time
-    last, same = None, 0
-    end = time.time() + seconds
-    while same < 5 and time.time() < end:
-        settle()
-        FreeCADGui.updateGui()
-        cam = view.getCamera()
-        same = same + 1 if cam == last else 0
-        last = cam
-        time.sleep(0.02)
 
 
 def centre_of(name):
@@ -217,13 +202,30 @@ def check_fit(view, tag):
           abs(scale - want) <= 0.02 * want, "%.3f" % scale)
 
 
+def still(view):
+    """Wait for the camera to come to rest: viewFront() animates it, and
+    a sweep begun while it moves picks with a camera the frame and the
+    projections, read later, no longer have (off by up to 8 px)."""
+    last, same = None, 0
+    for _ in range(300):
+        settle()
+        FreeCADGui.updateGui()
+        time.sleep(0.02)
+        cam = view.getCamera()
+        same = same + 1 if cam == last else 0
+        if same >= 5:
+            return True
+        last = cam
+    return False
+
+
 def measure(view, tag):
     view.viewFront()
     view.fitAll()
     settle()
     FreeCADGui.updateGui()
     settle()
-    rest(view)
+    check("%s: the camera comes to rest" % tag, still(view))
     w, h = view.getSize()
     note("%s view %dx%d aspect %.3f" % (tag, w, h, float(w) / h))
     check_fit(view, tag)
@@ -263,7 +265,6 @@ def measure_cell(view, tag):
     settle()
     FreeCADGui.updateGui()
     settle()
-    rest(view)
     frames, fsize = frame(view, tag, True)
     note("%s cell size %s, viewer size %s" % (tag, fsize, tuple(view.getSize())))
     if not check("%s: the canvas cell was grabbed" % tag, fsize is not None):

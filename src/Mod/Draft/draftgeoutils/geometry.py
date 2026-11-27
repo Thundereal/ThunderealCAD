@@ -313,13 +313,14 @@ def get_normal(shape, tol=-1):
         else:
             return None
 
-    # Check the 3D view to flip the normal if the GUI is available
-    if App.GuiUp:
-        view = gui_utils.get_3d_view()
-        if view is not None:
-            v_dir = view.getViewDirection()
-            if normal.getAngle(v_dir) < 0.78:
-                normal = normal.negative()
+    # Check the 3D view to flip the normal if there is one: get_3d_view()
+    # answers None with no GUI, and a worker process's the asking process's
+    # view (docs/WorkerProcess.md sec 73)
+    view = gui_utils.get_3d_view()
+    if view is not None:
+        v_dir = view.getViewDirection()
+        if normal.getAngle(v_dir) < 0.78:
+            normal = normal.negative()
 
     return normal
 

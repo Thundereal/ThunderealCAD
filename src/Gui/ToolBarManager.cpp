@@ -30,6 +30,7 @@
 # include <QMenu>
 # include <QHBoxLayout>
 # include <QMouseEvent>
+# include <QContextMenuEvent>
 # include <QCheckBox>
 # include <QPointer>
 # include <QPainter>
@@ -419,6 +420,12 @@ void ToolBarGrip::mouseMoveEvent(QMouseEvent *me)
     if (rect.contains(pos))
         return;
 
+    // A trace for the reporter's "cannot drag" (2026-11-26), not reproduced
+    // here: BaseApp/LogLevels, ToolBar = 3 shows it in the report view
+    FC_LOG("grip drag out " << toolbar->objectName().toUtf8().constData()
+           << " buttons " << int(me->buttons())
+           << " grabber " << (QWidget::mouseGrabber() ? "yes" : "no"));
+
     // If mouse is out of the toolbar, remove the toolbar from area and float the
     // toolbar
     {
@@ -447,6 +454,9 @@ void ToolBarGrip::mouseMoveEvent(QMouseEvent *me)
                 || QWidget::mouseGrabber()
                 || modifiers != Qt::NoModifier
                 || !tb) {
+            FC_LOG("grip drag not continued: buttons " << int(buttons)
+                   << " grabber " << (QWidget::mouseGrabber() ? "yes" : "no")
+                   << " modifiers " << int(modifiers) << " toolbar " << (tb ? "yes" : "gone"));
             return;
         }
         QPoint pos(10, 10);
@@ -467,8 +477,12 @@ void ToolBarGrip::mouseMoveEvent(QMouseEvent *me)
     });
 }
 
-void ToolBarGrip::mousePressEvent(QMouseEvent *)
+void ToolBarGrip::mousePressEvent(QMouseEvent *me)
 {
+    auto toolbar = qobject_cast<QToolBar*>(parentWidget());
+    FC_LOG("grip press " << (toolbar ? toolbar->objectName().toUtf8().constData() : "?")
+           << " button " << int(me->button())
+           << " movable " << (toolbar && toolbar->isMovable()));
     setCursor(Qt::ClosedHandCursor);
 }
 
@@ -922,6 +936,8 @@ void ToolBarManager::connectToolBar(QToolBar *toolbar)
     connect(toolbar, SIGNAL(visibilityChanged(bool)), this, SLOT(onToggleToolBar(bool)));
     connect(toolbar, SIGNAL(movableChanged(bool)), this, SLOT(onMovableChanged(bool)));
     connect(toolbar, &QToolBar::topLevelChanged, this, [this, toolbar] {
+        FC_LOG("floating " << toolbar->objectName().toUtf8().constData() << ' '
+               << toolbar->isFloating());
         if (this->restored)
             getMainWindow()->saveWindowSettings(true);
         checkToolBarIconSize(toolbar);
@@ -1627,6 +1643,9 @@ void ToolBarManager::setToolBarMovable(QToolBar *toolbar)
         return;
 
     bool movable = toolbar->isMovable() && isDefaultMovable();
+    FC_LOG("movable " << toolbar->objectName().toUtf8().constData() << ' ' << movable
+           << " (toolbar " << toolbar->isMovable() << ", default " << isDefaultMovable()
+           << ", in an area " << (getToolBarArea(toolbar) ? "yes" : "no") << ')');
 
     if (restored && !toolbar->objectName().isEmpty()) {
         Base::ConnectionBlocker block(connParam);
@@ -1908,25 +1927,57 @@ bool ToolBarManager::eventFilter(QObject *o, QEvent *e)
 {
     bool res = false;
     switch(e->type()) {
-    case QEvent::MouseButtonRelease: {
-        auto mev = static_cast<QMouseEvent*>(e);
-        if (mev->button() == Qt::RightButton) {
-            if (showContextMenu(o)) {
+    case QEvent::ContextMenu: {
+        // Answered as a context menu event, not on the right button's
+        // release: this event comes to a toolbar or an area only when nothing
+        // under the mouse took it. The workbench tab bar shows its own menu
+        // (Show text, Collapse, the workbenches); QTabBar ignores a right
+        // button release, which then climbed to the area and was answered
+        // there with the area's toolbar list -- modally, before the tab bar
+        // was asked (the reporter, 2026-11-26: "right click toolbar in
+        // titlebar does not show toolbars own context menu, for example the
+        // workbench toolbar").
+        auto cev = static_cast<QContextMenuEvent*>(e);
+        auto tb = qobject_cast<QToolBar*>(o);
+        auto area = tb ? getToolBarArea(tb) : nullptr;
+        if (area && (area == menuBarLeftArea || area == menuBarRightArea)) {
+            // A toolbar in the title bar gets the menu it gets docked: the
+            // window's toolbar and lock menu
+            FC_LOG("context menu of " << tb->objectName().toUtf8().constData()
+                   << " in " << area->objectName().toUtf8().constData());
+            if (auto menu = getMainWindow()->createPopupMenu()) {
+                menu->setAttribute(Qt::WA_DeleteOnClose);
+                menu->popup(cev->globalPos());
                 return true;
             }
-            if (o == menuBarLeftArea || o == menuBarRightArea) {
-                // Nothing is parked here yet. The empty stretch of a title bar
-                // is still a sensible place to ask for the window's own toolbar
-                // and dock menu, which is where the toolbars come from.
-                if (auto menu = getMainWindow()->createPopupMenu()) {
-                    menu->setAttribute(Qt::WA_DeleteOnClose);
-                    menu->exec(QCursor::pos());
-                    return true;
-                }
+        }
+        if (showContextMenu(o)) {
+            return true;
+        }
+        if (o == menuBarLeftArea || o == menuBarRightArea) {
+            // Nothing is parked here yet. The empty stretch of a title bar
+            // is still a sensible place to ask for the window's own toolbar
+            // and dock menu, which is where the toolbars come from.
+            if (auto menu = getMainWindow()->createPopupMenu()) {
+                menu->setAttribute(Qt::WA_DeleteOnClose);
+                menu->popup(cev->globalPos());
+                return true;
             }
         }
+        break;
     }
-    // fall through
+    case QEvent::MouseButtonPress:
+        // Trace for the reporter's docked toolbar that would not drag
+        // (2026-11-26, "under some unknown state"): whether the press came
+        // at all, and what the toolbar was then
+        if (auto tb = qobject_cast<QToolBar*>(o)) {
+            FC_LOG("press on " << tb->objectName().toUtf8().constData()
+                   << " movable " << tb->isMovable() << " floating " << tb->isFloating()
+                   << " grabber " << (QWidget::mouseGrabber() ? "yes" : "no")
+                   << " in an area " << (getToolBarArea(tb) ? "yes" : "no"));
+        }
+        break;
+    case QEvent::MouseButtonRelease:
     case QEvent::MouseMove:
         res = addToolBarToArea(o, static_cast<QMouseEvent*>(e));
         break;

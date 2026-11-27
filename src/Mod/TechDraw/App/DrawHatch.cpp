@@ -33,12 +33,14 @@
 #endif
 
 #include <QCoreApplication>
+#include <QStringList>
 
 #include <App/Application.h>
 #include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
 #include <Base/Parameter.h>
+#include <Base/Tools.h>
 
 #include "DrawHatch.h"
 #include "DrawHatchPy.h"  // generated from DrawHatchPy.xml
@@ -64,6 +66,9 @@ DrawHatch::DrawHatch(void)
     ADD_PROPERTY_TYPE(SavedNames, (), vgroup, App::Prop_None,
                       "Names of the projected faces Source points at");
     SavedNames.setStatus(App::Property::Hidden, true);
+    ADD_PROPERTY_TYPE(SavedGeometry, (), vgroup, App::Prop_None,
+                      "What the projected faces Source points at were: area and centre");
+    SavedGeometry.setStatus(App::Property::Hidden, true);
     std::string svgFilter("SVG files (*.svg *.SVG);;Bitmap files(*.jpg *.jpeg *.png *.bmp);;All files (*)");
     HatchPattern.setFilter(svgFilter);
 }
@@ -79,40 +84,86 @@ void DrawHatch::onChanged(const App::Property* prop)
         replaceFileIncluded(HatchPattern.getValue());
     }
     else if (prop == &Source) {
-        updateSavedNames();
+        if (!m_fixing) {
+            // the faces chosen anew: nothing is left for the user to settle
+            m_nameOnly.clear();
+        }
+        // an undo or redo puts what was saved of the faces back itself
+        if (!getDocument() || !getDocument()->isPerformingTransaction()) {
+            updateSavedNames();
+        }
     }
     App::DocumentObject::onChanged(prop);
 }
 
-//! record the name of each face Source points at
+//! record the name and the geometry of each face Source points at
 void DrawHatch::updateSavedNames()
 {
-    std::vector<std::string> names =
-        DrawViewPart::geometryNamesOf(Source.getValue(), Source.getSubValues());
-
-    // while the view has no faces there is nothing to record, and recording
-    // nothing would throw away what the document brought with it
-    bool anyNamed = std::any_of(names.begin(), names.end(),
-                                [](const std::string& name) { return !name.empty(); });
-    if (!anyNamed && !SavedNames.getValues().empty()) {
-        return;
-    }
-
+    // a face its name has left is the user's to settle: what was saved of it
+    // is what their edit goes by, and is kept (DrawViewPart::mergeSaved())
+    std::vector<std::string> names = DrawViewPart::mergeSaved(
+        DrawViewPart::geometryNamesOf(Source.getValue(), Source.getSubValues()),
+        SavedNames.getValues(), m_nameOnly);
+    std::vector<std::string> geometry = DrawViewPart::mergeSaved(
+        DrawViewPart::geometrySignaturesOf(Source.getValue(), Source.getSubValues()),
+        SavedGeometry.getValues(), m_nameOnly);
     if (names != SavedNames.getValues()) {
         SavedNames.setValues(names);
     }
+    if (geometry != SavedGeometry.getValues()) {
+        SavedGeometry.setValues(geometry);
+    }
 }
 
-//! point Source at whatever faces carry the stored names now
 bool DrawHatch::fixByName()
 {
     std::vector<std::string> subNames = Source.getSubValues();
-    if (!DrawViewPart::repointByName(Source.getValue(), SavedNames.getValues(), subNames)) {
-        return false;
+    bool moved = false;
+    m_nameOnly = DrawViewPart::repointByName(Source.getValue(), SavedNames.getValues(),
+                                             SavedGeometry.getValues(), subNames, false, &moved);
+    if (moved) {
+        Base::StateLocker guard(m_fixing);
+        Source.setValue(Source.getValue(), subNames);
     }
+    return moved;
+}
 
-    Source.setValue(Source.getValue(), subNames);
-    return true;
+std::vector<ReferenceNameMatch> DrawHatch::findByName() const
+{
+    std::vector<std::string> subNames = Source.getSubValues();
+    return DrawViewPart::repointByName(Source.getValue(), SavedNames.getValues(),
+                                       SavedGeometry.getValues(), subNames, false);
+}
+
+std::vector<ReferenceNameMatch> DrawHatch::repointByName()
+{
+    std::vector<std::string> subNames = Source.getSubValues();
+    bool moved = false;
+    auto taken = DrawViewPart::repointByName(Source.getValue(), SavedNames.getValues(),
+                                             SavedGeometry.getValues(), subNames, true, &moved);
+    m_nameOnly.clear();
+    if (moved) {
+        // its names and geometry recorded again, from the faces taken
+        Source.setValue(Source.getValue(), subNames);
+    }
+    return taken;
+}
+
+std::string DrawHatch::whyNameMoved() const
+{
+    QStringList said;
+    for (auto& match : m_nameOnly) {
+        said << QCoreApplication::translate("TechDraw", "%1's name is %2's now")
+                    .arg(QString::fromStdString(match.was), QString::fromStdString(match.now));
+    }
+    if (said.isEmpty()) {
+        return {};
+    }
+    return QCoreApplication::translate(
+               "TechDraw", "%1, and neither is the face it was made on. Not moved: edit the "
+                           "hatch to take the face by its name, or reattach it")
+        .arg(said.join(QStringLiteral("; ")))
+        .toStdString();
 }
 
 App::DocumentObjectExecReturn *DrawHatch::execute(void)

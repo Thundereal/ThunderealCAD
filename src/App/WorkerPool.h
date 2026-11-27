@@ -302,8 +302,10 @@ public:
     /// (docs/WorkerProcess.md sec 26)
     std::size_t cancel(const std::function<bool(const std::string&)>& which);
     /// End every worker and drop the copy: every job is handed back
-    /// Cancelled with `why`. The next start() takes a new copy
-    void stop(const std::string& why);
+    /// Cancelled with `why` -- or Unfit, where no worker can do them (a copy
+    /// a worker cannot work on), so that their clients do them themselves
+    /// (docs/WorkerProcess.md sec 72). The next start() takes a new copy
+    void stop(const std::string& why, bool unfit = false);
     /** The design changed (docs/WorkerProcess.md sec 4): the copy is stale,
      * and the jobs `obj` reaches -- those that read it or anything that
      * depends on it, and those that say nothing of what they read -- are

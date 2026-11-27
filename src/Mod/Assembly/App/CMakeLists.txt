@@ -32,6 +32,8 @@ generate_from_py(BomObject)
 generate_from_py(BomGroup)
 generate_from_py(JointGroup)
 generate_from_py(ViewGroup)
+generate_from_py(ExplodedView)
+generate_from_py(ExplodedViewStep)
 generate_from_py(SimulationGroup)
 generate_from_py(SnapshotGroup)
 generate_from_py(Joint)
@@ -54,6 +56,10 @@ SET(Python_SRCS
     JointGroupPyImp.cpp
     ViewGroup.pyi
     ViewGroupPyImp.cpp
+    ExplodedView.pyi
+    ExplodedViewPyImp.cpp
+    ExplodedViewStep.pyi
+    ExplodedViewStepPyImp.cpp
     SimulationGroup.pyi
     SimulationGroupPyImp.cpp
     SnapshotGroup.pyi
@@ -88,6 +94,7 @@ SET(Solver_SRCS
     Solver/Formula.h
     Solver/JointEquations.cpp
     Solver/JointEquations.h
+    Solver/LocalSurface.h
     Solver/Model.h
     Solver/Model.cpp
     Solver/OndselBackend.cpp

@@ -154,7 +154,8 @@ def save():
         snapdoc = FreeCAD.getDocument(STATE["snapdoc"])
         STATE["boltfile"] = snapdoc.FileName
         check("the snapshot has its file now",
-              snapdoc.FileName and os.path.dirname(snapdoc.FileName) == ROOT, snapdoc.FileName)
+              snapdoc.FileName and os.path.normcase(os.path.dirname(os.path.normpath(snapdoc.FileName)))
+              == os.path.normcase(os.path.normpath(ROOT)), snapdoc.FileName)
         for name in list(FreeCAD.listDocuments()):
             FreeCAD.closeDocument(name)
         target = FreeCAD.openDocument(os.path.join(ROOT, "b.FCStd"))

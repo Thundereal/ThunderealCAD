@@ -309,17 +309,21 @@ _GRADIENTS = []
 def _tet10Gradients():
     """The 10-node tetrahedron's shape functions' derivatives by its natural
     coordinates (xi, eta, zeta: its corners 1, 2 and 3's barycentric
-    coordinates) at each of its own nodes: an array [node, function, 3], the
-    nodes in _EDGE's order -- corners, then the edges (0 1) (1 2) (2 0)
-    (0 3) (1 3) (2 3). A corner's function L (2 L - 1), an edge's 4 L_i L_j."""
+    coordinates) at its four Gauss points, and what takes values there to
+    its nodes: arrays [point, function, 3] and [node, point]. The nodes in
+    _EDGE's order -- corners, then the edges (0 1) (1 2) (2 0) (0 3) (1 3)
+    (2 3); a corner's function L (2 L - 1), an edge's 4 L_i L_j. The Gauss
+    points' values make a linear field over the tetrahedron, its corners'
+    from them and each edge's middle the mean of its two -- CalculiX's
+    C3D10 the same."""
     import numpy as np
 
     if _GRADIENTS:
         return _GRADIENTS[0]
     edges = [(0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3)]
-    corners = np.eye(4)
-    points = list(corners) + [0.5 * (corners[i] + corners[j]) for i, j in edges]
-    gradients = np.zeros((10, 10, 3))
+    a, b = (5.0 - 5.0**0.5) / 20.0, (5.0 + 3.0 * 5.0**0.5) / 20.0
+    points = np.full((4, 4), a) + np.eye(4) * (b - a)
+    gradients = np.zeros((4, 10, 3))
     for p, L in enumerate(points):
         # By the barycentric coordinates, then by (xi, eta, zeta): L_0 is
         # 1 - xi - eta - zeta
@@ -330,8 +334,10 @@ def _tet10Gradients():
             byL[4 + e, i] = 4.0 * L[j]
             byL[4 + e, j] = 4.0 * L[i]
         gradients[p] = byL[:, 1:] - byL[:, [0]]
-    _GRADIENTS.append(gradients)
-    return gradients
+    corners = np.linalg.inv(points)
+    toNodes = np.vstack([corners] + [0.5 * (corners[i] + corners[j]) for i, j in edges])
+    _GRADIENTS.append((gradients, toNodes))
+    return _GRADIENTS[0]
 
 
 def modalStresses(nodes, tetrahedra, shapes, youngs, poisson, wanted):
@@ -341,7 +347,11 @@ def modalStresses(nodes, tetrahedra, shapes, youngs, poisson, wanted):
     nodes: n x 3; tetrahedra: their nodes, ten each, _EDGE's order; shapes:
     the displacement per coordinate, n x 3 x columns, in the nodes' units --
     the run's mode shapes. Their strain is the small strain, which a rigid
-    turn has none of."""
+    turn has none of. Each tetrahedron's at its Gauss points, where the
+    modes' stiffness is integrated, taken to its nodes (_tet10Gradients()):
+    at a node itself a thin one's curved edge can turn it inside out --
+    one of a half torus's, its node's 116.7 MPa where the nodes about it
+    read 2.8, 1.9 from its Gauss points."""
     import numpy as np
 
     points = np.asarray(nodes, dtype=float)
@@ -350,8 +360,8 @@ def modalStresses(nodes, tetrahedra, shapes, youngs, poisson, wanted):
     at = np.zeros(len(points), dtype=bool)
     at[wanted] = True
     tets = tets[at[tets].any(axis=1)]
-    gradients = _tet10Gradients()
-    # dx_i / dxi_k at each node of each, then dN_a / dx_i
+    gradients, toNodes = _tet10Gradients()
+    # dx_i / dxi_k at each Gauss point of each, then dN_a / dx_i
     jacobian = np.einsum("eai,pak->epik", points[tets], gradients)
     byX = np.einsum("epki,pak->epai", np.linalg.inv(jacobian), gradients)
     lam = youngs * poisson / ((1 + poisson) * (1 - 2 * poisson))
@@ -373,6 +383,7 @@ def modalStresses(nodes, tetrahedra, shapes, youngs, poisson, wanted):
             mu * (h[..., 2, 0] + h[..., 0, 2]),
         )
         for k, s in enumerate(stress):
+            s = np.einsum("np,ep->en", toNodes, s)
             summed = np.bincount(flat, weights=s.ravel(), minlength=len(points))
             out[:, k, c] = summed[wanted] / count
     return out
@@ -441,12 +452,100 @@ def colorsOf(fractions):
     return stops[i] * (1 - f) + stops[i + 1] * f
 
 
+def rigidOf(rest, psi, boundary):
+    """The columns of a flexible body's rigid motion, held by its first
+    interface: the surface nodes' rest (n x 3) and its mode shapes there (n x
+    3 x columns), of which the first 'boundary' its interfaces' poses in its
+    floating frame. Its first interface's nodes -- those its translations
+    move one for one, a joint's (its interfaces come first, its contact
+    faces' after) -- move rigidly with it; the motion fitted to them, t + r x
+    (p - c), least squares, is drawn as it is and the rest scaled, so that
+    interface is held where it is drawn and the others' motion against it
+    is bending. Where no node is so found, the fit is to all the interfaces'
+    columns over all the nodes; none without interfaces. The columns, and
+    the centre of the nodes it is fitted over (None without)."""
+    import numpy as np
+
+    held = np.zeros_like(psi)
+    if boundary < 6 or len(rest) == 0:
+        return held, None
+    # The first interface's nodes: its three translations' columns the
+    # identity there, and every column but its six none -- the modes are its
+    # held, the other interfaces' with it held -- each against its largest
+    off = np.max(np.abs(psi[:, :, 0:3] - np.eye(3)[None, :, :]), axis=(1, 2))
+    on = off < 1e-4
+    if psi.shape[2] > 6:
+        others = np.abs(psi[:, :, 6:])
+        largest = np.max(others, axis=(0, 1))
+        largest[largest == 0.0] = 1.0
+        on &= np.max(others / largest[None, None, :], axis=(1, 2)) < 1e-4
+    if np.count_nonzero(on) < 3:
+        on = np.ones(len(rest), dtype=bool)
+        columns = boundary
+    else:
+        columns = psi.shape[2]
+    centre = rest[on].mean(axis=0)
+    arm = rest - centre
+
+    def rowsOf(arms):
+        # Each node's three rows: the translation, then -[arm]x for the turn
+        fit = np.zeros((len(arms), 3, 6))
+        fit[:, 0, 0] = fit[:, 1, 1] = fit[:, 2, 2] = 1.0
+        fit[:, 0, 4], fit[:, 0, 5] = arms[:, 2], -arms[:, 1]
+        fit[:, 1, 3], fit[:, 1, 5] = -arms[:, 2], arms[:, 0]
+        fit[:, 2, 3], fit[:, 2, 4] = arms[:, 1], -arms[:, 0]
+        return fit.reshape(-1, 6)
+
+    moves = np.linalg.lstsq(
+        rowsOf(arm[on]), psi[on][:, :, :columns].reshape(-1, columns), rcond=None
+    )[0]
+    held[:, :, :columns] = (rowsOf(arm) @ moves).reshape(len(rest), 3, columns)
+    return held, centre
+
+
+def heldWherePressed(rest, held, psi, centre, pressed):
+    """The columns of a flexible body's rigid motion (rigidOf()'s, its
+    centre with them, None without a hold), with the nodes it is pressed at
+    over a run held too: a turn about the hold's centre -- without a hold a
+    motion, t + r x (p - c) -- fitted to each column's bending there, least
+    squares, goes with the rigid motion, drawn as it is. So through the
+    whole run, pressed or not, the hold and where it is pressed are drawn
+    where they are, and what is scaled is its bending between them: scaled
+    about its hold alone it is drawn through what it lies on or off it, and
+    held there only while it presses the drawing jumps as it lets go."""
+    import numpy as np
+
+    if not len(pressed):
+        return held
+    fixed = centre is not None
+    middle = centre if fixed else rest[pressed].mean(axis=0)
+
+    def rowsOf(arms):
+        # r x a = -[a]x r, then the translation
+        fit = np.zeros((len(arms), 3, 3 if fixed else 6))
+        fit[:, 0, 1], fit[:, 0, 2] = arms[:, 2], -arms[:, 1]
+        fit[:, 1, 0], fit[:, 1, 2] = -arms[:, 2], arms[:, 0]
+        fit[:, 2, 0], fit[:, 2, 1] = arms[:, 1], -arms[:, 0]
+        if not fixed:
+            fit[:, :, 3:] = np.eye(3)[None, :, :]
+        return fit.reshape(-1, fit.shape[2])
+
+    columns = psi.shape[2]
+    bending = (psi - held)[pressed].reshape(-1, columns)
+    moves = np.linalg.lstsq(rowsOf(rest[pressed] - middle), bending, rcond=None)[0]
+    return held + (rowsOf(rest - middle) @ moves).reshape(len(rest), 3, columns)
+
+
 class Deformation:
     """A flexible body's deformation as its last run had it: its mesh's
     surface moved by its mode shapes and the run's coordinates at a time,
     scaled up to be seen: its largest over the run a tenth of its size --
-    as it is where that is a twentieth or more -- unless the flexible body
-    has a BendingScale or show() is given a scale. And its stress there,
+    as it is where that is a twentieth or more, or where the run presses it
+    on something (pressedOf()) -- unless the flexible body
+    has a BendingScale or show() is given a scale. What is scaled is its
+    bending, not its interfaces' pose in its floating frame: a part held by
+    a joint is drawn held there, bent about it (rigidOf()), and held too
+    where the run presses it (heldWherePressed()). And its stress there,
     each mode's
     (modalStresses()) weighed by the coordinates, coloured over it, the
     largest over the run red."""
@@ -507,14 +606,22 @@ class Deformation:
         if self.coordinates.shape[1] != columns:
             self.valid = False
             return
+        # Drawn as it is, the interfaces' rigid motion; scaled, the rest
+        boundary = len(interfaces[0]) if interfaces else 0
+        self.held, self.centre = rigidOf(self.rest, self.psi, boundary)
+        # Held too where it is pressed over the run (heldWherePressed())
+        self.pressed = self.pressedOf(results)
+        self.held = heldWherePressed(self.rest, self.held, self.psi, self.centre, self.pressed)
+        self.bending = self.psi - self.held
         largest = 0.0
         for row in self.coordinates:
-            moved = self.psi @ row
+            moved = self.bending @ row
             largest = max(largest, float(np.max(np.linalg.norm(moved, axis=1))))
         size = float(np.max(np.ptp(self.rest, axis=0)))
         self.automatic = 0.1 * size / largest if largest > 0 else 1.0
-        if self.automatic < 2.0:
-            # Seen as it is
+        if self.automatic < 2.0 or self.pressed:
+            # Seen as it is; and one pressed on something, which scaled is
+            # drawn bent as it is not: scaled only as its BendingScale has it
             self.automatic = 1.0
         self.elasticity = elasticityOf(flexible)
 
@@ -587,10 +694,72 @@ class Deformation:
             given = 0.0
         return given if given > 0 else self.automatic
 
+    def placesOf(self, results):
+        """Each frame's points the part presses something at, in the
+        assembly's coordinates: its contact sets' places on it
+        ("PartContactPlaces") with a force, or a run's kept from before the
+        places their one point"""
+        import numpy as np
+
+        mine = self.component.getLinkedObject()
+
+        def on(channel):
+            part = channel.get("On")
+            if isinstance(part, str):
+                return part == self.component.Name
+            return part is not None and part.getLinkedObject() == mine
+
+        channels = [c for c in results.get("Channels", []) if on(c)]
+        places = [[] for _ in self.times]
+        sets = {}
+        for c in channels:
+            sets.setdefault(c.get("Name"), {})[c["Quantity"]] = c
+        for found in sets.values():
+            if "PartContactPlaces" in found:
+                for k, row in enumerate(found["PartContactPlaces"]["Values"][: len(places)]):
+                    for i in range(0, len(row), 10):
+                        if np.linalg.norm(row[i : i + 3]) > 0.0:
+                            places[k].append(tuple(row[i + 3 : i + 6]))
+            elif "PartContactPoint" in found and "PartContactForce" in found:
+                points = found["PartContactPoint"]["Values"]
+                for k, force in enumerate(found["PartContactForce"]["Values"][: len(places)]):
+                    if force is not None and force.Length > 0.0:
+                        places[k].append(tuple(points[k]))
+        return places
+
+    def pressedOf(self, results):
+        """The surface's nodes the part is pressed at over the run: at each
+        frame, the node nearest each of placesOf()'s points, the part where
+        the run has it then"""
+        import numpy as np
+
+        places = self.placesOf(results)
+        if not any(places):
+            return []
+        try:
+            poses = _assemblyOf(self.flexible).getSimulationPlacements(self.component)
+        except Exception:
+            poses = []
+        if len(poses) != len(self.times):
+            return []
+        pressed = set()
+        for k, points in enumerate(places):
+            if not points:
+                continue
+            real = self.rest + self.psi @ self.coordinates[k]
+            toLocal = poses[k].inverse()
+            for p in points:
+                q = np.array(tuple(toLocal.multVec(App.Vector(*p))))
+                pressed.add(int(np.argmin(np.linalg.norm(real - q, axis=1))))
+        return sorted(pressed)
+
     def pointsAt(self, time, scale=None):
-        """The surface's nodes at a time, in the component's coordinates"""
-        moved = self.psi @ self.coordinatesAt(time)
-        return self.rest + (self.scale if scale is None else scale) * moved
+        """The surface's nodes at a time, in the component's coordinates: its
+        rigid motion as it is -- its hold's, and where it is pressed -- its
+        bending scaled"""
+        row = self.coordinatesAt(time)
+        scale = self.scale if scale is None else scale
+        return self.rest + self.held @ row + scale * (self.bending @ row)
 
     def show(self, time, scale=None, peak=None):
         """Drawn at a time, over the component, which hides; coloured by its

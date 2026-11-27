@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<title>PMI_View</title>
+<g fill="none" stroke="#1c3f94" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+<rect x="4" y="22" width="34" height="26" rx="3" fill="#ffffff"/><path d="M 38 30 L 58 20 L 58 50 L 38 40 Z" fill="#ffffff"/><rect x="11" y="29" width="20" height="12" stroke-width="2"/>
+</g>
+</svg>

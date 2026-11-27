@@ -70,6 +70,8 @@ namespace sp = std::placeholders;
     qApp->translate("Workbench", "Toggle 3D");
     qApp->translate("Workbench", "Part Design Helper");
     qApp->translate("Workbench", "Part Design Modeling");
+    qApp->translate("Workbench", "Part Design Extensions");
+    qApp->translate("Workbench", "Extensions");
 #endif
 
 /// @namespace PartDesignGui @class Workbench
@@ -520,8 +522,12 @@ Gui::MenuItem* Workbench::setupMenuBar() const
     root->insertItem(item, sketch);
     sketch->setCommand("&Sketch");
 
-    *sketch << "PartDesign_NewSketch"
-            << "Sketcher_EditSketch"
+    *sketch << "PartDesign_NewSketch";
+    // a 3D sketch beside the sketch on a plane (the reporter, 2026-11-26)
+    if (Gui::Application::Instance->commandManager().getCommandByName("Sketcher_NewSketch3D")) {
+        *sketch << "Sketcher_NewSketch3D";
+    }
+    *sketch << "Sketcher_EditSketch"
             << "Sketcher_ViewSketchGroup"
             << "Sketcher_MapSketch"
             << "Sketcher_ReorientSketch"
@@ -580,6 +586,19 @@ Gui::MenuItem* Workbench::setupMenuBar() const
                 << "PartDesign_SheetMetalBaseWall"
                 << "PartDesign_SheetMetalConvert";
 
+    // PMI's way in, the same: its tool bar comes with a Body's annotation set
+    // active, which the first annotation made here makes (docs/GDandT.md
+    // sec 3). The commands are PMIGui's, there when the PMI module is built
+    Gui::MenuItem* pmi = nullptr;
+    if (Gui::Application::Instance->commandManager().getCommandByName("PMI_Datum")) {
+        pmi = new Gui::MenuItem;
+        pmi->setCommand("PMI");
+        *pmi << "PMI_Datum"
+             << "PMI_GeometricTolerance"
+             << "PMI_Dimension"
+             << "PMI_Note";
+    }
+
     Gui::MenuItem* dressups = new Gui::MenuItem;
     dressups->setCommand("Apply a dress-up feature");
 
@@ -605,9 +624,13 @@ Gui::MenuItem* Workbench::setupMenuBar() const
           << "Separator"
           << transformations
           << "Separator"
-          << dressups
-          << sheetMetal
-          << "Separator"
+          << dressups
+
+          << sheetMetal;
+    if (pmi) {
+        *part << pmi;
+    }
+    *part << "Separator"
           << "Materials_InspectAppearance"
           << "Materials_InspectMaterial"
           << "Separator"
@@ -668,8 +691,11 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
     part->setCommand("Part Design Helper");
 
     *part << "PartDesign_Body"
-          << "PartDesign_NewSketch"
-          << "Sketcher_EditSketch"
+          << "PartDesign_NewSketch";
+    if (Gui::Application::Instance->commandManager().getCommandByName("Sketcher_NewSketch3D")) {
+        *part << "Sketcher_NewSketch3D";
+    }
+    *part << "Sketcher_EditSketch"
           << "Sketcher_MapSketch"
           << "Sketcher_ValidateSketch"
           << "Separator"
@@ -678,8 +704,9 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
           << "PartDesign_Plane"
           << "PartDesign_CoordinateSystem"
           << "PartDesign_ShapeBinder"
-          << "PartDesign_SubShapeBinder"
-          << "PartDesign_Clone";
+          << "PartDesign_SubShapeBinder";
+    // PartDesign_Clone is deprecated: kept in the menu and for macros, no
+    // longer offered on the tool bar
 
     part = new Gui::ToolBarItem(root);
     part->setCommand("Part Design Modeling");
@@ -718,6 +745,17 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
           << "PartDesign_Thicken"
           << "Separator"
           << "Part_CheckGeometry";
+
+    // Always shown: the design generators, and a toggle for each tool
+    // context registered for PartDesign -- Sheet Metal, Surface, PMI -- which
+    // Gui::ToolContext adds at its end (AppPartDesignGui, hostToggles). A
+    // toggle shows its tool bars and makes nothing (the reporter, 2026-11-26)
+    part = new Gui::ToolBarItem(root);
+    part->setCommand("Part Design Extensions");
+    if (Gui::Application::Instance->commandManager().getCommandByName(
+            "PartDesign_DesignGenerators")) {
+        *part << "PartDesign_DesignGenerators";
+    }
 
     // use Part's measure features also for PartDesign
     Gui::ToolBarItem* measure = new Gui::ToolBarItem(root);

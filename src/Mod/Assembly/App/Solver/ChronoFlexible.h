@@ -114,6 +114,10 @@ public:
     };
     // The place nearest p, in the body's frame; false when it has none
     bool nearest(const chrono::ChVector3d& p, Place& place) const;
+    // The same as its face, by its number, and its area coordinates there
+    bool nearestOnFace(const chrono::ChVector3d& p,
+                       std::size_t& face,
+                       std::array<double, 3>& L) const;
     // The point of triangle abc nearest p, as its weights on the corners
     static std::array<double, 3> weights(const chrono::ChVector3d& p,
                                          const chrono::ChVector3d& a,
@@ -177,6 +181,10 @@ public:
     }
 
 private:
+    // The triangle nearest p and the weights of its point nearest p
+    bool nearestTriangle(const chrono::ChVector3d& p,
+                         std::size_t& i,
+                         std::array<double, 3>& w) const;
     std::vector<chrono::ChVector3d> points;
     // The faces' six nodes; each triangle's face and which piece of it,
     // 0 to 3 a quarter (Surface()), 4 the whole: a flat face, its edges'

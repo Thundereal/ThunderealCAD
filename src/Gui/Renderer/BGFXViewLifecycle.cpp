@@ -380,6 +380,32 @@ bool BGFXView::allocEffect(EffectGroup g)
             return false;
         bgfx::TextureHandle bsAtt[2] = {bulbShadowTex, bulbShadowDepth};
         bulbShadowFbo = bgfx::createFrameBuffer(2, bsAtt, false);
+        // The tint atlas over the moments' depth, and the near atlas
+        // with its own: what translucent casters let through of a
+        // bulb's light, and the nearest of them (the scene light's
+        // pair, tile for tile). Without them the bulbs still cast,
+        // a translucent part not at all.
+        if (!bgfx::isValid(bulbTintTex))
+            bulbTintTex = bgfx::createTexture2D(side, side, false, 1,
+                bgfx::TextureFormat::RGBA8,
+                BGFX_TEXTURE_RT
+                | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+        if (!bgfx::isValid(bulbNearTex))
+            bulbNearTex = bgfx::createTexture2D(side, side, false, 1,
+                shadowFormat,
+                BGFX_TEXTURE_RT | BGFX_SAMPLER_POINT
+                | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+        if (!bgfx::isValid(bulbNearDepth))
+            bulbNearDepth = bgfx::createTexture2D(side, side, false, 1,
+                bgfx::TextureFormat::D24S8,
+                BGFX_TEXTURE_RT | BGFX_TEXTURE_RT_WRITE_ONLY);
+        if (bgfx::isValid(bulbTintTex) && bgfx::isValid(bulbNearTex)
+                && bgfx::isValid(bulbNearDepth)) {
+            bgfx::TextureHandle btAtt[2] = {bulbTintTex, bulbShadowDepth};
+            bulbTintFbo = bgfx::createFrameBuffer(2, btAtt, false);
+            bgfx::TextureHandle bnAtt[2] = {bulbNearTex, bulbNearDepth};
+            bulbNearFbo = bgfx::createFrameBuffer(2, bnAtt, false);
+        }
         return bgfx::isValid(bulbShadowFbo);
     }
     case EffectReflection: {
@@ -625,8 +651,13 @@ void BGFXView::freeEffect(EffectGroup g)
         break;
     case EffectBulbShadow:
         drop(bulbShadowFbo);
+        drop(bulbTintFbo);
+        drop(bulbNearFbo);
         drop(bulbShadowTex);
         drop(bulbShadowDepth);
+        drop(bulbTintTex);
+        drop(bulbNearTex);
+        drop(bulbNearDepth);
         // The tiles cached in the released atlas are gone with it.
         for (int t = 0; t < kBulbShadowTiles; ++t) {
             bulbShadowValid[t] = false;
@@ -694,10 +725,11 @@ void BGFXView::freeEffect(EffectGroup g)
     case EffectShadow:
         for (auto *h : {&shadowFbo, &shadowBlurFbo, &shadowBlurBackFbo,
                         &shadowTintFbo, &shadowTintBlurFbo,
-                        &shadowTintBlurBackFbo})
+                        &shadowTintBlurBackFbo, &shadowNearFbo})
             drop(*h);
         for (auto *h : {&shadowTex, &shadowDepth, &shadowBlurTex,
-                        &shadowTintTex, &shadowTintBlurTex})
+                        &shadowTintTex, &shadowTintBlurTex,
+                        &shadowNearTex, &shadowNearDepth})
             drop(*h);
         // No map, no size and no cached moments: the next allocation
         // is a first build again, at whatever precision then asks for.
@@ -1279,6 +1311,10 @@ void BGFXView::init(bool keepShared)
         // The atlas itself is demand-allocated by
         // ensureEffect(EffectBulbShadow) -- 50MB of a fixed 2048x2048
         // that a scene with no shadow-casting bulb never touches.
+        ensureUniform(s_texBulbTint, "s_texBulbTint",
+                      bgfx::UniformType::Sampler);
+        ensureUniform(s_texBulbNear, "s_texBulbNear",
+                      bgfx::UniformType::Sampler);
         ensureUniform(s_texBulbShadow, "s_texBulbShadow",
                       bgfx::UniformType::Sampler);
         ensureUniform(u_bulbShadowMtx, "u_bulbShadowMtx",
@@ -1288,7 +1324,11 @@ void BGFXView::init(bool keepShared)
         ensureUniform(u_bulbShadowRot, "u_bulbShadowRot",
                       bgfx::UniformType::Mat4);
         ensureProgram(m_progShadowTint, "vs_fc_shadow", "fs_fc_shadow_tint");
+        ensureProgram(m_progShadowTintClip, "vs_fc_shadow_clip",
+                      "fs_fc_shadow_tint_clip");
         ensureUniform(s_texShadowTint, "s_texShadowTint",
+                      bgfx::UniformType::Sampler);
+        ensureUniform(s_texShadowNear, "s_texShadowNear",
                       bgfx::UniformType::Sampler);
     }
     static const uint32_t blackCube[6] = {0, 0, 0, 0, 0, 0};

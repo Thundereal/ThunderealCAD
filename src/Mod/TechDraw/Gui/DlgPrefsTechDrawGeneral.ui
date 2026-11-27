@@ -313,7 +313,7 @@ for ProjectionGroups</string>
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
           </property>
           <property name="value">
-           <double>8.000000000000000</double>
+           <double>2.500000000000000</double>
           </property>
           <property name="prefEntry" stdset="0">
            <cstring>LabelSize</cstring>

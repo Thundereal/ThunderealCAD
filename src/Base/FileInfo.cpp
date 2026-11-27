@@ -755,6 +755,25 @@ bool attempt(const char* what, const std::string& path, const std::wstring& wide
                                 path.c_str(), tries, held * 1000.0);
             return true;
         }
+        // A delete refused for a moment and then not finding its file: the
+        // file went while it waited -- deleted after all, by the one that
+        // held it (a file pending deletion refuses the next open), not a
+        // refusal (docs/WorkerProcess.md sec 72)
+#if defined(FC_OS_WIN32)
+        const bool gone = code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND;
+#else
+        const bool gone = code == ENOENT;
+#endif
+        if (gone && std::strcmp(what, "delete") == 0) {
+            {
+                std::lock_guard<std::mutex> guard(r.lock);
+                ++r.retried;
+                ++r.recovered;
+            }
+            Base::Console().Log("%s of '%s': gone after %d tries, %.0f ms\n", what,
+                                path.c_str(), tries, elapsed() * 1000.0);
+            return true;
+        }
         if (!momentary(code, directory, wide)) {
             break;
         }

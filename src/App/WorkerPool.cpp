@@ -112,6 +112,8 @@
 #include "StringHasher.h"
 #include "LogMoveKeep.h"
 #include "TransactionLog.h"
+#include "TransactionStore.h"
+#include "TransactionValue.h"
 #include "WorkerPool.h"
 #include "WriteScope.h"
 
@@ -2391,9 +2393,15 @@ void WorkerPool::Private::handle(Proc& proc, const json& header)
         }
     }
     else if (type == "unfit") {
-        // The copy cannot be worked on there: no worker would do better
+        // The copy cannot be worked on there: no worker would do better. Its
+        // jobs are the clients' to do, as a job answered unfit is -- handed
+        // back Cancelled, a recompute asked in the GUI was left undone, the
+        // document touched (docs/WorkerProcess.md sec 72)
         std::string why = header.value("error", std::string());
-        pool.stop(why.empty() ? std::string("a worker cannot work on the document") : why);
+        why = why.empty() ? std::string("a worker cannot work on the document") : why;
+        Base::Console().warning("%s: %s; done in this process\n", doc.Label.getValue(),
+                                why.c_str());
+        pool.stop(why, true);
     }
     else if (type == "result") {
         const JobId id = header.value("job", JobId(0));
@@ -3609,7 +3617,7 @@ std::size_t WorkerPool::cancel(const std::function<bool(const std::string&)>& wh
     return count;
 }
 
-void WorkerPool::stop(const std::string& why)
+void WorkerPool::stop(const std::string& why, bool unfit)
 {
     Private::Depth guard(*d, true);
     if (!why.empty() && (started() || !d->procs.empty())) {
@@ -3655,7 +3663,7 @@ void WorkerPool::stop(const std::string& why)
         result.id = id;
         result.kind = entry.job.kind;
         result.tag = entry.job.tag;
-        result.status = Result::Status::Cancelled;
+        result.status = unfit ? Result::Status::Unfit : Result::Status::Cancelled;
         result.error = d->reason;
         try {
             entry.job.done(result);
@@ -3983,6 +3991,54 @@ WorkerPool::Reply runPython(const WorkerPool::Request& request, const std::strin
     return reply;
 }
 
+/** Each object of the copy given a view object to stand in for its view
+ * provider, where freecad.worker_gui stands in for FreeCADGui: an execute()
+ * that writes or reads its view -- OpticsWorkbench's Ray.execute writes
+ * fp.ViewObject.LineColor -- does not fail on None, and what it touched
+ * says the object is made by the asking process (docs/WorkerProcess.md
+ * sec 72). ViewObject is never saved, and does not touch its object
+ */
+void attachViewStandIns(Document& doc, const std::string& views, const std::string& viewFile)
+{
+    Base::PyGILStateLocker lock;
+    try {
+        Py::Dict modules(PyImport_GetModuleDict());
+        if (!modules.hasKey("freecad.worker_gui")) {
+            return;
+        }
+        Py::Object module(modules.getItem("freecad.worker_gui"));
+        if (!module.hasAttr("view_object")) {
+            return;
+        }
+        // What the copy's view providers saved (sec 73): read as asked for
+        {
+            Py::Callable load(module.getAttr("load_views"));
+            Py::Tuple args(3);
+            args.setItem(0, Py::String(doc.getName()));
+            args.setItem(1, Py::Bytes(views.data(), static_cast<int>(views.size())));
+            args.setItem(2, Py::String(viewFile));
+            load.apply(args);
+        }
+        Py::Callable make(module.getAttr("view_object"));
+        for (auto obj : doc.getObjects()) {
+            // Again at each setup: a move along the log reads the version's
+            // saved views anew, and the stand-in reads what they say
+            const char* type = obj->getViewProviderNameStored();
+            if (!type || !type[0]) {
+                type = obj->getViewProviderNameOverride();
+            }
+            Py::Tuple args(2);
+            args.setItem(0, Py::asObject(obj->getPyObject()));
+            args.setItem(1, Py::String(type ? type : ""));
+            obj->ViewObject.setValue(make.apply(args));
+        }
+    }
+    catch (Py::Exception&) {
+        Base::PyException e;
+        e.ReportException();
+    }
+}
+
 std::string unfitFor(Document& doc, const json& proxies)
 {
     if (!proxies.is_array()) {
@@ -4242,11 +4298,40 @@ int WorkerPool::serve()
                     FC_WARN("taking the pool's settings: " << e.what());
                 }
             }
+            // Each Python object the copy's restore cannot make here. Its
+            // object would be recomputed with no code of its own: the
+            // copy is answered unfit, whatever the pool's list of objects
+            // with a class says (docs/WorkerProcess.md sec 72). The list
+            // is the pool's view of its own document; this is the copy's
+            std::string unmade;
+            PropertyPythonObject::setRestoreFailed(
+                [&unmade](const PropertyPythonObject& prop, const std::string& cls,
+                          const std::string& error) {
+                    if (!unmade.empty()) {
+                        return;
+                    }
+                    auto owner = freecad_cast<DocumentObject*>(prop.getContainer());
+                    unmade = (owner ? std::string(owner->getFullName()) : std::string("an object"))
+                        + (cls.empty() ? std::string() : " (" + cls + ")")
+                        + " cannot be restored in a worker: " + error;
+                });
+            struct Unobserve
+            {
+                ~Unobserve()
+                {
+                    PropertyPythonObject::setRestoreFailed({});
+                }
+            } unobserve;
+            // Where the copy was read from, for its saved views (sec 73)
+            std::string fromStore;
+            std::string fromFile;
             try {
                 adoptSecurity(header);
                 const std::string file = header.value("document", std::string());
                 const std::string store = header.value("store", std::string());
                 const int64_t num = header.value("version", int64_t(0));
+                fromStore = store;
+                fromFile = file;
                 if (auto ids = header.find("ids"); ids != header.end()) {
                     startLease(*ids);
                 }
@@ -4378,13 +4463,45 @@ int WorkerPool::serve()
                             }
                         }
                     }
-                    why = unfitFor(*doc, header.value("proxies", json::array()));
+                    // The restore's own word first: it names the class and
+                    // what its import raised
+                    why = !unmade.empty()
+                        ? unmade
+                        : unfitFor(*doc, header.value("proxies", json::array()));
                 }
             }
             catch (Base::Exception& e) {
                 why = std::string("cannot open the document: ") + e.what();
             }
             if (why.empty()) {
+                // The views as the version saved them: the store's entry of
+                // it, which a move along the log reads anew; or the copy's
+                // own file -- the saved copy, or the folder it was read from
+                std::string views;
+                std::string viewFile;
+                if (reader && !fromStore.empty() && held > 0) {
+                    try {
+                        TransactionLogCore& core = *reader->logCore();
+                        for (const auto& e : core.store().manifest(held)) {
+                            if (e.entry == "GuiDocument.xml") {
+                                CapturedValue v;
+                                if (core.readValue(e.hash, v)) {
+                                    views = std::move(v.fragment);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    catch (Base::Exception& e) {
+                        FC_LOG("the version's views not read: " << e.what());
+                    }
+                }
+                if (views.empty()) {
+                    viewFile = !fromStore.empty() && !folder.empty()
+                        ? folder + "/GuiDocument.xml"
+                        : fromFile;
+                }
+                attachViewStandIns(*doc, views, viewFile);
                 json ready {{"type", "ready"},
                             {"resident", residentBytes()},
                             {"seconds", now() - began}};
@@ -4964,6 +5081,17 @@ public:
             here.append(Py::String(n));
         }
         dict.setItem("ExecutedHereNames", here);
+        Py::List faked;
+        for (auto& f : i.faked) {
+            Py::Dict d;
+            d.setItem("Object", Py::String(f.object));
+            d.setItem("Label", Py::String(f.label));
+            d.setItem("Class", Py::String(f.cls));
+            d.setItem("Used", Py::String(f.used));
+            d.setItem("BuiltIn", Py::Boolean(f.builtin));
+            faked.append(d);
+        }
+        dict.setItem("Faked", faked);
         dict.setItem("ById", Py::Boolean(i.byId));
         dict.setItem("ByContentWhy", Py::String(i.byContentWhy));
         dict.setItem("WorkerSeconds", Py::Float(i.workerSeconds));

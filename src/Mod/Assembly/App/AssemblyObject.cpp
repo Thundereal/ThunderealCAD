@@ -429,6 +429,30 @@ struct AssemblyObject::SimulationRun
     std::atomic<bool> done {false};
     Solver::Status status = Solver::Status::Failed;
     std::thread thread;
+    // Loads from outside by parts (PartLoads), as the solver takes them:
+    // by the parts' bodies
+    struct Outside: Solver::OutsideLoads
+    {
+        AssemblyObject::PartLoads* by = nullptr;
+        std::vector<Solver::Id> ids;
+        std::vector<Solver::Id> bodies() const override
+        {
+            return ids;
+        }
+        double longestPiece() const override
+        {
+            return by->longestPiece();
+        }
+        bool piece(double time,
+                   double length,
+                   const std::vector<Solver::BodyState>& states,
+                   std::vector<Solver::Wrench>& loads,
+                   std::string& why) override
+        {
+            return by->piece(time, length, states, loads, why);
+        }
+    };
+    Outside outside;
 
     // A worker's warning reaches a Python observer under the GIL: the
     // thread waiting for it must not hold it
@@ -1149,6 +1173,11 @@ void AssemblyObject::captureBaselines()
 
 int AssemblyObject::startSimulation(App::DocumentObject* sim)
 {
+    return startSimulation(sim, nullptr);
+}
+
+int AssemblyObject::startSimulation(App::DocumentObject* sim, PartLoads* outside)
+{
     if (simulationRun) {
         cancelSimulation();
         finishSimulation();
@@ -1172,6 +1201,22 @@ int AssemblyObject::startSimulation(App::DocumentObject* sim)
     run->model = *solverModel;
     run->parts = objectPartMap;
     run->sim = sim;
+    if (outside) {
+        run->outside.by = outside;
+        for (App::DocumentObject* part : outside->parts()) {
+            const auto found = objectPartMap.find(part);
+            if (found == objectPartMap.end() || found->second.body == Solver::NoId) {
+                Base::Console().error(
+                    "Assembly: %s is pushed from outside and is not a part of the simulation\n",
+                    part ? part->getFullLabel() : "?");
+                // the session back, for the assembly's next solve
+                session = std::move(run->session);
+                return -1;
+            }
+            run->outside.ids.push_back(found->second.body);
+        }
+        run->spec.outside = &run->outside;
+    }
     SimulationRun* going = run.get();
     run->thread = std::thread([going]() {
         Base::ConsoleContext context("the simulation");
@@ -2426,6 +2471,9 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             case 2:
                 law.from = Solver::ContactLaw::Stiffness::Penetration;
                 break;
+            case 3:
+                law.from = Solver::ContactLaw::Stiffness::Pressure;
+                break;
             default:
                 law.from = Solver::ContactLaw::Stiffness::Value;
                 break;
@@ -2988,6 +3036,38 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
                 "and stays rigid\n",
                 label.c_str());
             continue;
+        }
+        // Its surface as its solid has it, for a contact on it to be on that
+        // and not on the six-node faces that stand in from it (D4b way 1
+        // step 3): of the solid in the mesh's coordinates, the component's
+        // own, turned into the body's
+        try {
+            const ::Part::TopoShape shape = ::Part::Feature::getTopoShape(component,
+                                                                          nullptr,
+                                                                          false,
+                                                                          nullptr,
+                                                                          nullptr,
+                                                                          true,
+                                                                          false);
+            std::vector<Base::Vector3d> own(points.begin(), points.end());
+            record.trueFaces = trueFacesOf(shape.getShape(), own, record.tetrahedra);
+            const Base::Rotation turn = data.offsetPlc.getRotation();
+            for (auto& face : record.trueFaces) {
+                for (auto& offset : face.offsets) {
+                    offset = turn.multVec(offset);
+                }
+            }
+        }
+        catch (const Base::Exception& e) {
+            e.reportException();
+        }
+        catch (const Standard_Failure& e) {
+            Base::Console().warning("Assembly: the flexible body %s: its surface as its solid "
+                                    "has it is not found (%s); a contact on it is on its mesh's "
+                                    "faces\n",
+                                    label.c_str(),
+                                    e.GetMessageString());
+            record.trueFaces.clear();
         }
         const Elasticity elastic = elasticityOf(component);
         record.youngs = elastic.youngsModulus;

@@ -241,7 +241,10 @@ class TestFlexibleBody(unittest.TestCase):
     def test_cantilever_deformation(self):
         """The cantilever sags: its end, made of its mode shapes and the
         run's coordinates, where the beam's is, q L^4 / 8 E I; at its hold,
-        nothing"""
+        nothing. Drawn scaled up, its bending is scaled, not the pose of its
+        hold in its floating frame: the hold drawn where it is, the end sagging
+        the scale times the beam's (before, at x20 the hold drawn 2.5 times the
+        sag down off it, the end 2.2 times it: shifted, not bent)"""
         rod, flexible, results = self.cantilever(6)
         # The hold's six, the six modes, the twelve residual modes of the
         # inertia loads
@@ -254,8 +257,12 @@ class TestFlexibleBody(unittest.TestCase):
         import numpy as np
 
         automatic = shape.scale
+        # Its bending's largest, what is drawn scaled: drawn twice as it is,
+        # against drawn as it is
         largest = max(
-            float(np.max(np.linalg.norm(shape.pointsAt(t, 1.0) - shape.rest, axis=1)))
+            float(
+                np.max(np.linalg.norm(shape.pointsAt(t, 2.0) - shape.pointsAt(t, 1.0), axis=1))
+            )
             for t in results["Times"]
         )
         self.assertAlmostEqual(automatic * largest, 10.0, delta=0.01)
@@ -290,6 +297,17 @@ class TestFlexibleBody(unittest.TestCase):
         sag = q * length**4 / (8 * e * side**4 / 12) * 1e3  # mm
         self.assertAlmostEqual(at(100).z, -sag, delta=0.03 * sag)
         self.assertLess(abs(at(0).z), 0.01 * sag)
+        # Drawn x20: the hold where it is, the end 20 sags down
+        points = shape.pointsAt(results["Times"][-1], 20.0)
+        drawn = {}
+        for x in (0, 100):
+            drawn[x] = at(x).z
+        print(
+            "a cantilever drawn x20: its hold %.4g mm, its end %.4g, for the beam's sag %.4g"
+            % (drawn[0], drawn[100], sag)
+        )
+        self.assertAlmostEqual(drawn[100], -20 * sag, delta=0.03 * 20 * sag)
+        self.assertLess(abs(drawn[0]), 0.01 * sag)
 
     def test_cantilever_stress(self):
         """The cantilever's stress, each mode's weighed by the run's
@@ -676,6 +694,33 @@ class TestFlexibleBody(unittest.TestCase):
         # On the bar still a millisecond and more after, pressing lightly
         self.assertGreater(sum(1 for f in after if f > 0), len(after) // 2)
         self.assertLess(max(after), 0.1 * blow)
+        # Drawn x20 where it presses, about its hinge and where it presses
+        # both: the strip drawn on the bar as it is on it, not through it
+        # (before, scaled about its hinge alone, 0.45 mm into it)
+        import numpy as np
+
+        shape = FlexibleBodies.Deformation(body, results)
+        self.assertTrue(shape.valid)
+        # Pressed on something, drawn as it is unless given a scale
+        self.assertEqual(shape.scale, 1.0)
+        last = max(k for k, f in enumerate(forces) if f > 0)
+        self.assembly.updateForFrame(last)
+        pose = strip.Placement
+
+        def into(scale):
+            # How far into the bar its surface is drawn, mm: the most, less
+            # than 0 drawn off it
+            points = shape.pointsAt(times[last], scale)
+            most = -np.inf
+            for p in points:
+                q = pose.multVec(App.Vector(*p))
+                if abs(q.x - 130) < 6:
+                    most = max(most, 5.0 - np.hypot(q.x - 130, q.z + 15))
+            return most
+
+        drawn, real = into(20.0), into(1.0)
+        print("bent onto the bar drawn x20: %.4g mm into it, as it is %.4g" % (drawn, real))
+        self.assertLess(abs(drawn - real), 0.05)
 
     def stripOnBars(self, formula, end, step, bars=True, gap=0.05, rise=1.0, lower=False):
         """A strip 200 x 20 x 2 hinged at an end to a grounded mount, its
@@ -906,9 +951,17 @@ class TestFlexibleBody(unittest.TestCase):
         round, the contact 1000 N/mm, no friction or gravity. Its faces at
         a 4 mm mesh stand 0.2 mm out of their flat triangles: on those the
         force ran from 0 to 104 N as they rolled by, the plate lost each
-        time. On the faces it holds within a tenth over the turn, under the
-        50 N of a rigid rod pressed 0.05 mm"""
-        self.roundTurned("a round anywhere", 55, -10)
+        time. On the faces it held within a tenth over the turn, under the
+        50 N of a rigid rod pressed 0.05 mm.
+
+        And the round lying along the plate touches it at two points, at the
+        ends of their line on the round itself (D4b step 27,
+        FlexibleContact::toFlat()), as it does a round it lies along (step
+        25): each face's own farthest towards the plate is off the line
+        where the face stands in from its round, and the force went 42.5 to
+        46.8 N as the faces came round, a tenth; now within a hundredth,
+        44.6 to 44.9"""
+        self.roundTurned("a round anywhere", 55, -10, within=0.01)
 
     def test_round_past_edge(self):
         """A flexible part running on past the edge of a box it presses into
@@ -917,8 +970,11 @@ class TestFlexibleBody(unittest.TestCase):
         points of the rod 0.036 mm under its top, 0.124 mm in along the rod,
         and the force ran from 35 to 126 N; each such point is under the face
         it is least deep under that faces the rod's surface (leastDeepFace()),
-        and it holds as on the whole plate"""
-        self.roundTurned("a round past an edge", 30, 5)
+        and it holds as on the whole plate: within a hundredth (D4b step 27),
+        the line's ends where the plate's face ends under the rod
+        (reachOver()), not where the rod's faces had points found -- 45.5 to
+        45.7 N for 42.0 to 47.3"""
+        self.roundTurned("a round past an edge", 30, 5, within=0.01)
 
     def test_round_on_roller(self):
         """A flexible part's round on a rigid round (D4b step 15): the rod of
@@ -937,11 +993,17 @@ class TestFlexibleBody(unittest.TestCase):
         face's deepest (flatFaces(), FlexibleContact::place()), and a
         triangle gone through the other's surface is not apart from it
         (satApart()): before, the rod's triangles along its line gave no
-        points, the force ran from 20 to 44 N and the run took 826 s"""
+        points, the force ran from 20 to 44 N and the run took 826 s.
+
+        And the rod touches the flexible plate at the two ends of their
+        line (D4b step 28), as it does a rigid one (step 27), the plate's
+        point under each on its own surface there
+        (FlexibleContact::under()): the force within a hundredth, 44.6 to
+        44.9 N as on the rigid plate, for 43.8 to 47.2"""
         import time
 
         start = time.perf_counter()
-        self.roundTurned("a round on a flexible plate", 55, -10, flexiblePlate=True)
+        self.roundTurned("a round on a flexible plate", 55, -10, flexiblePlate=True, within=0.01)
         self.assertLess(time.perf_counter() - start, 120.0)
 
     def test_round_past_flexible_edge(self):
@@ -950,9 +1012,16 @@ class TestFlexibleBody(unittest.TestCase):
         too. A node of the rod just past the plate's end, under its top, is
         under the top, not through the end (flatFaces()): taken through the
         end it was a patch of its own, 40 N along the rod, and the force
-        over the turn ran from 35 to 130 N"""
+        over the turn ran from 35 to 130 N.
+
+        The line's ends are where the plate's flat triangles in the
+        contact's plane end under the rod (D4b step 28,
+        FlexibleContact::reachOnFlat()): the force within a hundredth, 45.5
+        to 45.7 N as on the rigid plate, for 39.5 to 47.3. By the plane of
+        the triangle a point was found on, which past the plate's end is
+        the end's, it went from 28.3 to 49.4 N"""
         self.roundTurned(
-            "a round past a flexible edge", 30, 5, flexiblePlate=True, within=0.15
+            "a round past a flexible edge", 30, 5, flexiblePlate=True, within=0.01
         )
 
     def test_round_on_flexible_roller(self):
@@ -962,9 +1031,22 @@ class TestFlexibleBody(unittest.TestCase):
         it (FlexibleContact::roundAt()), and the roller's point goes to its
         face's nearest that round's axis as against a rigid one; on their
         quarter triangles the run did not end in 18 minutes. Over 0.03 to
-        0.045 s of the turn, a quarter of it"""
+        0.045 s of the turn, a quarter of it.
+
+        The two rounds along each other touch at the two ends of their line
+        (D4b way 1 step 2, thinOut()): the roller's points slid into the
+        rod's round are one line by which of the rod's rounds it is, not by
+        each point's fit of it, and the rod's points slid the other way go.
+        The force within a two-hundredth, 44.52 to 44.65 N; as found, 44.73
+        to 45.58 over 45.18"""
         self.roundTurned(
-            "a round on a flexible roller", 55, -10, roller=True, flexiblePlate=True, until=0.045
+            "a round on a flexible roller",
+            55,
+            -10,
+            roller=True,
+            flexiblePlate=True,
+            until=0.045,
+            within=0.005,
         )
 
     def test_friction_on_flexible_round(self):
@@ -977,8 +1059,9 @@ class TestFlexibleBody(unittest.TestCase):
         alone it was carried round with the rod, w h R past where the rod is
         deepest, and the normal's force turned the rod on -- 0.284 N R at
         steps of 0.2 ms, and -0.0097 N R with no friction, where
-        test_round_anywhere now holds it to none"""
-        self.roundTurned("friction on a round", 55, -10, friction=0.3)
+        test_round_anywhere now holds it to none. On the line's two ends
+        (D4b step 27) the force within a hundredth, the torque 0.298 N R"""
+        self.roundTurned("friction on a round", 55, -10, friction=0.3, within=0.01)
 
     def test_friction_on_roller(self):
         """The same on a rigid roller (D4b step 17), the points found again
@@ -990,10 +1073,617 @@ class TestFlexibleBody(unittest.TestCase):
     def test_friction_between_flexible_parts(self):
         """The friction between two flexible parts, against its closed form
         (D4b step 17): the rod on the plate flexible too, a friction of 0.3
-        -- 0.282 N R before"""
+        -- 0.282 N R before. On the line's two ends (D4b step 28) the force
+        within a hundredth"""
         self.roundTurned(
-            "friction between flexible parts", 55, -10, flexiblePlate=True, friction=0.3
+            "friction between flexible parts",
+            55,
+            -10,
+            flexiblePlate=True,
+            friction=0.3,
+            within=0.01,
         )
+
+    def test_cone_on_plate(self):
+        """A flexible part's round of no cylinder lying along a plate (D4b way
+        1 step 3): test_round_anywhere's rod a cone, R 5 at its held end and
+        4 at the other, its hinge tilted so its side lies along the plate,
+        0.05 mm into it, a friction of 0.3. A face of no round had its
+        points where collision detection found them, each at its own face's
+        farthest towards the plate, which stands in from the cone between its
+        nodes: the force ran from 41.9 to 46.5 N over the turn. Now the line
+        the two touch along by their curvature (LocalSurface::contactOf()),
+        its two ends on the cone's true surface (FlexibleContact::toBent()),
+        the solid's own nine more points of each face
+        (Flexible::trueFaces): within a hundredth, 43.88 to 44.16, and the
+        motion's torque the friction's on the cone's middle radius, 4.5"""
+        self.roundTurned(
+            "a cone on a plate", 55, -10, cone=4.0, friction=0.3, arm=4.5, within=0.01
+        )
+
+    def test_cone_on_flexible_plate(self):
+        """The same on the plate made flexible too (D4b way 1 step 3), the
+        plate's point under each of the line's ends on its surface there
+        (FlexibleContact::under()): within a hundredth, 43.89 to 44.17 N,
+        for 42.59 to 46.80"""
+        self.roundTurned(
+            "a cone on a flexible plate",
+            55,
+            -10,
+            cone=4.0,
+            arm=4.5,
+            flexiblePlate=True,
+            within=0.01,
+        )
+
+    def test_rigid_cone_on_plate(self):
+        """A rigid part's round of no cylinder lying along a plate (D4b way 1
+        step 5): test_cone_on_plate's cone rigid, a friction of 0.3. Its
+        contact shape is a hull, its facets a deflection in from the cone,
+        and Bullet's points on them: the force ran from 44.3 to 50.0 N over
+        the turn, for the 50 of 0.05 mm on the springs. Each point now on
+        the cone's surface as its solid has it, the hull's triangle curved by
+        its corners' normals, at the surface's farthest towards the plate in
+        the plane across its side (hullFarthest()): 49.99 to 50.00 N, the
+        motion's torque the friction's on the cone's middle radius"""
+        self.roundTurned(
+            "a rigid cone on a plate",
+            55,
+            -10,
+            cone=4.0,
+            rigidRod=True,
+            friction=0.3,
+            arm=4.5,
+            within=0.001,
+            most=50.5,
+        )
+
+    def test_pressure_on_a_rigid_round(self):
+        """A pressure over the area (D4b way 2): the contact's stiffness 25
+        N/mm^3 a pressure per depth, summed over where the surfaces overlap.
+        A rigid cylinder R 5 x 40 lying along a plate 0.05 mm into it: across
+        the line the overlap is nearly a parabola's, 4/3 sqrt(2 R) d^1.5 a
+        length, and the force k L 4/3 sqrt(2 R) d^1.5, 47.14 N, over the
+        turn -- 47.07 by the circles themselves (step 2, acrossLine()); a
+        rigid ball R 5 pressed 0.05 mm with 1000 N/mm^3, a disc's, k pi R d^2,
+        39.27 N -- 39.14 by the sphere itself (step 3)"""
+        rod = self.roundTurned(
+            "a pressure on a rigid round", 55, -10, rigidRod=True, pressure=25.0, within=0.001
+        )
+        line = 25.0 * 40.0 * 4.0 / 3.0 * math.sqrt(2 * 5.0) * 0.05**1.5
+        self.assertLess(abs(rod - line), 0.005 * line)
+        self.renew()
+        ball = self.roundTurned(
+            "a pressure on a rigid ball",
+            55,
+            -10,
+            rigidRod=True,
+            ball=True,
+            pressure=1000.0,
+            within=0.001,
+        )
+        disc = 1000.0 * math.pi * 5.0 * 0.05**2
+        self.assertLess(abs(ball - disc), 0.005 * disc)
+
+    def test_pressure_in_a_bore(self):
+        """A pressure over the area where the surfaces nearly match (D4b way
+        2 step 2): test_rigid_round_in_flexible_bore's rigid rod R 5 in the
+        flexible block's bore R 5.5, its wall 0.05 mm into the rod, 26.52
+        N/mm^3. The two circles overlap 4.5 mm round: the depth integrated
+        over the overlap, 158.3 N exactly, 158.8 by the
+        two sections' circles across the line (acrossLine()); the parabolas'
+        4/3 sqrt(2 / (1/5 - 1/5.5)) d^1.5 gives 165.9. Before, the block's
+        hollow wall was read as flat, its curvature clamped at none: 50.0 N,
+        the rod's on a plate"""
+        bore = self.roundTurned(
+            "a pressure in a bore",
+            55,
+            -10,
+            bore=5.5,
+            flexiblePlate=True,
+            rigidRod=True,
+            pressure=26.52,
+            within=0.01,
+            most=200.0,
+        )
+        self.assertLess(abs(bore - 158.27), 0.01 * 158.27)
+
+    def test_torus_on_plate(self):
+        """A point on a curved face of no round (D4b way 1 step 6): a torus,
+        its ring R 10 and its tube R 3, standing on a plate as a wheel, 0.05
+        mm into it, turned about its axis. Rigid, it is not convex: its
+        contact shape is a mesh, and Bullet's points on its facets pressed
+        32.3 to 36.3 N for the 50 of the springs; each now on the solid's
+        surface by its facets' corners' normals (hullFarthest(), a mesh's as
+        a hull's). Flexible, each point was at its own six-node face's
+        farthest towards the plate, and held there by how far a face stands
+        out of its triangles: 5.5 to 50.1 N; now the true surface's farthest
+        through the faces about it (FlexibleContact::towardsTrue()), 49.92 to
+        50.03"""
+        self.roundTurned(
+            "a rigid torus on a plate",
+            55,
+            -10,
+            torus=True,
+            rigidRod=True,
+            arm=13.0,
+            within=0.005,
+            most=50.5,
+        )
+        self.renew()
+        self.roundTurned(
+            "a flexible torus on a plate",
+            55,
+            -10,
+            torus=True,
+            arm=13.0,
+            within=0.005,
+            most=50.5,
+        )
+
+    def test_torus_on_plate_at_any_turn(self):
+        """test_torus_on_plate's flexible torus turned a little more than
+        once, its steps then at other places round it: the force as even. By
+        one turn it was (on Linux; 49.31 N for one step at 279.5 deg on
+        Windows); by 1.0007 turns 49.56 and 49.64 N for one step each, by
+        1.0238 turns 49.20, at 37 places in twelve such runs. Three things
+        in FlexibleContact::towardsTrue(), where the torus touches along its
+        outer equator, a row of its mesh's edges: a point sent back and
+        forth across an edge was left where the step met the edge, not at
+        the edge's farthest (alongEdge()); one that came to the edge's end
+        stayed on that vertex with the farthest on a face round it
+        (LocalSurface's pastCorner()); and a point on its own face was
+        dropped for that step when it gained 1 to 8% over one and a half
+        times what a face stands out of its triangles, which the
+        triangle's slope adds to"""
+        for turn in (1.0007, 1.0042, 1.0238):
+            mean = self.roundTurned(
+                "a flexible torus on a plate, %g turns" % turn,
+                55,
+                -10,
+                torus=True,
+                arm=13.0,
+                within=0.005,
+                most=50.5,
+                turns=turn,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+
+    def test_torus_on_roller(self):
+        """Two curved faces, one of no round (D4b way 1 step 7, the
+        catch-all): test_torus_on_plate's rigid torus on a rigid roller R 5
+        along its axis, 0.05 mm into it, under it and round it by 20 deg. The
+        normal the two surfaces' own (curvedNormal()), from the roller's axis
+        through the torus's point: by the torus's facet's normal, turning
+        with it, 91.7 N, 49 to 172, for the springs' 50 -- 83.6, 49 to 145,
+        at 20 deg. The roller flexible, at 20 deg, each of its points the
+        same way against the torus's face (FlexibleContact::towardsBent()):
+        by the facet's normal, 0 to 599 N; the points of the torus's
+        triangles about it one place whatever their patch (thinOut()), each a
+        spring of its own else, 278 N"""
+        for at in (0.0, 20.0):
+            mean = self.roundTurned(
+                "a rigid torus on a rigid roller at %g deg" % at,
+                40,
+                -20,
+                roller=True,
+                torus=True,
+                rigidRod=True,
+                rollerAt=at,
+                arm=13.0,
+                within=0.002,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.5)
+            self.renew()
+        mean = self.roundTurned(
+            "a rigid torus on a flexible roller at 20 deg",
+            40,
+            -20,
+            roller=True,
+            torus=True,
+            rigidRod=True,
+            flexiblePlate=True,
+            rollerAt=20.0,
+            arm=13.0,
+            within=0.002,
+            most=50.5,
+        )
+        self.assertGreater(mean, 49.0)
+
+    def test_flexible_torus_on_roller(self):
+        """test_torus_on_roller's torus flexible on the rigid roller, under it
+        and round it by 20 deg, and on the roller flexible too at 20 deg:
+        each point slid into the roller over the torus's faces
+        (FlexibleContact::deepest()). A point started at an edge between two
+        faces can stop there, a crease of the mesh's faces, off the tube's
+        middle and shallower on its true surface: of a place's points the
+        middle by depth was kept, and with half of them at the crease the
+        force fell for a substep, 42.1 N at 0 deg and 19.3 at 20 for the
+        mean's 49.9. Now the deepest, each point on its true surface
+        (ontoRound(), ontoTrue()): 49.33 to 50.48 N. And the normal both
+        surfaces' own (towardsRound(), curvedNormal()): the deepest on the
+        six-node faces is microns off along the roller's turn, and the
+        torus's point there, turning, moved along the normal and the
+        damping's force with it -- on the flexible roller 48.72 to 49.88 N
+        where the springs' stayed within 49.1 to 49.5"""
+        for at in (0.0, 20.0):
+            mean = self.roundTurned(
+                "a flexible torus on a rigid roller at %g deg" % at,
+                40,
+                -20,
+                roller=True,
+                torus=True,
+                rollerAt=at,
+                arm=13.0,
+                within=0.005,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.5)
+            self.renew()
+        mean = self.roundTurned(
+            "a flexible torus on a flexible roller at 20 deg",
+            40,
+            -20,
+            roller=True,
+            torus=True,
+            flexiblePlate=True,
+            rollerAt=20.0,
+            arm=13.0,
+            within=0.005,
+            most=50.5,
+        )
+        self.assertGreater(mean, 49.0)
+
+    def test_flexible_torus_on_ring(self):
+        """Two curved faces of no round, both flexible: test_torus_on_roller's
+        torus on half a torus as the roller, its ring R 10 and its tube R 3,
+        their axes along each other, 0.05 mm into it, under it and round it
+        by 20 deg, the ring held at its ends. Each point's two sides at once,
+        the normal both surfaces' own (FlexibleContact::towardsFlexible(),
+        curvedNormal()): on the facets' normals and points, 22.4 N, 0 to
+        42.3, where the torus rigid on the flexible ring presses it 49.57.
+        Their stress drawn, each part's largest over the run, a few MPa: at
+        the nodes it was the stress of one thin tetrahedron of the ring's,
+        its curved edge turning it inside out there, 116.7 MPa at 20 deg
+        where the nodes about the contact read 2.8 (modalStresses())"""
+        for at in (0.0, 20.0):
+            name = "a flexible torus on a flexible ring at %g deg" % at
+            mean = self.roundTurned(
+                name,
+                40,
+                -20,
+                roller=True,
+                ring=True,
+                torus=True,
+                flexiblePlate=True,
+                rollerAt=at,
+                arm=13.0,
+                within=0.005,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.0)
+            results = self.assembly.getSimulationResults()
+            bodies = [o for o in self.doc.Objects if FlexibleBodies.isFlexibleBody(o)]
+            self.assertEqual(len(bodies), 2)
+            for body in bodies:
+                shape = FlexibleBodies.Deformation(body, results)
+                self.assertTrue(shape.valid)
+                peak = shape.peakStress()
+                print("%s: %s's largest stress %.4g MPa" % (name, body.Label, peak))
+                self.assertLess(peak, 10.0, msg=body.Label)
+            self.renew()
+
+    def test_torus_on_pin(self):
+        """A hollow face of no round: test_torus_on_plate's torus turned with
+        a pin R 3 through its hole along its axis, 0.05 mm into its inside --
+        hollow round the ring (R 7), round across the tube (R 3) -- under the
+        torus's axis and round it by 20 deg. The torus's point where its
+        normal is the contact's (LocalSurface::farthestOn()'s stationary,
+        FlexibleContact::farthestNear(), hullFarthest()), on an edge between
+        two faces where it stops changing along it (alongEdge()), Newton's
+        steps on the normal halved where they widen the gap (curvedNormal()).
+        Rigid, Bullet's points on its facets, 91 to 119 N, the run not done in
+        an hour; flexible, the turn's torque 4.86 N mm with no friction, the
+        point found 0.8 deg round from where it faced the pin. The pin 20
+        long from x = -8: the torus's triangles there with no corner in
+        common a patch each, its points pressed it with two and three
+        springs, 100 and 150 N, where they land on one place (patchesOf()).
+        Both flexible, the pin too, 46.1 N, both bending: its point's walk
+        over the torus's faces from a mesh's vertex, where Bullet found it,
+        stopped there with the normal 9.3 deg off, 1.6 um deep for 46 -- the
+        pin rang, 37.9 to 55.4 N at 86 ms (farthestNear())"""
+        for at in (0.0, 20.0):
+            mean = self.roundTurned(
+                "a rigid torus on a rigid pin at %g deg" % at,
+                20,
+                -8,
+                roller=True,
+                inside=True,
+                torus=True,
+                rigidRod=True,
+                rollerAt=at,
+                arm=7.0,
+                within=0.002,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+            mean = self.roundTurned(
+                "a flexible torus on a rigid pin at %g deg" % at,
+                20,
+                -8,
+                roller=True,
+                inside=True,
+                torus=True,
+                rollerAt=at,
+                arm=7.0,
+                within=0.01,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.5)
+            self.renew()
+            mean = self.roundTurned(
+                "a flexible torus on a flexible pin at %g deg" % at,
+                40,
+                -20,
+                roller=True,
+                inside=True,
+                torus=True,
+                flexiblePlate=True,
+                rollerAt=at,
+                arm=7.0,
+                within=0.01,
+                most=50.5,
+            )
+            self.assertGreater(mean, 45.5)
+            self.renew()
+
+    def test_torus_on_pin_at_any_angle(self):
+        """test_torus_on_pin's rigid torus on its rigid pin with the pin a
+        few hundredths of a degree further round: the force as even. At 20
+        deg it was; at 20.156 it was 48.05 N for one step of the turn's 351
+        (and 49.38 at 20 deg itself by Windows' arithmetic), at 20.403 51.88,
+        in eleven of forty angles 0.013 deg apart. One of Bullet's points,
+        new that step and an edge of the torus's mesh away along its inner
+        equator, came to that edge at its end and stayed on the corner, 0.75
+        mm short and 47.2 um deep for 50: alongEdge() took the end's own
+        height for the point beyond it, its bend then the slope over its
+        step, and stepped back out of the edge each time"""
+        for at in (20.052, 20.156, 20.403, 20.481):
+            mean = self.roundTurned(
+                "a rigid torus on a rigid pin at %g deg" % at,
+                20,
+                -8,
+                roller=True,
+                inside=True,
+                torus=True,
+                rigidRod=True,
+                rollerAt=at,
+                arm=7.0,
+                within=0.002,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+
+    def test_torus_lying_flat(self):
+        """A line along a curve: test_torus_on_plate's torus lying flat on a
+        plate, 0.05 mm into it, turned about its axis upright -- it touches
+        all round its ring, the tube's bottom straight along it and round
+        across it. Each point on the true surface at its own place along the
+        ring, farthest in the plane across it: flexible, on its six-node
+        faces (FlexibleContact::towardsTrue()), 49.68 N for the springs' 50;
+        rigid, on its mesh's (hullFarthest()), its points left on its facets
+        39.9 N. Bullet's points from the tube's rows of vertices either side
+        of its bottom land on one place, copies (patchesOf()): each kept,
+        TestContact took 341 s for 31, the torus at rest rocking 28 nm on
+        them, never settled"""
+        for rigid in (True, False):
+            mean = self.roundTurned(
+                "a %s torus lying flat on a plate" % ("rigid" if rigid else "flexible"),
+                30,
+                -15,
+                torus=True,
+                flat=True,
+                rigidRod=rigid,
+                arm=10.0,
+                within=0.002,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+
+    def test_rigid_round_on_rigid_roller(self):
+        """Two rigid rounds lying along each other: test_round_on_roller's
+        rod rigid, under the roller and round it by 20 deg. Their normal the
+        two rounds' own (curvedNormal()): by Bullet's alone, 52.8 N, 50 to
+        56.7, and 60.3 at 20 deg, for the springs' 50"""
+        for at in (0.0, 20.0):
+            mean = self.roundTurned(
+                "a rigid round on a rigid roller at %g deg" % at,
+                55,
+                -10,
+                roller=True,
+                rigidRod=True,
+                rollerAt=at,
+                within=0.001,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+
+    def test_pressure_in_a_socket(self):
+        """A pressure over the area of a ball in a socket nearly its size (D4b
+        way 2 step 3): a rigid ball R 5 turned about its centre in a block's
+        spherical hollow R 5.5, its wall 0.05 mm into the ball's underside,
+        1000 N/mm^3. The two spheres overlap 2.2 mm round: the depth over
+        that disc, 392.6 N; the ellipse's pi d^2 / sqrt(k1 k2) of the
+        relative curvature 1/5 - 1/5.5 gives 432.0, 10% more"""
+        ball = self.roundTurned(
+            "a pressure in a socket",
+            55,
+            -10,
+            rigidRod=True,
+            ball=True,
+            socket=5.5,
+            pressure=1000.0,
+            within=0.001,
+            most=1e9,
+        )
+        self.assertLess(abs(ball - 392.58), 0.01 * 392.58)
+
+    def tiltTurned(self, name, rod=False, far=0.05, flexible=False, pressure=2.5):
+        """A block 40 x 10 x 4 lying on a plate, or a rod R 5 x 40 along it,
+        turned one revolution in 0.1 s about a vertical hinge at its end: its
+        underside 0.05 mm into the plate there and 'far' mm at its other end
+        (tilted by that, none: touching). A pressure over the area, 'pressure'
+        N/mm^3. Returns the mean force over the turn, and checks it within a
+        thousandth of its mean"""
+        import CommandCreateContact
+
+        mount = self.box("Mount", (10, 10, 10), (-20, -20, 10))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedMount")
+        JointObject.GroundedJoint(ground, mount)
+        plate = self.box("Plate", (120, 120, 5), (-60, -60, -5 + 0.05))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
+        JointObject.GroundedJoint(ground, plate)
+        # Turned up about its underside's near end
+        lift = App.Placement(
+            App.Vector(),
+            App.Rotation(App.Vector(0, 1, 0), -math.degrees(math.atan2(0.05 - far, 40.0))),
+        )
+        if rod:
+            part = self.assembly.newObject("Part::Cylinder", "Rod")
+            part.Radius = 5
+            part.Height = 40
+            part.Placement = lift.multiply(plc(0, 0, 5, App.Vector(0, 1, 0), 90))
+        else:
+            part = self.box("Block", (40, 10, 4), (0, -5, 0))
+            part.Placement = lift.multiply(part.Placement)
+        self.doc.recompute()
+        end = next(
+            "Face%d" % (i + 1)
+            for i, f in enumerate(part.Shape.Faces)
+            if f.Surface.__class__.__name__ == "Plane" and abs(f.CenterOfMass.x) < 0.1
+        )
+        hinge = self.joints.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(hinge, JointObject.JointTypes.index("Revolute"))
+        hinge.Detach1 = True
+        hinge.Detach2 = True
+        hinge.Reference1 = (mount, ["Face1"])
+        hinge.Reference2 = (part, [end])
+        at = plc(0, 0, 2)
+        hinge.Placement1 = mount.Placement.inverse().multiply(at)
+        hinge.Placement2 = part.Placement.inverse().multiply(at)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contact = CommandCreateContact.newContactSet(self.assembly, [part], [plate])
+        contact.StiffnessFrom = "Pressure"
+        contact.Stiffness = pressure
+        contact.Exponent = 1.0
+        sim = self.study(0.1, 2e-4)
+        sim.GravityEnabled = False
+        sim.Elements = [contact]
+        motion = sim.newObject("Assembly::Motion", "Motion")
+        motion.Joint = hinge
+        motion.MotionType = "Angular"
+        motion.Control = "Position"
+        motion.Formula = "%r*(time/0.1)*(time/0.1)*(3 - 2*time/0.1)" % (2 * math.pi)
+        if flexible:
+            body = FlexibleBodies.makeFlexibleBody(self.assembly, part)
+            body.MeshSize = 4.0
+            FlexibleBodies.prepare(body)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        values = [
+            c["Values"] for c in results["Channels"] if c["Quantity"] == "ContactNormalForce"
+        ][0]
+        turning = [v.Length * 1e-3 for t, v in zip(results["Times"], values) if t >= 0.03]
+        mean = sum(turning) / len(turning)
+        print(
+            "%s: over the turn %.4g N, from %.4g to %.4g" % (name, mean, min(turning), max(turning))
+        )
+        self.assertLess(max(turning) - min(turning), 0.001 * mean)
+        return mean
+
+    def test_pressure_tilted(self):
+        """A pressure over the area where the depth changes over it (D4b way
+        2 step 4), 2.5 N/mm^3: the patch's force the pressure integrated, the
+        depth linear between its points (PressureSpread). A rigid block 40 x
+        10 tilted from 0.05 mm into a plate at one end to touching at the
+        other, k b L d / 2, 25 N; a rigid rod R 5 x 40 so tilted, k 4/3
+        sqrt(2 R) L d^1.5 / 2.5, 1.886 N -- both pressed as one point at
+        their springs' mean, 50.28 and 4.707. And a flexible block lying
+        level 0.05 mm in, held at its end by the hinge: it bends up off the
+        plate, a beam on an elastic layer, Euler and Bernoulli's 31.9 N for
+        the 50 of the rigid one; at its points' mean, 37.84. The rigid block's
+        patch on the faces' true outlines (D4b way 2 step 5), within a
+        thousandth: level 50 (before, 50.25, the envelope's corners), tilted
+        to none 25 (25.13), past none by 0.05 mm at its far end 12.5 (12.61),
+        by 0.15 6.25 (12.62, a disc of the parts' sizes)"""
+        block = self.tiltTurned("a pressure on a block tilted to none", far=0.0)
+        self.assertLess(abs(block - 25.0), 0.001 * 25.0)
+        self.renew()
+        # Lying level, k A d, its area the faces' true outline's, not the
+        # envelope's; tilted past none, pressed only where it is in -- its
+        # far corners beyond collision detection's margin, the overlap the
+        # faces' outlines' cut where the depth is none: k b (L x) d / 2 over
+        # the x of L it is in, half its length clear 0.05 mm, three quarters
+        # 0.15
+        level = self.tiltTurned("a pressure on a block lying level", far=0.05)
+        self.assertLess(abs(level - 50.0), 0.001 * 50.0)
+        self.renew()
+        past = self.tiltTurned("a pressure on a block tilted past none", far=-0.05)
+        self.assertLess(abs(past - 12.5), 0.001 * 12.5)
+        self.renew()
+        far = self.tiltTurned("a pressure on a block tilted further past", far=-0.15)
+        self.assertLess(abs(far - 6.25), 0.001 * 6.25)
+        self.renew()
+        rod = self.tiltTurned("a pressure on a rod tilted to none", rod=True, far=0.0)
+        self.assertLess(abs(rod - 1.886), 0.01 * 1.886)
+        self.renew()
+        bent = self.tiltTurned("a pressure on a flexible block", flexible=True)
+        self.assertLess(abs(bent - 31.9), 0.03 * 31.9)
+
+    def test_pressure_on_a_cone_and_a_flexible_round(self):
+        """A pressure over the area on a round whose radius changes along
+        its line, and on a flexible part (D4b way 2). The rigid cone of
+        test_rigid_cone_on_plate, 25 N/mm^3: across its side sqrt(2 r) runs
+        from R 5 to 4 along it, k 4/3 d^1.5 sqrt(2) int sqrt(r) ds, 44.71 N --
+        each patch's line its hull's (hullLineReach()), its radius at each end
+        and linear between, not the mean of where its points were found,
+        which ran it from 42.5 to 45.0. The flexible rod: its curvature its
+        faces' true surface's (FlexibleContact::curvatureOf()), the mesh's own
+        reading it as a ball at times -- from 1.2 to 60 N; now within a
+        hundredth, under the rigid rod's 47.14 by its give. Held at its end
+        by the hinge, it bends off the plate, its tip 9 um up: a beam on the
+        line's layer, c (d0 - w)^1.5 per length, Euler and Bernoulli's 42.14
+        N. Its depth along the line its points' at its eighths, linear
+        between (D4b way 2 step 4); its springs' mean at its two ends, 41.22,
+        and linear between them alone, 39.27"""
+        half = math.atan2(1.0, 40.0)
+        root = (2.0 / 3.0) * (5.0**1.5 - 4.0**1.5) / (5.0 - 4.0)
+        cone = 25.0 * 4.0 / 3.0 * 0.05**1.5 * math.sqrt(2.0) * root * 40.0 / math.cos(half) ** 1.5
+        rigid = self.roundTurned(
+            "a pressure on a rigid cone",
+            55,
+            -10,
+            cone=4.0,
+            rigidRod=True,
+            arm=4.5,
+            pressure=25.0,
+            within=0.01,
+        )
+        self.assertLess(abs(rigid - cone), 0.01 * cone)
+        self.renew()
+        flexible = self.roundTurned(
+            "a pressure on a flexible round", 55, -10, pressure=25.0, within=0.01
+        )
+        self.assertLess(flexible, 47.14)
+        self.assertLess(abs(flexible - 42.14), 0.02 * 42.14)
 
     def test_round_in_bore(self):
         """A flexible part's round in a rigid bore (D4b step 18):
@@ -1037,6 +1727,17 @@ class TestFlexibleBody(unittest.TestCase):
         bore=None,
         rigidRod=False,
         most=50.0,
+        cone=None,
+        arm=5.0,
+        ball=False,
+        pressure=None,
+        socket=None,
+        torus=False,
+        rollerAt=0.0,
+        ring=False,
+        inside=False,
+        flat=False,
+        turns=1.0,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1048,18 +1749,74 @@ class TestFlexibleBody(unittest.TestCase):
         grounded blocks. bore: a block 'length' x 20 x 20 about the rod
         instead, a bore of that radius through it along the rod, its wall
         0.05 mm into the rod's underside. rigidRod: the rod rigid. most: what
-        the mean stays under. until: the run's end, of the turn's 0.1 s"""
+        the mean stays under. until: the run's end, of the turn's 0.1 s.
+        cone: the rod a cone instead, R 5 at its held end and 'cone' at the
+        other, its hinge's axis tilted so the cone lies along the plate, the
+        plate 0.05 mm into it there; a round of no cylinder. arm: the
+        friction's on the rod's axis, its radius where the force is. ball:
+        the rod a ball R 5 instead, turned about its centre; socket: under
+        it a block's spherical hollow of that radius, its wall 0.05 mm into
+        the ball's underside, for the plate; flat: the torus lying flat on a
+        plate 30 x 30 instead, turned about its axis upright -- a line
+        contact round its ring; torus: the rod a torus, its ring
+        R 10 and its tube R 3, standing on the plate as a wheel, turned about
+        its axis -- a point on a face of no round. rollerAt: the roller round
+        the rod's axis by that many degrees from under it, sideways, still
+        0.05 mm into it, the contact's normal leaning by as much. ring: the
+        roller a half torus instead, its ring R 10 and its tube R 3, its axis
+        along the rod's, its middle towards it -- two faces of no round
+        touching; flexible, held at its two ends. inside: the roller a pin
+        R 3 through the torus's hole instead, 0.05 mm into its inner side --
+        a hollow face of no round, curved in round the ring and out across
+        the tube. pressure: the
+        contact's law a pressure over the area (D4b way 2), N/mm^3. Returns
+        the mean force over the turn. turns: how many turns it is turned by"""
         import CommandCreateContact
 
-        mount = self.box("Mount", (10, 20, 20), (-10, -10, -10))
+        # Lying flat, the mount over the torus's hole
+        mount = (
+            self.box("Mount", (10, 10, 10), (-5, -5, 4))
+            if flat
+            else self.box("Mount", (10, 20, 20), (-10, -10, -10))
+        )
         ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedMount")
         JointObject.GroundedJoint(ground, mount)
-        rod = self.assembly.newObject("Part::Cylinder", "Rod")
-        rod.Radius = 5
-        rod.Height = 40
-        rod.Placement = plc(0, 0, 0, App.Vector(0, 1, 0), 90)
-        low = -10 + 0.05
-        if bore:
+        tilt = 0.0
+        top = -5.0
+        if torus:
+            rod = self.assembly.newObject("Part::Torus", "Rod")
+            rod.Radius1 = 10
+            rod.Radius2 = 3
+            top = -3.0 if flat else -13.0
+        elif ball:
+            rod = self.assembly.newObject("Part::Sphere", "Rod")
+            rod.Radius = 5
+        elif cone:
+            rod = self.assembly.newObject("Part::Cone", "Rod")
+            rod.Radius1 = 5
+            rod.Radius2 = cone
+            rod.Height = 40
+            # The far end down by the cone's angle: the line under it flat
+            tilt = math.degrees(math.atan2(5.0 - cone, 40.0))
+            top = -5.0 * math.cos(math.radians(tilt))
+        else:
+            rod = self.assembly.newObject("Part::Cylinder", "Rod")
+            rod.Radius = 5
+            rod.Height = 40
+        rod.Placement = plc() if flat else plc(0, 0, 0, App.Vector(0, 1, 0), 90 + tilt)
+        low = top - 5.0 + 0.05
+        if socket:
+            import Part
+
+            # The hollow's lowest 0.05 mm over the ball's
+            centre = -5.0 + 0.05 + socket
+            plate = self.assembly.newObject("Part::Feature", "Block")
+            # A cup: open at the top, at the ball's middle, its surface one
+            # piece for its contact mesh
+            plate.Shape = Part.makeBox(20, 20, 8, App.Vector(-10, -10, -8)).cut(
+                Part.makeSphere(socket, App.Vector(0, 0, centre))
+            )
+        elif bore:
             import Part
 
             low = bore - 5.0 + 0.05 - 10.0
@@ -1068,30 +1825,56 @@ class TestFlexibleBody(unittest.TestCase):
                 Part.makeCylinder(bore, length, App.Vector(0, 10, 10), App.Vector(1, 0, 0))
             )
             plate.Placement.Base = App.Vector(start, -10, low)
+        elif roller and ring:
+            # The ring's axis 0.05 mm short of the two outer radii from the
+            # rod's; its local Z along x, its middle (local +Y) towards the rod
+            reach = -top + 13.0 - 0.05
+            s, c = math.sin(math.radians(rollerAt)), math.cos(math.radians(rollerAt))
+            rollerY = reach * s
+            rollerZ = -reach * c
+            plate = self.assembly.newObject("Part::Torus", "Roller")
+            plate.Radius1 = 10
+            plate.Radius2 = 3
+            plate.Angle3 = 180
+            turn = App.Matrix(0, 0, 1, 0, c, -s, 0, 0, s, c, 0, 0, 0, 0, 0, 1)
+            plate.Placement = App.Placement(App.Vector(0, rollerY, rollerZ), App.Rotation(turn))
         elif roller:
+            # The roller's axis 0.05 mm short of the two radii from the rod's;
+            # a pin's inside the torus's hole, 0.05 mm past its inner side
+            reach = 10.0 - 3.0 - 3.0 + 0.05 if inside else -top + 5.0 - 0.05
+            rollerY = reach * math.sin(math.radians(rollerAt))
+            rollerZ = -reach * math.cos(math.radians(rollerAt))
             plate = self.assembly.newObject("Part::Cylinder", "Roller")
-            plate.Radius = 5
+            plate.Radius = 3 if inside else 5
             plate.Height = length
-            plate.Placement = plc(start, 0, -10 + 0.05, App.Vector(0, 1, 0), 90)
+            plate.Placement = plc(start, rollerY, rollerZ, App.Vector(0, 1, 0), 90)
+        elif flat:
+            plate = self.box("Plate", (30, 30, 5), (-15, -15, low))
         else:
-            plate = self.box("Plate", (length, 20, 5), (start, -10, -10 + 0.05))
+            plate = self.box("Plate", (length, 20, 5), (start, -10, low))
         if flexiblePlate and roller:
             self.doc.recompute()
-            for k, x in enumerate((start, start + length)):
+            # Each end: its plane face, where the clamp is
+            ends = [
+                ("Face%d" % (i + 1), f.CenterOfMass)
+                for i, f in enumerate(plate.Shape.Faces)
+                if f.Surface.__class__.__name__ == "Plane"
+            ]
+            if not ring:
+                ends = sorted(ends, key=lambda e: e[1].x)
+            for k, (face, centre) in enumerate(ends):
+                x = centre.x
                 block = self.box(
-                    "Block%d" % k, (10, 20, 20), (x - 10 if k == 0 else x, -10, -20 + 0.05)
+                    "Block%d" % k,
+                    (10, 20, 20),
+                    (x - 10 if k == 0 else x, centre.y - 10, centre.z - 10),
                 )
                 held = self.joints.newObject(
                     "Assembly::GroundedJointPython", "GroundedBlock%d" % k
                 )
                 JointObject.GroundedJoint(held, block)
                 self.doc.recompute()
-                face = next(
-                    "Face%d" % (i + 1)
-                    for i, f in enumerate(plate.Shape.Faces)
-                    if f.Surface.__class__.__name__ == "Plane" and abs(f.CenterOfMass.x - x) < 1e-6
-                )
-                at = plc(x, 0, -10 + 0.05)
+                at = plc(centre.x, centre.y, centre.z)
                 clamp = self.joints.newObject("App::FeaturePython", "Fixed%d" % k)
                 JointObject.Joint(clamp, JointObject.JointTypes.index("Fixed"))
                 clamp.Detach1 = True
@@ -1126,8 +1909,8 @@ class TestFlexibleBody(unittest.TestCase):
             held = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
             JointObject.GroundedJoint(held, plate)
         self.doc.recompute()
-        # Its end face at x = 0
-        end = next(
+        # Its end face at x = 0; a ball's own, held at its centre
+        end = "Face1" if ball or torus else next(
             "Face%d" % (i + 1)
             for i, face in enumerate(rod.Shape.Faces)
             if face.Surface.__class__.__name__ == "Plane" and abs(face.CenterOfMass.x) < 1e-6
@@ -1138,13 +1921,15 @@ class TestFlexibleBody(unittest.TestCase):
         hinge.Detach2 = True
         hinge.Reference1 = (mount, ["Face2"])
         hinge.Reference2 = (rod, [end])
-        hinge.Placement1 = plc(10, 10, 10, App.Vector(0, 1, 0), 90)
+        hinge.Placement1 = (
+            plc(5, 5, -4) if flat else plc(10, 10, 10, App.Vector(0, 1, 0), 90 + tilt)
+        )
         hinge.Placement2 = plc(0, 0, 0)
         self.doc.recompute()
         self.assertEqual(self.assembly.solve(), 0)
         contact = CommandCreateContact.newContactSet(self.assembly, [rod], [plate])
-        contact.StiffnessFrom = "Value"
-        contact.Stiffness = 1000.0
+        contact.StiffnessFrom = "Pressure" if pressure else "Value"
+        contact.Stiffness = pressure if pressure else 1000.0
         contact.Exponent = 1.0
         contact.FrictionFrom = "Value"
         contact.StaticFriction = friction
@@ -1156,7 +1941,7 @@ class TestFlexibleBody(unittest.TestCase):
         motion.Joint = hinge
         motion.MotionType = "Angular"
         motion.Control = "Position"
-        motion.Formula = "%r*(time/0.1)*(time/0.1)*(3 - 2*time/0.1)" % (2 * math.pi)
+        motion.Formula = "%r*(time/0.1)*(time/0.1)*(3 - 2*time/0.1)" % (2 * math.pi * turns)
         if not rigidRod:
             body = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
             body.MeshSize = 4.0
@@ -1190,8 +1975,9 @@ class TestFlexibleBody(unittest.TestCase):
         turned = [v * 1e-3 for t, v in zip(results["Times"], torques[0]) if 0.03 <= t <= until]
         torque = sum(turned) / len(turned)
         print("%s: the motion's torque %.4g N mm, %.4f N R for a friction of %g"
-              % (name, torque, torque / (mean * 5.0), friction))
-        self.assertLess(abs(torque - friction * mean * 5.0), 0.006 * mean * 5.0)
+              % (name, torque, torque / (mean * arm), friction))
+        self.assertLess(abs(torque - friction * mean * arm), 0.006 * mean * arm)
+        return mean
 
     def renew(self):
         """A new document for a second run, as setUp's"""
@@ -1395,6 +2181,42 @@ class TestFlexibleBody(unittest.TestCase):
         taken once those joints are in (AssemblyObject::
         flexibleInterfaces()): its first mode is over 1 kHz, and it comes to
         rest on the pin, pressing it its weight and the block's"""
+        hanger, block, held, contact = self.hangerOnPin(0.0, 0.0)
+        sim = self.study(0.03, 1e-3)
+        sim.Elements = [contact]
+        body = FlexibleBodies.makeFlexibleBody(self.assembly, hanger)
+        body.MeshSize = 4.0
+        FlexibleBodies.prepare(body)
+        self.assertEqual(list(body.InterfaceFrames), [held.FullName])
+        self.doc.recompute()
+        hz = self.assembly.getFlexibleFrequencies(sim, body)
+        self.assertGreater(hz[0], 1000.0)
+        weight = 0.0
+        for entry in self.assembly.getMassProperties()["Components"]:
+            if entry["Object"].Name in (hanger.Name, block.Name):
+                weight += entry["Mass"] * 9.80665
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        values = [
+            c["Values"]
+            for c in results["Channels"]
+            if c["Quantity"] == "ContactNormalForce" and c["Name"] == contact.Name
+        ]
+        self.assertEqual(len(values), 1)
+        forces = [v.Length * 1e-3 for v in values[0]]
+        resting = [f for t, f in zip(results["Times"], forces) if t >= 0.02]
+        mean = sum(resting) / len(resting)
+        print("held by a free part: first mode %.4g Hz; at most %.4g N, resting %.4g N of %.4g"
+              % (hz[0], max(forces), mean, weight))
+        self.assertLess(max(forces), 10.0)
+        self.assertLess(abs(mean - weight), 0.05 * weight)
+
+    def hangerOnPin(self, angle, mu):
+        """A hanger 10 x 20 x 80 hung on a grounded pin R 5 along x by a bore
+        R 5.2, its wall 0.01 mm over the pin, a block 30 x 30 x 30 fixed
+        under it; the two turned 'angle' deg about the pin, and a contact
+        between the pin and the hanger, 1000 N/mm, of friction 'mu'. The
+        hanger, the block, their joint and the contact"""
         import CommandCreateContact
         import Part
 
@@ -1426,6 +2248,10 @@ class TestFlexibleBody(unittest.TestCase):
         held.Reference2 = (hanger, [under])
         held.Placement1 = block.Placement.inverse().multiply(at)
         held.Placement2 = hanger.Placement.inverse().multiply(at)
+        if angle:
+            turn = App.Placement(App.Vector(0, 0, 0), App.Rotation(App.Vector(1, 0, 0), angle))
+            hanger.Placement = turn.multiply(hanger.Placement)
+            block.Placement = turn.multiply(block.Placement)
         self.doc.recompute()
         self.assertEqual(self.assembly.solve(), 0)
         contact = CommandCreateContact.newContactSet(self.assembly, [pin], [hanger])
@@ -1433,23 +2259,43 @@ class TestFlexibleBody(unittest.TestCase):
         contact.Stiffness = 1000.0
         contact.Exponent = 1.0
         contact.FrictionFrom = "Value"
-        contact.StaticFriction = 0.0
-        contact.DynamicFriction = 0.0
-        sim = self.study(0.03, 1e-3)
+        contact.StaticFriction = mu
+        contact.DynamicFriction = mu
+        return hanger, block, held, contact
+
+    def test_swings_on_a_pin(self):
+        """A flexible part swinging on a pin lies along it as a rigid one
+        does (D4b step 25): the hanger of test_held_by_a_free_part let go 30
+        deg off the vertical, a friction of 0.1. The places along the bore's
+        line on the pin were where collision detection found them, two at
+        one end and five at the other, each put where its faces are deepest
+        in the pin -- which a bore 0.2 mm over its pin is within a micron of
+        for 6 deg either side of the line. The bore rocked on the pin by
+        2.5 mrad and the pin's force stepped 0.11 N rms from frame to frame.
+        Two points now, at the ends of the line the two rounds touch along
+        (FlexibleContact::toLine()): the bore within 0.1 mrad of the pin,
+        the force's steps under 0.03 N rms -- a rigid hanger's are 0.015 --
+        and the force between 0.8 and 1.6 N.
+
+        And the pin holds it what its swing asks (D4b step 26): passing the
+        vertical, its weight and m d w^2, d its centre of mass's 63.8 mm
+        under the pin. With Chrono's linear inertial term the flexible
+        hanger, whose interface the block carries round 68 mm under the
+        pin, pressed the pin its own mass by that and w^2 more, 7% over"""
+        hanger, block, held, contact = self.hangerOnPin(30.0, 0.1)
+        sim = self.study(0.2, 1e-3)
         sim.Elements = [contact]
         body = FlexibleBodies.makeFlexibleBody(self.assembly, hanger)
         body.MeshSize = 4.0
         FlexibleBodies.prepare(body)
-        self.assertEqual(list(body.InterfaceFrames), [held.FullName])
         self.doc.recompute()
-        hz = self.assembly.getFlexibleFrequencies(sim, body)
-        self.assertGreater(hz[0], 1000.0)
-        weight = 0.0
+        mass = 0.0
         for entry in self.assembly.getMassProperties()["Components"]:
             if entry["Object"].Name in (hanger.Name, block.Name):
-                weight += entry["Mass"] * 9.80665
+                mass += entry["Mass"]
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         results = self.assembly.getSimulationResults()
+        times = results["Times"]
         values = [
             c["Values"]
             for c in results["Channels"]
@@ -1457,12 +2303,45 @@ class TestFlexibleBody(unittest.TestCase):
         ]
         self.assertEqual(len(values), 1)
         forces = [v.Length * 1e-3 for v in values[0]]
-        resting = [f for t, f in zip(results["Times"], forces) if t >= 0.02]
-        mean = sum(resting) / len(resting)
-        print("held by a free part: first mode %.4g Hz; at most %.4g N, resting %.4g N of %.4g"
-              % (hz[0], max(forces), mean, weight))
-        self.assertLess(max(forces), 10.0)
-        self.assertLess(abs(mean - weight), 0.05 * weight)
+        late = [k for k, t in enumerate(times) if t >= 0.02]
+        steps = [forces[k] - forces[k - 1] for k in late[1:]]
+        rough = math.sqrt(sum(d * d for d in steps) / len(steps))
+        # The bore's axis, the hanger's x, off the pin's
+        off = 0.0
+        swung = []
+        for k in late:
+            self.assembly.updateForFrame(k)
+            along = hanger.Placement.Rotation.multVec(App.Vector(1, 0, 0))
+            off = max(off, math.hypot(along.y, along.z))
+            centre = block.Placement.multVec(App.Vector(15, 15, 15))
+            swung.append(math.degrees(math.atan2(centre.y, -centre.z)))
+        print("swings on a pin: %d frames, from %.3g to %.3g deg; the pin's force %.4g to %.4g N, "
+              "%.4g N rms from frame to frame; the bore off the pin's axis by %.3g urad at most"
+              % (len(times), swung[0], swung[-1], min(forces[k] for k in late),
+                 max(forces[k] for k in late), rough, off * 1e6))
+        # Passing the vertical: the frames either side of it 4 ms apart
+        low = min(range(len(late)), key=lambda j: abs(swung[j]))
+        self.assertTrue(4 <= low < len(late) - 4)
+        before = low
+        while times[late[low]] - times[late[before]] < 0.002:
+            before -= 1
+        after = low
+        while times[late[after]] - times[late[low]] < 0.002:
+            after += 1
+        turning = math.radians(swung[after] - swung[before]) / (
+            times[late[after]] - times[late[before]]
+        )
+        asked = mass * (
+            9.80665 * math.cos(math.radians(swung[low])) + 63.79e-3 * turning * turning
+        )
+        print("swings on a pin: passing the vertical at %.4g s, %.4g rad/s: %.4g N for the %.4g "
+              "its motion asks" % (times[late[low]], turning, forces[late[low]], asked))
+        self.assertLess(abs(forces[late[low]] - asked), 0.03 * asked)
+        self.assertLess(swung[-1], -15.0)
+        self.assertLess(rough, 0.03)
+        self.assertLess(off, 1e-4)
+        self.assertGreater(min(forces[k] for k in late), 0.8)
+        self.assertLess(max(forces[k] for k in late), 1.6)
 
     def test_held_by_nothing(self):
         """A flexible part no joint holds (D4b step 21): a bar 80 x 10 x 4
@@ -1472,7 +2351,9 @@ class TestFlexibleBody(unittest.TestCase):
         element at its mesh's middle (ChronoFlexible::ownInterface()), in
         the run and in Find Modes. It comes to rest on the rollers pressing
         them its weight, sagging between them as a beam on two supports with
-        its ends hanging over does"""
+        its ends hanging over does. Find Modes shows what it rings at free
+        (step 24), a free beam's first bending, not its modes held at that
+        element"""
         import CommandCreateContact
         import numpy as np
 
@@ -1503,11 +2384,17 @@ class TestFlexibleBody(unittest.TestCase):
         self.assertEqual(list(body.InterfaceFrames), [])
         self.doc.recompute()
         hz = self.assembly.getFlexibleFrequencies(sim, body)
-        self.assertGreater(hz[0], 1000.0)
         weight = 0.0
         for entry in self.assembly.getMassProperties()["Components"]:
             if entry["Object"].Name == bar.Name:
                 weight += entry["Mass"] * 9.80665
+        # A free beam's first bending, 22.3733 / (2 pi) sqrt(E I / (m L^3))
+        youngs = FlexibleBodies.elasticityOf(body)[0]
+        ringing = (22.3733 / (2 * math.pi)) * math.sqrt(
+            1e3 * youngs * (640.0 / 12.0) / ((weight / 9.80665) * 80.0**3)
+        )
+        self.assertEqual(len(hz), body.Modes)
+        self.assertLess(abs(hz[0] - ringing), 0.01 * ringing)
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         results = self.assembly.getSimulationResults()
         times = results["Times"]
@@ -1531,11 +2418,10 @@ class TestFlexibleBody(unittest.TestCase):
         mid = low & (np.abs(rest[:, 0] - 40.0) < 2.5)
         over = low & ((np.abs(rest[:, 0] - 10.0) < 2.5) | (np.abs(rest[:, 0] - 70.0) < 2.5))
         sag = moved[over, 2].mean() - moved[mid, 2].mean()
-        youngs = FlexibleBodies.elasticityOf(body)[0]
         beam = (weight / 80.0) * 3600.0 * (5 * 3600.0 - 2400.0) / (384.0 * youngs * 640.0 / 12.0)
-        print("held by nothing: first mode %.4g Hz; at most %.4g N, resting %.5g N of %.5g; "
-              "sag %.4g um of a beam's %.4g"
-              % (hz[0], max(forces), mean, weight, sag * 1e3, beam * 1e3))
+        print("held by nothing: first mode %.5g Hz of a free beam's %.5g; at most %.4g N, "
+              "resting %.5g N of %.5g; sag %.4g um of a beam's %.4g"
+              % (hz[0], ringing, max(forces), mean, weight, sag * 1e3, beam * 1e3))
         self.assertLess(max(forces), 3.0)
         self.assertLess(abs(mean - weight), 0.01 * weight)
         self.assertLess(abs(sag - beam), 0.03 * beam)

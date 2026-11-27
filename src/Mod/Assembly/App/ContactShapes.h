@@ -64,6 +64,18 @@ struct SolidContactShape
 AssemblyExport std::optional<SolidContactShape> contactShapeOf(const TopoDS_Shape& solid,
                                                                double deflection = 0.0);
 
+// A flexible part's surface as its solid has it (Flexible::trueFaces): of
+// each face of its tetrahedra's surface -- their faces no other shares --
+// that lies on a curved face of 'solid', its six nodes within a
+// thousandth of the face's size of it, the solid's surface at the nine
+// more points of a quartic triangle, as offsets from the six-node face
+// there. 'nodes' and 'solid' in the same coordinates, the offsets in them.
+// None of a face on a plane: the six-node face is the plane.
+AssemblyExport std::vector<Solver::Flexible::TrueFace>
+trueFacesOf(const TopoDS_Shape& solid,
+            const std::vector<Base::Vector3d>& nodes,
+            const std::vector<std::array<Solver::Id, 10>>& tetrahedra);
+
 // A planar face's profile (docs/AssemblyDynamics.md sec 7.1's rung 5, sec
 // 7.4's 2D path), in the coordinates the face is given in: 'placement' its
 // plane's frame, x and y the plane's, z their cross product; its wires' loops

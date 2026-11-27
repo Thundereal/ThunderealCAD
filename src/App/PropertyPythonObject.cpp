@@ -372,12 +372,19 @@ void PropertyPythonObject::Save (Base::Writer &writer) const
 }
 
 namespace {
+PropertyPythonObject::RestoreFailed& restoreFailedObserver()
+{
+    static PropertyPythonObject::RestoreFailed observer;
+    return observer;
+}
+
 // A Proxy's module name comes from the document, so its native import
 // is RESTRICTED the way Base::Type::importModule's is (docs/Sandbox.md
 // sec 11 item 1, sec 13): a module already loaded, or one that resolves
 // into a registered Mod root, for BOTH containers -- a document
 // object's Proxy and a view provider's.  Anything else is refused
 // before importing and the object is left without a Proxy, logged.
+
 bool proxyModuleAllowed(const App::Property& prop, const char* module, const char* cls)
 {
     if (Base::Type::moduleAllowed(module))
@@ -392,6 +399,11 @@ bool proxyModuleAllowed(const App::Property& prop, const char* module, const cha
                           who.c_str(), module, cls, module);
     return false;
 }
+}
+
+void PropertyPythonObject::setRestoreFailed(RestoreFailed observer)
+{
+    restoreFailedObserver() = std::move(observer);
 }
 
 void PropertyPythonObject::Restore(Base::XMLReader &reader)
@@ -421,6 +433,8 @@ void PropertyPythonObject::Restore(Base::XMLReader &reader)
 
     aboutToSetValue();
 
+    // The class tried, for the restore-failed observer
+    std::string tried;
     try {
         Base::PyGILStateLocker lock;
         static boost::regex pickle(R"(^\(i(\w+)\n(\w+)\n)");
@@ -438,6 +452,7 @@ void PropertyPythonObject::Restore(Base::XMLReader &reader)
                 refused = true;
             }
             else {
+                tried = std::string(module) + "." + cls;
                 Py::Module mod(PyImport_ImportModule(module), true);
                 if (mod.isNull())
                     throw Py::Exception();
@@ -465,6 +480,7 @@ void PropertyPythonObject::Restore(Base::XMLReader &reader)
                 refused = true;
             }
             else {
+                tried = nam + "." + cls;
                 Py::Module mod(PyImport_ImportModule(nam.c_str()),true);
                 if (mod.isNull())
                     throw Py::Exception();
@@ -483,6 +499,9 @@ void PropertyPythonObject::Restore(Base::XMLReader &reader)
         e.ReportException();
         this->object = Py::None();
         load_failed = true;
+        if (restoreFailedObserver()) {
+            restoreFailedObserver()(*this, tried, e.what());
+        }
     }
 
     restoreObject(reader);

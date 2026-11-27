@@ -3853,7 +3853,8 @@ Phase D1 is under way (2026-10-28):
     shown -- between two frames, the coordinates interpolated -- moved by
     the shapes and the coordinates, scaled up for the largest over the run
     to be a tenth of the part's size (or by the body's `BendingScale`,
-    step 12), in place of the component, which
+    step 12; the bending alone scaled, its hold drawn where it is, way 1
+    step 15), in place of the component, which
     hides while it is drawn and shows again when the panel closes. Save
     Animation's frames have it.
   - The panel's Elements lists the flexible bodies.
@@ -3879,7 +3880,8 @@ Phase D1 is under way (2026-10-28):
     modalStresses()`), as Adams and MotionSolve do: each coordinate's
     stress field -- the small strain of its shape, by the 10-node
     tetrahedron's shape functions' gradients at each of its nodes, linear
-    elastic, each node's the mean of its tetrahedra's -- at the surface's
+    elastic, each node's the mean of its tetrahedra's (at their Gauss
+    points since D4b way 1 step 14) -- at the surface's
     nodes, then weighed by the run's coordinates at the time shown. A rigid
     turn's linear strain is none, so an interface's column that only
     carries the part is stress free. The material the run's
@@ -5269,6 +5271,1225 @@ Phase D1 is under way (2026-10-28):
   - Tests: TestFlexibleBody.test_sticks_on_a_slope (both frictions: the
     forces and the gain to 1%, the creep under 0.1 mm/s). TestFlexibleBody
     33 (611 s).
+- Built, D4b step 24 (2026-11-14): Find Modes on a part no joint holds
+  shows what it rings at free. Step 21's limit, lifted; the run is as it
+  was.
+  - `Chrono::flexibleFrequencies()` listed such a part's modes with the
+    element at its mesh's middle held (`ownInterface()`), 1874 Hz for the
+    bar 80 x 10 x 4: the modes its reduction keeps, which nothing in a run
+    holds it to. It lists now the frequencies of the model the run has of
+    it -- its reduction's K_red and M_red, that interface's six coordinates
+    with its modes, K x = w^2 M x -- the six of its motion as a whole, at
+    0 Hz, left out: as many as its Modes. So too with contact faces named
+    and no joint. A part a joint holds is listed as before, its interfaces
+    held.
+  - The bar: 3270 Hz for a free beam's first bending, 22.37 / (2 pi)
+    sqrt(E I / (m L^3)), 3271; then 7770, 8824 (the beam's second, 9017),
+    12650, 17704 (its third, 17677).
+  - The strip 1 mm thick, mesh 4: 820.8, 2260 and 4469 Hz for the beam's
+    817.8, 2254 and 4419, with 3797 Hz between, its twisting. With 24
+    modes the first nine of the twelve stay within 4% (4452 for 4469) and
+    the last three, 22.9, 33.5 and 115 kHz, are gone: those are the
+    reduction's own, not the part's.
+  - The six left out come at 0.01 Hz and under, either side of 0.
+  - The panel's "Held at" says "nothing: no joint holds it" of such a part
+    once it is meshed, where it said "nothing yet".
+  - Probe: freemodes.py (FM_T, FM_MESH, FM_MODES), which finds the same
+    from the part's kept Reduction with numpy.
+  - Tests: TestFlexibleBody.test_held_by_nothing takes Find Modes' first
+    for the free beam's to 1%, and as many as Modes. TestFlexibleBody 33
+    (611 s), TestDynamics 90, TestJointFriction 4, TestContact 63; ctest
+    25; TestGuiCommands 76; the earlier probes to the digits they print.
+- Built, D4b step 25 (2026-11-15): a flexible part's round lying along
+  another round touches it at the two ends of their line. Step 20's first
+  limit, lifted: the pin's force on the flexible hanger is as smooth as on
+  a rigid one.
+  - **What was rough.** Step 20 put the hanger's 0.109 N rms from frame to
+    frame, a rigid hanger's 0.015, down to its mesh's accuracy. It was two
+    things, neither the mesh's. The places along the bore's line on the
+    pin were where collision detection found them, two at one end and
+    five at the other, each a share of one spring (F = k sum s^2 / sum s):
+    twelve places at depths from 0.2 to 1.9 um press 1.28 N, the two at
+    the ends 1.74, and the force is at their middle, off the line's -- the
+    bore rocked on the pin by 2.5 mrad, where a rigid one lies square. And
+    each place was put where its faces are deepest in the pin
+    (`deepestOnFace()`): a bore R 5.2 on a pin R 5 is within 1.1 um of the
+    pin 6 deg either side of their line, and its quadratic faces stand in
+    from the round by 0.65 um between their nodes, so the faces' deepest
+    was 1 to 2 deg off the line and, at one face's corner, 6 deg off --
+    1.1 um less deep, of the 1.45 um the hanger's weight presses each end.
+  - **Two points, on the line.** In `thinOut()` the places of one of the
+    part's rounds against one round of the other part, their axes within a
+    degree, their normals within a quarter turn of the deepest's, are a
+    line. The two pressing places nearest its ends are taken to the ends
+    of the stretch both rounds reach (`reachAlong()`), a hundredth of it
+    in, as two rigid rounds' points are; the line's other places go, and
+    the points on the flat face beside the bore, at its rim. One pressing
+    place alone stays where it is: a pin cocked in its bore touches at an
+    end.
+  - **Where the line is.** `FlexibleContact::toLine()`: the part's own
+    round as the mesh has it at the point (`roundAt()`) and the other
+    round's axis give the line's direction outright -- towards that axis,
+    or in a hollow round away from it -- and the point is the face's
+    nearest it, the faces walked as to a round's deepest (`deepest()`,
+    given a ball a quarter of the radius under the target). Its normal and
+    the other round's surface under it are that round's own. Within the
+    substep the point is found again the same way on its own face
+    (`follow()`, `OnMesh::lined`): found as its face's deepest it left the
+    line for where the face stands in most.
+  - Two wrong turns on the way, each found by a trace. The line's end was
+    taken from its highest place, pressing or not: the bore's next facet
+    round is a place too, 20 um clear of the pin, and that end then had no
+    point. And a line was the places within 30 deg of the first found: a
+    rod R 5 sunk 0.05 mm in a bore R 5.5 presses it for 25 deg either side
+    of their line, and a place 21 deg off it was left a line of its own, a
+    third point 12 um deep for one substep, the rod's 44.8 N stepping 1.1.
+  - Numbers. The hanger's swing of 0.6 s: 623 frames in 13.4 s for 54;
+    to -28.95 deg and back to 26.63. The pin's force from 0.02 s on: mean
+    1.198 N, 0.95 to 1.46, from frame to frame 0.0147 N rms, no step over
+    0.1 N -- before 1.196, 0.78 to 1.74 and 0.109; the rigid hanger's
+    1.154, 0.94 to 1.37 and 0.015. The bore's axis off the pin's by 25 urad
+    at most, for 2.5 mrad -- that with follow()'s way out to the round found
+    again as the point slid, tried first and dropped: 0.121 N rms for 0.109.
+  - The other rounds along a round. The flexible rod on a rigid roller,
+    turned, 0.05 mm in: 44.77 N, 44.52 to 45.06, for 45.67, 44.88 to 46.60
+    (mesh 2: 44.79, 44.65 to 44.95, for 45.68, 44.41 to 46.55); with a
+    friction of 0.3, 44.76 N and the motion's torque 0.2977 N R as before.
+    In a rigid bore R 5.5: 44.76 N, 44.74 to 44.78, for 45.63, 44.95 to
+    46.05. A rigid rod in a flexible bore 50.00 N for 49.98. The rod on a
+    plate, past an edge, on a flexible plate and on a flexible roller, and
+    the strips, are as they were to the digits printed.
+  - Limits.
+    - The line's force is by its two ends' depths. A rod that bends under
+      it is pressed 44.8 N so, where its places' shares gave 45.7: neither
+      has a closed form to be held to.
+    - Smooth, the hanger's force shows what the roughness hid: 7% over the
+      rigid hanger's as it passes the vertical, 1.437 N for 1.344, and the
+      same at the swing's ends -- an excess that goes as the swing's speed
+      squared, 41% of the rigid one's centripetal part, the two swinging
+      alike to 0.03 deg. Not looked into yet.
+    - Two flexible rounds along each other keep their places as found.
+    - A part's round that is not all the way round may not hold the line's
+      end: the places stay as found there.
+    - 13 s is still the rigid hanger's 2 several times.
+  - Tests: TestFlexibleBody.test_swings_on_a_pin (the hanger let go at 30
+    deg for 0.2 s: the force's steps under 0.03 N rms, the force between
+    0.8 and 1.6 N, the bore within 0.1 mrad of the pin -- 0.0156, 0.97 to
+    1.46 and 6.5 urad). TestFlexibleBody 34 (609 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Fixed, D4b step 26 (2026-11-15): a flexible body whose interface is
+  carried round is held what its motion asks. Step 25's second limit.
+  - **7% over.** The flexible hanger swung as the rigid one does, to 0.03
+    deg, and pressed its pin more: 1.437 N for 1.344 passing the vertical,
+    the same at the swing's ends, the excess going as the swing's speed
+    squared. The rigid hanger's force is its motion's, m (g cos a + d w^2)
+    with d the 63.8 mm of its centre of mass under the pin, to 2%.
+  - **Not the contact.** A flexible rod on a hinge, let go level (probe
+    pendforce.py): the hinge holds it what its motion asks to 0.16%, the
+    rigid rod to 0.02%. There the part turns about its interface; the
+    hanger's interface is the block fixed under it, 68 mm from the pin,
+    and the excess was the hanger's 0.041 kg by those 68 mm by w^2.
+  - **Chrono's linear inertial term.** `ChModalAssembly` has its reduced
+    mass in the floating frame's axes and its interfaces' velocities in
+    the world's; the velocity terms of its inertia are, rigorously,
+    w x (M v) - M (w x v) and one more that is the moment of the two, and
+    by default ("the linear assumption") the first alone
+    (`SetUseLinearInertialTerm`). The second is the part's mass by w x v
+    of its interface: nothing where the interface does not move, a force
+    along the swing's radius where it is carried round -- which the
+    contact took up, and the swing never saw.
+  - `ChronoFlexible::build()` asks for the rigorous terms. Chrono's
+    comments call them "only for internal test" and say they "might cause
+    numerical instabilities": none in the tests and probes, which are as
+    they were to the digits they print but for the hanger's, and no
+    slower (the hanger's swing 14.5 s for 13.4).
+  - Numbers. The hanger's swing of 0.6 s, to -29.00 deg and back to 26.72
+    (the rigid one's -28.97 and 26.68; before -28.95 and 26.63). The pin's
+    force from 0.02 s on: mean 1.155 N, 0.94 to 1.36, 0.0136 N rms from
+    frame to frame; the rigid hanger's 1.154, 0.94 to 1.37 and 0.015; from
+    the rigid one's frame by frame 0.021 N rms, 0.066 at most, for 0.053
+    and 0.096. Passing the vertical 1.358 N for 1.344.
+  - Limit: any run of steps 19 to 25 with a flexible part carried round
+    by its interface read its forces high by this; none of those steps'
+    checks did but the hanger's, whose numbers here replace theirs.
+  - Tests: TestFlexibleBody.test_swings_on_a_pin also takes the force
+    passing the vertical for m (g cos a + d w^2) to 3% (1.331 N for 1.350;
+    7% over before). TestFlexibleBody 34 (612 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Built, D4b step 27 (2026-11-15): a flexible part's round lying along a
+  flat face of a rigid part touches it at the two ends of their line. The
+  largest ripple left: a rod turned on a plate pressed it 42.5 to 46.8 N,
+  a tenth of its 45.
+  - **The face's farthest is off the line.** Each point found on a curved
+    face against a flat one went to that face's farthest towards the flat
+    one (`towardsFlat()`), and from there out onto the round
+    (`ontoRound()`). A quadratic face stands in from its round between its
+    nodes, 3.9 um on R 5 at a 4 mm mesh, so its farthest is towards its
+    nodes, off the round's own line -- and 2.6 deg off it the round is 5 um
+    less deep, of the 50 the rod is pressed. And along the line the face's
+    farthest is anywhere. Step 25's finding for a round along a
+    round, here against a plane.
+  - **Two points on the line.** `thinOut()` takes the points of one round
+    of the part found against one plane -- their normals one way, the
+    plate's points as found in one plane -- for a line, and leaves two: at
+    the ends of the stretch of the round's axis over which the part's
+    pressing points on the line are found, a hundredth of it in. Each is
+    put where the part's own round, as the mesh has it there (`roundAt()`),
+    is farthest towards the plane, at the face's point nearest that and out
+    onto the round (`FlexibleContact::toFlat()`), and held there within the
+    substep (`follow()`, `OnMesh::lined`), the plate's point under it
+    (`refresh()`).
+  - **The stretch.** The round's own reach, cut to the plate's face where
+    the plate is a box or a hull (`reachOver()`, by its polyhedral
+    features' planes less the envelope they are grown by); an end found
+    within a face's edge of that is that end. So the ends are the same
+    whichever faces had points found.
+  - Wrong turns, each seen in a trace of the lines made.
+    - The round's own points alone made the line, and the rest stayed: the
+      rod's end faces next to its rim are curved faces too, their edge the
+      rim's, and their points slide to the rim's lowest -- the line's end.
+      Two such at the end the rod is held by, with the line's two, 48.1 N
+      for 44.8; one at its free end, 41.1. The rod's force went 37.4 to
+      49.3 N, worse than before. All the part's points on the line go.
+    - The stretch by the slid points alone: at one detection they ended
+      2.13 mm from the rod's end, the face's edge 2.07, and the line was
+      short for it; as the rod began to turn, three slid points at one
+      place. By the part's pressing points on the line, slid or not.
+    - A rod at rest has a row of its nodes on the line, the points on its
+      triangles' edges and none slid (the face does not curve to the plane
+      at a node): no line, the last five frames of the turn at 45.6 to
+      46.1 N. A point found against a flat face and left on its triangle
+      (`OnMesh::towards`) is a line's too, and may be taken to its end.
+    - The line's point nearest an end alone tried for it: five frames of
+      the turn's 500 from 42.8 to 46.9 N. Preferring the slid points, the
+      nearest slid one was 35 mm off at the rod's rest, at a 2 mm mesh, and
+      27 detections of 1377 made no line. The four nearest are tried in
+      turn: every detection of the three runs' 4130 made its line.
+    - The plate's ends under the rod, the stretch by the points found:
+      44.9 to 46.4 N, from one frame to the next. `reachOver()`.
+  - Numbers. The rod R 5 x 40 on a rigid plate, turned once in 0.1 s, 0.05
+    mm in, 1000 N/mm, from 0.03 s on: 44.77 N, 44.64 to 44.90, for 44.97,
+    42.52 to 46.84 (ripple 0.6% of the mean for 9.6); mesh 2: 44.79, 44.72
+    to 44.87, for 44.88, 42.23 to 46.70 (0.3% for 10.0); the plate's ends
+    under the rod: 45.59, 45.46 to 45.71, for 45.19, 42.03 to 47.34 (0.6%
+    for 11.8). The rod presses the plate what it presses a rigid roller
+    along it, 44.77 N, and a rigid bore, 44.76. The runs 3.4, 4.8 and 3.0 s
+    for 5.9, 9.5 and 4.4. With a friction of 0.3: 44.76 N, the motion's
+    torque 66.72 N mm, 0.2981 N R (0.2994); with none, -0.18 N mm (0.07).
+    The roller, the bores, the flexible plate and roller, the strips and
+    the hanger are as they were to the digits printed.
+  - Limits.
+    - A flexible plate under the rod is as it was: 43.8 to 47.2 N, and
+      past its edge 39.5 to 47.3. Its point under the line's has to be put
+      on its own mesh, and its face has no features to cut the stretch by.
+    - A rigid plate that is a mesh, neither box nor hull, has no features
+      either: the stretch ends where points are found, within a face of
+      the round's own end at that end.
+    - A round leaning more than a degree to the plane touches at an end,
+      and its points stay as found.
+    - The line's force is by its two ends' depths, as step 25's.
+  - Tests: TestFlexibleBody.test_round_anywhere, test_round_past_edge and
+    test_friction_on_flexible_round hold the force within a hundredth of
+    its mean, where they held a tenth. TestFlexibleBody 34 (596 s),
+    TestDynamics 90, TestJointFriction 4, TestContact 63; ctest 25;
+    TestGuiCommands 76.
+- Built, D4b step 28 (2026-11-15): the same on a flexible part's flat
+  face. Step 27's first limit: a rod turned on a flexible plate pressed it
+  43.8 to 47.2 N, and one whose ends are under the rod 39.5 to 47.3.
+  - A line is made where the other part is flexible too and its face
+    under the point flat (`thinOut()`). The rod's two points go to the
+    line's ends as on a rigid plate; the plate's point of each pair, placed
+    on the triangle the two were found on, is put on the plate's own
+    surface under the rod's (`FlexibleContact::under()`: the surface's
+    place nearest it as the plate is at rest, and where the modes have that
+    place).
+  - **The stretch on a flexible plate.** A flexible part's surface has no
+    polyhedral features to cut the line by. `reachOnFlat()` cuts it to the
+    plate's flat triangles in the contact's plane, as the collision mesh
+    has them, from the first the line comes over to the last.
+  - Wrong turn: that plane taken from the triangle the line's first point
+    was found on. Run on the tests it failed one: the plate's ends under
+    the rod, 28.3 to 49.4 N, worse than before. A point of the rod just
+    past the plate's end is found on the end's triangle and put under the
+    top (`flatFaces()`, step 16), so the plane may be the end's, which the
+    line goes through; that it was is not traced. By the contact's own
+    plane -- its normal, through the plate's point as found -- every one
+    of a run's 1382 detections had the stretch from one end of the plate
+    to the other.
+  - A probe's own fault found on the way: rodprobe.py's flexible plate
+    with its ends under the rod was joined to its base at the whole
+    plate's middle and so moved to lie from x = -10 to 20, under half the
+    rod. Its 49.0 N there is that geometry's (a hand estimate of the two
+    ends' depths on a cantilever, 49.1); the tests' plate was where it
+    should be. The probe is corrected.
+  - Numbers, the rod of step 27, from 0.03 s on. On a flexible plate:
+    44.77 N, 44.64 to 44.90, for 46.20, 43.76 to 47.21 (ripple 0.6% of the
+    mean for 7.5), and the same with the set's sides swapped; the run 14 s
+    for 35. The plate's ends under the rod: 45.58 N, 45.46 to 45.71, for
+    45.39, 39.51 to 47.25. With a friction of 0.3: 44.76 N, 44.63 to
+    44.89, the motion's torque 66.81 N mm, 0.2985 N R (0.2976). The rod
+    presses a flexible plate what it presses a rigid one, to the digits
+    printed. Everything else is as step 27 left it.
+  - Limits.
+    - Within a substep the plate's point stays where it was put, as it
+      did; the rod's is held on the line.
+    - The line's stretch on a flexible plate is from the first of its
+      triangles under the line to the last: a gap or a hole between them
+      is not seen.
+    - A rigid plate that is a mesh, neither box nor hull, still ends the
+      line where points are found.
+    - Two flexible rounds along each other keep their places as found.
+  - Tests: TestFlexibleBody.test_round_on_flexible_plate,
+    test_round_past_flexible_edge and test_friction_between_flexible_parts
+    hold the force within a hundredth of its mean (a tenth, 0.15 and a
+    tenth before). TestFlexibleBody 34 (531 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76.
+- Faster, D4b step 29 (2026-11-15): a flexible round in a rigid bore. The
+  rod turned in a bore R 5.5 took 139 s for its 0.1 s, on a plate 3.4.
+  - **Measured first.** Timers about the step, the detection and its
+    stages, the rod in the bore to 0.03 s (62.3 s), over its first 300
+    steps: the steps 5.0 s; the detections 20.7 s, of which the points
+    onto the part's surface (`placeOnFlexibles()`) 11.1, their patches
+    (`patchesOf()`) 6.0, the thinning 0.7. A detection there gives 8600
+    points before the copies go, each pair of the two meshes' triangles
+    along the line its own. On a plate the same stages together are under
+    a second.
+  - **One point slid for a face's eighth.** `FlexibleContact::place()`
+    keeps the points it has slid into a rigid cylinder by the face each
+    was found on, the round, and how far along the round's axis it was
+    found, in eighths of the face's first edge; a later one found there
+    is the same point, not slid again. That alone: 62.3 s to 53.1, the
+    placing 11.1 s to 7.4 -- the sliding was a third of it.
+  - **Not placed by the modes twice.** The rest was `refresh()`, where
+    the modes have each point and its map: asked of the modal assembly
+    for every point's nodes at each detection. A point that is the same
+    as an earlier one takes that one's. 53.1 s to 40.5, the placing 3.4 s.
+  - **The patches without each against each.** `patchesOf()` put each
+    point of a pair of corners to each before it, for the copies and for
+    the patches, many points to a pair of the bore's long triangles'
+    corners. The copies are found sorted along x (a copy is
+    within a nanometre), and while a pair's points so far are of one
+    patch, a point within 45 deg of one of them is of it and is not put
+    to the rest. The same copies and the same patches: the run's forces
+    the same to every digit printed. 40.5 s to 36.5, the patches 4.0 s --
+    what is left of them is the making and sorting of 77000 entries, nine
+    a point.
+  - Numbers. The rod in the rigid bore, the whole turn with a friction of
+    0.3: 80.0 s for 139.4, its force and torque as they were (44.75 N,
+    44.71 to 44.79; 66.97 N mm, 0.2993 N R). In a flexible block's bore
+    253.5 s for 277.0, the patches' share alone: two flexible parts'
+    points are not kept by the face's eighth. The hanger's swing of 0.6 s
+    as the manual's video runs it 18.6 s for 22.7, 622 frames for 623.
+    TestFlexibleBody 491 s for 531. The probes' results are all as they
+    were; of the tests' printed digits two moved: the rod in a bore's
+    torque with no friction 0.06424 N mm for 0.06421, and the hanger's
+    bore off its pin's axis by 6.38 urad at most for 6.49.
+  - Limits.
+    - Of a detection in the bore now, by the same timers: a third is
+      Bullet's own search and what else the detection does, a third the
+      patches' entries, a quarter the placing of the points left.
+    - Two flexible parts' rounds, and a ball, are slid each for itself.
+  - Tests: none new; TestFlexibleBody 34 (491 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63; ctest 25; TestGuiCommands 76 (run
+    again by themselves: the chain's own run ended at a PermissionError
+    writing its result file, 56 tests in and all passing).
+- Fixed, D4b step 30 (2026-11-16): a line on a flexible plate ends at the
+  plate's end whether or not a pressing point was found near it.
+  test_round_past_flexible_edge failed on Linux, its force 45.14 to 46.10
+  N over a mean of 45.58, past the hundredth it holds (46.04); on Windows
+  it passed, 45.46 to 45.71. The OCCT before and after the 2026-11-16 sync
+  gave it to the digit, and nothing else merged touches contact.
+  - **Three frames.** Every frame of the turn was within 0.5% of the mean
+    but those at 0.0932, 0.0934 and 0.0936 s: +0.71%, +1.13%, -0.97%. A
+    trace of `thinOut()` (not kept): the line's end at the plate's end x =
+    35 was 0.3 mm in at every detection but one, which had it at x =
+    32.68. There, collision detection found no pressing point within a
+    face's size of that end, the lowest 2.3 mm from it, and a line's end
+    is taken to the plate's end only from a pressing point that near --
+    else it stays at the last one found. The line two millimetres short,
+    its force moved along the rod for a substep. Which substep finds what
+    differs with the platform's last digits.
+  - **By the depths.** The round lies along the face within a degree
+    (`toFlat()`), so its depth along the line is all but linear in the
+    station. A straight line fitted to the pressing points' depths says
+    whether the line still presses at each end of the stretch both reach;
+    where it does, that end is the line's, as one found within a face of
+    it was. A rod cocked on the plate, pressing at one end, would have its
+    fitted depth below none at the other and keep that end where its
+    points end; no test has one. The rest of the line's points are left out of the fit: they are
+    round the round from the line, their depths by how far round.
+  - Numbers. The rod past a flexible plate's ends: 45.58 N, 45.46 to
+    45.71 (45.14 to 46.10 before), Windows' figures. Every other case of
+    the rod prints as it did. Of the 2268 lines found over the turn, 462 had
+    their last pressing point over a millimetre from an end the fit said
+    the line presses at.
+  - Tests: TestFlexibleBody.test_round_past_flexible_edge as it was, now
+    passing on Linux. TestFlexibleBody 34 (234 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63.
+- Built, D4b way 1 step 1 (2026-11-16): a surface where two parts touch,
+  and what the contact is by the two surfaces' relative curvature. Nothing
+  uses it yet; the cases move onto it one at a time, each against its
+  test (below).
+  - `Solver/LocalSurface.h`, no Chrono, so a gtest takes it alone.
+    `localSurface()`: a quadratic six-node face's point, outward normal,
+    principal curvatures (convex positive) and their ways at any area
+    coordinates, from its nodes as they are -- a flexible part's face as
+    its modes have it, of any shape, where `roundAt()` fits a cylinder
+    only. `contactOf()`: the two curvature tensors summed in A's tangent
+    plane; pressed d together, the surfaces are within d of each other
+    over a width 2 sqrt(2 d / k) along each principal way, and a way is
+    flat where that width passes how far the two shapes reach to touch
+    that way. A point where neither way is flat, a line along the flat way
+    where one is, an area where both are.
+  - Not by a face's size: a rod R 5 in a bore R 5.5 pressed 50 um is 4.7
+    mm wide round, past a 4 mm mesh's face, and is a line -- its two end
+    points hold its force to 0.05% (step 29).
+  - What a quadratic face's own curvature is worth. Through three points
+    of a round R 5 0.8 rad apart (a 4 mm mesh's face), the face curves
+    1.3% over 1/R at its middle, 10% under a tenth of the way from its
+    edge, 17% under at the edge; a ball R 8's face 0.5 rad each way at its
+    equator, within 5%. Enough to tell a point from a line -- 17% in k is
+    9% in the width -- not to place a point by: the force is the face's
+    own depth, which `deepestOnFace()` and `toFlat()` take already.
+  - Tests: tests/src/Mod/Assembly/App/LocalSurface.cpp, 9 (a flat face, a
+    round's face and a bore's, a ball's, a degenerate face; a round on a
+    plane and in a bore, crossed rounds and a ball, two flat faces and a
+    round of 5 m).
+  - The steps that follow, each moving cases onto it with their tests'
+    figures kept: (2) `thinOut()`'s lines found by `contactOf()` at the
+    deepest point of each place, the round pairs it finds now first, then
+    two flexible rounds along each other (a limit of steps 25 to 28); (3)
+    a line's ends by where both surfaces still press along it, the depth
+    fit of step 30, for a partial round and a face of no cylinder; (4) an
+    area's corners, a flat face on a flat face; (5) rigid meshes, by
+    `ContactShape::surfaces`, for the mesh plate's line ends.
+- Built, D4b way 1 step 2 (2026-11-16): two flexible rounds along each
+  other touch at the two ends of their line. A limit of steps 25 to 28:
+  the rod turned on a flexible roller pressed it 44.73 to 45.58 N over
+  45.18, its points where collision detection found them.
+  - **Why no line.** Each of the roller's points slid into the rod's round
+    (`place()`) carries the rod's round as the rod's mesh has it there
+    (`roundAt()`), a fit of its own; `thinOut()` made a line of the places
+    against one round by that round's frame, exactly -- one rigid shape's
+    -- and every fit is somewhere else. A trace: 41069 lines over the turn,
+    each of one point.
+  - **One round by its number.** `OnMesh::roundOther`: which of the other
+    flexible part's rounds a point was slid into. The places along one are
+    a line. Their stations along it from one place: `roundAt(..., middle)`
+    puts a fit's frame at its axis's point nearest the round's middle as
+    the carrier has it at rest, its reach the round's own -- by the point's
+    own station at rest the middles of one round were 1.4 mm apart along a
+    40 mm rod, and the line's ends came 0.5 mm past the rod's.
+  - **The points slid the other way.** Two flexible rounds are slid both
+    ways, the rod's points into the roller's round as well: a line of one
+    left the other's points at its end, a third spring of the patch (the
+    force 42.2 N, 38.7 to 47.6), and two lines of one contact took each
+    other's ends (the force to none). A line now takes the other's points
+    along it, and its two ends are kept whatever line comes after
+    (`lineEnd`); the other part's point of each end is set on its round
+    where the end is (`setGiven()`).
+  - Wrong turn: the other round fitted again where each end lands (a rod
+    bent under a roller off the fit made 20 mm along it, it was thought).
+    It moved nothing, to the digits printed, and is not kept.
+  - `contactOf()` (step 1) is not used yet: the pairs here are the round
+    pairs the code already knew, now told apart by the round's number.
+  - Numbers, the rod on the flexible roller over 0.03 to 0.045 s: 44.58 N,
+    44.52 to 44.65 (as found 45.18, 44.73 to 45.58; on a rigid roller 44.77,
+    44.52 to 45.06), the line's ends 1% in from the rod's ends as on the
+    rigid roller; the motion's torque with no friction 0.0016 N mm for
+    0.0089. Whether 44.58 or the rigid roller's 44.77 is the closer, no
+    closed form says; the roller R 5 held at its ends bends 0.2 um under
+    45 N by hand. Every other case prints as it did.
+  - The flexible rod in a flexible block's bore, a friction of 0.3, over
+    0.03 to 0.08 s: 44.76 N, 44.71 to 44.82 (45.5, 45.0 to 46.0 before) --
+    what it presses a rigid bore, 44.75, 44.71 to 44.79 -- the motion's
+    torque 66.91 N mm, 0.2990 N R; the run 97 s on this box, where the
+    flexible rod in a rigid bore takes 37 (254 and 80 s before, on
+    Windows). On the flexible roller with that friction
+    44.58 N, 0.2989 N R (45.2 N, 0.298). Probe ~/.cache/flexcontact/
+    manualprobe.py, the tests' roundTurned() with what they do not ask.
+  - Tests: TestFlexibleBody.test_round_on_flexible_roller holds the force
+    within a two-hundredth of its mean (a tenth before; as found, 44.73 to
+    45.58, it fails). TestFlexibleBody 34 (232 s), TestDynamics 90,
+    TestJointFriction 4, TestContact 63.
+- Built, D4b way 1 step 3 (2026-11-16): a round of no cylinder lying
+  along a flat face touches it at the two ends of their line, on its true
+  surface. A flexible cone R 5 to 4 x 40 turned on a plate, its side along
+  the plate 0.05 mm in, pressed it 41.9 to 46.5 N over the turn (a tenth):
+  its points were where collision detection found them, each at its own
+  face's farthest towards the plate. Every case before was a cylinder's or
+  a ball's (`roundAt()` fits a cylinder only).
+  - **The solid's own surface** (`Flexible::trueFaces`). A six-node face
+    stands in from its round between its nodes, 3.9 um on R 5 at a 4 mm
+    mesh, and its own curvature is 17% off at its edges. App's
+    `trueFacesOf()` (ContactShapes.cpp) takes, for each face of the
+    tetrahedra's surface on a curved face of the solid -- its six nodes on
+    it within a thousandth of its size -- the solid's surface at the nine
+    more points of a quartic triangle, as offsets from the face at rest
+    (OCCT's `ShapeAnalysis_Surface`). Through the fifteen the face is the
+    round to 0.11 um, its curvature within 2% (`LocalSurface::pointAt()`,
+    `offsetAt()`, `localSurface()` with the offsets). Offsets, not points:
+    the face carries them as its nodes move. A face on a plane has none.
+  - Model: the offsets are lengths -- `scaled()` takes them to metres with
+    the nodes, and the backend's shift of a body to its centre turns them
+    (missed at first: a millimetre's offsets on a metre's mesh, the cone's
+    curvature 283 1/m where it is 200).
+  - **The line.** `thinOut()`'s lines along a flat face take a face of no
+    round of a curved face of the solid's (`FlexibleContact::faceSolid`):
+    its way, where the two touch along by their relative curvature on the
+    true surface (`lineWayOf()`, step 1's `contactOf()`); its stretch the
+    solid face's nodes within a face of it (`reachOfFace()`), cut to the
+    plate's as a round's is; its ends by where the points still press
+    (step 30). Each end's point on the true surface farthest towards the
+    plate in the plane square to the line there
+    (`LocalSurface::farthestAcross()`, `toBent()`), through the faces on the
+    way, and again at each update (`follow()`).
+  - Two wrong turns in the walk. From the found point's own face, eight
+    faces were too few at the turn's end, the points found mid-line; then,
+    the line lying along the mesh's seam there, the walk went back and
+    forth between the two faces of the edge -- taken as found, every such
+    pair was, and points went where the plane does not cross their face
+    (the force 0 to 101 N). Now the walk starts at the face nearest the
+    line's point as the part is at rest (`Surface::nearestOnFace()`), and
+    the edge two faces send each other to is the point only where it is on
+    the plane.
+  - Numbers, the cone's force over 0.03 to 0.1 s: 44.03 N, 43.89 to 44.17
+    (on a flexible plate the same; before 45.77, 42.59 to 46.80); with a
+    friction of 0.3, the motion's torque 60.12 N mm, 0.3035 N R on the
+    middle radius 4.5; on a plate from x = 5 to 35, its ends under the
+    cone, 44.99, 44.89 to 45.12. A rigid cone, a hull, presses 44.3 to 50.0
+    -- step 5's. Every round's case prints as it did.
+  - Tests: TestFlexibleBody.test_cone_on_plate and
+    test_cone_on_flexible_plate hold the force within a hundredth (41.91
+    and 42.59 at the least before); gtests ContactShapes.
+    aFlexiblePartsTrueSurface and LocalSurface 4 more (13). Probes
+    ~/.cache/flexcontact/coneprobe.py, coneseries.py; roundTurned() takes
+    `cone=` and `arm=`.
+  - Not yet: a point contact on a face of no round (a torus, a barrel)
+    still takes its face's farthest on the six-node face; the rounds'
+    lines keep `roundAt()`'s fit, which the true surface could replace.
+    Since (2026-11-21): the point on such a face is step 6's and after;
+    the rounds' own code stays, the quick path (ruled).
+- Measured, D4b way 1 step 4 (2026-11-16): two flat faces, an area's
+  corners -- nothing to fix. A flexible block 40 x 10 x 4 lying on a plate
+  0.05 mm into it, turned one revolution about a vertical hinge at its end:
+  37.83 N over the turn, to 0.00% (a rigid block 50, the flexible one
+  bending up under it), 37.84 with a friction of 0.3. The law, k sum s^2 /
+  sum s over a patch's points, is the depth where the depth is the same
+  everywhere, wherever the points are: an area's corners would move its
+  moment's arms alone, and no case measured here wants it. Probe
+  ~/.cache/flexcontact/flatprobe.py.
+- Built, D4b way 1 step 5 (2026-11-16): a rigid part's round of no
+  cylinder on its solid's own surface. test_cone_on_plate's cone rigid
+  pressed the plate 44.3 to 50.0 N over the turn, for the 50 of 0.05 mm on
+  the springs: its contact shape is a hull of OCCT's triangulation, the
+  facets 7 um in from the cone between its generators at R 5, and
+  Bullet's points are the hull's vertices, found up to that much short of
+  the cone's bottom.
+  - **Each point on the solid's surface** (`hullFarthest()`, from
+    `rollAlong()` at each update, `Point::bentA`/`bentB` where a hull has a
+    curved face of no round, `ShapeOn::hullBent`). The hull's mesh's
+    triangle nearest the point, curved into a six-node face by its corners'
+    exact normals (`ContactShape::surfaces`): each edge's middle out by
+    (x_j - x_i).(n_j - n_i) / 8, a circle's sagitta to second order -- on
+    the cone 0.3 um off it where the facet is 7. The point goes to that
+    face's farthest towards the other part in the plane across the face's
+    straight way (the least eigenvalue of the curvature tensor at the
+    corner nearest, under a tenth of the most), through the triangles
+    about by their edges (`ShapeOn::hullAcross`), or its farthest where it
+    has no straight way (`LocalSurface::farthestOn()`).
+  - Wrong turns, each measured. The plane through the point: Bullet's
+    points are at the rim, and a plane square to a cone's side there leans
+    off the side by the half angle -- the walk went round the vertex; now
+    a thousandth of the triangle's stretch in (49.28 N, 45.6 to 50.0). The
+    nearest triangle by distance alone: Bullet's point is a margin, 19.5
+    um, past the cone's end, a hundredth of a micron nearer the end's flat
+    triangle than the side's; now of those within a tenth of the
+    distance, the one facing the plate most (49.94, 48.85 to 50.07). The
+    walk from the triangle's middle projected onto the plane: a cut
+    microns long by a corner was missed, the point left by the edge away
+    from the bottom (`farthestAcross()` now starts in the middle of the
+    cut, from where the plane crosses two edges). Winding the triangles
+    out of the hull moved nothing, and is kept: the mesh's own winding is
+    its faces'.
+  - Numbers: 50.00 N, 49.99 to 50.00 over the turn; with a friction of
+    0.3, the motion's torque 67.51 N mm, 0.3001 N R on the middle radius
+    4.5. The run 4 s where it took 1. A rigid cylinder primitive: 50, 50 to
+    50 as before. Every other case prints as it did (TestContact 63,
+    TestDynamics 90, TestJointFriction 4, TestFlexibleBody 37).
+  - Tests: TestFlexibleBody.test_rigid_cone_on_plate holds the force within
+    a thousandth (44.3 at the least before); gtest LocalSurface.
+    aCutByACornerLeavesTowardsTheFarthest (the projected start leaves by
+    the edge (1 2)). Probes ~/.cache/flexcontact/rigidconeprobe.py,
+    rigidseries.py; a replay harness of one failing case,
+    ~/.cache/flexcontact/harness/.
+  - Not yet: the triangle nearest is found among all the hull's, each
+    point at each update -- 4 s for the cone, where it took 1; a grid or
+    the last one's neighbours would do. Since, measured 2026-11-21: the
+    search takes those near the last triangle first; the cone's test runs
+    in 0.6 s. Nothing left.
+- Built, D4b way 2 step 1 (2026-11-16): a pressure over the area, opt-in.
+  A contact set's Stiffness from gains Pressure: its Stiffness a pressure
+  per depth^e, N/mm^(e + 2) (a Winkler layer, the elastic foundation's;
+  hydroelastic contact's modulus over its depth), the force the pressure
+  summed over where the surfaces overlap. The default stays the points'
+  law, and every figure of the tests and the manual with it; making
+  Pressure the default is the user's to rule.
+  - Summed in closed form over the overlap of the gap's quadric, by the
+    patch's relative curvature (`pressureLaw()`, from `patchStiffness()`'s
+    classes): round, an ellipse, c = 2 pi / (e + 1) / sqrt(k1 k2), the force
+    c k d^(e + 1) -- pi R d^2 a ball at e = 1; a line, across it sqrt(2 / k1)
+    B(1/2, e + 1) d^(e + 1/2) a length -- 4/3 sqrt(2 R) at e = 1 -- its
+    radius across at its two ends and linear between, a cone's, the mean of
+    sqrt(2 r) over it (2/3) (rb^1.5 - ra^1.5) / (rb - ra); flat, the area of
+    the points' hull, k A d^e. The patch's springs share it as any law's.
+  - Model: `ContactLaw::Stiffness::Pressure`, scaled as a force over a
+    length to the e + 2; Physics' StiffnessFrom "Pressure" (appended: files
+    keep theirs); the contact panel's "A pressure over the area", its
+    Stiffness in N/mm^(e+2), no rest estimate (the area is the run's).
+  - A flexible part's: its curvature its face's true surface's
+    (`FlexibleContact::curvatureOf()`, step 3's offsets) -- the collision
+    mesh's at its corners read the rod R 5 as a ball of 14 mm at times, a
+    line a point, its force 1.2 to 60 N; a line's length its two ends' and
+    how far it runs on past them (`OnMesh::beyond`, the hundredth of the
+    stretch thinOut() puts them in by) -- 39.2 mm of the rod's 40 before.
+    Hertz's figures stand: neither is taken for Materials.
+  - A rigid hull's line: its points where GJK found them, one or two
+    anywhere along a cone's side; its length the hull's points along it
+    within the contact's width and depth (`hullLineReach()`), their
+    curvature across at its two ends, the other side's by its own at the
+    points -- the patch's mean less the hull's read the flat plate as
+    curved where the points gathered at the cone's narrow end, 42.5 to 45.0
+    N.
+  - Numbers, over the turn, 25 N/mm^3 (1000 the ball's), pressed 0.05 mm:
+    a rigid cylinder R 5 x 40 47.14 N for the closed form's 47.1405; a
+    rigid ball 39.27 for 39.2699; a rigid cone R 5 to 4, 44.77 to 45.02
+    (44.88) for 44.71; the flexible rod 41.15 to 41.44, on a flexible plate
+    the same; the flexible cone 38.55 to 38.85; a rigid block 40 x 10 flat
+    on a plate, 2.5 N/mm^3, 50.25 for 50 (Bullet's corners a margin out),
+    the flexible block 37.84.
+  - Tests: TestFlexibleBody.test_pressure_on_a_rigid_round (the cylinder
+    and the ball, within half a percent of the closed forms) and
+    test_pressure_on_a_cone_and_a_flexible_round (the cone within a
+    percent, the flexible rod within a hundredth of its mean); before, no
+    Pressure. TestContact 63, TestDynamics 90, TestJointFriction 4,
+    TestFlexibleBody 39, every other figure as it was. Probes
+    ~/.cache/flexcontact/pressureprobe.py, rigidpseries.py, flatprobe.py.
+  - Not yet: an overlap the quadric is not -- a pin in a bore 4.7 mm wide on
+    R 5, a line past a face's end, a flat face's area by points that are not
+    its corners -- summed finer than the faces on the surfaces themselves;
+    a line's depth along it taken as its ends' share, exact where they
+    press alike (the depth along a line or over an area: step 4).
+    Since, measured 2026-11-21: the bore is step 2's, the depth along a
+    line step 4's, the flat area step 5's; a rigid rod's line past a
+    plate's end, 25 N/mm^3, 35.35 N for 35.30 past one end and 23.58 for
+    23.54 past both (probe ~/.cache/flexcontact/pressureedge.py). Nothing
+    left.
+- Ruled (2026-11-16): Pressure stays opt-in. Against the Value law at
+  1000 N/mm, Pressure set at 26.52 N/mm^3 so the rigid rod presses the same
+  50 N, over the turn: the flexible rod 44.77 -> 43.60 N, past a plate's
+  end 45.59 -> 33.98 (a quarter of it off the plate), on a roller 44.77 ->
+  31.63 (two R 5's overlap a narrower strip), a ball 50 -> 1.04 (k pi R
+  d^2), the rigid cone 50 -> 47.60, the flexible one 44.03 -> 40.88, the
+  flexible rod in a rigid bore 44.76 -> 137.4 (the parabolas'; 131.5 by
+  step 2). The Value law presses every shape alike at a depth; the
+  pressure by how much overlaps. Hertz's (Materials, aluminium) 1.3 to 36
+  kN at 0.05 mm, not comparable at that depth. Probe
+  ~/.cache/flexcontact/lawcompare.py.
+- Built, D4b way 2 step 2 (2026-11-16): a line's pressure across it by the
+  two sections' circles, not their parabolas (`acrossLine()`): each side's
+  own curvature across, signed -- a hollow one's negative -- at the line's
+  two ends and their middle, Simpson's along it, the depth integrated over
+  where the circles overlap; the law the power tangent to it at the
+  patch's depth (as Johnson's line, `johnsonLine()`). A rigid rod R 5 in a
+  flexible block's bore R 5.5 pressed 0.05 mm, 26.52 N/mm^3: 158.8 N for
+  the exact overlap's 158.3 (the radial depth over the arc); the
+  parabolas' would give 165.9. Before it, 50.0: the flexible block's
+  hollow wall read as flat, `curvatureOf()` clamping its curvature at none.
+  - On a plate the circles give 0.16% under the parabola, 47.07 N for
+    47.14; a roller's 35.33 for 35.36; the flexible rod in a rigid bore
+    131.5 (137.4 by the parabolas).
+  - Test: TestFlexibleBody.test_pressure_in_a_bore (158.3 within a
+    percent; before, 50.0). Not yet: a ball in a socket, the same by
+    spheres; a line whose depth varies along it shares by its ends (step 4).
+- Built, D4b way 2 step 3 (2026-11-17): a point's pressure over its disc
+  by the two spheres, both sides round alike every way (the patch's k2 at
+  least nine tenths of k1): `acrossLine()` over the disc, each ring 2 pi y
+  wide, the law the power tangent to it at the depth. A rigid ball R 5 in
+  a block's spherical hollow R 5.5 (an open cup: a block round a closed
+  hollow is a mesh in two pieces, no contact shape), its wall 0.05 mm in,
+  1000 N/mm^3: 392.6 N, the spheres' overlap 2.2 mm round; the ellipse's pi
+  d^2 / sqrt(k1 k2) gave 432.0. On a plate the sphere gives 39.14 for the
+  paraboloid's 39.27. Test: TestFlexibleBody.test_pressure_in_a_socket
+  (392.58 within a percent; 432.0 before); roundTurned() takes `socket=`.
+- Built, D4b way 2 step 4 (2026-11-19): a pressure where the depth changes
+  over the patch. A patch pressed as one point at its springs' mean,
+  sum(s^2) / sum(s), each point's share its spring's -- the points' law's,
+  so a face resting flat pushes as one point however many it has -- read
+  a varying depth by its deepest: a rigid block 40 x 10 tilted from 0.05
+  mm into a plate at one end to touching at the other pressed 50.28 N for
+  k b L d / 2 = 25, a rod R 5 so tilted 4.707 for 1.886, 2.5 times.
+  - **Spread over its points** (`PressureSpread`, `spreadForces()`): a
+    line's points in order along it, an area's in Delaunay triangles in its
+    plane (`delaunay()`, Bowyer and Watson's), the depth linear between
+    them, max(d, 0)^e integrated where it is pressed -- a piece cut where
+    the depth comes to none -- over the line's length or the triangles'
+    area, the patch's stiffness its force pressed alike. Each point's share
+    its consistent part, its own linear function by the pressure, so the
+    moment is the pressure's too. Built with the patch (`pressureLaw()`),
+    its points fixed for the step, their depths each state's
+    (`ContactLoad::ComputeQ()`); a point not pressed carries its part of
+    its neighbours'. A round's patch, and a line's or an area's of points
+    along none, as before.
+  - **A line in eighths** (`thinOut()`, `lineEighths`): a flexible part's
+    line was its two ends, its depth then linear between them -- a rod held
+    at one end bends off a plate along it, its tip 9 um up, and pressed
+    39.27 N where the beam has 42.14. A pressure's line keeps seven of its
+    other points too, taken to its eighths (`restationFlat()`,
+    `restation()`). The points' law keeps its two, and its figures.
+  - Against beam theory: a flexible block 40 x 10 x 4 lying level 0.05 mm
+    in, held at its end by the hinge, bends up off the plate -- a beam on an
+    elastic layer, clamped and free, Euler and Bernoulli's 31.9 N (31.9 by
+    finite differences, `~/.cache/flexcontact/winkler.py`) for the rigid
+    one's 50: 32.11, at its springs' mean 37.84; tilted to 0.03 mm at its
+    far end 27.23 for 27.09. The flexible rod on the plate the same, on the
+    line's layer c (d0 - w)^1.5, 42.14 (`winklerline.py`; Timoshenko's shear
+    about half a percent less): 41.74, at its springs' mean 41.22.
+  - Numbers, rigid: the tilted block 25.13 N for 25, the rod 1.884 for
+    1.886; tilted to 0.03 mm, 40.20 for 40 (42.72) and 3.395 for 3.400
+    (3.908). Level, as before: the block 50.25, the rod 47.07, the ball
+    39.14, the cone 44.64, in a bore 158.8, in a socket 392.6.
+  - The ruling's comparison again (Pressure at 26.52 N/mm^3, over the
+    turn, `~/.cache/flexcontact/lawcompare.py`): the flexible rod 43.60 ->
+    44.00 N, past a plate's end 33.98 -> 34.12, on the roller 31.63 ->
+    32.18, the ball 1.04 as was, the rigid cone 47.60 -> 47.35, the
+    flexible cone 40.88 -> 41.27, the flexible rod in a rigid bore 137.4 ->
+    117.4 -- the bore's line now its eighths along a rod bent in it, the
+    depth that varies most. The Value law's figures as they were.
+  - Not yet: an area's points where they press alone. A block tilted past
+    none -- 0.05 mm in at one end, 0.05 clear at the other -- has two points
+    found, its deep corners, the far ones beyond collision detection's
+    margin: no area, and its force from a disc of the parts' sizes, 12.61 N
+    for 12.5 by chance. Its area is the faces' overlap cut where the depth
+    is none, which wants the faces' outlines, not the points (step 5).
+  - Test: TestFlexibleBody.test_pressure_tilted (the rigid block and rod
+    within a percent, the flexible block within 3% of the beam's; before,
+    50.28, 4.707 and 37.84), test_pressure_on_a_cone_and_a_flexible_round
+    (the flexible rod within 2% of the beam's 42.14; before, 41.22).
+- Built, D4b way 2 step 5 (2026-11-20): a rigid flat face's patch on the
+  faces' true outlines. Collision detection finds points within its
+  envelope only, 0.02 mm, and on the shapes it grows by it: the block tilted
+  past none had its two deep corners and no area (12.61 N for 12.5; 0.15 mm
+  past, 12.62 for 6.25), and lying level its corners 0.02 mm out (50.25 for
+  k A d = 50).
+  - **The faces' outlines** (`outlineFlatPatches()`, `trueFaceOutline()`,
+    `overlapOf()`): a pressure's patch between two boxes' or hulls' faces,
+    rigid, flat by the curvature patchStiffness() reads, all its points on
+    its two shapes along one normal. Of each shape's features (Bullet's
+    polyhedron, coplanar faces merged) the face facing the other, within
+    2.6 deg; its plane pulled in by the envelope and its polygon cut by the
+    other faces so pulled in (as `reachOver()` takes them): the true face.
+    The two overlapped in the contact plane, Sutherland and Hodgman's; its
+    corners the patch's points, each on both faces along the normal,
+    pressed or not, in place of those found. The depth is linear over a
+    flat face, so the spread (step 4) cut where it is none is exact.
+  - Not for a round, a bent hull, a flexible part, a seat, a profile's or
+    a cam's point, or faces not facing each other: as they were. Hertz's
+    and the other laws' points as they were.
+  - Numbers: the block level 50.25 -> 50.00 N, tilted to none 25.13 ->
+    25.00, past none 12.61 -> 12.50, 0.15 mm past 12.62 -> 6.25 (k b x d /
+    2 over the x of it that is in).
+  - Test: TestFlexibleBody.test_pressure_tilted, the four within a
+    thousandth.
+- Built, D4b way 1 step 6 (2026-11-17): a point on a curved face of no
+  round, rigid or flexible. A torus, ring R 10, tube R 3, standing on a
+  plate as a wheel 0.05 mm into it, turned about its axis: rigid 32.3 to
+  36.3 N for the springs' 50, flexible 5.5 to 50.1.
+  - Rigid: a torus is not convex, its contact shape a mesh, which step 5's
+    hullFarthest() did not take. Now a mesh's too: `ShapeOn::bentPoints`
+    and `bentAt`, a hull's points in its frame or a mesh's vertices in the
+    body's, as `surfaces` has them; a mesh's triangles kept as wound (out
+    of it already -- a torus's middle is out of it, and winding by it
+    would turn the inner half in). 49.97 to 50.01 N.
+  - Flexible: `FlexibleContact::towardsTrue()`, from towardsFlat(), on a
+    face of no round with its solid's surface: the true surface's farthest
+    towards the flat face (`LocalSurface::farthestOn()`), through the faces
+    of that solid face about it, its offset kept. Held at first by how far
+    a face stands out of its triangles, as on its own face: points found up
+    the tube's side stayed 15 um short and took the force to 45.5 N; through
+    other faces now as far as a tenth of a face. 49.92 to 50.03 N.
+  - Where each holds back. A mesh's line -- a torus lying flat touches
+    all round its ring -- keeps its points as found: its line is no
+    straight one, and hundreds of points on it, each put on the surface at
+    each state, took TestContact.test_hertz_curvature from 7 s to 1470,
+    the law's line by them 0.25 um off its closed form. A flexible face
+    with a straight way, a cone's side, keeps step 3's lines: towardsTrue()
+    on it slid points along the side past a plate's end, 38 to 205 N for
+    45. Both by the face's curvature where the point is: a straight way
+    when its least is under a tenth of its most.
+  - Cost, measured by perf on that test and cut each in turn: each
+    triangle's surface made once, its six-node face and its corners'
+    straight ways (`ShapeOn::bentFaces`, `hullCache()`); each point's last
+    triangle, place, and the point and the way it was put from and for,
+    shared by the load's copies (`Point::BentMemo`) -- looked about first,
+    two edges out, and the same again under a ten-millionth of a turn, a
+    jacobian's difference, put where it went; and where it stayed, as it
+    was; a mesh's point started on the triangle Bullet found it on
+    (`meshTriangleOf()`); `farthestAcross()` by Newton's on the Lagrangian,
+    the face's second derivatives exact (`secondAt()`), its finite
+    differences only where that leaves the face -- they never met their
+    bar of a billionth, forty iterations a call, now a ten-millionth. The
+    test 1470 s -> 9.9 (7 before); TestContact 29 s; the rigid torus 30 s
+    -> 1 (14 before step 6), the rigid cone 4 -> under 1.
+  - Every other figure as it was, but the rigid cone's pressure, its least
+    44.52 -> 44.51 N (Newton's).
+  - Test: TestFlexibleBody.test_torus_on_plate, both within half a percent
+    (32.3 and 5.5 at the least before); roundTurned() takes `torus=`. Probe
+    ~/.cache/flexcontact/torusprobe.py, torusseries.py.
+- Measured, D4b way 1 (2026-11-17): a flexible part's rounds on its true
+  surface in place of the fitted cylinder (`roundAt()`), the round code off
+  (faceRound cleared, an experiment not kept): worse. The flexible rod on a
+  flexible roller 36.27 N, 34.9 to 38.2 (44.58, 44.52 to 44.65); the rigid
+  rod in a flexible bore under Pressure 194.7 (158.8, exact 158.3);
+  test_swings_on_a_pin failed; a round in a bore 44.37 to 46.05 (44.74 to
+  44.78). The round pairs' code (two rounds along each other, a hollow
+  one) has no general twin: a point's farthest along one normal is right
+  against a flat face only. Ruled by the user: the round code stays, the
+  fast path; the general code is to catch every pair it does not take.
+- Built, D4b way 1 step 7 (2026-11-17): two curved faces, the catch-all's
+  first part. A rigid torus as a wheel on a rigid roller R 5 along its
+  axis, 0.05 mm into it: 91.7 N, 49 to 172, for the springs' 50; round the
+  roller by 20 deg, 83.6, 49 to 145. Two rigid rods along each other, the
+  round pair's own: 52.8 N, 50 to 56.7, and 60.3 at 20 deg.
+  - **The normal both surfaces' own** (`curvedNormal()`, from
+    `rollAlong()`). A point's two farthest -- A's along the normal, B's
+    against it -- are the contact's where the line between them runs along
+    the normal. Turned by dn, a surface's point moves by its radii of
+    curvature, so the gap square to the normal moves by (K_A^-1 + K_B^-1)
+    dn: Newton's step -K_A (K_A + K_B)^-1 K_B g, none where either is flat
+    (a face's own normal stays) and none along a line's way. The
+    curvatures a round's own (`roundCurvature()`) or a hull's face's where
+    the point is (`bentCurvature()`, its memo's triangle); six steps at
+    most. For a hull's curved face against anything curved, and two convex
+    rounds but two balls. Before, the normal was a face's turning with its
+    body (Point::face) -- the torus's facet's as the torus spun -- or
+    Bullet's, and a normal off the contact's overlaps the two more.
+  - **From the round's axis.** A round against a hull's face starts from
+    the normal through the round's axis at the other's point: from the
+    facet's, the same steps left the torus at 46.2 N, 33.9 to 50.0.
+  - Numbers: the torus 49.98 N, 49.97 to 50.01, under the roller and round
+    it; the two rods 50.00, 50 to 50, both ways. Every other figure as it
+    was (below).
+  - **A flexible face of no round slid into a rigid round**
+    (`FlexibleContact::ontoTrue()`): on its solid's surface, as a round's
+    face is on its round (`ontoRound()`) -- its offset at its place. The
+    flexible torus on the rigid roller 48.87 -> 49.86 N over the turn, both
+    flexible 48.26 -> 49.28.
+  - Not yet. The flexible torus on a rigid roller dips at single frames, 4
+    of about 350: 42.1 N at the least under the roller, 19.3 round it by
+    20 deg -- as before this step, at the same frames. Its point is a slid
+    one (slides 2), one a load; walked on through the faces about at each
+    update (deepest() in follow()) it read the same to the last digit, so
+    not a face's edge. A rigid torus on a flexible roller, 180 N, 0 to
+    599: the roller's points go to their farthest along the torus's facet's
+    normal, turning with the torus (place(), Point::face) -- step 7b.
+    Since, measured 2026-11-21: no dip left, the flexible torus on the
+    rigid roller 49.88 to 50.03 N under it and 49.91 to 50.03 round it by
+    20 deg, none of 350 frames under 49 (step 13's walk from within the
+    face); the rigid torus on the flexible roller 49.32 to 49.35.
+  - Tests: TestFlexibleBody.test_torus_on_roller and
+    test_rigid_round_on_rigid_roller, within two and one thousandth;
+    roundTurned() takes `rollerAt=`, and its roller under a torus. Probe
+    ~/.cache/flexcontact/torusroller.py (nine cases), torusrollerseries.py.
+- Built, D4b way 1 step 7b (2026-11-17): a flexible face against a rigid
+  hull's curved face of no round. The rigid torus of step 7 on a flexible
+  roller round it by 20 deg: 180 N, 0 to 599, for about 49.
+  - **The same normal solve** (`FlexibleContact::towardsBent()`, from
+    place() and follow() where the other side's point is a hull's bent
+    one): the face's farthest along the normal, the hull's against it
+    (hullFarthest()), each one's curvature where its point is
+    (`curvatureOf()`, `bentCurvature()`), curvedNormal()'s steps; the
+    hull's point set, the normal turned with the hull as found.
+  - **The face's farthest on its true surface**
+    (`FlexibleContact::farthestNear()`), round or not, through the faces of
+    its solid face about it: a cylinder's farthest along a normal is a
+    line, and on a straight way the point is the farthest in the plane
+    across it through the hull's point (`farthestAcross()`), as the hull's
+    own is. towardsFlat() on the face alone failed three calls in four,
+    its farthest past where a face stands out of its triangles; from the
+    roller's axis, nine of 24 sampled landed 120 to 365 um deep, the cylinder's
+    farthest anywhere along its line.
+  - **From the round's axis**, the face of one (roundAt()): the normal
+    through it at the hull's point. From the facet's: 41.6 N, 27.2 to 53.7.
+  - **One place whatever the patch** (thinOut()). The hull's triangles about
+    a point, each against the roller's, are patches with no corner in
+    common on both sides (patchesOf()), a spring each: every point solved
+    to the one place, 35 to 57 um deep, and 278 N for six. A point so put
+    (OnMesh::bent) is gathered as a slid one is, the middle by depth kept.
+  - Numbers: 49.32 N, 49.31 to 49.34 (the two rigid 50); every other
+    figure as it was.
+  - Test: TestFlexibleBody.test_torus_on_roller, the roller flexible at 20
+    deg, within two thousandths.
+- Built, D4b way 1 step 7c (2026-11-17): the dips of a flexible torus on a
+  rigid roller. Its force over the turn 49.86 N, 42.05 to 50.58, under the
+  roller; 49.77 N, 19.32 to 50.54, round it by 20 deg -- one substep each
+  at a few frames, the impact frames' samples (sendImpacts()), not an
+  output frame's.
+  - **Not the catch-all's**: the torus's points are slid into the roller
+    (slides 2, deepest()). Started at an edge between two faces, a point
+    walked across it and straight back nine times, each face's deepest
+    beyond the edge: a crease of the six-node faces, 0.40 to 0.47 mm along
+    the roller's axis off the tube's middle, 0.027 mm shallower on the true
+    surface (0.4^2 / 2 x 3). Started inside the face, the same walk ends at
+    the middle.
+  - **The deepest of a place's points kept** (thinOut()), not the middle by
+    depth: at the dip ten points, five inside the face at 49.9 um and five
+    at the crease at 10 to 22 um, and the middle was a crease's. The middle
+    stood for the quadratic face being microns off its round; each point is
+    on its solid's true surface now (ontoRound(), ontoTrue()), and a point
+    stopped at a crease is only shallower.
+  - Numbers: 49.99 N, 49.33 to 50.48, under the roller; 49.98 N, 49.29 to
+    50.43, at 20 deg. Two flexible parts at 20 deg (not a test) 49.28, 47.85
+    to 49.92 -> 49.33, 48.72 to 49.88. Every other figure as it was to its
+    last digit or one of it.
+  - Test: TestFlexibleBody.test_flexible_torus_on_roller, both angles,
+    within two hundredths.
+- Built, D4b way 1 step 8 (2026-11-18): a flexible face of no round slid
+  into a round, the normal both surfaces' own. A flexible torus on a
+  flexible roller at 20 deg: 49.33 N, 48.72 to 49.88, the springs' alone
+  within 49.09 to 49.53.
+  - **The damping's, not the springs'**: of each frame's force less its
+    spring, 0.0659 N per mm/s of the point's speed along the normal, to
+    0.0003 N; that speed from -8.5 to 7.9 mm/s with the angle between the
+    normal and the torus's radius through its point (correlation -0.85),
+    up to 0.57 deg. The point slid into the round (slides 2) is the face's
+    deepest on its six-node faces, and along the round's turn the depth
+    barely moves -- 0.0001 um at 27 um off, with the curvatures of R 13
+    and R 5 -- so a micron of the faces' puts it that far off the line of
+    centres, and the torus turning at 1.2 m/s moves it along the normal.
+  - **Then as against a hull** (`FlexibleContact::towardsRound()`, from
+    place() and follow()): from the round's axis or centre through the
+    face's point, the round's farthest along the normal (roundSupport()),
+    the face's true surface's (farthestNear()), each one's curvature
+    (roundCurvature(), curvatureOf()), curvedNormal()'s steps. From where
+    place() slid it each time (OnMesh::fromFace, fromL), a way of the
+    state alone. A face of a round keeps the round's own way; a hollow
+    round, or a point taken to a line (toLine()), too.
+  - Numbers: a flexible torus on a rigid roller 49.99 N, 49.33 to 50.48 ->
+    50.00, 49.88 to 50.03, its motion's torque -1.467 -> -0.550 N mm under
+    the roller; 49.98, 49.29 to 50.43 -> 50.00, 49.91 to 50.03, -1.679 ->
+    -0.548 at 20 deg; on the flexible roller 49.33, 48.72 to 49.88 ->
+    49.34, 49.26 to 49.37.
+  - Test: TestFlexibleBody.test_flexible_torus_on_roller, within five
+    thousandths, the flexible roller's case added.
+- Built, D4b way 1 step 9 (2026-11-18): two flexible parts' curved faces,
+  both of no round. The torus of step 7 on half a torus (ring R 10, tube
+  R 3, its axes along the torus's, held at its two ends), 0.05 mm in:
+  rigid on rigid 49.98 N, the torus flexible on the rigid ring 50.00, the
+  torus rigid on the flexible ring 49.57 -- both flexible 22.4 N, 0 to
+  42.3, and 94 s for the run's 0.1 s (21.9 N at 20 deg, 115 s).
+  - **Nothing slid them**: neither side is round (slides 2), flat (slides
+    1) or a rigid hull's (towardsBent()), and collision detection's 65
+    points stayed on their facets, their normals up to 17 deg off and
+    their depths -130 to 47 um.
+  - **Both sides at once** (`FlexibleContact::towardsFlexible()`, from
+    placeOnFlexibles() and B's follow()): each side's point its true
+    surface's farthest (farthestNear() on each part), each one's curvature
+    (curvatureOf()), curvedNormal()'s steps from collision detection's
+    normal; from where each side's place() found it (OnMesh::fromFace,
+    fromL, fromNormal), a way of the state alone. Both sides slides 4, one
+    place whatever the patch (thinOut()).
+  - **The normal neither face's**: Point::face 0. The load follows by
+    rollAll() (flatFaces()), and a point collision detection gave A's face
+    had its normal turned with A from B's frame, a quarter turn off: the
+    force 0 at every other reading and the substeps 0.2 us.
+  - Numbers: 49.59 N, 49.48 to 49.62, in 7 s; 49.59, 49.51 to 49.62 at 20
+    deg, 9 s. Every other figure as it was, but a round's on a flexible
+    roller's motion's torque, 0.0019 -> 0.0014 N mm for none (0.0000 N R).
+  - Test: TestFlexibleBody.test_flexible_torus_on_ring, both angles, within
+    five thousandths; roundTurned()'s ring.
+- Built, D4b way 1 step 10 (2026-11-18): a hollow face of no round. The
+  torus of step 7 turned with a pin R 3 through its hole along its axis,
+  0.05 mm into its inside -- hollow round the ring (R 7), round across the
+  tube (R 3), a saddle. Rigid on the rigid pin, Bullet's 18 points on its
+  facets, 37 deg off and up to 163 um deep: 91 to 119 N for 50, and 2 ms
+  of the run not done in 10 min. Flexible, 50.00 N but the turn's torque
+  4.86 N mm with no friction (0.0139 N R).
+  - **A saddle has no farthest point**: round its ring the inside curves
+    away from the pin. farthestNear() took that way for a straight one --
+    the farthest in the plane across it through the pin's point -- and
+    found the torus's point 0.8 deg round from where it faced the pin;
+    hullFarthest() climbed off it and left Bullet's points.
+  - **Where its normal is the contact's** (`LocalSurface::farthestOn()`'s
+    stationary, Newton's steps wherever the height's Hessian has an
+    inverse), on a face hollow one way past a tenth of the other or both
+    ways, in farthestNear() and hullFarthest() alike.
+  - **On an edge where it stops changing along it** (`LS::alongEdge()`):
+    the contact on a mesh's vertex, each face's step went out across the
+    shared edge and the face beyond's back, and the point where the step
+    met the edge was 0.16 mm round. Where a face's own edge stops it, its
+    farthest along that edge, as before where none is.
+  - **Newton's steps on the normal halved where they widen the gap**
+    (curvedNormal()): at such an edge the face's point stays on it as the
+    normal turns, not its radius's way, and the full step overshot -- one
+    point in a thousand left 30 to 177 um across after six steps.
+  - **Points that land on one place are copies** (patchesOf()): a rigid
+    hull's points on a curved face of no round against a round or such a
+    face are rolled once as found, and a later one within 25 um on the
+    bent side and 3 mrad of an earlier one is dropped -- not against a
+    flat face, where each keeps its place along the line (a rigid cone on
+    a plate moved 0.3001 -> 0.3005 N R so). With the pin 20 long from x = -8 the torus's
+    triangles there with no corner in common were a patch each, rolled to
+    the one contact: two and three springs, 100 and 150 N for 50. Merged
+    as one patch instead, a point left where it was found pulled the
+    spring down by its share, 49.82 N. A round's point is at the point's
+    own place along its axis, 0.8 mm apart on a pin, square to the normal.
+  - Numbers: rigid on the rigid pin 50.00 N flat, 12 s, under it and at
+    20 deg; flexible 49.92 to 50.26 N, its torque -0.503 N mm, and 49.90
+    to 50.30, -0.546, at 20 deg; the rigid torus on a flexible pin 46.09
+    N flat. Every other force as it was; four flexible tori's torques by
+    0.0015 N mm at most, -0.5469 -> -0.5484 the most (the halving), a
+    rigid torus on a rigid roller's -0.5762 -> -0.5763 (the copies).
+  - Open: the flexible torus on a flexible pin, 46.12 N, rings from 37.9
+    to 55.4 N once in the turn at 86 ms, after the depth steps 0.4 um in a
+    substep: the faces of the flexible torus's true surface, not the
+    placement, which converges there. (Wrong: a placement in Newton's
+    iterations stopped on a vertex; step 13.)
+  - Test: TestFlexibleBody.test_torus_on_pin, rigid and flexible on the
+    rigid pin 20 long from x = -8, both angles; roundTurned()'s inside.
+- Built, D4b way 1 step 11 (2026-11-18): a line along a curve, flexible.
+  The torus of step 7 lying flat on a plate, 0.05 mm into it, turned about
+  its axis upright: it touches all round its ring, the tube's bottom
+  straight along the ring and round across it. Flexible 49.68 N flat over
+  the turn for the springs' 50; rigid 39.9.
+  - **Flexible: on its six-node faces** (towardsFlat()): towardsTrue()
+    took only a face curved both ways -- along a straight way the farthest
+    runs on, a cone's past a plate's end. Its points 49.4 to 50.2 um deep.
+    Now, straight one way, the true surface's farthest in the plane across
+    that way through the point's own place (farthestAcross()), as
+    farthestNear() does; a straight line's ends thinOut()'s as before.
+  - **Rigid: not built.** hullFarthest() leaves a mesh's line on its
+    facets, which stand in from the surface by OCCT's deflection. Each
+    point put on the surface instead (the line's early return dropped)
+    gave the flat torus 50.00 N, but TestContact ran 341 s for 31 and
+    test_hertz_curvature's two laws' rests were 0.25 um apart for 0.05 --
+    as the comment there said. A first timing said otherwise: FC_KEEPLINE
+    set empty is set to getenv(), and both runs had kept the early return.
+  - Numbers: flexible 50.00 N flat; its run 10 -> 27 s, 137 points each
+    put on the surface at each update. A cone on a plate's range 43.88 to
+    44.16 -> 43.87 to 44.17 N; a flexible torus on a rigid pin's torques
+    -0.5238 -> -0.5185 and -0.5192 -> -0.5403 N mm (0.0015 N R both); the
+    rest as it was.
+  - Open: the rigid mesh's line along a curve, 39.9 N for 50 (step 12).
+  - Test: TestFlexibleBody.test_torus_lying_flat, within two thousandths;
+    roundTurned()'s flat.
+- Built, D4b way 1 step 12 (2026-11-18): a line along a curve, rigid.
+  Step 11's torus rigid: 39.9 N -> 50.00 for the springs' 50.
+  - **Why putting each point on the surface cost so much.** Measured with
+    counters in hullFarthest() and the substep loop (not kept): the search
+    itself was a third of it; the rest was substeps. test_torus_rests took
+    2843 detections for 974 -- its torus at rest kept rocking, its deepest
+    point 0.500 to 0.528 um in, 0.75 ms each way, never within the 2% that
+    counts as at rest, so its substeps stayed an impact's. Bullet finds the
+    ring's points on the tube's rows of vertices either side of its bottom,
+    some 1500 of them; on its facets they lie apart, put on the surface
+    those at one place along the ring land on one point.
+  - **Copies dropped** (patchesOf()): its rolled points' copies, within 25
+    um on the curved side and their normals together, were dropped where
+    both sides are curved (step 10); now too where the curved side is a
+    mesh's (not convex), on a flat face. Some 90 points stay, and
+    hullFarthest() puts a mesh's line on its surface as a convex hull's.
+  - Numbers: rigid 50.00 N flat; test_torus_rests 5.3 -> 6.6 s,
+    test_hertz_curvature 19.7 -> 17.5 s (its two laws' rests within its
+    0.05 um), TestContact 43.8 -> 40.3 s. Every other figure of
+    TestContact, TestDynamics, TestJointFriction and TestFlexibleBody as it
+    was.
+  - Test: TestFlexibleBody.test_torus_lying_flat, rigid too.
+- Built, D4b way 1 step 13 (2026-11-19): a walk from a mesh's vertex.
+  The flexible torus on a flexible pin (step 10's open item), 46.12 N,
+  rang from 37.9 to 55.4 N at 86 ms; now 46.02 to 46.28.
+  - **Not the true surface's faces** (step 10's reading): a placement that
+    did not converge. Traced each state of the substep, Newton's
+    iterations too: collision detection found the point on a mesh's vertex
+    0.78 mm round the ring from the bottom (L = (0, 1, 0)), the pin and the
+    torus's inside nearly conformal there (R 3 in a hollow of R 7, 0.06 mm
+    apart 0.8 mm off). towardsRound() starts each time from there; the
+    normal through the pin's axis, 15 deg off, walked the torus's point to
+    where its normal is that (1.817 mm round, right), but the next, 9.3 deg
+    off, stopped on the vertex: the first step from a corner leaves through
+    either edge there, the walk crossed to a face that stepped back through
+    it, and alongEdge() left it at the edge's end. Every halving of
+    curvedNormal()'s step widened the gap from there, so it kept the 9.3
+    deg normal: 1.6 um deep for 46, 2.5 N and 8.9 N in the iterations, and
+    the substep stepped on them -- the depth 0.4 um deeper, the pin ringing
+    at 7 kHz.
+  - **From within the face** (farthestNear()): a start on a corner of its
+    face (an L within 1e-6 of 1) moved a tenth of the way to the face's
+    middle. The walk's start, not its answer.
+  - **Why alongEdge() left it at the edge's end** (2026-11-24, after the
+    Windows box failed test_torus_on_pin's rigid case at 20 deg and
+    test_torus_on_plate's flexible one, 49.38 and 49.31 N for a single
+    step each, the same every run): its second difference at an end took
+    the end's own height for the point beyond it, so the bend was the
+    slope over the step and Newton's step always the step's length back
+    out of the edge -- a point that came to an edge at its end never left
+    the corner. Not Windows': on Linux the rigid torus on the pin dipped
+    for one step at 11 of 40 pin angles 0.013 deg apart from 20 (48.0 to
+    52.4 N for 50), where one of Bullet's points, new that step and an
+    edge of the mesh away along the torus's inner equator, stopped 0.75
+    mm short on a vertex, 47.2 um deep; 20 deg itself missed it by its
+    arithmetic. At an end now by the two points within. None in those 40
+    nor in 150 angles 0.37 deg apart (test_torus_on_pin_at_any_angle:
+    four of the eleven). The flexible plate's case was not seen to fail
+    on Linux; it goes through the same function.
+  - **The flexible torus on the plate, which that did not mend** (the
+    same day; Windows still 49.31 N for a step): on Linux too once the
+    rod is turned 1.0007 turns in place of one, its steps then at other
+    places round it -- 49.56 and 49.64 N for one step each, the second at
+    104.4 deg where Windows had it, 37 such steps in twelve runs each
+    0.07% further. Three things in FlexibleContact::towardsTrue(), the
+    torus touching along its outer equator, a row of its mesh's edges.
+    A point sent back and forth across an edge was left where the step
+    met the edge: there its farthest along the edge now (alongEdge()), as
+    farthestNear() and hullFarthest() had it already. One that came to
+    the edge's end stayed on that vertex, 6 um short, with the farthest
+    on a face round it: on along the edges of the faces about the corner
+    to where the surface's normal is nearest the contact's
+    (`LS::pastCorner()`, `missAt()`), eight corners at most. And a point
+    on its own face was dropped for the step when it gained more than
+    one and a half times what a face stands out of its triangles -- by 1
+    to 8%, the triangle's slope adding to it: three times now. None in
+    40 such runs nor in 120 further apart; the pin's 40 angles as
+    before; test_torus_on_plate_at_any_turn (1.0007, 1.0042 and 1.0238
+    turns: 49.91 to 50.03 N).
+  - Numbers: the flexible torus on a flexible pin 46.11 N, 46.02 to 46.28
+    (37.91 to 55.39); at 20 deg 46.07 to 46.11 (46.04 to 46.26).
+    Every other figure of the four suites as before: the forces to the
+    hundredth; the no-friction torques within 0.03 N mm (the flexible torus
+    on a rigid pin at 0 deg -0.547 N mm, -0.519 before), their usual
+    scatter. TestFlexibleBody 48 tests in 449 s.
+  - Test: TestFlexibleBody.test_torus_on_pin, the flexible torus on a
+    flexible pin 40 long from x = -20 too, both angles, within a hundredth.
+- Built, D4b way 1 step 14 (2026-11-19): the stress drawn from the Gauss
+  points. The half torus under the flexible torus (step 9's video) showed
+  one red node on its inner side, 116.7 MPa, where the nodes about the
+  contact read 2.8.
+  - **Not the contact**: the stress of one tetrahedron at one of its own
+    nodes. A sliver of the ring's 4 mm mesh, 0.2 mm^3, its curved edge
+    bending it so far that its Jacobian there is nearly none and at one
+    corner of the other sign: 202.6, 44.4 and 116.7 MPa at three of its
+    nodes, 1.4 to 1.8 at its four Gauss points, and the edge's middle node
+    one only it has, so nothing averaged it.
+  - **At the Gauss points** (`modalStresses()`, `_tet10Gradients()`):
+    each tetrahedron's stress at its four Gauss points, where Chrono's
+    10-node tetrahedron integrates the modes' stiffness, made a linear
+    field over it -- its corners' from them, each edge's middle the mean
+    of its two -- then each node's the mean of its tetrahedra's, as before.
+    CalculiX's C3D10 does the same. A straight-edged tetrahedron's strain
+    is linear, so the two agree there: the cantilever's and the
+    pendulum's figures as before to four digits.
+  - Numbers: the half torus's largest over the run 116.6 -> 3.97 MPa
+    (the clamp's side), its other nodes within 1.7% (5 to 95%).
+  - Test: TestFlexibleBody.test_flexible_torus_on_ring, each part's
+    largest stress over the run under 10 MPa.
+- Built, D4b way 1 step 15 (2026-11-20): a part held by a joint drawn held
+  there, scaled. Bending drawn x200, a flexible block held at its end by a
+  hinge and bent up off a plate by a pressure (way 2 step 4's) was drawn
+  with that end 1.08 mm up off the hinge and the free end 0.52 mm: as it is,
+  0 and 43.5 um.
+  - **The interfaces' pose was scaled with the bending.** The coordinates
+    are each interface's pose in the floating frame, then the modes'; the
+    floating frame is not the hold, so the hold moves in it, and a drawing
+    scaled all of them alike. The cantilever at x20: its hold drawn 2.5
+    times its sag down, its end 2.2 -- shifted, not bent.
+  - **Now** (`FlexibleBodies.rigidOf()`, `Deformation.pointsAt()`): the
+    first interface -- a joint's; contact faces' come after -- held where
+    it is drawn. Its nodes are those its translations' columns move one
+    for one and every other column leaves (the modes are its held, the
+    other interfaces' with it held): the cantilever's 89 of its end face.
+    The field fitted there by a rigid motion, t + r x (p - c), least
+    squares, once, a column each, is drawn as it is; the rest -- the modes,
+    the residual modes, the other interfaces' motion against it -- scaled.
+    Fitted to all the interfaces' columns over all the nodes first: the pad
+    strip's hinge, its pad a second interface, drawn lifted off it. A part
+    no joint holds has none, as before. The automatic scale is the
+    bending's alone: the manual's strips x2664 -> x518, x58 -> x12, x62 ->
+    x12. As it is, x1, the drawing is the same.
+  - Numbers: the cantilever at x20, its hold 5e-12 mm off, its end 19.9
+    sags down; the block at x200, its held end 0, its free end 8.71 mm up
+    (200 x 43.5 um).
+  - Test: TestFlexibleBody.test_cantilever_deformation (drawn x20, the
+    hold within 1% of the sag, the end 20 sags within 3%; before, 2.5 and
+    2.2), the automatic scale from the bending.
+- Built, D4b way 1 step 16 (2026-11-20): a part pressed on something drawn
+  as it is, and scaled, held where it is pressed. The pad strip of step 15,
+  x12 about its hinge, was drawn with its pad off the post it lies on by 12
+  times its sag there: a part held in two places cannot be scaled about one.
+  - **Tried, held there while it presses**: each frame's drawing turned
+    about the hold onto that frame's contact points. The strip on the post,
+    but the drawing jumps as it lets go and comes back, each bounce.
+  - **Now, as it is by default**: the automatic scale is 1 for a flexible
+    body the run presses on anything (`Deformation.pressedOf()`: the nodes
+    nearest its sets' "PartContactPlaces" with a force, the part where
+    `getSimulationPlacements()` has it at the frame). Its stress colours
+    show its bending.
+  - **Scaled by hand** (Bending drawn, BendingScale > 0), it is held where
+    it is pressed too (`heldWherePressed()`): a turn about the hold's
+    centre -- a full rigid motion where no joint holds it -- fitted to each
+    column's bending at the pressed nodes, least squares, once, goes with
+    the rigid motion drawn as it is. Through the whole run, pressed or not,
+    the hinge and the pad are where they are, and the bending between them
+    is scaled; nothing jumps. Pressed at three places apart, the fit leaves
+    a rest, scaled.
+  - Numbers: the strip bent onto the bar drawn x20, 0.45 mm into the bar
+    before, 0.004 mm off it now, where it is 0.002 off as it is.
+  - Test: TestFlexibleBody.test_bent_onto_bar_anywhere (the scale 1 by
+    default; drawn x20 within 0.05 mm of where it is at the bar).
+- Next, D4b from here (2026-11-16): one rule for a contact, not a step a
+  pair of geometries. Steps 13 to 29 each placed the points of one pair --
+  a round on a round, in a bore, along a flat face, a ball -- and each
+  limit left is one more pair (two flexible rounds along each other, a
+  cone, a torus, a partial round, a free-form face). Asked for by the
+  user; nothing of it is built. Two ways, both to be tried.
+  - What others do, read from abstracts and manuals, not the papers.
+    - Abaqus corrects each point's gap by what the facet stands off an
+      ideal cylinder, sphere or torus ("smoothing of common curved surface
+      geometries"): steps 25 to 28's fitted round, but once, in the gap,
+      whatever the other part is.
+    - Nagata patches make a curved patch of each facet from its corners and
+      the surface's normals there, for any mesh; reported to take the
+      faceted surface's force oscillation out of a sliding contact.
+    - Hippmann's polygonal contact model (Simpack) and Drake's hydroelastic
+      contact (Elandt, Masterjohn) give the force as a pressure summed over
+      the area in contact, not by points found.
+    - Mortar (segment to segment) contact, a signed distance field of the
+      other part, incremental potential contact: each wants a solver or a
+      field this backend has not.
+    - Reduced bodies: RecurDyn's Geo Contact on modal bodies (Cha et al.
+      2017); Virlez et al., contact between superelements.
+  - **Way 1: the places by the two surfaces' curvature, the law kept.**
+    The model has each point's normal and principal curvatures as the solid
+    has them (`ContactShape::surfaces`), any face, used for Hertz's
+    stiffness alone (`patchStiffness()`). At a point found, the two
+    surfaces' relative curvature says what the contact is: curved both
+    ways, one point, at the surfaces' deepest; flat one way, a line along
+    that way, its two ends; flat both ways, an area, its corners. What
+    stays a pair's own is how far a line or an area reaches, by the faces'
+    edges (`reachOver()`, `reachOnFlat()`). A flexible part's faces have
+    their own curvature as the mesh has it there (`roundAt()` fits a
+    cylinder; the same of any face is wanted). The force law is as it is,
+    so the tests' and the manual's numbers should stand: build it beside
+    what is there and move a case at a time, each against its test.
+  - **Way 2: a pressure over the area.** The force a pressure by the depth,
+    summed over the area the surfaces share. It is another law: a
+    stiffness in N/mm a patch becomes one in N/mm^3, a flat face presses in
+    proportion, a round on a flat face by depth^1.5, a ball by depth^2, and
+    every force in the tests and the manual moves. It does not take the
+    facets out alone: a quadratic face stands 3.9 um in from a round R 5 at
+    a 4 mm mesh, of 50 um pressed, and the line a round R 5 pressed 50 um
+    touches a plane along is 1.4 mm wide, under a face's size -- the area
+    has to be summed finer than the faces, on the surface as way 1 has it.
+  - Not measured: any of the above on this solver.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

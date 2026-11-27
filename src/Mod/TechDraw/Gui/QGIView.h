@@ -120,6 +120,22 @@ public:
     /// view -- is selected: with the page's frames hidden, its frame shows
     /// then (getFrameState(), docs/HandsOnQueue.md entry 155)
     static bool selectionInside(TechDraw::DrawView* dv);
+
+    /// The document, object and element a scene item stands for, as a click
+    /// on it selects them: a view, an edge, vertex or face of one ("Edge3"),
+    /// a dimension by its label or lines. False for an item that is none.
+    static bool selectionNameOf(const QGraphicsItem* item, std::string& docName,
+                                std::string& objName, std::string& subName);
+    /// The mouse over \a item: Gui::Selection's preselection, as the 3D view's
+    /// hover makes it, so the status bar names what is under the mouse
+    /// without selecting it (the reporter, 2026-11-26). \a scenePos is where.
+    static void preselectItem(const QGraphicsItem* item, const QPointF& scenePos);
+    /// The mouse off \a item: the preselection removed, if it is still its
+    static void unpreselectItem(const QGraphicsItem* item);
+    /// Whether the scene is setting the preselection now: the page leaves
+    /// alone the lighting its items do themselves (MDIViewPage)
+    static bool preselectingFromScene();
+
     virtual void toggleCache(bool state);
     virtual void updateView(bool update = false);
     virtual void drawBorder();

@@ -22,6 +22,10 @@ if(BUILD_DRAWING)
   add_subdirectory(Drawing)
 endif(BUILD_DRAWING)
 
+if(BUILD_FLUID)
+    add_subdirectory(Fluid)
+endif(BUILD_FLUID)
+
 if(BUILD_FEM)
     add_subdirectory(Fem)
 endif(BUILD_FEM)
@@ -125,6 +129,10 @@ endif(BUILD_START)
 if(BUILD_SURFACE)
   add_subdirectory(Surface)
 endif(BUILD_SURFACE)
+
+if(BUILD_PMI)
+  add_subdirectory(PMI)
+endif(BUILD_PMI)
 
 if(BUILD_TECHDRAW)
     add_subdirectory(Measure)

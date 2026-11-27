@@ -636,6 +636,11 @@ public:
         mirror->setHintCallback([this, client]() {
             announceHint(client);
         });
+        // A camera the client is asked to take: a PMI view made active in
+        // its view (docs/GDandT.md sec 6.3)
+        mirror->setCameraSender([client](const std::string& json) {
+            Render::SceneStreamServer::instance().sendControl(client, json);
+        });
         // What the others already have selected, for the ones whose
         // route says this client may see it (8.11a). Said now rather
         // than waiting for them to pick again; the viewer keeps the

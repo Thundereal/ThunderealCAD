@@ -230,12 +230,40 @@ void PropertyContainer::handleChangedPropertyName(Base::XMLReader &reader, const
     (void)PropName;
 }
 
+namespace {
+/// The plain link kind a link property is a scope variant of -- "App::PropertyLink"
+/// for App::PropertyLink, -Child, -Global and -Hidden, and the same for the List,
+/// Sub and SubList kinds -- or empty for any other property. The variants differ in
+/// the scope a link may reach and nothing else: each writes what its kind writes.
+/// Only these four families: App::PropertyXLink derives from PropertyLinkGlobal and
+/// writes another format.
+std::string linkKindOf(const char* type)
+{
+    static const char* const kinds[] = {"App::PropertyLinkSubList",
+                                        "App::PropertyLinkList",
+                                        "App::PropertyLinkSub",
+                                        "App::PropertyLink"};
+    static const char* const scopes[] = {"", "Child", "Global", "Hidden"};
+    const std::string name = type ? type : "";
+    for (const char* kind : kinds) {
+        for (const char* scope : scopes) {
+            if (name == std::string(kind) + scope) {
+                return kind;
+            }
+        }
+    }
+    return {};
+}
+}  // namespace
+
 /**
  * @brief PropertyContainer::handleChangedPropertyType is called during restore to possibly
  * fix reading of older versions of the property container. This method is typically called
  * if the property on file has changed its type in more recent versions.
  *
- * The default implementation does nothing.
+ * The default implementation reads a link property whose scope alone changed -- a
+ * PropertyLink saved, a PropertyLinkGlobal now -- since the two write the same; any
+ * other change it drops.
  *
  * @param reader The XML stream to read from.
  * @param TypeName Name of property type on file.
@@ -244,9 +272,13 @@ void PropertyContainer::handleChangedPropertyName(Base::XMLReader &reader, const
 
 void PropertyContainer::handleChangedPropertyType(XMLReader &reader, const char *TypeName, Property *prop)
 {
-    (void)reader;
-    (void)TypeName;
-    (void)prop;
+    if (!prop) {
+        return;
+    }
+    const std::string kind = linkKindOf(TypeName);
+    if (!kind.empty() && kind == linkKindOf(prop->getTypeId().getName())) {
+        prop->Restore(reader);
+    }
 }
 
 PropertyData PropertyContainer::propertyData;

@@ -116,7 +116,7 @@ def dump(name):
         view().saveRenderDump(path, metadata=False)
     except RuntimeError:
         # no render engine (Render/Type Legacy): the GL view's own frame
-        # buffer, whatever window is in front; else what the screen shows
+        # buffer, whatever window is in front; else the view's own picture
         gl = [c for c in view().graphicsView().findChildren(QtWidgets.QWidget)
               if c.metaObject().className() == "QOpenGLWidget"
               or c.inherits("QOpenGLWidget")]
@@ -127,18 +127,13 @@ def dump(name):
             # QWidget.grab() of a GL widget reads its frame buffer
             gl[0].grab().save(path)
             return QtGui.QImage(path).convertToFormat(QtGui.QImage.Format_RGB32)
-        mw().raise_()
-        mw().activateWindow()
-        pump(0.5)
+        # not a GL widget: its grab() draws it as it is, where the screen
+        # can show another window in front, or -- on gui-test.cmd's hidden
+        # desktop -- the pixels of the user's own screen
+        pump(0.3)
         w = view().graphicsView()
         w = w.viewport() if hasattr(w, "viewport") else w
-        g = w.mapToGlobal(QtCore.QPoint(0, 0))
-        screen = QtGui.QGuiApplication.screenAt(g) or QtGui.QGuiApplication.primaryScreen()
-        sg = screen.geometry()
-        over = QtWidgets.QApplication.widgetAt(g + QtCore.QPoint(w.width() // 2, w.height() // 2))
-        if over is None or over.window() != mw():
-            note("INFO %s: another window is in front of the view, the grab is not of it" % name)
-        screen.grabWindow(0, g.x() - sg.x(), g.y() - sg.y(), w.width(), w.height()).save(path)
+        w.grab().save(path)
     return QtGui.QImage(path).convertToFormat(QtGui.QImage.Format_RGB32)
 
 

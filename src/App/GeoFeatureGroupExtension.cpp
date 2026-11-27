@@ -265,7 +265,8 @@ void GeoFeatureGroupExtension::buildExport(
     // element's target, a joint's grounding, a group that is a view), and
     // leaves the child it refers to in. Nor does a child that is a
     // coordinate system of its own claim, as in the view provider. An
-    // expression only reads a value, and claims nothing either.
+    // expression only reads a value, and claims nothing either; nor a link
+    // flagged LinkReferOnly (a PMI set's part, a feature's faces).
     if(owner->testStatus(ObjectStatus::ViewProviderAttached))
         return;
 
@@ -280,6 +281,7 @@ void GeoFeatureGroupExtension::buildExport(
         for(auto prop : props) {
             auto link = Base::freecad_dynamic_cast<PropertyLinkBase>(prop);
             if(link && link->getScope() != LinkScope::Global
+                    && !link->testFlag(PropertyLinkBase::LinkReferOnly)
                     && !prop->isDerivedFrom<PropertyExpressionContainer>())
                 link->getLinkedObjects(std::inserter(claimed, claimed.end()), true);
         }

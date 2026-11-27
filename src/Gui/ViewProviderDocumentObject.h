@@ -68,6 +68,13 @@ public:
      * addDefaultAction() sets it.
      */
     static constexpr const char *EditEntryProperty = "fcEditEntry";
+    /** The dynamic property a setupContextMenu() entry carries, true, when
+     * all triggering it changes is the view it runs in -- its camera, what
+     * it shows -- and nothing of the document, so any connection may run it
+     * (a PMI view made active). A browser's context menu runs it in the
+     * client's own view, as the desktop's runs it in the view clicked.
+     */
+    static constexpr const char *ViewerEntryProperty = "fcViewerEntry";
 
     // Display properties
     App::PropertyEnumeration DisplayMode;

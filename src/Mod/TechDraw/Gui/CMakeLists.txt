@@ -41,6 +41,13 @@ set(TechDrawGui_LIBS
     FreeCADGui
 )
 
+# PMI callouts on a page draw from the PMI module's layout (docs/GDandT.md
+# sec 9); without it they draw nothing
+if(BUILD_PMI)
+    list(APPEND TechDrawGui_LIBS PMI)
+    add_definitions(-DFC_TECHDRAW_PMI)
+endif()
+
 set (TechDraw_TR_QRC ${CMAKE_CURRENT_BINARY_DIR}/Resources/TechDraw_translation.qrc)
 qt_find_and_add_translation(QM_SRCS "Resources/translations/*_*.ts"
     ${CMAKE_CURRENT_BINARY_DIR}/Resources/translations)
@@ -230,6 +237,8 @@ SET(TechDrawGui_SRCS
     TaskDimRepair.cpp
     TaskDimRepair.h
     TaskDimRepair.ui
+    TaskReferenceList.cpp
+    TaskReferenceList.h
     TaskCosmeticCircle.cpp
     TaskCosmeticCircle.h
     TaskCosmeticCircle.ui
@@ -296,6 +305,8 @@ SET(TechDrawGuiView_SRCS
     QGIViewDimension.h
     QGIViewBalloon.cpp
     QGIViewBalloon.h
+    QGIPMICallout.cpp
+    QGIPMICallout.h
     QGIProjGroup.cpp
     QGIProjGroup.h
     QGIViewPart.cpp

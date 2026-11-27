@@ -20,6 +20,16 @@
         </UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="findByName">
+      <Documentation>
+        <UserDocu>findByName() - the faces of Source whose saved name another face carries now and whose saved geometry neither has: a list of (index, was, now, sameGeometry). A recompute does not move them.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="repointByName">
+      <Documentation>
+        <UserDocu>repointByName() - those faces taken by name, whatever their geometry, as the hatch's edit does. Returns the list of (index, was, now, sameGeometry) taken.</UserDocu>
+      </Documentation>
+    </Methode>
     <CustomAttributes />
   </PythonExport>
 </GenerateModel>

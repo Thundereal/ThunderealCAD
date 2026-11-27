@@ -100,6 +100,7 @@
 #include <Mod/Assembly/App/AssemblyGroup.h>
 #include <Mod/Assembly/App/AssemblyLink.h>
 #include <Mod/Assembly/App/AssemblyObject.h>
+#include <Mod/Assembly/App/Views.h>
 #include <Mod/Assembly/App/AssemblyUtils.h>
 #include <Mod/Assembly/App/Groups.h>
 #include <Mod/Assembly/App/Joint.h>
@@ -2507,6 +2508,13 @@ bool ViewProviderAssembly::explodeTemporarily(App::DocumentObject* explodedView)
 
     clearTemporaryExplosion();
 
+    // Shown as an Animation plays: not an edit (docs/AssemblyExplode.md sec 3)
+    if (auto view = freecad_cast<Assembly::ExplodedView*>(explodedView)) {
+        view->pose();
+        temporaryExplosion = explodedView;
+        return true;
+    }
+
     Base::PyGILStateLocker lock;
 
     App::PropertyPythonObject* proxy = explodedView
@@ -2539,6 +2547,12 @@ bool ViewProviderAssembly::explodeTemporarily(App::DocumentObject* explodedView)
 void ViewProviderAssembly::clearTemporaryExplosion()
 {
     if (!temporaryExplosion) {
+        return;
+    }
+
+    if (auto view = freecad_cast<Assembly::ExplodedView*>(temporaryExplosion)) {
+        view->unpose();
+        temporaryExplosion = nullptr;
         return;
     }
 

@@ -24,6 +24,7 @@
 #define APP_WORKER_RECOMPUTE_H
 
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -74,6 +75,20 @@ public:
         long inner = 0;
         /// The first of those executed here, by name, for a look
         std::vector<std::string> executedHereNames;
+        /// Of the last one started: each object a worker left to be made
+        /// here because its code used what the worker only stands in for
+        /// (docs/WorkerProcess.md sec 72) -- or, `object` empty, the reason
+        /// that took the whole job back for it. `builtin`: the code is the
+        /// install's, which a worker is to make itself (sec 73)
+        struct Faked
+        {
+            std::string object;
+            std::string label;
+            std::string cls;
+            std::string used;
+            bool builtin = true;
+        };
+        std::vector<Faked> faked;
         bool byId = false;     ///< its strings taken in under their ids
         std::string byContentWhy;  ///< why not, when they were read by content
         double workerSeconds = 0;  ///< the worker's recompute
@@ -173,6 +188,28 @@ public:
     /// In a worker: whether its last recompute job sent the value of
     /// `prop` of `obj` (docs/WorkerProcess.md sec 29)
     static bool sent(const std::string& obj, const std::string& prop);
+
+    /** In a worker: the object being executed used `what`, a part of
+     * FreeCADGui or a view object the worker only stands in for
+     * (freecad.worker_gui). Its value is not sent: the asking process
+     * executes it itself, and says why (docs/WorkerProcess.md sec 72).
+     * Nothing outside an execute
+     */
+    static void noteFaked(const std::string& what);
+    /** In a worker: the object being executed did `what` (JSON, from
+     * freecad.worker_gui) to a view the worker has only the saved values
+     * of -- set a view property, called a view provider's method. Sent with
+     * its values, done again to the view provider where they are put in
+     * (docs/WorkerProcess.md sec 73). Nothing outside an execute
+     */
+    static void noteViewWrite(const std::string& what);
+    /** What the GUI's active 3D view is, as JSON ({"direction": [x, y, z]}),
+     * asked as a recompute is handed to a worker: an execute that reads the
+     * view -- Draft's get_normal turns a plane's normal toward the camera --
+     * reads it there as here (freecad.worker_gui.worker_active_view,
+     * docs/WorkerProcess.md sec 73). Set by the GUI; empty for none
+     */
+    static void setViewState(std::function<std::string()> state);
 
     /// Started, made, put in, dropped
     static fastsignals::signal<void(const Document&)> signalChanged;

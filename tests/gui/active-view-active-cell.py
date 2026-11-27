@@ -29,7 +29,8 @@ Two views a1 and a2 of one document, in two cells:
     is still the active view.
 
 The clicks are the real pointer's, through the window system (XTEST on
-X11, SendInput on Windows, skipped with the session locked): a mouse
+X11, SendInput on Windows, skipped with the session locked or on the
+hidden desktop scripts/gui-test.cmd uses by default): a mouse
 event sent through Qt to a 3D view is not handled as a click of the
 pointer is, and does not move the keyboard focus there.
 
@@ -88,19 +89,36 @@ def cell_of(view):
     return w
 
 
+def desktop_name(user32, desktop):
+    user32.GetUserObjectInformationW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p,
+                                                 ctypes.c_uint, ctypes.c_void_p]
+    buf = ctypes.create_unicode_buffer(256)
+    if not user32.GetUserObjectInformationW(desktop, 2, buf, ctypes.sizeof(buf), None):  # UOI_NAME
+        return None
+    return buf.value
+
+
 def desktop_takes_input():
     """Windows: whether the pointer can be pressed here at all -- not with
-    the session locked."""
+    the session locked, and not on a desktop other than the one the user's
+    input goes to: scripts/gui-test.cmd runs the test on a hidden desktop
+    by default, where SetCursorPos and mouse_event move the user's pointer
+    on the user's screen and click whatever is there (docs/Testing.md,
+    "Windows runs go on a hidden desktop"). GT_DESKTOP=screen runs it."""
     if not hasattr(ctypes, "windll"):
         return True
     user32 = ctypes.windll.user32
     user32.OpenInputDesktop.restype = ctypes.c_void_p
+    user32.GetThreadDesktop.restype = ctypes.c_void_p
+    user32.CloseDesktop.argtypes = [ctypes.c_void_p]
     desktop = user32.OpenInputDesktop(0, False, 0x0100)  # DESKTOP_SWITCHDESKTOP
     if not desktop:
         return False
-    user32.CloseDesktop.argtypes = [ctypes.c_void_p]
-    user32.CloseDesktop(desktop)
-    return True
+    try:
+        ours = user32.GetThreadDesktop(ctypes.windll.kernel32.GetCurrentThreadId())
+        return desktop_name(user32, desktop) == desktop_name(user32, ours)
+    finally:
+        user32.CloseDesktop(desktop)
 
 
 def click_into(view):
@@ -159,7 +177,8 @@ def run():
     try:
         mw = FreeCADGui.getMainWindow()
         if not desktop_takes_input():
-            note("SKIP the session is locked: no pointer to click with")
+            note("SKIP no pointer to click with: the session is locked, or this is not "
+                 "the desktop input goes to (GT_DESKTOP=screen runs it)")
             return
         VIEW.SetBool("ShowNaviCube", False)
         VIEW.SetBool("UseNavigationAnimations", False)

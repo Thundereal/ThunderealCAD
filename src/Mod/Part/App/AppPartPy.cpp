@@ -454,6 +454,12 @@ public:
             "meshServiceInfo() -> dict: the meshes made here and by helpers, and\n"
             "what they cost (Part::meshServiceInfo, App::ServiceWorkers::info)"
         );
+        add_varargs_method("_writeViewLook",&Module::writeViewLook,
+            "_writeViewLook(obj, name, value): what a write of `value` to the view\n"
+            "provider's `name` does to the object's looks, with no view provider --\n"
+            "LineMaterial, PointMaterial, LineColorArray, PointColorArray. A worker's\n"
+            "stand-in view object (freecad.worker_gui, docs/WorkerProcess.md sec 72)"
+        );
         add_varargs_method("makeCompound",&Module::makeCompound,
             "makeCompound(list) -- Create a compound out of a list of shapes."
         );
@@ -1128,6 +1134,41 @@ private:
         auto theShape = static_cast<Part::TopoShapePy*>(shape)->getTopoShapePtr()->getShape();
         return Py::String(Part::meshDigest(theShape));
     }
+    Py::Object writeViewLook(const Py::Tuple& args)
+    {
+        PyObject* pyobj = nullptr;
+        const char* name = nullptr;
+        PyObject* value = nullptr;
+        if (!PyArg_ParseTuple(args.ptr(), "O!sO", &App::DocumentObjectPy::Type, &pyobj, &name,
+                              &value))
+            throw Py::Exception();
+        auto feat = dynamic_cast<Part::Feature*>(
+            static_cast<App::DocumentObjectPy*>(pyobj)->getDocumentObjectPtr());
+        if (!feat)
+            throw Py::TypeError("not a Part::Feature");
+        // As ViewProviderPartExt::onChanged gives the write to the object
+        // where the looks are the object's: the value read by the view
+        // property's own type, the object's store written as it writes it
+        using Store = App::PropertyElementAppearance;
+        const std::string what(name);
+        if (what == "LineMaterial" || what == "PointMaterial") {
+            App::PropertyAppearance read;
+            read.setPyObject(value);
+            feat->ElementAppearance.setBase(what == "LineMaterial" ? Store::Edge : Store::Vertex,
+                                            read.getValue());
+        }
+        else if (what == "LineColorArray" || what == "PointColorArray") {
+            App::PropertyColorList read;
+            read.setPyObject(value);
+            feat->writeColors(what == "LineColorArray" ? Store::Edge : Store::Vertex,
+                              read.getValues());
+        }
+        else {
+            throw Py::ValueError("no write to the object for the view's " + what);
+        }
+        return Py::None();
+    }
+
     Py::Object meshServiceInfo(const Py::Tuple& args)
     {
         if (!PyArg_ParseTuple(args.ptr(), ""))

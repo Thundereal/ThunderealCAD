@@ -43,7 +43,10 @@ slices, the time they say they spent and their longest slice):
   - each drain has slices to lose in the plain load;
   - each drain of the dear load ran in under half the slices of the plain
     load's. The work is the same; a slice that ends early, for whatever
-    reason, only adds to the count;
+    reason, only adds to the count. Where the work is so little that the
+    plain load already ran near the ceiling of five budgets, the bound is
+    what the ceiling allows instead: the dear load's work over five
+    budgets, rounded up, and one more. The line says which bound applied;
   - no slice of the dear load ran away: the longest is under five budgets
     and what one object or one frame let in by the progress bar may add
     (the ceiling itself is the rule's, and tested with it:
@@ -56,6 +59,7 @@ Run through scripts/gui-test.sh (xvfb, isolated configuration, external
 timeout). Scored against the tree before the change: see the commit
 message.
 """
+import math
 import os
 import re
 import time
@@ -227,9 +231,22 @@ def verdict():
             ps, pt = plain[key][0], plain[key][1]
             ds, dt = dear[key][0], dear[key][1]
             check("%s has slices to lose" % what, ps >= 10, "%d slices in the plain load" % ps)
-            check("%s takes longer turns where the frame is dear" % what,
-                  ds < 0.5 * ps,
-                  "%d slices and %.3f s against %d slices and %.3f s" % (ds, dt, ps, pt))
+            # Under half the plain load's slices -- or, where the work is so
+            # little that the plain load already ran near the ceiling, as few
+            # as the ceiling lets it: the dear load's work in slices of five
+            # budgets, and one for the slice that ends early. On a fast box
+            # the visual drain did 2400 visuals in 0.23 s in 16 slices, its
+            # longest already at the ceiling, and could not go below 8
+            # (2026-11-28)
+            half = 0.5 * ps
+            fewest = math.ceil(dt / (5 * BUDGET)) + 1
+            if half >= fewest:
+                bound, ok = "under half the plain load's, %.1f" % half, ds < half
+            else:
+                bound, ok = "the ceiling's fewest, %d" % fewest, ds <= fewest
+            check("%s takes longer turns where the frame is dear" % what, ok,
+                  "%d slices and %.3f s against %d slices and %.3f s; bound: %s"
+                  % (ds, dt, ps, pt, bound))
             longest = dear[key + "_longest"]
             ceiling = 5 * BUDGET + 0.3
             check("%s has no slice that ran away" % what,

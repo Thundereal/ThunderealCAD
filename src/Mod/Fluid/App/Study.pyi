@@ -28,11 +28,15 @@ class Study(DocumentObject):
         xx, yy, zz, xy, xz, yz), and Driven: a mechanism's part, moved by
         the study's Mechanism under the fluid's push.
         Inlets: the faces the fluid comes in through, each Source, Direction
-        (the way the fluid goes), Speed (m/s), Area (m^2), Middle (m), Start
-        and End (s; an End not after the Start is the run's).
+        (the way the fluid goes), Speed (m/s), Area (m^2), Reynolds (the
+        fluid's density, the speed and the width of a round face as large
+        as the inlet -- of a steady flow, as its part of the fluid's
+        space -- over the viscosity), Middle (m), Start and End (s; an End not
+        after the Start is the run's).
         Open: which sides of the space are open, -x, +x, -y, +y, -z, +z.
         Analysis: FreeSurface or Steady. A steady flow has as well
-        Iterations; Outlets, each Source, Pressure (Pa) and Area (m^2); and
+        Iterations; Turbulence, 'Laminar' or 'KOmegaSST'; Outlets, each
+        Source, Pressure (Pa) and Area (m^2); and
         Domain, the space the fluid fills: Triangles, Volume (m^3) and
         Areas (m^2) -- of its walls, then of each inlet, then of each
         outlet. Its space is the fluid's box.
@@ -102,8 +106,12 @@ class Study(DocumentObject):
         given were up; and it has Openings, each inlet then each outlet:
         Object, Source, Kind ('Inlet', 'Outlet') and, one per frame,
         Pressure (the mean over the face, Pa) and Flow (m^3/s, in through
-        an inlet and out through an outlet); and Inside, the frames that
-        have the fluid inside kept (getInside(), getSection()).
+        an inlet and out through an outlet); Inside, the frames that
+        have the fluid inside kept (getInside(), getSection()); Turbulence,
+        'Laminar' or 'KOmegaSST'; Reynolds, the greatest Reynolds number of
+        its inlets (0 when not kept); and WallUnits, of a turbulent flow
+        how far the first cell at a wall is from it in the wall's own units
+        (y+), the least, the most and the mean, or None.
         """
         ...
 

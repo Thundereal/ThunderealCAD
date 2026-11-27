@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -82,6 +83,15 @@ struct ResultsIndex
     std::vector<ArchivedOpening> openings;  // the inlets, then the outlets
     std::vector<double> flows;  // frames x openings x 2, as openings.npy
     std::vector<std::size_t> inside;  // the frames that have the fluid inside
+    // Of a steady flow with its eddies modelled: the model's name
+    // ("KOmegaSST"; none of a laminar flow), and how far the first cell at
+    // a wall is from it in the wall's own units (y+), the least, the most
+    // and the mean; zeros when the solver did not say.
+    std::string turbulence;
+    // Of a steady flow: the greatest Reynolds number of its inlets
+    // (Solver::reynolds); 0 in results made before it was kept.
+    double reynolds = 0.0;
+    std::array<double, 3> wallUnits {};
     // The fluid's energy as the run went, J; none from a solver that keeps
     // no account of it, or in results made before it was kept.
     std::vector<Solver::Energy> energy;

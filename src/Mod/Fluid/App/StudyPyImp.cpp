@@ -105,7 +105,8 @@ PyObject* StudyPy::buildModel(PyObject* args) const
         }
         ret.setItem("Bodies", bodies);
         Py::List inlets;
-        for (const auto& fed : model.inlets) {
+        for (std::size_t at = 0; at < model.inlets.size(); ++at) {
+            const auto& fed = model.inlets[at];
             Py::Dict inlet;
             double area = 0.0;
             double slant = 0.0;
@@ -115,6 +116,7 @@ PyObject* StudyPy::buildModel(PyObject* args) const
             inlet.setItem("Direction", tupleOf(fed.direction));
             inlet.setItem("Speed", Py::Float(fed.speed));
             inlet.setItem("Area", Py::Float(area));
+            inlet.setItem("Reynolds", Py::Float(Solver::reynolds(model, at)));
             inlet.setItem("Middle", tupleOf(middle));
             inlet.setItem("Start", Py::Float(fed.start));
             inlet.setItem("End", Py::Float(fed.end));
@@ -130,6 +132,10 @@ PyObject* StudyPy::buildModel(PyObject* args) const
         ret.setItem("Analysis", Py::String(steady ? "Steady" : "FreeSurface"));
         if (steady) {
             ret.setItem("Iterations", Py::Long(static_cast<long>(model.iterations)));
+            ret.setItem("Turbulence",
+                        Py::String(model.turbulence == Solver::Turbulence::KOmegaSST
+                                       ? "KOmegaSST"
+                                       : "Laminar"));
             Py::List outlets;
             for (const auto& let : model.outlets) {
                 Py::Dict outlet;
@@ -285,6 +291,19 @@ PyObject* StudyPy::getResults(PyObject* args) const
         ret.setItem("Bodies", bodies);
         ret.setItem("Steady", Py::Boolean(index.steady));
         ret.setItem("Settled", Py::Boolean(index.settled));
+        ret.setItem("Turbulence",
+                    Py::String(index.turbulence.empty() ? "Laminar" : index.turbulence));
+        ret.setItem("Reynolds", Py::Float(index.reynolds));
+        if (index.wallUnits[1] > 0.0) {
+            Py::Tuple units(3);
+            for (std::size_t k = 0; k < 3; ++k) {
+                units.setItem(k, Py::Float(index.wallUnits[k]));
+            }
+            ret.setItem("WallUnits", units);
+        }
+        else {
+            ret.setItem("WallUnits", Py::None());
+        }
         Py::List inside;
         for (std::size_t frame : index.inside) {
             inside.append(Py::Long(static_cast<long>(frame)));

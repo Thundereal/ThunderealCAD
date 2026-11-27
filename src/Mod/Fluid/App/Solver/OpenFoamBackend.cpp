@@ -568,6 +568,9 @@ private:
             }
             if (finished && i + 1 == ready) {
                 takeInside(frame);
+                OpenFoam::readWallUnits(
+                    readFile(folder / "postProcessing" / "yPlus" / "0" / "yPlus.dat"),
+                    frame.wallUnits);
             }
             sink.frame(frame);
             emitted.insert(times[i].second.filename().string());

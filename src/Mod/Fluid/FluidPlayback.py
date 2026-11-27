@@ -794,6 +794,73 @@ def flowText(flow):
     return "{:.4g} ml/s".format(litres * 1000.0)
 
 
+# A pipe's flow stays in layers under a Reynolds number of some 2300.
+LAYERED_UNDER = 2300.0
+# The wall model of a turbulent flow is in its range when the first cell at
+# a wall is some 30 wall units from it or more; under that, in the pipes
+# measured (docs/FluidSimulation.md sec 14.6), the friction was 10% off.
+WALL_UNITS_FROM = 30.0
+# and no more than some 1000: at 1370 the one pipe measured was 6% off.
+WALL_UNITS_TO = 1000.0
+
+
+def flowDoubts(results):
+    """What a steady flow's Reynolds number and its cells at the walls have
+    against the way its eddies were had, each a sentence for the user."""
+    found = []
+    if not results.get("Steady"):
+        return found
+    reynolds = results.get("Reynolds") or 0.0
+    turbulent = results.get("Turbulence", "Laminar") != "Laminar"
+    if not turbulent and reynolds > LAYERED_UNDER:
+        found.append(
+            translate(
+                "Fluid",
+                "The study took the flow as in layers, and its Reynolds number is "
+                "{:.0f}: over some {:.0f} a flow does not stay in layers, and loses "
+                "more pressure than is shown here. Set the study's flow to turbulent.",
+            ).format(reynolds, LAYERED_UNDER)
+        )
+    if turbulent and 0.0 < reynolds < LAYERED_UNDER:
+        found.append(
+            translate(
+                "Fluid",
+                "The study took the flow as turbulent, and its Reynolds number is "
+                "{:.0f}: under some {:.0f} a flow stays in layers, and loses less "
+                "pressure than is shown here. Set the study's flow to laminar.",
+            ).format(reynolds, LAYERED_UNDER)
+        )
+    units = results.get("WallUnits")
+    if turbulent and units and units[2] < WALL_UNITS_FROM:
+        found.append(
+            translate(
+                "Fluid",
+                "The cells at the walls are too fine for the wall model of a "
+                "turbulent flow: they are {:.0f} wall units from the wall in the "
+                "mean ({:.0f} to {:.0f}), and under {:.0f} the friction can be a "
+                "tenth off. A resolution some {:.1f} times coarser is in its range.",
+            ).format(
+                units[2],
+                units[0],
+                units[1],
+                WALL_UNITS_FROM,
+                max(2.0 * WALL_UNITS_FROM / max(units[2], 1.0e-9), 1.1),
+            )
+        )
+    if turbulent and units and units[2] > WALL_UNITS_TO:
+        found.append(
+            translate(
+                "Fluid",
+                "The cells at the walls are too coarse for the wall model of a "
+                "turbulent flow: they are {:.0f} wall units from the wall in the "
+                "mean ({:.0f} to {:.0f}), and over {:.0f} the friction can be more "
+                "than a twentieth off. A resolution some {:.1f} times finer is in "
+                "its range.",
+            ).format(units[2], units[0], units[1], WALL_UNITS_TO, units[2] / (0.5 * WALL_UNITS_TO))
+        )
+    return found
+
+
 def doubts(results):
     """What a run's own account of its energy has against its results, each
     a sentence for the user; none when it has nothing, or kept no account.
@@ -812,6 +879,7 @@ def doubts(results):
                 "does not stay steady.",
             ).format(times[-1])
         )
+    found.extend(flowDoubts(results))
     energy = results.get("Energy")
     if not energy or not energy["Judged"]:
         return found

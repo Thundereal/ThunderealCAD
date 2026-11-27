@@ -394,6 +394,7 @@ struct Study::Run: public Solver::FrameSink
 PROPERTY_SOURCE_WITH_EXTENSIONS(Fluid::Study, App::DocumentObject)
 
 const char* Study::AnalysisEnums[] = {"Free surface", "Steady flow", nullptr};
+const char* Study::TurbulenceEnums[] = {"Laminar", "k-omega SST", nullptr};
 
 Study::Study()
 {
@@ -408,6 +409,11 @@ Study::Study()
     Analysis.setEnums(AnalysisEnums);
     ADD_PROPERTY_TYPE(Iterations, (2000), "Study", App::Prop_None,
                       "A steady flow's: how many steps it is given to settle in, at most");
+    ADD_PROPERTY_TYPE(Turbulence, (0L), "Study", App::Prop_None,
+                      "A steady flow's: in layers, with no eddies; or turbulent, its "
+                      "eddies had by their mean effect (Menter's k-omega SST model, the "
+                      "walls by wall functions)");
+    Turbulence.setEnums(TurbulenceEnums);
     ADD_PROPERTY_TYPE(TimeEnd, (1.0), "Study", App::Prop_None, "How long the run is");
     ADD_PROPERTY_TYPE(OutputInterval, (1.0e-2), "Study", App::Prop_None,
                       "The time between the frames the run keeps");
@@ -518,6 +524,8 @@ Solver::Model Study::buildModel() const
     const bool steady = Analysis.getValue() == 1;
     model.analysis = steady ? Solver::Analysis::Steady : Solver::Analysis::FreeSurface;
     model.iterations = static_cast<int>(Iterations.getValue());
+    model.turbulence = steady && Turbulence.getValue() == 1 ? Solver::Turbulence::KOmegaSST
+                                                            : Solver::Turbulence::Laminar;
     // The one face a link names, where it stands.
     const auto faceOf = [](const App::DocumentObject* asker, const App::PropertyLinkSub& link) {
         auto* owner = link.getValue();
@@ -974,6 +982,14 @@ Solver::Status Study::start(std::string& why)
     run->index.version = availability.version;
     run->index.kind = steadyRun ? Solver::ResultKind::Fields : backend->capabilities().results;
     run->index.steady = steadyRun;
+    if (run->model.turbulence == Solver::Turbulence::KOmegaSST) {
+        run->index.turbulence = "KOmegaSST";
+    }
+    if (steadyRun) {
+        for (std::size_t i = 0; i < run->model.inlets.size(); ++i) {
+            run->index.reynolds = std::max(run->index.reynolds, Solver::reynolds(run->model, i));
+        }
+    }
     if (steadyRun) {
         for (const auto& inlet : run->model.inlets) {
             run->index.openings.push_back({inlet.source, false});

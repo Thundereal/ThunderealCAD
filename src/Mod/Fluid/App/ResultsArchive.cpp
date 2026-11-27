@@ -195,6 +195,7 @@ struct ArchiveWriter::Private
     std::vector<double> flows;
     std::size_t openings = 0;  // a frame, as the first frame has them
     std::vector<std::size_t> inside;  // the frames written with the fluid inside
+    std::array<double, 3> wallUnits {};  // the last frame's that had them
     bool sampled = false;
 };
 
@@ -262,6 +263,9 @@ void ArchiveWriter::frame(const Solver::Frame& frame)
                  inside.data(),
                  inside.size() * sizeof(float));
         d->inside.push_back(at);
+    }
+    if (frame.wallUnits[1] > 0.0) {
+        d->wallUnits = frame.wallUnits;
     }
     if (at == 0) {
         d->bodies = frame.bodies.size();
@@ -368,6 +372,16 @@ void ArchiveWriter::close(ResultsIndex index)
 
     if (!d->inside.empty()) {
         out["inside"] = d->inside;
+    }
+    if (!index.turbulence.empty()) {
+        out["turbulence"] = index.turbulence;
+    }
+    if (index.reynolds > 0.0) {
+        out["reynolds"] = index.reynolds;
+    }
+    index.wallUnits = d->wallUnits;
+    if (index.wallUnits[1] > 0.0) {
+        out["wallUnits"] = index.wallUnits;
     }
 
     d->zip->setLevel(6);
@@ -490,6 +504,9 @@ ArchiveReader::ArchiveReader(const std::string& path)
         d->index.fed = index.value("fed", false);
         d->index.steady = index.value("steady", false);
         d->index.settled = index.value("settled", false);
+        d->index.turbulence = index.value("turbulence", std::string());
+        d->index.reynolds = index.value("reynolds", 0.0);
+        d->index.wallUnits = index.value("wallUnits", std::array<double, 3> {});
         if (index.contains("openings")) {
             for (const auto& opening : index.at("openings")) {
                 d->index.openings.push_back({opening.value("source", std::string()),

@@ -19,20 +19,20 @@ DENSITY = 1000.0  # kg/m^3
 VISCOSITY = 0.1  # Pa s: with the speed, a Reynolds number of 10
 
 
-def pipeStudy(doc):
+def pipeStudy(doc, length=LENGTH, speed=SPEED, density=DENSITY, viscosity=VISCOSITY):
     """A tube along x, 10 mm inside and 14 outside, 100 long, a lid 2 thick
     at each end: the fluid comes in through the face of the lid at x 0 and
     leaves through the face of the lid at x 100. Returns the study, its
     inlet and its outlet."""
     along = App.Vector(1, 0, 0)
     tube = doc.addObject("Part::Feature", "Tube")
-    tube.Shape = Part.makeCylinder(7, LENGTH, App.Vector(0, 0, 0), along).cut(
-        Part.makeCylinder(RADIUS, LENGTH, App.Vector(0, 0, 0), along)
+    tube.Shape = Part.makeCylinder(7, length, App.Vector(0, 0, 0), along).cut(
+        Part.makeCylinder(RADIUS, length, App.Vector(0, 0, 0), along)
     )
     first = doc.addObject("Part::Feature", "First")
     first.Shape = Part.makeCylinder(7, 2, App.Vector(-2, 0, 0), along)
     last = doc.addObject("Part::Feature", "Last")
-    last.Shape = Part.makeCylinder(7, 2, App.Vector(LENGTH, 0, 0), along)
+    last.Shape = Part.makeCylinder(7, 2, App.Vector(length, 0, 0), along)
 
     def faceAt(obj, x):
         for i, face in enumerate(obj.Shape.Faces):
@@ -44,10 +44,10 @@ def pipeStudy(doc):
     study = doc.addObject("Fluid::Study", "Study")
     study.Analysis = "Steady flow"
     study.Walls = [tube, first, last]
-    inlet = FluidPlayback.addInlet(study, first, faceAt(first, 0), SPEED)
-    inlet.Density = App.Units.Quantity(DENSITY, "kg/m^3")
-    inlet.Viscosity = App.Units.Quantity(VISCOSITY, "Pa*s")
-    outlet = FluidPlayback.addOutlet(study, last, faceAt(last, LENGTH))
+    inlet = FluidPlayback.addInlet(study, first, faceAt(first, 0), speed)
+    inlet.Density = App.Units.Quantity(density, "kg/m^3")
+    inlet.Viscosity = App.Units.Quantity(viscosity, "Pa*s")
+    outlet = FluidPlayback.addOutlet(study, last, faceAt(last, length))
     doc.recompute()
     return study, inlet, outlet
 
@@ -203,6 +203,54 @@ class Pipe:
         # a plane past the pipe finds nothing, and a frame with none kept
         self.assertEqual(len(frames.section(last, App.Vector(0, 0, 9), App.Vector(0, 0, 1))), 0)
         self.assertEqual(len(frames.section(0, App.Vector(60, 0, 0), App.Vector(1, 0, 0))), 0)
+
+    def test_a_turbulent_pipe_loses_what_haaland_says(self):
+        """Water at 3 m/s along the pipe made 300 long, a Reynolds number of
+        30000 (docs/FluidSimulation.md sec 14.6): the friction factor between
+        15 and 27 widths in against Haaland's for a smooth pipe,
+        1 / sqrt(f) = -1.8 log10(6.9 / Re), to 5%."""
+        doc = App.newDocument("FluidTurbulentPipe")
+        try:
+            speed = 3.0  # m/s
+            study, _inlet, _outlet = pipeStudy(doc, 300.0, speed * 1000.0, 1000.0, 1.0e-3)
+            study.Turbulence = "k-omega SST"
+            study.Resolution = 1.0
+            FluidPlayback.addMonitor(study, "Pressure", App.Vector(150, 0, 0))
+            FluidPlayback.addMonitor(study, "Pressure", App.Vector(270, 0, 0))
+            study.Backend = self.BACKEND
+            doc.recompute()
+            model = study.buildModel()
+            self.assertEqual(model["Turbulence"], "KOmegaSST")
+            self.assertAlmostEqual(model["Inlets"][0]["Reynolds"] / 30000.0, 1.0, delta=0.01)
+
+            self.assertEqual(study.run(), 0, study.Status)
+            results = study.getResults()
+            self.assertTrue(results["Settled"])
+            self.assertEqual(results["Turbulence"], "KOmegaSST")
+            self.assertAlmostEqual(results["Reynolds"] / 30000.0, 1.0, delta=0.01)
+            into, out = results["Openings"]
+            flow = out["Flow"][-1]
+            self.assertAlmostEqual(into["Flow"][-1] / flow, 1.0, delta=1e-3)
+            # at the flow there was: the mean speed along the pipe
+            mean = flow / (math.pi * (RADIUS * 1e-3) ** 2)
+            self.assertAlmostEqual(mean / speed, 1.0, delta=0.02)
+            before, after = (monitor["Values"][-1] for monitor in results["Monitors"])
+            width = 2.0 * RADIUS * 1e-3
+            factor = (before - after) * width / 0.12 * 2.0 / (1000.0 * mean**2)
+            reynolds = 1000.0 * mean * width / 1.0e-3
+            haaland = (-1.8 * math.log10(6.9 / reynolds)) ** -2
+            self.assertAlmostEqual(factor / haaland, 1.0, delta=0.05)
+            # the wall's cells are in the wall model's range, and the study
+            # has nothing against its own results
+            least, most, middling = results["WallUnits"]
+            self.assertLess(least, middling)
+            self.assertLess(middling, most)
+            self.assertGreater(middling, FluidPlayback.WALL_UNITS_FROM)
+            self.assertEqual(FluidPlayback.doubts(results), [])
+            # in layers it would have lost 64 / Re, a third of it
+            self.assertGreater(factor, 2.5 * 64.0 / reynolds)
+        finally:
+            App.closeDocument(doc.Name)
 
     def test_the_results_are_kept_with_the_document(self):
         self.study.Iterations = 40

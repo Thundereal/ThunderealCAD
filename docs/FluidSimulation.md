@@ -2007,11 +2007,11 @@ solver); `TestColors`, `TestSteadyDoubts`,
 `TestFrameView.test_a_field_is_coloured_by_its_values`.
 
 Open, the rest of F1: turbulence (k-omega SST) and its pipe against
-Haaland; the velocity (built since, sec 14.5); the lid-driven cavity and the
+Haaland (built since, sec 14.6); the velocity (built since, sec 14.5); the lid-driven cavity and the
 backward-facing step; meshing by the second route (sec 5.4); residuals
 shown as the run goes; an inlet by flow rate or pressure; the force on a
 part; lids the study finds itself; a warning when the Reynolds number
-says the flow is not laminar -- nothing tells the user now.
+says the flow is not laminar (built since, sec 14.6).
 
 ### 14.5 F1 as built, step 3: the flow inside, and a cut through it (2026-11-27)
 
@@ -2075,3 +2075,78 @@ Open: the cut's edge is a stair of half cells inside the outline; a
 fitted value at a point; lines of the flow (streamlines); the speed at an
 opening's face; a cut of any slant from the panel (the script takes any
 plane); the inside of the frames on the way.
+
+### 14.6 F1 as built, step 4: turbulent flow, and what says whether to believe it (2026-11-27)
+
+A steady flow is run in layers, as before, or turbulent; and the results
+say when the choice, or the mesh at the walls, is against them.
+
+- **The choice**: the study's `Turbulence`, `Laminar` (as files made
+  before have it) or `k-omega SST`; the panel's "Flow" for a steady
+  study. The model's `turbulence`; a laminar model's signature is what it
+  was.
+- **The case**: `simulationType RAS`, `kOmegaSST`; `k` and `omega`
+  carried upwind; the walls by wall functions (`kqRWallFunction`,
+  `omegaWallFunction`, `nutkWallFunction`) -- the mesh has no layers at
+  its walls, so the wall's own layer is not resolved and cannot be. What
+  comes in at an inlet is taken as stirred a twentieth of its speed, in
+  eddies 7% of the inlet's width across; the fluid starts as the first
+  inlet's, and what flows back in at an outlet is that too. It stops
+  when the residuals are under 1e-5 (p) and 1e-6 (U, k, omega): the
+  pipes below had not moved by a hundredth of a percent in their last
+  hundred steps.
+- **An inlet's width and Reynolds number** (`Solver::widthOf`,
+  `reynolds`): the width across a round face of the inlet's area, the
+  area of a steady flow that of the inlet's part of the fluid's space --
+  the face picked is often wider than the opening (a lid's whole face
+  over a bore). `buildModel()` has each inlet's `Reynolds`; the results
+  keep the greatest (`Reynolds`).
+- **The wall's units**: the `yPlus` function object says, at the end, how
+  far the first cell at the wall is from it in the wall's own units, the
+  least, the most and the mean. Kept with the results (`WallUnits`).
+- **What the panel says** (`FluidPlayback.flowDoubts`, with the other
+  doubts in orange): a laminar study whose Reynolds number is over 2300;
+  a turbulent one under it; a turbulent one whose wall cells are under 30
+  wall units in the mean, or over 1000, with the resolution that would
+  put it right.
+
+Measured, the pipe of sec 14.4 made 300 mm long, water (1000 kg/m^3,
+0.001 Pa s), the pressure lost between monitors on the axis at 150 and
+270 mm as a friction factor at the flow there was, against Haaland's for
+a smooth pipe, 1 / sqrt(f) = -1.8 log10(6.9 / Re):
+
+| Reynolds | Resolution | f | Haaland | Off | Wall units, least..most, mean | Steps | Time | The panel |
+|---|---|---|---|---|---|---|---|---|
+| 10000 | 1 mm | 0.02726 | 0.03084 | -11.6% | 6..29, 20 | 189 | 12 s | too fine |
+| 10000 | 0.5 mm | 0.02823 | 0.03088 | -8.6% | 4..16, 11 | 179 | 40 s | too fine |
+| 30000 | 1 mm | 0.02269 | 0.02329 | -2.6% | 11..81, 56 | 192 | 13 s | - |
+| 30000 | 0.5 mm | 0.02106 | 0.02331 | -9.7% | 6..40, 28 | 185 | 40 s | too fine |
+| 100000 | 1 mm | 0.01809 | 0.01781 | +1.6% | 28..238, 166 | 195 | 11 s | - |
+| 100000 | 0.5 mm | 0.01716 | 0.01782 | -3.7% | 12..119, 85 | 188 | 36 s | - |
+| 1000000 | 1 mm | 0.01224 | 0.01158 | +5.8% | 272..1915, 1370 | 198 | 11 s | too coarse |
+
+Sec 6 asks 5%. It is met where the wall cells are in the wall model's
+range, and missed by up to 12% where they are not -- and every case that
+misses is one the panel speaks against. A finer mesh is not a better one
+here: at 30000 half the cell takes the answer from 2.6% off to 9.7%.
+The wall units spread wide about their mean because the cells at a round
+wall are of a square mesh snapped to it. The pipe at 10000 has no good
+resolution with this mesh: coarse enough for the wall model is 3 cells
+across the bore. Layers of cells at the walls, their thickness chosen
+for the flow, are what mend it, and are open. Outside FreeCAD the same
+cases with `nutUSpaldingWallFunction` were no better (+10.5% at 10000,
++4.8% at 100000 on 1 mm).
+
+Tests: `OpenFoamCase.filesOfATurbulentFlow`, `theWallUnitsReadBack`;
+`FluidModel.inletsAndForces` (the width, the Reynolds number, of a
+steady flow by the fluid's space), `aSteadyFlowsParts` (the signature);
+`FluidArchive.aFieldOnFacesAndTheOpenings` (the model's name, the
+Reynolds number and the wall units kept); `TestFlowDoubts`;
+`Pipe.test_a_turbulent_pipe_loses_what_haaland_says` (Reynolds 30000 on
+1 mm, to 5%, nothing against it). The panel's "Flow" has no test of its
+own: the manual's script drives it (`fluid/study/turbulent-flow/video.py`).
+
+Open: layers of cells at the walls; a rough wall; the eddies that come
+in at an inlet as the user gives them; other models; the Reynolds number
+of a flow that is not a pipe's -- 2300 is a pipe's, and an opening's
+width is not always what the flow is as wide as.

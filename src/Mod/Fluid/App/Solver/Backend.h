@@ -86,6 +86,10 @@ struct Frame
     std::vector<Vec3> centres;
     std::vector<Vec3> velocities;
     std::vector<double> pressures;
+    // Of a steady flow with its eddies modelled, its last frame: how far
+    // the first cell at a wall is from it in the wall's own units (y+), the
+    // least, the most and the mean over the walls. Zeros when not known.
+    std::array<double, 3> wallUnits {};
     // Where the walls the fluid moves are: one per such wall, in the
     // model's order (freeWalls).
     std::vector<Motion> bodies;

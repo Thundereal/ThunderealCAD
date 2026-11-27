@@ -133,6 +133,54 @@ class TestSteadyDoubts(unittest.TestCase):
         self.assertIn("settled", found)
 
 
+class TestFlowDoubts(unittest.TestCase):
+    """What the panel says of a steady flow whose Reynolds number, or whose
+    cells at the walls, do not go with the way its eddies were had."""
+
+    @staticmethod
+    def results(**changed):
+        results = {"Steady": True, "Settled": True, "Turbulence": "Laminar", "Reynolds": 10.0}
+        results.update(changed)
+        return results
+
+    def test_a_slow_flow_in_layers_has_nothing_against_it(self):
+        self.assertEqual(FluidPlayback.doubts(self.results()), [])
+        # nor results made before the number was kept
+        self.assertEqual(FluidPlayback.doubts(self.results(Reynolds=0.0)), [])
+        self.assertEqual(FluidPlayback.doubts({"Steady": True, "Settled": True}), [])
+        # nor a turbulent one that is fast, its wall cells in the model's range
+        fast = self.results(Turbulence="KOmegaSST", Reynolds=1.0e5, WallUnits=(15.0, 124.0, 84.0))
+        self.assertEqual(FluidPlayback.doubts(fast), [])
+        # a run through time is not asked
+        self.assertEqual(FluidPlayback.doubts({"Steady": False, "Reynolds": 1.0e6}), [])
+
+    def test_a_fast_flow_taken_as_in_layers_says_so(self):
+        (found,) = FluidPlayback.doubts(self.results(Reynolds=100000.0))
+        self.assertIn("100000", found)
+        self.assertIn("turbulent", found)
+
+    def test_a_slow_flow_taken_as_turbulent_says_so(self):
+        slow = self.results(Turbulence="KOmegaSST", Reynolds=500.0, WallUnits=None)
+        (found,) = FluidPlayback.doubts(slow)
+        self.assertIn("500", found)
+        self.assertIn("laminar", found)
+
+    def test_wall_cells_too_fine_say_so_and_by_how_much(self):
+        fine = self.results(Turbulence="KOmegaSST", Reynolds=3.0e4, WallUnits=(7.0, 41.0, 27.0))
+        (found,) = FluidPlayback.doubts(fine)
+        self.assertIn("27", found)
+        self.assertIn("2.2 times", found)
+        # and too coarse
+        coarse = self.results(
+            Turbulence="KOmegaSST", Reynolds=1.0e6, WallUnits=(272.0, 1915.0, 1370.0)
+        )
+        (found,) = FluidPlayback.doubts(coarse)
+        self.assertIn("1370", found)
+        self.assertIn("2.7 times finer", found)
+        # a laminar flow has no wall model to be out of range
+        self.assertEqual(FluidPlayback.doubts(self.results(WallUnits=(1.0, 2.0, 1.5))), [])
+
+
 class TestColors(unittest.TestCase):
     """A field's values as colours: blue the least, red the most."""
 

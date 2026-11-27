@@ -42,6 +42,8 @@ public:
     App::PropertyEnumeration Analysis;
     /// A steady flow's: how many steps it is given to settle in, at most
     App::PropertyInteger Iterations;
+    /// A steady flow's: in layers, or turbulent with its eddies modelled
+    App::PropertyEnumeration Turbulence;
     App::PropertyTime TimeEnd;
     App::PropertyTime OutputInterval;
     /// Gravity, in the document's coordinates, mm/s^2
@@ -105,6 +107,7 @@ public:
                                         double spacing) const;
 
     static const char* AnalysisEnums[];
+    static const char* TurbulenceEnums[];
 
     const char* getViewProviderName() const override
     {

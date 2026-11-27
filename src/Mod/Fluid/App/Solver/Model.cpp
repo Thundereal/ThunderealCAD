@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <numbers>
 
 #include "Model.h"
 
@@ -165,6 +166,10 @@ std::uint64_t Fluid::Solver::signature(const Model& model)
         }
         hash.surface(model.domain);
         hash.integer(model.iterations);
+        // a laminar flow's number is what it was before there was a choice
+        if (model.turbulence != Turbulence::Laminar) {
+            hash.integer(static_cast<int>(model.turbulence));
+        }
     }
     hash.vec(model.space.min);
     hash.vec(model.space.max);
@@ -186,6 +191,34 @@ std::uint64_t Fluid::Solver::signature(const Model& model)
         }
     }
     return hash.value;
+}
+
+double Fluid::Solver::widthOf(const Model& model, std::size_t inlet)
+{
+    if (inlet >= model.inlets.size()) {
+        return 0.0;
+    }
+    double area = 0.0;
+    if (model.analysis == Analysis::Steady && !model.domain.triangles.empty()) {
+        area = patchAreas(model.domain, inlet + 2)[inlet + 1];
+    }
+    else {
+        double slant = 0.0;
+        Vec3 middle {};
+        if (!faceOf(model.inlets[inlet], area, middle, slant)) {
+            return 0.0;
+        }
+    }
+    return std::sqrt(4.0 * std::max(area, 0.0) / std::numbers::pi);
+}
+
+double Fluid::Solver::reynolds(const Model& model, std::size_t inlet)
+{
+    if (inlet >= model.inlets.size() || !(model.inlets[inlet].material.viscosity > 0.0)) {
+        return 0.0;
+    }
+    const Inlet& from = model.inlets[inlet];
+    return from.material.density * from.speed * widthOf(model, inlet) / from.material.viscosity;
 }
 
 double Fluid::Solver::volumeOf(const Surface& surface)

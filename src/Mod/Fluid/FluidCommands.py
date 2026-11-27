@@ -506,6 +506,21 @@ class TaskFluidStudy:
         )
         self.iterations.setValue(study.Iterations)
         settings.addRow(translate("Fluid", "Steps at most"), self.iterations)
+        self.turbulence = QtWidgets.QComboBox()
+        self.turbulence.setToolTip(
+            translate(
+                "Fluid",
+                "How a steady flow's eddies are had. In layers: there are none, as "
+                "in a slow or a thick flow (a Reynolds number under some 2300). "
+                "Turbulent: by their mean effect, the k-omega SST model with the "
+                "walls by wall functions. The panel says when the run's Reynolds "
+                "number does not go with the choice.",
+            )
+        )
+        self.turbulence.addItem(translate("Fluid", "In layers (laminar)"), "Laminar")
+        self.turbulence.addItem(translate("Fluid", "Turbulent (k-omega SST)"), "k-omega SST")
+        self.turbulence.setCurrentIndex(max(self.turbulence.findData(study.Turbulence), 0))
+        settings.addRow(translate("Fluid", "Flow"), self.turbulence)
         self.mechanism = QtWidgets.QComboBox()
         self.mechanism.setToolTip(
             translate(
@@ -659,6 +674,7 @@ class TaskFluidStudy:
         self.settings.setRowVisible(self.interval, not steady)
         self.settings.setRowVisible(self.mechanism, not steady and self.mechanism.count() > 1)
         self.settings.setRowVisible(self.iterations, steady)
+        self.settings.setRowVisible(self.turbulence, steady)
 
     def fillBackends(self, chosen):
         """The solvers as they are on this machine now, that one chosen."""
@@ -711,6 +727,8 @@ class TaskFluidStudy:
         if study.Analysis != self.analysis.currentData():
             study.Analysis = self.analysis.currentData()
         study.Iterations = self.iterations.value()
+        if study.Turbulence != self.turbulence.currentData():
+            study.Turbulence = self.turbulence.currentData()
         study.Backend = self.backend.currentData() or ""
         study.Resolution = self.resolution.value()
         study.TimeEnd = self.timeEnd.value()

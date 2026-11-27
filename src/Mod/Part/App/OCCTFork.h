@@ -313,7 +313,8 @@ private:
 
 /// The version of the fork's GD&T extensions of XCAF (XCAFDoc_DimTolTool_PMI):
 /// 0 without them. The PMI module calls them by their C++ names, so it is
-/// loaded only where this is at least what it was built for (PMI/Init.py).
+/// loaded only where this is at least what it was built for (PMI's InitGui.py
+/// and TestPMIApp.py, ImportOCAF2's runPostImport).
 PartExport int occtPMIVersion();
 /// Draws the GD&T graphics the writer writes in a colour of the caller's (the
 /// fork's STEPCAFControl_Writer_SetGDTPresentationColor); false without it,

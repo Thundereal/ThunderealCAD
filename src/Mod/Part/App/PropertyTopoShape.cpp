@@ -1720,10 +1720,26 @@ void PropertyPartShape::Save (Base::Writer &writer) const
         saveHasher = false;
     }
     std::string version;
+    // "?" marks a shape read from a file written before element maps: it
+    // asks the next open for the migration recompute. Written back only
+    // while that is still owed -- its object marked MigrationPending, which
+    // a recompute that ran and succeeded clears, and which answering No, a
+    // partial recompute or a failing one leaves. Once owed no more, the
+    // shape is one with no names (a Part::Feature has no execute to make
+    // them; a datum or a Draft object may leave an unchanged shape alone),
+    // written with today's version: the open after asks for nothing, as for
+    // any shape saved with no names (Restore). Writing the "?" back asked
+    // every open of a file this build had just migrated and saved (smoke
+    // corpus 2026-11-27, A5). Upstream writes no "?" back at all.
+    std::string kept = _Ver;
+    if (kept == "?" && owner && owner->isAttachedToDocument()
+            && !owner->testStatus(App::ObjectStatus::MigrationPending)
+            && !owner->getDocument()->testStatus(App::Document::PartialDoc))
+        kept.clear();
     // If exporting, do not export mapped element name, but still make a mark
     if(owner) {
         if(!owner->isExporting())
-            version = _Ver.size()?_Ver:owner->getElementMapVersion(this);
+            version = kept.size()?kept:owner->getElementMapVersion(this);
     }else if(App::capturingDocument()) {
         // A detached copy the transaction log captures writes the version
         // its owner's save would, hasher prefix and all: without it, every

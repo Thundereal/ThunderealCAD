@@ -3053,15 +3053,33 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     // allows (sec 79): a part with no worker to run it waits for the
     // first part's worker, the halves run one after the other, and the
     // split is slower than the recompute whole
-    const int sideBySide = pool->sideBySide();
-    s.info.splitWorkers = sideBySide;
+    const int standing = pool->standingFree();
+    const bool another = pool->startsAnother();
     const double least = GetApplication()
                              .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
                              ->GetFloat("SplitSeconds", 2.0);
+    int sideBySide = std::min(standing + (another ? 1 : 0), std::max(1, pool->info().limit));
     double saving = 0;
     std::set<DocumentObject*> joined;
-    const std::vector<std::set<DocumentObject*>> parts =
+    std::vector<std::set<DocumentObject*>> parts =
         splitParts(doc, all, sideBySide, least, saving, joined, s.risky);
+    // A part that needs a worker not yet standing waits for its start
+    // before it runs anything (sec 83): that worker is counted only when
+    // what the split saves, less the start the pool has measured, still
+    // clears SplitSeconds.  Not measured -- no worker of this pool has
+    // started -- it is not counted
+    s.info.splitStartWeighed = 0;
+    if (another && static_cast<int>(parts.size()) > standing) {
+        const double start = pool->info().startSeconds;
+        s.info.splitStartWeighed = start;
+        if (start <= 0 || saving - start < least) {
+            FC_LOG(doc.getName() << ": a split saving " << saving << " s not made over a worker "
+                                 << "to be started, which takes " << start << " s");
+            sideBySide = standing;
+            parts = splitParts(doc, all, sideBySide, least, saving, joined, s.risky);
+        }
+    }
+    s.info.splitWorkers = sideBySide;
     std::vector<std::string> names;
     std::vector<State::Part> made;
     if (parts.size() > 1) {

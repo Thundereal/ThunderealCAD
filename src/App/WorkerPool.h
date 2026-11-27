@@ -306,6 +306,13 @@ public:
      * started
      */
     int sideBySide() const;
+    /// Of sideBySide(): the workers standing free now, less the jobs
+    /// queued for them (1 with no worker at all), and whether one more
+    /// would be started for jobs left waiting.  A worker yet to start
+    /// costs its start, Info::startSeconds, before it runs anything
+    /// (docs/WorkerProcess.md sec 83)
+    int standingFree() const;
+    bool startsAnother() const;
     /// The result of `job`, one that `writes`, was not put in, or not all
     /// of it: the worker that made it holds a copy ahead of the document,
     /// and is let go

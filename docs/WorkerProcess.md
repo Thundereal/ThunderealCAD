@@ -5477,3 +5477,55 @@ struct out for each.
 **Not proven here.** The mini is a mac: only the macOS build of the
 changed file and the macOS run of the test (OK) were done here. The Linux
 build and run are dell's, on the side branch.
+
+## 83. A split weighs the start of a worker it would wait for (2026-11-28)
+
+The coordinator, on dwin's Windows run of sec 79: two split tests missed
+their wall-clock bound of 3.5 s by 1 and 10 ms. Asked: does the decision
+weigh a worker that is not yet standing against what the split saves?
+It did not. `sideBySide()` counted the worker grow() would start as one
+more that could run, at no cost. That worker runs nothing before it is
+up, so a part handed to it waits for its start. Where the start
+is long, a split saving 1.5 s could save nothing, and the rule of sec 79
+was that a split is never slower than the recompute whole.
+
+**Not what dwin's 1.4 s was.** The `Times.Start` in those runs is not a
+worker's start. It is the recompute's own setup in
+`WorkerRecompute::start()`: `pool->start()`, which takes the copy or moves
+the workers along the log, then the split's planning and the submits. It
+is paid unsplit as well. The tests' bound counted it, and that bound was
+measured from before the recompute was asked for.
+
+**Now.**
+- `WorkerPool::standingFree()` counts the workers free now. A free worker
+  is one that has opened a copy once (`copyDir` set) and is idle. A
+  worker still starting is not counted, since what is left of its start
+  is not known. A worker moving to a newer copy is counted: an edit sends
+  that move as the recompute is asked for, which is why `ready` was the
+  wrong test.
+- `startsAnother()` is grow()'s rule (sec 79): one more would be started.
+- `sideBySide()` is the two together, as before.
+- The split first asks `splitParts()` for parts over both. If that needs
+  the worker yet to start (more parts than are standing), the split is
+  kept only when its saving, less `Info::startSeconds`, still clears
+  `Workers/SplitSeconds`. `startSeconds` is the pool's measured average
+  from a worker's start to its copy open. Otherwise the split is asked
+  again over the standing workers alone, and the log says why.
+- An unmeasured start (no worker of the pool has started) is not
+  counted.
+- `recomputeInfo()["SplitStartWeighed"]` is the start weighed, 0 when
+  none was.
+
+**Tests.** The split tests claim the split's speed, so their workers now
+stand first. `splitChains()` ends with `standing(2)`. The three-worker
+test calls `standing(3)`, which goes round with 1.5 s `test.sleep` jobs
+until that many distinct pids have made one. The new
+`testASplitThatWouldWaitForAWorkersStartIsWeighed` runs in three steps:
+- Two standing: the split's `SplitSaving` is read, with
+  `SplitStartWeighed` 0.
+- The pool is stopped and one worker made to stand again, so its
+  `StartSeconds` is known. With `SplitSeconds` set between saving less
+  start and saving, the recompute is not split: `SplitWorkers` 1,
+  `SplitStartWeighed` > 0, one job.
+- With it set below saving less start, it splits and the pool grows for
+  it, on two pids.

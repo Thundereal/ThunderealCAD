@@ -5566,3 +5566,77 @@ until that many distinct pids have made one. The new
   `SplitStartWeighed` > 0, one job.
 - With it set below saving less start, it splits and the pool grows for
   it, on two pids.
+
+## 84. A removed property goes with the values (2026-11-28)
+
+The smoke corpus, 2026-11-27: worker recomputes of several documents
+(servant, pipe, and others) were taken back as unfit, each with
+"`<obj>._BaseShape1` was removed by the recompute". Part keeps a replaced
+shape, as a dynamic `_BaseShape<N>`, for as long as a reference is
+missing from the new one. Its reconcile, on `signalRecomputed`, lets it
+go once the recompute has found the element again. Any removed dynamic
+property that is saved marked the result spoiled: this process cannot be
+given a removal by values, and the job was made here instead.
+
+**Now.** The removal goes with the values:
+- One removed while an object executes belongs to that object's entry.
+  Where the entry is put in, the property is removed before its values.
+  One removed and added again by the same execute() (a type changed) is
+  then added as the worker added it, from the added list.
+- One removed once no object was executing (the reconcile) goes in a
+  list after the entries. It is removed here once the put-in's recompute
+  is over, only if everything was put in. If this process executed an
+  object itself, what refers to what here is its own, and its reconcile
+  decides.
+- One already gone here is the same as removed. This process's own
+  reconcile may have let it go first.
+- One that names a property this process has as static, or an object it
+  does not have, is a warning. For an entry's removal, that object is
+  executed here.
+- A value written before the removal is not sent. The property is gone,
+  and its address may be the next property's.
+- One removed by an object made here (`entry.here`) is not sent. That
+  object's execute() runs here and removes it itself.
+
+The result's format is `FCWRCP03`: each entry ends with its removals
+(object, name), and the after-recompute list follows the entries.
+
+Objects made or removed by a recompute still spoil the result. Those are
+a separate change to the protocol.
+
+**What it lets through, on the corpus (2026-11-28).** Four documents
+whose worker recompute was unfit now apply: the dollhouse (kukolnyj_dom) and pipe with
+0 twin differences, and the sideboard (servant_1) and the shelf
+(etazherka_2) with differences that exist without this change.
+
+The put-in is faithful. Asked after its job, the worker's own copy holds
+what this process holds after the put-in. The differences are the
+worker's recompute against this process's (the corpus loop's twin, from
+a fresh open, `docs/SmokeTesting.md` sec 2.2):
+- The shelf: Pocket006 and Binder end with `_BaseShape1` and
+  `_BaseShape2`, the references on 2, where this process alone makes
+  only `_BaseShape1`. The worker replaces their shape twice while a
+  referrer is missing, and the orphaned generation is dropped at the
+  next save. The saved file then names the generation 2 instead of 1,
+  with its references consistent. It is not an automatic rename: no
+  "rename dynamic property" in either log. Why the worker replaces it
+  twice is still open. The sideboard's Import011/014 and Pocket042 are
+  the same. Two ExternalGeo differences are a signed zero in an arc's
+  axis, `(0, -0, -1)` against `(-0, 0, -1)`.
+- The sideboard is not idempotent: a second recompute of everything,
+  with or without a worker, makes Sketch015 Invalid ("redundant
+  constraint 75"), leaves five Imports Touched and moves sketch geometry.
+  Headless, one worker recompute equals one of this process's. In the
+  GUI the open's migration makes each side two passes: two by the worker
+  leave Sketch015 clean, two here leave it Invalid. A user who
+  recomputes the migrated file was shown the Invalid when the job was
+  unfit, and is not now. Which side is right is not known, since the
+  Invalid on a second pass is itself the defect.
+
+**Tests.** `testWhatAnExecuteRemovedIsRemovedWhereItIsPutIn`: a Python
+feature (`_Dropping`) removes Scratch and makes Retyped again as a
+string. It is put in, not made here, and a second edit is put in too.
+`testARetainedShapeLetGoIsLetGoWhereItIsPutIn`: a cut whose notch's
+floor is referred to, the notch moved off and back. Both were unfit on
+the build before the change. The second was unfit on the 2026-11-26
+stage as well.

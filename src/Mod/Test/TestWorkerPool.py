@@ -306,6 +306,26 @@ class _Polygon:
         return None
 
 
+class _Dropping(_Counted):
+    """A _Counted whose execute() removes a property of its own, Scratch,
+    and makes another again of another type, Retyped: an integer as added,
+    a string once executed"""
+
+    def __init__(self, obj):
+        super().__init__(obj)
+        obj.addProperty("App::PropertyInteger", "Scratch")
+        obj.addProperty("App::PropertyInteger", "Retyped")
+
+    def execute(self, obj):
+        super().execute(obj)
+        if "Scratch" in obj.PropertiesList:
+            obj.removeProperty("Scratch")
+        if obj.getTypeIdOfProperty("Retyped") != "App::PropertyString":
+            obj.removeProperty("Retyped")
+            obj.addProperty("App::PropertyString", "Retyped")
+        obj.Retyped = "made of %d" % obj.Input
+
+
 class _Crashing(_Counted):
     """A _Counted that takes its process down when its Crash is set and it
     runs in any process but the one it was made in (Home): a feature whose
@@ -1821,6 +1841,71 @@ class TestWorkerRecompute(unittest.TestCase):
         self.doc.recompute()
         self.assertEqual(len(by_worker.Faces), len(pocket.SuppressedShape.Faces))
         self.assertAlmostEqual(by_worker.Area, pocket.SuppressedShape.Area, places=6)
+
+    def testWhatAnExecuteRemovedIsRemovedWhereItIsPutIn(self):
+        """A property an execute() removes is removed where its values are
+        put in, and one it adds again in its place is the one added: the
+        removal took the whole job back (docs/WorkerProcess.md sec 84)"""
+        obj = self.doc.addObject("App::FeaturePython", "Dropping")
+        _Dropping(obj)
+        obj.Input = 3
+        info = self.byWorker()
+        self.assertEqual((info["Unfit"], info["ExecutedHereNames"]), (0, []), info)
+        self.assertGreater(info["Applied"], 0, info)
+        self.assertNotEqual(obj.MadeBy, os.getpid(), "made here")
+        self.assertNotIn("Scratch", obj.PropertiesList)
+        self.assertEqual(obj.getTypeIdOfProperty("Retyped"), "App::PropertyString")
+        self.assertEqual(obj.Retyped, "made of 3")
+        self.assertEqual(self.touched(), [])
+        # The worker's copy is where this one is: the next is put in too
+        obj.Input = 4
+        info = self.byWorker()
+        self.assertEqual((info["Unfit"], info["ExecutedHereNames"]), (0, []), info)
+        self.assertEqual(obj.Retyped, "made of 4")
+
+    def testARetainedShapeLetGoIsLetGoWhereItIsPutIn(self):
+        """Part keeps a shape a reference is missing from, as _BaseShape<N>,
+        and lets it go once the recompute that finds the element again is
+        over. Let go in a worker, the removal took the whole job back (the
+        smoke corpus, 2026-11-27: servant, pipe and others, each removing
+        _BaseShape1). It is removed here as well (docs/WorkerProcess.md
+        sec 84)"""
+        import shutil
+
+        def kept(obj):
+            return sorted(p for p in obj.PropertiesList if p.startswith("_BaseShape"))
+
+        box = self.doc.addObject("Part::Box", "Box")
+        notch = self.doc.addObject("Part::Box", "Notch")
+        notch.Length = notch.Width = notch.Height = 4
+        notch.Placement.Base = App.Vector(8, 0, 0)
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base, cut.Tool = box, notch
+        ref = self.doc.addObject("App::FeaturePython", "Ref")
+        ref.addProperty("App::PropertyLinkSub", "S")
+        self.doc.recompute()
+        floor = [i for i, f in enumerate(cut.Shape.Faces)
+                 if abs(f.BoundBox.ZMin - 4) < 1e-6 and abs(f.BoundBox.ZMax - 4) < 1e-6]
+        self.assertEqual(len(floor), 1)
+        name = "Face%d" % (floor[0] + 1)
+        ref.S = (cut, [name])
+        self.doc.recompute()
+        notch.Placement.Base = App.Vector(20, 0, 0)  # the notch's floor goes
+        self.doc.recompute()
+        self.assertEqual(ref.S[1], ["?" + name])
+        # Kept for the reference: written out by a save
+        folder = tempfile.mkdtemp(prefix="retained")
+        self.addCleanup(shutil.rmtree, folder, True)
+        self.doc.saveAs(os.path.join(folder, "retained.FCStd"))
+        self.assertEqual(kept(cut), ["_BaseShape1", "_BaseShapeRefs"])
+        notch.Placement.Base = App.Vector(8, 0, 0)  # and comes back
+        info = self.byWorker()
+        self.assertEqual((info["Unfit"], info["Reason"]), (0, ""), info)
+        self.assertEqual(info["ExecutedHereNames"], [], info)
+        self.assertGreater(info["Applied"], 0, info)
+        self.assertEqual(ref.S[1], [name])
+        self.assertEqual(kept(cut), [])
+        self.assertEqual(self.touched(), [])
 
     def testAConsolesCopyHasNoViewObjectInAWorker(self):
         """A console session saves no views, and every obj.ViewObject there

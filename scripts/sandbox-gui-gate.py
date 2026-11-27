@@ -27,12 +27,33 @@ SandboxToolBarMirror,SandboxPanelMirror; the two mirror gates run last
 and need no guest).  SandboxMirrorBench is a
 measurement (docs/Sandbox.md 8.4), not in the default list: name it
 alone to run it.
+
+It runs in a FRESH user home by default: the process started with the
+script starts the same binary again, with this script, in an empty
+temporary FREECAD_USER_HOME, and waits for it. A profile carries what
+runs before left: the transient folders of a process killed at its
+timeout open Document Recovery at the next start, and the gate's cases
+then ran nested inside that modal's loop, where a case's own modal never
+returned (SandboxPanelMirror.test_nested_messagebox hung on it,
+2026-11-28). FCX_PYODIDE is set for the run to the newest runtime in the
+starting profile when it is not set already, and the result goes where
+it would have gone. SANDBOX_GUI_GATE_PROFILE=keep runs in the profile the
+process was started with instead -- a profile named with
+FREECAD_USER_HOME, to measure in it.
+
+And a modal already up when the cases are to start -- that recovery
+dialog, a migration question -- is rejected (a rejected Document
+Recovery keeps its data) and written into the result as a FAIL line:
+the run says it, rather than passing over it.
 """
 
 import faulthandler
 import io
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import traceback
 import unittest
 
@@ -85,13 +106,15 @@ def main():
     )
     stream = _Tee()
     verdict = "FAILED"
+    for line in state["modals"]:
+        stream.write("FAIL: a modal was up as the cases were to start: %s\n" % line)
     try:
         suite = unittest.TestSuite()
         for name in modules:
             suite.addTests(unittest.defaultTestLoader.loadTestsFromName(name.strip()))
         result = unittest.TextTestRunner(stream=stream, verbosity=2,
                                          resultclass=_EagerResult).run(suite)
-        if result.wasSuccessful():
+        if result.wasSuccessful() and not state["modals"]:
             verdict = "OK"
     except Exception:
         stream.write(traceback.format_exc())
@@ -103,7 +126,72 @@ def main():
     sys.stderr.write("RESULT %s (%s)\n" % (verdict, out))
 
 
+state = {"modals": [], "rounds": 0}
+
+
+def modal_up():
+    """A modal that is up now, rejected and said: its class and title"""
+    from PySide import QtWidgets
+
+    w = QtWidgets.QApplication.activeModalWidget()
+    if w is None or not w.isVisible():
+        return None
+    said = "%s %r" % (w.metaObject().className(), w.windowTitle())
+    sys.stderr.write("gate: rejecting a modal up at the start: %s\n" % said)
+    w.reject()
+    return said
+
+
+def relaunch():
+    """The gate again, in a fresh user home (see the module's text); the
+    result is the run's. Closes this process's window when it is over"""
+    from PySide import QtCore
+
+    home = tempfile.mkdtemp(prefix="sandbox-gui-gate-home-")
+    env = dict(os.environ)
+    env["FREECAD_USER_HOME"] = home
+    env["SANDBOX_GUI_GATE_FRESH"] = "1"
+    if not env.get("FCX_PYODIDE"):
+        # the newest of the runtimes, by version: "314.0.6", not the
+        # "packages" folder beside them
+        runtimes = os.path.join(FreeCAD.getUserAppDataDir(), "Pyodide")
+        names = os.listdir(runtimes) if os.path.isdir(runtimes) else []
+        found = sorted((tuple(int(p) for p in d.split(".")), d) for d in names
+                       if d.replace(".", "").isdigit() and os.path.isdir(os.path.join(runtimes, d)))
+        if found:
+            env["FCX_PYODIDE"] = os.path.join(runtimes, found[-1][1])
+    if not env.get("SANDBOX_GUI_GATE_RESULT"):
+        env["SANDBOX_GUI_GATE_RESULT"] = os.path.join(
+            FreeCAD.getUserAppDataDir(), "sandbox-gui-gate.txt")
+    exe = QtCore.QCoreApplication.applicationFilePath()
+    sys.stderr.write("gate: in a fresh user home %s (FCX_PYODIDE %s)\n"
+                     % (home, env.get("FCX_PYODIDE", "unset")))
+    try:
+        code = subprocess.call([exe, os.path.abspath(__file__)], env=env)
+        sys.stderr.write("gate: the run in the fresh home exited %s; result in %s\n"
+                         % (code, env["SANDBOX_GUI_GATE_RESULT"]))
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+        FreeCADGui.getMainWindow().close()
+
+
 def finish():
+    # A modal up now -- the startup's Document Recovery, whose loop this
+    # timer fires inside -- is rejected, said, and the start goes round
+    # once more, so that the cases run with that loop unwound
+    said = modal_up()
+    if said is not None and state["rounds"] < 5:
+        state["modals"].append(said)
+        state["rounds"] += 1
+        QtCore.QTimer.singleShot(200, finish)
+        return
+    if (not os.environ.get("SANDBOX_GUI_GATE_FRESH")
+            and os.environ.get("SANDBOX_GUI_GATE_PROFILE") != "keep"):
+        # what this process's own profile put up is not the run's: the
+        # run is the fresh one's
+        state["modals"] = []
+        relaunch()
+        return
     try:
         main()
     finally:

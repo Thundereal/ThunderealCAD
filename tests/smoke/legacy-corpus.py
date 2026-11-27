@@ -242,11 +242,14 @@ def byte_colours(value):
 
 def transient(holder, name):
     """Not saved by design, so neither a reopen nor a worker has to give it:
-    an edit preview's shapes, a binder's copy"""
+    an edit preview's shapes, a binder's copy, a legacy name's value"""
     try:
         if "Transient" in holder.getTypeOfProperty(name):
             return True
-        return any(s in ("Transient", "PropTransient") for s in holder.getPropertyStatus(name))
+        # and Legacy: a compatibility name for what is kept elsewhere
+        # (_ObjectUUID, added when an older file is read), never saved
+        return any(s in ("Transient", "PropTransient", "Legacy", 19)
+                   for s in holder.getPropertyStatus(name))
     except Exception:  # pylint: disable=broad-except
         return False
 

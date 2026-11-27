@@ -21,6 +21,17 @@
 set(FLUID_SPLISHSPLASH_SOURCE "" CACHE PATH "SPlisHSPlasH's source tree")
 set(FLUID_SPLISHSPLASH_BUILD "" CACHE PATH "The tree SPlisHSPlasH was built in")
 
+# Not UNICODE, as the solver is not: OCCT's CMake package puts UNICODE and
+# _UNICODE on the COMPILE_DEFINITIONS of every directory that finds it, and
+# with them the Windows calls in SPlisHSPlasH's Utilities/FileSystem.h
+# (GetModuleFileName, FindFirstFile, given char buffers) become the wide ones
+# and do not compile. The runner is the only target of this directory.
+if(WIN32)
+    get_property(_fluid_splish_defs DIRECTORY PROPERTY COMPILE_DEFINITIONS)
+    list(FILTER _fluid_splish_defs EXCLUDE REGEX "(^|[:>])_?UNICODE>?$")
+    set_property(DIRECTORY PROPERTY COMPILE_DEFINITIONS ${_fluid_splish_defs})
+endif()
+
 add_executable(FluidSplish SplishRunner.cpp)
 set_target_properties(FluidSplish PROPERTIES
     CXX_STANDARD 17

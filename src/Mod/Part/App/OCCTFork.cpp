@@ -334,4 +334,64 @@ int setOCCTOffsetFixLevel(int level)
     return func ? func(level) : -1;
 }
 
+// --- TKXCAF, TKDESTEP -----------------------------------------------------
+
+typedef int (*FuncPMIVersion)();
+
+int occtPMIVersion()
+{
+    static const auto func = (FuncPMIVersion)lookUpOCCT("TKXCAF", "XCAFDoc_DimTolTool_PMI");
+    return func ? func() : 0;
+}
+
+typedef void (*FuncSetGDTPresentationColor)(STEPCAFControl_Writer &, const Quantity_Color &);
+
+bool setOCCTGDTPresentationColor(STEPCAFControl_Writer &writer, const Quantity_Color &color)
+{
+    static const auto func = (FuncSetGDTPresentationColor)lookUpOCCT(
+        "TKDESTEP", "STEPCAFControl_Writer_SetGDTPresentationColor");
+    if (!func)
+        return false;
+    func(writer, color);
+    return true;
+}
+
+typedef void (*FuncAddItemLayer)(const TDF_Label &, const XCAFDoc_LayerTool::ItemLayer &);
+
+bool addOCCTItemLayer(const TDF_Label &item, const XCAFDoc_LayerTool::ItemLayer &layer)
+{
+    static const auto func =
+        (FuncAddItemLayer)lookUpOCCT("TKXCAF", "XCAFDoc_LayerTool_AddItemLayer");
+    if (!func)
+        return false;
+    func(item, layer);
+    return true;
+}
+
+typedef bool (*FuncGetItemLayers)(const TDF_Label &,
+                                  NCollection_Sequence<XCAFDoc_LayerTool::ItemLayer> &);
+
+bool getOCCTItemLayers(const TDF_Label &item,
+                       NCollection_Sequence<XCAFDoc_LayerTool::ItemLayer> &layers)
+{
+    static const auto func =
+        (FuncGetItemLayers)lookUpOCCT("TKXCAF", "XCAFDoc_LayerTool_GetItemLayers");
+    layers.Clear();
+    return func && func(item, layers);
+}
+
+typedef const Standard_GUID &(*FuncGUID)();
+
+const Standard_GUID *occtCitedDocumentsGUID()
+{
+    static const auto func = (FuncGUID)lookUpOCCT("TKXCAF", "XCAFDoc_CitedDocumentsGUID");
+    return func ? &func() : nullptr;
+}
+
+const Standard_GUID *occtAttributeMeasuresGUID()
+{
+    static const auto func = (FuncGUID)lookUpOCCT("TKXCAF", "XCAFDoc_AttributeMeasuresGUID");
+    return func ? &func() : nullptr;
+}
+
 } // namespace Part

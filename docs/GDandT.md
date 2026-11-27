@@ -1586,6 +1586,118 @@ kept; the tests need PartDesign. And one for a decision: supplemental geometry i
 every file since sec 10.24 K, whatever `read.step.constructivegeom.relationship` says -- a
 plain part with construction curves comes in with them beside its solid.
 
+Closed 2026-11-26 (audit leftovers): the opposed blind holes are a hole each (a bore's runs
+apart on one axis); `autoSlot` keeps where each callout lands through one recompute (400
+self-placed tolerances 1.70 s -> 0.20 s); a composite frame's rows turn upright as one, about
+the middle of the stack; a width on two faces facing the same way is refused as a step;
+`Datum.Shape` and `DatumTarget.Shape` are made again on restore; a perspective view keeps the
+height it shows at its focal distance; the Body-based tests skip without PartDesign.
+`SavedGeometry` keeps a reference resolved to nothing in its place (an empty compound): the
+ones after it were read onto the one before. The import guards each stage over the whole
+file (a failure loses that stage, said in the report), and says when a file's datum frame is
+one FreeCAD does not write (a letter not A to Z, more than three compartments, a datum
+twice): kept as read, shown invalid. A datum feature symbol linked to its size's
+`dimensional_size_with_datum_feature` only, not its `datum`, was feared lost (B6): probed on
+STC-07 with datum B's link moved so, it is not.
+
+Closed 2026-11-26 (gaps the audit's comparisons found, I14-I16). A datum of targets alone
+(CTC-02, CTC-05, FTC-06) was written a datum feature of nothing: it has none now, as NIST's.
+FTC-10's supplemental axes, hidden by their one line's style each, are read hidden and written
+so; their colour is their line's. A callout's slot follows the ones before it in its set,
+which it does not depend on: one of those edited or gone now touches the auto-placed ones
+after it (moving the first of a stack had left the second a slot up). The layers of the
+part's own geometry are kept: each item's layers as the file has them, by the layer's entity
+(OCCT `XCAFDoc_LayerTool::AddItemLayer`; FreeCAD `StepLayers`, by element) -- XCAF's layers
+merge by name, and STC-06's layer '1' is a hidden one and a shown one. A member of a curve set
+the part shares with its supplemental geometry keeps its layers on the supplemental object
+(`XCAFDoc_DimTolTool::SupplementalMember`: STC-06's 36 trimmed curves). Two OCCT writer
+fixes came with it: a point of its own in a compound beside other shapes was not written at
+all (CTC-05's, STC-06's 12), and a written point is now found as its vertex (STC-09 -e3's
+hidden points written hidden). And the part's curve sets: the AsIs writer exploded a
+compound into its edges, a curve set of each (a wire flattened into trimmed curves). A
+compound of curves alone (a sketch) is now one curve set as NIST writes one: each wire a
+composite curve, each edge a trimmed curve, each found by its shape -- NIST hides and
+layers the members, never the set (STC-09's 13 composite curves and 16 trimmed curves,
+FTC-10's 11 trimmed curves: hidden each as NIST's; CTC-04's 10 composite curves layered as
+NIST's; `test_a_sketch_beside_a_solid_is_one_curve_set_and_a_point_is_kept`). Five of the
+six files' layers hold NIST's items one for one; CTC-04's six curve sets that are the
+part's own curves or points (XCAF makes them of them) are layered member by member
+(`test_part_layers_as_the_file_has_them` compares the layers, not their counts). STC-09's
+one layer of supplemental and part items is written as two, and two points it hides by its
+layer we hide by their style too.
+
+Closed 2026-11-27 (I11 (c) and (d)). **A shape content's looks are its parent's.** A content
+(`Part::Feature` 'Expand shape contents', STC-09's compound) took the parent's face colours
+when it was made and kept them: a change of the parent's reached none. It links its parent by
+a hidden link alone (`_ShapeContentOwner`), which puts it in no in-list and makes it no shape
+made from anything, so neither `App::AppearanceUpdater` nor the source looks reached it. Each
+element of a content now takes the look its element has in the parent, whole (a content is a
+piece of the parent, not a shape made from it), and the parent tells its contents when it is
+drawn differently. A content's own look wins: an element it states a look for keeps it, and a
+colour, transparency or material given to the whole content turns its `MapFaceColor` (an
+edge's or vertex's: `MapLineColor`, `MapPointColor`) off, so the content keeps it -- turn the
+property on again to follow the parent. Saved and reopened as they were drawn
+(`ShapeContentsSaveTest.test_contents_follow_their_parents_looks`). **A part's members are
+not thrown out for the annotations beside it.** A `GeoFeatureGroup` keeps the members it has
+checked, and a change of Group checks the rest. The ones `addObjects()` adds it checks itself,
+and it did not say so: at the next change they were all taken for new, and each tied to
+anything outside the part by a link made since -- every member a PMI annotation beside the
+part names, through its links -- was thrown out. Deleting FTC-10's nested container so dropped
+most of its parent's members ('because of cross coordinate link to View001', or Datum004, or
+DatumSystem008: whichever the walk met first; the import detached the container first to get
+around it, which it no longer does). And a change taking a member away checked every member
+again, for the same result: it checks those tied to what left, and to what it throws out
+(`PartGroupModeTest.aMemberAddedByAddObjectsIsCheckedAlready`,
+`aMemberLinkedFromOutsideStaysWhenAnotherLeaves`).
+
+Closed 2026-11-27 (the layer forms left above). **CTC-04's curve sets are layered as NIST
+layers them.** A curve set of the part's own curves or points has no label of its own, so its
+layer is read onto each member (`StepLayers` by element), and a member on a layer of its own
+too carries two. The OCCT writer gave the first of them the member's entity and the second
+none -- `NCollection_Sequence::Append(sequence)` moves the items, it does not copy them -- so
+four of CTC-04's assignments were written with no items at all (`()`, invalid STEP: Sketch.3's,
+Sketch.18's, Sketch.22's, Sketch.37's). Each layer now gets its items, and a layer holding
+every member of a set of two or more written holds the set instead (no NIST file layers all of
+a set's members one by one). The same rule ends a duplicate: a supplemental curve set's layer
+read onto its members was written again by them beside the set's own (CTC-04's four
+'ThreadCylinder.1' layers, eight written). And a compound of points alone (a sketch of points)
+is written one point set, as a compound of curves is, not merged with every other point of the
+part into one (CTC-04's 30 and 12 and 'Point.1' were one set of 43). CTC-04 now writes NIST's
+32 assignments, in NIST's order, each holding NIST's kinds of items, and
+`test_part_layers_as_the_file_has_them` compares what each layer holds, not only that it is
+there. And STC-09 -e4's one layer of 11 supplemental planes and 6 part curve sets, written as
+twelve -- the part's sets on one, each plane on one of its own -- is one again: a supplemental
+item's layer keeps the number of its assignment in the file as the part's item layers do
+(`XCAFDoc_DimTolTool::SetSupplementalLayer`/`GetSupplementalLayer`, new overloads with an
+ordinal; `StepLayer`'s third entry), and the writer adds an item to the assignment of that
+number written already, hidden by it when that one is hidden.
+
+**PMI's STEP exchange is the OCCT fork's; the rest of PMI is not** (the standing rule of
+2026-11-27, reworded the same day). What reads and writes the GD&T of STEP files
+(`StepImport.cpp`, `StepExport.cpp`) calls the fork's GD&T extensions of XCAF by their C++
+names, and is the module PMIStep of its own, which PMI loads only where the fork says it has
+them, by `XCAFDoc_DimTolTool_PMI` (TKXCAF, a version, 1; `Part::occtPMIVersion()`). Everything
+else of PMI -- making and editing annotations, their display, the checks, TechDraw's model
+annotations -- imports nothing the fork alone exports, so the workbench loads and works where
+the OCCT libraries are upstream's. There, the GD&T of a STEP file is not read, and Import says
+so once (`ImportOCAF2::runPostImport`); an export of a part with annotations writes its shapes
+and says, set by set, that its PMI is not written; `PMI.stepExchange()` is `(False, why)`, and
+TestStep's classes skip saying why (their shapes' test tests the fork's writer too). The core
+modules load all the same: Import reaches what it needs of the fork through C functions looked
+up at run time (`Part/App/OCCTFork.h`: `setOCCTGDTPresentationColor`, `addOCCTItemLayer`,
+`getOCCTItemLayers`, `occtCitedDocumentsGUID`, `occtAttributeMeasuresGUID`). This module
+exports `PMI_CalloutLayout` (`Callout.h`), a callout's frame for TechDraw to look up by name. An
+exported fork function keeps its signature: a new parameter is a new overload beside the old
+one (`SetPlaceholder`'s `theShared`). Checked with conda-forge's occt 8.0.1: of 74 binaries
+PMIStep.pyd alone imports what only the fork exports (its 38 members); PMI, PMIGui and
+TechDrawGui load; TestPMIApp runs 151, the 54 of TestStep skipping; and the GUI tests of the
+workbench, the queries, the targets and TechDraw's callouts pass as they do on the fork
+(`tests/gui/pmi-step.py` says it skips).
+
+The NIST set the suites run on here is NIST's February 2026 update (SFA's
+`Release/NIST-PMI-STEP-Files.zip`), as `docs/Testing.md` says; with it TestPMIApp's 151 tests
+run and none skips (the 2021 download's STC-09 -e3 skipped two).
+
 SFA pass 12 (dwin) on that: STC-06 and STC-10 equal NIST's graphics table, and two things it
 found. A value's format was written with the digits of the millimetres a value is kept in, in a
 file in inches ('NR2 3.2' for 12 in): the writer counts those of the value it writes. And one
@@ -1954,6 +2066,139 @@ compares; it took our curves for none.
   STC-06's placeholders); a part with per-face colours keeps FreeCAD's default colour for
   itself (STC-09's brep and shells); the products of documents a file cites (FTC-10's
   'ASME Y14.41') are not read.
+- **SFA p20 (dwin): the contains line.** Item by item it equals NIST's in 13 files. 'Properties'
+  (CTC-03, CTC-05, FTC-08 -e4-tg; user decision 2026-11-25: do it): a product's user defined
+  attributes, read by OCCT into XCAF named data, are kept on its object (`StepAttributes`, and
+  `StepIntegerAttributes`, `StepRealAttributes` for numbers) and given back on export; a part
+  the file gave geometric validation properties is marked `StepValidation` and written with
+  them, computed of the shape written (OCCT names them its way: 'surface area measure', one
+  property each). Not written yet: the attribute validation property (counts of them), PMI
+  validation properties (each graphic's length, area, facets; NIST's of its own graphics) and
+  tessellated validation properties.
+- **Graphics as curves (CTC-05).** NIST draws CTC-05's PMI as annotation curve occurrences
+  of polylines and circles, ours were always tessellated (SFA: 'Graphic PMI (polyline)'). A
+  PMI whose graphic was curves is marked (`XCAFDoc_DimTolTool::SetPresentationCurves`,
+  `Callout.ImportedAsCurves`) and, drawn as the file drew it, written as curves again: a full
+  circle a circle, the rest polylines, a segment chained to the one before it where it starts
+  at its end (650 polylines to NIST's 556). The round trip checks as many curve occurrences.
+- **Holes (STC-09; user decision 2026-11-25).** AP242 ed3 hole features -- STC-09 -e4's 8
+  `basic_round_hole` definitions (name, depth and diameter each with a tolerance, a placement,
+  through or not) of 25 occurrences, each identified with its faces and placed by a mapped item
+  among the part's 'Positions of Holes' -- are entities OCCT does not know. OCCT's usage
+  definition select takes a hole occurrence now; the reader keeps each definition and its
+  occurrences in XCAF (`XCAFDoc_DimTolTool::AddHole`, `AddHoleOccurrence`; lengths in the units
+  of the representation they are in), the import makes each occurrence a `PMI::Hole` of the
+  set on a feature of its faces (`OccurrenceName` the file's, which need not be unique), and
+  the export and writer give them back as NIST has them. A usage of several items is written
+  as the `set_representation_item` it is (OCCT wrote a bare list).
+- **UUIDs (STC-09; user decision 2026-11-25: product, PMI and holes, not faces and edges).**
+  AP242 ed4 `uuid_attribute`s (STC-09's 615 `v5_uuid_attribute`, about 630 of them on faces and
+  edges): the reader keeps the UUID of each GD&T label, product and hole occurrence
+  (`XCAFDoc_DimTolTool::SetUUID`), the import on its object (`StepUUID`: type and UUID), the
+  export and writer give it back, one attribute each (SFA: two on one item, or one UUID
+  twice, are errors). STC-09: 79 read, 79 written, read back the same (`test_uuids_kept`).
+  The faces' and edges' are not kept: an element's identity does not survive an edit.
+- **SFA p21 (dwin).** The contains line equals NIST's in 15 of 17 files (CTC-03, CTC-05,
+  FTC-08 -e4-tg 'Properties'; CTC-05 'Graphic PMI (polyline)'). New: a product's semantic
+  text, read by OCCT as a user attribute too, was written as one as well -- invalid to SFA
+  (representation named 'semantic text', 5 files): no attribute is kept of it, the note it is
+  is written. Logged: STC-06's 130 length attributes come back as reals (OCCT's metadata
+  drops a measure's kind); CTC-05's polylines carry 4.4 times NIST's points.
+- **Gaps chased after p21 (dwin down; the user: chase them all).** Length attributes: the
+  reader keeps which reals were lengths (`XCAFDoc::AttributeMeasuresGUID`, pairs of key and
+  measure), the import on the object (`StepAttributeMeasures`, the real in mm), the writer gives
+  them back as `LENGTH_MEASURE`s in the file's length unit (STC-06: 130 of 130). OCCT's
+  `StepRepr_PropertyDefinition::SetDescription` set no flag: every attribute had been written
+  with description `$`, not 'user defined attribute' -- fixed. Polylines: the export cut the
+  file's curves into segments and the writer chained them (CTC-05: 4.7 times NIST's points);
+  a graphic given as curves goes to the writer as it is, a polyline read (a degree 1 B-spline)
+  written with its own points, only segments chained: 573 polylines, 6965 points, 77 circles,
+  NIST's. Logged: NIST overrides the colour of two lines of each of CTC-05's rectangular
+  regions (an over-riding styled item of a curve set of them); not read.
+  What NIST hides: FTC-09 hides 44 PMI by their callouts (an INVISIBILITY of the draughting
+  callout, which OCCT's invisible item select did not take: read as nothing), STC-06 the
+  placeholders of 19 hidden PMI (a placeholder: no class, an undefined entity; the select takes
+  both now). Read hidden, kept how (`XCAFDoc_DimTolTool::SetPresentationHiddenCallout`,
+  `SetPlaceholderHidden`; `Callout.ImportedHiddenCallout`, 'hidden' in `ImportedPlaceholder`;
+  STC-08 and CTC-02 hide their PMI's graphics, not their placeholders) and written so again.
+  Not taken: the styles NIST gives the surfaces under faces and hides (CTC-01's 117, a styled
+  item of a bare plane or cylinder: FreeCAD has no object of them); one INVISIBILITY written
+  where NIST writes one an item (FTC-07, FTC-10, STC-06, STC-09: the same items hidden).
+  Supplemental geometry on layers: NIST puts items on a layer each (a presentation layer
+  assignment of one item, '-1' 'Layer-1') and hides most by it (FTC-07 13, STC-06 16, CTC-04,
+  FTC-10, STC-09), some by their style. The reader keeps each item's layer
+  (`XCAFDoc_DimTolTool::SetSupplementalLayer`) and whether it is hidden; the import puts them
+  on the object (`StepLayer`: name, description; `StepHidden`), a set of curves not shown; the
+  writer gives each its layer again and hides it as it was hidden: kind, name, layer and
+  hidden, item for item, NIST's in all seven files (`test_supplemental_layers_...`). The
+  part's own sketches and surfaces NIST hides member by member (STC-09's 5 shells and 29
+  curves, FTC-10's curves; one object in FreeCAD hides no part of itself; user decision
+  2026-11-26: the assembly route): a compound some members of which the file hides, not all,
+  is read as an object each in an App::Part written as one shape again
+  (`ExportOCAF2::OneShapeProperty`), those hidden hidden, each with its own faces' and edges'
+  looks (ImportOCAF2 `hiddenMembers`; the progressive import hands such a file to the direct
+  one). The PMI on them refers to the members it is on, the first its object, the others
+  beside it; the part of a member without a solid is the one its container is in. Written,
+  the members hidden are NIST's, curves and surface models (`test_what_the_file_hides_is_hidden`,
+  now on FTC-10 and CTC-04 too; NIST styles a hidden curve itself, OCCT the set it is in). Not
+  done: members of a curve set hidden alone (STC-06's 12, FTC-10's two axis lines), each a
+  supplemental item; STC-09 -e3's hidden points (curve sets of a point each) are read hidden
+  but not written so -- OCCT writes a part's points as one set.
+  Which supplemental items a saved view shows: STC-06's twelve views each map, beside the
+  part, a shape representation 'supplemental geometry' of some of the items, described
+  'supplemental geometry subset' (a description attribute), as a mapped item of the camera
+  model. The reader took its items for shapes; it now finds them among the items read
+  (`XCAFDoc_DimTolTool::SetViewSupplemental`, a reference list on the view), the import lists
+  them in the view's `Objects` beside the part -- so the rest is not shown in it -- once the
+  supplemental geometry is read, and the writer writes the subset again, each item the one it
+  wrote for the group: kind and name, view for view, NIST's
+  (`test_view_supplemental_geometry_as_the_file_has_it`).
+  How a PMI's shapes are grouped: NIST gives a pattern of holes as a composite group shape
+  aspect 'pattern of features', named as the annotation, of a composite shape aspect 'unified
+  geometric item' per hole (CTC-04's 'Position.2': 6 holes of 2 faces), 169 groups in 10
+  files, one shared by the position and the size of its holes; we wrote one flat composite,
+  unnamed. The reader keeps the tree (`XCAFDoc_DimTolTool::SetAspectStructure`: kinds, names,
+  descriptions, each leaf its shapes' label entries, the composite's entity number to say
+  which PMI share it), the import as the elements of the feature's objects (`StepAspects`,
+  read once supplemental geometry is objects of its own: a thread's cylinder is
+  `Curves001.Edge1`), the export as labels again, and the writer writes it so -- one
+  composite to PMI that shared one, if it still covers each one's shapes, else flat as
+  before. A PMI on a datum's feature itself (FTC-07's sizes on datum B's, STC-06's flatness
+  on D's) is on the feature written for that datum again, named as the file named it; a
+  datum's feature is written as the file grouped it (STC-09's datum E: a group of a hole's two
+  faces and a hole occurrence; a group, 'F', where the file's is one). A hole occurrence is
+  an entity OCCT now knows (`StepRepr_BasicRoundHoleOccurrence`): before, its faces were lost
+  from the PMI on it. Shapes of the part beside its solid -- FTC-10's extracted surfaces,
+  STC-10's wires -- stay in the feature, after the solid's, where they were dropped. A
+  centre of symmetry (STC-07's 23 axes of its holes, 'S') is written again, derived from the
+  surfaces it is of, its own axis the curve of the supplemental geometry it was (named among
+  the supplemental objects, `Curves016.Edge1`); a size that is its own datum feature (STC-07's
+  datums B and C, 'W') is one dimensional_size_with_datum_feature again, not a size on a
+  datum feature; a leaf of several faces is one shape aspect of them all (an
+  item_identified_representation_usage of a set). All sixteen files as NIST has them
+  (`assertSameAspects`, in the every-file round trip). Not kept: a datum feature's own form
+  where no PMI is on it -- its faces on its own usage or on members, the geometry on the
+  datum and not its feature (CTC-02); SFA does not report it. Found on the way: a
+  feature named a face and an edge lost its edge, an edge taken for a tessellated copy of the
+  face (FTC-11's arc length).
+  Cited documents: the standards a file says its PMI follows (FTC-10 'ASME Y14.41', STC-07's
+  four; CTC-05, FTC-07, STC-09 too) -- a product of its own with a DOCUMENT, a document
+  product equivalence and an applied document reference to the part's definition with a
+  role, under a context association. SFA reads them, unlike the rest of this list: its
+  'Standards:' line and the standard rows of its coverage come from their ids. The reader
+  keeps each, field by field (`XCAFDoc::CitedDocumentsGUID`, one string of '\n'-joined
+  fields per document: context, document, role, the equivalent product), the import on the
+  object (`StepDocuments`), the writer writes them again: entity for entity NIST's in the
+  five files (`test_cited_documents_as_the_file_has_them`).
+  A part coloured face by face: the import gave it its faces' colours and kept the default
+  grey as its own, which no face has, so every face differed from it and was written as a
+  colour of its own (STC-09: 163 where NIST has a body colour and 5). Its own colour is now
+  the one most of its area has, as for materials -- and the looks of a face given a colour
+  copied from the default look lose its material card: two looks naming one card compare
+  equal whatever their colours, which had made the 163 one. The other files' face styles
+  NIST writes and we do not are each face of a solid styled as the solid is, or a face of a
+  surface model as its model is (`assertBodyColoured`). Not done: the five surfaces of
+  STC-09 are written in the body's colour, their face each in its own (drawn the same).
 
 ## 11. Decisions (made 2026-11-19)
 

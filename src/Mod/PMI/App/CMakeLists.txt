@@ -55,12 +55,10 @@ set(PMI_SRCS
   Layout.cpp
   Note.cpp
   Note.h
-  StepExport.cpp
-  StepExport.h
-  StepImport.cpp
-  StepImport.h
   View.cpp
   View.h
+  Hole.cpp
+  Hole.h
   PreCompiled.cpp
   PreCompiled.h
   TolerancedFeature.cpp
@@ -80,3 +78,23 @@ SET_BIN_DIR(PMI PMI /Mod/PMI)
 SET_PYTHON_PREFIX_SUFFIX(PMI)
 
 install(TARGETS PMI DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+# The GD&T of STEP files, read and written: the one part of PMI that calls the
+# OCCT fork's GD&T extensions of XCAF by their C++ names. A module of its own,
+# which PMI loads only where the fork's marker is found, so PMI itself loads
+# where the OCCT libraries are upstream's (AppPMIStep.cpp, docs/GDandT.md)
+set(PMIStep_SRCS
+  AppPMIStep.cpp
+  StepExport.cpp
+  StepExport.h
+  StepImport.cpp
+  StepImport.h
+)
+
+add_library(PMIStep SHARED ${PMIStep_SRCS})
+target_link_libraries(PMIStep PMI ${PMI_LIBS})
+
+SET_BIN_DIR(PMIStep PMIStep /Mod/PMI)
+SET_PYTHON_PREFIX_SUFFIX(PMIStep)
+
+install(TARGETS PMIStep DESTINATION ${CMAKE_INSTALL_LIBDIR})

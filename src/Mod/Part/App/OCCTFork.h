@@ -36,12 +36,18 @@
  * Part.hasOCCTFunction(toolkit, name).
  */
 
+#include <NCollection_Sequence.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_TShape.hxx>
+#include <XCAFDoc_LayerTool.hxx>
 
 #include <Mod/Part/PartGlobal.h>
 
 class Standard_Transient;
+class Standard_GUID;
+class Quantity_Color;
+class STEPCAFControl_Writer;
+class TDF_Label;
 class GeomTools_Curve2dSet;
 class BinTools_ShapeSet;
 class BRepTools_ShapeSet;
@@ -302,6 +308,34 @@ public:
 private:
     int previous;
 };
+
+// --- TKXCAF, TKDESTEP: the fork's data exchange -----------------------------
+
+/// The version of the fork's GD&T extensions of XCAF (XCAFDoc_DimTolTool_PMI):
+/// 0 without them. PMI's STEP exchange, the module PMIStep, calls them by their
+/// C++ names, so it is loaded only where this is at least what it was built for
+/// (PMI's loadStepExchange, ImportOCAF2's runPostImport).
+PartExport int occtPMIVersion();
+/// Draws the GD&T graphics the writer writes in a colour of the caller's (the
+/// fork's STEPCAFControl_Writer_SetGDTPresentationColor); false without it,
+/// where they are written in OCCT's white
+PartExport bool setOCCTGDTPresentationColor(STEPCAFControl_Writer &writer,
+                                            const Quantity_Color &color);
+/// Puts a shape's item on a layer as the file had it (the fork's
+/// XCAFDoc_LayerTool_AddItemLayer); false without it, where XCAF's layers by
+/// name are all there is
+PartExport bool addOCCTItemLayer(const TDF_Label &item,
+                                 const XCAFDoc_LayerTool::ItemLayer &layer);
+/// The layers a shape's item is on as the file had them (the fork's
+/// XCAFDoc_LayerTool_GetItemLayers); false when it is on none, and without it
+PartExport bool getOCCTItemLayers(const TDF_Label &item,
+                                  NCollection_Sequence<XCAFDoc_LayerTool::ItemLayer> &layers);
+/// The GUID the fork keeps the documents a product cites under
+/// (XCAFDoc_CitedDocumentsGUID); null without it, where none are read
+PartExport const Standard_GUID *occtCitedDocumentsGUID();
+/// The GUID the fork keeps an attribute's measures under
+/// (XCAFDoc_AttributeMeasuresGUID); null without it, where none are read
+PartExport const Standard_GUID *occtAttributeMeasuresGUID();
 
 } // namespace Part
 

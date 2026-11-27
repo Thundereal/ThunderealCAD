@@ -26,9 +26,11 @@
 #define PMI_CALLOUT_H
 
 #include <string>
+#include <vector>
 
 #include <gp_Ax3.hxx>
 #include <gp_Pnt.hxx>
+#include <TopoDS_Shape.hxx>
 
 #include <App/PropertyGeo.h>
 #include <App/PropertyLinks.h>
@@ -99,8 +101,16 @@ public:
     /// name of its geometric set) and its name, which need not be the
     /// graphic's; a third 'shared' when it is another PMI's placeholder too,
     /// one the file links both to (STC-06's hole callout, its diameter's and
-    /// its depth's). Written again with one, where its text is
+    /// its depth's); 'hidden' after them when the file hid it (STC-06's 19).
+    /// Written again with one, where its text is
     App::PropertyStringList ImportedPlaceholder;
+    /// The file's graphic was curves (STEP: an annotation curve occurrence of
+    /// polylines and circles, NIST CTC-05's), not tessellated: written so again
+    /// while drawn as the file draws it
+    App::PropertyBool ImportedAsCurves;
+    /// The file hid it by its callout (an INVISIBILITY of the draughting
+    /// callout, NIST FTC-09's 44), not its graphic: written so again, hidden
+    App::PropertyBool ImportedHiddenCallout;
     /// The callout whose graphic from the file draws this one too, while
     /// both are as the file has them: a composite frame's upper segment, the
     /// PMI a graphic presents with it, a hole's size for its depth
@@ -161,6 +171,12 @@ public:
         (void)below;
         return nullptr;
     }
+    /// The rows of the frame it is one of, drawn as one (a composite frame's
+    /// lower segments, counted from its upper or from one of them); 0 for none
+    virtual int composedRows() const
+    {
+        return 0;
+    }
     /// Whether the file's graphic of another callout (ImportedWith) draws
     /// this one too: nothing of its own is drawn then
     bool drawnByAnother() const;
@@ -196,13 +212,49 @@ protected:
     /// How many callouts before this one in the set land near \a mine on
     /// a parallel plane
     int autoSlot(const gp_Ax3& mine, double h) const;
+    /// Touches the auto-placed callouts after this one in its set: their
+    /// slots are taken by where this lands, which they do not depend on
+    void touchLaterSlots() const;
 
     /// Set while the callout changes its own properties (its plane as it is
     /// placed, a limits dimension's deviations about a nominal measured
     /// again): no edit by the user
     bool _placing = false;
+private:
+    /// Where it lands placed on its own (calloutTarget, then autoPlane),
+    /// as another's autoSlot asks: kept through one recompute while none of
+    /// its own properties changes and what it is placed from is the same
+    /// shapes; else each placement asked of every one before it in the set
+    /// (a set's recompute quadratic in callouts: 400 took 1.7 s)
+    bool landing(double h, gp_Ax3& plane, gp_Pnt& target) const;
+    /// The shapes a placement is made from: of the objects it links to, and
+    /// of the parts their features refer to
+    std::vector<TopoDS_Shape> landingInputs() const;
+    struct Landing
+    {
+        bool valid = false;
+        bool ok = false;
+        double h = 0;
+        unsigned long recompute = 0;
+        std::vector<TopoDS_Shape> inputs;
+        gp_Ax3 plane;
+        gp_Pnt target;
+    };
+    mutable Landing _landing;
 };
 
 }  // namespace PMI
+
+/// A PMI callout's frame laid out at lettering height `fontSize`, for a client that does
+/// not link this module and looks this up by name in it once loaded (GetProcAddress, dlsym):
+/// TechDraw's balloon of a callout (QGIPMICallout). `drawing` is its strokes and fills, as
+/// edges and faces in the callout's plane; `bounds` its extent there: xmin, ymin, xmax, ymax.
+/// False, and nothing given, when `callout` is no PMI::Callout or draws nothing. Without this
+/// module (it needs the OCCT fork) there is nothing to find, and a client draws a plain
+/// balloon.
+extern "C" PMIExport bool PMI_CalloutLayout(App::DocumentObject* callout,
+                                            double fontSize,
+                                            TopoDS_Shape& drawing,
+                                            double bounds[4]);
 
 #endif  // PMI_CALLOUT_H

@@ -80,8 +80,11 @@ public:
 
 protected:
     void onChanged(const App::Property* prop) override;
+    void onDocumentRestored() override;
 
 private:
+    /// The simulated datum Shape is: of its feature, else of its targets
+    TopoDS_Shape simulated() const;
     /// The datum its targets simulate: a plane through three or more
     /// points, a line through two, a point
     TopoDS_Shape fromTargets() const;
@@ -155,6 +158,9 @@ public:
     bool hasSize() const;
 
     static const char* TargetTypeEnums[];
+
+protected:
+    void onDocumentRestored() override;
 
 private:
     TopoDS_Shape makeShape() const;

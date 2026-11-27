@@ -25,6 +25,8 @@
 #ifndef PMI_STEPEXPORT_H
 #define PMI_STEPEXPORT_H
 
+#include <algorithm>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -68,6 +70,70 @@ inline char asciiLower(char c)
     return isAsciiUpper(c) ? char(c - 'A' + 'a') : c;
 }
 
+/** A composite shape aspect's structure, how a GD&T's shapes are grouped
+ * (XCAFDoc_DimTolTool::SetAspectStructure: "G{name|description}(C{...}(a,b),c+d)"), each of
+ * its shapes named again by rename -- the entries of their labels in OCCT's document, the
+ * elements of an object in FreeCAD's. Empty when rename names one none.
+ */
+template<typename F>
+std::string renameAspects(const std::string& structure, F rename)
+{
+    std::string out;
+    // The names of the leaf being written, each once (a thread's three curves, one label)
+    std::vector<std::string> leaf;
+    std::size_t i = 0;
+    while (i < structure.size()) {
+        const char c = structure[i];
+        if (c == '{') {
+            // A name and a description, their reserved characters %XX: as they are
+            std::size_t end = structure.find('}', i);
+            if (end == std::string::npos) {
+                return {};
+            }
+            out += structure.substr(i, end + 1 - i);
+            i = end + 1;
+        }
+        else if (c == '@') {
+            // The composite's identity, what it is shared by: as it is
+            std::size_t end = structure.find_first_not_of("0123456789", i + 1);
+            end = end == std::string::npos ? structure.size() : end;
+            out += structure.substr(i, end - i);
+            i = end;
+        }
+        else if (c && std::strchr("CGDFHSW", c) && i + 1 < structure.size()
+                 && structure[i + 1] == '{') {
+            out += c;
+            ++i;
+        }
+        else if (c == '(' || c == ')' || c == ',') {
+            out += c;
+            leaf.clear();
+            ++i;
+        }
+        else if (c == '+') {
+            ++i;
+        }
+        else {
+            std::size_t end = structure.find_first_of("(),+{", i);
+            if (end == std::string::npos) {
+                end = structure.size();
+            }
+            std::vector<std::string> names = rename(structure.substr(i, end - i));
+            if (names.empty()) {
+                return {};
+            }
+            for (auto& name : names) {
+                if (std::find(leaf.begin(), leaf.end(), name) == leaf.end()) {
+                    out += (leaf.empty() ? "" : "+") + name;
+                    leaf.push_back(name);
+                }
+            }
+            i = end;
+        }
+    }
+    return out;
+}
+
 /** What an export wrote of the annotations of the parts exported */
 struct WriteReport
 {
@@ -90,10 +156,10 @@ struct WriteReport
  * point and its graphic, tessellated; and its saved views (P5). A writer
  * then writes them; STEP's writes them AP242 (Import::WriterStep).
  */
-PMIExport WriteReport write(const Import::PostExport& info);
+WriteReport write(const Import::PostExport& info);
 
 /// Run write() at the end of every export (ExportOCAF2::addPostExport)
-PMIExport void registerExport();
+void registerExport();
 
 /// A fit's fundamental deviations, in the order of OCCT's
 /// XCAFDimTolObjects_DimensionFormVariance (its first, None, ""); a hole's,

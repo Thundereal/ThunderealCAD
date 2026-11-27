@@ -50,6 +50,8 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 
+#include <App/Application.h>
+#include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Base/Tools.h>
@@ -106,6 +108,13 @@ Callout::Callout()
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
                       "The annotation placeholder the file gave it, its kind and its name: "
                       "written again");
+    ADD_PROPERTY_TYPE(ImportedAsCurves, (false), "Presentation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
+                      "The file's graphic was curves, not tessellated: written so again");
+    ADD_PROPERTY_TYPE(ImportedHiddenCallout, (false), "Presentation",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
+                      "The file hid it by its callout, not its graphic: written so again, when "
+                      "it is hidden");
     ADD_PROPERTY_TYPE(ImportedWith, (nullptr), "Presentation",
                       App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden),
                       "The callout whose graphic from the file draws this one too");
@@ -138,6 +147,16 @@ bool Callout::drawnByAnother() const
 
 void Callout::onChanged(const App::Property* prop)
 {
+    // Its own: where it lands is asked again
+    _landing.valid = false;
+    // Edited: the callouts after it in its set take their slots by where it
+    // lands, and do not depend on it -- so they are told (autoSlot)
+    if (!_placing && !isRestoring() && prop && prop->getContainer() == this
+        && !(prop->getType() & (App::Prop_ReadOnly | App::Prop_Output)) && getDocument()
+        && !getDocument()->testStatus(App::Document::Restoring)
+        && !getDocument()->testStatus(App::Document::Recomputing)) {
+        touchLaterSlots();
+    }
     // Edited: drawn from what it says from now on
     if (UseImported.getValue() && !_placing && !isRestoring() && isEdit(prop)) {
         UseImported.setValue(false);
@@ -523,10 +542,7 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
             break;
         }
         auto other = freecad_cast<Callout*>(obj);
-        gp_Ax3 ax;
-        gp_Pnt t;
-        if (!other || !other->AutoPlace.getValue() || !other->calloutTarget(t)
-            || other->attachedParent()) {
+        if (!other || !other->AutoPlace.getValue() || other->attachedParent()) {
             continue;
         }
         double oh = other->TextHeight.getValue() > 0 ? other->TextHeight.getValue() : h;
@@ -536,7 +552,9 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
         if (other->composedUnder(oh, below)) {
             continue;
         }
-        if (!other->autoPlane(oh, ax, t)) {
+        gp_Ax3 ax;
+        gp_Pnt t;
+        if (!other->landing(oh, ax, t)) {
             continue;
         }
         if (!ax.Direction().IsEqual(mine.Direction(), 1e-6)) {
@@ -547,6 +565,91 @@ int Callout::autoSlot(const gp_Ax3& mine, double h) const
         }
     }
     return slot;
+}
+
+void Callout::touchLaterSlots() const
+{
+    auto set = getSet();
+    if (!set) {
+        return;
+    }
+    bool after = false;
+    for (auto obj : set->Group.getValues()) {
+        if (obj == this) {
+            after = true;
+            continue;
+        }
+        auto other = freecad_cast<Callout*>(obj);
+        if (after && other && other->AutoPlace.getValue() && !other->attachedParent()
+            && !other->isTouched()) {
+            other->touch();
+        }
+    }
+}
+
+namespace
+{
+/// A count of the recomputes begun, any document's: a landing kept is of
+/// one recompute, not carried into the next
+unsigned long recomputes()
+{
+    static unsigned long count = 0;
+    static bool subscribed = []() {
+        App::GetApplication().signalBeforeRecomputeDocument.connect(
+            [](const App::Document&) { ++count; });
+        return true;
+    }();
+    (void)subscribed;
+    return count;
+}
+}  // namespace
+
+std::vector<TopoDS_Shape> Callout::landingInputs() const
+{
+    std::vector<TopoDS_Shape> res;
+    auto shapeOf = [&](const App::DocumentObject* obj) {
+        auto prop = obj ? freecad_cast<Part::PropertyPartShape*>(obj->getPropertyByName("Shape"))
+                        : nullptr;
+        res.push_back(prop ? prop->getShape().getShape() : TopoDS_Shape());
+    };
+    for (auto obj : getOutList()) {
+        shapeOf(obj);
+        if (auto feat = freecad_cast<TolerancedFeature*>(obj)) {
+            for (auto part : feat->References.getValues()) {
+                shapeOf(part);
+            }
+        }
+    }
+    return res;
+}
+
+bool Callout::landing(double h, gp_Ax3& plane, gp_Pnt& target) const
+{
+    std::vector<TopoDS_Shape> inputs = landingInputs();
+    auto same = [&]() {
+        if (!_landing.valid || _landing.h != h || _landing.recompute != recomputes()
+            || _landing.inputs.size() != inputs.size()) {
+            return false;
+        }
+        for (std::size_t i = 0; i < inputs.size(); ++i) {
+            if (!inputs[i].IsEqual(_landing.inputs[i])) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!same()) {
+        Landing l;
+        l.h = h;
+        l.recompute = recomputes();
+        l.ok = calloutTarget(l.target) && autoPlane(h, l.plane, l.target);
+        l.inputs = std::move(inputs);
+        l.valid = true;
+        _landing = std::move(l);
+    }
+    plane = _landing.plane;
+    target = _landing.target;
+    return _landing.ok;
 }
 
 void Callout::updatePresentation()
@@ -592,9 +695,16 @@ void Callout::updatePresentation()
 
     Callout* parent = attachedParent();
     double below = 0.5 * h;
+    bool composed = false;
     if (!parent) {
         parent = composedUnder(h, below);
+        composed = parent != nullptr;
     }
+    // A composite frame's rows, each 2h, turn as one about the middle of
+    // them all: each about its own, seen from below the upper read under its
+    // lowers. Its span in this one's drawing, as laid out below
+    double stackTop = 0, stackBottom = 0;
+    bool stacked = false;
     if (parent) {
         // Under the parent's drawing, left edges in line, in its plane
         double ph = parent->TextHeight.getValue() > 0 ? parent->TextHeight.getValue() : h;
@@ -609,6 +719,13 @@ void Callout::updatePresentation()
         }
         Drawing mine;
         layout(mine, h);
+        if (composed && !above.isEmpty() && !mine.isEmpty()) {
+            // Its top is below under the upper's bottom (in the upper's
+            // drawing above.ymin - below), the last row 2h each further down
+            stacked = true;
+            stackTop = mine.ymax + below + (above.ymax - above.ymin);
+            stackBottom = mine.ymax + below - 2 * h * composedRows();
+        }
         if (!above.isEmpty() && !mine.isEmpty()) {
             pla = pla
                 * Base::Placement(Base::Vector3d(above.xmin - mine.xmin,
@@ -647,6 +764,15 @@ void Callout::updatePresentation()
     layout(d, h);
     // A frame, a datum's box, a note turn whole; a dimension marks its value
     d.uprightAll();
+    if (!parent && composedRows() > 0 && !d.isEmpty()) {
+        // The upper of a composite frame, its lowers under it
+        stacked = true;
+        stackTop = d.ymax;
+        stackBottom = d.ymin - 2 * h * composedRows();
+    }
+    if (stacked) {
+        d.uprightAbout((stackTop + stackBottom) / 2);
+    }
 
     // The leader, in the plane: the target as the plane sees it (a target
     // off the plane is drawn where it projects, CAx-IF sec 8.3)
@@ -715,4 +841,27 @@ void Callout::updatePresentation()
     if (EquivalentText.getStrValue() != text) {
         EquivalentText.setValue(text);
     }
+}
+
+
+bool PMI_CalloutLayout(App::DocumentObject* callout,
+                       double fontSize,
+                       TopoDS_Shape& drawing,
+                       double bounds[4])
+{
+    auto pmi = dynamic_cast<PMI::Callout*>(callout);
+    if (!pmi || !bounds) {
+        return false;
+    }
+    PMI::Drawing d;
+    pmi->layout(d, fontSize);
+    if (d.isEmpty()) {
+        return false;
+    }
+    drawing = d.shape();
+    bounds[0] = d.xmin;
+    bounds[1] = d.ymin;
+    bounds[2] = d.xmax;
+    bounds[3] = d.ymax;
+    return true;
 }

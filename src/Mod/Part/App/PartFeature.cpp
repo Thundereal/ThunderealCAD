@@ -2748,6 +2748,15 @@ void Feature::restoreShapeContents() {
     }
     else if (auto ownerProp = get_ShapeContentOwnerProperty()) {
         if (auto owner = Base::freecad_dynamic_cast<Feature>(ownerProp->getValue())) {
+            // A content's shape is in no file: its owner's sub-shape, given when the owner
+            // expands. An owner whose shape is still to come (the deferred restore) is asked
+            // for it, which expands its contents -- or a content read before anything drew
+            // its owner (FreeCADCmd; the owner hidden, its contents shown) had none
+            if (owner->Shape.isRestorePending()) {
+                (void)owner->Shape.getShape();
+                if (!this->Shape.getShape().isNull())
+                    return;
+            }
             // A copy of a content takes the shape of the content it is a copy
             // of, which it names by its UID (docs/TransactionLogJournal.md sec 36.7):
             // the one it was brought with, kept in _SourceUUID for its reopen

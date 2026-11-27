@@ -53,6 +53,7 @@
 #include <Standard_Failure.hxx>
 #include <TCollection_HAsciiString.hxx>
 #include <TDF_Label.hxx>
+#include <TDF_Tool.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_ShapeMapHasher.hxx>
@@ -85,6 +86,7 @@
 #include <Mod/Import/App/ExportOCAF2.h>
 #include <App/Datums.h>
 #include <App/DocumentObjectGroup.h>
+#include <App/ElementNamingUtils.h>
 #include <App/GeoFeature.h>
 #include <App/GeoFeatureGroupExtension.h>
 #include <App/PropertyLinks.h>
@@ -97,6 +99,7 @@
 #include "Datum.h"
 #include "Dimension.h"
 #include "GeometricTolerance.h"
+#include "Hole.h"
 #include "Note.h"
 #include "StepExport.h"
 #include "TolerancedFeature.h"
@@ -283,10 +286,10 @@ public:
                 if (!part || !std::count(_info.objects.begin(), _info.objects.end(), part)) {
                     continue;
                 }
-                Exported* ex = exported(part, set);
+                std::string why;
+                Exported* ex = exported(part, set, why);
                 if (!ex) {
-                    _report.skipped.push_back(std::string(set->Label.getValue())
-                                              + ": its part's shape was not exported whole");
+                    _report.skipped.push_back(std::string(set->Label.getValue()) + ": " + why);
                     continue;
                 }
                 std::string key = std::string(set->getFullName());
@@ -303,14 +306,48 @@ public:
         for (auto& [obj, l] : _labels) {
             if (obj && !obj->Visibility.getValue()) {
                 XCAFDoc_DimTolTool::SetPresentationHidden(l, true);
+                auto c = freecad_cast<Callout*>(obj);
+                if (c && c->ImportedHiddenCallout.getValue()) {
+                    XCAFDoc_DimTolTool::SetPresentationHiddenCallout(l, true);
+                }
+            }
+            giveUUID(obj, l);
+        }
+        // A product's, on its label: its object's, or its container's (one shape of it)
+        for (auto& [part, ex] : _parts) {
+            if (ex.label.IsNull()) {
+                continue;
+            }
+            giveUUID(part, ex.label);
+            if (auto group = App::GeoFeatureGroupExtension::getGroupOfObject(part)) {
+                giveUUID(group, ex.label);
             }
         }
         return _report;
     }
 
 private:
-    /// The part as exported, made once
-    Exported* exported(App::DocumentObject* part, const AnnotationSet* set)
+    /// The part as exported, made once; null with why if it is not
+    Exported* exported(App::DocumentObject* part, const AnnotationSet* set, std::string& why)
+    {
+        why = "its part's shape was not exported whole";
+        try {
+            return exportedOnce(part, set);
+        }
+        catch (const Standard_Failure& e) {
+            why = e.GetMessageString();
+        }
+        catch (const Base::Exception& e) {
+            why = e.what();
+        }
+        catch (const std::exception& e) {
+            why = e.what();
+        }
+        // Not made (its shape is set last): the next asking is told so too
+        return nullptr;
+    }
+
+    Exported* exportedOnce(App::DocumentObject* part, const AnnotationSet* set)
     {
         auto it = _parts.find(part);
         if (it != _parts.end()) {
@@ -403,10 +440,10 @@ private:
             if (!part || !std::count(_info.objects.begin(), _info.objects.end(), part)) {
                 continue;
             }
-            Exported* ex = exported(part, nullptr);
+            std::string why;
+            Exported* ex = exported(part, nullptr, why);
             if (!ex) {
-                _report.skipped.push_back(std::string(o->Label.getValue())
-                                          + ": its part's shape was not exported whole");
+                _report.skipped.push_back(std::string(o->Label.getValue()) + ": " + why);
                 continue;
             }
             TDF_Label group = _tool->AddSupplementalGeometry(
@@ -423,15 +460,51 @@ private:
                     ex->placedToLabel * trsfOf(geo->globalPlacement());
                 gp_Ax3 pos = gp_Ax3(ax2Of(toLabel));
                 TCollection_AsciiString name = ascii(stepName(item))->String();
-                // Its colour, as the file drew it
-                auto colored = [item](const TDF_Label& l) {
+                // Its colour, as the file drew it; its layer, and whether it is shown -- the
+                // curves as they are, reference geometry (hidden until asked for) as the file
+                // had it
+                auto colored = [this, item](const TDF_Label& l) {
+                    if (l.IsNull()) {
+                        return;
+                    }
+                    _supplementalItems[item] = l;
                     auto prop =
                         freecad_cast<App::PropertyColor*>(item->getPropertyByName("StepColor"));
-                    if (prop && !l.IsNull()) {
+                    if (prop) {
                         App::Color c = prop->getValue();
                         XCAFDoc_DimTolTool::SetSupplementalColor(
                             l,
                             Quantity_Color(c.r, c.g, c.b, Quantity_TOC_RGB));
+                    }
+                    auto layer =
+                        freecad_cast<App::PropertyStringList*>(item->getPropertyByName("StepLayer"));
+                    if (layer && !layer->getValues().empty()) {
+                        const auto& v = layer->getValues();
+                        // The number of its assignment in the file read, when kept (older
+                        // documents keep a name and a description only)
+                        int ordinal = 0;
+                        if (v.size() > 2) {
+                            try {
+                                ordinal = std::stoi(v[2]);
+                            }
+                            catch (const std::exception&) {
+                                ordinal = 0;
+                            }
+                        }
+                        XCAFDoc_DimTolTool::SetSupplementalLayer(
+                            l,
+                            ascii(v[0])->String(),
+                            v.size() > 1 ? ascii(v[1])->String() : TCollection_AsciiString(),
+                            ordinal);
+                    }
+                    auto stepHidden =
+                        freecad_cast<App::PropertyBool*>(item->getPropertyByName("StepHidden"));
+                    auto feat = freecad_cast<Part::Feature*>(item);
+                    bool curves = feat && feat->Shape.getShape().countSubShapes(TopAbs_FACE) == 0;
+                    bool hidden = curves ? !item->Visibility.getValue()
+                                         : stepHidden && stepHidden->getValue();
+                    if (hidden) {
+                        XCAFDoc_DimTolTool::SetPresentationHidden(l, true);
                     }
                 };
                 if (item->isDerivedFrom<App::Plane>()) {
@@ -473,6 +546,31 @@ private:
                 if (!l.IsNull()) {
                     colored(l);
                     _supplementals[feat] = l;
+                    // Its curves and points on layers of their own, as the file had them
+                    // (NIST STC-06's trimmed curves; StepLayers, by element)
+                    auto layers = freecad_cast<App::PropertyStringList*>(
+                        feat->getPropertyByName(Import::ExportOCAF2::StepLayersProperty));
+                    Part::TopoShape own(feat->Shape.getShape().getShape());
+                    for (const std::string& entry :
+                         layers ? layers->getValues() : std::vector<std::string>()) {
+                        std::string element;
+                        XCAFDoc_LayerTool::ItemLayer layer;
+                        if (!Import::ExportOCAF2::parseStepLayer(entry, element, layer)
+                            || element.empty()) {
+                            continue;
+                        }
+                        TopoDS_Shape el;
+                        try {
+                            el = own.getSubShape(element.c_str(), true);
+                        }
+                        catch (const Base::Exception&) {
+                        }
+                        if (!el.IsNull()) {
+                            XCAFDoc_LayerTool::AddItemLayer(
+                                XCAFDoc_DimTolTool::SupplementalMember(l, el),
+                                layer);
+                        }
+                    }
                 }
             }
         }
@@ -552,9 +650,13 @@ private:
     /// The labels of the elements \a feature refers to, added to the part's
     /// shape as its sub-shapes; false with \a why if one is not in it
     bool labels(const TolerancedFeature* feature, Exported& ex,
-                NCollection_Sequence<TDF_Label>& out, std::string& why)
+                NCollection_Sequence<TDF_Label>& out, std::string& why,
+                std::vector<std::string>* names = nullptr)
     {
         out.Clear();
+        if (names) {
+            names->clear();
+        }
         if (!feature) {
             why = "it has no feature";
             return false;
@@ -568,11 +670,25 @@ private:
             out.Append(ex.label);
             return true;
         }
+        bool first = true;
         for (auto& [obj, subs] : feature->References.getSubListValues()) {
-            // On supplemental curves: on their set, as a whole
+            // Its elements named as the import names them: as they are on the first object,
+            // else qualified by theirs (StepImport namesOf)
+            const std::string qualifier =
+                first ? std::string() : std::string(obj->getNameInDocument()) + ".";
+            first = false;
+            // On supplemental curves: on their set, as a whole, every element of it
             auto supplemental = _supplementals.find(obj);
             if (supplemental != _supplementals.end()) {
                 out.Append(supplemental->second);
+                if (names) {
+                    std::string all;
+                    for (auto& sub : subs) {
+                        all += (all.empty() ? "" : "+") + qualifier
+                            + Data::oldElementName(sub.c_str());
+                    }
+                    names->push_back(all);
+                }
                 continue;
             }
             for (auto& sub : subs) {
@@ -594,7 +710,8 @@ private:
                 // part's supplemental geometry (NIST CTC-04's thread curves).
                 // Not a Body: its set's coordinates are its own, and cached.
                 if (mine.IsNull() && !obj->isDerivedFrom<Part::BodyBase>()) {
-                    Exported* own = exported(obj, nullptr);
+                    std::string notOwn;
+                    Exported* own = exported(obj, nullptr, notOwn);
                     if (own && own != &ex) {
                         mine = locate(*own, obj, sub, el.getShape());
                         on = own;
@@ -613,6 +730,9 @@ private:
                     return false;
                 }
                 out.Append(l);
+                if (names) {
+                    names->push_back(qualifier + Data::oldElementName(sub.c_str()));
+                }
             }
         }
         if (out.IsEmpty()) {
@@ -620,6 +740,57 @@ private:
             return false;
         }
         return true;
+    }
+
+    /// How the file the annotation was read from grouped the shapes of one of its features
+    /// (`StepAspects`: a pattern of features, a feature of several faces), by the labels they
+    /// are now: told the writer, which groups them so again when it names them all
+    void setAspects(App::DocumentObject* annotation, const TDF_Label& l, bool second,
+                    const NCollection_Sequence<TDF_Label>& shapes,
+                    const std::vector<std::string>& names)
+    {
+        auto prop =
+            freecad_cast<App::PropertyStringList*>(annotation->getPropertyByName("StepAspects"));
+        const std::size_t side = second ? 1 : 0;
+        if (!prop || prop->getSize() <= int(side) || prop->getValues()[side].empty()) {
+            return;
+        }
+        // Each name of an element to its label's entry: a set of supplemental curves, all
+        // its names to its one label
+        std::map<std::string, std::string> entries;
+        for (int i = 1; i <= shapes.Length() && i <= int(names.size()); ++i) {
+            TCollection_AsciiString e;
+            TDF_Tool::Entry(shapes.Value(i), e);
+            const std::string& all = names[i - 1];
+            for (std::size_t at = 0; at < all.size();) {
+                std::size_t end = std::min(all.find('+', at), all.size());
+                if (end > at) {
+                    entries[all.substr(at, end - at)] = e.ToCString();
+                }
+                at = end + 1;
+            }
+        }
+        std::string structure =
+            Step::renameAspects(prop->getValues()[side], [&](const std::string& name) {
+                auto it = entries.find(name);
+                if (it != entries.end()) {
+                    return std::vector<std::string> {it->second};
+                }
+                // Supplemental geometry the feature does not refer to (a centre of symmetry's
+                // own axis, StepImport aspectsAll): its set's label
+                std::size_t dot = name.find('.');
+                auto obj = dot == std::string::npos
+                    ? nullptr
+                    : annotation->getDocument()->getObject(name.substr(0, dot).c_str());
+                auto supplemental = obj ? _supplementals.find(obj) : _supplementals.end();
+                if (supplemental == _supplementals.end()) {
+                    return std::vector<std::string>();
+                }
+                TCollection_AsciiString e;
+                TDF_Tool::Entry(supplemental->second, e);
+                return std::vector<std::string> {e.ToCString()};
+            });
+        XCAFDoc_DimTolTool::SetAspectStructure(l, second, structure.c_str());
     }
 
     /// The callout's graphic, for STEP: in the part's coordinates, every
@@ -633,6 +804,13 @@ private:
             return {};
         }
         TopoDS_Shape s = BRepBuilderAPI_Transform(in, toLocal, true).Shape();
+        // The file's curves, written as curves again (SetPresentationCurves): as they are, a
+        // polyline its own points, a circle a circle (NIST CTC-05: 4.7 times its points when
+        // cut into segments here)
+        if (c->ImportedAsCurves.getValue() && c->UseImported.getValue()
+            && !TopExp_Explorer(s, TopAbs_FACE).More()) {
+            return s;
+        }
         Bnd_Box box;
         BRepBndLib::Add(s, box);
         double size = box.IsVoid() ? 1.0 : std::sqrt(box.SquareExtent());
@@ -708,6 +886,81 @@ private:
         }
     }
 
+    /// The UUID an object was read with (its StepUUID) given to its label
+    static void giveUUID(const App::DocumentObject* obj, const TDF_Label& l,
+                         const char* name = "StepUUID")
+    {
+        auto prop = obj ? freecad_cast<App::PropertyStringList*>(obj->getPropertyByName(name))
+                        : nullptr;
+        TCollection_AsciiString type, uuid;
+        if (!prop || prop->getValues().size() < 2 || l.IsNull()
+            || XCAFDoc_DimTolTool::GetUUID(l, type, uuid)) {
+            return;
+        }
+        XCAFDoc_DimTolTool::SetUUID(l,
+                                    ascii(prop->getValues()[0])->String(),
+                                    ascii(prop->getValues()[1])->String());
+    }
+
+    /// The set's holes (AP242 ed3 hole features) given to XCAF: each
+    /// definition once, by its name and values, each occurrence on the faces
+    /// of its feature, in the part's coordinates
+    void holes(AnnotationSet* set, Exported& ex)
+    {
+        std::map<std::string, TDF_Label> defs;
+        for (auto o : set->Group.getValues()) {
+            auto hole = freecad_cast<Hole*>(o);
+            if (!hole) {
+                continue;
+            }
+            guard(hole, [&]() {
+                auto feat = freecad_cast<TolerancedFeature*>(hole->Feature.getValue());
+                NCollection_Sequence<TDF_Label> faces;
+                std::string why;
+                if (!feat || !labels(feat, ex, faces, why)) {
+                    _report.skipped.push_back(std::string(hole->Label.getValue()) + ": "
+                                              + (feat ? why : "it has no feature"));
+                    return;
+                }
+                XCAFDoc_DimTolTool::HoleDefinition def;
+                def.Kind = hole->Kind.getValue();
+                def.Name = ascii(hole->DefinitionName.getValue())->String();
+                def.Diameter = hole->Diameter.getValue();
+                def.DiameterToleranced = hole->DiameterToleranced.getValue();
+                def.DiameterLower = hole->DiameterLower.getValue();
+                def.DiameterUpper = hole->DiameterUpper.getValue();
+                def.HasDepth = hole->HasDepth.getValue();
+                def.Depth = hole->Depth.getValue();
+                def.DepthToleranced = hole->DepthToleranced.getValue();
+                def.DepthLower = hole->DepthLower.getValue();
+                def.DepthUpper = hole->DepthUpper.getValue();
+                def.Through = hole->Through.getValue();
+                def.Axes = gp_Ax3(ax2Of(trsfOf(hole->Axes.getValue())));
+                std::ostringstream key;
+                key.precision(12);
+                key << def.Kind << '|' << def.Name << '|' << def.Diameter << '|'
+                    << def.DiameterToleranced << def.DiameterLower << '|' << def.DiameterUpper
+                    << '|' << def.HasDepth << def.Depth << '|' << def.DepthToleranced
+                    << def.DepthLower << '|' << def.DepthUpper << '|' << def.Through;
+                auto it = defs.find(key.str());
+                if (it == defs.end()) {
+                    it = defs.emplace(key.str(), _tool->AddHole(ex.label, def)).first;
+                    giveUUID(hole, it->second, "StepDefinitionUUID");
+                }
+                gp_Ax3 position(ax2Of(ex.toLocal * trsfOf(hole->Position.getValue())));
+                std::string name = hole->OccurrenceName.getValue();
+                if (name.empty()) {
+                    name = hole->Label.getValue();
+                }
+                giveUUID(hole,
+                         XCAFDoc_DimTolTool::AddHoleOccurrence(it->second,
+                                                               ascii(name)->String(),
+                                                               position,
+                                                               faces));
+            });
+        }
+    }
+
     void write(AnnotationSet* set, Exported& ex)
     {
         std::vector<Datum*> datums;
@@ -736,6 +989,7 @@ private:
                 views.push_back(v);
             }
         }
+        holes(set, ex);
         // The datums first: OCCT's writer writes the first label of a letter
         // with its feature, and takes the others, a frame's, as references
         for (auto d : datums) {
@@ -770,12 +1024,19 @@ private:
             if (mine == _labels.end()) {
                 continue;
             }
+            // Its graphic as the file had it: curves, if they were
+            if (c->ImportedAsCurves.getValue() && c->UseImported.getValue()) {
+                XCAFDoc_DimTolTool::SetPresentationCurves(mine->second, true);
+            }
             const auto& holder = c->ImportedPlaceholder.getValues();
             if (!holder.empty() && !holder.front().empty()) {
                 XCAFDoc_DimTolTool::SetPlaceholder(
                     mine->second, holder.front().c_str(),
                     holder.size() > 1 ? ascii(holder[1])->String() : TCollection_AsciiString(),
                     holder.size() > 2 && holder[2] == "shared");
+                if (std::find(holder.begin() + 2, holder.end(), "hidden") != holder.end()) {
+                    XCAFDoc_DimTolTool::SetPlaceholderHidden(mine->second, true);
+                }
             }
         }
         // Drawn in another's graphic: linked to it as what it presents too
@@ -816,6 +1077,9 @@ private:
         catch (const Standard_Failure& e) {
             skip(obj, e.GetMessageString());
         }
+        catch (const std::exception& e) {
+            skip(obj, e.what());
+        }
     }
 
     void skip(const App::DocumentObject* obj, const std::string& why)
@@ -836,8 +1100,9 @@ private:
             return;
         }
         NCollection_Sequence<TDF_Label> shapes;
+        std::vector<std::string> names;
         std::string why;
-        if (!labels(feature, ex, shapes, why)) {
+        if (!labels(feature, ex, shapes, why, &names)) {
             return skip(d, why);
         }
         TDF_Label l = _tool->AddDatum();
@@ -849,6 +1114,7 @@ private:
         present(d, ex, obj);
         attr->SetObject(obj);
         _tool->SetDatum(shapes, l);
+        setAspects(d, l, false, shapes, names);
         ++_report.datums;
     }
 
@@ -1015,8 +1281,9 @@ private:
         }
         auto feature = freecad_cast<TolerancedFeature*>(gt->Feature.getValue());
         NCollection_Sequence<TDF_Label> shapes;
+        std::vector<std::string> names;
         std::string why;
-        if (!labels(feature, ex, shapes, why)) {
+        if (!labels(feature, ex, shapes, why, &names)) {
             return skip(gt, why);
         }
         // The frame's compartments, each a datum or a common datum
@@ -1106,6 +1373,7 @@ private:
         present(gt, ex, obj);
         attr->SetObject(obj);
         _tool->SetGeomTolerance(shapes, l);
+        setAspects(gt, l, false, shapes, names);
 
         // Each compartment's datums, at its position: a frame's own labels,
         // as OCCT reads them
@@ -1237,12 +1505,14 @@ private:
             return skip(dim, "it has not the features it measures");
         }
         NCollection_Sequence<TDF_Label> first, second;
+        std::vector<std::string> firstNames, secondNames;
         std::string why;
-        if (!labels(freecad_cast<TolerancedFeature*>(feats[0]), ex, first, why)) {
+        if (!labels(freecad_cast<TolerancedFeature*>(feats[0]), ex, first, why, &firstNames)) {
             return skip(dim, why);
         }
         if (location
-            && !labels(freecad_cast<TolerancedFeature*>(feats[1]), ex, second, why)) {
+            && !labels(freecad_cast<TolerancedFeature*>(feats[1]), ex, second, why,
+                       &secondNames)) {
             return skip(dim, "its second feature: " + why);
         }
         TDF_Label l = _tool->AddDimension();
@@ -1299,11 +1569,13 @@ private:
         attr->SetObject(obj);
         if (location) {
             _tool->SetDimension(first, second, l);
+            setAspects(dim, l, true, second, secondNames);
         }
         else {
             NCollection_Sequence<TDF_Label> none;
             _tool->SetDimension(first, none, l);
         }
+        setAspects(dim, l, false, first, firstNames);
         ++_report.dimensions;
     }
 
@@ -1436,16 +1708,27 @@ private:
                 gdts.Append(it->second);
             }
         }
+        // The supplemental geometry it shows: the items of what it lists
+        NCollection_Sequence<TDF_Label> supplementals;
+        for (auto o : v->Objects.getValues()) {
+            auto it = _supplementalItems.find(o);
+            if (it != _supplementalItems.end()) {
+                supplementals.Append(it->second);
+            }
+        }
         Handle(XCAFDoc_ViewTool) tool = XCAFDoc_DocumentTool::ViewTool(_info.hDoc->Main());
         TDF_Label l = tool->AddView();
         XCAFDoc_View::Set(l)->SetObject(obj);
         tool->SetView(shapes, gdts, planes, l);
+        XCAFDoc_DimTolTool::SetViewSupplemental(l, supplementals);
         ++_report.views;
     }
 
     std::map<App::DocumentObject*, Exported> _parts;
     /// The supplemental curves written: each object's item
     std::map<const App::DocumentObject*, TDF_Label> _supplementals;
+    /// Every item of supplemental geometry written, by its object: what a view lists of them
+    std::map<const App::DocumentObject*, TDF_Label> _supplementalItems;
     /// The views of the sets written, each with its set's part
     std::vector<std::pair<View*, Exported*>> _views;
     /// The label each callout was written as: what a view lists

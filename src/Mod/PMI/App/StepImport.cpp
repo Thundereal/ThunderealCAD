@@ -73,6 +73,7 @@
 #include <XCAFView_Object.hxx>
 
 #include <App/Document.h>
+#include <App/ElementNamingUtils.h>
 #include <App/DocumentObjectGroup.h>
 #include <App/GeoFeatureGroupExtension.h>
 #include <App/PropertyLinks.h>
@@ -90,6 +91,7 @@
 #include "Datum.h"
 #include "Dimension.h"
 #include "GeometricTolerance.h"
+#include "Hole.h"
 #include "Note.h"
 #include "Geometry.h"
 #include "StepExport.h"
@@ -127,6 +129,10 @@ struct Faces
     gp_Dir dir;
     /// The object, all of it: no element named
     bool whole = false;
+    /// The elements of other objects beside the solid object is, each object's: surfaces or
+    /// curves in the part's shape beside its solid (NIST FTC-10's extracted faces, STC-10's
+    /// wires), kept for the file to be written so again
+    std::vector<std::pair<Part::Feature*, std::vector<std::string>>> beside;
 };
 
 class Reader
@@ -147,7 +153,7 @@ public:
         for (auto& l : labels) {
             guard(l, "datum", [&]() { datum(l); });
         }
-        targetDatums();
+        stage("datum targets", [&]() { targetDatums(); });
         // OCCT makes a datum label for each time a frame cites it; only the
         // ones whose feature it found carry shapes. A letter none carries
         // is a datum lost.
@@ -162,18 +168,21 @@ public:
         for (auto& l : labels) {
             guard(l, "tolerance", [&]() { tolerance(l); });
         }
-        composites(labels);
+        stage("composite frames", [&]() { composites(labels); });
         labels.Clear();
         _tool->GetDimensionLabels(labels);
         for (auto& l : labels) {
             guard(l, "dimension", [&]() { dimension(l); });
         }
-        notes();
-        views();
-        placeholders();
-        hidden();
-        oneShapes();
-        supplemental();
+        stage("notes", [&]() { notes(); });
+        stage("views", [&]() { views(); });
+        stage("placeholders", [&]() { placeholders(); });
+        stage("holes", [&]() { holes(); });
+        stage("hidden PMI", [&]() { hidden(); });
+        stage("one-shape parts", [&]() { oneShapes(); });
+        stage("supplemental geometry", [&]() { supplemental(); });
+        stage("views' supplemental geometry", [&]() { viewSupplementals(); });
+        stage("shape aspects", [&]() { aspectsAll(); });
         return _report;
     }
 
@@ -189,6 +198,28 @@ private:
         }
         catch (const Base::Exception& e) {
             skip(l, what, e.what());
+        }
+        catch (const std::exception& e) {
+            skip(l, what, e.what());
+        }
+    }
+
+    /// A step of the reading over the whole file: one failing loses what it
+    /// would have read, not the rest (nor what is read already, half made)
+    template<typename F>
+    void stage(const char* what, F f)
+    {
+        try {
+            f();
+        }
+        catch (const Standard_Failure& e) {
+            _report.skipped.push_back(std::string("reading the ") + what + ": " + e.what());
+        }
+        catch (const Base::Exception& e) {
+            _report.skipped.push_back(std::string("reading the ") + what + ": " + e.what());
+        }
+        catch (const std::exception& e) {
+            _report.skipped.push_back(std::string("reading the ") + what + ": " + e.what());
         }
     }
 
@@ -212,7 +243,7 @@ private:
         bool solid = false;
         for (auto& l : labels) {
             TDF_Label owner = XCAFDoc_ShapeTool::IsSubShape(l) ? l.Father() : l;
-            auto feat = freecad_cast<Part::Feature*>(_info.objectOf(owner));
+            auto feat = objectOf(l);
             if (!feat) {
                 why = "no object was made for shape " + entry(owner);
                 return false;
@@ -222,22 +253,52 @@ private:
             solid = solid || hasSolid(feat);
         }
         // Faces on a solid and on surfaces beside it (supplemental geometry,
-        // NIST FTC-10): the solid is the part
+        // NIST FTC-10): the solid is the part, those beside it kept beside. On
+        // members of one shape the import made an object each (ImportOCAF2: members
+        // the file hides one by one, FTC-10's thread cylinders), the first is the
+        // feature's object, the others beside it
         bool several = std::any_of(refs.begin(), refs.end(), [&](const auto& r) {
             return r.second != refs.front().second;
         });
+        Part::Feature* primary = nullptr;
+        for (auto& [l, feat] : refs) {
+            if (!(exact && tessellated(_shapes->GetShape(l))) && (!solid || hasSolid(feat))) {
+                primary = feat;
+                break;
+            }
+        }
+        auto members = [](Part::Feature* a, Part::Feature* b) {
+            auto group = a && b ? App::GeoFeatureGroupExtension::getGroupOfObject(a) : nullptr;
+            auto prop = group ? freecad_cast<App::PropertyBool*>(group->getPropertyByName(
+                                    Import::ExportOCAF2::OneShapeProperty))
+                              : nullptr;
+            return prop && prop->getValue()
+                && App::GeoFeatureGroupExtension::getGroupOfObject(b) == group;
+        };
         for (auto& [l, feat] : refs) {
             if (exact && tessellated(_shapes->GetShape(l))) {
                 continue;
             }
-            if (several && solid && !hasSolid(feat)) {
-                continue;
-            }
-            if (out.object && out.object != feat) {
+            const bool isBeside = several && feat != primary
+                && (solid ? !hasSolid(feat) : members(feat, primary));
+            if (!isBeside && out.object && out.object != feat) {
                 why = "it refers to faces of two objects";
                 return false;
             }
-            out.object = feat;
+            std::vector<std::string>* names = &out.names;
+            if (isBeside) {
+                auto at = std::find_if(out.beside.begin(), out.beside.end(), [&](const auto& b) {
+                    return b.first == feat;
+                });
+                if (at == out.beside.end()) {
+                    out.beside.emplace_back(feat, std::vector<std::string>());
+                    at = std::prev(out.beside.end());
+                }
+                names = &at->second;
+            }
+            else {
+                out.object = feat;
+            }
             auto& base = _bases[feat];
             if (base.isNull()) {
                 TopoDS_Shape shape = feat->Shape.getShape().getShape();
@@ -259,11 +320,10 @@ private:
                         return false;
                     }
                     std::string name = typeName + std::to_string(idx);
-                    if (std::find(out.names.begin(), out.names.end(), name)
-                        == out.names.end()) {
-                        out.names.push_back(name);
+                    if (std::find(names->begin(), names->end(), name) == names->end()) {
+                        names->push_back(name);
                     }
-                    if (!any && out.names.size() == 1) {
+                    if (!isBeside && !any && out.names.size() == 1) {
                         Primitive first = Geom::ofElement(xp.Current());
                         out.type = first.type;
                         out.dir = first.dir;
@@ -279,7 +339,133 @@ private:
                 return false;
             }
         }
+        if (!out.object) {
+            // Only elements beside a solid, none on it
+            out.beside.clear();
+            why = "it refers to no element of the part, only to shapes beside it";
+            return false;
+        }
         return true;
+    }
+
+    /// The elements of object a shape of an annotation is, by its label's entry; none when it
+    /// is not of object
+    /// The element names of the shapes a label holds, in the objects a feature refers to: as
+    /// they are in the first, else qualified by their object's name ("Curves001.Edge1": a
+    /// thread's cylinder, supplemental geometry an object of its own). None if one is in none
+    std::vector<std::string> namesOf(const std::string& e,
+                                     const std::vector<Part::Feature*>& objects)
+    {
+        TDF_Label l;
+        TDF_Tool::Label(_shapes->Label().Data(), e.c_str(), l);
+        if (l.IsNull() || objects.empty()) {
+            return {};
+        }
+        TopoDS_Shape sub = _shapes->GetShape(l);
+        for (auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
+            const char* typeName = type == TopAbs_FACE ? "Face"
+                : type == TopAbs_EDGE                  ? "Edge"
+                                                       : "Vertex";
+            std::vector<std::string> names;
+            for (TopExp_Explorer xp(sub, type); xp.More(); xp.Next()) {
+                std::string name;
+                for (std::size_t k = 0; k < objects.size() && name.empty(); ++k) {
+                    auto& index = _elementIndex[{objects[k], type}];
+                    if (index.empty()) {
+                        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
+                        TopExp::MapShapes(objects[k]->Shape.getShape().getShape(), type, map);
+                        for (int i = 1; i <= map.Extent(); ++i) {
+                            // A shape there twice, elsewhere: not one element to name
+                            auto [at, fresh] = index.emplace(map(i).TShape().get(), i);
+                            if (!fresh) {
+                                at->second = 0;
+                            }
+                        }
+                    }
+                    auto it = index.find(xp.Current().TShape().get());
+                    if (it != index.end() && it->second > 0) {
+                        name = (k ? std::string(objects[k]->getNameInDocument()) + "." : "")
+                            + typeName + std::to_string(it->second);
+                    }
+                }
+                if (name.empty()) {
+                    return {};
+                }
+                names.push_back(name);
+            }
+            if (!names.empty()) {
+                return names;
+            }
+        }
+        return {};
+    }
+
+    /// How the file groups the shapes of an annotation, its first and its second ones (a
+    /// pattern of features: a composite group shape aspect of a composite shape aspect a
+    /// hole): kept on it by their elements, for the export to group them so again. Read once
+    /// the supplemental geometry is objects of its own (aspectsAll)
+    void aspects(App::DocumentObject* annotation, const TDF_Label& l,
+                 std::vector<App::DocumentObject*> sides)
+    {
+        _aspects.push_back({annotation, l, std::move(sides)});
+    }
+
+    void aspectsAll()
+    {
+        // Supplemental geometry, where a centre of symmetry's own axis is (NIST STC-07): named
+        // after the feature's objects
+        std::vector<Part::Feature*> supplementals;
+        for (auto o : _info.doc->getObjects()) {
+            auto flag = freecad_cast<App::PropertyBool*>(
+                o->getPropertyByName(Import::ExportOCAF2::SupplementalProperty));
+            auto group = o->getExtensionByType<App::GroupExtension>(true);
+            if (!flag || !flag->getValue() || !group) {
+                continue;
+            }
+            for (auto child : group->Group.getValues()) {
+                if (auto feat = freecad_cast<Part::Feature*>(child)) {
+                    supplementals.push_back(feat);
+                }
+            }
+        }
+        for (auto& pending : _aspects) {
+            std::vector<std::string> values;
+            bool any = false;
+            for (std::size_t side = 0; side < 2; ++side) {
+                TCollection_AsciiString structure;
+                std::string named;
+                auto tf = side < pending.sides.size()
+                    ? freecad_cast<TolerancedFeature*>(pending.sides[side])
+                    : nullptr;
+                if (tf && XCAFDoc_DimTolTool::GetAspectStructure(pending.label, side == 1,
+                                                                 structure)) {
+                    std::vector<Part::Feature*> objects;
+                    for (auto& [obj, subs] : tf->References.getSubListValues()) {
+                        if (auto feat = freecad_cast<Part::Feature*>(obj)) {
+                            objects.push_back(feat);
+                        }
+                    }
+                    for (auto feat : supplementals) {
+                        if (std::find(objects.begin(), objects.end(), feat) == objects.end()) {
+                            objects.push_back(feat);
+                        }
+                    }
+                    named = Step::renameAspects(structure.ToCString(), [&](const std::string& e) {
+                        return namesOf(e, objects);
+                    });
+                }
+                any = any || !named.empty();
+                values.push_back(named);
+            }
+            if (any) {
+                property<App::PropertyStringList>(pending.annotation,
+                                                  "StepAspects",
+                                                  "How the STEP file groups the shapes of its "
+                                                  "features, first and second: a pattern of "
+                                                  "features, a feature of several faces")
+                    ->setValues(values);
+            }
+        }
     }
 
     /// A tolerance all over, on the part's own shape (NIST's general
@@ -295,7 +481,7 @@ private:
         if (!over || labels.Length() != 1 || XCAFDoc_ShapeTool::IsSubShape(labels.First())) {
             return false;
         }
-        auto feat = freecad_cast<Part::Feature*>(_info.objectOf(labels.First()));
+        auto feat = objectOf(labels.First());
         if (!feat) {
             // The product's shape read as several objects (its solid, and
             // the surfaces and curves beside it): the one with its solid
@@ -324,16 +510,18 @@ private:
         return xp.More();
     }
 
-    /// Faces with no surface, only triangles
+    /// Faces with no surface, only triangles -- not an edge, which has none (NIST FTC-11's arc
+    /// length along a face and an edge lost its edge)
     static bool tessellated(const TopoDS_Shape& shape)
     {
-        TopExp_Explorer xp(shape, TopAbs_FACE);
-        for (; xp.More(); xp.Next()) {
+        bool any = false;
+        for (TopExp_Explorer xp(shape, TopAbs_FACE); xp.More(); xp.Next()) {
             if (!BRep_Tool::Surface(TopoDS::Face(xp.Current())).IsNull()) {
                 return false;
             }
+            any = true;
         }
-        return !shape.IsNull();
+        return any;
     }
 
     AnnotationSet* set(Part::Feature* obj)
@@ -348,8 +536,46 @@ private:
         }
         bool axial = f.type == Primitive::Cylinder || f.type == Primitive::Cone
             || f.type == Primitive::Circle;
-        return Api::feature(set(partOf(f.object)), f.object, f.names,
-                            axis && axial ? "Axis" : nullptr);
+        const char* kind = axis && axial ? "Axis" : nullptr;
+        if (f.beside.empty()) {
+            return Api::feature(set(partOf(f.object)), f.object, f.names, kind);
+        }
+        // The solid's elements and those beside it: one feature of them all, the solid's
+        // first (AnnotationSet::solidOf)
+        std::vector<App::PropertyLinkSubList::SubSet> want {{f.object, f.names}};
+        for (auto& [obj, names] : f.beside) {
+            want.emplace_back(obj, names);
+        }
+        auto key = [](const std::vector<App::PropertyLinkSubList::SubSet>& refs) {
+            std::set<std::pair<App::DocumentObject*, std::string>> out;
+            for (auto& [obj, subs] : refs) {
+                for (auto& sub : subs) {
+                    out.emplace(obj, Data::oldElementName(sub.c_str()));
+                }
+            }
+            return out;
+        };
+        auto aset = set(partOf(f.object));
+        if (!aset) {
+            return nullptr;
+        }
+        const auto wanted = key(want);
+        for (auto feat : aset->features()) {
+            auto refs = feat->References.getSubListValues();
+            if (!refs.empty() && refs.front().first == f.object && key(refs) == wanted
+                && (!kind || std::string(feat->Kind.getValueAsString()) == kind)) {
+                return feat;
+            }
+        }
+        // Made as any other is, then given those beside it too
+        auto feat = static_cast<TolerancedFeature*>(_info.doc->addObject(
+            TolerancedFeature::getClassTypeId().getName(), "Feature"));
+        aset->addObject(feat);
+        feat->References.setSubListValues(want);
+        if (kind) {
+            feat->Kind.setValue(kind);
+        }
+        return feat;
     }
 
     /// The part an object's PMI is of: its own, or -- supplemental geometry
@@ -360,22 +586,43 @@ private:
         if (!obj || hasSolid(obj)) {
             return obj;
         }
-        auto group = App::GeoFeatureGroupExtension::getGroupOfObject(obj);
-        if (!group) {
-            return obj;
-        }
-        Part::Feature* solid = nullptr;
-        auto ext = group->getExtensionByType<App::GeoFeatureGroupExtension>();
-        for (auto o : ext->Group.getValues()) {
-            auto feat = freecad_cast<Part::Feature*>(o);
-            if (feat && feat != obj && hasSolid(feat)) {
-                if (solid) {
-                    return obj;
+        // In a container written as one shape with no solid (ImportOCAF2's object for each
+        // member the file hides one by one: FTC-10's thread curves), the one it is in
+        for (auto group = App::GeoFeatureGroupExtension::getGroupOfObject(obj); group;
+             group = App::GeoFeatureGroupExtension::getGroupOfObject(group)) {
+            Part::Feature* solid = nullptr;
+            auto ext = group->getExtensionByType<App::GeoFeatureGroupExtension>();
+            // Its objects, and those of a container in it written as one shape (the members
+            // of a compound made an object each: the solid among them)
+            std::vector<App::DocumentObject*> objs = ext->Group.getValues();
+            for (std::size_t i = 0; i < objs.size(); ++i) {
+                auto prop = freecad_cast<App::PropertyBool*>(
+                    objs[i]->getPropertyByName(Import::ExportOCAF2::OneShapeProperty));
+                auto inner = objs[i]->getExtensionByType<App::GeoFeatureGroupExtension>(true);
+                if (prop && prop->getValue() && inner) {
+                    auto more = inner->Group.getValues();
+                    objs.insert(objs.end(), more.begin(), more.end());
                 }
-                solid = feat;
+            }
+            for (auto o : objs) {
+                auto feat = freecad_cast<Part::Feature*>(o);
+                if (feat && feat != obj && hasSolid(feat)) {
+                    if (solid) {
+                        return obj;
+                    }
+                    solid = feat;
+                }
+            }
+            if (solid) {
+                return solid;
+            }
+            auto prop = freecad_cast<App::PropertyBool*>(
+                group->getPropertyByName(Import::ExportOCAF2::OneShapeProperty));
+            if (!prop || !prop->getValue()) {
+                break;
             }
         }
-        return solid ? solid : obj;
+        return obj;
     }
 
     /// The file's plane and text point, in the object's placement
@@ -510,6 +757,9 @@ private:
         _anyOf.emplace(letter, d);
         d->Letter.setValue(letter);
         d->Feature.setValue(feature(f, true));
+        // How its feature groups its shapes (NIST STC-09's datum E: a hole's faces and a hole
+        // occurrence), and its name
+        aspects(d, l, {d->Feature.getValue()});
         place(d, f.object, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
               obj->GetPointTextAttach());
         graphic(d, f.object, obj);
@@ -590,7 +840,7 @@ private:
         double edgeLength = 0;
         if (type == DatumTarget::Line && !first.IsEmpty()) {
             TopoDS_Shape sh = _shapes->GetShape(first.First());
-            if (sh.ShapeType() == TopAbs_EDGE) {
+            if (!sh.IsNull() && sh.ShapeType() == TopAbs_EDGE) {
                 TopoDS_Vertex v0, v1;
                 TopExp::Vertices(TopoDS::Edge(sh), v0, v1);
                 if (!v0.IsNull() && !v1.IsNull()) {
@@ -676,11 +926,102 @@ private:
                 if (shared) {
                     _placeholderKinds[c].emplace_back("shared");
                 }
+                // Not shown while it is hidden (NIST STC-06's 19)
+                if (XCAFDoc_DimTolTool::IsPlaceholderHidden(l)) {
+                    _placeholderKinds[c].emplace_back("hidden");
+                }
             }
         }
     }
 
     /// A letter as one part's: two parts of a file may each have a datum A
+    /// The UUID a label was read with (XCAFDoc_DimTolTool::SetUUID) kept on
+    /// \a obj: its type and identifier, written again (STEP AP242 ed4
+    /// uuid_attribute, NIST STC-09's)
+    static void keepUUID(App::DocumentObject* obj, const TDF_Label& l,
+                         const char* name = "StepUUID")
+    {
+        TCollection_AsciiString type, uuid;
+        if (!obj || !XCAFDoc_DimTolTool::GetUUID(l, type, uuid)) {
+            return;
+        }
+        auto prop = freecad_cast<App::PropertyStringList*>(obj->getPropertyByName(name));
+        if (!prop) {
+            prop = freecad_cast<App::PropertyStringList*>(obj->addDynamicProperty(
+                "App::PropertyStringList", name, "STEP",
+                "The UUID the STEP file identifies it by: its attribute's type, the UUID"));
+        }
+        if (prop) {
+            prop->setValues(std::vector<std::string>{type.ToCString(), uuid.ToCString()});
+        }
+    }
+
+    /// The holes a file defines (AP242 ed3 hole features: NIST STC-09's 8
+    /// basic_round_hole, of 25 occurrences): each occurrence a hole of the
+    /// part's set, on the faces it is of, with its definition, to be written
+    /// again (docs/GDandT.md sec 10.26)
+    void holes()
+    {
+        NCollection_Sequence<TDF_Label> defs;
+        _tool->GetHoles(defs);
+        auto vec = [](const gp_XYZ& v) { return Base::Vector3d(v.X(), v.Y(), v.Z()); };
+        auto placementOf = [&](const gp_Ax3& ax) {
+            return Base::Placement(vec(ax.Location().XYZ()),
+                                   Base::Rotation::makeRotationByAxes(vec(ax.XDirection().XYZ()),
+                                                                      vec(ax.YDirection().XYZ()),
+                                                                      vec(ax.Direction().XYZ())));
+        };
+        for (auto& d : defs) {
+            TDF_Label partL;
+            XCAFDoc_DimTolTool::HoleDefinition def;
+            if (!XCAFDoc_DimTolTool::GetHole(d, partL, def)) {
+                continue;
+            }
+            NCollection_Sequence<TDF_Label> occurrences;
+            XCAFDoc_DimTolTool::GetHoleOccurrences(d, occurrences);
+            for (auto& o : occurrences) {
+                TCollection_AsciiString name;
+                gp_Ax3 position;
+                NCollection_Sequence<TDF_Label> faceLs;
+                if (!XCAFDoc_DimTolTool::GetHoleOccurrence(o, name, position, faceLs)) {
+                    continue;
+                }
+                Faces f;
+                std::string why;
+                if (!faces(faceLs, f, why)) {
+                    _report.skipped.push_back("hole " + std::string(name.ToCString()) + ": "
+                                              + why);
+                    continue;
+                }
+                TolerancedFeature* feat = feature(f, false);
+                auto s = set(partOf(f.object));
+                auto hole = static_cast<Hole*>(_info.doc->addObject("PMI::Hole", "Hole"));
+                s->addObject(hole);
+                hole->Label.setValue(name.IsEmpty() ? def.Name.ToCString() : name.ToCString());
+                hole->OccurrenceName.setValue(name.ToCString());
+                hole->Kind.setValue(def.Kind.ToCString());
+                hole->DefinitionName.setValue(def.Name.ToCString());
+                hole->Diameter.setValue(def.Diameter);
+                hole->DiameterToleranced.setValue(def.DiameterToleranced);
+                hole->DiameterLower.setValue(def.DiameterLower);
+                hole->DiameterUpper.setValue(def.DiameterUpper);
+                hole->HasDepth.setValue(def.HasDepth);
+                hole->Depth.setValue(def.HasDepth ? def.Depth : 0.0);
+                hole->DepthToleranced.setValue(def.DepthToleranced);
+                hole->DepthLower.setValue(def.DepthLower);
+                hole->DepthUpper.setValue(def.DepthUpper);
+                hole->Through.setValue(def.Through);
+                hole->Axes.setValue(placementOf(def.Axes));
+                // In the set's coordinates, as a callout's plane is
+                hole->Position.setValue(f.object->Placement.getValue() * placementOf(position));
+                hole->Feature.setValue(feat);
+                keepUUID(hole, o);
+                keepUUID(hole, d, "StepDefinitionUUID");
+                ++_report.holes;
+            }
+        }
+    }
+
     /// A PMI whose graphic the file does not show (an INVISIBILITY lists it:
     /// NIST STC-08's 29, STC-09's 75) is hidden
     void hidden()
@@ -690,6 +1031,16 @@ private:
             TDF_Tool::Label(_info.hDoc->GetData(), e.c_str(), l);
             if (c && XCAFDoc_DimTolTool::IsPresentationHidden(l)) {
                 c->Visibility.setValue(false);
+                // By its callout (NIST FTC-09's 44)
+                if (XCAFDoc_DimTolTool::IsPresentationHiddenCallout(l)) {
+                    c->ImportedHiddenCallout.setValue(true);
+                }
+            }
+            if (c && XCAFDoc_DimTolTool::IsPresentationCurves(l)) {
+                c->ImportedAsCurves.setValue(true);
+            }
+            if (c && !c->getPropertyByName("StepUUID")) {
+                keepUUID(c, l);
             }
         }
     }
@@ -703,8 +1054,16 @@ private:
         if (XCAFDoc_ShapeTool::IsReference(label)) {
             XCAFDoc_ShapeTool::GetReferredShape(label, l);
         }
+        // The object made of the label itself: a compound made an object each of its
+        // members (ImportOCAF2's members the file hides one by one) is in the container made
+        // of it, not a member
         if (!XCAFDoc_ShapeTool::IsAssembly(l)) {
-            return objectOf(l);
+            auto obj = _info.objectOf(l);
+            return obj && (freecad_cast<Part::Feature*>(obj)
+                           || obj->hasExtension(
+                               App::GeoFeatureGroupExtension::getExtensionClassTypeId()))
+                ? obj
+                : nullptr;
         }
         NCollection_Sequence<TDF_Label> comps;
         XCAFDoc_ShapeTool::GetComponents(l, comps);
@@ -713,7 +1072,7 @@ private:
             if (!XCAFDoc_ShapeTool::GetReferredShape(c, proto)) {
                 continue;
             }
-            if (auto obj = objectOf(proto)) {
+            if (auto obj = _info.objectOf(proto)) {
                 if (auto group = App::GeoFeatureGroupExtension::getGroupOfObject(obj)) {
                     return group;
                 }
@@ -729,6 +1088,10 @@ private:
     {
         NCollection_Sequence<TDF_Label> labels;
         _shapes->GetShapes(labels);
+        // A product's UUID, on its object
+        for (auto& l : labels) {
+            keepUUID(containerOf(l), l);
+        }
         for (auto& l : labels) {
             if (!l.IsAttribute(XCAFDoc::ProductRepresentationsGUID())) {
                 continue;
@@ -941,12 +1304,41 @@ private:
                                               float(color.Green()),
                                               float(color.Blue())));
                 }
+                // Its layer, and whether the file shows it (NIST FTC-07 hides 13 by their
+                // layer): written so again. With the assignment's entity number, as the part's
+                // StepLayers have it: one assignment of both (NIST STC-09 -e4's 6 curve sets
+                // and 11 planes) is written one again
+                TCollection_AsciiString layer, layerDescription;
+                int ordinal = 0;
+                if (XCAFDoc_DimTolTool::GetSupplementalLayer(item,
+                                                             layer,
+                                                             layerDescription,
+                                                             ordinal)) {
+                    std::vector<std::string> values {layer.ToCString(),
+                                                     layerDescription.ToCString()};
+                    if (ordinal > 0) {
+                        values.push_back(std::to_string(ordinal));
+                    }
+                    property<App::PropertyStringList>(
+                        obj,
+                        "StepLayer",
+                        "The layer the STEP file puts it on: name, description, and the "
+                        "number of its assignment in the file")
+                        ->setValues(values);
+                }
+                const bool hidden = XCAFDoc_DimTolTool::IsPresentationHidden(item);
+                if (hidden) {
+                    property<App::PropertyBool>(obj, "StepHidden",
+                                                "The STEP file does not show it")
+                        ->setValue(true);
+                }
                 // Reference geometry is shown when asked for; the curves are drawn, as
-                // the part's are
-                if (kind != "curves") {
+                // the part's are, unless the file hides them
+                if (kind != "curves" || hidden) {
                     obj->Visibility.setValue(false);
                 }
                 groupExt->addObject(obj);
+                _supplementalOf[entry(item)] = obj;
             }
         }
         takeOut(curves);
@@ -983,6 +1375,95 @@ private:
     /// The supplemental curves \a curves out of every other object holding
     /// them: the GD&T on them refers to their own objects, on what is left
     /// to it by its new index
+    /// The name of element \a el of \a in (same TShape): "Edge3", "Compound2"; empty when
+    /// it is \a in itself or none of it
+    static std::string elementIn(const TopoDS_Shape& in, const TopoDS_Shape& el)
+    {
+        if (in.IsNull() || el.IsNull() || in.TShape() == el.TShape()) {
+            return {};
+        }
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
+        TopExp::MapShapes(in, el.ShapeType(), map);
+        for (int i = 1; i <= map.Extent(); ++i) {
+            if (map(i).TShape() == el.TShape()) {
+                return Part::TopoShape::shapeName(el.ShapeType()) + std::to_string(i);
+            }
+        }
+        return {};
+    }
+
+    /// \a feat's layers by element (StepLayers) after the curves \a curves holds are taken
+    /// out of its shape \a s, \a left remaining: each on the object its element is in now
+    static void moveLayers(Part::Feature* feat,
+                           const TopoDS_Shape& s,
+                           const TopoDS_Shape& left,
+                           const std::map<const TopoDS_TShape*, Part::Feature*>& curves)
+    {
+        const char* name = Import::ExportOCAF2::StepLayersProperty;
+        auto layers = freecad_cast<App::PropertyStringList*>(feat->getPropertyByName(name));
+        if (!layers) {
+            return;
+        }
+        Part::TopoShape old(s);
+        std::vector<std::string> kept;
+        std::map<Part::Feature*, std::vector<std::string>> moved;
+        for (const std::string& entry : layers->getValues()) {
+            const auto tab = entry.find('\t');
+            if (tab == std::string::npos) {
+                continue;
+            }
+            const std::string element = entry.substr(0, tab), rest = entry.substr(tab);
+            TopoDS_Shape el;
+            try {
+                el = element.empty() ? s : old.getSubShape(element.c_str(), true);
+            }
+            catch (const Base::Exception&) {
+            }
+            if (el.IsNull()) {
+                continue;
+            }
+            auto found = curves.find(el.TShape().get());
+            if (found != curves.end()) {
+                const TopoDS_Shape to = found->second->Shape.getShape().getShape();
+                const std::string at = elementIn(to, el);
+                if (!at.empty() || to.TShape() == el.TShape()) {
+                    moved[found->second].push_back(at + rest);
+                }
+                continue;
+            }
+            const std::string at = elementIn(left, el);
+            if (!left.IsNull() && (!at.empty() || el.TShape() == s.TShape())) {
+                kept.push_back(at + rest);
+                continue;
+            }
+            // Gone, and its curves and points with the curves objects: on each of them there
+            // (NIST CTC-04's curve sets of the part, of the curves of its supplemental ones)
+            for (auto type : {TopAbs_EDGE, TopAbs_VERTEX}) {
+                for (TopExp_Explorer xp(el, type, type == TopAbs_VERTEX ? TopAbs_EDGE : TopAbs_SHAPE);
+                     xp.More();
+                     xp.Next()) {
+                    auto leaf = curves.find(xp.Current().TShape().get());
+                    if (leaf == curves.end()) {
+                        continue;
+                    }
+                    const std::string to =
+                        elementIn(leaf->second->Shape.getShape().getShape(), xp.Current());
+                    if (!to.empty()) {
+                        moved[leaf->second].push_back(to + rest);
+                    }
+                }
+            }
+        }
+        layers->setValues(kept);
+        for (auto& [to, entries] : moved) {
+            auto prop = property<App::PropertyStringList>(
+                to, name, "The STEP file's layers it and its parts are on (ExportOCAF2)");
+            std::vector<std::string> values = prop->getValues();
+            values.insert(values.end(), entries.begin(), entries.end());
+            prop->setValues(values);
+        }
+    }
+
     void takeOut(const std::map<const TopoDS_TShape*, Part::Feature*>& curves)
     {
         if (curves.empty()) {
@@ -1009,6 +1490,11 @@ private:
                 continue;
             }
             TopoDS_Shape left = without(s, curves);
+            // Its layers as the file has them (ImportOCAF2: StepLayers, by element): an
+            // element taken out on the curves object it went to (NIST STC-06's trimmed curves
+            // of its supplemental geometry, each a layer of its own), the rest renamed in
+            // what is left
+            moveLayers(feat, s, left, curves);
             // Where each element of the old shape is now
             auto nameIn = [](const TopoDS_Shape& in, const TopoDS_Shape& el) -> std::string {
                 const char* type = el.ShapeType() == TopAbs_FACE ? "Face"
@@ -1078,7 +1564,17 @@ private:
                 }
             }
             if (left.IsNull()) {
+                // A member of a shape the import made an object each of (ImportOCAF2:
+                // members the file hides one by one) -- the last of it, its container too
+                auto group = App::GeoFeatureGroupExtension::getGroupOfObject(feat);
                 _info.doc->removeObject(feat->getNameInDocument());
+                auto prop = group ? freecad_cast<App::PropertyBool*>(group->getPropertyByName(
+                                        Import::ExportOCAF2::OneShapeProperty))
+                                  : nullptr;
+                auto ext = group ? group->getExtensionByType<App::GroupExtension>(true) : nullptr;
+                if (prop && prop->getValue() && ext && ext->Group.getValues().empty()) {
+                    _info.doc->removeObject(group->getNameInDocument());
+                }
             }
             else {
                 Base::Placement pla = feat->Placement.getValue();
@@ -1094,11 +1590,60 @@ private:
         return std::string(part ? part->getNameInDocument() : "") + ":" + letter;
     }
 
-    /// The object made for a shape label or its owner
+    /// The object made for a shape label or its owner. Of a compound the import made an object
+    /// of each member of (ImportOCAF2: members the file hides one by one, NIST STC-09's), the
+    /// member's that has the label's shape; for the compound itself, the member's with a solid
     Part::Feature* objectOf(const TDF_Label& l)
     {
         TDF_Label owner = XCAFDoc_ShapeTool::IsSubShape(l) ? l.Father() : l;
-        return freecad_cast<Part::Feature*>(_info.objectOf(owner));
+        App::DocumentObject* obj = _info.objectOf(owner);
+        if (auto feat = freecad_cast<Part::Feature*>(obj)) {
+            return feat;
+        }
+        // (An assembly's container: none -- only a shape's own label is split so)
+        auto ext = obj && !XCAFDoc_ShapeTool::IsAssembly(owner)
+            ? obj->getExtensionByType<App::GeoFeatureGroupExtension>(true)
+            : nullptr;
+        if (!ext) {
+            return nullptr;
+        }
+        std::vector<Part::Feature*> members;
+        for (auto child : ext->Group.getValues()) {
+            if (auto feat = freecad_cast<Part::Feature*>(child)) {
+                members.push_back(feat);
+            }
+        }
+        if (owner == l) {
+            for (auto feat : members) {
+                if (hasSolid(feat)) {
+                    return feat;
+                }
+            }
+            return members.empty() ? nullptr : members.front();
+        }
+        // Its first face, edge or vertex, in a member
+        const TopoDS_Shape sub = _shapes->GetShape(l);
+        for (auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
+            TopExp_Explorer xp(sub, type);
+            if (!xp.More()) {
+                continue;
+            }
+            const TopoDS_TShape* first = xp.Current().TShape().get();
+            for (auto feat : members) {
+                auto& index = _memberElements[{feat, type}];
+                if (index.empty()) {
+                    for (TopExp_Explorer m(feat->Shape.getShape().getShape(), type); m.More();
+                         m.Next()) {
+                        index.insert(m.Current().TShape().get());
+                    }
+                }
+                if (index.count(first)) {
+                    return feat;
+                }
+            }
+            return nullptr;
+        }
+        return nullptr;
     }
 
     /// The first object made with a solid: what a target with no shape is on
@@ -1397,6 +1942,7 @@ private:
         made(k.str(), l, gt);
         gt->Characteristic.setValue(ch);
         gt->Feature.setValue(feature(f, axis));
+        aspects(gt, l, {gt->Feature.getValue()});
         gt->ZoneShape.setValue(zone);
         gt->Value.setValue(obj->GetValue());
         switch (obj->GetMaterialRequirementModifier()) {
@@ -1462,7 +2008,22 @@ private:
             gt->UnitSize.setValue(obj->GetUnitSize());
         }
         if (!comps.empty()) {
-            gt->DatumSystem.setValue(Api::frame(set(partOf(f.object)), comps));
+            auto drf = freecad_cast<DatumReferenceFrame*>(Api::frame(set(partOf(f.object)), comps));
+            gt->DatumSystem.setValue(drf);
+            // Kept as the file says, and said: a frame FreeCAD does not make
+            // (a letter not A to Z, more than three compartments, a datum
+            // twice) is shown invalid and not written again
+            std::vector<DatumReferenceFrame::Compartment> parsed;
+            std::string bad;
+            if (drf && !drf->parse(parsed, bad)) {
+                std::string text;
+                for (auto& c : comps) {
+                    text += (text.empty() ? "" : "|") + c;
+                }
+                _report.skipped.push_back("tolerance " + entry(l) + ": its datum system " + text
+                                          + " is kept as read, but is not written again: "
+                                          + bad);
+            }
         }
         place(gt, f.object, obj->HasPlane(), obj->GetPlane(), obj->HasPointText(),
               obj->GetPointTextAttach(), obj->GetPresentation());
@@ -1735,6 +2296,7 @@ private:
             feats.push_back(feature(f2, !rims(f2, f1)));
         }
         dim->Features.setValues(feats);
+        aspects(dim, l, feats);
         double value = obj->GetValue();
         // The file's, until the model is measured: kept where it cannot be
         // (a curve length along faces, a width of what is not two planes)
@@ -2117,9 +2679,30 @@ private:
             && std::all_of(solids.begin(), solids.end(), [&shown](Part::Feature* f) {
                    return std::find(shown.begin(), shown.end(), f) != shown.end();
                });
-        if (!all && std::any_of(shown.begin(), shown.end(), [this](App::DocumentObject* o) {
+        const bool solid =
+            std::any_of(shown.begin(), shown.end(), [this](App::DocumentObject* o) {
                 return hasSolid(static_cast<Part::Feature*>(o));
-            })) {
+            });
+        // The supplemental geometry it shows (STEP: a 'supplemental geometry subset' in it,
+        // NIST STC-06's twelve views): listed beside the solids once it is read
+        // (viewSupplementals), the rest of it not shown
+        NCollection_Sequence<TDF_Label> items;
+        XCAFDoc_DimTolTool::GetViewSupplemental(l, items);
+        if (!items.IsEmpty()) {
+            ViewSubset subset;
+            subset.view = v;
+            if (solid) {
+                subset.listed = shown;
+            }
+            else {
+                subset.listed.assign(solids.begin(), solids.end());
+            }
+            for (auto& item : items) {
+                subset.items.push_back(entry(item));
+            }
+            _viewSubsets.push_back(std::move(subset));
+        }
+        if (!all && solid) {
             v->Objects.setValues(shown);
         }
         for (auto c : members) {
@@ -2128,6 +2711,25 @@ private:
             c->Views.setValues(views);
         }
         ++_report.views;
+    }
+
+    /// The views showing some of the supplemental geometry, read after them: what each lists
+    void viewSupplementals()
+    {
+        for (auto& subset : _viewSubsets) {
+            std::vector<App::DocumentObject*> listed = subset.listed;
+            const size_t base = listed.size();
+            for (auto& item : subset.items) {
+                auto it = _supplementalOf.find(item);
+                if (it != _supplementalOf.end()
+                    && std::find(listed.begin(), listed.end(), it->second) == listed.end()) {
+                    listed.push_back(it->second);
+                }
+            }
+            if (listed.size() > base) {
+                subset.view->Objects.setValues(listed);
+            }
+        }
     }
 
 public:
@@ -2143,6 +2745,32 @@ public:
     /// The kind of annotation placeholder the file gives each
     std::map<Callout*, std::vector<std::string>> _placeholderKinds;
     std::vector<Callout*> _placeholders;
+    /// The object each item of supplemental geometry was read as, by its label's entry: what
+    /// a view showing some of them lists
+    std::map<std::string, App::DocumentObject*> _supplementalOf;
+    /// A view showing some of the supplemental geometry: what it lists besides, the entries of
+    /// the items
+    struct ViewSubset
+    {
+        View* view = nullptr;
+        std::vector<App::DocumentObject*> listed;
+        std::vector<std::string> items;
+    };
+    std::vector<ViewSubset> _viewSubsets;
+    /// The annotations whose shapes the file groups, read last (aspects)
+    struct PendingAspects
+    {
+        App::DocumentObject* annotation;
+        TDF_Label label;
+        std::vector<App::DocumentObject*> sides;
+    };
+    std::vector<PendingAspects> _aspects;
+    /// Each element of an object by its TShape, its index; 0 if there twice
+    std::map<std::pair<Part::Feature*, TopAbs_ShapeEnum>, std::map<const TopoDS_TShape*, int>>
+        _elementIndex;
+    /// The elements of each member of a compound made an object each (objectOf), by TShape
+    std::map<std::pair<Part::Feature*, TopAbs_ShapeEnum>, std::set<const TopoDS_TShape*>>
+        _memberElements;
     Part::Feature* _lastObject = nullptr;
     std::vector<Pending> _pending;
 
@@ -2171,68 +2799,84 @@ Step::Report Step::read(const Import::PostImport& info)
 {
     Reader reader(info);
     Report report = reader.run();
-    // The file's text size, from its frames (ASME: a frame is twice the
-    // text height): a part a metre long is not lettered at 3.5
-    if (reader._frameHeight > 0) {
-        for (auto c : reader._made) {
-            c->TextHeight.setValue(reader._frameHeight / 2);
-        }
-    }
-    // Drawn as the file draws them, until edited; set last, as any edit
-    // turns it off
-    for (auto& [c, shape] : reader._graphics) {
-        c->ImportedGraphic.setValue(shape);
-        c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
-        c->ImportedGraphicName.setValue(reader._graphicNames[c]);
-        c->UseImported.setValue(true);
-    }
-    for (auto c : reader._placeholders) {
-        c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
-        c->ImportedGraphicName.setValue(reader._graphicNames[c]);
-        c->UseImported.setValue(true);
-    }
-    for (auto& [c, kind] : reader._placeholderKinds) {
-        c->ImportedPlaceholder.setValues(kind);
-    }
-    // A PMI the file draws in another's graphic: drawn so, until either is
-    // edited (docs/GDandT.md sec 10.10, I)
-    for (auto c : reader._made) {
-        if (auto other = reader.drawnWith(c)) {
-            c->ImportedWith.setValue(other);
-            c->UseImported.setValue(true);
-        }
-    }
-    // A graphic alone that PMI are drawn in is no note: it is theirs. The
-    // first of them holds it, the others are drawn in it there (STC-07's
-    // '32X R', linked in the file to another radius than the 31 its
-    // placeholders are of; written and read again it is so too)
-    std::vector<Callout*> gone;
-    for (auto c : reader._made) {
-        auto note = freecad_cast<Note*>(c->ImportedWith.getValue());
-        if (!note || !note->Text.getValues().empty() || !c->ImportedGraphic.getShape().isNull()
-            || std::find(gone.begin(), gone.end(), note) != gone.end()) {
-            continue;
-        }
-        c->ImportedGraphic.setValue(note->ImportedGraphic.getShape().getShape());
-        c->ImportedGraphicType.setValue(note->ImportedGraphicType.getValue());
-        if (c->Views.getValues().empty()) {
-            c->Views.setValues(note->Views.getValues());
-        }
-        c->ImportedWith.setValue(nullptr);
-        for (auto o : reader._made) {
-            if (o != c && o->ImportedWith.getValue() == note) {
-                o->ImportedWith.setValue(c);
+    // What is made is finished here; a failure in it is said, with the rest
+    // of the report, not lost to the import's log alone
+    auto failed = [&](const std::string& why) {
+        report.skipped.push_back("finishing what was read: " + why);
+    };
+    try {
+        // The file's text size, from its frames (ASME: a frame is twice the
+        // text height): a part a metre long is not lettered at 3.5
+        if (reader._frameHeight > 0) {
+            for (auto c : reader._made) {
+                c->TextHeight.setValue(reader._frameHeight / 2);
             }
         }
-        gone.push_back(note);
-    }
-    for (auto note : gone) {
-        reader._made.erase(std::remove(reader._made.begin(), reader._made.end(), note),
-                           reader._made.end());
-        info.doc->removeObject(note->getNameInDocument());
-        if (report.notes > 0) {
-            --report.notes;
+        // Drawn as the file draws them, until edited; set last, as any edit
+        // turns it off
+        for (auto& [c, shape] : reader._graphics) {
+            c->ImportedGraphic.setValue(shape);
+            c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
+            c->ImportedGraphicName.setValue(reader._graphicNames[c]);
+            c->UseImported.setValue(true);
         }
+        for (auto c : reader._placeholders) {
+            c->ImportedGraphicType.setValue(reader._graphicTypes[c]);
+            c->ImportedGraphicName.setValue(reader._graphicNames[c]);
+            c->UseImported.setValue(true);
+        }
+        for (auto& [c, kind] : reader._placeholderKinds) {
+            c->ImportedPlaceholder.setValues(kind);
+        }
+        // A PMI the file draws in another's graphic: drawn so, until either is
+        // edited (docs/GDandT.md sec 10.10, I)
+        for (auto c : reader._made) {
+            if (auto other = reader.drawnWith(c)) {
+                c->ImportedWith.setValue(other);
+                c->UseImported.setValue(true);
+            }
+        }
+        // A graphic alone that PMI are drawn in is no note: it is theirs. The
+        // first of them holds it, the others are drawn in it there (STC-07's
+        // '32X R', linked in the file to another radius than the 31 its
+        // placeholders are of; written and read again it is so too)
+        std::vector<Callout*> gone;
+        for (auto c : reader._made) {
+            auto note = freecad_cast<Note*>(c->ImportedWith.getValue());
+            if (!note || !note->Text.getValues().empty() || !c->ImportedGraphic.getShape().isNull()
+                || std::find(gone.begin(), gone.end(), note) != gone.end()) {
+                continue;
+            }
+            c->ImportedGraphic.setValue(note->ImportedGraphic.getShape().getShape());
+            c->ImportedGraphicType.setValue(note->ImportedGraphicType.getValue());
+            if (c->Views.getValues().empty()) {
+                c->Views.setValues(note->Views.getValues());
+            }
+            c->ImportedWith.setValue(nullptr);
+            for (auto o : reader._made) {
+                if (o != c && o->ImportedWith.getValue() == note) {
+                    o->ImportedWith.setValue(c);
+                }
+            }
+            gone.push_back(note);
+        }
+        for (auto note : gone) {
+            reader._made.erase(std::remove(reader._made.begin(), reader._made.end(), note),
+                               reader._made.end());
+            info.doc->removeObject(note->getNameInDocument());
+            if (report.notes > 0) {
+                --report.notes;
+            }
+        }
+    }
+    catch (const Standard_Failure& e) {
+        failed(e.what());
+    }
+    catch (const Base::Exception& e) {
+        failed(e.what());
+    }
+    catch (const std::exception& e) {
+        failed(e.what());
     }
     if (reader._made.empty() && report.views == 0) {
         for (auto& s : report.skipped) {
@@ -2255,6 +2899,8 @@ Step::Report Step::read(const Import::PostImport& info)
                         << report.dimensions << " dimensions, " << report.notes
                         << " graphic-only notes, " << report.views << " views, "
                         << report.targets << " datum targets"
+                        << (report.holes ? ", " + std::to_string(report.holes) + " holes"
+                                         : std::string())
                         << (report.duplicates ? ", " + std::to_string(report.duplicates)
                                                     + " read twice and kept once"
                                               : std::string())

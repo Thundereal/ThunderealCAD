@@ -52,7 +52,7 @@ state = {"doc": None, "done": False, "run": None, "t0": clock(), "views": []}
 
 
 def note(msg):
-    with open(RESULT, "a") as f:
+    with open(RESULT, "a", encoding="utf-8") as f:
         f.write(str(msg) + "\n")
         f.flush()
 

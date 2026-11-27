@@ -191,6 +191,12 @@ Callout* GeometricTolerance::composedUnder(double h, double& below) const
     return upper;
 }
 
+int GeometricTolerance::composedRows() const
+{
+    auto upper = compositeUpper();
+    return int((upper ? upper : this)->lowerSegments().size());
+}
+
 void GeometricTolerance::touchFrame(GeometricTolerance* upper) const
 {
     if (!upper) {

@@ -380,6 +380,117 @@ void namedElements(const App::DocumentObject *obj,
     }
 }
 
+/** The feature a shape content is a piece of
+ *
+ * A content (Feature::expandShapeContents()) is a member of its owner's
+ * shape, not a shape made from it: it links its owner by a hidden link
+ * only, so it has no source to ask, and the history of its elements' names
+ * is its owner's own. Its elements are drawn as they are in the owner.
+ */
+const Feature *contentOwner(const Feature *feat)
+{
+    auto prop = Base::freecad_dynamic_cast<App::PropertyLinkHidden>(
+        feat->getPropertyByName("_ShapeContentOwner"));
+    if (!prop || prop->getContainer() != feat) {
+        return nullptr;
+    }
+    auto owner = Base::freecad_dynamic_cast<Feature>(prop->getValue());
+    if (!owner || owner == feat || !owner->isAttachedToDocument()) {
+        return nullptr;
+    }
+    return owner;
+}
+
+/** A content given a look of its own, for every element of a kind
+ *
+ * The look is then its own and no longer its owner's: a content follows
+ * its owner by the kind's Map* property, which this turns off.
+ */
+void ownLookGiven(Feature &feat, Kind kind)
+{
+    // A file read, or an undo, says what the Map* property is itself
+    const App::Document *doc = feat.getDocument();
+    if (!doc || doc->testStatus(App::Document::Restoring) || doc->isPerformingTransaction()
+        || !contentOwner(&feat)) {
+        return;
+    }
+    App::PropertyBool &map = kind == Store::Face ? feat.MapFaceColor
+        : kind == Store::Edge                    ? feat.MapLineColor
+                                                 : feat.MapPointColor;
+    if (map.getValue()) {
+        map.setValue(false);
+    }
+}
+
+/** An owner drawn differently tells its contents
+ *
+ * Not through App::AppearanceUpdater: a content's link to its owner is a
+ * hidden one, which puts it in no in-list, so no walk of what depends on the
+ * owner reaches it. A content of a content is told by its own owner in turn.
+ */
+void tellContents(Feature &owner)
+{
+    auto prop = owner.getShapeContentsProperty();
+    if (!prop) {
+        return;
+    }
+    for (auto obj : prop->getValues()) {
+        auto feat = Base::freecad_dynamic_cast<Feature>(obj);
+        if (feat && contentOwner(feat) == &owner) {
+            feat->onSourceAppearanceChanged();
+        }
+    }
+}
+
+/** What a content's elements are given by its owner
+ *
+ * Each element of each kind \a mapKind says, unless the content states a
+ * look of its own for it (by its name, or by its number in \a store), takes
+ * the look the same element has in \a owner -- whole: a content is the
+ * owner's piece, and is seen as it is seen there.
+ */
+void followOwner(const Feature &owner,
+                 const Store &store,
+                 const TopoShape &shape,
+                 const bool (&mapKind)[Store::KindCount],
+                 Feature::ElementLooks &looks)
+{
+    const TopoShape whole = owner.Shape.getShape().located(TopLoc_Location());
+    if (whole.isNull()) {
+        return;
+    }
+    for (int k = 0; k < Store::KindCount; ++k) {
+        std::map<int, App::MaterialAppearance> &handedOn = looks.handedOn[k];
+        if (!mapKind[k]) {
+            continue;
+        }
+        App::AppearanceList list;
+        if (!owner.getDrawnAppearance(k, list) || list.getSize() == 0) {
+            continue;
+        }
+        handedOn.clear();
+        const TopAbs_ShapeEnum type = KindTypes[k];
+        const int count = static_cast<int>(shape.countSubShapes(type));
+        const App::MaterialAppearance &own = looks.own[k];
+        for (int i = 0; i < count; ++i) {
+            if (looks.named[k].count(i)
+                || store.getNumberedOwn(static_cast<Kind>(k), i) != Store::OwnNone) {
+                continue;
+            }
+            const int at = whole.findShape(shape.getSubShape(type, i + 1, true));
+            if (at <= 0) {
+                continue;
+            }
+            const App::MaterialAppearance look =
+                list.getSize() == 1 || at > list.getSize() ? list.getBase()
+                                                           : list.getMaterial(at - 1);
+            if (Store::differingFields(look, own) != Store::OwnNone) {
+                handedOn.emplace(i, look);
+            }
+        }
+    }
+}
+
 }  // namespace
 
 void Feature::setLinkLookFunc(LinkLookFunc func)
@@ -452,6 +563,9 @@ void Feature::updateAppearance(App::Document *sourceDoc, bool forceMap, bool whi
     }
     looks.sourceTransparency = MapTransparency.getValue();
     mapElementLooks(this, shape, store.getShadowSubs(), sourceDoc, looks);
+    if (const Feature *owner = contentOwner(this)) {
+        followOwner(*owner, store, shape, mapKind, looks);
+    }
 
     bool changed = false;
     for (int k = 0; k < Store::KindCount; ++k) {
@@ -479,6 +593,7 @@ void Feature::updateAppearance(App::Document *sourceDoc, bool forceMap, bool whi
     }
     if (changed) {
         App::AppearanceUpdater::addObject(this);
+        tellContents(*this);
     }
     mirrorLooks();
 }
@@ -594,6 +709,7 @@ void Feature::onAppearanceChanged(const App::Property *prop)
             // object is told all the same
             if (prop == &ElementAppearance) {
                 App::AppearanceUpdater::addObject(this);
+                tellContents(*this);
             }
         }
         if (prop == &ElementAppearance && !_updatingAppearance) {
@@ -896,6 +1012,9 @@ void Feature::writeFaces(const App::AppearanceList &before, const App::Appearanc
         const bool moved =
             !sameLook(after.getBase(), before.getBase()) || after.isPBR() != before.isPBR();
         toObject = moved;
+        if (moved) {
+            ownLookGiven(*this, Store::Face);
+        }
         const bool follows = after.isFollowingMaterial();
         const bool followed = before.isFollowingMaterial();
         if (follows && (moved || !followed)) {
@@ -1022,6 +1141,7 @@ void Feature::writeOwnColor(const App::Color &value)
     if (sameRGB(color, own.diffuseColor)) {
         return;
     }
+    ownLookGiven(*this, Store::Face);
     own.diffuseColor = color;
     store.setBase(Store::Face, own);
 }
@@ -1033,6 +1153,7 @@ void Feature::writeOwnTransparency(long percent)
     if (std::lround(own.transparency * 100.0F) == percent) {
         return;
     }
+    ownLookGiven(*this, Store::Face);
     Store::Edit edit(store);
     const float trans = static_cast<float>(percent) / 100.0F;
     own.transparency = trans;
@@ -1064,6 +1185,7 @@ void Feature::writeOwnMaterial(const App::MaterialAppearance &value)
     look.finish = own.finish;
     look.texture = own.texture;
     if (!sameLook(look, own)) {
+        ownLookGiven(*this, Store::Face);
         store.setBase(Store::Face, look);
     }
 }
@@ -1080,6 +1202,7 @@ void Feature::writeColors(int which, const std::vector<App::Color> &values)
     if (values.size() <= 1) {
         // One colour is every element's: the kind's own
         if (values.size() == 1 && !sameRGB(values[0], own.diffuseColor)) {
+            ownLookGiven(*this, kind);
             App::MaterialAppearance look = own;
             look.diffuseColor = values[0];
             look.diffuseColor.a = own.diffuseColor.a;

@@ -94,6 +94,9 @@ public:
     void endUpright();
     /// Everything drawn so far one upright part, unless parts were marked
     void uprightAll();
+    /// The parts turned about height y, not each about its own middle: the
+    /// rows of one frame turn as one
+    void uprightAbout(double y);
     const std::vector<Upright>& uprights() const
     {
         return _uprights;

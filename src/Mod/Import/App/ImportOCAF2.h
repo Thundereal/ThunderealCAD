@@ -346,6 +346,8 @@ private:
     void runPostImport(bool progressive);
     /// Hide the objects of the shapes hidden by their parts' invisibility
     void hideInvisible(bool progressive);
+    /// Keep a product's attributes and validation-property mark on its object
+    void applyMetadata(bool progressive);
     /// Mark the container of a file's several free shapes (ExportOCAF2::FreeShapesProperty)
     void markFreeShapes(App::DocumentObject* group);
     /// Base shapes every face of which (every edge, of one with none) is invisible

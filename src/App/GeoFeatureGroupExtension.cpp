@@ -247,6 +247,13 @@ GeoFeatureGroupExtension::addObjects(std::vector<App::DocumentObject*> objects)
         objs.insert(objs.end(), ret.begin(), ret.end());
         buildExport(objs);
         Group.setValues(objs);
+        // Checked here, as a change of Group checks a member it adds: what
+        // links it brought came with it. Not told so, the next change took
+        // them all for new, and threw out each tied to anything outside by
+        // a link made since -- an annotation beside the part naming a face
+        // (NIST FTC-10's import, docs/GDandT.md sec 10.25, I11 (d))
+        auto &checked = checkedMembers()[this];
+        checked.insert(ret.begin(), ret.end());
     }
     return ret;
 }
@@ -336,6 +343,11 @@ std::vector<DocumentObject*> GeoFeatureGroupExtension::removeObjects(std::vector
             Base::ObjectStatusLocker<Property::Status, Property> guard(Property::User3, &Group);
             buildExport(grp);
             Group.setValues(grp);
+            // Taken out with all that is tied to them: nothing left is
+            auto &checked = checkedMembers()[this];
+            for (auto obj : removed) {
+                checked.erase(obj);
+            }
         }
         // A part deletes the links it owns
         if (auto part = Base::freecad_dynamic_cast<App::Part>(getExtendedObject()))
@@ -360,20 +372,43 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
             auto children = Group.getValues();
             std::unordered_map<App::DocumentObject*, bool> objMap;
             std::vector<App::DocumentObject *> crossLinks;
-            // Only what is added needs looking at, unless something left:
-            // a member may have linked to it
-            bool removed = false;
+            // Only what is added needs looking at, and what is tied to what
+            // left: a member may have linked to it. Not every member -- one
+            // tied by its links to anything outside was so when it came in,
+            // and was let in (it was checked; the links came later: a PMI
+            // annotation beside the part naming its faces). A deletion
+            // re-checking them all threw out most of a part's members
+            // (NIST FTC-10's, docs/GDandT.md sec 10.25, I11 (d)). Only
+            // the pointers of what left are known: it may be gone.
+            std::unordered_set<const DocumentObject*> gone;
             {
                 std::unordered_set<const DocumentObject*> now(children.begin(), children.end());
                 for (auto obj : checked) {
                     if (!now.count(obj)) {
-                        removed = true;
-                        break;
+                        gone.insert(obj);
                     }
                 }
             }
+            // Each member's ties walked once: what is gone grows as members
+            // are thrown out below, and the check is asked again
+            std::unordered_map<const DocumentObject*, std::vector<DocumentObject*>> ties;
             auto isNew = [&](const DocumentObject *obj) {
-                return removed || !checked.count(obj);
+                if (!checked.count(obj)) {
+                    return true;
+                }
+                if (gone.empty()) {
+                    return false;
+                }
+                auto at = ties.find(obj);
+                if (at == ties.end()) {
+                    at = ties.emplace(obj, getCSRelevantLinks(obj)).first;
+                }
+                for (auto link : at->second) {
+                    if (gone.count(link)) {
+                        return true;
+                    }
+                }
+                return false;
             };
             for(auto it=children.begin(),itNext=it;it!=children.end();it=itNext) {
                 ++itNext;
@@ -412,6 +447,7 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
                     if(parent && parent->hasObject(obj)) {
                         error = true;
                         valid = false;
+                        gone.insert(obj);
                         itNext = children.erase(it);
                         FC_WARN("Remove " << obj->getFullName() <<  " from " 
                                 << owner->getFullName() << " because of multiple owner groups");
@@ -436,6 +472,7 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
                                 action = "Invalid child ";
                             else {
                                 action = "Remove ";
+                                gone.insert(obj);
                                 children.erase(it);
                                 valid = false;
                                 retry = true;

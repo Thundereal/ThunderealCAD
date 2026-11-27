@@ -165,13 +165,7 @@ public:
 
 private:
     void refresh();
-    /// Presentation's parts that turn to read upright (PMI::Callout::
-    /// UprightAt), each in its own frame under a node that mirrors it per
-    /// frame as the view needs, the way a sketch's datum label turns
-    void setUprights(std::size_t count);
     ShapeLines _drawing;
-    SoSeparator* _turning = nullptr;
-    std::vector<std::unique_ptr<ShapeLines>> _uprights;
 };
 
 /// The annotation set: double-clicked, made active, which offers the PMI

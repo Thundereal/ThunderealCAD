@@ -214,6 +214,14 @@ bool Dimension::measure(double& value, std::string& why) const
         case Width:
             if (faces.size() == 2 && faces[0].type == Primitive::Plane
                 && faces[1].type == Primitive::Plane) {
+                // A width is between faces facing apart (a tab) or each
+                // other (a slot); two facing the same way are a step, the
+                // distance between two features
+                if (faces[0].dir.IsEqual(faces[1].dir, 1e-9)) {
+                    why = "the two planar faces face the same way: a step, whose height is a "
+                          "distance, not a width";
+                    return false;
+                }
                 if (!Geom::distance(faces[0], faces[1], value, why)) {
                     return false;
                 }

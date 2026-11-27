@@ -70,6 +70,15 @@ def run():
         App.ParamGet("User parameter:BaseApp/Preferences/View").SetBool("ShowNaviCube", False)
         import Import
         import ImportGui
+        import PMI
+
+        # The GD&T of STEP files is read where the OCCT libraries are the fork's
+        # (PMIStep, docs/GDandT.md): elsewhere nothing here is to be seen
+        exchange, why = PMI.stepExchange()
+        if not exchange:
+            note("SKIP no GD&T of STEP files: " + why)
+            finish()
+            return
 
         ref = App.newDocument("Headless")
         Import.insert(CTC01, ref.Name)

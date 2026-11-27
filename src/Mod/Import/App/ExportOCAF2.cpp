@@ -36,8 +36,18 @@
 #include <TDF_Label.hxx>
 #include <TDF_LabelSequence.hxx>
 #include <TDataStd_Name.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <TCollection_ExtendedString.hxx>
+#include <TDataStd_ExtStringList.hxx>
+#include <XCAFDoc.hxx>
+#include <TDataStd_NamedData.hxx>
+#include <XCAFDoc_Area.hxx>
+#include <XCAFDoc_Centroid.hxx>
+#include <XCAFDoc_Volume.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_GraphNode.hxx>
+#include <XCAFDoc_LayerTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
 #include <XCAFDoc_VisMaterial.hxx>
 #include <XCAFDoc_VisMaterialTool.hxx>
@@ -64,6 +74,7 @@
 #include <Base/Parameter.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/Interface.h>
+#include <Mod/Part/App/OCCTFork.h>
 #include <Mod/Part/App/OCAF/ImportExportSettings.h>
 
 #include "ExportOCAF2.h"
@@ -140,6 +151,9 @@ void ExportOCAF2::runPostExport()
         }
         catch (const Standard_Failure& e) {
             FC_ERR("Export pass '" << name << "' failed: " << e.GetMessageString());
+        }
+        catch (const std::exception& e) {
+            FC_ERR("Export pass '" << name << "' failed: " << e.what());
         }
     }
 }
@@ -265,6 +279,93 @@ ExportOCAF2::findComponent(const char* subname, TDF_Label label, TDF_LabelSequen
     return {};
 }
 
+void ExportOCAF2::setupMetadata(TDF_Label label,
+                                App::DocumentObject* obj,
+                                const Part::TopoShape& shape)
+{
+    if (!obj) {
+        return;
+    }
+    auto toExtended = [](const std::string& s) {
+        return TCollection_ExtendedString(s.c_str(), Standard_True);
+    };
+    Handle(TDataStd_NamedData) data;
+    auto named = [&]() {
+        if (data.IsNull() && !label.FindAttribute(TDataStd_NamedData::GetID(), data)) {
+            data = TDataStd_NamedData::Set(label);
+        }
+        return data;
+    };
+    if (auto prop = freecad_cast<App::PropertyMap*>(obj->getPropertyByName(AttributesProperty))) {
+        for (auto& [key, value] : prop->getValues()) {
+            named()->SetString(toExtended(key), toExtended(value));
+        }
+    }
+    if (auto prop =
+            freecad_cast<App::PropertyMap*>(obj->getPropertyByName(IntegerAttributesProperty))) {
+        for (auto& [key, value] : prop->getValues()) {
+            named()->SetInteger(toExtended(key), std::atoi(value.c_str()));
+        }
+    }
+    if (auto prop =
+            freecad_cast<App::PropertyMap*>(obj->getPropertyByName(RealAttributesProperty))) {
+        for (auto& [key, value] : prop->getValues()) {
+            named()->SetReal(toExtended(key), std::atof(value.c_str()));
+        }
+        if (auto measures = freecad_cast<App::PropertyMap*>(
+                obj->getPropertyByName(AttributeMeasuresProperty))) {
+            Handle(TDataStd_ExtStringList) list;
+            for (auto& [key, measure] : measures->getValues()) {
+                if (!prop->getValues().count(key)) {
+                    continue;
+                }
+                // The fork's GUID, looked up (Part/App/OCCTFork.h): without it, none kept
+                const Standard_GUID* guid = Part::occtAttributeMeasuresGUID();
+                if (!guid) {
+                    break;
+                }
+                if (list.IsNull()) {
+                    list = TDataStd_ExtStringList::Set(label, *guid);
+                    list->Clear();
+                }
+                list->Append(toExtended(key));
+                list->Append(toExtended(measure));
+            }
+        }
+    }
+    if (auto prop =
+            freecad_cast<App::PropertyStringList*>(obj->getPropertyByName(DocumentsProperty))) {
+        const Standard_GUID* guid = Part::occtCitedDocumentsGUID();
+        if (guid && !prop->getValues().empty()) {
+            Handle(TDataStd_ExtStringList) list = TDataStd_ExtStringList::Set(label, *guid);
+            list->Clear();
+            for (auto& value : prop->getValues()) {
+                list->Append(toExtended(value));
+            }
+        }
+    }
+    // Computed of the shape written: the file's were of the shape it had
+    auto valid = freecad_cast<App::PropertyBool*>(obj->getPropertyByName(ValidationProperty));
+    if (!valid || !valid->getValue() || shape.isNull()) {
+        return;
+    }
+    TopoDS_Shape s = aShapeTool->GetShape(label);
+    if (s.IsNull()) {
+        return;
+    }
+    GProp_GProps volume, area;
+    bool solid = TopExp_Explorer(s, TopAbs_SOLID).More();
+    if (solid) {
+        BRepGProp::VolumeProperties(s, volume);
+        XCAFDoc_Volume::Set(label, volume.Mass());
+    }
+    BRepGProp::SurfaceProperties(s, area);
+    if (area.Mass() > 0) {
+        XCAFDoc_Area::Set(label, area.Mass());
+    }
+    XCAFDoc_Centroid::Set(label, solid ? volume.CentreOfMass() : area.CentreOfMass());
+}
+
 void ExportOCAF2::setupObject(TDF_Label label,
                               App::DocumentObject* obj,
                               const Part::TopoShape& shape,
@@ -294,6 +395,12 @@ void ExportOCAF2::setupObject(TDF_Label label,
         // Finally, the subname reference allows to use the label for naming
         // with preceding '$'
         names.push_back(prefix + "$" + obj->Label.getValue() + ".");
+    }
+
+    // Its attributes and validation properties, the STEP file's it came from (as
+    // ImportOCAF2::applyMetadata keeps them): of the product, not of its instances
+    if (!aShapeTool->IsComponent(label) && !aShapeTool->IsReference(label)) {
+        setupMetadata(label, obj, shape);
     }
 
     if (!getShapeColors || (!force && !mySetups.emplace(obj, name ? name : "").second)) {
@@ -722,6 +829,69 @@ void ExportOCAF2::exportObjects(std::vector<App::DocumentObject*>& objs, const c
     aShapeTool->UpdateAssemblies();
 }
 
+bool ExportOCAF2::parseStepLayer(const std::string& entry,
+                                 std::string& element,
+                                 XCAFDoc_LayerTool::ItemLayer& layer)
+{
+    // element, ordinal, hidden, name, description: by position, an empty one a field still
+    std::vector<std::string> fields(1);
+    for (char c : entry) {
+        if (c == '\t' && fields.size() < 5) {
+            fields.emplace_back();
+        }
+        else {
+            fields.back() += c;
+        }
+    }
+    if (fields.size() < 3) {
+        return false;
+    }
+    fields.resize(5);
+    try {
+        layer.Ordinal = std::stoi(fields[1]);
+    }
+    catch (...) {
+        return false;
+    }
+    element = fields[0];
+    layer.Hidden = fields[2] == "1";
+    layer.Name = fields[3].c_str();
+    layer.Description = fields[4].c_str();
+    return true;
+}
+
+void ExportOCAF2::setItemLayers(TDF_Label shapeL,
+                                TDF_Label ownL,
+                                const Part::TopoShape& shape,
+                                App::DocumentObject* obj)
+{
+    auto prop = obj ? freecad_cast<App::PropertyStringList*>(
+                          obj->getPropertyByName(StepLayersProperty))
+                    : nullptr;
+    if (!prop || shapeL.IsNull() || ownL.IsNull()) {
+        return;
+    }
+    for (const std::string& entry : prop->getValues()) {
+        std::string element;
+        XCAFDoc_LayerTool::ItemLayer layer;
+        if (!parseStepLayer(entry, element, layer)) {
+            continue;
+        }
+        TDF_Label target = ownL;
+        if (!element.empty()) {
+            TopoDS_Shape el = shape.getSubShape(element.c_str(), true);
+            if (el.IsNull()) {
+                continue;
+            }
+            if (!aShapeTool->FindSubShape(shapeL, el, target)) {
+                target = aShapeTool->AddSubShape(shapeL, el);
+            }
+        }
+        // The fork's, looked up: without it the layers by name are all there is
+        Part::addOCCTItemLayer(target, layer);
+    }
+}
+
 TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
                                     const char* sub,
                                     TDF_Label parent,
@@ -879,6 +1049,9 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
                 label = aShapeTool->NewShape();
                 aShapeTool->SetShape(label, baseShape.getShape());
                 setupObject(label, linked, baseShape, prefix);
+                // Its layers, and its elements', as the file had them: on the shape, as
+                // STEP has no layer of an instance
+                setItemLayers(label, label, baseShape, linked);
             }
 
             label = aShapeTool->AddComponent(parent, shape.getShape(), Standard_False);
@@ -922,6 +1095,11 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
                 setupObject(label, linked, shape, prefix, nullptr, true);
             }
             setupObject(label, o, shape, prefix, name, true);
+            // Its layers, and its elements', as the file had them
+            setItemLayers(label, label, shape, linked);
+            if (o != linked) {
+                setItemLayers(label, label, shape, o);
+            }
         }
 
         myObjects.emplace(obj, label);
@@ -952,6 +1130,9 @@ TDF_Label ExportOCAF2::exportObject(App::DocumentObject* parentObj,
                 if (!withinShown[i]) {
                     aColorTool->SetVisibility(sub, Standard_False);
                 }
+                // Its layers, and its elements', as the file had them (NIST STC-06's trimmed
+                // curves): sub-shapes of the shape, where the writer finds them
+                setItemLayers(shapeL, sub, Part::TopoShape(it.Value()), within[i]);
                 // Its faces' and edges' own colours: sub-shapes of the shape, where the
                 // writer reads them -- a sub-shape of the child's sub-shape is none XCAF
                 // takes (NIST STC-09's 163 face colours were lost so)

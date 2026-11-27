@@ -514,9 +514,12 @@ bool Geom::depth(const std::vector<Primitive>& faces, double& depth, std::string
     auto at = [&](const gp_Pnt& p) {
         return gp_Vec(first->loc, p).Dot(dir);
     };
+    // On one axis, the bore's stretches along it: one run, or apart (two
+    // blind holes of one size from either side, "2X", material between) --
+    // a hole each, else the depth was the two and the gap between
+    std::vector<Hole> runs;
     for (auto& h : holes) {
-        h.lo = std::numeric_limits<double>::max();
-        h.hi = -h.lo;
+        std::vector<std::pair<double, double>> spans;
         for (auto& p : faces) {
             if (p.type != Primitive::Cylinder || std::fabs(p.radius - h.radius) > SizeTol
                 || gp_Lin(h.axis).Distance(p.loc) > SizeTol) {
@@ -524,12 +527,23 @@ bool Geom::depth(const std::vector<Primitive>& faces, double& depth, std::string
             }
             double s = at(p.loc);
             double sign = p.dir.Dot(first->dir) > 0 ? 1 : -1;
-            for (double v : {p.from, p.to}) {
-                h.lo = std::min(h.lo, s + sign * v);
-                h.hi = std::max(h.hi, s + sign * v);
+            double a = s + sign * p.from, b = s + sign * p.to;
+            spans.emplace_back(std::min(a, b), std::max(a, b));
+        }
+        std::sort(spans.begin(), spans.end());
+        for (auto& [lo, hi] : spans) {
+            if (!runs.empty() && runs.back().axis.Location().IsEqual(h.axis.Location(), 0)
+                && runs.back().radius == h.radius && lo <= runs.back().hi + SizeTol) {
+                runs.back().hi = std::max(runs.back().hi, hi);
+                continue;
             }
+            Hole run = h;
+            run.lo = lo;
+            run.hi = hi;
+            runs.push_back(run);
         }
     }
+    holes = std::move(runs);
     bool found = false;
     for (auto& h : holes) {
         // Its floor: the plane square to the axis nearest the bore's ends,

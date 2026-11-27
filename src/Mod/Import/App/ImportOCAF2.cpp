@@ -53,12 +53,23 @@
 # include <Image_Texture.hxx>
 #endif
 #include <NCollection_IndexedMap.hxx>
+#include <NCollection_DataMap.hxx>
+#include <TCollection_ExtendedString.hxx>
+#include <TDataStd_ExtStringList.hxx>
+#include <XCAFDoc.hxx>
+#include <TDataStd_NamedData.hxx>
+#include <XCAFDoc_Area.hxx>
+#include <XCAFDoc_Centroid.hxx>
+#include <XCAFDoc_Volume.hxx>
 #include <NCollection_Sequence.hxx>
 #include <TopTools_ShapeMapHasher.hxx>
 #include <XCAFDoc_DimTolTool.hxx>
+#include <XCAFDoc_LayerTool.hxx>
+#include <sstream>
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/range/algorithm/replace_if.hpp>
@@ -82,6 +93,7 @@
 #include <Base/Parameter.h>
 #include <Mod/Part/App/FeatureCompound.h>
 #include <Mod/Part/App/Interface.h>
+#include <Mod/Part/App/OCCTFork.h>
 #include <Mod/Part/App/OCAF/ImportExportSettings.h>
 
 #include "ExportOCAF2.h"
@@ -301,6 +313,8 @@ struct ImportOCAF2::ColorInfo {
     App::Color edgeColor;
     bool hasFaceColor = false;
     bool hasEdgeColor = false;
+    /// The faces and edges the file hides (STEP: a style each listed by an INVISIBILITY)
+    std::unordered_set<const TopoDS_TShape*> hiddenElements;
 };
 
 // Check for uniform color
@@ -476,7 +490,12 @@ void ImportOCAF2::scanElementColors(TDF_Label label,
             for (auto type : {TopAbs_FACE, TopAbs_EDGE}) {
                 for (TopExp_Explorer xp(sub, type); xp.More(); xp.Next()) {
                     hidden.Add(xp.Current());
+                    colors.hiddenElements.insert(xp.Current().TShape().get());
                 }
+            }
+            // A point (NIST STC-09 -e3's hidden curve sets of one point each)
+            for (TopExp_Explorer xp(sub, TopAbs_VERTEX); xp.More(); xp.Next()) {
+                colors.hiddenElements.insert(xp.Current().TShape().get());
             }
         }
         using Map = NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher>;
@@ -874,6 +893,149 @@ void ImportOCAF2::scanMaterialGroups(TDF_Label label,
     }
 }
 
+/// The members of a compound, through compounds of one member (NIST STC-09 -e3's wireframe: a
+/// compound of one compound of its 118 curve sets)
+static std::vector<TopoDS_Shape> compoundMembers(const TopoDS_Shape& shape)
+{
+    TopoDS_Shape at = shape;
+    for (;;) {
+        std::vector<TopoDS_Shape> out;
+        if (at.IsNull() || at.ShapeType() != TopAbs_COMPOUND) {
+            return out;
+        }
+        for (TopoDS_Iterator it(at); it.More(); it.Next()) {
+            out.push_back(it.Value());
+        }
+        if (out.size() != 1 || out.front().ShapeType() != TopAbs_COMPOUND) {
+            return out;
+        }
+        at = out.front().Moved(at.Location());
+    }
+}
+
+/// Which members of a compound the file hides, member by member (NIST STC-09's shells and
+/// sketches beside its solid): each hidden when every face of it is (every edge, of one with
+/// no face; every point, of one with neither). None when no member is hidden, or every one --
+/// the object is hidden whole then (hideInvisible())
+static std::vector<bool> hiddenMembers(const TopoDS_Shape& shape,
+                                       const std::unordered_set<const TopoDS_TShape*>& hidden)
+{
+    std::vector<bool> out;
+    if (hidden.empty()) {
+        return {};
+    }
+    std::size_t count = 0;
+    for (const TopoDS_Shape& member : compoundMembers(shape)) {
+        const TopAbs_ShapeEnum type = TopExp_Explorer(member, TopAbs_FACE).More() ? TopAbs_FACE
+            : TopExp_Explorer(member, TopAbs_EDGE).More()                        ? TopAbs_EDGE
+                                                                                  : TopAbs_VERTEX;
+        bool any = false, all = true;
+        for (TopExp_Explorer xp(member, type); xp.More() && all; xp.Next()) {
+            any = true;
+            all = hidden.count(xp.Current().TShape().get()) > 0;
+        }
+        out.push_back(any && all);
+        count += out.back() ? 1 : 0;
+    }
+    if (out.size() < 2 || count == 0 || count == out.size()) {
+        return {};
+    }
+    return out;
+}
+
+/// The layers the file puts \a shape and its parts on, as the reader keeps them
+/// (XCAFDoc_LayerTool::AddItemLayer): the sub-shape labels of \a top inside \a shape, and
+/// \a top itself when \a withTop. One string each, "element<TAB>ordinal<TAB>hidden<TAB>name
+/// <TAB>description", the element empty for the whole (ExportOCAF2::StepLayersProperty)
+static std::vector<std::string> itemLayers(const Handle(XCAFDoc_ShapeTool)& tool,
+                                           const TDF_Label& top,
+                                           const TopoDS_Shape& shape,
+                                           bool withTop)
+{
+    std::vector<std::string> out;
+    if (top.IsNull() || shape.IsNull()) {
+        return out;
+    }
+    auto add = [&](const TDF_Label& l, const std::string& element) {
+        // The fork's, looked up (Part/App/OCCTFork.h): without it, none read
+        NCollection_Sequence<XCAFDoc_LayerTool::ItemLayer> layers;
+        if (!Part::getOCCTItemLayers(l, layers)) {
+            return;
+        }
+        for (const auto& layer : layers) {
+            std::ostringstream ss;
+            ss << element << '\t' << layer.Ordinal << '\t' << (layer.Hidden ? 1 : 0) << '\t'
+               << layer.Name.ToCString() << '\t' << layer.Description.ToCString();
+            out.push_back(ss.str());
+        }
+    };
+    if (withTop) {
+        add(top, std::string());
+    }
+    NCollection_Sequence<TDF_Label> subs;
+    if (!tool->GetSubShapes(top, subs)) {
+        return out;
+    }
+    for (const TDF_Label& l : subs) {
+        TopoDS_Shape sub = XCAFDoc_ShapeTool::GetShape(l);
+        if (sub.IsNull()) {
+            continue;
+        }
+        if (sub.IsPartner(shape)) {
+            add(l, std::string());
+            continue;
+        }
+        // Its element, by its TShape; a compound of the shape's elements that is none of
+        // them itself (XCAF's label of a curve set of the part's curves: NIST CTC-04's), each
+        // element of it -- the one layer all the same (the ordinal)
+        auto nameOf = [&](const TopoDS_Shape& el) -> std::string {
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
+            TopExp::MapShapes(shape, el.ShapeType(), map);
+            for (int i = 1; i <= map.Extent(); ++i) {
+                if (map(i).IsPartner(el)) {
+                    return Part::TopoShape::shapeName(el.ShapeType()) + std::to_string(i);
+                }
+            }
+            return {};
+        };
+        std::string name = nameOf(sub);
+        if (!name.empty()) {
+            add(l, name);
+            continue;
+        }
+        if (sub.ShapeType() == TopAbs_COMPOUND) {
+            for (TopoDS_Iterator it(sub); it.More(); it.Next()) {
+                std::string member = nameOf(it.Value());
+                if (!member.empty()) {
+                    add(l, member);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+/// Its layers as the file has them, on \a obj (ExportOCAF2::StepLayersProperty)
+static void setItemLayers(App::DocumentObject* obj, const std::vector<std::string>& layers)
+{
+    if (!obj || layers.empty()) {
+        return;
+    }
+    auto prop = freecad_cast<App::PropertyStringList*>(
+        obj->getPropertyByName(ExportOCAF2::StepLayersProperty));
+    if (!prop) {
+        prop = static_cast<App::PropertyStringList*>(obj->addDynamicProperty(
+            "App::PropertyStringList",
+            ExportOCAF2::StepLayersProperty,
+            "Export",
+            "The STEP file's layers it and its parts are on, each: element, ordinal, hidden, "
+            "name, description (tab separated; the element empty for the whole)"));
+    }
+    if (prop) {
+        prop->setValues(layers);
+    }
+}
+
 bool ImportOCAF2::createObject(App::Document* doc,
                                TDF_Label label,
                                const TopoDS_Shape& shape,
@@ -976,6 +1138,85 @@ bool ImportOCAF2::createObject(App::Document* doc,
         }
     }
 
+    // Members the file hides one by one (STEP INVISIBILITY: NIST STC-09's shells and
+    // sketches beside its solid): one object each, those hidden hidden, in a container
+    // written as one shape again (ExportOCAF2::OneShapeProperty) -- one object hides no part
+    // of itself
+    const std::vector<bool> hidden = hiddenMembers(shape, colors.hiddenElements);
+    if (!hidden.empty() && !options.useLinkGroup) {
+        NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> faceMap, edgeMap;
+        TopExp::MapShapes(shape, TopAbs_FACE, faceMap);
+        TopExp::MapShapes(shape, TopAbs_EDGE, edgeMap);
+        RenderMaterial rmat;
+        const bool hasRenderMaterial = getRenderMaterial(label, rmat);
+        std::vector<App::DocumentObject*> children;
+        boost::dynamic_bitset<> visibilities;
+        std::size_t i = 0;
+        for (const TopoDS_Shape& member : compoundMembers(shape)) {
+            const std::size_t index = i++;
+            Part::TopoShape tmember(member);
+            auto child = static_cast<Part::Feature*>(
+                doc->addObject("Part::Feature", tmember.shapeName().c_str()));
+            child->Shape.setValue(member);
+            TDF_Label memberL;
+            if (aShapeTool->FindSubShape(label, member, memberL)) {
+                std::string name = getLabelName(memberL);
+                if (!name.empty()) {
+                    child->Label.setValue(name.c_str());
+                }
+            }
+            // Its own faces' and edges' looks, as the whole had them
+            std::vector<App::Color> childFaces, childEdges;
+            std::vector<App::MaterialAppearance> childMats;
+            NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> memberFaces, memberEdges;
+            TopExp::MapShapes(member, TopAbs_FACE, memberFaces);
+            TopExp::MapShapes(member, TopAbs_EDGE, memberEdges);
+            for (int j = 1; j <= memberFaces.Extent(); ++j) {
+                const int idx = faceMap.FindIndex(memberFaces(j)) - 1;
+                if (idx >= 0 && idx < int(colors.faceColors.size())) {
+                    childFaces.push_back(colors.faceColors[idx]);
+                }
+                if (idx >= 0 && idx < int(colors.faceMaterials.size())) {
+                    childMats.push_back(colors.faceMaterials[idx]);
+                }
+            }
+            for (int j = 1; j <= memberEdges.Extent(); ++j) {
+                const int idx = edgeMap.FindIndex(memberEdges(j)) - 1;
+                if (idx >= 0 && idx < int(colors.edgeColors.size())) {
+                    childEdges.push_back(colors.edgeColors[idx]);
+                }
+            }
+            applyFaceColors(child, {info.faceColor});
+            applyEdgeColors(child, {info.edgeColor});
+            if (!childMats.empty() && int(childMats.size()) == memberFaces.Extent()) {
+                applyFaceMaterials(child, childMats, colors.pbrMaterials);
+            }
+            else if (!childFaces.empty() && int(childFaces.size()) == memberFaces.Extent()) {
+                applyFaceColors(child, childFaces);
+            }
+            if (!childEdges.empty() && int(childEdges.size()) == memberEdges.Extent()) {
+                applyEdgeColors(child, childEdges);
+            }
+            if (hasRenderMaterial) {
+                applyRenderMaterial(child, rmat);
+            }
+            // Its layers as the file has them (NIST STC-06's trimmed curves)
+            setItemLayers(child, itemLayers(aShapeTool, label, member, false));
+            children.push_back(child);
+            visibilities.push_back(!hidden[index]);
+        }
+        if (createGroup(doc, info, shape, children, visibilities, false)) {
+            auto prop = static_cast<App::PropertyBool*>(info.obj->addDynamicProperty(
+                "App::PropertyBool",
+                ExportOCAF2::OneShapeProperty,
+                "Export",
+                "Written to STEP as one product, each child a shape representation of it, not "
+                "as an assembly of them"));
+            prop->setValue(true);
+            return true;
+        }
+    }
+
     feature = static_cast<Part::Feature*>(doc->addObject("Part::Feature",tshape.shapeName().c_str()));
     feature->Shape.setValue(shape);
     // feature->Visibility.setValue(false);
@@ -992,6 +1233,9 @@ bool ImportOCAF2::createObject(App::Document* doc,
     RenderMaterial rmat;
     if (getRenderMaterial(label, rmat))
         applyRenderMaterial(feature, rmat);
+
+    // Its layers, and its parts', as the file has them (NIST STC-06, CTC-04)
+    setItemLayers(feature, itemLayers(aShapeTool, label, shape, true));
 
     info.propPlacement = &feature->Placement;
     info.obj = feature;
@@ -1227,6 +1471,7 @@ App::DocumentObject* ImportOCAF2::loadShapes()
     // Merged, the objects the passes would refer to are gone
     if (!options.merge) {
         hideInvisible(false);
+        applyMetadata(false);
         runPostImport(false);
     }
     for (auto doc : myNewDocuments)
@@ -1625,9 +1870,10 @@ int ImportOCAF2::analyzeObject(TDF_Label label, const TopoDS_Shape& shape)
 
     MaterialGroups matGroups;
     scanMaterialGroups(label, colors.tshape, matGroups);
-    if (matGroups.split) {
-        // Would split into one feature per material group; hand the
-        // whole import back to the synchronous path.
+    if (matGroups.split
+        || (!options.useLinkGroup && !hiddenMembers(shape, colors.hiddenElements).empty())) {
+        // Would split into one feature per material group, or per member the file hides
+        // alone; hand the whole import back to the synchronous path.
         myProgFailed = true;
         return -1;
     }
@@ -2197,6 +2443,7 @@ App::DocumentObject* ImportOCAF2::finishOps()
         markFreeShapes(ret);
     }
     hideInvisible(true);
+    applyMetadata(true);
     runPostImport(true);
     return ret;
 }
@@ -2213,6 +2460,172 @@ void ImportOCAF2::markFreeShapes(App::DocumentObject* group)
         "Written to STEP as the file's several free shapes it holds, not as an assembly"));
     if (prop) {
         prop->setValue(true);
+    }
+}
+
+namespace
+{
+std::string utf8(const TCollection_ExtendedString& s)
+{
+    std::string out(s.LengthOfCString(), '\0');
+    char* buf = out.data();
+    out.resize(s.ToUTF8CString(buf));
+    return out;
+}
+}  // namespace
+
+void ImportOCAF2::applyMetadata(bool progressive)
+{
+    // A product's attributes (STEP: its user defined attributes -- NIST CTC-03's 'CAGE Code',
+    // CTC-05's 'FILESIZE') kept on its object, as text, integers and reals; and whether the
+    // file gave it validation properties, written again for it (docs/GDandT.md sec 10.26)
+    TDF_LabelSequence labels;
+    aShapeTool->GetShapes(labels);
+    for (int i = 1; i <= labels.Length(); ++i) {
+        const TDF_Label& label = labels.Value(i);
+        TopoDS_Shape base = aShapeTool->GetShape(label);
+        if (base.IsNull()) {
+            continue;
+        }
+        base = base.Located(TopLoc_Location());
+        App::DocumentObject* obj = nullptr;
+        if (progressive) {
+            auto it = myShapeNodes.find(base);
+            obj = it == myShapeNodes.end() ? nullptr : progObject(it->second);
+        }
+        else {
+            auto it = myShapes.find(base);
+            obj = it == myShapes.end() ? nullptr : it->second.obj;
+        }
+        if (!obj) {
+            continue;
+        }
+        Handle(TDataStd_NamedData) data;
+        if (label.FindAttribute(TDataStd_NamedData::GetID(), data)) {
+            if (data->HasDeferredData()) {
+                data->LoadDeferredData();
+            }
+            auto map = [obj](const char* name, const char* doc) {
+                auto prop = freecad_cast<App::PropertyMap*>(obj->getPropertyByName(name));
+                if (!prop) {
+                    prop = freecad_cast<App::PropertyMap*>(
+                        obj->addDynamicProperty("App::PropertyMap", name, "STEP", doc));
+                }
+                return prop;
+            };
+            std::map<std::string, std::string> strings, integers, reals;
+            if (data->HasStrings()) {
+                using Map = NCollection_DataMap<TCollection_ExtendedString,
+                                                TCollection_ExtendedString>;
+                for (Map::Iterator it(data->GetStringsContainer()); it.More(); it.Next()) {
+                    // A product's semantic text is a note's words (the PMI module's),
+                    // written as one: no attribute (as one it is invalid to SFA, dwin p21)
+                    std::string key = utf8(it.Key());
+                    if (key == "semantic text") {
+                        continue;
+                    }
+                    strings[key] = utf8(it.Value());
+                }
+            }
+            if (data->HasIntegers()) {
+                using Map = NCollection_DataMap<TCollection_ExtendedString, int>;
+                for (Map::Iterator it(data->GetIntegersContainer()); it.More(); it.Next()) {
+                    integers[utf8(it.Key())] = std::to_string(it.Value());
+                }
+            }
+            if (data->HasReals()) {
+                using Map = NCollection_DataMap<TCollection_ExtendedString, double>;
+                for (Map::Iterator it(data->GetRealsContainer()); it.More(); it.Next()) {
+                    char buf[64];
+                    std::snprintf(buf, sizeof(buf), "%.17g", it.Value());
+                    reals[utf8(it.Key())] = buf;
+                }
+            }
+            if (!strings.empty()) {
+                if (auto prop = map(ExportOCAF2::AttributesProperty,
+                                    "The product's attributes in the STEP file, as text")) {
+                    prop->setValues(strings);
+                }
+            }
+            if (!integers.empty()) {
+                if (auto prop = map(ExportOCAF2::IntegerAttributesProperty,
+                                    "The product's integer attributes in the STEP file")) {
+                    prop->setValues(integers);
+                }
+            }
+            if (!reals.empty()) {
+                if (auto prop = map(ExportOCAF2::RealAttributesProperty,
+                                    "The product's real attributes in the STEP file")) {
+                    prop->setValues(reals);
+                }
+            }
+            // Which of them are lengths (NIST STC-06's, in inches), kept in mm
+            Handle(TDataStd_ExtStringList) list;
+            std::map<std::string, std::string> measures;
+            const Standard_GUID* measuresGUID = Part::occtAttributeMeasuresGUID();
+            if (measuresGUID && label.FindAttribute(*measuresGUID, list)) {
+                using List = NCollection_List<TCollection_ExtendedString>;
+                for (List::Iterator it(list->List()); it.More();) {
+                    std::string key = utf8(it.Value());
+                    it.Next();
+                    if (!it.More()) {
+                        break;
+                    }
+                    if (reals.count(key)) {
+                        measures[key] = utf8(it.Value());
+                    }
+                    it.Next();
+                }
+            }
+            if (!measures.empty()) {
+                if (auto prop = map(ExportOCAF2::AttributeMeasuresProperty,
+                                    "The measure each real attribute was in the STEP file "
+                                    "(LENGTH_MEASURE: the real in mm)")) {
+                    prop->setValues(measures);
+                }
+            }
+        }
+        if (label.IsAttribute(XCAFDoc_Volume::GetID()) || label.IsAttribute(XCAFDoc_Area::GetID())
+            || label.IsAttribute(XCAFDoc_Centroid::GetID())) {
+            auto prop = freecad_cast<App::PropertyBool*>(
+                obj->getPropertyByName(ExportOCAF2::ValidationProperty));
+            if (!prop) {
+                prop = freecad_cast<App::PropertyBool*>(obj->addDynamicProperty(
+                    "App::PropertyBool",
+                    ExportOCAF2::ValidationProperty,
+                    "STEP",
+                    "Written to STEP with its geometric validation properties (volume, area, "
+                    "centroid), as the file it was read from had them"));
+            }
+            if (prop) {
+                prop->setValue(true);
+            }
+        }
+        // The documents its GD&T cites, the standards it follows (NIST FTC-10's 'ASME
+        // Y14.41-2003'): written again as they were, each its fields one a line
+        Handle(TDataStd_ExtStringList) documents;
+        const Standard_GUID* documentsGUID = Part::occtCitedDocumentsGUID();
+        if (documentsGUID && label.FindAttribute(*documentsGUID, documents)) {
+            std::vector<std::string> values;
+            using List = NCollection_List<TCollection_ExtendedString>;
+            for (List::Iterator it(documents->List()); it.More(); it.Next()) {
+                values.push_back(utf8(it.Value()));
+            }
+            auto prop = freecad_cast<App::PropertyStringList*>(
+                obj->getPropertyByName(ExportOCAF2::DocumentsProperty));
+            if (!prop) {
+                prop = freecad_cast<App::PropertyStringList*>(obj->addDynamicProperty(
+                    "App::PropertyStringList",
+                    ExportOCAF2::DocumentsProperty,
+                    "STEP",
+                    "The documents the STEP file cites for its GD&T, the standards it follows: "
+                    "each the document's context, id, name, description, type, source, role, "
+                    "and the product it is equivalent to, one a line"));
+            }
+            if (prop) {
+                prop->setValues(values);
+            }
+        }
     }
 }
 
@@ -2255,6 +2668,18 @@ void ImportOCAF2::runPostImport(bool progressive)
         return;
     }
     if (postImports().empty()) {
+        // PMI's STEP exchange (PMIStep) calls the fork's GD&T extensions of XCAF by their C++
+        // names: where the OCCT libraries are upstream's it is not loaded, and the file's GD&T
+        // is not read
+        if (Part::occtPMIVersion() < 1) {
+            static bool told = false;
+            if (!told) {
+                told = true;
+                FC_WARN("The file has GD&T, which is not read: the OCCT libraries lack the "
+                        "fork's GD&T extensions of XCAF PMI's STEP exchange needs");
+            }
+            return;
+        }
         try {
             Base::Interpreter().runString("import PMI");
         }
@@ -2289,6 +2714,9 @@ void ImportOCAF2::runPostImport(bool progressive)
         }
         catch (const Standard_Failure& e) {
             FC_ERR("Import pass '" << name << "' failed: " << e.GetMessageString());
+        }
+        catch (const std::exception& e) {
+            FC_ERR("Import pass '" << name << "' failed: " << e.what());
         }
     }
 }
@@ -2679,8 +3107,23 @@ void ImportOCAF2::applyFaceColors(Part::Feature* part, const std::vector<App::Co
     }
     else {
         // Each face what it says, held by its number: an import's faces
-        // have no names
-        part->ShapeAppearance.setDiffuseColors(colors);
+        // have no names -- and the object the colour most of its area has.
+        // The list alone left it the default grey, which no face has, and
+        // every face then differed from the object: NIST STC-09 went out
+        // with 163 face colours where it came in with a body colour and 5.
+        App::MaterialAppearance look =
+            part->ElementAppearance.getBase(App::PropertyElementAppearance::Face);
+        // A colour of the file's, not the material card's: looks naming one
+        // card compare equal whatever their colours, and would be one look
+        look.uuid.clear();
+        std::vector<App::MaterialAppearance> mats;
+        mats.reserve(colors.size());
+        for (const App::Color& color : colors) {
+            look.diffuseColor = color;
+            look.transparency = color.transparency();
+            mats.push_back(look);
+        }
+        ImportOCAF2::applyFaceMaterials(part, mats, false);
     }
 }
 

@@ -52,6 +52,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -116,15 +117,17 @@ constexpr std::size_t AltSize = 256 * 1024;
 char altStack[AltSize];
 constexpr int Signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP};
 
-#if defined(FC_OS_MACOSX)
+#if defined(FC_OS_MACOSX) || defined(FC_OS_LINUX)
 
 // Every thread its own stack for the handler (docs/WorkerProcess.md sec
 // 75). An alternate stack is the thread's that set it: with the
 // installing thread's alone, a thread of OCCT's pool, Qt's or Python's
 // that ran out of stack faulted again in the handler, and the worker went
 // with nothing said. A thread started once install() has run is given one
-// as it starts, by pthread_create() interposed below; in a process that is
-// no worker, install() never runs and nothing is given.
+// as it starts, by pthread_create() interposed below -- through dyld's
+// interpose section on macOS, by a definition ahead of libc's on Linux
+// (sec 82); in a process that is no worker, install() never runs and
+// nothing is given.
 std::atomic<bool> threadStacks {false};
 
 struct Start
@@ -167,7 +170,7 @@ void* started(void* given)
     return result;
 }
 
-#endif  // FC_OS_MACOSX
+#endif  // FC_OS_MACOSX || FC_OS_LINUX
 
 void put(const char* text)
 {
@@ -655,7 +658,7 @@ void WorkerCrash::install()
     ss.ss_sp = altStack;
     ss.ss_size = AltSize;
     sigaltstack(&ss, nullptr);
-#if defined(FC_OS_MACOSX)
+#if defined(FC_OS_MACOSX) || defined(FC_OS_LINUX)
     threadStacks = true;
 #endif
     struct sigaction act;
@@ -1246,6 +1249,42 @@ __attribute__((used)) const Interpose interposed[] __attribute__((section("__DAT
 }  // namespace
 
 #endif  // FC_OS_MACOSX
+
+#if defined(FC_OS_LINUX)
+
+/// pthread_create() as every library of the process calls it
+/// (docs/WorkerProcess.md sec 82). ELF has no interpose section: a call
+/// binds to the first definition in the process's global search order,
+/// and FreeCADApp, which the executables link, comes ahead of libc there.
+/// So this definition is the one every library calls -- OCCT's pool, Qt,
+/// Python -- and the system's is the next one (RTLD_NEXT).  Outside a
+/// worker it passes the call straight on
+extern "C" __attribute__((visibility("default"))) int
+pthread_create(pthread_t* thread, const pthread_attr_t* attr, void* (*routine)(void*),
+               void* arg) noexcept
+{
+    using Create = int (*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*);
+    static const Create system = reinterpret_cast<Create>(dlsym(RTLD_NEXT, "pthread_create"));
+    if (!system) {
+        return EAGAIN;
+    }
+    if (!threadStacks.load(std::memory_order_relaxed)) {
+        return system(thread, attr, routine, arg);
+    }
+    auto start = static_cast<Start*>(std::malloc(sizeof(Start)));
+    if (!start) {
+        return system(thread, attr, routine, arg);
+    }
+    start->routine = routine;
+    start->arg = arg;
+    const int result = system(thread, attr, started, start);
+    if (result != 0) {
+        std::free(start);
+    }
+    return result;
+}
+
+#endif  // FC_OS_LINUX
 
 #if defined(FC_OS_WIN32) && defined(_MSC_VER) && defined(_WIN64)
 

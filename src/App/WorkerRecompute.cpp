@@ -693,6 +693,18 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             }
         }
     }
+    // The asking process's table spelling digests where the copy's counts
+    // ids: an old file whose migration its user accepted, switched just
+    // before the recompute was asked for -- nothing in the log says so. The
+    // copy switched too, its names are spelt as the asking process would
+    // spell them (docs/WorkerProcess.md sec 85)
+    auto spelling = inputs.find("contentIds");
+    if (spelling != inputs.end() && spelling->is_boolean() && spelling->get<bool>()) {
+        auto hasher = doc->getStringHasher();
+        if (hasher && !hasher->getContentIds()) {
+            doc->spellNamesByContent();
+        }
+    }
     // What the asking process has to recompute: an object it marked to be
     // recomputed (enforceRecompute) has nothing in the log that says so
     // (docs/WorkerProcess.md sec 31)
@@ -3123,6 +3135,8 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         refused[crashed] = why;
     }
     const std::string name = doc.getName();
+    auto hasher = doc.getStringHasher();
+    const bool contentIds = hasher && hasher->getContentIds();
     // One job of `part`: what it recomputes, what of it is touched here,
     // how the view meshes it, the numbers each gave so far (sec 36)
     auto jobOf = [&](const std::set<DocumentObject*>& part, std::vector<std::string>& names,
@@ -3167,6 +3181,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
                            {"touched", touchedHere},
                            {"display", meshes ? display : json::object()},
                            {"tables", s.tables},
+                           {"contentIds", contentIds},
                            {"refused", refused},
                            {"numbers", numbers},
                            {"view", view}}

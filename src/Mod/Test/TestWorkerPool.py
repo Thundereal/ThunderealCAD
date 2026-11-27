@@ -1907,6 +1907,54 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(kept(cut), [])
         self.assertEqual(self.touched(), [])
 
+    def testAWorkerSpellsNamesAsTheDocumentDoes(self):
+        """An old file counts its string ids until its user accepts the
+        migration recompute, which switches its table to spelling digests
+        (Document.spellNamesByContent(), docs/StringTableContentIds.md sec
+        12) just before the recompute is asked for. The worker's copy,
+        taken before, went on counting, and the names put in were spelt
+        so: 93 of scanner.FCStd's, different from what this process makes
+        (docs/WorkerProcess.md sec 85)"""
+        import shutil
+
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Document")
+        group.SetBool("ContentStringIds", False)
+        try:
+            doc = App.newDocument("Counted")
+        finally:
+            group.RemBool("ContentStringIds")
+        a = doc.addObject("Part::Box", "A")
+        b = doc.addObject("Part::Box", "B")
+        b.Placement.Base = App.Vector(5, 5, 5)
+        cut = doc.addObject("Part::Cut", "Cut")
+        cut.Base, cut.Tool = a, b
+        doc.recompute()
+        folder = tempfile.mkdtemp(prefix="counted")
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "counted.FCStd")
+        doc.saveAs(path)
+        App.closeDocument(doc.Name)
+        doc = App.openDocument(path)
+        self.addCleanup(App.closeDocument, doc.Name)
+        self.assertFalse(doc.Hasher.ContentIds)
+        pool = App.workerPool(doc)
+        # The worker's copy stands, counting, before the switch
+        doc.getObject("A").Length = 11
+        self.assertTrue(pool.recompute(), pool.recomputeInfo()["Reason"])
+        self.assertTrue(pool.waitRecompute(120), pool.recomputeInfo())
+        cut = doc.getObject("Cut")
+        self.assertGreater(pool.recomputeInfo()["Applied"], 0, pool.recomputeInfo())
+        self.assertEqual(doc.spellNamesByContent(), 1)
+        self.assertTrue(pool.recompute(), pool.recomputeInfo()["Reason"])
+        self.assertTrue(pool.waitRecompute(120), pool.recomputeInfo())
+        info = pool.recomputeInfo()
+        self.assertEqual((info["Unfit"], info["ExecutedHereNames"]), (0, []), info)
+        self.assertGreater(info["Applied"], 0, info)
+        by_worker = dict(cut.Shape.ElementMap)
+        cut.touch()
+        doc.recompute()
+        self.assertEqual(by_worker, dict(cut.Shape.ElementMap))
+
     def testAConsolesCopyHasNoViewObjectInAWorker(self):
         """A console session saves no views, and every obj.ViewObject there
         is None: in a worker, made from such a copy, it is None too, and an

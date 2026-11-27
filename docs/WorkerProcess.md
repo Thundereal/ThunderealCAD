@@ -5640,3 +5640,30 @@ string. It is put in, not made here, and a second edit is put in too.
 floor is referred to, the notch moved off and back. Both were unfit on
 the build before the change. The second was unfit on the 2026-11-26
 stage as well.
+
+## 85. A worker spells names as the document does (2026-11-28)
+
+An old file counts its string ids until its user accepts the migration
+recompute. Accepting switches its table to spelling digests
+(`Document::spellNamesByContent()`, docs/StringTableContentIds.md sec
+12), in `Gui/Application.cpp` just before `recomputeByWorkers()`. The
+worker's copy was taken before that, and nothing in the log says the
+table switched, so it went on counting. The names it made, and that were
+put in, were spelt with counted ids: 93 of scanner.FCStd's in the GUI
+run of 2026-11-27, where this process makes digests. A later recompute
+here spelt them again, and a save in that state reopened attached. It is
+not a wrong reference, but the two processes disagreed on every name the
+migration made.
+
+**Now.** The job's inputs carry `contentIds`, whether this process's
+table spells digests. A worker whose copy counts is switched the same
+way, `spellNamesByContent()` on the copy, before its recompute. That
+marks for a recompute the same objects this process marked, which are
+in the job already.
+
+**Test.** `testAWorkerSpellsNamesAsTheDocumentDoes`: a cut saved
+counting, reopened, and the worker's copy made to stand by a first job.
+Then `spellNamesByContent()`, and a second job put in. The cut's element
+map is what this process makes of it itself. Before, the worker's map
+had `;:G#7;` where this process's had `;:G#7fd5ff7b;`. It failed on the
+2026-11-26 stage too.

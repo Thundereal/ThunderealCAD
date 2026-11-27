@@ -4892,6 +4892,27 @@ what the views test's "made here" half met under load. The views test
 also waits for its animated `viewBottom()` to arrive before the
 recompute that reads the camera, rather than a fixed pump.
 
+**A console's copy has no view object (2026-11-28).** The console's
+sweep found one fault left on main once the guest's boot no longer
+counted: Draft's WorkingPlaneProxy, `if obj.ViewObject:` and then
+`ViewObject.DisplaySize`, the size of its plane. A console session
+writes no GuiDocument.xml and has no `obj.ViewObject` -- None, and the
+plane 1 -- while the worker gave every object of the copy a stand-in,
+true, whose DisplaySize was a fake: the object taken back to be made
+here. A copy that was read with no saved views at all now gives its
+objects no view object (`freecad.worker_gui.load_views` notes it,
+`view_object()` answers None), so an execute takes the asking
+console's path; a copy with saved views is as before.
+`TestWorkerPool`'s `testAConsolesCopyHasNoViewObjectInAWorker`; the
+sweep 52 swept, 0 faults, with a Pyodide runtime in the profile and
+without.
+
+A limit kept, not fixed: the recorder is the recompute thread's, so an
+addon's execute that starts a `threading.Thread` of its own and uses the
+FreeCADGui stand-in from it is not recorded -- the old process-wide
+recorder charged such a use to the object executing. No addon known to
+do it.
+
 ## 74. What reading the worker code over found (2026-11-26)
 
 The worker code read whole, for faults rather than for a feature: the pool,

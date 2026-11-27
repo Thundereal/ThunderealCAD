@@ -1683,6 +1683,36 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(slow.Result, 6)
         self.assertNotEqual(slow.MadeBy, os.getpid())
 
+    def testAConsolesCopyHasNoViewObjectInAWorker(self):
+        """A console session saves no views, and every obj.ViewObject there
+        is None: in a worker, made from such a copy, it is None too, and an
+        execute takes the console's path. Draft's WorkingPlaneProxy sizes
+        its plane by ViewObject.DisplaySize when it has a view, 1 without:
+        the worker answered a fake for the size, a built-in object's use of
+        a view this process has not got (docs/WorkerProcess.md sec 73)"""
+        import Draft
+
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("NoteGuiUp", True)
+        self.addCleanup(group.RemBool, "NoteGuiUp")
+        App.setActiveDocument(self.doc.Name)
+        wp = Draft.make_workingplaneproxy(App.Placement())
+        self.assertIsNone(wp.ViewObject)
+        self.doc.recompute()
+        self.assertAlmostEqual(wp.Shape.Area, 1.0)
+        # What this process makes of it, moved: the measure of the worker's
+        wp.Placement = App.Placement(App.Vector(5, 0, 0), App.Rotation())
+        self.doc.recompute()
+        here = wp.Shape.BoundBox
+        wp.Placement = App.Placement(App.Vector(7, 0, 0), App.Rotation())
+        info = self.byWorker()
+        self.assertEqual(info["Faked"], [], info)
+        self.assertEqual(info["ExecutedHereNames"], [], info)
+        self.assertGreater(info["Applied"], 0, info)
+        self.assertAlmostEqual(wp.Shape.Area, 1.0)
+        self.assertAlmostEqual(wp.Shape.BoundBox.XMin, here.XMin + 2.0)
+        self.assertAlmostEqual(wp.Shape.BoundBox.XLength, here.XLength)
+
     def testAGuestsBootDoesNotAskAStandInForGuiUp(self):
         """A guest booted again inside a job -- after a budget stopped one
         -- is booted on the recompute's thread, and its host reads

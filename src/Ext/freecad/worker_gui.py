@@ -224,6 +224,8 @@ class _SavedViews:
 
 
 _views = {}
+# The copies read that have no saved views: a console's (view_object())
+_viewless = set()
 
 
 def load_views(doc_name, data, path):
@@ -245,8 +247,10 @@ def load_views(doc_name, data, path):
         text = None
     if text:
         _views[doc_name] = _SavedViews(text)
+        _viewless.discard(doc_name)
     else:
         _views.pop(doc_name, None)
+        _viewless.add(doc_name)
 
 
 class _Unreadable(Exception):
@@ -473,14 +477,27 @@ class ViewObject:
 def view_object(obj, vptype=""):
     """The view object a worker's object is given (WorkerPool.cpp,
     attachViewStandIns), with its saved view properties where the copy has
-    them"""
+    them; None where the copy was read and has no saved views at all
+    (load_views()).
+
+    A copy with none comes from a process that has no GUI -- a console
+    session writes no GuiDocument.xml -- where every obj.ViewObject is None,
+    and an execute takes the path it takes there: Draft's WorkingPlaneProxy
+    sized its plane from ViewObject.DisplaySize, a fake here, where the
+    asking console made it 1 (sec 73)."""
+    try:
+        name = obj.Document.Name
+    except Exception:  # pylint: disable=broad-except
+        name = None
+    if name in _viewless:
+        return None
+    saved = _views.get(name)
     try:
         looks = obj.isDerivedFrom("Part::Feature")
     except Exception:  # pylint: disable=broad-except
         looks = False
     props = None
     try:
-        saved = _views.get(obj.Document.Name)
         if saved is not None:
             props = saved.props(obj.Name, vptype)
     except Exception:  # pylint: disable=broad-except

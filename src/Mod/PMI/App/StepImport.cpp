@@ -1305,13 +1305,26 @@ private:
                                               float(color.Blue())));
                 }
                 // Its layer, and whether the file shows it (NIST FTC-07 hides 13 by their
-                // layer): written so again
+                // layer): written so again. With the assignment's entity number, as the part's
+                // StepLayers have it: one assignment of both (NIST STC-09 -e4's 6 curve sets
+                // and 11 planes) is written one again
                 TCollection_AsciiString layer, layerDescription;
-                if (XCAFDoc_DimTolTool::GetSupplementalLayer(item, layer, layerDescription)) {
+                int ordinal = 0;
+                if (XCAFDoc_DimTolTool::GetSupplementalLayer(item,
+                                                             layer,
+                                                             layerDescription,
+                                                             ordinal)) {
+                    std::vector<std::string> values {layer.ToCString(),
+                                                     layerDescription.ToCString()};
+                    if (ordinal > 0) {
+                        values.push_back(std::to_string(ordinal));
+                    }
                     property<App::PropertyStringList>(
-                        obj, "StepLayer", "The layer the STEP file puts it on: name, description")
-                        ->setValues(std::vector<std::string> {layer.ToCString(),
-                                                              layerDescription.ToCString()});
+                        obj,
+                        "StepLayer",
+                        "The layer the STEP file puts it on: name, description, and the "
+                        "number of its assignment in the file")
+                        ->setValues(values);
                 }
                 const bool hidden = XCAFDoc_DimTolTool::IsPresentationHidden(item);
                 if (hidden) {

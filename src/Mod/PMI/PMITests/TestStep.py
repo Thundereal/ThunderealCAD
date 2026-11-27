@@ -1626,7 +1626,8 @@ class TestNistSet(Base):
         each holding the items it holds, of the kinds they are: CTC-04's six
         curve sets that are the part's own curves or points layered as one
         set each, as NIST layers them, and not as their members, each of them
-        on a layer of its own too"""
+        on a layer of its own too; STC-09 -e4's one layer of the part's six
+        curve sets and eleven supplemental planes one again"""
         nist = os.environ["FC_PMI_NIST"]
 
         def layered(path):
@@ -1643,9 +1644,14 @@ class TestNistSet(Base):
             for k, v in ents.items():
                 if not v.startswith("PRESENTATION_LAYER_ASSIGNMENT("):
                     continue
-                own = [i for i in re.findall(r"#(\d+)", v) if i not in supplemental]
+                items = re.findall(r"#(\d+)", v)
+                own = [i for i in items if i not in supplemental]
                 if own:
-                    kinds = collections.Counter(ents[i].split("(")[0] for i in own)
+                    # every item it holds, the supplemental geometry's beside the part's too
+                    # (STC-09 -e4's one layer of 6 curve sets and 11 planes)
+                    kinds = collections.Counter(
+                        ("S:" if i in supplemental else "") + ents[i].split("(")[0] for i in items
+                    )
                     got[tuple(re.findall(r"'([^']*)'", v)[:2]), k in hidden,
                         tuple(sorted(kinds.items()))] += 1
             return got

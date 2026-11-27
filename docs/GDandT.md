@@ -1652,10 +1652,28 @@ is written one point set, as a compound of curves is, not merged with every othe
 part into one (CTC-04's 30 and 12 and 'Point.1' were one set of 43). CTC-04 now writes NIST's
 32 assignments, in NIST's order, each holding NIST's kinds of items, and
 `test_part_layers_as_the_file_has_them` compares what each layer holds, not only that it is
-there. Left: STC-09 -e4's one layer of 11 supplemental planes and 6 part curve sets is written
-as twelve -- the part's sets on one, each plane on one of its own -- because a supplemental
-item's layer is read without the assignment it came from (`SetSupplementalLayer` keeps a name
-and a description, no ordinal).
+there. And STC-09 -e4's one layer of 11 supplemental planes and 6 part curve sets, written as
+twelve -- the part's sets on one, each plane on one of its own -- is one again: a supplemental
+item's layer keeps the number of its assignment in the file as the part's item layers do
+(`XCAFDoc_DimTolTool::SetSupplementalLayer`/`GetSupplementalLayer`, new overloads with an
+ordinal; `StepLayer`'s third entry), and the writer adds an item to the assignment of that
+number written already, hidden by it when that one is hidden.
+
+**PMI is a module of the OCCT fork's** (the standing rule of 2026-11-27). It calls the fork's
+GD&T extensions of XCAF by their C++ names, so where the OCCT libraries are upstream's it does
+not load -- and needs not: none of what it reads is there. The core modules load all the same:
+Import reaches what it needs of the fork through C functions looked up at run time
+(`Part/App/OCCTFork.h`: `setOCCTGDTPresentationColor`, `addOCCTItemLayer`,
+`getOCCTItemLayers`, `occtCitedDocumentsGUID`, `occtAttributeMeasuresGUID`), reads and writes
+a file's shapes, and says once that its GD&T is not read. The fork says it has the extensions
+by `XCAFDoc_DimTolTool_PMI` (TKXCAF, a version, 1): without it the workbench is not added
+(InitGui.py, one log line), Import does not try to load PMI (`occtPMIVersion()`), and
+TestPMIApp is one skip saying why. TechDrawGui still links PMI for a callout's frame, so it
+does not load there either; this module exports `PMI_CalloutLayout` (`Callout.h`) for it to
+look up instead, and the link goes with that change on main. An exported fork function keeps
+its signature: a new parameter is a new overload beside the old one (`SetPlaceholder`'s
+`theShared`). Checked with conda-forge's occt 8.0.1: Import loads and round-trips NIST
+CTC-01's shapes, and PMI is the one binary importing what only the fork exports.
 
 The NIST set the suites run on here is NIST's February 2026 update (SFA's
 `Release/NIST-PMI-STEP-Files.zip`), as `docs/Testing.md` says; with it TestPMIApp's 151 tests

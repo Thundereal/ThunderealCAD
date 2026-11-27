@@ -480,10 +480,22 @@ private:
                         freecad_cast<App::PropertyStringList*>(item->getPropertyByName("StepLayer"));
                     if (layer && !layer->getValues().empty()) {
                         const auto& v = layer->getValues();
+                        // The number of its assignment in the file read, when kept (older
+                        // documents keep a name and a description only)
+                        int ordinal = 0;
+                        if (v.size() > 2) {
+                            try {
+                                ordinal = std::stoi(v[2]);
+                            }
+                            catch (const std::exception&) {
+                                ordinal = 0;
+                            }
+                        }
                         XCAFDoc_DimTolTool::SetSupplementalLayer(
                             l,
                             ascii(v[0])->String(),
-                            v.size() > 1 ? ascii(v[1])->String() : TCollection_AsciiString());
+                            v.size() > 1 ? ascii(v[1])->String() : TCollection_AsciiString(),
+                            ordinal);
                     }
                     auto stepHidden =
                         freecad_cast<App::PropertyBool*>(item->getPropertyByName("StepHidden"));

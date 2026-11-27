@@ -2861,6 +2861,12 @@ fc_add_gui_test(GuiFemWorkbench_tests_run
 # none of it marking the document modified.
 fc_add_gui_test(GuiAnimationTimeline_tests_run animation-timeline.py --timeout 240)
 
+# The timeline costs nothing per change in a large document: a change in
+# 20000 objects at most twice one in 50 (it scanned the document for its
+# Animation on every change of every object, dell 2026-11-27).
+fc_add_gui_test(GuiAnimationTimelineLargeDocument_tests_run
+                animation-timeline-large-document.py --timeout 600)
+
 # The PMI workbench driven as a user drives it (docs/GDandT.md sec 3, 5-8):
 # picks on the Body's tip become solid references, the commands make a
 # tolerance, datums and dimensions, the callouts are drawn, PartDesign

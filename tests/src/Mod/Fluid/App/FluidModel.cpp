@@ -103,11 +103,12 @@ struct Kept: public FrameSink
 class NamedBackend: public Backend
 {
 public:
-    NamedBackend(std::string n, bool test, bool here, int tag = 0)
+    NamedBackend(std::string n, bool test, bool here, int tag = 0, bool steady = false)
         : n(std::move(n))
         , test(test)
         , here(here)
         , tag(tag)
+        , steady(steady)
     {}
     std::string name() const override
     {
@@ -121,6 +122,7 @@ public:
     {
         Capabilities can;
         can.testData = test;
+        can.steady = steady;
         return can;
     }
     Availability availability() const override
@@ -137,6 +139,7 @@ private:
     bool test;
     bool here;
     int tag;
+    bool steady;
 };
 
 }  // namespace
@@ -376,6 +379,14 @@ TEST(FluidRegistry, addFindRemoveSelect)
     EXPECT_EQ(registry.select("T-nobody"), nullptr);
     // unnamed: the first that is no test data and can run here
     EXPECT_EQ(registry.select(""), registry.find("T-here"));
+    // unnamed, for a steady flow: the first of them that runs one
+    EXPECT_EQ(registry.select("", Analysis::Steady), nullptr);
+    registry.add(std::make_unique<NamedBackend>("T-steady", false, true, 3, true));
+    EXPECT_EQ(registry.select("", Analysis::Steady), registry.find("T-steady"));
+    EXPECT_EQ(registry.select(""), registry.find("T-here"));
+    // by name it is that one still, and says itself what it cannot
+    EXPECT_EQ(registry.select("T-here", Analysis::Steady), registry.find("T-here"));
+    EXPECT_TRUE(registry.remove("T-steady"));
     EXPECT_TRUE(registry.remove("T-here"));
     EXPECT_FALSE(registry.remove("T-here"));
     EXPECT_EQ(registry.select(""), nullptr);
@@ -630,6 +641,67 @@ TEST(FluidArchive, framesReadBackOneAtATime)
         EXPECT_TRUE(reader.frame(0).bodies.empty());
         // nor of an energy it was told none of: results made before it was kept
         EXPECT_TRUE(reader.index().energy.empty());
+    }
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST(FluidArchive, aFieldOnFacesAndTheOpenings)
+{
+    const std::string path = Base::FileInfo::getTempFileName("FluidArchive");
+    Fluid::ResultsIndex index;
+    index.backend = "OpenFOAM";
+    index.kind = ResultKind::Fields;
+    index.steady = true;
+    index.settled = true;
+    index.openings = {{"Doc#Inlet", false}, {"Doc#Outlet", true}};
+    {
+        Fluid::ArchiveWriter writer(path);
+        for (int k = 0; k < 2; ++k) {
+            Frame frame;
+            frame.time = 50.0 * k;
+            frame.points = {{0.0, 0.0, 0.0}, {0.001, 0.0, 0.0}, {0.0, 0.001, 0.0}};
+            frame.triangles.push_back({0, 1, 2});
+            frame.values = {100.0 * k, 50.0 * k, 0.25};
+            frame.openings = {{160.0 * k, 7.5e-6 * k}, {0.0, 7.5e-6 * k}};
+            writer.frame(frame);
+        }
+        writer.close(index);
+    }
+    {
+        const Fluid::ArchiveReader reader(path);
+        const auto& read = reader.index();
+        EXPECT_EQ(read.kind, ResultKind::Fields);
+        EXPECT_TRUE(read.steady);
+        EXPECT_TRUE(read.settled);
+        ASSERT_EQ(read.openings.size(), 2U);
+        EXPECT_EQ(read.openings[0].source, "Doc#Inlet");
+        EXPECT_FALSE(read.openings[0].outlet);
+        EXPECT_TRUE(read.openings[1].outlet);
+        // frames x openings x the mean pressure, Pa, and the flow, m^3/s
+        ASSERT_EQ(read.flows.size(), 8U);
+        EXPECT_NEAR(read.flows[4], 160.0, 1e-12);
+        EXPECT_NEAR(read.flows[5], 7.5e-6, 1e-18);
+        EXPECT_NEAR(read.flows[6], 0.0, 1e-12);
+        const auto frame = reader.frame(1);
+        ASSERT_EQ(frame.triangles.size(), 3U);
+        ASSERT_EQ(frame.values.size(), 3U);
+        EXPECT_FLOAT_EQ(frame.values[0], 100.0F);
+        EXPECT_FLOAT_EQ(frame.values[2], 0.25F);
+    }
+    Base::FileInfo(path).deleteFile();
+    // results of a free surface say nothing of it
+    {
+        Fluid::ArchiveWriter writer(path);
+        Frame frame;
+        frame.points.push_back({0.0, 0.0, 0.0});
+        writer.frame(frame);
+        writer.close({});
+    }
+    {
+        const Fluid::ArchiveReader reader(path);
+        EXPECT_FALSE(reader.index().steady);
+        EXPECT_TRUE(reader.index().openings.empty());
+        EXPECT_TRUE(reader.frame(0).values.empty());
     }
     Base::FileInfo(path).deleteFile();
 }

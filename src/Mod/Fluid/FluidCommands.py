@@ -195,6 +195,37 @@ class CommandAddInlet:
         doc.recompute()
 
 
+class CommandAddOutlet:
+    def GetResources(self):
+        return {
+            "Pixmap": FluidPlayback.iconPath("Fluid_AddOutlet.svg"),
+            "MenuText": QT_TRANSLATE_NOOP("Fluid_AddOutlet", "Outlet"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Fluid_AddOutlet",
+                "A steady flow leaves through the flat faces selected, each the face "
+                "of a lid on the fluid's side, held at the surroundings' pressure. "
+                "Pressure can be set afterwards. The study becomes one of a steady flow.",
+            ),
+        }
+
+    def IsActive(self):
+        return FluidPlayback.activeStudy(selected()) is not None and len(facesPicked()) > 0
+
+    def Activated(self):
+        study = FluidPlayback.activeStudy(selected())
+        doc = study.Document
+        doc.openTransaction(translate("Fluid", "Add outlet"))
+        if study.Analysis != "Steady flow":
+            study.Analysis = "Steady flow"
+            App.Console.PrintMessage(
+                translate("Fluid", "{} is now a study of a steady flow.").format(study.Label) + "\n"
+            )
+        for part, face in facesPicked():
+            FluidPlayback.addOutlet(study, part, face)
+        doc.commitTransaction()
+        doc.recompute()
+
+
 class CommandAddForceMonitor:
     def GetResources(self):
         return {
@@ -368,6 +399,22 @@ class CommandRunStudy:
         Gui.Control.showDialog(TaskFluidStudy(FluidPlayback.activeStudy(selected())))
 
 
+def rampStyle():
+    """The colours a field is drawn in, from the least at the left to the
+    most at the right, as a widget's background."""
+    ramp = FluidPlayback.RAMP
+    stops = ", ".join(
+        "stop:{:.3f} rgb({:.0f}, {:.0f}, {:.0f})".format(
+            k / (len(ramp) - 1), 255 * r, 255 * g, 255 * b
+        )
+        for k, (r, g, b) in enumerate(ramp)
+    )
+    return (
+        "QFrame#FluidLegend {{ border: 1px solid #555; background: "
+        "qlineargradient(x1:0, y1:0, x2:1, y2:0, {}); }}".format(stops)
+    )
+
+
 def backendLabel(backend):
     """A backend as the panel lists it."""
     label = backend["Label"]
@@ -391,6 +438,22 @@ class TaskFluidStudy:
         layout = QtWidgets.QVBoxLayout(self.form)
 
         settings = QtWidgets.QFormLayout()
+        self.settings = settings
+        self.analysis = QtWidgets.QComboBox()
+        self.analysis.setToolTip(
+            translate(
+                "Fluid",
+                "A free surface: a liquid under the air, from how it stands at the "
+                "start, through time. A steady flow: one fluid filling the closed "
+                "space inside the walls, in at its inlets and out at its outlets, as "
+                "it settles to.",
+            )
+        )
+        self.analysis.addItem(translate("Fluid", "Free surface"), "Free surface")
+        self.analysis.addItem(translate("Fluid", "Steady flow"), "Steady flow")
+        self.analysis.setCurrentIndex(max(self.analysis.findData(study.Analysis), 0))
+        self.analysis.currentIndexChanged.connect(self.showKind)
+        settings.addRow(translate("Fluid", "Study of"), self.analysis)
         self.backend = QtWidgets.QComboBox()
         self.fillBackends(study.Backend)
         settings.addRow(translate("Fluid", "Solver"), self.backend)
@@ -431,6 +494,18 @@ class TaskFluidStudy:
         self.interval.setSuffix(" s")
         self.interval.setValue(study.OutputInterval.Value)
         settings.addRow(translate("Fluid", "Frame every"), self.interval)
+        self.iterations = QtWidgets.QSpinBox()
+        self.iterations.setRange(1, 1000000)
+        self.iterations.setSingleStep(500)
+        self.iterations.setToolTip(
+            translate(
+                "Fluid",
+                "How many steps a steady flow is given to settle in, at most. It "
+                "stops sooner when it has settled.",
+            )
+        )
+        self.iterations.setValue(study.Iterations)
+        settings.addRow(translate("Fluid", "Steps at most"), self.iterations)
         self.mechanism = QtWidgets.QComboBox()
         self.mechanism.setToolTip(
             translate(
@@ -446,8 +521,7 @@ class TaskFluidStudy:
         self.mechanism.setCurrentIndex(
             max(self.mechanism.findData(study.Mechanism.Name if study.Mechanism else None), 0)
         )
-        if self.mechanism.count() > 1:
-            settings.addRow(translate("Fluid", "Mechanism"), self.mechanism)
+        settings.addRow(translate("Fluid", "Mechanism"), self.mechanism)
         layout.addLayout(settings)
 
         row = QtWidgets.QHBoxLayout()
@@ -482,6 +556,22 @@ class TaskFluidStudy:
         self.time.setMinimumWidth(70)
         row.addWidget(self.time)
         layout.addLayout(row)
+        # a field's scale: the ramp, and the values at its ends
+        self.legend = QtWidgets.QWidget()
+        scale = QtWidgets.QHBoxLayout(self.legend)
+        scale.setContentsMargins(0, 0, 0, 0)
+        self.legendLow = QtWidgets.QLabel("")
+        self.legendBar = QtWidgets.QFrame()
+        self.legendBar.setObjectName("FluidLegend")
+        self.legendBar.setFixedHeight(14)
+        self.legendBar.setStyleSheet(rampStyle())
+        self.legendHigh = QtWidgets.QLabel("")
+        scale.addWidget(self.legendLow)
+        scale.addWidget(self.legendBar, 1)
+        scale.addWidget(self.legendHigh)
+        self.legend.setVisible(False)
+        layout.addWidget(self.legend)
+        self.range = (0.0, 0.0)
         self.asSurface = QtWidgets.QCheckBox(translate("Fluid", "Particles as a surface"))
         self.asSurface.setToolTip(
             translate(
@@ -512,9 +602,21 @@ class TaskFluidStudy:
         self.playTimer = QtCore.QTimer(self.form)
         self.playTimer.timeout.connect(self.playStep)
         self.showMissing()
+        self.showKind()
         self.loadResults()
 
     # ----------------------------- the solver -----------------------------
+
+    def steady(self):
+        return self.analysis.currentData() == "Steady flow"
+
+    def showKind(self, *_args):
+        """The settings of the kind of study chosen, and no others."""
+        steady = self.steady()
+        self.settings.setRowVisible(self.timeEnd, not steady)
+        self.settings.setRowVisible(self.interval, not steady)
+        self.settings.setRowVisible(self.mechanism, not steady and self.mechanism.count() > 1)
+        self.settings.setRowVisible(self.iterations, steady)
 
     def fillBackends(self, chosen):
         """The solvers as they are on this machine now, that one chosen."""
@@ -564,6 +666,9 @@ class TaskFluidStudy:
     def applySettings(self):
         study = self.study
         study.Document.openTransaction(translate("Fluid", "Fluid study settings"))
+        if study.Analysis != self.analysis.currentData():
+            study.Analysis = self.analysis.currentData()
+        study.Iterations = self.iterations.value()
         study.Backend = self.backend.currentData() or ""
         study.Resolution = self.resolution.value()
         study.TimeEnd = self.timeEnd.value()
@@ -599,7 +704,13 @@ class TaskFluidStudy:
 
     def pollRun(self):
         progress = self.study.getProgress()
-        if progress["Frames"]:
+        if progress["Frames"] and self.steady():
+            self.progress.setText(
+                translate("Fluid", "{} frames, step {:.0f} of {} at most").format(
+                    progress["Frames"], progress["Time"], self.study.Iterations
+                )
+            )
+        elif progress["Frames"]:
             self.progress.setText(
                 translate("Fluid", "{} frames, {:.4g} s of {:.4g}").format(
                     progress["Frames"], progress["Time"], self.study.TimeEnd.Value
@@ -645,6 +756,7 @@ class TaskFluidStudy:
         self.playButton.setEnabled(valid)
         self.slider.setEnabled(valid)
         self.asSurface.setVisible(valid and self.frames.kind == "Particles")
+        self.legend.setVisible(valid and self.frames.kind == "Fields")
         if not valid:
             self.summary.setText(translate("Fluid", "No results kept. Run the study."))
             self.table.setRowCount(0)
@@ -653,21 +765,36 @@ class TaskFluidStudy:
         text = translate("Fluid", "{} frames to {:.4g} s, from {}").format(
             len(self.frames), self.frames.times[-1], self.frames.backend
         )
+        if self.frames.steady:
+            text = translate("Fluid", "{} frames to step {:.0f}, from {}").format(
+                len(self.frames), self.frames.times[-1], self.frames.backend
+            )
+        if self.frames.kind == "Fields":
+            # one scale for every frame: the last one's, the flow as it settled
+            self.range = FluidPlayback.rangeOf(self.frames.field(len(self.frames) - 1)[2])
+            self.legendLow.setText("{:.4g} Pa".format(self.range[0]))
+            self.legendHigh.setText("{:.4g} Pa".format(self.range[1]))
         if stale:
             text += translate("Fluid", " -- of the study as it was before a change")
         self.summary.setText(text)
         self.slider.blockSignals(True)
         self.slider.setRange(0, len(self.frames) - 1)
-        self.slider.setValue(0)
+        # a steady flow is shown as it settled, a run through time from
+        # its start
+        first = len(self.frames) - 1 if self.frames.steady else 0
+        self.slider.setValue(first)
         self.slider.blockSignals(False)
-        self.onFrame(0)
+        self.onFrame(first)
 
     def hideVolumes(self):
-        """The solids the fluid starts in give way to the frames."""
+        """The solids the fluid starts in give way to the frames; and to a
+        field the walls, which is drawn on their faces from the inside."""
         if self.hidden:
             return
-        for child in self.study.Group:
-            volume = getattr(child, "Volume", None)
+        given = [getattr(child, "Volume", None) for child in self.study.Group]
+        if self.frames is not None and self.frames.kind == "Fields":
+            given += list(self.study.Walls)
+        for volume in given:
             if volume is not None and volume.ViewObject and volume.ViewObject.Visibility:
                 volume.ViewObject.Visibility = False
                 self.hidden.append(volume)
@@ -675,7 +802,9 @@ class TaskFluidStudy:
     def onFrame(self, index):
         if self.frames is None or not self.frames.valid:
             return
-        if self.frames.kind == "Particles" and self.asSurface.isChecked():
+        if self.frames.kind == "Fields":
+            drawn = self.view.showField(*self.frames.field(index), *self.range)
+        elif self.frames.kind == "Particles" and self.asSurface.isChecked():
             drawn = self.view.show(*self.frames.surface(index))
         else:
             drawn = self.view.show(*self.frames.frame(index))
@@ -684,12 +813,23 @@ class TaskFluidStudy:
         if self.moved is None:
             self.moved = FluidPlayback.MovedParts(self.frames)
         self.moved.show(index)
-        self.time.setText("{:.4g} s".format(self.frames.times[index]))
-        rows = self.frames.monitorsAt(index)
+        if self.frames.steady:
+            self.time.setText(translate("Fluid", "step {:.0f}").format(self.frames.times[index]))
+        else:
+            self.time.setText("{:.4g} s".format(self.frames.times[index]))
+        rows = [
+            (label, "{:.6g} {}".format(value, unit))
+            for label, _kind, value, unit in self.frames.monitorsAt(index)
+        ]
+        # an opening: its mean pressure, and what goes through it
+        rows += [
+            (label, "{:.6g} Pa, {}".format(pressure, FluidPlayback.flowText(flow)))
+            for label, _kind, pressure, flow in self.frames.openingsAt(index)
+        ]
         self.table.setRowCount(len(rows))
-        for row, (label, _kind, value, unit) in enumerate(rows):
+        for row, (label, text) in enumerate(rows):
             self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(label))
-            self.table.setItem(row, 1, QtWidgets.QTableWidgetItem("{:.6g} {}".format(value, unit)))
+            self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(text))
 
     def onAsSurface(self, on):
         App.ParamGet("User parameter:BaseApp/Preferences/Mod/Fluid").SetBool(
@@ -706,6 +846,9 @@ class TaskFluidStudy:
             self.slider.setValue(0)
         # a frame each output interval, as slow as the run was
         step = self.frames.times[1] - self.frames.times[0] if len(self.frames) > 1 else 0.0
+        if self.frames.steady:
+            # steps, not seconds: five frames a second
+            step = 0.2
         self.playTimer.setInterval(max(int(step * 1000.0), 15))
         self.playTimer.start()
         self.playButton.setText(translate("Fluid", "Pause"))
@@ -847,6 +990,7 @@ Gui.addCommand("Fluid_CreateStudy", CommandCreateStudy())
 Gui.addCommand("Fluid_AddFluid", CommandAddFluid())
 Gui.addCommand("Fluid_AddBody", CommandAddBody())
 Gui.addCommand("Fluid_AddInlet", CommandAddInlet())
+Gui.addCommand("Fluid_AddOutlet", CommandAddOutlet())
 Gui.addCommand("Fluid_AddForceMonitor", CommandAddForceMonitor())
 Gui.addCommand("Fluid_AddMonitor", CommandAddMonitor())
 Gui.addCommand("Fluid_AddPressureMonitor", CommandAddPressureMonitor())

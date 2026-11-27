@@ -204,7 +204,249 @@ std::string field(const std::string& name,
     out += "    \".*\" { " + wall + " }\n}\n";
     return out;
 }
+
+// The triangles of a surface that are of one patch, as a surface of its
+// own; its points are the whole surface's.
+Surface patchOf(const Surface& surface, int patch)
+{
+    Surface part;
+    part.points = surface.points;
+    for (std::size_t i = 0; i < surface.triangles.size(); ++i) {
+        if ((i < surface.patches.size() ? surface.patches[i] : 0) == patch) {
+            part.triangles.push_back(surface.triangles[i]);
+        }
+    }
+    return part;
+}
+
+// A steady flow's schemes and solvers: what the pipe of sec 14.2 was
+// measured with.
+constexpr const char* steadySchemes =
+    "ddtSchemes { default steadyState; }\ngradSchemes { default Gauss linear; }\n"
+    "divSchemes\n{\n    default none;\n"
+    "    div(phi,U) bounded Gauss linearUpwind grad(U);\n"
+    "    div((nuEff*dev2(T(grad(U))))) Gauss linear;\n}\n"
+    "laplacianSchemes { default Gauss linear corrected; }\n"
+    "interpolationSchemes { default linear; }\nsnGradSchemes { default corrected; }\n";
+
+constexpr const char* steadySolution =
+    "solvers\n{\n"
+    "    p { solver GAMG; smoother GaussSeidel; tolerance 1e-8; relTol 0.05; }\n"
+    "    U { solver smoothSolver; smoother symGaussSeidel; tolerance 1e-9; relTol 0.1; }\n"
+    "}\nSIMPLE\n{\n    nNonOrthogonalCorrectors 1;\n    consistent yes;\n"
+    "    residualControl { p 1e-7; U 1e-8; }\n}\n"
+    "relaxationFactors { equations { U 0.9; } }\n";
+
+bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std::string& why)
+{
+    if (model.resolution <= 0.0 || model.iterations <= 0) {
+        why = "the resolution and the count of steps must be positive";
+        return false;
+    }
+    if (model.inlets.empty()) {
+        why = "a steady flow needs an inlet";
+        return false;
+    }
+    if (model.outlets.empty()) {
+        why = "a steady flow needs an outlet";
+        return false;
+    }
+    Material liquid;
+    liquidOf(model, liquid);
+    if (!(liquid.density > 0.0) || !(liquid.viscosity > 0.0)) {
+        why = "the fluid's density and viscosity must be positive";
+        return false;
+    }
+    Vec3 low {};
+    Vec3 high {};
+    if (model.domain.triangles.empty() || !boxOf(model.domain, low, high)) {
+        why = "the study has no space for the fluid: no closed space inside its walls";
+        return false;
+    }
+    for (const auto& monitor : model.monitors) {
+        if (monitor.kind == MonitorKind::Height) {
+            why = "a steady flow has no surface to take the height of: " + monitor.source;
+            return false;
+        }
+        if (monitor.kind == MonitorKind::Force) {
+            why = "the force on a part is not reported of a steady flow yet: " + monitor.source;
+            return false;
+        }
+    }
+    // The background mesh: the fluid's box and a cell and a half about it,
+    // so that no face of the fluid lies on its side
+    const double cell = model.resolution;
+    Model around = model;
+    for (std::size_t i = 0; i < 3; ++i) {
+        if (!(high[i] > low[i])) {
+            why = "the study has no space for the fluid: it has no size";
+            return false;
+        }
+        around.space.min[i] = low[i] - 1.5 * cell;
+        around.space.max[i] = high[i] + 1.5 * cell;
+        made.cells[i] =
+            std::max(std::lround((around.space.max[i] - around.space.min[i]) / cell), 1L);
+    }
+    around.space.open = {};
+    // Where the mesh is: a point of the fluid off every cell's face and
+    // centre, and still inside
+    bool found = false;
+    const auto points = sampled(model.domain, cell);
+    for (std::size_t k = 0; k < points.size() && !found; ++k) {
+        const Vec3& p = points[(points.size() / 2 + k) % points.size()];
+        const Vec3 moved {p[0] + 0.137 * cell, p[1] + 0.151 * cell, p[2] + 0.173 * cell};
+        if (inside(model.domain, moved)) {
+            made.inside = moved;
+            found = true;
+        }
+    }
+    if (!found) {
+        why = "the fluid's space holds no cell at this resolution";
+        return false;
+    }
+    const std::size_t openings = model.inlets.size() + model.outlets.size();
+    std::vector<std::string> patches {"wall"};
+    for (std::size_t k = 0; k < openings; ++k) {
+        patches.push_back(openingName(model, k));
+    }
+    auto& files = made.files;
+    files["system/blockMeshDict"] = blockMeshDict(around, made.cells);
+    std::ostringstream snappy;
+    snappy << "castellatedMesh true;\nsnap true;\naddLayers false;\ngeometry\n{\n";
+    for (std::size_t k = 0; k < patches.size(); ++k) {
+        const std::string& name = patches[k];
+        files["constant/triSurface/" + name + ".stl"] =
+            stlOf(patchOf(model.domain, static_cast<int>(k)), name);
+        snappy << "    " << name << " { type triSurfaceMesh; file \"" << name << ".stl\"; }\n";
+    }
+    snappy << "}\ncastellatedMeshControls\n{\n"
+              "    maxLocalCells 4000000;\n    maxGlobalCells 16000000;\n"
+              "    minRefinementCells 0;\n    nCellsBetweenLevels 2;\n    features ();\n"
+              "    refinementSurfaces\n    {\n";
+    for (std::size_t k = 0; k < patches.size(); ++k) {
+        snappy << "        " << patches[k] << " { level (0 0); patchInfo { type "
+               << (k == 0 ? "wall" : "patch") << "; } }\n";
+    }
+    snappy << "    }\n    resolveFeatureAngle 30;\n    refinementRegions {}\n    locationInMesh "
+           << vec(made.inside)
+           << ";\n    allowFreeStandingZoneFaces false;\n}\n"
+              "snapControls\n{\n    nSmoothPatch 3;\n    tolerance 2.0;\n    nSolveIter 30;\n"
+              "    nRelaxIter 5;\n    nFeatureSnapIter 10;\n    implicitFeatureSnap true;\n"
+              "    explicitFeatureSnap false;\n    multiRegionFeatureSnap true;\n}\n"
+              "addLayersControls\n{\n    relativeSizes true;\n    layers {}\n"
+              "    expansionRatio 1.0;\n    finalLayerThickness 0.3;\n    minThickness 0.1;\n"
+              "    nGrow 0;\n    featureAngle 60;\n    nRelaxIter 3;\n"
+              "    nSmoothSurfaceNormals 1;\n    nSmoothNormals 3;\n    nSmoothThickness 10;\n"
+              "    maxFaceThicknessRatio 0.5;\n    maxThicknessToMedialRatio 0.3;\n"
+              "    minMedialAxisAngle 90;\n    nBufferCellsNoExtrude 0;\n    nLayerIter 50;\n}\n"
+              "meshQualityControls\n{\n    maxNonOrtho 65;\n    maxBoundarySkewness 20;\n"
+              "    maxInternalSkewness 4;\n    maxConcave 80;\n    minVol 1e-13;\n"
+              "    minTetQuality 1e-15;\n    minArea -1;\n    minTwist 0.02;\n"
+              "    minDeterminant 0.001;\n    minFaceWeight 0.05;\n    minVolRatio 0.01;\n"
+              "    minTriangleTwist -1;\n    nSmoothScale 4;\n    errorReduction 0.75;\n}\n"
+              "mergeTolerance 1e-6;\n";
+    files["system/snappyHexMeshDict"] = dictionary("snappyHexMeshDict", snappy.str());
+
+    // The fields are written each some steps, to go on from, and the faces'
+    // pressure goes with them: a frame of the flow as it settles, and one
+    // at its end -- the solver writes when it has settled
+    const int every = std::max(model.iterations / 40, 1);
+    const std::string each = "        writeControl timeStep;\n        writeInterval 1;\n";
+    std::ostringstream control;
+    control << "application simpleFoam;\nstartFrom startTime;\nstartTime 0;\nstopAt endTime;\n"
+            << "endTime " << model.iterations << ";\ndeltaT 1;\nwriteControl timeStep;\n"
+            << "writeInterval " << every
+            << ";\npurgeWrite 1;\nwriteFormat binary;\nwritePrecision 8;\ntimeFormat general;\n"
+            << "timePrecision 10;\nrunTimeModifiable no;\nfunctions\n{\n"
+            << "    skin\n    {\n        type surfaces;\n        libs (sampling);\n"
+               "        writeControl writeTime;\n        surfaceFormat vtk;\n"
+               "        formatOptions { vtk { format ascii; legacy true; } }\n"
+               "        fields (p);\n        interpolationScheme cellPoint;\n"
+               "        surfaces\n        {\n";
+    for (const auto& name : patches) {
+        control << "            " << name << " { type patch; patches (" << name
+                << "); interpolate true; }\n";
+    }
+    control << "        }\n    }\n";
+    for (std::size_t k = 1; k < patches.size(); ++k) {
+        for (const char* what : {"P", "Q"}) {
+            control << "    " << patches[k] << what
+                    << "\n    {\n        type surfaceFieldValue;\n"
+                       "        libs (fieldFunctionObjects);\n"
+                    << each << "        fields (" << (*what == 'P' ? "p" : "phi")
+                    << ");\n        operation " << (*what == 'P' ? "areaAverage" : "sum")
+                    << ";\n        regionType patch;\n        name " << patches[k]
+                    << ";\n        writeFields no;\n    }\n";
+        }
+    }
+    std::string probes;
+    for (const auto& monitor : model.monitors) {
+        probes += " " + vec(monitor.point);
+    }
+    if (!probes.empty()) {
+        control << "    pressure\n    {\n        type probes;\n        libs (sampling);\n"
+                << each << "        fields (p);\n        probeLocations (" << probes
+                << " );\n    }\n";
+    }
+    control << "}\n";
+    files["system/controlDict"] = dictionary("controlDict", control.str());
+    files["system/fvSchemes"] = dictionary("fvSchemes", steadySchemes);
+    files["system/fvSolution"] = dictionary("fvSolution", steadySolution);
+    files["system/decomposeParDict"] = dictionary(
+        "decomposeParDict",
+        "numberOfSubdomains " + std::to_string(std::max(options.processes, 1))
+            + ";\nmethod scotch;\n");
+    files["constant/transportProperties"] = dictionary(
+        "transportProperties",
+        "transportModel Newtonian;\nnu " + num(liquid.viscosity / liquid.density) + ";\n");
+    files["constant/turbulenceProperties"] =
+        dictionary("turbulenceProperties", "simulationType laminar;\n");
+
+    std::string velocity = header("volVectorField", "U")
+        + "dimensions [0 1 -1 0 0 0 0];\ninternalField uniform (0 0 0);\nboundaryField\n{\n";
+    std::string pressure = header("volScalarField", "p")
+        + "dimensions [0 2 -2 0 0 0 0];\ninternalField uniform 0;\nboundaryField\n{\n";
+    for (std::size_t i = 0; i < model.inlets.size(); ++i) {
+        const Inlet& inlet = model.inlets[i];
+        const std::string name = openingName(model, i);
+        velocity += "    " + name + " { type fixedValue; value uniform "
+            + vec({inlet.direction[0] * inlet.speed,
+                   inlet.direction[1] * inlet.speed,
+                   inlet.direction[2] * inlet.speed})
+            + "; }\n";
+        pressure += "    " + name + " { type zeroGradient; }\n";
+    }
+    for (std::size_t j = 0; j < model.outlets.size(); ++j) {
+        const std::string name = openingName(model, model.inlets.size() + j);
+        velocity += "    " + name + " { type zeroGradient; }\n";
+        pressure += "    " + name + " { type fixedValue; value uniform "
+            + num(model.outlets[j].pressure / liquid.density) + "; }\n";
+    }
+    files["0/U"] = velocity + "    \".*\" { type noSlip; }\n}\n";
+    files["0/p"] = pressure + "    \".*\" { type zeroGradient; }\n}\n";
+
+    made.steps.push_back({"blockMesh", "blockMesh"});
+    made.steps.push_back({"snappyHexMesh", "snappyHexMesh -overwrite"});
+    if (options.processes > 1) {
+        made.steps.push_back({"decomposePar", "decomposePar"});
+        made.steps.push_back({"simpleFoam",
+                              "mpirun -np " + std::to_string(options.processes)
+                                  + " simpleFoam -parallel",
+                              true});
+    }
+    else {
+        made.steps.push_back({"simpleFoam", "simpleFoam", true});
+    }
+    return true;
+}
 }  // namespace
+
+std::string Fluid::Solver::OpenFoam::openingName(const Model& model, std::size_t opening)
+{
+    return opening < model.inlets.size()
+        ? "inlet" + std::to_string(opening)
+        : "outlet" + std::to_string(opening - model.inlets.size());
+}
 
 Case Fluid::Solver::OpenFoam::ductCase(int axis)
 {
@@ -332,6 +574,9 @@ bool Fluid::Solver::OpenFoam::makeCase(const Model& model,
                                        std::string& why)
 {
     made = Case {};
+    if (model.analysis == Analysis::Steady) {
+        return steadyCase(model, options, made, why);
+    }
     if (model.resolution <= 0.0 || model.outputInterval <= 0.0 || model.timeEnd <= 0.0) {
         why = "the resolution, the output interval and the end time must be positive";
         return false;
@@ -500,6 +745,42 @@ bool Fluid::Solver::OpenFoam::readSurfaceVtk(const std::string& text, Frame& fra
     // when the file says so itself
     return text.find("POLYDATA") != std::string::npos
         && text.find("POINTS 0 ") != std::string::npos;
+}
+
+bool Fluid::Solver::OpenFoam::readFieldVtk(const std::string& text,
+                                           const std::string& field,
+                                           Frame& frame)
+{
+    frame.values.clear();
+    if (!readSurfaceVtk(text, frame)) {
+        return false;
+    }
+    const auto data = text.find("POINT_DATA");
+    if (data == std::string::npos) {
+        return false;
+    }
+    const auto at = text.find("\n" + field + " 1 ", data);
+    if (at == std::string::npos) {
+        return false;
+    }
+    std::istringstream in(text.substr(at + 1));
+    std::string name;
+    std::string type;
+    int width = 0;
+    std::size_t count = 0;
+    if (!(in >> name >> width >> count >> type) || count != frame.points.size()) {
+        return false;
+    }
+    frame.values.resize(count);
+    for (double& value : frame.values) {
+        if (!(in >> value)) {
+            frame.values.clear();
+            return false;
+        }
+    }
+    // a number cut short reads as a shorter number: the file is whole only
+    // when its last line is
+    return !text.empty() && text.back() == '\n';
 }
 
 std::vector<std::vector<double>> Fluid::Solver::OpenFoam::readTable(const std::string& text)

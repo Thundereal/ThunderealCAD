@@ -119,6 +119,56 @@ class TestDoubts(unittest.TestCase):
         self.assertEqual(both, [lag, rise])
 
 
+class TestSteadyDoubts(unittest.TestCase):
+    """What the panel says of a steady flow that had not settled."""
+
+    def test_a_flow_that_settled_has_nothing_against_it(self):
+        self.assertEqual(FluidPlayback.doubts({"Steady": True, "Settled": True}), [])
+        # nor has a run through time, which settles to nothing
+        self.assertEqual(FluidPlayback.doubts({"Steady": False, "Settled": False}), [])
+
+    def test_one_that_did_not_says_so(self):
+        (found,) = FluidPlayback.doubts({"Steady": True, "Settled": False, "Times": [0.0, 2000.0]})
+        self.assertIn("2000", found)
+        self.assertIn("settled", found)
+
+
+class TestColors(unittest.TestCase):
+    """A field's values as colours: blue the least, red the most."""
+
+    def test_the_ends_and_between(self):
+        import numpy
+
+        values = numpy.array([0.0, 50.0, 100.0, -20.0, 300.0], dtype=numpy.float32)
+        colors = FluidPlayback.colorsOf(values, 0.0, 100.0)
+        self.assertEqual(colors.shape, (5, 3))
+        self.assertEqual(colors.dtype, numpy.float32)
+        low, middle, high, under, over = colors
+        self.assertGreater(low[2], low[0])
+        self.assertGreater(high[0], high[2])
+        self.assertGreater(middle[1], max(middle[0], middle[2]))
+        # what is past an end has the end's colour
+        self.assertEqual(tuple(under), tuple(low))
+        self.assertEqual(tuple(over), tuple(high))
+        # all of one value: no range to spread over, and no fault
+        flat = FluidPlayback.colorsOf(values, 5.0, 5.0)
+        self.assertEqual(flat.shape, (5, 3))
+        self.assertTrue(numpy.isfinite(flat).all())
+
+    def test_the_range_of_a_field(self):
+        import numpy
+
+        values = numpy.array([3.0, -1.0, 7.5], dtype=numpy.float32)
+        self.assertEqual(FluidPlayback.rangeOf(values), (-1.0, 7.5))
+        self.assertEqual(FluidPlayback.rangeOf(values[:0]), (0.0, 0.0))
+
+    def test_what_went_through(self):
+        # 7.854e-6 m^3/s is 7.854 ml/s
+        self.assertEqual(FluidPlayback.flowText(7.854e-6), "7.854 ml/s")
+        self.assertEqual(FluidPlayback.flowText(2.5e-3), "2.5 l/s")
+        self.assertEqual(FluidPlayback.flowText(0.0), "0 ml/s")
+
+
 class TestSetUp(FluidCase):
     def test_active_study(self):
         self.assertEqual(FluidPlayback.activeStudy(), self.study)
@@ -278,6 +328,27 @@ class TestFrameView(unittest.TestCase):
         # and back to particles
         self.assertTrue(view.show(points))
         self.assertEqual(view.switch.whichChild.getValue(), 0)
+        view.remove()
+
+    def test_a_field_is_coloured_by_its_values(self):
+        import numpy
+
+        view = FluidPlayback.FrameView(self.parent)
+        points = numpy.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=numpy.float32)
+        triangles = numpy.array([[0, 1, 2], [0, 2, 3]], dtype=numpy.int32)
+        values = numpy.array([0.0, 10.0, 20.0, 5.0], dtype=numpy.float32)
+        self.assertTrue(view.showField(points, triangles, values, 0.0, 20.0))
+        self.assertEqual(view.switch.whichChild.getValue(), view.FIELD)
+        self.assertEqual(view.field.coordIndex.getNum(), 8)
+        self.assertEqual(view.colors.diffuseColor.getNum(), 4)
+        want = FluidPlayback.colorsOf(values, 0.0, 20.0)
+        for got, expected in zip(view.colors.diffuseColor[2].getValue(), want[2]):
+            self.assertAlmostEqual(got, float(expected), places=5)
+        # the other shapes keep nothing, and a surface after it none of it
+        self.assertEqual(view.faces.coordIndex.getNum(), 0)
+        self.assertTrue(view.show(points, triangles))
+        self.assertEqual(view.switch.whichChild.getValue(), view.SURFACE)
+        self.assertEqual(view.field.coordIndex.getNum(), 0)
         view.remove()
 
     def test_body(self):

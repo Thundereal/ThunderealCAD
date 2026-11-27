@@ -1928,4 +1928,88 @@ document), `FluidModel.aSteadyFlowsParts`.
 
 Open: the lids the study could find itself (sec 5.2); an inlet by flow
 rate or pressure; the rest of F1 -- the case for `simpleFoam`, the run,
-the result on faces -- which waits on sec 14.2.
+the result on faces -- which waited on sec 14.2 and is sec 14.4.
+
+### 14.4 F1 as built, step 2: the flow run, and its pressure on the faces (2026-11-27)
+
+A steady flow runs on OpenFOAM, from the workbench, and its results are
+kept and drawn. Laminar only.
+
+- **The case** (`OpenFoamCase.cpp`, `steadyCase`): `simpleFoam`. The
+  model's domain goes out as a surface per patch -- `wall`, `inlet<i>`,
+  `outlet<j>` -- and `snappyHexMesh` meshes the inside of them from a
+  background box a cell and a half wider than the fluid's, cells of the
+  model's resolution, no layers. An inlet is a fixed velocity, an outlet
+  a fixed pressure (over the density, as the solver has it), a wall no
+  slip. Schemes and solvers are the ones the pipe of sec 14.2 was
+  measured with; the run stops when the residuals are under 1e-7 (p) and
+  1e-8 (U), or at the study's `Iterations`. Above one process it is
+  decomposed and run under MPI as a free surface's is.
+- **What is written back**: the pressure on every patch (the `surfaces`
+  function object, VTK) each fortieth of the steps and when it stops;
+  each opening's mean pressure and what goes through it
+  (`surfaceFieldValue`), and the pressure monitors (`probes`), each step.
+- **Frames of fields** (`ResultKind::Fields`, till now a name only): a
+  frame is the faces the fluid touches as triangles with the pressure at
+  each point (`Frame::values`, Pa) and each opening's mean pressure and
+  flow (`Frame::openings`, the inlets then the outlets; m^3/s, in through
+  an inlet, out through an outlet). A frame's time is the step. The first
+  frame is the model's domain with no pressure on it. The archive keeps
+  `frames/N.values.npy` and `openings.npy`; its index says `steady`,
+  `settled` (it stopped short of its steps) and the openings.
+  `getResults()` has `Steady`, `Settled` and `Openings`; `getFrame()` has
+  `Values`.
+- **Who runs it**: OpenFOAM says `steady`. A study with no solver named
+  takes the first that runs its kind of flow (`Registry::select`), so a
+  steady study is not handed to the particle solver registered before
+  it. A height monitor in a steady study is refused by the case, a force
+  monitor too (not built).
+- **The workbench**: `Fluid_AddOutlet` (the faces picked; it makes the
+  study one of a steady flow); the panel has "Study of" (free surface or
+  steady flow) and, for a steady flow, "Steps at most" in place of the
+  times. A field is drawn on its faces in the colours of the pressure
+  (`FrameView.showField`, a Turbo ramp), the scale under the slider from
+  the last frame's least to its most, the walls hidden while it is
+  shown -- it is drawn on their faces from the inside. The table lists
+  each opening's mean pressure and flow under the monitors. A flow that
+  ran out of steps is said so in orange, as the energy's doubts are.
+
+Measured, the tube of `TestSteady` (10 mm inside, 100 long), 0.1 m/s in,
+1000 kg/m^3 and 0.1 Pa s (Reynolds number 10), the pressure lost between
+two monitors on the axis at 40 and 90 mm against Hagen-Poiseuille's at
+the flow there was:
+
+| Resolution | Cells across | Lost, Pa | Closed form | Off | Flow off the speed x face | Steps | Time |
+|---|---|---|---|---|---|---|---|
+| 1 mm | 10 | 160.879 | 160.840 | +0.02% | +0.53% | 109 | 1.6 s |
+| 0.5 mm (the study's own) | 20 | 160.320 | 160.127 | +0.12% | +0.08% | 103 | 7.6 s |
+| 0.25 mm | 40 | 160.196 | 160.013 | +0.11% | +0.01% | 2000, not settled | 435 s |
+
+Sec 6 asks 1%. The flow is off the speed times the face because the
+mesh's inlet is of flat cells' faces snapped to the round. At 0.25 mm the
+residuals never got under the limits and the run went its 2000 steps; the
+answer had long stopped moving, and the panel says the flow had not
+settled. A looser stop for a fine mesh is open.
+
+A block with a bore 10 mm across that parts into branches 8 and 5 mm
+across, each 28 long (the manual's): of 7.86 ml/s in, 85.7% leaves by the
+wide one and 14.3% by the narrow, 269 Pa lost, settled in 113 steps, 7 s.
+Two pipes of one length under one pressure would share as their
+diameters' fourth powers, 86.8% to 13.2%; the branches here do not start
+from one pressure -- the narrow one is further along the bore.
+
+Tests: `OpenFoamCase.filesOfASteadyFlow`, `whatCannotBeASteadyFlow`,
+`aFacesPressureReadBack`; `FluidArchive.aFieldOnFacesAndTheOpenings`;
+`FluidRegistry` (the unnamed choice); `FluidTests/Pipe.py` run as
+`TestOpenFoamPipe` (the pipe to 1%, what comes in goes out, the faces'
+pressure against the monitors, kept with the document, the unnamed
+solver); `TestColors`, `TestSteadyDoubts`,
+`TestFrameView.test_a_field_is_coloured_by_its_values`.
+
+Open, the rest of F1: turbulence (k-omega SST) and its pipe against
+Haaland; the velocity, on a cut plane and at the openings -- the profile
+across the pipe is not checked; the lid-driven cavity and the
+backward-facing step; meshing by the second route (sec 5.4); residuals
+shown as the run goes; an inlet by flow rate or pressure; the force on a
+part; lids the study finds itself; a warning when the Reynolds number
+says the flow is not laminar -- nothing tells the user now.

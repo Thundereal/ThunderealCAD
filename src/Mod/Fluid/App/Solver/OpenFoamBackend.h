@@ -25,9 +25,10 @@ struct OpenFoamInstall
     std::string refused;
 };
 
-// OpenFOAM's interFoam, run as separate programs over a case's files
-// (docs/FluidSimulation.md secs 5.5, 11.3, 12 S2): the free surface in
-// volume-of-fluid cells, the walls meshed around by snappyHexMesh. GPL
+// OpenFOAM, run as separate programs over a case's files
+// (docs/FluidSimulation.md secs 5.5, 11.3, 12 S2, 14.4): a free surface by
+// interFoam in volume-of-fluid cells, the walls meshed around by
+// snappyHexMesh; a steady flow by simpleFoam in the space inside them. GPL
 // code, never in this process and never shipped: it is looked for -- the
 // preference Mod/Fluid/OpenFoamPath, the environment's FLUID_OPENFOAM_PATH
 // and PATH, our own download's folder, the usual places -- and when it is not there the backend says
@@ -43,7 +44,7 @@ public:
     }
     std::string label() const override
     {
-        return "OpenFOAM (interFoam)";
+        return "OpenFOAM";
     }
     Capabilities capabilities() const override;
     Availability availability() const override;

@@ -349,6 +349,9 @@ struct Study::Run: public Solver::FrameSink
             if (status == Solver::Status::Ok) {
                 status = session->run(*this, why);
             }
+            // a steady flow stops when it has settled: short of its steps
+            index.settled = index.steady && status == Solver::Status::Ok
+                && writer->lastTime() < model.iterations;
             writer->close(index);
         }
         catch (const Base::Exception& e) {
@@ -854,7 +857,9 @@ Solver::Status Study::start(std::string& why)
         return Solver::Status::Failed;
     }
     const std::string name = Backend.getValue();
-    auto* backend = Solver::Registry::instance().select(name);
+    auto* backend = Solver::Registry::instance().select(
+        name,
+        Analysis.getValue() == 1 ? Solver::Analysis::Steady : Solver::Analysis::FreeSurface);
     if (!backend) {
         why = name.empty() ? std::string("no solver that can run on this machine was found")
                            : "there is no solver named " + name;
@@ -948,7 +953,9 @@ Solver::Status Study::start(std::string& why)
         }
     }
 #endif
-    if (!run->model.inlets.empty() && !backend->capabilities().inlets) {
+    // a steady flow's inlets are the flow itself: who runs one has them
+    const bool steadyRun = run->model.analysis == Solver::Analysis::Steady;
+    if (!steadyRun && !run->model.inlets.empty() && !backend->capabilities().inlets) {
         why = backend->label() + " cannot run an inlet";
         Status.setValue(std::string(statusText(Solver::Status::Unsupported)) + ": " + why);
         return Solver::Status::Unsupported;
@@ -965,10 +972,19 @@ Solver::Status Study::start(std::string& why)
     run->writer = std::make_unique<ArchiveWriter>(run->path);
     run->index.backend = backend->name();
     run->index.version = availability.version;
-    run->index.kind = backend->capabilities().results;
+    run->index.kind = steadyRun ? Solver::ResultKind::Fields : backend->capabilities().results;
+    run->index.steady = steadyRun;
+    if (steadyRun) {
+        for (const auto& inlet : run->model.inlets) {
+            run->index.openings.push_back({inlet.source, false});
+        }
+        for (const auto& outlet : run->model.outlets) {
+            run->index.openings.push_back({outlet.source, true});
+        }
+    }
     run->index.signature = Solver::signature(run->model);
     run->index.spacing = run->model.resolution * 1000.0;
-    run->index.fed = !run->model.inlets.empty();
+    run->index.fed = !steadyRun && !run->model.inlets.empty();
     for (const auto& monitor : run->model.monitors) {
         run->index.monitors.push_back({monitor.source, monitor.kind});
     }

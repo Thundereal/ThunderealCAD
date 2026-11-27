@@ -45,6 +45,14 @@ struct Case
 
 // The case of a model. why says what is wrong when it returns false: no
 // fluid, no space, a resolution that is not positive.
+//
+// A steady flow's (sec 14.4) is simpleFoam's, laminar: the model's domain
+// meshed inside by snappyHexMesh, a surface per patch -- "wall", then
+// "inlet<i>" and "outlet<j>" as the model has them -- and written back
+// each some steps and at the end: the pressure on every patch ("skin"),
+// each opening's mean pressure ("<patch>P") and what goes through it
+// ("<patch>Q"), the pressure monitors ("pressure"). Its times are steps;
+// its pressures are over the density, as the solver has them.
 FluidExport bool makeCase(const Model& model, const CaseOptions& options, Case& made, std::string& why);
 
 // The check an install is put to (docs/FluidSimulation.md sec 14.2): a
@@ -70,6 +78,16 @@ FluidExport std::string stlOf(const Surface& surface, const std::string& name);
 // points and triangles (a polygon of more corners is fanned). False when
 // the text is not one, or is cut short -- a file still being written.
 FluidExport bool readSurfaceVtk(const std::string& text, Frame& frame);
+
+// A patch as the surfaces function object wrote it, a legacy ASCII VTK
+// POLYDATA with values at its points: the points, the triangles and that
+// field's values, as the file has them. False when the text is not one, has
+// no such field of one number a point, or is cut short.
+FluidExport bool readFieldVtk(const std::string& text, const std::string& field, Frame& frame);
+
+// The name of a steady case's patch for an opening: the model's inlets
+// first, then its outlets.
+FluidExport std::string openingName(const Model& model, std::size_t opening);
 
 // The rows of a function object's .dat file -- probes' or
 // interfaceHeight's: each row the time and the values after it; lines

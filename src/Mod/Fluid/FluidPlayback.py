@@ -38,6 +38,10 @@ class Frames:
         self.monitors = results["Monitors"] if self.valid else []
         # the monitors' own times, far more than the frames
         self.monitorTimes = list(results["MonitorTimes"]) if self.valid else []
+        # of a steady flow: the frames' times are the steps it had settled
+        # for; and its openings
+        self.steady = bool(results.get("Steady")) if self.valid else False
+        self.openings = results.get("Openings", []) if self.valid else []
         # the parts the fluid moved; None for one that is gone
         self.bodies = [body["Object"] for body in results["Bodies"]] if self.valid else []
 
@@ -77,6 +81,17 @@ class Frames:
             triangles = numpy.frombuffer(frame["Triangles"], dtype=numpy.int32).reshape(-1, 3)
         return points, triangles
 
+    def field(self, index):
+        """A frame of fields: its points, its triangles and the pressure at
+        each point, (n,) float32, Pa."""
+        import numpy
+
+        frame = self.study.getFrame(index)
+        points = numpy.frombuffer(frame["Points"], dtype=numpy.float32).reshape(-1, 3)
+        triangles = numpy.frombuffer(frame["Triangles"], dtype=numpy.int32).reshape(-1, 3)
+        values = numpy.frombuffer(frame.get("Values", b""), dtype=numpy.float32)
+        return points, triangles, values
+
     def surface(self, index):
         """The frame as a closed surface to draw: its points, triangles,
         the points' normals and the spray. A frame of particles is wrapped,
@@ -105,6 +120,18 @@ class Frames:
         if not self.monitorTimes:
             return -1
         return max(bisect.bisect_right(self.monitorTimes, time + 1e-12) - 1, 0)
+
+    def openingsAt(self, index):
+        """Each opening at a frame: (label, kind, its mean pressure Pa, what
+        goes through it m^3/s)."""
+        rows = []
+        for opening in self.openings:
+            obj = opening["Object"]
+            label = obj.Label if obj is not None else opening["Source"]
+            rows.append(
+                (label, opening["Kind"], opening["Pressure"][index], opening["Flow"][index])
+            )
+        return rows
 
     def monitorsAt(self, index):
         """Each monitor at a frame's time: (label, kind, value, unit)."""
@@ -227,6 +254,7 @@ class FrameView:
     PARTICLES = 0
     SURFACE = 1
     BODY = 2
+    FIELD = 3
 
     def __init__(self, parent=None, color=WATER, pointSize=4.0, water=True):
         self.parent = parent
@@ -242,6 +270,8 @@ class FrameView:
         self.switch = None
         self.mistCoords = None
         self.mist = None
+        self.colors = None
+        self.field = None
 
     def _parent(self):
         if self.parent is not None:
@@ -299,10 +329,24 @@ class FrameView:
         for node in (hints, self.waterNode(), self.normals, binding, self.body):
             if node is not None:
                 body.addChild(node)
+        # a field: the faces in the colours of the values at their corners
+        field = coin.SoSeparator()
+        hints = coin.SoShapeHints()
+        hints.vertexOrdering = coin.SoShapeHints.COUNTERCLOCKWISE
+        hints.shapeType = coin.SoShapeHints.UNKNOWN_SHAPE_TYPE
+        hints.creaseAngle = 0.8
+        self.colors = coin.SoMaterial()
+        self.colors.specularColor = (0.1, 0.1, 0.1)
+        binding = coin.SoMaterialBinding()
+        binding.value = coin.SoMaterialBinding.PER_VERTEX_INDEXED
+        self.field = coin.SoIndexedFaceSet()
+        for node in (hints, self.colors, binding, self.field):
+            field.addChild(node)
         self.switch = coin.SoSwitch()
         self.switch.addChild(particles)
         self.switch.addChild(surface)
         self.switch.addChild(body)
+        self.switch.addChild(field)
         for node in (material, self.coords, self.switch):
             self.root.addChild(node)
         # the spray: unlit points of their own colour
@@ -370,9 +414,10 @@ class FrameView:
         index[:, :3] = triangles
         index = index.reshape(-1)
         faces = self.faces if normals is None else self.body
-        # the other set keeps nothing of an earlier frame
+        # the other sets keep nothing of an earlier frame
         other = self.body if normals is None else self.faces
         other.coordIndex.setNum(0)
+        self.field.coordIndex.setNum(0)
         faces.coordIndex.setNum(len(index))
         if len(index):
             faces.coordIndex.setValues(0, len(index), index)
@@ -386,6 +431,36 @@ class FrameView:
         self.switch.whichChild = self.BODY
         return True
 
+    def showField(self, points, triangles, values, low, high):
+        """Draws the triangles (m, 3) of the points (n, 3) in the colours of
+        the values at the points (n,), 'low' the ramp's first colour and
+        'high' its last; what was drawn before is replaced. False without a
+        view."""
+        import numpy
+
+        if self.root is None and not self._build():
+            return False
+        self.mist.numPoints = 0
+        points = numpy.ascontiguousarray(points, dtype=numpy.float32).reshape(-1, 3)
+        count = len(points)
+        self.coords.point.setNum(count)
+        colors = colorsOf(values, low, high)
+        self.colors.diffuseColor.setNum(len(colors))
+        if count:
+            self.coords.point.setValues(0, count, points)
+            self.colors.diffuseColor.setValues(0, len(colors), colors)
+        triangles = numpy.asarray(triangles, dtype=numpy.int32).reshape(-1, 3)
+        index = numpy.full((len(triangles), 4), -1, dtype=numpy.int32)
+        index[:, :3] = triangles
+        index = index.reshape(-1)
+        for other in (self.faces, self.body):
+            other.coordIndex.setNum(0)
+        self.field.coordIndex.setNum(len(index))
+        if len(index):
+            self.field.coordIndex.setValues(0, len(index), index)
+        self.switch.whichChild = self.FIELD
+        return True
+
     def count(self):
         return self.coords.point.getNum() if self.coords is not None else 0
 
@@ -396,13 +471,72 @@ class FrameView:
         self.coords = None
 
 
+# From the least to the most: Google's Turbo, a rainbow whose brightness
+# goes evenly, at eleven places of it.
+RAMP = (
+    (0.190, 0.072, 0.232),
+    (0.271, 0.345, 0.796),
+    (0.259, 0.596, 0.997),
+    (0.118, 0.812, 0.839),
+    (0.165, 0.949, 0.624),
+    (0.467, 0.996, 0.341),
+    (0.741, 0.957, 0.204),
+    (0.953, 0.796, 0.200),
+    (0.992, 0.561, 0.141),
+    (0.906, 0.290, 0.051),
+    (0.647, 0.086, 0.004),
+)
+
+
+def colorsOf(values, low, high):
+    """A colour for each value, (n, 3) float32: the ramp's first at 'low'
+    and under, its last at 'high' and over."""
+    import numpy
+
+    values = numpy.asarray(values, dtype=numpy.float64)
+    span = high - low
+    share = (values - low) / span if span > 0.0 else numpy.zeros(len(values))
+    share = numpy.clip(numpy.nan_to_num(share), 0.0, 1.0)
+    ramp = numpy.array(RAMP)
+    at = numpy.linspace(0.0, 1.0, len(ramp))
+    colors = numpy.stack([numpy.interp(share, at, ramp[:, k]) for k in range(3)], axis=1)
+    return numpy.ascontiguousarray(colors, dtype=numpy.float32)
+
+
+def rangeOf(values):
+    """The least and the most of a field's values; (0, 0) of none."""
+    if len(values) == 0:
+        return 0.0, 0.0
+    return float(values.min()), float(values.max())
+
+
+def flowText(flow):
+    """What goes through an opening, m^3/s, in a unit that reads."""
+    litres = flow * 1000.0
+    if abs(litres) >= 1.0:
+        return "{:.4g} l/s".format(litres)
+    return "{:.4g} ml/s".format(litres * 1000.0)
+
+
 def doubts(results):
     """What a run's own account of its energy has against its results, each
     a sentence for the user; none when it has nothing, or kept no account.
     Nothing found is not the results proved: a run on particles too coarse
     for the question keeps its account in order."""
-    energy = (results or {}).get("Energy")
+    results = results or {}
     found = []
+    if results.get("Steady") and not results.get("Settled"):
+        times = results.get("Times") or [0.0]
+        found.append(
+            translate(
+                "Fluid",
+                "The flow had not settled in the {:.0f} steps it was given: the "
+                "pressures and what goes through the openings may still be on their "
+                "way. Give it more steps; a flow that never settles may be one that "
+                "does not stay steady.",
+            ).format(times[-1])
+        )
+    energy = results.get("Energy")
     if not energy or not energy["Judged"]:
         return found
     if energy["Lagged"]:
@@ -524,6 +658,16 @@ def addInlet(study, part, face, speed):
     inlet.Velocity = App.Units.Quantity(speed, "mm/s")
     study.Group = study.Group + [inlet]
     return inlet
+
+
+def addOutlet(study, part, face):
+    """The face (by its name, 'Face2') of the part as one a steady flow
+    leaves through, at the surroundings' pressure."""
+    outlet = study.Document.addObject("Fluid::Outlet", "Outlet")
+    outlet.Label = translate("Fluid", "Outlet at {} of {}").format(face, part.Label)
+    outlet.Face = (part, [face])
+    study.Group = study.Group + [outlet]
+    return outlet
 
 
 def addMonitor(study, kind, point):

@@ -281,6 +281,29 @@ PyObject* StudyPy::getResults(PyObject* args) const
             bodies.append(body);
         }
         ret.setItem("Bodies", bodies);
+        ret.setItem("Steady", Py::Boolean(index.steady));
+        ret.setItem("Settled", Py::Boolean(index.settled));
+        if (!index.openings.empty()) {
+            Py::List openings;
+            const std::size_t count = index.openings.size();
+            for (std::size_t k = 0; k < count; ++k) {
+                Py::Dict opening;
+                auto* obj = objectOf(index.openings[k].source, getStudyPtr()->getDocument());
+                opening.setItem("Object", obj ? Py::asObject(obj->getPyObject()) : Py::None());
+                opening.setItem("Source", Py::String(index.openings[k].source));
+                opening.setItem("Kind", Py::String(index.openings[k].outlet ? "Outlet" : "Inlet"));
+                Py::List pressures;
+                Py::List flows;
+                for (std::size_t f = 0; f < frames; ++f) {
+                    pressures.append(Py::Float(index.flows[(f * count + k) * 2]));
+                    flows.append(Py::Float(index.flows[(f * count + k) * 2 + 1]));
+                }
+                opening.setItem("Pressure", pressures);
+                opening.setItem("Flow", flows);
+                openings.append(opening);
+            }
+            ret.setItem("Openings", openings);
+        }
         if (!index.energy.empty()) {
             Py::Dict energy;
             const auto column = [&](double Solver::Energy::* which) {
@@ -344,6 +367,12 @@ PyObject* StudyPy::getFrame(PyObject* args) const
                             reinterpret_cast<const char*>(frame.triangles.data()),
                             static_cast<Py_ssize_t>(frame.triangles.size()
                                                     * sizeof(std::int32_t)))));
+        }
+        if (!frame.values.empty()) {
+            ret.setItem("Values",
+                        Py::asObject(PyBytes_FromStringAndSize(
+                            reinterpret_cast<const char*>(frame.values.data()),
+                            static_cast<Py_ssize_t>(frame.values.size() * sizeof(float)))));
         }
         return Py::new_reference_to(ret);
     }

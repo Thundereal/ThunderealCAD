@@ -80,7 +80,7 @@ class Study(DocumentObject):
     def getResults(self) -> Any:
         """
         The kept results, or None: Backend, Version, Kind ('Particles',
-        'Surface'), Times (the frames', s), Frames (how many), MonitorTimes
+        'Surface', 'Fields'), Times (the frames', s), Frames (how many), MonitorTimes
         (the monitors' own times, s: a solver reports them far oftener than
         it makes frames) and Monitors, each Object, Kind, Unit and Values
         (one per monitor time); and Bodies, the parts the fluid moved, each
@@ -96,7 +96,13 @@ class Study(DocumentObject):
         HandOverJudged, Made, MadeLimit and Lagged, the share of what was
         exchanged that the lag created. Rose or Lagged: the results are
         not to be trusted. Neither: nothing was found, which is not to say
-        the particles are fine enough.
+        the particles are fine enough. Steady, whether the results are a
+        steady flow's: its Times and MonitorTimes are then the steps it had
+        settled for; Settled, whether it settled before the steps it was
+        given were up; and it has Openings, each inlet then each outlet:
+        Object, Source, Kind ('Inlet', 'Outlet') and, one per frame,
+        Pressure (the mean over the face, Pa) and Flow (m^3/s, in through
+        an inlet and out through an outlet).
         """
         ...
 
@@ -105,7 +111,9 @@ class Study(DocumentObject):
         """
         One kept frame, read from the document when asked for: Time (s),
         Count (of points), Points (bytes: float32 x, y, z each, mm) and, for
-        a surface, Triangles (bytes: int32, three per triangle); and Bodies,
+        a surface, Triangles (bytes: int32, three per triangle); for
+        fields the triangles are the faces the fluid touches, with Values
+        (bytes: float32, the pressure at each point, Pa); and Bodies,
         where the parts the fluid moved are, in the results' order: each a
         Placement, the motion from where the part stood at the start.
         """

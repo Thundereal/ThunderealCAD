@@ -31,9 +31,10 @@ public:
     // In registration order.
     std::vector<std::string> names() const;
     // The backend a study with that name set runs on: the one of that name;
-    // for no name, the first registered that is no test data and can run
-    // here. nullptr when there is none -- never another one in its place.
-    Backend* select(std::string_view name) const;
+    // for no name, the first registered that is no test data, can run here
+    // and runs that kind of flow. nullptr when there is none -- never
+    // another one in its place.
+    Backend* select(std::string_view name, Analysis analysis = Analysis::FreeSurface) const;
 
 private:
     Registry() = default;

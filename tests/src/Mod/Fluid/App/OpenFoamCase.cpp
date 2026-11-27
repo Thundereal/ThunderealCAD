@@ -46,6 +46,32 @@ Model damModel()
     return model;
 }
 
+// A duct along x, 0.1 x 0.01 x 0.01: in at its -x end at 0.1 m/s, out at
+// its +x end at 500 Pa, a liquid of 1000 kg/m^3 and 0.1 Pa s.
+Model ductModel()
+{
+    Model model;
+    model.analysis = Analysis::Steady;
+    model.iterations = 300;
+    model.domain = boxSurface({0.0, 0.0, 0.0}, {0.1, 0.01, 0.01});
+    model.domain.patches.assign(model.domain.triangles.size(), 0);
+    model.domain.patches[8] = model.domain.patches[9] = 1;
+    model.domain.patches[10] = model.domain.patches[11] = 2;
+    Inlet inlet;
+    inlet.source = "Inlet";
+    inlet.direction = {1.0, 0.0, 0.0};
+    inlet.speed = 0.1;
+    inlet.material = {1000.0, 0.1};
+    model.inlets.push_back(inlet);
+    model.outlets.push_back({"Outlet", {}, 500.0});
+    model.space.min = {0.0, 0.0, 0.0};
+    model.space.max = {0.1, 0.01, 0.01};
+    model.resolution = 0.001;
+    model.monitors.push_back({"P1", MonitorKind::Pressure, {0.04, 0.005, 0.005}});
+    model.monitors.push_back({"P2", MonitorKind::Pressure, {0.09, 0.005, 0.005}});
+    return model;
+}
+
 bool has(const std::string& text, const std::string& part)
 {
     return text.find(part) != std::string::npos;
@@ -250,4 +276,130 @@ TEST(OpenFoamCase, tablesReadBack)
 
     EXPECT_NEAR(lastTimeOf("Create time\n\nTime = 0.001\n\nCourant\nTime = 0.0125\nPIMPLE"), 0.0125, 1e-12);
     EXPECT_LT(lastTimeOf("Create mesh for time = 0\n"), 0.0);
+}
+
+TEST(OpenFoamCase, filesOfASteadyFlow)
+{
+    Case made;
+    std::string why;
+    ASSERT_TRUE(makeCase(ductModel(), {}, made, why)) << why;
+    // the fluid's box and a cell and a half about it
+    EXPECT_EQ(made.cells, (std::array<long, 3> {103, 13, 13}));
+    for (const char* name : {"system/blockMeshDict",
+                             "system/snappyHexMeshDict",
+                             "system/controlDict",
+                             "system/fvSchemes",
+                             "system/fvSolution",
+                             "system/decomposeParDict",
+                             "constant/transportProperties",
+                             "constant/turbulenceProperties",
+                             "constant/triSurface/wall.stl",
+                             "constant/triSurface/inlet0.stl",
+                             "constant/triSurface/outlet0.stl",
+                             "0/U",
+                             "0/p"}) {
+        EXPECT_TRUE(made.files.contains(name)) << name;
+    }
+    // nothing of a free surface's
+    for (const char* name : {"0/alpha.water", "0/p_rgh", "system/setFieldsDict", "constant/g"}) {
+        EXPECT_FALSE(made.files.contains(name)) << name;
+    }
+    const std::string& block = made.files["system/blockMeshDict"];
+    EXPECT_TRUE(has(block, "(103 13 13)"));
+    EXPECT_TRUE(has(block, "(-0.0015 -0.0015 -0.0015)"));
+    // each patch its own surface: eight triangles of wall, two an opening
+    const auto facets = [&](const char* name) {
+        const std::string& stl = made.files[std::string("constant/triSurface/") + name];
+        std::size_t count = 0;
+        for (auto at = stl.find("facet normal"); at != std::string::npos;
+             at = stl.find("facet normal", at + 1)) {
+            ++count;
+        }
+        return count;
+    };
+    EXPECT_EQ(facets("wall.stl"), 8U);
+    EXPECT_EQ(facets("inlet0.stl"), 2U);
+    EXPECT_EQ(facets("outlet0.stl"), 2U);
+    const std::string& snappy = made.files["system/snappyHexMeshDict"];
+    EXPECT_TRUE(has(snappy, "wall { level (0 0); patchInfo { type wall; } }"));
+    EXPECT_TRUE(has(snappy, "inlet0 { level (0 0); patchInfo { type patch; } }"));
+    EXPECT_TRUE(has(snappy, "outlet0 { level (0 0); patchInfo { type patch; } }"));
+    // the mesh is told a point of the fluid
+    for (std::size_t i = 0; i < 3; ++i) {
+        EXPECT_GT(made.inside[i], ductModel().space.min[i]);
+        EXPECT_LT(made.inside[i], ductModel().space.max[i]);
+    }
+    const std::string& control = made.files["system/controlDict"];
+    EXPECT_TRUE(has(control, "application simpleFoam;"));
+    EXPECT_TRUE(has(control, "endTime 300;"));
+    EXPECT_TRUE(has(control, "probeLocations ( (0.04 0.005 0.005) (0.09 0.005 0.005) );"));
+    // each opening's mean pressure and what goes through it, and the
+    // pressure on every face
+    for (const char* name : {"inlet0P", "inlet0Q", "outlet0P", "outlet0Q", "skin"}) {
+        EXPECT_TRUE(has(control, std::string("    ") + name + "\n")) << name;
+    }
+    EXPECT_TRUE(has(made.files["0/U"], "inlet0 { type fixedValue; value uniform (0.1 0 0); }"));
+    EXPECT_TRUE(has(made.files["0/U"], "outlet0 { type zeroGradient; }"));
+    // the pressure is the solver's own, over the density
+    EXPECT_TRUE(has(made.files["0/p"], "outlet0 { type fixedValue; value uniform 0.5; }"));
+    EXPECT_TRUE(has(made.files["0/p"], "inlet0 { type zeroGradient; }"));
+    EXPECT_TRUE(has(made.files["constant/transportProperties"], "nu 0.0001;"));
+    EXPECT_TRUE(has(made.files["system/fvSchemes"], "steadyState"));
+    ASSERT_EQ(made.steps.size(), 3U);
+    EXPECT_EQ(made.steps[0].name, "blockMesh");
+    EXPECT_EQ(made.steps[1].name, "snappyHexMesh");
+    EXPECT_EQ(made.steps[2].name, "simpleFoam");
+    EXPECT_TRUE(made.steps[2].solver);
+
+    CaseOptions four;
+    four.processes = 4;
+    ASSERT_TRUE(makeCase(ductModel(), four, made, why)) << why;
+    ASSERT_EQ(made.steps.size(), 4U);
+    EXPECT_EQ(made.steps[2].name, "decomposePar");
+    EXPECT_EQ(made.steps[3].command, "mpirun -np 4 simpleFoam -parallel");
+    EXPECT_TRUE(has(made.files["system/decomposeParDict"], "numberOfSubdomains 4;"));
+}
+
+TEST(OpenFoamCase, whatCannotBeASteadyFlow)
+{
+    Case made;
+    std::string why;
+    Model model = ductModel();
+    model.domain = {};
+    EXPECT_FALSE(makeCase(model, {}, made, why));
+    EXPECT_TRUE(has(why, "space"));
+    model = ductModel();
+    model.inlets.clear();
+    EXPECT_FALSE(makeCase(model, {}, made, why));
+    EXPECT_TRUE(has(why, "inlet"));
+    model = ductModel();
+    model.outlets.clear();
+    EXPECT_FALSE(makeCase(model, {}, made, why));
+    EXPECT_TRUE(has(why, "outlet"));
+    model = ductModel();
+    model.monitors.push_back({"Height", MonitorKind::Height, {0.05, 0.005, 0.0}});
+    EXPECT_FALSE(makeCase(model, {}, made, why));
+    EXPECT_TRUE(has(why, "height"));
+    model = ductModel();
+    model.iterations = 0;
+    EXPECT_FALSE(makeCase(model, {}, made, why));
+}
+
+TEST(OpenFoamCase, aFacesPressureReadBack)
+{
+    const std::string text = "# vtk DataFile Version 2.0\ntime='110'\nASCII\nDATASET POLYDATA\n"
+                             "FIELD FieldData 1\nTimeValue 1 1 float\n110\n\n"
+                             "POINTS 4 float\n0 0 0\n1 0 0\n1 1 0\n0 1 0\n\n"
+                             "POLYGONS 1 5\n4 0 1 2 3\n\n"
+                             "POINT_DATA 4\nFIELD FieldData 2\n"
+                             "U 3 4 float\n1 0 0 1 0 0\n1 0 0 1 0 0\n"
+                             "p 1 4 float\n0.5 0.25\n0.125 0\n";
+    Frame frame;
+    ASSERT_TRUE(readFieldVtk(text, "p", frame));
+    EXPECT_EQ(frame.points.size(), 4U);
+    EXPECT_EQ(frame.triangles.size(), 2U);
+    EXPECT_EQ(frame.values, (std::vector<double> {0.5, 0.25, 0.125, 0.0}));
+    // a field that is not there, and a file cut short
+    EXPECT_FALSE(readFieldVtk(text, "T", frame));
+    EXPECT_FALSE(readFieldVtk(text.substr(0, text.size() - 8), "p", frame));
 }

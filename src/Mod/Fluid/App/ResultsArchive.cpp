@@ -192,6 +192,8 @@ struct ArchiveWriter::Private
     std::vector<double> energy;
     std::size_t width = 0;
     std::size_t bodies = 0;  // a frame, as the first frame has them
+    std::vector<double> flows;
+    std::size_t openings = 0;  // a frame, as the first frame has them
     bool sampled = false;
 };
 
@@ -234,8 +236,20 @@ void ArchiveWriter::frame(const Solver::Frame& frame)
                  triangles.data(),
                  triangles.size() * sizeof(std::int32_t));
     }
+    if (!frame.values.empty()) {
+        const std::vector<float> values(frame.values.begin(), frame.values.end());
+        d->zip->putNextEntry(frameName(at, "values"));
+        writeNpy(*d->zip, "<f4", {values.size()}, values.data(), values.size() * sizeof(float));
+    }
     if (at == 0) {
         d->bodies = frame.bodies.size();
+        d->openings = frame.openings.size();
+    }
+    for (std::size_t k = 0; k < d->openings; ++k) {
+        const Solver::OpeningFlow opening =
+            k < frame.openings.size() ? frame.openings[k] : Solver::OpeningFlow();
+        d->flows.push_back(opening.pressure);
+        d->flows.push_back(opening.flow);
     }
     for (std::size_t b = 0; b < d->bodies; ++b) {
         const Solver::Motion motion = b < frame.bodies.size() ? frame.bodies[b] : Solver::Motion();
@@ -316,6 +330,19 @@ void ArchiveWriter::close(ResultsIndex index)
     index.bodies.resize(d->bodies);
     out["bodies"] = index.bodies;
     out["fed"] = index.fed;
+    if (index.steady) {
+        out["steady"] = true;
+        out["settled"] = index.settled;
+    }
+    index.openings.resize(d->openings);
+    if (d->openings > 0) {
+        json openings = json::array();
+        for (const auto& opening : index.openings) {
+            openings.push_back({{"source", opening.source},
+                                {"kind", opening.outlet ? "Outlet" : "Inlet"}});
+        }
+        out["openings"] = openings;
+    }
 
     d->zip->setLevel(6);
     d->zip->putNextEntry("times.npy");
@@ -335,6 +362,14 @@ void ArchiveWriter::close(ResultsIndex index)
                  {frames, d->bodies, 7},
                  d->motions.data(),
                  d->motions.size() * sizeof(double));
+    }
+    if (d->openings > 0) {
+        d->zip->putNextEntry("openings.npy");
+        writeNpy(*d->zip,
+                 "<f8",
+                 {frames, d->openings, 2},
+                 d->flows.data(),
+                 d->flows.size() * sizeof(double));
     }
     if (!d->energy.empty()) {
         d->zip->putNextEntry("energy.npy");
@@ -426,6 +461,24 @@ ArchiveReader::ArchiveReader(const std::string& path)
             }
         }
         d->index.fed = index.value("fed", false);
+        d->index.steady = index.value("steady", false);
+        d->index.settled = index.value("settled", false);
+        if (index.contains("openings")) {
+            for (const auto& opening : index.at("openings")) {
+                d->index.openings.push_back({opening.value("source", std::string()),
+                                             opening.value("kind", std::string()) == "Outlet"});
+            }
+        }
+        if (!d->index.openings.empty()) {
+            auto flowsIn = entry("openings.npy");
+            if (!flowsIn) {
+                THROWM(Base::RuntimeError, "the fluid results have nothing of the openings");
+            }
+            d->index.flows = readNpy<double>(*flowsIn, "<f8", shape);
+            if (d->index.flows.size() != d->index.times.size() * d->index.openings.size() * 2) {
+                THROWM(Base::RuntimeError, "the fluid results' openings do not match its frames");
+            }
+        }
         if (auto energyIn = entry("energy.npy")) {
             const auto kept = readNpy<double>(*energyIn, "<f8", shape);
             if (shape.size() != 2 || shape[1] != 6) {
@@ -483,10 +536,16 @@ ArchivedFrame ArchiveReader::frame(std::size_t at) const
             THROWM(Base::RuntimeError, "a frame of the fluid results is missing");
         }
         frame.points = readNpy<float>(*in, "<f4", shape);
-        if (d->index.kind == Solver::ResultKind::Surface) {
+        if (d->index.kind != Solver::ResultKind::Particles) {
             std::unique_ptr<std::istream> tin(d->zip->getInputStream(frameName(at, "triangles")));
             if (tin) {
                 frame.triangles = readNpy<std::int32_t>(*tin, "<i4", shape);
+            }
+        }
+        if (d->index.kind == Solver::ResultKind::Fields) {
+            std::unique_ptr<std::istream> vin(d->zip->getInputStream(frameName(at, "values")));
+            if (vin) {
+                frame.values = readNpy<float>(*vin, "<f4", shape);
             }
         }
     }

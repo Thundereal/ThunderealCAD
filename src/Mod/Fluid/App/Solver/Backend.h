@@ -31,7 +31,7 @@ enum class ResultKind
 {
     Particles,  // points
     Surface,    // the free surface as triangles
-    Fields,     // values on a mesh (not yet)
+    Fields,     // values on the faces the fluid touches
 };
 
 struct Capabilities
@@ -59,14 +59,27 @@ struct Availability
     std::string version;  // of the program or library found
 };
 
+// What a run found at a face the fluid comes in or goes out through.
+struct OpeningFlow
+{
+    double pressure = 0.0;  // the mean over the face, Pa, over the surroundings'
+    double flow = 0.0;      // m^3/s: in through an inlet, out through an outlet
+};
+
 // One output frame, in the model's units.
 struct Frame
 {
+    // Of a steady flow: how many steps it had settled for.
     double time = 0.0;
-    // Particles: the particles. Surface: the triangles' corners.
+    // Particles: the particles. Surface: the triangles' corners. Fields:
+    // the corners of the faces the fluid touches.
     std::vector<Vec3> points;
-    // Surface only.
+    // Surface and Fields.
     std::vector<std::array<int, 3>> triangles;
+    // Fields only: the pressure at each point, Pa, over the surroundings'.
+    std::vector<double> values;
+    // Of a steady flow: each inlet of the model, then each outlet.
+    std::vector<OpeningFlow> openings;
     // Where the walls the fluid moves are: one per such wall, in the
     // model's order (freeWalls).
     std::vector<Motion> bodies;

@@ -37,6 +37,7 @@
 #include "App/Origin.h"
 #include "App/OriginGroupExtension.h"
 #include "App/Part.h"
+#include "App/StringHasher.h"
 #include "App/PropertyFile.h"
 #include "App/PropertyHistory.h"
 #include "App/TransactionLog.h"
@@ -5349,6 +5350,42 @@ TEST_F(TransactionLogTest, stringTableAndReferenceSets)
         EXPECT_TRUE(store->stringIds().empty());
     }
     Base::FileInfo(path).deleteFile();
+}
+
+// docs/WorkerProcess.md sec 15: strings a worker gave from a lease come in
+// below what this file's table gave since, and so below the highest id the
+// store holds; the next commit writes them all the same.
+TEST_F(TransactionLogTest, stringsTakenInUnderALeaseReachTheStore)
+{
+    auto hasher = doc()->getStringHasher();
+    ASSERT_TRUE(hasher);
+    doc()->openTransaction("first");
+    auto obj = make("Obj");
+    auto a = hasher->getID("A");
+    doc()->commitTransaction();
+    const long leased = hasher->reserveBlock(8);
+    ASSERT_GT(leased, a.value());
+    doc()->openTransaction("after the lease");
+    auto b = hasher->getID("B");
+    obj->Integer.setValue(1);
+    doc()->commitTransaction();
+    log().flush();
+    auto ids = log().store().stringIds();
+    ASSERT_NE(std::find(ids.begin(), ids.end(), b.value()), ids.end());
+
+    App::StringHasher::Row row;
+    row.id = leased;
+    row.data = "W";
+    std::string why;
+    ASSERT_TRUE(hasher->takeRows({row}, &why)) << why;
+    auto w = hasher->getID(leased);
+    ASSERT_TRUE(w);
+    doc()->openTransaction("a worker's result");
+    obj->Integer.setValue(2);
+    doc()->commitTransaction();
+    log().flush();
+    ids = log().store().stringIds();
+    EXPECT_NE(std::find(ids.begin(), ids.end(), leased), ids.end());
 }
 
 // Sec 27.67: values restored in a batch run afterRestore() once all are in,

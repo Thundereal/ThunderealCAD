@@ -139,6 +139,9 @@ protected:
     /// Colours the preview \a color, translucent or not as the user chose
     void applyPreviewColor(const App::Color &color);
     virtual void updateAddSubShapeIndicator();
+    /// Whether the preview is up, in any of the ways it goes up: its visual
+    /// is made only then (updateAddSubShapeIndicator)
+    bool previewShown() const;
     virtual PartGui::ViewProviderPartExt * getAddSubView();
     /// The shape property the preview draws
     virtual const char *getPreviewShapeName() const { return "AddSubShape"; }

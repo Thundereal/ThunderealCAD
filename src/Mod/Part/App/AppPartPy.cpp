@@ -104,6 +104,8 @@
 #include "FeatureElement.h"
 #include "ShapeDiff.h"
 #include "OCCTFork.h"
+#include "MeshService.h"
+#include <App/ServiceWorkers.h>
 #include "PartPyCXX.h"
 #include "SubShapeBinder.h"
 #include "Tools.h"
@@ -116,6 +118,9 @@
 #include "TopoShapeSolidPy.h"
 #include "TopoShapeWirePy.h"
 #include "WireJoiner.h"
+#include "ShapeCongruence.h"
+#include "OCAF/ImportExportSettings.h"
+#include "GeometryCheck.h"
 
 #ifdef FCUseFreeType
 #  include "FT2FC.h"
@@ -433,6 +438,27 @@ public:
         );
         add_varargs_method("getFacets",&Module::getFacets,
             "getFacets(shape): simplified mesh generation"
+        );
+        add_varargs_method("meshShape",&Module::meshShape,
+            "meshShape(shape, deflection, angle, where='setting', crash=False) -> bool\n"
+            "The shape meshed as a view meshes it, here or in a helper process\n"
+            "(where 'here', 'worker', or 'setting': Workers/MeshInWorker);\n"
+            "False where it is not meshed: its helper died over it, or one did\n"
+            "before. crash makes the helper die of a fault making it (a test's)."
+        );
+        add_varargs_method("meshDigest",&Module::meshDigest,
+            "meshDigest(shape) -> str: every triangulation and edge polygon the\n"
+            "shape holds, counted and as a digest"
+        );
+        add_varargs_method("meshServiceInfo",&Module::meshServiceInfo,
+            "meshServiceInfo() -> dict: the meshes made here and by helpers, and\n"
+            "what they cost (Part::meshServiceInfo, App::ServiceWorkers::info)"
+        );
+        add_varargs_method("_writeViewLook",&Module::writeViewLook,
+            "_writeViewLook(obj, name, value): what a write of `value` to the view\n"
+            "provider's `name` does to the object's looks, with no view provider --\n"
+            "LineMaterial, PointMaterial, LineColorArray, PointColorArray. A worker's\n"
+            "stand-in view object (freecad.worker_gui, docs/WorkerProcess.md sec 72)"
         );
         add_varargs_method("makeCompound",&Module::makeCompound,
             "makeCompound(list) -- Create a compound out of a list of shapes."
@@ -808,6 +834,32 @@ public:
             "C functions of its toolkits, which upstream's do not have. FreeCAD finds\n"
             "them the same way. TKBRep's SetFuncShowTopoShape marks the fork itself.\n"
         );
+        add_varargs_method("checkGeometry", &Module::checkGeometry,
+            "checkGeometry(shape, options=None) -> list of (parent, type, index, source, status)\n"
+            "What Part_CheckGeometry finds (docs/WorkerProcess.md sec 25): each found\n"
+            "shape by its type (TopAbs) and index among the shape's of that type (0:\n"
+            "the shape itself), under the finding `parent` (-1: none); source 0 for\n"
+            "BRepCheck (status a BRepCheck_Status), 1 for the BOP check (a\n"
+            "BOPAlgo_CheckStatus), status -1 for the shape itself. options: a dict of\n"
+            "the panel's settings -- bop, singleThreaded, argumentType, selfInter,\n"
+            "smallEdge, rebuildFace, continuity, tangent, mergeVertex, mergeEdge,\n"
+            "curveOnSurface");
+        add_varargs_method("applyExchangeSettings", &Module::applyExchangeSettings,
+            "applyExchangeSettings()\n"
+            "The STEP and IGES writers' settings (scheme, units, header) taken\n"
+            "again from the preferences, which Part reads once when it loads");
+        add_varargs_method("congruenceWork", &Module::congruenceWork,
+            "congruenceWork() -> dict\n"
+            "What the congruence search of saves (DedupCongruentShapes) has computed in\n"
+            "this process, never reset: keys, lengths, areas and volumes. A save of\n"
+            "shapes that were saved before computes none of them.\n"
+        );
+        add_varargs_method("saveAnalysisWork", &Module::saveAnalysisWork,
+            "saveAnalysisWork() -> dict\n"
+            "How many shapes saves in this process walked for what they borrow and\n"
+            "publish (walked), and how many took the last save's analysis instead\n"
+            "(kept), never reset (docs/WorkerProcess.md sec 55).\n"
+        );
         initialize("This is a module working with shapes."); // register with Python
 
         PyModule_AddObject(m_module, "BRepFeat", brepFeat.module().ptr());
@@ -1051,6 +1103,107 @@ private:
         pcFeature->updateAppearance(pcSrcDoc, true);
         pcFeature->purgeTouched();
         return Py::asObject(pcFeature->getPyObject());
+    }
+    Py::Object meshShape(const Py::Tuple& args)
+    {
+        PyObject *shape;
+        double deflection, angle;
+        const char *where = "setting";
+        PyObject *crash = Py_False;
+        if (!PyArg_ParseTuple(args.ptr(), "O!dd|sO!", &(TopoShapePy::Type), &shape, &deflection,
+                              &angle, &where, &PyBool_Type, &crash))
+            throw Py::Exception();
+        IMeshTools_Parameters params;
+        params.Deflection = deflection;
+        params.Angle = angle;
+        params.Relative = Standard_False;
+        params.InParallel = Standard_True;
+        params.AllowQualityDecrease = Standard_True;
+        const std::string w(where);
+        MeshWhere at = w == "here" ? MeshWhere::Here
+            : w == "worker" ? MeshWhere::Worker : MeshWhere::Setting;
+        auto theShape = static_cast<Part::TopoShapePy*>(shape)->getTopoShapePtr()->getShape();
+        return Py::Boolean(Part::meshShape(theShape, params, "a shape from Python", nullptr, at,
+                                           PyObject_IsTrue(crash) != 0));
+    }
+    Py::Object meshDigest(const Py::Tuple& args)
+    {
+        PyObject *shape;
+        if (!PyArg_ParseTuple(args.ptr(), "O!", &(TopoShapePy::Type), &shape))
+            throw Py::Exception();
+        auto theShape = static_cast<Part::TopoShapePy*>(shape)->getTopoShapePtr()->getShape();
+        return Py::String(Part::meshDigest(theShape));
+    }
+    Py::Object writeViewLook(const Py::Tuple& args)
+    {
+        PyObject* pyobj = nullptr;
+        const char* name = nullptr;
+        PyObject* value = nullptr;
+        if (!PyArg_ParseTuple(args.ptr(), "O!sO", &App::DocumentObjectPy::Type, &pyobj, &name,
+                              &value))
+            throw Py::Exception();
+        auto feat = dynamic_cast<Part::Feature*>(
+            static_cast<App::DocumentObjectPy*>(pyobj)->getDocumentObjectPtr());
+        if (!feat)
+            throw Py::TypeError("not a Part::Feature");
+        // As ViewProviderPartExt::onChanged gives the write to the object
+        // where the looks are the object's: the value read by the view
+        // property's own type, the object's store written as it writes it
+        using Store = App::PropertyElementAppearance;
+        const std::string what(name);
+        if (what == "LineMaterial" || what == "PointMaterial") {
+            App::PropertyAppearance read;
+            read.setPyObject(value);
+            feat->ElementAppearance.setBase(what == "LineMaterial" ? Store::Edge : Store::Vertex,
+                                            read.getValue());
+        }
+        else if (what == "LineColorArray" || what == "PointColorArray") {
+            App::PropertyColorList read;
+            read.setPyObject(value);
+            feat->writeColors(what == "LineColorArray" ? Store::Edge : Store::Vertex,
+                              read.getValues());
+        }
+        else {
+            throw Py::ValueError("no write to the object for the view's " + what);
+        }
+        return Py::None();
+    }
+
+    Py::Object meshServiceInfo(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), ""))
+            throw Py::Exception();
+        const MeshServiceInfo i = Part::meshServiceInfo();
+        const App::ServiceWorkers::Info s = App::ServiceWorkers::info();
+        Py::Dict d;
+        d.setItem("Here", Py::Long(i.here));
+        d.setItem("Worker", Py::Long(i.worker));
+        d.setItem("Died", Py::Long(i.died));
+        d.setItem("Refused", Py::Long(i.refused));
+        d.setItem("FellBack", Py::Long(i.fellBack));
+        d.setItem("Faces", Py::Long(i.faces));
+        d.setItem("Seconds", Py::Float(i.seconds));
+        d.setItem("Write", Py::Float(i.write));
+        d.setItem("Apply", Py::Float(i.apply));
+        d.setItem("Helper", Py::Float(i.helper));
+        d.setItem("Started", Py::Float(i.started));
+        d.setItem("HereSeconds", Py::Float(i.hereSeconds));
+        d.setItem("Sent", Py::Long(static_cast<long>(i.sent)));
+        d.setItem("Received", Py::Long(static_cast<long>(i.received)));
+        d.setItem("Helpers", Py::Long(s.helpers));
+        d.setItem("Spawned", Py::Long(s.spawned));
+        d.setItem("Limit", Py::Long(s.limit));
+        d.setItem("IdleEnded", Py::Long(s.idleEnded));
+        Py::List pids;
+        for (long pid : s.pids)
+            pids.append(Py::Long(pid));
+        d.setItem("Pids", pids);
+        d.setItem("Directory", Py::String(s.directory));
+        Py::Dict calls;
+        for (auto& [what, n] : i.calls)
+            calls.setItem(what, Py::Long(n));
+        d.setItem("Calls", calls);
+        return d;
     }
     Py::Object getFacets(const Py::Tuple& args)
     {
@@ -2971,6 +3124,81 @@ private:
             joiner.getOpenWires(openWires, op, PyObject_IsTrue(no_open_original));
             return Py::TupleN(shape2pyshape(result), shape2pyshape(openWires));
         } _PY_CATCH_OCC(throw Py::Exception())
+    }
+
+    Py::Object checkGeometry(const Py::Tuple& args)
+    {
+        PyObject* pyShape = nullptr;
+        PyObject* pyOptions = Py_None;
+        if (!PyArg_ParseTuple(args.ptr(), "O!|O", &TopoShapePy::Type, &pyShape, &pyOptions)) {
+            throw Py::Exception();
+        }
+        GeometryCheck::Options options;
+        if (pyOptions != Py_None) {
+            Py::Dict dict(pyOptions);
+            auto take = [&dict](const char* key, bool& value) {
+                if (dict.hasKey(key)) {
+                    value = Py::Boolean(dict.getItem(key));
+                }
+            };
+            take("bop", options.bop);
+            take("singleThreaded", options.singleThreaded);
+            take("argumentType", options.argumentType);
+            take("selfInter", options.selfInter);
+            take("smallEdge", options.smallEdge);
+            take("rebuildFace", options.rebuildFace);
+            take("continuity", options.continuity);
+            take("tangent", options.tangent);
+            take("mergeVertex", options.mergeVertex);
+            take("mergeEdge", options.mergeEdge);
+            take("curveOnSurface", options.curveOnSurface);
+        }
+        const TopoDS_Shape& shape =
+            static_cast<TopoShapePy*>(pyShape)->getTopoShapePtr()->getShape();
+        std::vector<GeometryCheck::Finding> found;
+        PY_TRY {
+            Base::PyGILStateRelease release;
+            found = GeometryCheck::check(shape, options);
+        } _PY_CATCH_OCC(throw Py::Exception())
+        Py::List list;
+        for (const auto& f : found) {
+            list.append(Py::TupleN(Py::Long(f.parent), Py::Long(f.type), Py::Long(f.index),
+                                   Py::Long(static_cast<int>(f.source)), Py::Long(f.status)));
+        }
+        return list;
+    }
+
+    Py::Object applyExchangeSettings(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), "")) {
+            throw Py::Exception();
+        }
+        OCAF::ImportExportSettings::initialize();
+        return Py::None();
+    }
+
+    Py::Object congruenceWork(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), ""))
+            throw Py::Exception();
+        const CongruenceIndex::Work work = CongruenceIndex::work();
+        Py::Dict dict;
+        dict.setItem("keys", Py::Long(static_cast<long>(work.keys)));
+        dict.setItem("lengths", Py::Long(static_cast<long>(work.lengths)));
+        dict.setItem("areas", Py::Long(static_cast<long>(work.areas)));
+        dict.setItem("volumes", Py::Long(static_cast<long>(work.volumes)));
+        return dict;
+    }
+
+    Py::Object saveAnalysisWork(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), ""))
+            throw Py::Exception();
+        const auto work = PropertyPartShape::saveAnalysisWork();
+        Py::Dict dict;
+        dict.setItem("walked", Py::Long(work.first));
+        dict.setItem("kept", Py::Long(work.second));
+        return dict;
     }
 
     Py::Object hasOCCTFunction(const Py::Tuple& args)

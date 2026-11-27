@@ -78,6 +78,11 @@ public:
         std::string overlay;
         /// Whether an object in edit is one it is for
         std::function<bool(const App::DocumentObject*)> applies;
+        /// The text and icon of its toggle (commandName()), e.g. "Sheet Metal";
+        /// the name when empty
+        std::string menuText;
+        std::string toolTip;
+        std::string icon;
     };
 
     /// Register a context; one of the same name is replaced
@@ -93,6 +98,27 @@ public:
     static void refresh();
     /// refresh() on the next turn of the event loop; several calls make one
     static void refreshLater();
+
+    /** Pinned on by the user, the third thing that offers a context's tool
+     * bars beside its key and its edit: its toggle (commandName()) checked.
+     * Kept per workbench in the user's preferences, so it lasts across
+     * sessions. Pinning makes nothing; the context's first command makes
+     * what it needs.
+     */
+    static bool isPinned(const std::string& name);
+    static void setPinned(const std::string& name, bool pinned);
+    /// The checkable command that shows and hides a context's tool bars,
+    /// checked whenever they are offered: "Std_ToolContext_" and its name.
+    /// Made when the context is registered.
+    static std::string commandName(const std::string& name);
+    /** Where a workbench shows a toggle for each context registered for it:
+     * at the end of its tool bar \a toolbar, and in a submenu \a submenu of
+     * its menu \a menu -- any module that registers a context gets one, the
+     * workbench names no context. Nothing is added where the workbench has
+     * no such tool bar or menu.
+     */
+    static void hostToggles(const std::string& workbench, const std::string& toolbar,
+                            const std::string& menu, const std::string& submenu);
 };
 
 }  // namespace Gui

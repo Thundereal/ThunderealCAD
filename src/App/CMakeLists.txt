@@ -79,10 +79,13 @@ set(FreeCADApp_LIBS
 include_directories(
     ${QtCore_INCLUDE_DIRS}
     ${QtXml_INCLUDE_DIRS}
+    ${QtNetwork_INCLUDE_DIRS}
 )
+# QtNetwork: the local socket of the worker processes (WorkerPool.cpp)
 list(APPEND FreeCADApp_LIBS
         ${QtCore_LIBRARIES}
         ${QtXml_LIBRARIES}
+        ${QtNetwork_LIBRARIES}
         ${ZLIB_LIBRARIES}
 )
 
@@ -547,6 +550,12 @@ SET(Document_CPP_SRCS
     SavedView.cpp
     Animation.cpp
     AnimationPyImp.cpp
+    AnimationWorkers.cpp
+    WorkerCrash.cpp
+    WorkerPool.cpp
+    ServiceWorkers.cpp
+    WorkerRecompute.cpp
+    CacheSweep.cpp
     License.h
 )
 
@@ -636,6 +645,15 @@ SET(Document_HPP_SRCS
     PatternExtension.h
     SavedView.h
     Animation.h
+    AnimationWorkers.h
+    WorkerCrash.h
+    WorkerPool.h
+    ServiceWorkers.h
+    CacheSweep.h
+    WorkerRecompute.h
+    RecomputeHook.h
+    LogMoveKeep.h
+    ShuttingDown.h
 )
 SET(Document_SRCS
     ${Document_CPP_SRCS}

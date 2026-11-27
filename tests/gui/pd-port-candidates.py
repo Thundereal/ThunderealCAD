@@ -349,7 +349,7 @@ def test_pipe_edges():
 # ---- New Sketch ----------------------------------------------------------
 
 VK_SHIFT = 0x10
-KEYUP = 0x0002
+VK_LSHIFT = 0xA0
 XK_SHIFT_L = 0xFFE1
 
 
@@ -360,10 +360,21 @@ def hold_shift(down):
     (QApplication::queryKeyboardModifiers), not Qt for the modifiers of
     the last event, so a key event sent through Qt -- QTest's included --
     does not reach it. The key is pressed where the window system reads
-    it: keybd_event on Windows, the XTEST extension on X11 (which Xvfb
-    has)."""
+    it: on Windows the GUI thread's own key state, on X11 the XTEST
+    extension (which Xvfb has).
+
+    Not keybd_event on Windows: that goes to the desktop the user sees, and
+    the test runs on a hidden one (scripts/gui-test.cmd), so the program
+    never saw Shift -- and the user's desktop had it pressed. Qt asks
+    GetKeyState(), which reads the calling thread's key state, and this
+    runs on the GUI thread: SetKeyboardState() sets it there."""
     if hasattr(ctypes, "windll"):
-        ctypes.windll.user32.keybd_event(VK_SHIFT, 0, 0 if down else KEYUP, 0)
+        user32 = ctypes.windll.user32
+        keys = (ctypes.c_ubyte * 256)()
+        user32.GetKeyboardState(keys)
+        for vk in (VK_SHIFT, VK_LSHIFT):
+            keys[vk] = 0x80 if down else 0
+        user32.SetKeyboardState(keys)
         return
     x11 = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
     xtst = ctypes.CDLL(ctypes.util.find_library("Xtst") or "libXtst.so.6")

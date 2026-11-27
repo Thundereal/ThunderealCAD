@@ -144,6 +144,8 @@ public:
     /// one entry, which is what the hash keys it on.
     int addFile(File file);
     const File& file(int index) const;
+    /// The file of this content hash in this save, 0 for none
+    int fileOf(const std::string& hash) const;
 
     /** The file whose *root* this shape is, or 0.
      *
@@ -361,6 +363,22 @@ public:
     {
         return _borrowed;
     }
+    /// The files borrowed from by content hash, in borrowedFiles()' order:
+    /// what rebind() finds them by in a later save's table.
+    std::vector<std::string> borrowedHashes() const;
+    /** Make a set built in an earlier save one of this save's, for its
+     * publish() and plan(): each file it borrowed from found again in
+     * \a owners by its hash \a hashes, and the owner-table numbers it holds
+     * changed to those. False, the set left as it was, when one of them is not
+     * in \a owners: it borrows from what this save does not write.
+     *
+     * The numbers are all in borrowedFiles(); every other place names a slot
+     * in it. What build() consults and does not keep (the preferences it
+     * plans with) is not needed after it, so a set rebound is the set build()
+     * would make in this save as long as the shape and what it borrowed are
+     * the same (docs/WorkerProcess.md sec 55).
+     */
+    bool rebind(const ShapeOwnerTable* owners, const std::vector<std::string>& hashes);
     /// Whether anything is borrowed, i.e. whether this is still plain BRep.
     bool borrows() const
     {

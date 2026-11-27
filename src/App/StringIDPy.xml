@@ -50,6 +50,18 @@
             </Documentation>
             <Parameter Name="IsHashed" Type="Boolean"/>
         </Attribute>
+        <Attribute Name="Digest" ReadOnly="true">
+            <Documentation>
+                <UserDocu>The 128-bit digest of its content, 32 hex characters: equal for one content in any table, under any id (docs/StringTableContentIds.md)</UserDocu>
+            </Documentation>
+            <Parameter Name="Digest" Type="String"/>
+        </Attribute>
+        <Attribute Name="Spelled" ReadOnly="true">
+            <Documentation>
+                <UserDocu>The number names spell it by, '#' and these hex digits: its id in a table of counted ids, a prefix of its digest in one that spells digests</UserDocu>
+            </Documentation>
+            <Parameter Name="Spelled" Type="Long"/>
+        </Attribute>
         <Attribute Name="Index" ReadOnly="false">
             <Documentation>
                 <UserDocu>Geometry index. Only meaningful for geometry element name</UserDocu>

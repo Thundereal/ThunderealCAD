@@ -102,6 +102,25 @@ class TestModel(Base):
         self.feature(TOP)
         self.recompute()
 
+    def test_set_in_a_legacy_body_switches_solid_bodies_on(self):
+        # A body from a file older than AddSolidBody has it off, and with it
+        # off every solid body is taken away: the reporter, 2026-11-26, got
+        # "the Body has no solid body yet" "by opening a legacy file where
+        # body does not have SolidBody". A set coming in switches it on, as
+        # sheet metal does
+        body = self.doc.addObject("PartDesign::Body", "Legacy")
+        box = self.doc.addObject("PartDesign::AdditiveBox", "LegacyBox")
+        body.addObject(box)
+        body.AddSolidBody = False
+        self.doc.recompute()
+        self.assertFalse(body.AddSolidBody)
+        self.assertEqual(body.SolidBodies, [])
+        made = PMI.getSet(body)
+        self.assertIn(made, body.Group)
+        self.assertTrue(body.AddSolidBody)
+        self.recompute()
+        self.assertEqual(len(body.SolidBodies), 1)
+
     def test_set_beside_a_shape_that_is_no_body(self):
         box = self.doc.addObject("Part::Box", "Plain")
         self.doc.recompute()

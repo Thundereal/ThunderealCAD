@@ -698,6 +698,10 @@ public:
     /// date (sec 38.9): a rollback journal held in memory, so no WAL is made
     /// and none is left in the file, and no index is made.
     static std::unique_ptr<TransactionStore> openSQLiteCopy(const std::string& path);
+    /// Open another process's live store to read it (docs/WorkerProcess.md
+    /// sec 3): read-only, through its WAL -- not immutable, since its
+    /// owner goes on writing it -- never migrated, never written.
+    static std::unique_ptr<TransactionStore> openSQLiteReader(const std::string& path);
 };
 
 } // namespace App

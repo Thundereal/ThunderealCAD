@@ -242,7 +242,8 @@ public:
         connChangeIcon = vp->signalChangeIcon.connect(
                 std::bind(&LinkInfo::slotChangeIcon,this));
         //NOLINTEND
-        vp->forceUpdate(true);
+        // No forceUpdate() here: getSnapshot() asks for it when a snapshot
+        // that shows the object hidden or not is made (updateForced()).
         sensor.setFunction(sensorCB);
         sensor.setData(this);
         switchSensor.setFunction(switchSensorCB);
@@ -261,6 +262,36 @@ public:
 
     void remove(LinkOwner *owner) {
         links.erase(owner);
+    }
+
+    /// Whether this holds pcLinked's visual up to date (forceUpdate()).
+    bool forced = false;
+
+    /** A hidden object is built for a link only where the link shows it
+     * whatever its own Visibility says: as the object linked, in the
+     * transform and the visible snapshots. As a group's child (the child
+     * snapshot, updateSwitch()) it shows only while it is visible, and a
+     * visible object is built anyway. Forcing it there built every hidden
+     * feature of every Body under a linked App::Part at each open and each
+     * recompute (docs/WorkerProcess.md sec 18). One shown later is built
+     * then, as any hidden object is.
+     */
+    void updateForced() {
+        bool want = isLinked()
+            && (pcSnapshots[LinkView::SnapshotTransform]
+                || pcSnapshots[LinkView::SnapshotVisible]);
+        if (want == forced)
+            return;
+        forced = want;
+        pcLinked->forceUpdate(want);
+    }
+
+    /// Release the force before pcLinked goes; never from a destructor,
+    /// pcLinked may be half gone there.
+    void unforce() {
+        if (forced && pcLinked)
+            pcLinked->forceUpdate(false);
+        forced = false;
     }
 
     bool isLinked() const {
@@ -323,6 +354,7 @@ public:
         }
         nodeMap.clear();
         pcLinked = nullptr;
+        forced = false;
         connChangeIcon.disconnect();
     }
 
@@ -372,7 +404,7 @@ public:
                 FC_LOG("link release " << getLinkedNameSafe());
                 auto ext = pcLinked->getExtensionByType<ViewProviderLinkObserver>(true);
                 if(ext && ext->linkInfo == this) {
-                    pcLinked->forceUpdate(false);
+                    unforce();
                     detach(true);
                     ext->linkInfo.reset();
                 }
@@ -558,6 +590,7 @@ public:
             pcModeSwitch->removeChild(pcModeSwitch->getNumChildren()-1);
 
         updateSwitch(pcUpdateSwitch);
+        updateForced();
 
         return pcSnapshot;
     }
@@ -868,8 +901,12 @@ void ViewProviderLinkObserver::setLinkVisible(bool visible) {
 }
 
 void ViewProviderLinkObserver::extensionBeforeDelete() {
-    if(linkInfo)
+    if(linkInfo) {
+        // Undo reattaches it (extensionReattach -> update), which forces
+        // again what still needs it
+        linkInfo->unforce();
         linkInfo->detach(false);
+    }
 }
 
 void ViewProviderLinkObserver::extensionReattach(App::DocumentObject *) {

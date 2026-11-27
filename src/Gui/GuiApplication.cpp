@@ -617,6 +617,14 @@ GUIApplication::GUIApplication(int & argc, char ** argv)
 
 GUIApplication::~GUIApplication() = default;
 
+void GUIApplication::exitWith(const Base::SystemExitException& e)
+{
+    if (auto app = qobject_cast<GUIApplication*>(QCoreApplication::instance())) {
+        app->caughtException = std::make_shared<Base::SystemExitException>(e);
+    }
+    QCoreApplication::exit(e.getExitCode());
+}
+
 bool GUIApplication::dispatchEvent(QObject * receiver, QEvent * event)
 {
     if (event->type() == Spaceball::ButtonEvent::ButtonEventType ||
@@ -745,8 +753,7 @@ bool GUIApplication::notify (QObject * receiver, QEvent * event)
         warnUnstable(QObject::tr("Program error"), QString::fromUtf8(e.what()));
     } catch (const Base::SystemExitException &e) {
         // Not a leak -- this is how a Python sys.exit() reaches the event loop.
-        caughtException.reset(new Base::SystemExitException(e));
-        qApp->exit(e.getExitCode());
+        exitWith(e);
         return true;
     }
     catch (const Base::Exception& e) {

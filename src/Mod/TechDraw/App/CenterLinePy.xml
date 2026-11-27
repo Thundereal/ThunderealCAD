@@ -25,6 +25,16 @@
             <UserDocu>Create a copy of this centerline</UserDocu>
         </Documentation>
     </Methode>
+    <Methode Name="findByName" Const="true">
+        <Documentation>
+            <UserDocu>findByName(view) - the references, faces then edges then points, whose saved name another element of view carries now and whose saved geometry neither has: a list of (index, was, now, sameGeometry). A recompute does not move them.</UserDocu>
+        </Documentation>
+    </Methode>
+    <Methode Name="repointByName">
+        <Documentation>
+            <UserDocu>repointByName(view) - those references taken by name, whatever their geometry, as the centre line's edit does. Returns the list of (index, was, now, sameGeometry) taken.</UserDocu>
+        </Documentation>
+    </Methode>
     <Attribute Name="Tag" ReadOnly="true">
       <Documentation>
         <UserDocu>Gives the tag of the CenterLine as string.</UserDocu>
@@ -118,6 +128,24 @@ order of Faces.</UserDocu>
 order of Points.</UserDocu>
       </Documentation>
       <Parameter Name="PointNames" Type="List"/>
+    </Attribute>
+    <Attribute Name="EdgeGeometry">
+      <Documentation>
+        <UserDocu>What the source edges were when last recorded, in the order of Edges: their ends and middle in the view's unscaled, unrotated frame. A name is taken in a recompute only where the element that carries it is this.</UserDocu>
+      </Documentation>
+      <Parameter Name="EdgeGeometry" Type="List"/>
+    </Attribute>
+    <Attribute Name="FaceGeometry">
+      <Documentation>
+        <UserDocu>What the source faces were when last recorded, in the order of Faces: area and centre.</UserDocu>
+      </Documentation>
+      <Parameter Name="FaceGeometry" Type="List"/>
+    </Attribute>
+    <Attribute Name="PointGeometry">
+      <Documentation>
+        <UserDocu>What the source points were when last recorded, in the order of Points.</UserDocu>
+      </Documentation>
+      <Parameter Name="PointGeometry" Type="List"/>
     </Attribute>
   </PythonExport>
 </GenerateModel>

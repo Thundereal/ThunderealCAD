@@ -26,6 +26,8 @@
 #define DrawViewPart_h_
 
 #include <QFuture>
+#include <chrono>
+
 #include <QFutureWatcher>
 
 #include <TopoDS_Edge.hxx>
@@ -43,6 +45,7 @@
 #include "CosmeticExtension.h"
 #include "DrawView.h"
 #include "PropertyProjectedGeometry.h"
+#include "ReferenceNameMatch.h"
 
 class Message_ProgressIndicator;
 
@@ -152,6 +155,9 @@ public:
     /// The projection is in ProjectedGeometry, unless the preference keeps it out
     bool resultInProperties() const override;
     App::DocumentObjectExecReturn* execute() override;
+    /// A worker's result put in for its execute(): its stored projection
+    /// installed, as after an undo (docs/WorkerProcess.md sec 39)
+    App::DocumentObjectExecReturn* recompute() override;
     const char* getViewProviderName() const override { return "TechDrawGui::ViewProviderViewPart"; }
     PyObject* getPyObject() override;
 
@@ -192,16 +198,48 @@ public:
     std::string getGeometryName(const std::string& subName) const;
     std::string getGeometryReference(const std::string& geometryName) const;
 
-    //! the same pair over a whole link's worth of references into one view.
-    //! geometryNamesOf returns one name per subName, empty where there is
-    //! none; repointByName rewrites subNames in place for every stored name
-    //! that belongs to a different element now, leaving the rest alone, and
-    //! says whether it moved anything.
+    //! the same over a whole link's worth of references into one view: one
+    //! name per subName, empty where there is none
     static std::vector<std::string> geometryNamesOf(const App::DocumentObject* obj,
                                                     const std::vector<std::string>& subNames);
-    static bool repointByName(const App::DocumentObject* obj,
-                              const std::vector<std::string>& geometryNames,
-                              std::vector<std::string>& subNames);
+
+    //! What an element is apart from its number and its name, as text to
+    //! keep beside the name: a vertex's point, an edge's ends and middle, a
+    //! face's area and centre of area, in the view's unscaled, unrotated
+    //! frame. Empty where there is no such element.
+    std::string geometrySignature(const std::string& subName) const;
+    static std::vector<std::string> geometrySignaturesOf(const App::DocumentObject* obj,
+                                                         const std::vector<std::string>& subNames);
+    //! whether two signatures describe the same element; false if either is empty
+    static bool sameSignature(const std::string& a, const std::string& b);
+    //! What to save of a set of references: `fresh`, read from the elements
+    //! they name now, over `saved`. A saved entry stays where the fresh one is
+    //! empty -- the view has not projected, or the element has no name -- and
+    //! where its reference is one of `keep`, found by its name alone and left
+    //! for the user. Out of step with the references, `saved` is given up.
+    static std::vector<std::string> mergeSaved(const std::vector<std::string>& fresh,
+                                               const std::vector<std::string>& saved,
+                                               const std::vector<ReferenceNameMatch>& keep);
+
+    //! The recovery ladder for references kept by name and signature (hatches,
+    //! centre lines). In place, for each of subNames:
+    //!  - the element that carries its stored name now, if it has its stored
+    //!    geometry -- the name tells it from a coincident copy;
+    //!  - else kept, if what it names has the stored geometry;
+    //!  - else the one element of its kind that has the stored geometry;
+    //!  - else left where it is. If its name is another element's now, that
+    //!    is returned: a pure name match, the user's to take (the reporter,
+    //!    2026-11-26: "the auto reference fix should only be done if geometry
+    //!    search found the match instead of pure naming match"), and taken
+    //!    here only with takeNameOnly -- what an edit of the object does.
+    //! `moved` says whether anything was repointed.
+    static std::vector<ReferenceNameMatch>
+    repointByName(const App::DocumentObject* obj,
+                  const std::vector<std::string>& geometryNames,
+                  const std::vector<std::string>& signatures,
+                  std::vector<std::string>& subNames,
+                  bool takeNameOnly,
+                  bool* moved = nullptr);
 
     //get existing geom for edge idx in projection
     TechDraw::BaseGeomPtr getGeomByIndex(int idx) const;
@@ -361,6 +399,14 @@ private:
     //! before the page that has to make the decision is reached.
     bool m_restoredOutOfDate = false;
     bool m_geometryFromStore = false;
+    /// ProjectedGeometry written by a worker's result being put in
+    bool m_resultPutIn = false;
+    /// When its last recompute began, and the time from then noted once it
+    /// is complete
+    std::chrono::steady_clock::time_point m_madeSince;
+    void noteMade();
+    /// The stored projection drawn: true if there was one to install
+    bool installStored();
     bool m_waitingForFaces = false;
     bool m_waitingForHlr = false;
 

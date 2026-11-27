@@ -82,6 +82,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include <boost/regex.hpp>
 #include <algorithm>
 #include <filesystem>
+#include <limits>
 #include <random>
 #include <unordered_map>
 #include <unordered_set>
@@ -113,6 +114,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 
 #include "Document.h"
 #include "Actor.h"
+#include "LogMoveKeep.h"
 #include "ElementMap.h"
 #include "ElementNamingUtils.h"
 #include "private/DocumentP.h"
@@ -139,12 +141,16 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include "Link.h"
 #include "MergeDocuments.h"
 #include "StringHasher.h"
+#include "PropertyGeo.h"
+#include "ComplexGeoData.h"
 #include "Transactions.h"
 #include "TransactionMeasure.h"
 #include "PropertyElementAppearance.h"
 #include "PropertyHistory.h"
 #include "PropertyPythonObject.h"
+#include "RecomputeHook.h"
 #include "TransactionLog.h"
+#include "WorkerPool.h"
 
 #include <nlohmann/json.hpp>
 
@@ -2286,6 +2292,17 @@ bool Document::isReplaying() const
     return d->replaying || d->checkingOut;
 }
 
+bool Document::moveAlongLogQuietly(int64_t fromHead, int64_t toSeq, TransactionLog* through)
+{
+    Base::FlagToggler<> moving(d->movingAlong);
+    return _moveAlongLog(fromHead, toSeq, false, through);
+}
+
+bool Document::isMovingAlongLog() const
+{
+    return d->movingAlong;
+}
+
 bool Document::isWritingForeign() const
 {
     return d->writingForeign;
@@ -2882,7 +2899,17 @@ void Document::_commitTransaction(bool notify)
 
         if (notify && !implicit)
             GetApplication().closeActiveTransaction(false,id);
-        if (snapshotDue)
+        // The open's version, put off by the transaction just committed
+        // (afterRestore()): the document as the open left it, and undo
+        // reaches back to it and no further
+        if (d->openVersionPending && !d->activeUndoTransaction && !isPerformingTransaction()) {
+            d->openVersionPending = false;
+            if (_snapshotToLog("restore")) {
+                if (auto log = getTransactionLog())
+                    d->undoFloor = log->lastSeq();
+            }
+        }
+        else if (snapshotDue)
             snapshotToLog();
     }
 }
@@ -3262,6 +3289,19 @@ void Document::onBeforeChange(const Property* prop)
     signalBeforeChange(*this, *prop);
 }
 
+void Document::setTransientDir(const std::string& dir)
+{
+    // Where the document's files live is no change of it: a pinned version
+    // (sec 27.22) refuses its properties, and an undo that opens one again
+    // -- a pin brought back -- hands it its Uid only after it is frozen, the
+    // change held till the transaction is applied. The write was refused
+    // there, the refusal swallowed with the held changes, and the version
+    // lived with no directory named: the one made for it was never removed
+    // (docs/WorkerProcess.md sec 50).
+    Base::FlagToggler<> quiet(d->bookkeeping, false);
+    TransientDir.setValue(dir);
+}
+
 void Document::onChanged(const Property* prop)
 {
     signalChanged(*this, *prop);
@@ -3299,6 +3339,11 @@ void Document::onChanged(const Property* prop)
         // this directory should not exist
         if (!TransDirNew.exists()) {
             if (TransDirOld.exists()) {
+                // A worker reads the store in it, which Windows will not let
+                // the directory move from under (docs/WorkerProcess.md sec
+                // 45): the workers reading it are ended first
+                if (auto pool = WorkerPool::of(*this, false))
+                    pool->releaseDirectory(old_dir);
                 // The transaction log's database lives in the directory
                 // and is open there already on the restore path: closed
                 // across the move, reopened at the new path below.
@@ -3315,9 +3360,12 @@ void Document::onChanged(const Property* prop)
                     blobWrites = blobs->holdWrites();
                     blobs->closeArchives();
                 }
+                // A refusal for a moment -- a file monitor holding a file in
+                // it -- renameFile waits out itself (docs/WorkerProcess.md
+                // secs 45, 47)
                 const bool renamed = TransDirOld.renameFile(new_dir.c_str());
                 if (renamed)
-                    this->TransientDir.setValue(new_dir);
+                    setTransientDir(new_dir);
                 // Before the log reopens, which may wait on its worker.
                 if (blobWrites)
                     blobWrites.unlock();
@@ -3345,7 +3393,7 @@ void Document::onChanged(const Property* prop)
                 if (!TransDirNew.createDirectories())
                     Base::Console().Warning("Failed to create '%s'\n", new_dir.c_str());
                 else
-                    this->TransientDir.setValue(new_dir);
+                    setTransientDir(new_dir);
             }
         }
         // when reloading an existing document the transient directory doesn't change
@@ -3969,6 +4017,12 @@ void Document::Restore(Base::XMLReader &reader)
         // Named, not held: the file's member, or the log's table (sec 27.50).
         if (!read->tableFile().empty())
             _restoreStringTable(reader, *read);
+        // The file's table says how its names spell its strings, as it does
+        // for a hasher of the document's own (read is that hasher): the
+        // file's hasher, filled from the log, was made spelling what a new
+        // document would (docs/StringTableContentIds.md sec 12)
+        if (shared && d->Hasher->getContentIds() != read->getContentIds())
+            d->Hasher->setContentIds(read->getContentIds());
         if (shared && read->size() > 0) {
             std::size_t aliased = 0;
             if (d->Hasher->merge(*read, &aliased)) {
@@ -5795,6 +5849,37 @@ int Document::recomputeMigration(DocumentObject *obj)
         return 0;
     FC_LOG("migration recompute for " << obj->getFullName());
     return obj->getDocument()->recompute({obj});
+}
+
+int Document::spellNamesByContent()
+{
+    // An old file keeps the ids it counted when opened; it spells digests
+    // once its user accepts the migration recompute, which makes its names
+    // again anyway (docs/StringTableContentIds.md sec 12). Every name made
+    // with the table spells a handle until then, which the table switched
+    // reads as a digest's spelling: so every object holding such names is
+    // recomputed, not only those the restore marked.
+    if (!d->Hasher || d->Hasher->getContentIds())
+        return 0;
+    d->Hasher->setContentIds(true);
+    int marked = 0;
+    for (auto obj : d->objectArray) {
+        std::vector<Property*> props;
+        obj->getPropertyList(props);
+        for (auto prop : props) {
+            if (!prop->isDerivedFrom(PropertyComplexGeoData::getClassTypeId()))
+                continue;
+            auto data = static_cast<PropertyComplexGeoData*>(prop)->getComplexData();
+            if (data && data->Hasher.get() == d->Hasher.get() && data->getElementMapSize(false)) {
+                obj->enforceRecompute();
+                obj->setStatus(ObjectStatus::MigrationPending, true);
+                ++marked;
+                break;
+            }
+        }
+    }
+    FC_LOG(getName() << " spells digests, " << marked << " objects to make again");
+    return marked;
 }
 
 std::vector<App::DocumentObject*>
@@ -8413,6 +8498,67 @@ std::string Document::_materialiseVersion(int64_t num, const std::string& where)
     return materialiseVersion(TransactionLogCore::of(getFileHistory()), num, dir);
 }
 
+namespace {
+
+/// A version's composite entry, composed for a folder restore (see
+/// materialiseVersion): the attachments of each part written beside it,
+/// under a name of their own where another file has the one the part gives
+bool composeForFolder(TransactionLogCore& log, const std::string& hash, const std::string& dir,
+                      std::set<std::string>& names, std::string& out)
+{
+    std::string raw;
+    TransactionLog::Composite c;
+    std::string skeleton;
+    if (!log.readBytes(hash, raw) || !c.decode(raw) || !log.readBytes(c.skeleton, skeleton))
+        return false;
+    out.clear();
+    size_t pos = 0;
+    for (const auto& part : c.parts) {
+        if (part.offset < pos || part.offset > skeleton.size())
+            return false;
+        out.append(skeleton, pos, part.offset - pos);
+        pos = part.offset;
+        std::string fragment;
+        LogEntity entity;
+        if (!log.readBytes(part.hash, fragment, &entity))
+            return false;
+        for (const auto& r : entity.refs) {
+            if (r.role != "attach" || r.name.empty())
+                continue;
+            std::string name = r.name;
+            if (names.count(name)) {
+                const auto dot = name.rfind('.');
+                const std::string stem = dot == std::string::npos ? name : name.substr(0, dot);
+                const std::string ext = dot == std::string::npos ? std::string() : name.substr(dot);
+                // By the content: a second part with the same bytes shares it
+                name = stem + "." + r.target.substr(0, 12) + ext;
+                const std::string from = "\"" + r.name + "\"";
+                const std::string to = "\"" + name + "\"";
+                for (size_t at = fragment.find(from); at != std::string::npos;
+                     at = fragment.find(from, at + to.size()))
+                    fragment.replace(at, from.size(), to);
+            }
+            if (names.insert(name).second) {
+                std::string bytes;
+                if (!log.readBytes(r.target, bytes))
+                    return false;
+                Base::FileInfo file(dir + "/" + name);
+                if (name.find('/') != std::string::npos)
+                    Base::FileInfo(file.dirPath()).createDirectories();
+                Base::ofstream att(file, std::ios::out | std::ios::binary);
+                att.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                if (!att)
+                    return false;
+            }
+        }
+        out += fragment;
+    }
+    out.append(skeleton, pos, std::string::npos);
+    return true;
+}
+
+} // namespace
+
 std::string Document::materialiseVersion(TransactionLogCore& log, int64_t num, const std::string& dir,
                                          bool blobsInStore)
 {
@@ -8434,6 +8580,10 @@ std::string Document::materialiseVersion(TransactionLogCore& log, int64_t num, c
     // made so by restoreBlob, which the log then holds.
     const bool inStore = blobsInStore && version.schema >= 5;
     size_t written = 0, fromStore = 0;
+    // The names the folder's files take: the entries', then the attachments'
+    std::set<std::string> names;
+    for (const auto& e : manifest)
+        names.insert(e.entry);
     if (inStore)
         log.flush();
     for (const auto& e : manifest) {
@@ -8458,7 +8608,18 @@ std::string Document::materialiseVersion(TransactionLogCore& log, int64_t num, c
         Base::FileInfo target(dir + "/" + (isBlob ? FileBlobManager::archivePrefix() : "")
                               + (neutral ? FileBlobManager::neutralName(e.entry) : e.entry));
         CapturedValue v;
-        if (!log.readValue(e.hash, v))
+        if (entity.kind == "composite") {
+            // Composed here, not by readValue: a part the log claimed
+            // (sec 23.3) is its value in the log, and the files its Save
+            // wrote are its attachments there, not entries of the version.
+            // A folder restore finds them by the names the fragments give,
+            // and two values captured apart may give the same one -- two
+            // fillets' edge lists, each "Property.txt": a name taken is
+            // made the value's own.
+            if (!composeForFolder(log, e.hash, dir, names, v.fragment))
+                THROWM(Base::RuntimeError, "version entry " + e.entry + " cannot be read");
+        }
+        else if (!log.readValue(e.hash, v))
             THROWM(Base::RuntimeError, "version entry " + e.entry + " cannot be read");
         if (e.entry.find('/') != std::string::npos)
             Base::FileInfo(target.dirPath()).createDirectories();
@@ -10417,6 +10578,9 @@ struct LogFold
     std::set<Key> removed;               // gone at the end
     std::set<long> touch;                // its derived values the log did not keep
     std::set<Key> derived;               // of `values`: what a recompute wrote
+    /// Of `derived`, gone forward to: the row that wrote it, for a value
+    /// the document may keep as it holds it (LogMoveKeep)
+    std::map<Key, int64_t> writer;
     TouchedFold touched;                 // the touched state, sec 27.58
     /// Whether a view op is one of a value its object holds, and is taken
     /// where view ops are not (Prop_OwnerValue). Unset: none is.
@@ -10432,6 +10596,8 @@ struct LogFold
         touched.forget(cid);
         for (auto it = values.begin(); it != values.end();)
             it = std::get<1>(it->first) == cid ? values.erase(it) : std::next(it);
+        for (auto it = writer.begin(); it != writer.end();)
+            it = std::get<1>(it->first) == cid ? writer.erase(it) : std::next(it);
         for (auto it = added.begin(); it != added.end();)
             it = std::get<1>(it->first) == cid ? added.erase(it) : std::next(it);
         for (auto it = removed.begin(); it != removed.end();)
@@ -10446,6 +10612,7 @@ struct LogFold
             if (skipped(o, views))
                 continue;
             Key key(o.ckind, o.cid, o.prop);
+            writer.erase(key);   // set again below by a recompute's write forward
             if (o.op == "create" && o.ckind == "obj") {
                 forget(o.cid);
                 objects[o.cid] = Obj {false, o.cname, o.ctype, {}};
@@ -10507,6 +10674,7 @@ struct LogFold
             if (skipped(o, views))
                 continue;
             Key key(o.ckind, o.cid, o.prop);
+            writer.erase(key);   // set again below by a recompute's write forward
             if (o.op == "create" && o.ckind == "obj") {
                 forget(o.cid);
                 objects[o.cid] = Obj {true, o.cname, o.ctype, extensionsOfOp(o)};
@@ -10531,6 +10699,7 @@ struct LogFold
                     if (o.derived) {
                         touch.erase(o.cid);
                         derived.insert(key);
+                        writer[key] = o.txn;
                     }
                     else {
                         derived.erase(key);
@@ -10854,6 +11023,7 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
     }
     const auto touchedNow = fold.touched.save(*this, valued);
     CaptureConfig config(*this);
+    LogMoveKeep* keepHook = LogMoveKeep::of(*this);
     RestoreBatch batch;   // each afterRestore() once all are in (sec 27.67)
     for (auto& kv : want) {
         guarded("value of", std::get<2>(kv.first), [&]() {
@@ -10867,6 +11037,18 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
             // before it was one, and that value is not its own any more
             if (prop->testStatus(Property::Legacy))
                 return;
+            // One the document holds as it was made, where the rows say it
+            // was put in from it (LogMoveKeep: a worker across its own
+            // result)
+            if (keepHook && std::get<0>(kv.first) == "obj") {
+                auto w = fold.writer.find(kv.first);
+                if (w != fold.writer.end()
+                        && keepHook->keeps(std::get<1>(kv.first), std::get<2>(kv.first),
+                                           w->second)) {
+                    ++keepHook->kept;
+                    return;
+                }
+            }
             CapturedValue now = captureValue(config, *prop);
             const CapturedValue& v = kv.second;
             if (now.ok && now.fragment == v.fragment
@@ -18032,7 +18214,14 @@ bool Document::afterRestore(bool checkPartial) {
     // The version of a file in an older format (sec 27.62): the document as
     // it was read, view providers included, at the current schema. Undo
     // reaches back to it and no further, as to the version of any open.
-    if (d->openVersionPending) {
+    // Put off while a transaction is open: in the GUI the view providers'
+    // and the views' first writes of the open have opened an implicit one by
+    // now, and a snapshot is refused while one is (_snapshotToLog()). Taken
+    // when it is committed (_commitTransaction()). Without it the GUI had no
+    // version of the open, no value the log held current, and every
+    // snapshot after -- the workers' copy at their start, 1.5 s on
+    // scanner.FCStd -- serialised every shape (docs/WorkerProcess.md sec 21).
+    if (d->openVersionPending && !d->activeUndoTransaction && !isPerformingTransaction()) {
         d->openVersionPending = false;
         if (_snapshotToLog("restore")) {
             if (auto log = getTransactionLog())
@@ -18874,6 +19063,9 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
         signalSkipRecompute(*this,objs);
         return 0;
     }
+    // What crashed a worker before, tried again: a worker first, so that a
+    // crash again is not this process's (docs/WorkerProcess.md sec 37)
+    RecomputeHook::handOver(*this, objs);
 
     // the recompute log keeps the messages of the objects still in error
     // (entry 205); what this recompute adds says whether it failed
@@ -19026,10 +19218,20 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
                 if (obj->mustRecompute()) {
                     doRecompute = true;
                     ++objectCount;
+                    int res = 0;
+                    // A worker's recompute notes each execute; the process
+                    // that takes its result in has DocumentObject::recompute()
+                    // put the values in instead of executing (docs/WorkerProcess.md
+                    // sec 19, 20)
+                    auto hook = RecomputeHook::of(*this);
+                    if (hook)
+                        hook->executing(*obj);
                     const auto start = std::chrono::steady_clock::now();
-                    int res = _recomputeFeature(obj);
+                    res = _recomputeFeature(obj);
                     took = std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
                                .count();
+                    if (hook)
+                        hook->executed(*obj, res, took);
                     if(res) {
                         noteDone(obj, took);
                         if(hasError)
@@ -19417,6 +19619,18 @@ int Document::_recomputeFeature(DocumentObject* Feat)
     // delete recompute log
     d->clearRecomputeLog(Feat);
 
+    // One that crashed a worker on what it reads now would crash this
+    // process too: left in its error, not executed (docs/WorkerProcess.md
+    // sec 34)
+    {
+        std::string why;
+        if (RecomputeHook::refuses(*Feat, why)) {
+            FC_ERR(Feat->getFullName() << ": " << why);
+            d->addRecomputeLog(why.c_str(), Feat);
+            return 1;
+        }
+    }
+
     try {
         returnCode = Feat->ExpressionEngine.execute(PropertyExpressionEngine::ExecuteNonOutput);
         if (returnCode == DocumentObject::StdReturn) {
@@ -19532,7 +19746,28 @@ bool Document::recomputeFeature(DocumentObject* Feat, bool recursive)
         } else {
             if (testStatus(FrozenVersion))
                 return Feat->isValid();
-            _recomputeFeature(Feat);
+            // One that crashed a worker before, tried again from a task
+            // dialog's preview: a worker first, as a recompute of the
+            // document does (docs/WorkerProcess.md sec 37). Not one asked
+            // from an execute(): that recompute was offered already
+            if (!testStatus(Recomputing) && RecomputeHook::handOver(*this, {Feat})
+                && !Feat->isTouched() && !Feat->mustExecute()) {
+                // Put in by a recompute here, which said it was recomputed
+                return Feat->isValid();
+            }
+            // One object recomputed from another's execute(): noted by a
+            // worker as its own, made from the worker's values where the
+            // result is taken in (docs/WorkerProcess.md sec 19, 20)
+            auto hook = RecomputeHook::of(*this);
+            if (hook)
+                hook->executing(*Feat);
+            const auto start = std::chrono::steady_clock::now();
+            int res = _recomputeFeature(Feat);
+            if (hook)
+                hook->executed(*Feat, res,
+                               std::chrono::duration<double>(
+                                   std::chrono::steady_clock::now() - start)
+                                   .count());
             signalRecomputedObject(*Feat);
             GetApplication().signalRecomputedObject(*this, *Feat);
             return Feat->isValid();
@@ -20696,24 +20931,83 @@ Document::CompactEstimate Document::_noteDroppedRows(const std::set<long>& named
 
 long Document::nextGeoId(const DocumentObject& obj, long floor) const
 {
-    if (obj.getID() <= 0)
+    if (obj.getID() <= 0) {
+        RecomputeHook::noteMinted(obj, -1, floor, floor + 1);
         return floor + 1;
-    if (d->history)
-        return d->history->nextGeoId(obj.getID(), floor);
-    long& last = d->lastGeoIds[obj.getID()];
-    last = std::max(last, floor) + 1;
-    return last;
+    }
+    long next = 0;
+    if (d->history) {
+        next = d->history->nextGeoId(obj.getID(), floor);
+    }
+    else {
+        long& last = d->lastGeoIds[obj.getID()];
+        last = std::max(last, floor) + 1;
+        next = last;
+    }
+    RecomputeHook::noteMinted(obj, -1, next - 1, next);
+    return next;
 }
 
 long Document::nextObjectCount(const DocumentObject& obj, int kind, long floor) const
 {
-    if (obj.getID() <= 0)
+    if (obj.getID() <= 0) {
+        RecomputeHook::noteMinted(obj, kind, floor, floor + 1);
         return floor + 1;
-    if (d->history)
-        return d->history->nextObjectCount(obj.getID(), kind, floor);
-    long& last = d->objectCounts[std::make_pair(obj.getID(), kind)];
-    last = std::max(last, floor) + 1;
-    return last;
+    }
+    long next = 0;
+    if (d->history) {
+        next = d->history->nextObjectCount(obj.getID(), kind, floor);
+    }
+    else {
+        long& last = d->objectCounts[std::make_pair(obj.getID(), kind)];
+        last = std::max(last, floor) + 1;
+        next = last;
+    }
+    RecomputeHook::noteMinted(obj, kind, next - 1, next);
+    return next;
+}
+
+std::vector<std::pair<int, long>> Document::givenNumbers(const DocumentObject& obj) const
+{
+    std::vector<std::pair<int, long>> numbers;
+    const long id = obj.getID();
+    if (id <= 0)
+        return numbers;
+    if (d->history) {
+        const auto& geo = d->history->lastGeoIds();
+        auto it = geo.find(id);
+        if (it != geo.end())
+            numbers.emplace_back(-1, it->second);
+        const auto& counts = d->history->objectCounts();
+        for (auto c = counts.lower_bound(std::make_pair(id, std::numeric_limits<int>::min()));
+             c != counts.end() && c->first.first == id; ++c)
+            numbers.emplace_back(c->first.second, c->second);
+    }
+    else {
+        auto it = d->lastGeoIds.find(id);
+        if (it != d->lastGeoIds.end())
+            numbers.emplace_back(-1, it->second);
+        for (const auto& c : d->objectCounts)
+            if (c.first.first == id)
+                numbers.emplace_back(c.first.second, c.second);
+    }
+    return numbers;
+}
+
+void Document::noteGivenNumber(const DocumentObject& obj, int kind, long last) const
+{
+    const long id = obj.getID();
+    if (id <= 0)
+        return;
+    if (d->history) {
+        if (kind < 0)
+            d->history->noteGeoId(id, last);
+        else
+            d->history->noteObjectCount(id, kind, last);
+        return;
+    }
+    long& mine = kind < 0 ? d->lastGeoIds[id] : d->objectCounts[std::make_pair(id, kind)];
+    mine = std::max(mine, last);
 }
 
 std::string Document::getStandardObjectName(const char *Name, int d) const

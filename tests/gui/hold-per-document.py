@@ -33,8 +33,10 @@ What is asserted:
   1. the case arose (Old had refinements still to land when New was
      opened, and Old's view was the active one); 15 or more of Old's 40
      refinements landed while New was loading; none of New's own did;
-  2. with New's view active 5 of Old's at most landed in that time (a
-     landing or two get in before the load has parked its first visual);
+  2. with New's view active 5 of Old's at most landed while New built its
+     visuals (a landing or two get in before the load has parked its
+     first visual; counted from New's first, as a file read that takes
+     long lets more in before it);
   3. while Small was filling in, New built few visuals (a quarter of
      Small's 20 at most), and Small was through first;
   4. with New's view active, New was through first, and Small was not
@@ -197,6 +199,10 @@ def refine_sequence(key, old_active, then):
         run["t_fill"] = min([t for t, k, n in state["events"] if k == "build" and n == "B"]
                             or [0.0])
         run["old_during"] = count("landing", "A", t0, t1)
+        # From New's first visual on: before it New has none left to build,
+        # and nothing holds Old -- a file read that takes 3 s (the Windows
+        # box) lets Old land several there, all before New built a thing.
+        run["old_filling"] = count("landing", "A", run["t_fill"] or t0, t1)
         run["old_after"] = count("landing", "A", t1, 1e9)
         run["new_during"] = count("landing", "B", t0, t1)
         run["new_after"] = count("landing", "B", t1, 1e9)
@@ -267,8 +273,8 @@ def verdict():
               not r["old_is_active"] and r["old_during"] + r["old_after"] >= 10,
               "%d after New was opened" % (r["old_during"] + r["old_after"]))
         check("2 a document in the background waits for the load in front of it",
-              r["old_during"] <= 5, "%d of Old's refinements landed while New loaded"
-              % r["old_during"])
+              r["old_filling"] <= 5, "%d of Old's refinements landed while New built its "
+              "visuals, %d from its open" % (r["old_filling"], r["old_during"]))
         r = res["3"]
         check("3 the case arose: Small's view is the active one, and all of Small was built",
               not r["new_is_active"] and r["small_built"] == FILES["Small"][1], r["small_built"])

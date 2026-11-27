@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <array>
+#include <vector>
 #include <cmath>
 #include <limits>
 
@@ -887,13 +888,26 @@ inline void alongEdge(const Face& x,
     auto height = [&](double w) { return dot(pointAt(x, offsets, at(w)), out); };
     const double e = 1e-4;
     for (int k = 0; k < 20; ++k) {
-        const double low = std::max(u - e, 0.0);
-        const double high = std::min(u + e, 1.0);
+        // By the points either side; at an end, by the two within. With
+        // the end's own height for the one beyond it the bend came out the
+        // slope over e, the step e back out of the edge, and a point that
+        // came to an edge at its end never left the corner
         const double h0 = height(u);
-        const double hl = height(low);
-        const double hh = height(high);
-        const double slope = (hh - hl) / (high - low);
-        const double bend = (hh - 2.0 * h0 + hl) / (e * e);
+        double slope = 0.0;
+        double bend = 0.0;
+        if (u - e < 0.0 || u + e > 1.0) {
+            const double in = u - e < 0.0 ? e : -e;
+            const double h1 = height(u + in);
+            const double h2 = height(u + 2.0 * in);
+            slope = (-3.0 * h0 + 4.0 * h1 - h2) / (2.0 * in);
+            bend = (h2 - 2.0 * h1 + h0) / (e * e);
+        }
+        else {
+            const double hl = height(u - e);
+            const double hh = height(u + e);
+            slope = (hh - hl) / (2.0 * e);
+            bend = (hh - 2.0 * h0 + hl) / (e * e);
+        }
         if (!(std::abs(bend) > 0.0) || (!stationary && !(bend < 0.0))) {
             break;
         }
@@ -905,6 +919,70 @@ inline void alongEdge(const Face& x,
         }
     }
     L = at(u);
+}
+
+// How far a face's point is from where its normal is along the unit 'out',
+// either way: 1 - |cos| of the angle between them. 2 where the face has no
+// surface there
+inline double missAt(const Face& x,
+                     const Offsets* offsets,
+                     const std::array<double, 3>& L,
+                     const Vec& out)
+{
+    Local local;
+    if (!localSurface(x, L, local, offsets)) {
+        return 2.0;
+    }
+    return 1.0 - std::abs(dot(local.normal, out));
+}
+
+// A face about a corner: the face, its true surface's offsets or none, and
+// which of its corners that one is
+struct CornerFace
+{
+    Face x;
+    const Offsets* offsets = nullptr;
+    int corner = 0;
+};
+
+// A point alongEdge() left on an edge's end, a corner the faces 'about'
+// share, taken on along another edge from there: of each face's two edges
+// at the corner the one alongEdge() goes in along, to where the surface's
+// normal is nearest 'out' and nearer than 'missHere', the corner's own
+// (missAt()). The face taken, as its place in 'about', and L its point; -1
+// and L kept where none is nearer. Where the point sought lies along a row
+// of the mesh's edges -- a torus's equator -- alongEdge() stops at the
+// first edge's end, and the farthest is on the next: a flexible torus
+// turned on a plate, a point from two faces away left on a vertex 6 um
+// short, 49.2 N for 50 for one step
+inline int pastCorner(const std::vector<CornerFace>& about,
+                      const Vec& out,
+                      bool stationary,
+                      double missHere,
+                      std::array<double, 3>& L)
+{
+    int taken = -1;
+    double least = missHere;
+    for (std::size_t i = 0; i < about.size(); ++i) {
+        const CornerFace& face = about[i];
+        const auto corner = static_cast<std::size_t>(face.corner);
+        // Its edges at the corner: the one from it, and the one to it
+        for (const int edge : {face.corner, (face.corner + 2) % 3}) {
+            std::array<double, 3> l {0.0, 0.0, 0.0};
+            l[corner] = 1.0;
+            alongEdge(face.x, face.offsets, out, edge, l, stationary);
+            if (!(l[corner] < 1.0 - 1e-6)) {
+                continue;
+            }
+            const double miss = missAt(face.x, face.offsets, l, out);
+            if (miss < least) {
+                least = miss;
+                taken = static_cast<int>(i);
+                L = l;
+            }
+        }
+    }
+    return taken;
 }
 
 inline Contact contactOf(const Local& a, const Local& b, double depth, double reach)

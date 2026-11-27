@@ -80,6 +80,7 @@
 #endif
 
 #include <App/Document.h>
+#include <App/ShuttingDown.h>
 #include <App/FileBlobManager.h>
 #include <App/Transactions.h>
 #include <Base/BoundBox.h>
@@ -102,6 +103,7 @@
 #include "Preferences.h"
 
 #include "DrawViewSection.h"
+#include "StartMaking.h"
 // inclusion of the generated files (generated out of DrawViewSectionPy.xml)
 #include <Mod/TechDraw/App/DrawViewSectionPy.h>
 
@@ -570,7 +572,6 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
     abortSectionCut();
 
     try {
-        m_cutWatcher.reset(new QFutureWatcher<void>());
         std::shared_ptr<TopoDS_Shape> cutPieces(new TopoDS_Shape());
 
         std::string message(Label.getValue());
@@ -582,7 +583,7 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
         // on this thread (docs/TechDrawErrors.md 3.1)
         auto failure = std::make_shared<std::string>();
         auto failedSolids = std::make_shared<int>(0);
-        auto done = [this, cutPieces, failure, failedSolids] {
+        auto finished = [=] {
                 if (m_progress && !m_progress->wasCanceled()) {
                     onSectionCutFinished(cutPieces);
                     // the rest is drawn: a warning (docs/TechDrawErrors.md 3 b)
@@ -620,6 +621,10 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
         params.failedSolids = failedSolids;
 
         auto work = [params, failure] {
+                if (App::isShuttingDown()) {
+                    params.progress->setCanceled(true);
+                    return;
+                }
                 try {
                     doSectionCut(params);
                     return;
@@ -638,19 +643,8 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
                 }
                 params.progress->setCanceled(true);
             };
-
         waitingForCut(true);
-        if (!QCoreApplication::instance()) {
-            // No event loop to deliver the watcher's end (FreeCADCmd, a
-            // script): cut here, as a part view projects here
-            work();
-            done();
-            return;
-        }
-        m_cutWatcher.reset(new QFutureWatcher<void>());
-        QObject::connect(m_cutWatcher.get(), &QFutureWatcherBase::finished, m_cutWatcher.get(),
-                         done);
-        m_cutWatcher->setFuture(QtConcurrent::run(work));
+        startMaking(m_cutWatcher, work, finished);
     }
     // The cutting tool is made here, on this thread, and what it threw says
     // why -- a complex section's profile that gives no wire, for one; a

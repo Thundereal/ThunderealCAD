@@ -103,7 +103,8 @@ class DrawStoredGeometryTest(unittest.TestCase):
         def silhouettes(view):
             return sorted(
                 name for name, source, index in view.getEdgeNames()
-                if index == 0 and source.startswith("Face1")
+                # the side, named by what it is since a022ec951f
+                if index == 0 and source.startswith(("Face1", "Lateral"))
             )
 
         before = silhouettes(self.view)

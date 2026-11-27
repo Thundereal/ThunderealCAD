@@ -3853,7 +3853,8 @@ Phase D1 is under way (2026-10-28):
     shown -- between two frames, the coordinates interpolated -- moved by
     the shapes and the coordinates, scaled up for the largest over the run
     to be a tenth of the part's size (or by the body's `BendingScale`,
-    step 12), in place of the component, which
+    step 12; the bending alone scaled, its hold drawn where it is, way 1
+    step 15), in place of the component, which
     hides while it is drawn and shows again when the panel closes. Save
     Animation's frames have it.
   - The panel's Elements lists the flexible bodies.
@@ -5767,6 +5768,8 @@ Phase D1 is under way (2026-10-28):
   - Not yet: a point contact on a face of no round (a torus, a barrel)
     still takes its face's farthest on the six-node face; the rounds'
     lines keep `roundAt()`'s fit, which the true surface could replace.
+    Since (2026-11-21): the point on such a face is step 6's and after;
+    the rounds' own code stays, the quick path (ruled).
 - Measured, D4b way 1 step 4 (2026-11-16): two flat faces, an area's
   corners -- nothing to fix. A flexible block 40 x 10 x 4 lying on a plate
   0.05 mm into it, turned one revolution about a vertical hinge at its end:
@@ -5822,7 +5825,9 @@ Phase D1 is under way (2026-10-28):
     ~/.cache/flexcontact/harness/.
   - Not yet: the triangle nearest is found among all the hull's, each
     point at each update -- 4 s for the cone, where it took 1; a grid or
-    the last one's neighbours would do.
+    the last one's neighbours would do. Since, measured 2026-11-21: the
+    search takes those near the last triangle first; the cone's test runs
+    in 0.6 s. Nothing left.
 - Built, D4b way 2 step 1 (2026-11-16): a pressure over the area, opt-in.
   A contact set's Stiffness from gains Pressure: its Stiffness a pressure
   per depth^e, N/mm^(e + 2) (a Winkler layer, the elastic foundation's;
@@ -5874,7 +5879,12 @@ Phase D1 is under way (2026-10-28):
     R 5, a line past a face's end, a flat face's area by points that are not
     its corners -- summed finer than the faces on the surfaces themselves;
     a line's depth along it taken as its ends' share, exact where they
-    press alike.
+    press alike (the depth along a line or over an area: step 4).
+    Since, measured 2026-11-21: the bore is step 2's, the depth along a
+    line step 4's, the flat area step 5's; a rigid rod's line past a
+    plate's end, 25 N/mm^3, 35.35 N for 35.30 past one end and 23.58 for
+    23.54 past both (probe ~/.cache/flexcontact/pressureedge.py). Nothing
+    left.
 - Ruled (2026-11-16): Pressure stays opt-in. Against the Value law at
   1000 N/mm, Pressure set at 26.52 N/mm^3 so the rigid rod presses the same
   50 N, over the turn: the flexible rod 44.77 -> 43.60 N, past a plate's
@@ -5901,7 +5911,7 @@ Phase D1 is under way (2026-10-28):
     131.5 (137.4 by the parabolas).
   - Test: TestFlexibleBody.test_pressure_in_a_bore (158.3 within a
     percent; before, 50.0). Not yet: a ball in a socket, the same by
-    spheres; a line whose depth varies along it shares by its ends.
+    spheres; a line whose depth varies along it shares by its ends (step 4).
 - Built, D4b way 2 step 3 (2026-11-17): a point's pressure over its disc
   by the two spheres, both sides round alike every way (the patch's k2 at
   least nine tenths of k1): `acrossLine()` over the disc, each ring 2 pi y
@@ -5912,6 +5922,85 @@ Phase D1 is under way (2026-10-28):
   d^2 / sqrt(k1 k2) gave 432.0. On a plate the sphere gives 39.14 for the
   paraboloid's 39.27. Test: TestFlexibleBody.test_pressure_in_a_socket
   (392.58 within a percent; 432.0 before); roundTurned() takes `socket=`.
+- Built, D4b way 2 step 4 (2026-11-19): a pressure where the depth changes
+  over the patch. A patch pressed as one point at its springs' mean,
+  sum(s^2) / sum(s), each point's share its spring's -- the points' law's,
+  so a face resting flat pushes as one point however many it has -- read
+  a varying depth by its deepest: a rigid block 40 x 10 tilted from 0.05
+  mm into a plate at one end to touching at the other pressed 50.28 N for
+  k b L d / 2 = 25, a rod R 5 so tilted 4.707 for 1.886, 2.5 times.
+  - **Spread over its points** (`PressureSpread`, `spreadForces()`): a
+    line's points in order along it, an area's in Delaunay triangles in its
+    plane (`delaunay()`, Bowyer and Watson's), the depth linear between
+    them, max(d, 0)^e integrated where it is pressed -- a piece cut where
+    the depth comes to none -- over the line's length or the triangles'
+    area, the patch's stiffness its force pressed alike. Each point's share
+    its consistent part, its own linear function by the pressure, so the
+    moment is the pressure's too. Built with the patch (`pressureLaw()`),
+    its points fixed for the step, their depths each state's
+    (`ContactLoad::ComputeQ()`); a point not pressed carries its part of
+    its neighbours'. A round's patch, and a line's or an area's of points
+    along none, as before.
+  - **A line in eighths** (`thinOut()`, `lineEighths`): a flexible part's
+    line was its two ends, its depth then linear between them -- a rod held
+    at one end bends off a plate along it, its tip 9 um up, and pressed
+    39.27 N where the beam has 42.14. A pressure's line keeps seven of its
+    other points too, taken to its eighths (`restationFlat()`,
+    `restation()`). The points' law keeps its two, and its figures.
+  - Against beam theory: a flexible block 40 x 10 x 4 lying level 0.05 mm
+    in, held at its end by the hinge, bends up off the plate -- a beam on an
+    elastic layer, clamped and free, Euler and Bernoulli's 31.9 N (31.9 by
+    finite differences, `~/.cache/flexcontact/winkler.py`) for the rigid
+    one's 50: 32.11, at its springs' mean 37.84; tilted to 0.03 mm at its
+    far end 27.23 for 27.09. The flexible rod on the plate the same, on the
+    line's layer c (d0 - w)^1.5, 42.14 (`winklerline.py`; Timoshenko's shear
+    about half a percent less): 41.74, at its springs' mean 41.22.
+  - Numbers, rigid: the tilted block 25.13 N for 25, the rod 1.884 for
+    1.886; tilted to 0.03 mm, 40.20 for 40 (42.72) and 3.395 for 3.400
+    (3.908). Level, as before: the block 50.25, the rod 47.07, the ball
+    39.14, the cone 44.64, in a bore 158.8, in a socket 392.6.
+  - The ruling's comparison again (Pressure at 26.52 N/mm^3, over the
+    turn, `~/.cache/flexcontact/lawcompare.py`): the flexible rod 43.60 ->
+    44.00 N, past a plate's end 33.98 -> 34.12, on the roller 31.63 ->
+    32.18, the ball 1.04 as was, the rigid cone 47.60 -> 47.35, the
+    flexible cone 40.88 -> 41.27, the flexible rod in a rigid bore 137.4 ->
+    117.4 -- the bore's line now its eighths along a rod bent in it, the
+    depth that varies most. The Value law's figures as they were.
+  - Not yet: an area's points where they press alone. A block tilted past
+    none -- 0.05 mm in at one end, 0.05 clear at the other -- has two points
+    found, its deep corners, the far ones beyond collision detection's
+    margin: no area, and its force from a disc of the parts' sizes, 12.61 N
+    for 12.5 by chance. Its area is the faces' overlap cut where the depth
+    is none, which wants the faces' outlines, not the points (step 5).
+  - Test: TestFlexibleBody.test_pressure_tilted (the rigid block and rod
+    within a percent, the flexible block within 3% of the beam's; before,
+    50.28, 4.707 and 37.84), test_pressure_on_a_cone_and_a_flexible_round
+    (the flexible rod within 2% of the beam's 42.14; before, 41.22).
+- Built, D4b way 2 step 5 (2026-11-20): a rigid flat face's patch on the
+  faces' true outlines. Collision detection finds points within its
+  envelope only, 0.02 mm, and on the shapes it grows by it: the block tilted
+  past none had its two deep corners and no area (12.61 N for 12.5; 0.15 mm
+  past, 12.62 for 6.25), and lying level its corners 0.02 mm out (50.25 for
+  k A d = 50).
+  - **The faces' outlines** (`outlineFlatPatches()`, `trueFaceOutline()`,
+    `overlapOf()`): a pressure's patch between two boxes' or hulls' faces,
+    rigid, flat by the curvature patchStiffness() reads, all its points on
+    its two shapes along one normal. Of each shape's features (Bullet's
+    polyhedron, coplanar faces merged) the face facing the other, within
+    2.6 deg; its plane pulled in by the envelope and its polygon cut by the
+    other faces so pulled in (as `reachOver()` takes them): the true face.
+    The two overlapped in the contact plane, Sutherland and Hodgman's; its
+    corners the patch's points, each on both faces along the normal,
+    pressed or not, in place of those found. The depth is linear over a
+    flat face, so the spread (step 4) cut where it is none is exact.
+  - Not for a round, a bent hull, a flexible part, a seat, a profile's or
+    a cam's point, or faces not facing each other: as they were. Hertz's
+    and the other laws' points as they were.
+  - Numbers: the block level 50.25 -> 50.00 N, tilted to none 25.13 ->
+    25.00, past none 12.61 -> 12.50, 0.15 mm past 12.62 -> 6.25 (k b x d /
+    2 over the x of it that is in).
+  - Test: TestFlexibleBody.test_pressure_tilted, the four within a
+    thousandth.
 - Built, D4b way 1 step 6 (2026-11-17): a point on a curved face of no
   round, rigid or flexible. A torus, ring R 10, tube R 3, standing on a
   plate as a wheel 0.05 mm into it, turned about its axis: rigid 32.3 to
@@ -6004,6 +6093,10 @@ Phase D1 is under way (2026-10-28):
     not a face's edge. A rigid torus on a flexible roller, 180 N, 0 to
     599: the roller's points go to their farthest along the torus's facet's
     normal, turning with the torus (place(), Point::face) -- step 7b.
+    Since, measured 2026-11-21: no dip left, the flexible torus on the
+    rigid roller 49.88 to 50.03 N under it and 49.91 to 50.03 round it by
+    20 deg, none of 350 frames under 49 (step 13's walk from within the
+    face); the rigid torus on the flexible roller 49.32 to 49.35.
   - Tests: TestFlexibleBody.test_torus_on_roller and
     test_rigid_round_on_rigid_roller, within two and one thousandth;
     roundTurned() takes `rollerAt=`, and its roller under a torus. Probe
@@ -6233,6 +6326,42 @@ Phase D1 is under way (2026-10-28):
   - **From within the face** (farthestNear()): a start on a corner of its
     face (an L within 1e-6 of 1) moved a tenth of the way to the face's
     middle. The walk's start, not its answer.
+  - **Why alongEdge() left it at the edge's end** (2026-11-24, after the
+    Windows box failed test_torus_on_pin's rigid case at 20 deg and
+    test_torus_on_plate's flexible one, 49.38 and 49.31 N for a single
+    step each, the same every run): its second difference at an end took
+    the end's own height for the point beyond it, so the bend was the
+    slope over the step and Newton's step always the step's length back
+    out of the edge -- a point that came to an edge at its end never left
+    the corner. Not Windows': on Linux the rigid torus on the pin dipped
+    for one step at 11 of 40 pin angles 0.013 deg apart from 20 (48.0 to
+    52.4 N for 50), where one of Bullet's points, new that step and an
+    edge of the mesh away along the torus's inner equator, stopped 0.75
+    mm short on a vertex, 47.2 um deep; 20 deg itself missed it by its
+    arithmetic. At an end now by the two points within. None in those 40
+    nor in 150 angles 0.37 deg apart (test_torus_on_pin_at_any_angle:
+    four of the eleven). The flexible plate's case was not seen to fail
+    on Linux; it goes through the same function.
+  - **The flexible torus on the plate, which that did not mend** (the
+    same day; Windows still 49.31 N for a step): on Linux too once the
+    rod is turned 1.0007 turns in place of one, its steps then at other
+    places round it -- 49.56 and 49.64 N for one step each, the second at
+    104.4 deg where Windows had it, 37 such steps in twelve runs each
+    0.07% further. Three things in FlexibleContact::towardsTrue(), the
+    torus touching along its outer equator, a row of its mesh's edges.
+    A point sent back and forth across an edge was left where the step
+    met the edge: there its farthest along the edge now (alongEdge()), as
+    farthestNear() and hullFarthest() had it already. One that came to
+    the edge's end stayed on that vertex, 6 um short, with the farthest
+    on a face round it: on along the edges of the faces about the corner
+    to where the surface's normal is nearest the contact's
+    (`LS::pastCorner()`, `missAt()`), eight corners at most. And a point
+    on its own face was dropped for the step when it gained more than
+    one and a half times what a face stands out of its triangles -- by 1
+    to 8%, the triangle's slope adding to it: three times now. None in
+    40 such runs nor in 120 further apart; the pin's 40 angles as
+    before; test_torus_on_plate_at_any_turn (1.0007, 1.0042 and 1.0238
+    turns: 49.91 to 50.03 N).
   - Numbers: the flexible torus on a flexible pin 46.11 N, 46.02 to 46.28
     (37.91 to 55.39); at 20 deg 46.07 to 46.11 (46.04 to 46.26).
     Every other figure of the four suites as before: the forces to the
@@ -6263,6 +6392,59 @@ Phase D1 is under way (2026-10-28):
     (the clamp's side), its other nodes within 1.7% (5 to 95%).
   - Test: TestFlexibleBody.test_flexible_torus_on_ring, each part's
     largest stress over the run under 10 MPa.
+- Built, D4b way 1 step 15 (2026-11-20): a part held by a joint drawn held
+  there, scaled. Bending drawn x200, a flexible block held at its end by a
+  hinge and bent up off a plate by a pressure (way 2 step 4's) was drawn
+  with that end 1.08 mm up off the hinge and the free end 0.52 mm: as it is,
+  0 and 43.5 um.
+  - **The interfaces' pose was scaled with the bending.** The coordinates
+    are each interface's pose in the floating frame, then the modes'; the
+    floating frame is not the hold, so the hold moves in it, and a drawing
+    scaled all of them alike. The cantilever at x20: its hold drawn 2.5
+    times its sag down, its end 2.2 -- shifted, not bent.
+  - **Now** (`FlexibleBodies.rigidOf()`, `Deformation.pointsAt()`): the
+    first interface -- a joint's; contact faces' come after -- held where
+    it is drawn. Its nodes are those its translations' columns move one
+    for one and every other column leaves (the modes are its held, the
+    other interfaces' with it held): the cantilever's 89 of its end face.
+    The field fitted there by a rigid motion, t + r x (p - c), least
+    squares, once, a column each, is drawn as it is; the rest -- the modes,
+    the residual modes, the other interfaces' motion against it -- scaled.
+    Fitted to all the interfaces' columns over all the nodes first: the pad
+    strip's hinge, its pad a second interface, drawn lifted off it. A part
+    no joint holds has none, as before. The automatic scale is the
+    bending's alone: the manual's strips x2664 -> x518, x58 -> x12, x62 ->
+    x12. As it is, x1, the drawing is the same.
+  - Numbers: the cantilever at x20, its hold 5e-12 mm off, its end 19.9
+    sags down; the block at x200, its held end 0, its free end 8.71 mm up
+    (200 x 43.5 um).
+  - Test: TestFlexibleBody.test_cantilever_deformation (drawn x20, the
+    hold within 1% of the sag, the end 20 sags within 3%; before, 2.5 and
+    2.2), the automatic scale from the bending.
+- Built, D4b way 1 step 16 (2026-11-20): a part pressed on something drawn
+  as it is, and scaled, held where it is pressed. The pad strip of step 15,
+  x12 about its hinge, was drawn with its pad off the post it lies on by 12
+  times its sag there: a part held in two places cannot be scaled about one.
+  - **Tried, held there while it presses**: each frame's drawing turned
+    about the hold onto that frame's contact points. The strip on the post,
+    but the drawing jumps as it lets go and comes back, each bounce.
+  - **Now, as it is by default**: the automatic scale is 1 for a flexible
+    body the run presses on anything (`Deformation.pressedOf()`: the nodes
+    nearest its sets' "PartContactPlaces" with a force, the part where
+    `getSimulationPlacements()` has it at the frame). Its stress colours
+    show its bending.
+  - **Scaled by hand** (Bending drawn, BendingScale > 0), it is held where
+    it is pressed too (`heldWherePressed()`): a turn about the hold's
+    centre -- a full rigid motion where no joint holds it -- fitted to each
+    column's bending at the pressed nodes, least squares, once, goes with
+    the rigid motion drawn as it is. Through the whole run, pressed or not,
+    the hinge and the pad are where they are, and the bending between them
+    is scaled; nothing jumps. Pressed at three places apart, the fit leaves
+    a rest, scaled.
+  - Numbers: the strip bent onto the bar drawn x20, 0.45 mm into the bar
+    before, 0.004 mm off it now, where it is 0.002 off as it is.
+  - Test: TestFlexibleBody.test_bent_onto_bar_anywhere (the scale 1 by
+    default; drawn x20 within 0.05 mm of where it is at the bar).
 - Next, D4b from here (2026-11-16): one rule for a contact, not a step a
   pair of geometries. Steps 13 to 29 each placed the points of one pair --
   a round on a round, in a bore, along a flat face, a ball -- and each

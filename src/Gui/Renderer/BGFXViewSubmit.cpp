@@ -751,12 +751,28 @@ void BGFXView::setTriangleFrameState(const Render::Material &mat, int pass,
         bgfx::setTexture(8, s_texBulbShadow,
                          bgfx::isValid(bulbShadowTex)
                              ? bulbShadowTex : m_whiteTex);
+        // their tint (white: no tint) and near maps (white: the far
+        // plane, so the tint is never taken)
+        if (bgfx::isValid(s_texBulbTint))
+            bgfx::setTexture(12, s_texBulbTint,
+                             bgfx::isValid(bulbTintTex)
+                                 ? bulbTintTex : m_whiteTex);
+        if (bgfx::isValid(s_texBulbNear))
+            bgfx::setTexture(13, s_texBulbNear,
+                             bgfx::isValid(bulbNearTex)
+                                 ? bulbNearTex : m_whiteTex);
     }
     bgfx::setTexture(3, s_texShadow, shadow);
     if (bgfx::isValid(s_texShadowTint))
         bgfx::setTexture(7, s_texShadowTint,
                          shadowFrame && bgfx::isValid(shadowTintTex)
                              ? shadowTintTex : m_whiteTex);
+    // the nearest translucent caster's depth: the tint only behind it
+    // (white -- the far plane -- leaves the tint where it is white too)
+    if (bgfx::isValid(s_texShadowNear))
+        bgfx::setTexture(11, s_texShadowNear,
+                         shadowFrame && bgfx::isValid(shadowNearTex)
+                             ? shadowNearTex : m_whiteTex);
     // Screen-space AO into the ambient/headlight/IBL terms — only
     // for main-pass opaque draws (the old fullscreen multiply ran
     // on the opaque scene before outlines/transparency; the

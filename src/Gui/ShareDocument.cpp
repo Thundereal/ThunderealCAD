@@ -2442,11 +2442,25 @@ void ShareDocumentManager::openShareDialog()
     server.setToken(token.toUtf8().constData());
     pushDevices(loadDevices());
     pushGrants(grants);
+    // Where the listener is reached from. The server listens on this
+    // machine only unless told otherwise (SceneServer.h,
+    // setListenAddress): a quick tunnel's cloudflared dials it here, but
+    // a LAN share is opened from other machines, and an own door's
+    // tunnel or proxy may be another machine too. A listener a script's
+    // serve left up on loopback is moved out; one already reachable
+    // stays as it is, with whoever is connected to it.
+    const bool network = door.mode != FrontDoor::Quick;
+    if (network) {
+        server.setListenAddress("any");
+        if (server.running() && !server.reachableFromNetwork())
+            server.stop();
+    }
     SceneServeSource *source = SceneServeSource::serve(guiDoc, port);
     if (!source) {
         server.setToken(std::string());
         server.setGrants({});
         server.setIdentityDoor(presetIdentityDoor());
+        server.setListenAddress(std::string());
         QMessageBox::critical(getMainWindow(), QObject::tr("Share document"),
                               QObject::tr("The document could not be served. "
                                           "Sharing needs a render engine "
@@ -2459,6 +2473,7 @@ void ShareDocumentManager::openShareDialog()
         server.setToken(std::string());
         server.setGrants({});
         server.setIdentityDoor(presetIdentityDoor());
+        server.setListenAddress(std::string());
         QMessageBox::critical(getMainWindow(), QObject::tr("Share document"),
                               QObject::tr("The scene server could not "
                                           "listen on port %1.").arg(port));
@@ -2542,6 +2557,9 @@ void ShareDocumentManager::stopSharing()
         pimpl->publicOrigin.clear();
     server.stop();
     server.setToken(std::string());
+    // A scripted serve after this listens where it would have before the
+    // share: this machine only, or FC_SERVE_BIND's.
+    server.setListenAddress(std::string());
     // Back to what the environment said of a scripted serve's own door.
     server.setIdentityDoor(presetIdentityDoor());
     // The live list dies with the share — easings and all; the next

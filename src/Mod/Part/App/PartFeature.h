@@ -556,6 +556,9 @@ protected:
     /// The end of recompute()'s hold: the references re-resolved, and the
     /// generations reconciled, if a shape changed under it
     void releaseHeldReferences();
+    /// After a migration recompute that kept a shape as it was: its names
+    /// stand as this build's (docs/WorkerProcess.md sec 60)
+    void keepMigratedNames();
     /// Take the `_BaseShape<N>` properties on this feature into the list
     void adoptShapeVersions();
     /// Give every retained generation that has referrers its property

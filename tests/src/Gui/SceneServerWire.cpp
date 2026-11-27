@@ -448,6 +448,10 @@ protected:
         server.setTrustProxy(true);
         // -- which it is only where the door in front signs people in.
         server.setIdentityDoor(true);
+        // This machine only, whatever FC_SERVE_BIND says: every client
+        // here is local, and a listener on every interface is open to the
+        // network and makes a desktop firewall ask about it.
+        server.setListenAddress("loopback");
         port = freePort();
         ASSERT_GT(port, 0);
         ASSERT_TRUE(server.start(port)) << "the listener did not start";
@@ -1113,6 +1117,54 @@ TEST_F(SceneServerWire, listensOnIPv6Too)
     // And the v4 peers of the same dual-stack listener are not shown
     // as v4-mapped v6 (handshakeThenHelloThenSnapshot checks the
     // 127.0.0.1 form, so this is the other half of that).
+}
+
+TEST_F(SceneServerWire, listensOnThisMachineOnlyByDefault)
+{
+    // Unless told otherwise the listener is on the loopback addresses:
+    // a socket on every interface is open to the network and makes a
+    // desktop firewall ask about it. Not tried with "any" here, for that
+    // reason -- only what the names resolve to.
+    auto& server = Render::SceneStreamServer::instance();
+    EXPECT_TRUE(server.running());
+    EXPECT_FALSE(server.reachableFromNetwork());
+    if (!std::getenv("FC_SERVE_BIND")) {
+        server.setListenAddress(std::string());
+        EXPECT_EQ(server.listenAddress(), "loopback") << "the default";
+    }
+
+    server.setListenAddress("*");
+    EXPECT_EQ(server.listenAddress(), "any");
+    server.setListenAddress("::");
+    EXPECT_EQ(server.listenAddress(), "any");
+    server.setListenAddress("localhost");
+    EXPECT_EQ(server.listenAddress(), "loopback");
+    server.setListenAddress("127.0.0.1");
+    EXPECT_EQ(server.listenAddress(), "127.0.0.1");
+
+    // An address of its own: that one only, and the v6 loopback not.
+    server.stop();
+    ASSERT_TRUE(server.start(port)) << "listening on 127.0.0.1 alone";
+    EXPECT_FALSE(server.reachableFromNetwork());
+    HttpReply r = httpRequest(port, http::verb::get, "/scene?v=0");
+    ASSERT_TRUE(r.ok);
+    EXPECT_EQ(r.status, 200u);
+    {
+        net::io_context ioc;
+        tcp::socket sock(ioc);
+        beast::error_code ec;
+        sock.open(tcp::v6(), ec);
+        if (!ec) {
+            sock.connect(tcp::endpoint(net::ip::make_address("::1"), uint16_t(port)), ec);
+            EXPECT_TRUE(ec) << "::1 is not where it listens";
+        }
+    }
+
+    // Back to what the suite set up for the cases that follow.
+    server.setListenAddress("loopback");
+    server.stop();
+    ASSERT_TRUE(server.start(port));
+    EXPECT_EQ(server.listenAddress(), "loopback");
 }
 
 TEST_F(SceneServerWire, aChunkedPostBodyIsRead)

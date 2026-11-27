@@ -237,6 +237,8 @@ SET(TechDrawGui_SRCS
     TaskDimRepair.cpp
     TaskDimRepair.h
     TaskDimRepair.ui
+    TaskReferenceList.cpp
+    TaskReferenceList.h
     TaskCosmeticCircle.cpp
     TaskCosmeticCircle.h
     TaskCosmeticCircle.ui

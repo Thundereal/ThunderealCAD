@@ -455,6 +455,36 @@ fc_add_gui_test(GuiTechDrawTreeHoverLightsLabel_tests_run techdraw-tree-hover-li
 fc_add_gui_test(GuiTechDrawDimensionEditEndsGroupEdit_tests_run techdraw-dimension-edit-ends-group-edit.py
                 --timeout 200)
 
+# 2026-11-26: a reference found again by its name alone is not taken in a
+# recompute; the edit's panel takes it, says so, Cancel restores it, and
+# Reattach puts it on another element -- dimensions, hatches, centre lines.
+fc_add_gui_test(GuiTechDrawDimensionReattach_tests_run techdraw-dimension-reattach.py
+                --timeout 200)
+fc_add_gui_test(GuiTechDrawHatchCenterLineReattach_tests_run techdraw-hatch-centerline-reattach.py
+                --timeout 200)
+
+# 2026-11-26: TechDraw hover sets the preselection (the status bar names what
+# is under the mouse), and a dimension's arrow heads have no holes for the
+# face under them to take the mouse through.
+fc_add_gui_test(GuiTechDrawHoverPreselect_tests_run techdraw-hover-preselect.py
+                --timeout 200)
+
+# 2026-11-26: the Part Design Extensions tool bar -- a toggle per tool
+# context (Sheet Metal, Surface, PMI) kept across sessions, the design
+# generators, 3D sketch beside Create Sketch -- and a PMI annotation on a Body
+# with no solid body making the solid body, not a message.
+fc_add_gui_test(GuiPartDesignExtensionsToolbar_tests_run pd-extensions-toolbar.py
+                --timeout 200)
+fc_add_gui_test(GuiPMIBodyWithoutSolidBody_tests_run pmi-body-without-solid-body.py
+                --timeout 200)
+
+# 2026-11-26: a right click on a toolbar in the custom title bar brings the
+# toolbar's own menu (the workbench selector's, or the window's toolbar menu),
+# not the area's list; title bar grips and docked toolbars still drag after
+# the title bar has been used.
+fc_add_gui_test(GuiToolBarTitleBarMenusAndDrags_tests_run toolbar-title-bar-menus-and-drags.py
+                --timeout 300)
+
 # Entry 215: every change in a chamfer's panel an undo step of its own, as
 # the fillet's (entry 136); Cancel takes the edit back.
 fc_add_gui_test(GuiChamferUndoSteps_tests_run chamfer-undo-steps.py
@@ -2093,6 +2123,42 @@ fc_add_gui_test(GuiBoxesOutOfViewTurn_tests_run boxes-out-of-view-turn.py
 fc_add_gui_test(GuiHoldPerDocument_tests_run hold-per-document.py
                 --timeout 400)
 
+# An addon's module that calls FreeCADGui at import loads in a worker, and
+# what a worker cannot make faithfully is made here, said in the Report view
+# (docs/WorkerProcess.md sec 72). scanner.FCStd's OpticsWorkbench objects
+# failed to restore in the worker's copy (Gui.addCommand at import), and the
+# worker recomputed them without their code. Mod/Test/WorkerGuiProbe.py does
+# what OpticalObject.py and Ray.py do; with OpticsWorkbench under GT_ADDONS,
+# a ray on a mirror too.
+fc_add_gui_test(GuiAddonGuiByWorker_tests_run addon-gui-by-worker.py
+                --timeout 300)
+
+# Every built-in object of the install's documents is recomputed by a worker
+# (docs/WorkerProcess.md sec 73): Mod/Test/TestWorkerBuiltIns.py's sweep in
+# the GUI, every FCStd under the home opened, touched and recomputed by a
+# worker with Workers/NoteGuiUp on; no built-in object made here or taken
+# back. About 90 s.
+fc_add_gui_test(GuiBuiltinsByWorker_tests_run builtins-by-worker.py
+                --timeout 1200)
+
+# A document with a Draft BSpline opens again in the GUI: RotationPy's
+# inverted() and isSame() were not const, so obj.Placement.Rotation.inverted()
+# in the wire view's updateData of Shape wrote the placement back, which
+# moved the shape, which called updateData of Shape again -- a stack
+# overflow opening draft_test_objects.FCStd or EngineBlock.FCStd.
+fc_add_gui_test(GuiDraftBSplineReopen_tests_run draft-bspline-reopen.py
+                --timeout 300)
+
+# What built-in code does to views in its execute() is the same made by a
+# worker as made here (docs/WorkerProcess.md sec 73): Mod/Test/
+# WorkerViewProbe.py shows and hides a base, takes its size from a view
+# property, redraws its view and calls its view proxy. The census -- App
+# and view Visibility, the mode switch, display mode, per-view entries --
+# compared after the same recompute here and by a worker, with a per-view
+# hide and a TempoVis hide in each.
+fc_add_gui_test(GuiViewsByWorker_tests_run views-by-worker.py
+                --timeout 300)
+
 # A slice of a progressive load is not charged for the frame drawn inside
 # it, and grows with what the event loop costs (docs/DocumentLoad.md sec
 # 18.16). Both drains worked a fixed budget and then gave the thread back
@@ -2585,6 +2651,22 @@ fc_add_gui_test(GuiCavityCreaseIsSmooth_tests_run
                 cavity-crease-is-smooth.py
                 --timeout 300)
 
+# Thin water over a part is next to clear and deep water coloured: the
+# water shader's Beer-Lambert column ends at the first opaque surface behind
+# the water, not the farthest back face of it, and the tint laid on
+# whatever the depth is left to where the depth is not known.
+fc_add_gui_test(GuiWaterFilmIsClear_tests_run
+                water-film-is-clear.py
+                --timeout 300)
+
+# A translucent part casts a translucent shadow, tinted by its colour: it
+# went into the shadow map as a solid. It casts through the tint map now,
+# against the opaque casters' depth, and a receiver takes that tint only
+# behind the nearest translucent caster along the light.
+fc_add_gui_test(GuiTranslucentShadows_tests_run
+                translucent-shadows.py
+                --timeout 300)
+
 # Std_Paste and Material_Paste asked the clipboard on every pass over the
 # commands, a call into another process each time; they read the formats
 # as remembered since the clipboard last changed. That the list follows
@@ -2803,3 +2885,9 @@ fc_add_gui_test(GuiPMIStep_tests_run pmi-step.py --timeout 300)
 # Datum targets (sec 10.11): PMI_DatumTarget on a datum and a face, its symbol
 # and its mark on the part.
 fc_add_gui_test(GuiPMITargets_tests_run pmi-targets.py --timeout 300)
+
+# Frames of an Animation made by worker processes (docs/Animation.md 4.2):
+# taken in through the event loop, marked on the timeline, the pictures of
+# the frames made here, an export handing its frames to them, an edit
+# stopping them.
+fc_add_gui_test(GuiAnimationWorkers_tests_run animation-workers.py --timeout 600)

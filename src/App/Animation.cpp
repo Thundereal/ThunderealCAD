@@ -27,11 +27,15 @@
 
 #if defined(__APPLE__)
 # include <malloc/malloc.h>
+# include <mach/mach.h>
 #elif defined(__GLIBC__)
 # include <malloc.h>
 #elif defined(_WIN32)
 # include <windows.h>
 # include <psapi.h>
+#endif
+#if !defined(_WIN32)
+# include <unistd.h>
 #endif
 
 #include <Base/Console.h>
@@ -48,6 +52,7 @@
 
 #include "Animation.h"
 #include "AnimationPy.h"
+#include "AnimationWorkers.h"
 #include "Application.h"
 #include "AutoTransaction.h"
 #include "WriteScope.h"
@@ -1141,6 +1146,27 @@ struct Animation::Frame
     std::string file;
     std::size_t fileBytes = 0;
     bool spilled = false;
+    /// A frame a worker made (docs/Animation.md sec 4.2): its element maps
+    /// name the strings of the worker's table, read through this one, and
+    /// its values start `offset` bytes into the file
+    StringHasherRef table;
+    std::uint64_t offset = 0;
+    /// The strings its values name, under the ids the worker gave them
+    /// from its lease (docs/WorkerProcess.md sec 15), taken in as they are
+    /// at each read; `byId` false for a worker that sent none
+    std::vector<StringHasher::Row> rows;
+    bool byId = false;
+};
+
+/// A value of a frame showAt() held back (docs/WorkerProcess.md sec 16):
+/// a copy of the frame's in memory, or what was read of it from disk
+struct Animation::Owed
+{
+    DocumentObject* obj = nullptr;
+    std::unique_ptr<Property> value;
+    CapturedValue captured;
+    /// The worker's table, when its strings come in by content
+    StringHasherRef table;
 };
 
 namespace
@@ -1231,6 +1257,8 @@ struct Animation::Capture
 
 PROPERTY_SOURCE(App::Animation, App::DocumentObject)
 
+fastsignals::signal<void(const Animation&)> Animation::signalCacheChanged;
+
 Animation::Animation()
 {
     ADD_PROPERTY_TYPE(Tracks, (), "Animation", Prop_NoRecompute, "Every track and key");
@@ -1275,11 +1303,25 @@ Animation::~Animation()
     }
     recorders().erase(this);
     cachers().erase(this);
+    _workers.reset();
     for (auto& [index, frame] : _frames) {
         if (!frame->file.empty()) {
-            Base::FileInfo(frame->file).deleteFile();
+            if (std::string path = framePath(*frame); !path.empty()) {
+                Base::FileInfo(path).deleteFile();
+            }
         }
     }
+}
+
+std::string Animation::framePath(const Frame& frame) const
+{
+    // By its name alone: the directory moves with the document's
+    // transient directory when the document is saved under another name
+    if (frame.file.empty()) {
+        return {};
+    }
+    std::string dir = cacheDir();
+    return dir.empty() ? std::string() : dir + "/" + frame.file;
 }
 
 DocumentObjectExecReturn* Animation::execute()
@@ -2304,6 +2346,10 @@ void Animation::evaluateAt(double t)
         return;
     }
     _pending = false;
+    if (_workers) {
+        // What came from the workers while a recompute ran
+        _workers->adoptArrived();
+    }
     Base::FlagToggler<bool> flag(_evaluating);
     WriteScope animated(WriteCause::Animation);
 
@@ -2433,14 +2479,51 @@ void Animation::evaluateAt(double t)
     else if (Recompute.getValue() != RecomputeTouched) {
         return;
     }
+    if (_frameOut) {
+        // In a worker: the frame goes to a file for the process that asked
+        Capture capture;
+        for (auto obj : doc->getObjects()) {
+            if (obj->isTouched()) {
+                capture.scope.insert(obj);
+            }
+        }
+        double began = secondsNow();
+        _capture = &capture;
+        int res = -1;
+        try {
+            res = doc->recompute();
+        }
+        catch (...) {
+            _capture = nullptr;
+            throw;
+        }
+        _capture = nullptr;
+        if (res >= 0) {
+            writeFrameFile(*_frameOut, capture, secondsNow() - began);
+        }
+        else {
+            _frameOut->error = "the recompute failed";
+        }
+        return;
+    }
     long frame = 0;
     if (!isCaching() || !frameAt(t, frame)) {
+        settle();  // a recompute reads what was held back
         doc->recompute();
         return;
     }
+    if (_workers) {
+        // What a worker is making is waited for, not made twice; what is
+        // queued for one is made here and taken off the queue
+        _workers->claim(frame);
+    }
     if (replayFrame(frame)) {
+        if (!_showing) {
+            settle();  // what this frame did not put back of the last one shown
+        }
         return;
     }
+    settle();
     Capture capture;
     for (auto obj : doc->getObjects()) {
         if (obj->isTouched()) {
@@ -2515,6 +2598,15 @@ bool Animation::replayFrame(long index)
     else {
         for (auto& v : frame.values) {
             try {
+                if (defers(*v.prop)) {
+                    auto owed = std::make_unique<Owed>();
+                    owed->obj = v.obj;
+                    owed->value.reset(v.value->Copy());
+                    _owed[v.prop] = std::move(owed);
+                    ++_cacheDeferred;
+                    continue;
+                }
+                _owed.erase(v.prop);
                 v.prop->Paste(*v.value);
             }
             catch (Base::Exception& e) {
@@ -2550,7 +2642,7 @@ void Animation::dropFrame(long index)
     }
     if (!frame.file.empty()) {
         _cacheDiskBytes -= std::min(_cacheDiskBytes, frame.fileBytes);
-        Base::FileInfo(frame.file).deleteFile();
+        Base::FileInfo(framePath(frame)).deleteFile();
     }
     _frames.erase(it);
 }
@@ -2598,7 +2690,8 @@ bool Animation::spillFrame(long index, Frame& frame)
         // Binary: a third smaller than the text a save writes, and quicker
         // read back (docs/Animation.md sec 4.1)
         config.preferBinary = true;
-        std::string name = dir + "/" + std::to_string(index) + ".frame";
+        std::string leaf = std::to_string(index) + ".frame";
+        std::string name = dir + "/" + leaf;
         std::ofstream out(name, std::ios::binary | std::ios::trunc);
         if (!out) {
             return false;
@@ -2626,7 +2719,7 @@ bool Animation::spillFrame(long index, Frame& frame)
         }
         frame.fileBytes = static_cast<std::size_t>(out.tellp());
         out.close();
-        frame.file = name;
+        frame.file = leaf;
         _cacheDiskBytes += frame.fileBytes;
         _cacheDiskSeconds += secondsNow() - began;
         _cacheDiskWork += frame.bytes;
@@ -2643,11 +2736,14 @@ bool Animation::spillFrame(long index, Frame& frame)
 bool Animation::loadFrame(Frame& frame)
 {
     double began = secondsNow();
-    std::ifstream in(frame.file, std::ios::binary);
+    std::ifstream in(framePath(frame), std::ios::binary);
     if (!in) {
         return false;
     }
     const std::uint64_t most = frame.fileBytes;
+    if (frame.offset) {
+        in.seekg(static_cast<std::streamoff>(frame.offset));
+    }
     std::uint64_t count = 0;
     if (!getSize(in, count) || count != frame.values.size()) {
         return false;
@@ -2668,10 +2764,46 @@ bool Animation::loadFrame(Frame& frame)
         value.ok = true;
     }
     in.close();
+    std::size_t deferred = 0;
     try {
+        // A worker's frame names its strings in the worker's table. Given
+        // from ids this file's table leased the worker, they come in under
+        // those ids, the values read as they are; refused -- a string this
+        // table came to hold under another id meanwhile -- each is taken in
+        // by content as it is read (docs/WorkerProcess.md sec 15)
+        std::unique_ptr<RestoreStrings> strings;
+        if (frame.table) {
+            auto hasher = getDocument()->getStringHasher();
+            std::string why;
+            if (frame.byId && hasher && hasher->takeRows(frame.rows, &why)) {
+                ++_cacheById;
+            }
+            else {
+                if (frame.byId) {
+                    FC_LOG(getFullName() << ": a worker's frame read by content: " << why);
+                }
+                ++_cacheByContent;
+                strings = std::make_unique<RestoreStrings>(frame.table, hasher);
+            }
+        }
         RestoreBatch batch;
         for (std::size_t i = 0; i < values.size(); ++i) {
-            restoreValue(*frame.values[i].prop, values[i]);
+            auto& v = frame.values[i];
+            if (defers(*v.prop)) {
+                // Not read: kept as it came, for settle()
+                auto owed = std::make_unique<Owed>();
+                owed->obj = v.obj;
+                owed->captured = std::move(values[i]);
+                if (strings) {
+                    owed->table = frame.table;
+                }
+                _owed[v.prop] = std::move(owed);
+                ++_cacheDeferred;
+                ++deferred;
+                continue;
+            }
+            _owed.erase(v.prop);
+            restoreValue(*v.prop, values[i]);
         }
         batch.finish();
     }
@@ -2679,12 +2811,26 @@ bool Animation::loadFrame(Frame& frame)
         FC_WARN(getFullName() << ": " << e.what());
         return false;
     }
+    if (deferred) {
+        // The document has not all of it: the frame stays on disk only
+        _cacheDiskSeconds += secondsNow() - began;
+        ++_cacheLoaded;
+        return true;
+    }
     // In memory again, as the document has it now; the file stays good
+    std::size_t counted = 0;
     for (auto& v : frame.values) {
         v.value.reset(v.prop->Copy());
         if (!v.value) {
             return false;
         }
+        counted += v.value->getMemSize();
+    }
+    if (!frame.bytes) {
+        // Never in memory before, so never measured: as the frames that
+        // were, or by its properties' own count
+        frame.bytes = _cacheMeasuredFrames ? std::max(counted, _cacheMeasured / _cacheMeasuredFrames)
+                                           : counted;
     }
     frame.spilled = false;
     _cacheBytes += frame.bytes;
@@ -2811,7 +2957,7 @@ void Animation::trimCache()
             for (auto& [i, frame] : _frames) {
                 if (!frame->file.empty() && frame->used < _cacheTick) {
                     _cacheDiskBytes -= std::min(_cacheDiskBytes, frame->fileBytes);
-                    Base::FileInfo(frame->file).deleteFile();
+                    Base::FileInfo(framePath(*frame)).deleteFile();
                     frame->file.clear();
                     frame->fileBytes = 0;
                     if (_cacheDiskBytes <= disk) {
@@ -2825,13 +2971,24 @@ void Animation::trimCache()
     }
 }
 
-void Animation::dropFramesReaching(const DocumentObject& obj)
+void Animation::dropFramesReaching(const DocumentObject& obj, const Property& prop)
 {
     // obj, and every object whose result depends on it, through any link,
-    // an expression's hidden ones included
-    std::set<DocumentObject*> reached = obj.getInListEx(true);
-    reached.insert(const_cast<DocumentObject*>(&obj));
+    // an expression's hidden ones included; of a change of what the view
+    // shows, only what reads it (docs/WorkerProcess.md sec 17)
+    std::set<DocumentObject*> reached = writeReaches(obj, prop);
     reached.erase(this);
+    if (reached.empty()) {
+        return;
+    }
+    // The workers' copy is not the design any more; the pool sees that
+    // itself, moves them to the next one (docs/WorkerProcess.md sec 4) and
+    // drops the jobs the edit reaches. A frame made and not taken in yet
+    // goes with them; the others stand
+    if (_workers && (_workers->running() || !_workers->arrived.empty())
+        && _workers->reaches(reached)) {
+        stopWorkers("the design changed");
+    }
     std::vector<long> gone;
     for (auto& [index, frame] : _frames) {
         for (auto o : frame->scope) {
@@ -2848,9 +3005,13 @@ void Animation::dropFramesReaching(const DocumentObject& obj)
 
 void Animation::clearCache()
 {
+    stopWorkers("the cache was cleared");
+    if (_workers) {
+        _workers->loaded.clear();
+    }
     for (auto& [index, frame] : _frames) {
         if (!frame->file.empty()) {
-            Base::FileInfo(frame->file).deleteFile();
+            Base::FileInfo(framePath(*frame)).deleteFile();
         }
     }
     _frames.clear();
@@ -2876,7 +3037,412 @@ Animation::CacheInfo Animation::cacheInfo() const
     info.replayed = _cacheReplayed;
     info.spilled = _cacheSpilled;
     info.loaded = _cacheLoaded;
+    info.prepared = _cachePrepared;
+    info.byId = _cacheById;
+    info.byContent = _cacheByContent;
+    info.deferred = _cacheDeferred;
+    info.settled = _cacheSettled;
+    info.owed = _owed.size();
     return info;
+}
+
+namespace
+{
+/// The start of a frame a worker wrote (docs/Animation.md sec 4.2): then its
+/// table's hash, the seconds its recompute took, the property of each
+/// value by its object's and its own name, the frame's scope and the clean
+/// part of it by name, the strings its values name (a count plus one, then
+/// the rows; 0 for none sent, docs/WorkerProcess.md sec 15) -- and from
+/// there on what spillFrame() writes
+const char WorkerFrameMagic[8] = {'F', 'C', 'A', 'W', 'F', 'R', '0', '2'};
+
+void putName(std::ostream& out, const char* name)
+{
+    putBytes(out, name ? std::string(name) : std::string());
+}
+}  // namespace
+
+double Animation::meanFrameCost() const
+{
+    double total = 0;
+    long count = 0;
+    // Not a frame whose recompute wrote nothing: the design at rest, say,
+    // which says nothing of what the others cost
+    for (auto& [index, frame] : _frames) {
+        if (frame->cost > 0 && !frame->values.empty()) {
+            total += frame->cost;
+            ++count;
+        }
+    }
+    return count ? total / static_cast<double>(count) : 0.0;
+}
+
+std::function<std::string(const DocumentObject&)> Animation::displayHint;
+std::function<bool(const DocumentObject&)> Animation::drawnHere;
+
+bool Animation::defers(const Property& prop) const
+{
+    // Geometry only: a number, a placement, is put back as it is, and
+    // costs nothing to; a shape costs its parse, its element map, the
+    // references to it, its appearance (docs/WorkerProcess.md sec 16)
+    if (!_showing || !drawnHere || !prop.isDerivedFrom<PropertyComplexGeoData>()) {
+        return false;
+    }
+    auto obj = freecad_cast<DocumentObject*>(prop.getContainer());
+    return obj && obj != this && !drawnHere(*obj);
+}
+
+void Animation::showAt(double t)
+{
+    Base::FlagToggler<bool> showing(_showing, false);
+    if (std::fabs(Time.getValue() - t) > TimeEpsilon) {
+        Time.setValue(t);
+    }
+    else {
+        activate();
+    }
+}
+
+void Animation::settle()
+{
+    auto doc = getDocument();
+    if (_owed.empty() || _settling || !doc) {
+        return;
+    }
+    Base::FlagToggler<bool> flag(_settling, false);
+    WriteScope animated(WriteCause::Animation);
+    auto owed = std::move(_owed);
+    _owed.clear();
+    std::vector<DocumentObject*> clean;
+    for (auto& [prop, o] : owed) {
+        if (!o->obj || !o->obj->isAttachedToDocument()) {
+            continue;
+        }
+        // As the frame left it: touched by the put back only
+        if (!o->obj->isTouched()) {
+            clean.push_back(o->obj);
+        }
+        try {
+            if (o->value) {
+                prop->Paste(*o->value);
+            }
+            else {
+                std::unique_ptr<RestoreStrings> strings;
+                if (o->table) {
+                    strings = std::make_unique<RestoreStrings>(o->table, doc->getStringHasher());
+                }
+                RestoreBatch batch;
+                restoreValue(*prop, o->captured);
+                batch.finish();
+            }
+            ++_cacheSettled;
+        }
+        catch (Base::Exception& e) {
+            // Left as it was: a recompute puts it right
+            FC_WARN(getFullName() << ": " << prop->getFullName() << " not put in: " << e.what());
+            o->obj->touch();
+            clean.erase(std::remove(clean.begin(), clean.end(), o->obj), clean.end());
+        }
+    }
+    for (auto obj : clean) {
+        if (obj->isAttachedToDocument()) {
+            obj->purgeTouched();
+        }
+    }
+}
+std::function<bool(const Property&, const std::string&, const CaptureConfig&, CapturedValue&)>
+    Animation::captureForDisplay;
+
+Animation::FrameWritten Animation::writeFrame(long index, const std::string& file,
+                                              const std::string& tables,
+                                              const std::map<std::string, std::string>& display)
+{
+    auto doc = getDocument();
+    if (!doc || !getNameInDocument()) {
+        THROWM(Base::RuntimeError, "The animation is not in a document");
+    }
+    const double rate = FrameRate.getValue();
+    if (rate <= 0) {
+        THROWM(Base::ValueError, "The animation has no frame rate");
+    }
+    if (Recompute.getValue() == RecomputeNever) {
+        THROWM(Base::ValueError, "The animation recomputes nothing");
+    }
+    if (!Active.getValue()) {
+        Active.setValue(true);  // evaluates, at Time
+    }
+    FrameOut out;
+    out.index = index;
+    out.file = file;
+    out.tables = tables;
+    out.display = display;
+    _frameOut = &out;
+    try {
+        // A Time already there is no change, and evaluates nothing: written
+        // again, the tracks touch what they write as a change of Time does
+        const double t = Start.getValue() + static_cast<double>(index) / rate;
+        if (std::fabs(Time.getValue() - t) <= TimeEpsilon) {
+            evaluate();
+        }
+        else {
+            Time.setValue(t);
+        }
+    }
+    catch (...) {
+        _frameOut = nullptr;
+        throw;
+    }
+    _frameOut = nullptr;
+    out.written.resident = WorkerPool::residentBytes();
+    if (!out.done) {
+        FC_THROWM(Base::RuntimeError,
+                  "Frame " << index << " not made: "
+                           << (out.error.empty() ? std::string("nothing was evaluated")
+                                                 : out.error));
+    }
+    return out.written;
+}
+
+void Animation::writeFrameFile(FrameOut& out, Capture& capture, double cost)
+{
+    auto doc = getDocument();
+    // What storeFrame() keeps, so what the cache that takes it in would
+    for (auto& [obj, prop] : capture.written) {
+        if (!obj->isAttachedToDocument() || obj->isError()) {
+            out.error = std::string(obj->getFullName()) + " is in error";
+            return;
+        }
+        capture.scope.insert(obj);
+    }
+    std::vector<DocumentObject*> clean;
+    for (auto obj : capture.scope) {
+        if (!obj->isAttachedToDocument() || obj->isError()) {
+            out.error = std::string(obj->getFullName()) + " is in error";
+            return;
+        }
+        if (!obj->isTouched()) {
+            clean.push_back(obj);
+        }
+    }
+    auto writeAtomic = [&out](const std::string& name, const std::function<bool(std::ostream&)>& body) {
+        std::string part = name + ".part";
+        {
+            std::ofstream file(part, std::ios::binary | std::ios::trunc);
+            if (!file || !body(file)) {
+                file.close();
+                Base::FileInfo(part).deleteFile();
+                return false;
+            }
+            file.flush();
+            if (!file) {
+                file.close();
+                Base::FileInfo(part).deleteFile();
+                return false;
+            }
+        }
+        Base::FileInfo(name).deleteFile();
+        if (!Base::FileInfo(part).renameFile(name.c_str())) {
+            Base::FileInfo(part).deleteFile();
+            out.error = "cannot write " + name;
+            return false;
+        }
+        return true;
+    };
+    // The string table the element maps name their strings in, once for
+    // as long as it stays the same
+    std::string hash;
+    if (auto hasher = doc->getStringHasher()) {
+        hash = hasher->contentHash();
+        std::string name = out.tables + "/" + hash + ".table";
+        if (!Base::FileInfo(name).exists()) {
+            std::string bytes = hasher->saveTable();
+            if (!writeAtomic(name, [&bytes](std::ostream& s) {
+                    s.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                    return bool(s);
+                })) {
+                if (out.error.empty()) {
+                    out.error = "cannot write " + name;
+                }
+                return;
+            }
+        }
+    }
+    CaptureConfig config(*doc);
+    config.blobs = nullptr;  // whole, in the frame's own file
+    config.preferBinary = true;
+    std::vector<CapturedValue> values;
+    values.reserve(capture.written.size());
+    std::vector<long> ids;
+    for (auto& [obj, prop] : capture.written) {
+        // Meshed as the view that shows the frame meshes it, the mesh kept
+        // with the value (docs/WorkerProcess.md sec 14)
+        CapturedValue value;
+        auto hint = out.display.find(obj->getNameInDocument());
+        if (hint == out.display.end() || !captureForDisplay
+            || !captureForDisplay(*prop, hint->second, config, value)) {
+            value = captureValue(config, *prop);
+        }
+        if (!value.ok || !value.blobs.empty()) {
+            out.error = std::string(prop->getFullName()) + " cannot be written";
+            return;
+        }
+        ids.insert(ids.end(), value.stringIds.begin(), value.stringIds.end());
+        values.push_back(std::move(value));
+    }
+    // The strings the values name, under their ids: given from ids the
+    // pool's table leased this worker, so the cache takes them in as they
+    // are (docs/WorkerProcess.md sec 15). None without a lease
+    auto hasher = doc->getStringHasher();
+    const bool byId = hasher && hasher->lease();
+    std::vector<StringHasher::Row> rows;
+    if (byId) {
+        rows = hasher->rowsOf(ids);
+    }
+    std::size_t bytes = 0;
+    bool ok = writeAtomic(out.file, [&](std::ostream& s) {
+        s.write(WorkerFrameMagic, sizeof(WorkerFrameMagic));
+        putBytes(s, hash);
+        std::uint64_t bits = 0;
+        static_assert(sizeof(bits) == sizeof(cost));
+        std::memcpy(&bits, &cost, sizeof(bits));
+        putSize(s, bits);
+        putSize(s, capture.written.size());
+        for (auto& [obj, prop] : capture.written) {
+            putName(s, obj->getNameInDocument());
+            putName(s, prop->getName());
+        }
+        putSize(s, capture.scope.size());
+        for (auto obj : capture.scope) {
+            putName(s, obj->getNameInDocument());
+        }
+        putSize(s, clean.size());
+        for (auto obj : clean) {
+            putName(s, obj->getNameInDocument());
+        }
+        putSize(s, byId ? rows.size() + 1 : 0);
+        if (byId) {
+            StringHasher::writeRows(s, rows);
+        }
+        putSize(s, values.size());
+        for (auto& value : values) {
+            putBytes(s, value.fragment);
+            putSize(s, value.attachments.size());
+            for (auto& a : value.attachments) {
+                putBytes(s, a.name);
+                putBytes(s, a.bytes);
+            }
+        }
+        bytes = static_cast<std::size_t>(s.tellp());
+        return bool(s);
+    });
+    if (!ok) {
+        if (out.error.empty()) {
+            out.error = "cannot write " + out.file;
+        }
+        return;
+    }
+    out.written.bytes = bytes;
+    out.written.cost = cost;
+    out.written.table = hash;
+    out.done = true;
+}
+
+bool Animation::adoptFrame(long index, const std::string& file)
+{
+    Base::FileInfo info(file);
+    auto discard = [&info]() {
+        info.deleteFile();
+        return false;
+    };
+    auto doc = getDocument();
+    if (!doc || !_workers || _frames.count(index)) {
+        return discard();  // made here meanwhile
+    }
+    std::ifstream in(file, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    const std::uint64_t most = info.size();
+    char magic[sizeof(WorkerFrameMagic)];
+    in.read(magic, sizeof(magic));
+    if (!in || std::memcmp(magic, WorkerFrameMagic, sizeof(magic)) != 0) {
+        return discard();
+    }
+    std::string hash;
+    std::uint64_t bits = 0;
+    if (!getBytes(in, hash, most) || !getSize(in, bits)) {
+        return discard();
+    }
+    auto frame = std::make_unique<Frame>();
+    std::memcpy(&frame->cost, &bits, sizeof(bits));
+    std::string name;
+    std::string propName;
+    std::uint64_t count = 0;
+    if (!getSize(in, count) || count > most) {
+        return discard();
+    }
+    for (std::uint64_t i = 0; i < count; ++i) {
+        if (!getBytes(in, name, most) || !getBytes(in, propName, most)) {
+            return discard();
+        }
+        auto obj = doc->getObject(name.c_str());
+        auto prop = obj ? obj->getPropertyByName(propName.c_str()) : nullptr;
+        if (!prop) {
+            FC_WARN(getFullName() << ": frame " << index << " from a worker names "
+                                  << name << "." << propName << ", which is not here");
+            return discard();
+        }
+        frame->values.push_back({obj, prop, nullptr});
+    }
+    auto readObjects = [&](auto&& take) {
+        std::uint64_t n = 0;
+        if (!getSize(in, n) || n > most) {
+            return false;
+        }
+        for (std::uint64_t i = 0; i < n; ++i) {
+            if (!getBytes(in, name, most)) {
+                return false;
+            }
+            auto obj = doc->getObject(name.c_str());
+            if (!obj) {
+                return false;
+            }
+            take(obj);
+        }
+        return true;
+    };
+    if (!readObjects([&](DocumentObject* obj) { frame->scope.insert(obj); })
+        || !readObjects([&](DocumentObject* obj) { frame->clean.push_back(obj); })) {
+        return discard();
+    }
+    std::uint64_t rows = 0;
+    if (!getSize(in, rows) || rows > most) {
+        return discard();
+    }
+    if (rows) {
+        frame->byId = true;
+        if (!StringHasher::readRows(in, frame->rows, most) || frame->rows.size() != rows - 1) {
+            return discard();
+        }
+    }
+    frame->offset = static_cast<std::uint64_t>(in.tellg());
+    in.close();
+    if (!hash.empty()) {
+        frame->table = _workers->table(hash);
+        if (!frame->table) {
+            return discard();
+        }
+    }
+    frame->file = info.fileName();
+    frame->fileBytes = static_cast<std::size_t>(most);
+    frame->spilled = true;
+    // As new as the frame on show, which trimming never lets go of
+    frame->used = _cacheTick;
+    _cacheDiskBytes += frame->fileBytes;
+    _frames[index] = std::move(frame);
+    ++_cachePrepared;
+    trimCache();
+    return true;
 }
 
 void Animation::activate()
@@ -2893,6 +3459,23 @@ void Animation::deactivate(bool recompute)
 {
     auto doc = getDocument();
     _pending = false;
+    if (!_owed.empty()) {
+        if (recompute && doc && Recompute.getValue() != RecomputeNever
+            && !doc->testStatus(Document::Recomputing)) {
+            // What was held back is recomputed from the rest values below,
+            // not put in to be replaced at once
+            auto owed = std::move(_owed);
+            _owed.clear();
+            for (auto& [prop, o] : owed) {
+                if (o->obj && o->obj->isAttachedToDocument()) {
+                    o->obj->touch();
+                }
+            }
+        }
+        else {
+            settle();
+        }
+    }
     // A handler's tracks keep their own rest: a camera put back. Those of
     // the Animations played as strips too, which wrote as this one, as
     // evaluate() plays them
@@ -3071,16 +3654,20 @@ void Animation::connectDocument()
             _saving = true;
             deactivate(true);
         }
+        settle();
         // A frame on disk names its element maps' strings by the ids the
         // file's table has now, and a save may give that table up
         std::vector<long> gone;
         for (auto& [index, frame] : _frames) {
+            if (frame->offset) {
+                continue;  // a worker's, naming strings of its own table
+            }
             if (frame->spilled) {
                 gone.push_back(index);
             }
             else if (!frame->file.empty()) {
                 _cacheDiskBytes -= std::min(_cacheDiskBytes, frame->fileBytes);
-                Base::FileInfo(frame->file).deleteFile();
+                Base::FileInfo(framePath(*frame)).deleteFile();
                 frame->file.clear();
                 frame->fileBytes = 0;
             }
@@ -3110,8 +3697,15 @@ void Animation::connectDocument()
             _capture->scope.insert(const_cast<DocumentObject*>(&obj));
         }
     }));
+    _conns.emplace_back(doc->signalBeforeRecompute.connect([this](const Document&) {
+        // A recompute reads what showAt() held back
+        settle();
+    }));
     _conns.emplace_back(doc->signalDeletedObject.connect([this](const DocumentObject& obj) {
         clearCache();
+        for (auto it = _owed.begin(); it != _owed.end();) {
+            it = it->second->obj == &obj ? _owed.erase(it) : std::next(it);
+        }
         if (&obj == this) {
             return;
         }
@@ -3130,7 +3724,14 @@ void Animation::connectDocument()
         dropRest(&obj, nullptr);
     }));
     _conns.emplace_back(doc->signalBeforeChangeObject.connect(
-        [this](const DocumentObject& obj, const Property& prop) { onBeforeRecord(obj, prop); }));
+        [this](const DocumentObject& obj, const Property& prop) {
+            if (!_owed.empty() && &obj != this
+                && !(WriteScope::causes() & WriteCause::Animation)) {
+                // An edit, an undo: of a document as it is at Time
+                settle();
+            }
+            onBeforeRecord(obj, prop);
+        }));
     _conns.emplace_back(doc->signalChangedObject.connect(
         [this](const DocumentObject& obj, const Property& prop) {
             if (_capture) {
@@ -3140,16 +3741,20 @@ void Animation::connectDocument()
                                                    const_cast<Property*>(&prop));
                 }
             }
-            else if (!_frames.empty() && !(WriteScope::causes() & WriteCause::Animation)) {
+            else if ((!_frames.empty() || _workers) && !(WriteScope::causes() & WriteCause::Animation)) {
                 if (&obj != this) {
                     // The design changed: what a frame kept of it, or of
                     // anything that depends on it, is not what a
                     // recompute would give now
-                    dropFramesReaching(obj);
+                    dropFramesReaching(obj, prop);
                 }
                 else if (&prop == &Tracks || &prop == &Start || &prop == &FrameRate
                          || &prop == &Recompute || &prop == &Cache) {
-                    // What a frame is changed: nothing kept stands
+                    // What a frame is changed: nothing kept stands, nor
+                    // the workers' copy, unless only Cache changed
+                    if (&prop != &Cache) {
+                        designChanged();
+                    }
                     clearCache();
                 }
             }
@@ -3165,6 +3770,7 @@ void Animation::connectDocument()
         [this](const Property& prop) {
             clearCache();
             dropRest(nullptr, &prop);
+            _owed.erase(const_cast<Property*>(&prop));
         }));
 }
 
@@ -3184,6 +3790,7 @@ void Animation::onChanged(const Property* prop)
         }
         else {
             cachers().erase(this);
+            stopWorkers(Active.getValue() ? "the frames are not kept" : "the animation stopped");
         }
     }
     auto doc = getDocument();

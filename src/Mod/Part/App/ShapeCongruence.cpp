@@ -87,6 +87,7 @@ struct GPropCost
     double volumeSeconds = 0.;
 };
 GPropCost theCost;
+CongruenceIndex::Work theWork;
 
 //! Every vertex of a shape, in the order TopExp gives them -- which is the
 //! order the correspondence relies on.
@@ -444,6 +445,7 @@ double CongruenceIndex::lengthOf(const TopoDS_Shape& shape, Invariants& cache)
     if (!cache.lengthKnown) {
         cache.lengthKnown = true;
         ++theCost.lengths;
+        ++theWork.lengths;
         Stopwatch watch(theCost.lengthSeconds);
         try {
             GProp_GProps linear;
@@ -462,6 +464,7 @@ double CongruenceIndex::areaOf(const TopoDS_Shape& shape, Invariants& cache)
     if (!cache.areaKnown) {
         cache.areaKnown = true;
         ++theCost.computed;
+        ++theWork.areas;
         Stopwatch watch(theCost.areaSeconds);
         try {
             GProp_GProps surface;
@@ -480,6 +483,7 @@ double CongruenceIndex::volumeOf(const TopoDS_Shape& shape, Invariants& cache)
     if (!cache.volumeKnown) {
         cache.volumeKnown = true;
         ++theCost.volumes;
+        ++theWork.volumes;
         Stopwatch watch(theCost.volumeSeconds);
         try {
             GProp_GProps volume;
@@ -493,16 +497,26 @@ double CongruenceIndex::volumeOf(const TopoDS_Shape& shape, Invariants& cache)
     return cache.volume;
 }
 
+std::size_t CongruenceIndex::keyOf(const TopoDS_Shape& shape, Invariants* cache) const
+{
+    if (cache && cache->keyKnown)
+        return cache->key;
+    Stopwatch watch(_cost.keySeconds);
+    ++_cost.keys;
+    ++theWork.keys;
+    const std::size_t key = shapeCongruenceKey(shape);
+    if (cache) {
+        cache->key = key;
+        cache->keyKnown = true;
+    }
+    return key;
+}
+
 bool CongruenceIndex::find(const TopoDS_Shape& shape, Match& match, Invariants* kept,
                            const Match* last) const
 {
     ++_cost.finds;
-    std::size_t key = 0;
-    {
-        Stopwatch watch(_cost.keySeconds);
-        ++_cost.keys;
-        key = shapeCongruenceKey(shape);
-    }
+    const std::size_t key = keyOf(shape, kept);
     if (!key)
         return false;
     const auto it = _buckets.find(key);
@@ -540,19 +554,19 @@ bool CongruenceIndex::find(const TopoDS_Shape& shape, Match& match, Invariants* 
         // the other two, and integrating along the edges is an order cheaper
         // than integrating over the faces.
         const double ownLength = lengthOf(shape, own);
-        const double theirLength = lengthOf(entry.shape, entry.invariants);
+        const double theirLength = lengthOf(entry.shape, *entry.invariants);
         const double lengthScale = std::max(std::abs(ownLength), std::abs(theirLength));
         if (std::abs(ownLength - theirLength) > 1e-7 * std::max(lengthScale, 1.))
             continue;
         const double ownArea = areaOf(shape, own);
-        const double theirArea = areaOf(entry.shape, entry.invariants);
+        const double theirArea = areaOf(entry.shape, *entry.invariants);
         const double areaScale = std::max(std::abs(ownArea), std::abs(theirArea));
         if (std::abs(ownArea - theirArea) > 1e-7 * std::max(areaScale, 1.))
             continue;
         // Reached only once the areas already agree, which is what makes
         // computing it lazily worth the second flag.
         const double ownVolume = volumeOf(shape, own);
-        const double theirVolume = volumeOf(entry.shape, entry.invariants);
+        const double theirVolume = volumeOf(entry.shape, *entry.invariants);
         const double volumeScale = std::max(std::abs(ownVolume), std::abs(theirVolume));
         if (std::abs(ownVolume - theirVolume) > 1e-7 * std::max(volumeScale, 1.))
             continue;
@@ -574,17 +588,14 @@ bool CongruenceIndex::find(const TopoDS_Shape& shape, Match& match, Invariants* 
     return false;
 }
 
-void CongruenceIndex::add(const TopoDS_Shape& shape, int slot)
+void CongruenceIndex::add(const TopoDS_Shape& shape, int slot, std::shared_ptr<Invariants> kept)
 {
-    std::size_t key = 0;
-    {
-        Stopwatch watch(_cost.keySeconds);
-        ++_cost.keys;
-        key = shapeCongruenceKey(shape);
-    }
+    const std::size_t key = keyOf(shape, kept.get());
     if (!key)
         return;
-    _buckets[key].push_back(Entry {shape, slot});
+    if (!kept)
+        kept = std::make_shared<Invariants>();
+    _buckets[key].push_back(Entry {shape, slot, std::move(kept)});
     ++_count;
 }
 
@@ -601,6 +612,11 @@ void CongruenceIndex::report() const
            << theCost.volumeSeconds << "s), motions "
            << _cost.motionSeconds << "s");
     theCost = GPropCost();
+}
+
+CongruenceIndex::Work CongruenceIndex::work()
+{
+    return theWork;
 }
 
 void CongruenceIndex::clear()

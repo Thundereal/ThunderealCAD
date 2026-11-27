@@ -64,6 +64,16 @@ set "FREECAD_USER_HOME=%OUT%\home"
 set "FC_MCP_PORT=0"
 set "QT_QPA_PLATFORM="
 if /i "%GT_DESKTOP%"=="offscreen" set "QT_QPA_PLATFORM=offscreen"
+rem Device pixel ratio 1, as xvfb gives on Linux: the tests measure pixels
+rem against sizes set in logical units, and a monitor at 125% made every one
+rem of those 1.25x off (a maximized window: 4096 logical, 5120 real) -- 35 of the 52
+rem tests that failed on such a box passed with this. A test after another
+rem ratio still asks for it, QT_SCALE_FACTOR on top of this.
+if not defined QT_ENABLE_HIGHDPI_SCALING set "QT_ENABLE_HIGHDPI_SCALING=0"
+rem Fonts at xvfb's 96 dpi too: without it a point is still 1.25 of xvfb's pixels
+rem at 125% (the ratio above stays 1), and widths fitted to text come out wider
+rem (a spin box's fitted minimum 87 px where 80 is the most it may be).
+if not defined QT_FONT_DPI set "QT_FONT_DPI=96"
 
 set "RUNCALL="
 if defined FC_RUNNER set RUNCALL=call "%FC_RUNNER%"

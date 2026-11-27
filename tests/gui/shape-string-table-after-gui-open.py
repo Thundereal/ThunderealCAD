@@ -79,9 +79,12 @@ def make():
     script = os.path.join(OUT, "make_table_file.py")
     with open(script, "w", encoding="utf-8") as f:
         f.write(MAKER % (DOC, PATH))
-    exe = os.path.join(FreeCAD.getHomePath(), "bin", "FreeCADCmd.exe")
+    # Named after the program (src/Main/CMakeLists.txt): ThunderealCmd on a
+    # Thundereal build.
+    cmd = FreeCAD.ConfigGet("ExeName") + "Cmd"
+    exe = os.path.join(FreeCAD.getHomePath(), "bin", cmd + ".exe")
     if not os.path.exists(exe):
-        exe = os.path.join(FreeCAD.getHomePath(), "bin", "FreeCADCmd")
+        exe = os.path.join(FreeCAD.getHomePath(), "bin", cmd)
     proc = subprocess.run([exe, script], capture_output=True, text=True, timeout=180)
     if not os.path.exists(PATH):
         note("ABORT the file was not written: %s %s" % (proc.returncode, proc.stderr[-500:]))

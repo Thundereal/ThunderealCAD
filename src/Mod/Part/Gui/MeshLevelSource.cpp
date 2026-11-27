@@ -110,6 +110,19 @@ using LevelSourceStatePtr = std::shared_ptr<LevelSourceState>;
 // leg of the provider seam, at the only granularity the desktop
 // needs before the plan pass exists.
 
+/// First pictures the camera sees that a runner has taken and that have
+/// not landed: an at-leisure first picture's landing waits for them
+/// (docs/DocumentLoad.md sec 18.13, docs/WorkerProcess.md sec 68). Counted
+/// by a token a job carries from its hand-out to the end of its landing
+/// closure, or of the job where there is none.
+std::atomic<int> s_inViewFirsts {0};
+struct InViewFirst {
+    InViewFirst() { ++s_inViewFirsts; }
+    ~InViewFirst() { --s_inViewFirsts; }
+    InViewFirst(const InViewFirst &) = delete;
+    InViewFirst &operator=(const InViewFirst &) = delete;
+};
+
 struct RefineJob {
     uint64_t token = 0;
     const void *tag = nullptr;
@@ -140,6 +153,9 @@ struct RefineJob {
     /// into view moves up with the job it already has (levelJobClass,
     /// reorderLevelJob).
     std::shared_ptr<std::atomic<bool>> idle;
+    /// Set when a runner takes a first picture the camera sees (class 1):
+    /// it counts in s_inViewFirsts until the job, or its landing, is gone.
+    std::shared_ptr<InViewFirst> inView;
     /// The sweep order this job descends for (0 = none): inherited
     /// from the thread-current generation at enqueue, re-entered
     /// around the landing so chained enqueues inherit it too. What
@@ -280,6 +296,9 @@ void settleDescent(const RefineJob &job)
 struct LoadHold {
     /// Some document still has visuals to build.
     bool any = false;
+    /// First pictures the camera sees not yet landed, queued, ready or
+    /// running (inViewFirstsOutstanding): an at-leisure one waits for them
+    int firsts = 0;
     /// The active view's document, when it has none left to build.
     std::string free;
 
@@ -308,7 +327,13 @@ struct LandingItem {
 
     bool held(const LoadHold &hold) const
     {
-        return (waits || (idle && idle->load())) && hold.holds(doc);
+        const bool atLeisure = idle && idle->load();
+        // Behind everything asked for in view (sec 18.13), not only behind
+        // the load's drain: the drain can end with a first picture of the
+        // view still on a runner
+        if (atLeisure && hold.firsts > 0)
+            return true;
+        return (waits || atLeisure) && hold.holds(doc);
     }
 };
 std::deque<LandingItem> s_landingQueue;
@@ -404,9 +429,12 @@ void scheduleLandingPump()
 /// the first pictures no sooner (10.2 s against 10.3 s on average) and
 /// the refined ones 1.6 s later. Waste of that kind is the price of the
 /// first picture and is paid (the user's ruling, 2026-10-09).
+int inViewFirstsOutstanding();
+
 LoadHold loadHold()
 {
     LoadHold hold;
+    hold.firsts = inViewFirstsOutstanding();
     auto app = Gui::Application::Instance;
     hold.any = app && app->isBuildingVisuals();
     if (!hold.any)
@@ -802,6 +830,19 @@ void requestLevelDispatch()
     }, Qt::QueuedConnection);
 }
 
+/// First pictures the camera sees not yet landed: queued, in the ready
+/// line, or taken by a runner and not yet landed (s_inViewFirsts)
+int inViewFirstsOutstanding()
+{
+    std::lock_guard<std::mutex> lock(s_refineMutex);
+    int n = s_inViewFirsts.load();
+    for (const auto &job : s_refineQueue)
+        n += levelJobClass(job) == 1 ? 1 : 0;
+    for (const auto &ready : s_refineReady)
+        n += levelJobClass(ready.job) == 1 && !ready.job.inView ? 1 : 0;
+    return n;
+}
+
 /// A task of the compute pool: run ready jobs until there is none.
 void levelRunner()
 {
@@ -815,6 +856,10 @@ void levelRunner()
             }
             next = std::move(s_refineReady.front());
             s_refineReady.pop_front();
+            // Counted as it leaves the line, under the lock the count of
+            // the line is read with: never in neither
+            if (levelJobClass(next.job) == 1 && !next.job.inView)
+                next.job.inView = std::make_shared<InViewFirst>();
             s_refineReadyParts -= std::min(s_refineReadyParts, next.parts);
             auto it = s_refineTokens.find(next.job.tag);
             if (it == s_refineTokens.end() || it->second != next.job.token) {

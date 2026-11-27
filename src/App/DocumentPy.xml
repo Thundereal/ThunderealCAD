@@ -321,6 +321,14 @@ and string ids over: what is put into it next is numbered as the first time.</Us
       </Documentation>
       <Sandbox tier="call"/>
     </Methode>
+    <Methode Name="spellNamesByContent">
+      <Documentation>
+        <UserDocu>spellNamesByContent(): a document whose string table counts its ids spells
+names by the strings' digests from here on; every object naming elements with the table is
+marked for the migration recompute. Returns the number marked, 0 for a table spelling digests
+already. What the migration prompt does when accepted.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="mustExecute">
       <Documentation>
         <UserDocu>Check if any object must be recomputed</UserDocu>

@@ -40,6 +40,11 @@ SAMPLER2D(s_texVolFront, 6);
 // is a record, not a sample of a field, so there is nothing between
 // two of them to interpolate.
 SAMPLER2D(s_texImpact, 7);
+// What glass and translucent casters let through of the light, and the
+// light window depth of the nearest of them (the mesh lighting's own):
+// a tank's walls dim the water the light reaches through them.
+SAMPLER2D(s_texShadowTint, 8);
+SAMPLER2D(s_texShadowNear, 9);
 
 uniform vec4 u_matColor;   // rgb = water tint; a > 0.5 = planar refl in s_texRefl
 uniform vec4 u_lightDir;
@@ -340,16 +345,29 @@ vec4 fcWaterShadeFragment(vec3 normal, vec3 vpos, vec2 fragCoord)
 			}
 		}
 		refr = texture2D(s_texScene, ruv).xyz;
-		refr *= mix(vec3_splat(1.0), u_matColor.rgb, 0.2);
+		// A tint the same through any depth of water, where the depth is
+		// not known. Where it is, the absorption below is all of it: a
+		// film is next to clear, as thin water is.
+		if (u_waterSurf.w <= 1.5)
+			refr *= mix(vec3_splat(1.0), u_matColor.rgb, 0.2);
 
 		// Depth-based absorption (Beer-Lambert) over the water column from
 		// the surface to the body back face (s_texWaterBack.z; the water
 		// gains body and the floor recedes with depth). u_waterSurf.w == 2
-		// flags the back-depth target as bound.
+		// flags the back-depth target as bound, and the prepass viewZ with
+		// it. The column ends at the first opaque surface behind the entry
+		// (s_texNormalZ: opaque fills only): the back target keeps the
+		// FARTHEST back face, which behind a part standing in the water is
+		// the pool's -- a film over the part was tinted as the whole
+		// column past it.
 		if (u_waterSurf.w > 1.5)
 		{
 			vec4 wb = texture2D(s_texWaterBack, uv);
-			float thick = wb.w > 0.5 ? max(wb.z + vpos.z, 0.0) : 0.0;
+			float back = wb.z;
+			vec4 solid = texture2D(s_texNormalZ, uv);
+			if (solid.w > 0.5)
+				back = min(back, solid.z);
+			float thick = wb.w > 0.5 ? max(back + vpos.z, 0.0) : 0.0;
 			vec3 sigma = (vec3_splat(1.0) - u_matColor.rgb)
 				* u_waterAbsorb.x + vec3_splat(0.1 * u_waterAbsorb.x);
 			vec3 trans = exp(-sigma * thick);
@@ -445,6 +463,7 @@ vec4 fcWaterShadeFragment(vec3 normal, vec3 vpos, vec2 fragCoord)
 	// shadow band on the surface without doubling it to black; the sun
 	// glint below is killed outright where shadowed.
 	float shadow = 1.0;
+	vec3 tint = vec3_splat(1.0);
 	if (u_shadowParams.x > 0.5)
 	{
 		// Tap at the wave-displaced surface point, scaled by the
@@ -458,9 +477,15 @@ vec4 fcWaterShadeFragment(vec3 normal, vec3 vpos, vec2 fragCoord)
 		sp.xyz /= sp.w;  // spot lights render a perspective map
 		if (sp.x > 0.0 && sp.x < 1.0 && sp.y > 0.0 && sp.y < 1.0
 		    && sp.z > 0.0 && sp.z < 1.0)
+		{
 			shadow = fc_waterShadowTap(sp.xy, sp.z);
+			// behind the nearest translucent caster alone: the water
+			// over a tank's floor takes none of the floor's
+			if (sp.z > texture2D(s_texShadowNear, sp.xy).x + 0.002)
+				tint = texture2D(s_texShadowTint, sp.xy).rgb;
+		}
 	}
-	color *= mix(0.6, 1.0, shadow);
+	color *= mix(vec3_splat(0.6), vec3_splat(1.0), shadow * tint);
 
 	// Sun glint from the scene light on the perturbed normal (shadowed).
 	if (u_lightDir.w > 0.5)

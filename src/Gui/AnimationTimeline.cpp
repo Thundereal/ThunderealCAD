@@ -47,6 +47,7 @@
 #include "Command.h"
 #include "DockWindowManager.h"
 #include "MainWindow.h"
+#include "Selection.h"
 #include "ViewProviderDocumentObject.h"
 #include "propertyeditor/PropertyEditor.h"
 
@@ -240,6 +241,16 @@ AnimationPlayer::AnimationPlayer()
 {
     timer.setTimerType(Qt::PreciseTimer);
     connect(&timer, &QTimer::timeout, this, &AnimationPlayer::tick);
+    // What is selected is read: of the pose shown, not of a frame before
+    // it (docs/WorkerProcess.md sec 16)
+    selected = Selection().signalSelectionChanged.connect([this](const SelectionChanges& msg) {
+        if (msg.Type == SelectionChanges::AddSelection
+            || msg.Type == SelectionChanges::SetSelection) {
+            if (auto a = animation()) {
+                a->settle();
+            }
+        }
+    });
 }
 
 App::Animation* AnimationPlayer::animation() const
@@ -282,6 +293,14 @@ void AnimationPlayer::play(App::Animation* a)
     double rate = std::max(1.0, a->FrameRate.getValue());
     timer.start(std::max(1, static_cast<int>(std::lround(1000.0 / rate))));
     clock.start();
+    // The frames not kept yet made ahead by worker processes, where they
+    // pay (docs/Animation.md sec 4.2)
+    try {
+        a->prepareFrames();
+    }
+    catch (Base::Exception& e) {
+        e.ReportException();
+    }
     Q_EMIT stateChanged();
 }
 
@@ -289,6 +308,10 @@ void AnimationPlayer::pause()
 {
     timer.stop();
     held = false;
+    // Paused, the document is the pose shown (docs/WorkerProcess.md sec 16)
+    if (auto a = animation()) {
+        a->settle();
+    }
     Q_EMIT stateChanged();
 }
 
@@ -297,6 +320,9 @@ void AnimationPlayer::hold()
     if (timer.isActive()) {
         timer.stop();
         held = true;
+        if (auto a = animation()) {
+            a->settle();
+        }
     }
 }
 
@@ -385,7 +411,9 @@ void AnimationPlayer::tick()
         }
     }
     try {
-        a->Time.setValue(t);
+        // A picture: what no view draws is put in when paused
+        // (docs/WorkerProcess.md sec 16)
+        a->showAt(t);
     }
     catch (Base::Exception& e) {
         e.ReportException();
@@ -728,6 +756,15 @@ public:
                                spilled ? QColor(0x40, 0x80, 0xd0) : QColor(0x3c, 0xa8, 0x54));
                 }
             }
+            // ... and an amber one where a worker process is making the
+            // frame (docs/Animation.md sec 4.2)
+            for (double t : anim->workerInfo().busy) {
+                double x0 = std::max<double>(g, xOf(t - half));
+                double x1 = xOf(t + half);
+                if (x1 > x0) {
+                    p.fillRect(QRectF(x0, rulerHeight - 3, x1 - x0, 3), QColor(0xe0, 0x9a, 0x20));
+                }
+            }
         }
         // The rows
         for (std::size_t i = 0; i < rows.size(); ++i) {
@@ -887,13 +924,9 @@ public:
         if (!anim) {
             return;
         }
-        double t = snap(tOf(x), mods);
-        if (std::fabs(anim->Time.getValue() - t) > App::Anim::TimeEpsilon) {
-            anim->Time.setValue(t);
-        }
-        else {
-            anim->activate();
-        }
+        // For the picture while dragging; settled on release
+        // (docs/WorkerProcess.md sec 16)
+        anim->showAt(snap(tOf(x), mods));
     }
 
     void mousePressEvent(QMouseEvent* ev) override
@@ -1009,6 +1042,11 @@ public:
             dragDt = 0;
             update();
             return;
+        }
+        if (mode == Scrub) {
+            if (auto anim = owner->animation()) {
+                anim->settle();
+            }
         }
         if (mode == Drag && dragging && std::fabs(dragDt) > App::Anim::TimeEpsilon) {
             if (auto anim = owner->animation()) {
@@ -2090,6 +2128,13 @@ AnimationTimeline::AnimationTimeline(QWidget* parent)
     conns.emplace_back(app.signalDeletedObject.connect([this](const App::DocumentObject&) {
         refreshTimer.start();
     }));
+    // Frames a worker made come in between changes of Time
+    conns.emplace_back(App::Animation::signalCacheChanged.connect(
+        [this](const App::Animation& anim) {
+            if (&anim == animation()) {
+                keys->update();
+            }
+        }));
     conns.emplace_back(app.signalUndo.connect([this] { refreshTimer.start(); }));
     conns.emplace_back(app.signalRedo.connect([this] { refreshTimer.start(); }));
     conns.emplace_back(Application::Instance->signalActiveDocument.connect(

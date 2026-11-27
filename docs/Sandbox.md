@@ -4042,6 +4042,16 @@ the ruling, below).  What landed, and where it departs from the design above:
   GUI follows them (a view for a new document, a closed one's views
   gone).  `newDocument` passes keywords: the host's takes no None for
   a name it was not given.
+- **`FreeCAD.Version()` is a sixth, `app.version`** (2026-11-22): the
+  host's list, under `app.query` as the native `_app.Version()` is.
+  The image had no `Version` at all, so `_app.Version()` worked where
+  no runtime was installed and failed as "No attribute named
+  'Version'" where one was (found by TestWorkerPool's permission
+  test on a Windows profile with Pyodide installed). It asks the host each time, because
+  what a script wants to know is the build it runs in, and the image
+  need not be the host's build. `ExpressionImageAcceptanceTest.appVersionIsTheHosts`:
+  a PermissionError naming `app.query` until granted, then the host's
+  list.
 - **`app.write`** is in the enum (`Permission::AppWrite`), DENY and
   not promptable for a document.
 - **Prelude** (guest image rebuilt): `activeDocument()`,

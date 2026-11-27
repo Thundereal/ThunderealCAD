@@ -3,10 +3,14 @@
 #ifndef APP_WRITESCOPE_H
 #define APP_WRITESCOPE_H
 
+#include <set>
+
 #include <FCGlobal.h>
 
 namespace App
 {
+class DocumentObject;
+class Property;
 
 /** Who is writing a property, as bits: several hold at once (an origin
  * fitted while an Animation plays).
@@ -91,6 +95,22 @@ struct WriteTraits
 
 /// The table: the WriteEffect bits of a write of `traits` under `causes`
 AppExport unsigned writeEffectsOf(unsigned causes, const WriteTraits& traits);
+
+/** The objects whose result a change of `prop`, one of `obj`'s, may change:
+ * what an Animation drops its kept frames by, and the worker pool its jobs
+ * (docs/WorkerProcess.md sec 17).
+ *
+ * Of the design, `obj` and every object depending on it, getInListEx(true).
+ * Of what the view shows of it -- Visibility, TreeRank, the ViewObject
+ * mirror, and a group's _GroupTouched and HiddenChildren relaying a child's
+ * Visibility -- only what reads it, and every object depending on that: an
+ * object with an expression naming it; for Visibility a Python feature,
+ * whose code may read anything; for the relay the group itself when its
+ * shape is gathered from its shown children rather than kept in a
+ * property. Empty when nothing does: showing or hiding a step of a chain
+ * changes no result.
+ */
+AppExport std::set<DocumentObject*> writeReaches(const DocumentObject& obj, const Property& prop);
 
 /** Says who writes while it lives. Scopes add up -- under Animation and
  * ViewFit a write is both, and loses what either takes away -- but one of

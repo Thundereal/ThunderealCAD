@@ -72,7 +72,8 @@ static bool readsOnly(const char *op)
     static const char *const reads[] = {
         FcxWire::OpReadProp, FcxWire::OpGetAttr, FcxWire::OpGetItem, FcxWire::OpLen,
         FcxWire::OpBool, FcxWire::OpStr, FcxWire::OpExt, FcxWire::OpActiveDoc,
-        FcxWire::OpAppDocs, FcxWire::OpAppDoc, FcxWire::OpResolve, FcxWire::OpResolveAlias,
+        FcxWire::OpAppDocs, FcxWire::OpAppDoc, FcxWire::OpAppVersion, FcxWire::OpResolve,
+        FcxWire::OpResolveAlias,
         FcxWire::OpModGet, FcxWire::OpLibSource, FcxWire::OpPkgMissing, FcxWire::OpRelease,
     };
     for (const char *r : reads)

@@ -43,6 +43,7 @@ namespace TechDrawGui
 {
 class Ui_TaskGeomHatch;
 class ViewProviderGeomHatch;
+class TaskReferenceList;
 
 class TaskGeomHatch : public QWidget
 {
@@ -88,6 +89,12 @@ private:
     Base::Vector3d m_origOffset;
 
     bool m_createMode;
+
+    /// The faces listed, with Reattach; what was found by name alone taken
+    /// once the panel is up, in its transaction (the reporter, 2026-11-26)
+    void addReferences();
+    void takeByName();
+    TaskReferenceList* m_refs = nullptr;
 
 private Q_SLOTS:
         void onNameChanged();

@@ -265,7 +265,8 @@ bool stepRow(sqlite3_stmt* s)
 class SQLiteStore : public TransactionStore
 {
 public:
-    explicit SQLiteStore(const std::string& path, bool readOnly = false, bool copy = false)
+    explicit SQLiteStore(const std::string& path, bool readOnly = false, bool copy = false,
+                         bool shared = false)
         : copy(copy)
     {
         // Read as it is: immutable says no lock and no -shm, so a blob
@@ -274,7 +275,10 @@ public:
         // folds the WAL in.
         const int flags = readOnly ? SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
                                    : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
-        const std::string name = readOnly ? fileUri(path) + "?immutable=1" : path;
+        // A store another process writes (`shared`) is read through its WAL,
+        // which immutable would ignore.
+        const std::string name =
+            readOnly ? fileUri(path) + (shared ? "" : "?immutable=1") : path;
         if (sqlite3_open_v2(name.c_str(), &db, flags, nullptr) != SQLITE_OK) {
             std::string msg = db ? sqlite3_errmsg(db) : "cannot allocate";
             if (db)
@@ -286,7 +290,17 @@ public:
         // instead of failing at once with SQLITE_BUSY (37.7 item 7).
         sqlite3_busy_timeout(db, 5000);
         try {
-            setUp();
+            if (shared) {
+                // Its owner's layout: one read here is never migrated
+                const int version = pragmaInt("PRAGMA user_version");
+                if (version != StoreVersion)
+                    THROWM(Base::RuntimeError, "Transaction log " + path + ": of layout "
+                                               + std::to_string(version) + ", not this build's "
+                                               + std::to_string(StoreVersion));
+            }
+            else {
+                setUp();
+            }
         }
         catch (...) {
             for (auto& st : stmts)
@@ -3546,6 +3560,11 @@ std::unique_ptr<TransactionStore> TransactionStore::openSQLite(const std::string
                                                                bool readOnly)
 {
     return std::make_unique<SQLiteStore>(path, readOnly);
+}
+
+std::unique_ptr<TransactionStore> TransactionStore::openSQLiteReader(const std::string& path)
+{
+    return std::make_unique<SQLiteStore>(path, true, false, true);
 }
 
 std::unique_ptr<TransactionStore> TransactionStore::openSQLiteCopy(const std::string& path)

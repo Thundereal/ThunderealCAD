@@ -338,6 +338,26 @@ public:
     /// Use a --policy file INSTEAD of the user grants.json (read-only).
     void setPolicyFile(const std::string &path);
 
+    // --- a worker process (docs/WorkerProcess.md sec 23) ---
+
+    /** What decides here, as text: whether enforcement is on, the --grant
+     * overrides, the session answers and the store (grants.json or the
+     * --policy file). A worker process adopts it, so that what it
+     * evaluates for this process is decided as here. Once answers are
+     * not in it: they are for the re-run here they were given for.
+     */
+    std::string exportState();
+    /** Decide by a state exportState() gave, from now on and alone: the
+     * store is never read from or written to disk here, and a refusal is
+     * not written to the audit log -- the work refused is answered unfit
+     * and done again where the state came from, which audits it and asks.
+     */
+    bool adoptState(const std::string &text, std::string *errMsg = nullptr);
+    /// Whether this process decides by an adopted state.
+    bool adopted() const;
+    /// How many checks have refused in this process, prompts included.
+    std::size_t refusals() const;
+
 private:
     Runtime();
     void ensureLoaded();
@@ -354,6 +374,10 @@ private:
     GrantStore _store;
     bool loaded = false;
     std::string policyFile;
+    // a worker's: decided by a state handed to it (adoptState)
+    bool _adopted = false;
+    bool adoptedEnforce = true;
+    std::size_t _refusals = 0;
 
     // in-memory answers, keyed by principal + '\x1F' + perm + '\x1F' + target
     std::map<std::string, Decision> onceAnswers;

@@ -41,6 +41,8 @@ namespace App
 {
 
 class Animation;
+struct CaptureConfig;
+struct CapturedValue;
 
 namespace Anim
 {
@@ -397,16 +399,103 @@ public:
         long replayed = 0;           ///< frames put back instead, ever
         long spilled = 0;            ///< frames moved out of memory onto disk, ever
         long loaded = 0;             ///< frames read back from disk, ever
+        long prepared = 0;           ///< frames a worker made, taken in, ever
+        /// reads of a worker's frame whose strings came in under their ids,
+        /// and by content (docs/WorkerProcess.md sec 15), ever
+        long byId = 0;
+        long byContent = 0;
+        /// geometry a shown frame held back, ever; of it put in since,
+        /// ever; and what is held back now (docs/WorkerProcess.md sec 16)
+        long deferred = 0;
+        long settled = 0;
+        std::size_t owed = 0;
     };
     CacheInfo cacheInfo() const;
     void clearCache();
-    /// Drop the frames whose recompute met obj or anything depending on it
-    void dropFramesReaching(const DocumentObject& obj);
+    /// Drop the frames whose recompute met what a change of obj's prop
+    /// reaches (App::writeReaches, WriteScope.h)
+    void dropFramesReaching(const DocumentObject& obj, const Property& prop);
     /// Whether frames are kept: Cache, and a Recompute that recomputes
     bool isCaching() const;
     /// Whether an active Animation of `doc`, or of any document when
     /// null, keeps its frames: the shapes shown are then meshed exact
     static bool cachingIn(const Document* doc = nullptr);
+
+    /** Frames made by worker processes (docs/Animation.md sec 4.2): each a
+     * ThunderealCmd holding a copy of the document, given frames one at a
+     * time, writing each as the cache writes a frame to disk. What they
+     * write comes into the cache as frames on disk, and the frame a
+     * worker is making when Time comes to it is waited for, not made a
+     * second time. With Cache on; any change of the design stops them.
+     */
+    struct WorkerInfo
+    {
+        bool running = false;
+        int workers = 0;            ///< processes alive
+        int limit = 0;              ///< most there may be
+        std::size_t queued = 0;     ///< frames not handed out yet
+        std::vector<double> busy;   ///< the frames being made
+        long prepared = 0;          ///< frames a worker made and the cache took, ever
+        long failed = 0;            ///< frames a worker could not make, ever
+        std::size_t resident = 0;   ///< the most a worker of these held
+        std::string reason;         ///< why none run, or why they stopped
+    };
+    /** Start workers on the frames of `times` (every frame when empty) the
+     * cache has not got. Not when the frames are quicker made here than a
+     * worker is started (WorkerMinSeconds of Preferences/Animation, 2),
+     * unless `force`. Returns the workers running; workerInfo().reason
+     * says why there are none.
+     */
+    int prepareFrames(const std::vector<double>& times = {}, bool force = false);
+    void stopWorkers(const char* reason = nullptr);
+    WorkerInfo workerInfo() const;
+    /// Take in what the workers have done, and with `seconds` > 0 wait as
+    /// long for more; < 0 until they are done. True when none run.
+    bool waitWorkers(double seconds);
+    /// In a worker: make frame `index` and write it to `file`, its string
+    /// table to `tables` (a directory) unless the one written last is the
+    /// same. Returns the file's size and the seconds the recompute took.
+    struct FrameWritten
+    {
+        std::size_t bytes = 0;
+        double cost = 0;
+        std::string table;
+        std::size_t resident = 0;  ///< what this process holds after it
+    };
+    /// `display`: by object name, how the view showing the frame meshes it
+    /// (displayHint), for captureForDisplay
+    FrameWritten writeFrame(long index, const std::string& file, const std::string& tables,
+                            const std::map<std::string, std::string>& display = {});
+    /** A frame drawn from a mesh made where the frame was
+     * (docs/WorkerProcess.md sec 14). A module whose views draw an object
+     * from a mesh says how this process's view meshes it, as text of its
+     * own -- empty for an object it does not draw so (`displayHint`, set by
+     * the module's Gui) -- and in a worker writing a frame, captures a
+     * value it writes meshed so, the mesh kept with it (`captureForDisplay`,
+     * set by the module's App side; false: captured as any value is). The
+     * view taking the frame then finds its mesh made.
+     */
+    static std::function<std::string(const DocumentObject&)> displayHint;
+    static std::function<bool(const Property&, const std::string& hint, const CaptureConfig&,
+                              CapturedValue&)>
+        captureForDisplay;
+    /// Frames of an Animation came into its cache, or its workers took one
+    /// up or stopped, from outside a change of its Time
+    static fastsignals::signal<void(const Animation&)> signalCacheChanged;
+
+    /** Time set to `t` for a picture (docs/WorkerProcess.md sec 16), as the
+     * player and an export of pictures set it: a kept frame puts back the
+     * geometry of what a view draws, and holds back the rest -- a chain's
+     * hidden features, a Body's -- until something may read it: settle(),
+     * a recompute, an edit, a save, Stop. Setting Time puts back all.
+     */
+    void showAt(double t);
+    /// Put in what showAt() held back
+    void settle();
+    /** Whether a view draws obj (set by a module's Gui; unset, all are):
+     * the geometry of one that none draws is what showAt() holds back
+     */
+    static std::function<bool(const DocumentObject&)> drawnHere;
 
     /// Parse `path` relative to this Animation
     ObjectIdentifier parsePath(const std::string& path) const;
@@ -516,8 +605,27 @@ private:
     void dropFrame(long frame);
     bool spillFrame(long index, Frame& frame);
     bool loadFrame(Frame& frame);
+    struct Owed;
+    /// What showAt() holds back of a frame, by property
+    std::map<Property*, std::unique_ptr<Owed>> _owed;
+    bool defers(const Property& prop) const;
+    bool _showing = false;
+    bool _settling = false;
+    long _cacheDeferred = 0;
+    long _cacheSettled = 0;
     std::string cacheDir() const;
+    std::string framePath(const Frame& frame) const;
     void trimCache();
+    struct FrameOut;
+    void writeFrameFile(FrameOut& out, Capture& capture, double cost);
+    bool adoptFrame(long index, const std::string& file);
+    double meanFrameCost() const;
+    struct Workers;
+    std::unique_ptr<Workers> _workers;
+    /// The design changed: the worker pool's copy of it is stale
+    void designChanged();
+    FrameOut* _frameOut = nullptr;
+    long _cachePrepared = 0;
 
     std::map<const Property*, std::unique_ptr<Rest>> _rest;
     std::vector<fastsignals::scoped_connection> _conns;
@@ -536,6 +644,8 @@ private:
     std::size_t _cacheMeasuredFrames = 0;
     long _cacheSpilled = 0;
     long _cacheLoaded = 0;
+    long _cacheById = 0;
+    long _cacheByContent = 0;
     std::uint64_t _cacheTick = 0;
     long _cacheStored = 0;
     long _cacheReplayed = 0;

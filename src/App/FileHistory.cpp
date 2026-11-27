@@ -395,6 +395,29 @@ std::shared_ptr<FileHistory> FileHistory::openFile(const std::string& path, std:
     return history;
 }
 
+std::shared_ptr<FileHistory> FileHistory::openReader(const std::string& store,
+                                                     const std::string& blobs,
+                                                     std::string* reason)
+{
+    std::ostringstream dir;
+    dir << Application::getUserCachePath() << Application::getExecutableName() << "_Reader_"
+        << Base::Uuid::createUuid() << "_" << QCoreApplication::applicationPid();
+    Base::FileInfo(dir.str()).createDirectories();
+    std::shared_ptr<FileHistory> history(new FileHistory(dir.str()));
+    // The store's strings go into a hasher of its own before anything is
+    // read (TransactionLogCore::loadStrings)
+    history->_hasher = new StringHasher;
+    try {
+        history->_logCore = std::make_shared<TransactionLogCore>(*history, store, blobs);
+    }
+    catch (const Base::Exception& e) {
+        if (reason)
+            *reason = std::string("cannot read the store: ") + e.what();
+        return {};
+    }
+    return history;
+}
+
 bool FileHistory::readTable(const std::string& path)
 {
     std::string bytes;

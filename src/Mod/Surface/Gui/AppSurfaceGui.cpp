@@ -108,6 +108,8 @@ PyMOD_INIT_FUNC(SurfaceGui)
     surfaces.applies = [](const App::DocumentObject* obj) {
         return Part::BodyBase::typeKind(obj->getTypeId()) == "Surface";
     };
+    surfaces.menuText = "Surface";
+    surfaces.icon = "Surface_Workbench";
     Gui::ToolContext::add(std::move(surfaces));
 
     PyObject* mod = SurfaceGui::initModule();

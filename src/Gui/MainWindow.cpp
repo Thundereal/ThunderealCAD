@@ -92,6 +92,7 @@
 
 #include "MainWindow.h"
 #include "Application.h"
+#include "GuiApplication.h"
 #include "MainWindowParams.h"
 #include <App/UnitsParams.h>
 #include "NotificationAreaParams.h"
@@ -2645,8 +2646,10 @@ void MainWindow::delayedStartup()
                     "sys.stdout.flush()\n"
                     "sys.exit(0 if result else 1)");
             }
-            catch (const Base::SystemExitException&) {
-                throw;
+            catch (const Base::SystemExitException& e) {
+                // Not thrown on: through the timer's Qt frames it aborts the
+                // program, and the lock file stays (docs/WorkerProcess.md sec 51)
+                GUIApplication::exitWith(e);
             }
             catch (const Base::Exception& e) {
                 e.ReportException();
@@ -2664,8 +2667,10 @@ void MainWindow::delayedStartup()
             FileDialog::setWorkingDirectory(filename);
         }
     }
-    catch (const Base::SystemExitException&) {
-        throw;
+    catch (const Base::SystemExitException& e) {
+        // A file's sys.exit(), handed on as the test run's above is
+        GUIApplication::exitWith(e);
+        return;
     }
 
     const std::map<std::string,std::string>& cfg = App::Application::Config();

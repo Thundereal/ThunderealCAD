@@ -63,9 +63,14 @@ class PathNoTCExistsException(Exception):
 
 def waiting_effects(function):
     def new_function(*args, **kwargs):
-        if not FreeCAD.GuiUp:
-            return function(*args, **kwargs)
+        # A wait cursor where there is a cursor: a widget application. Asked
+        # of Qt, not of FreeCAD.GuiUp, which a worker process's recompute
+        # reads as an execute that does less there than in the GUI
+        # (docs/WorkerProcess.md sec 73); the operation is the same either way
         from PySide import QtGui
+
+        if not isinstance(QtCore.QCoreApplication.instance(), QtGui.QGuiApplication):
+            return function(*args, **kwargs)
 
         QtGui.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         res = None

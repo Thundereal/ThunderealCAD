@@ -252,6 +252,10 @@ public:
     bool load(const std::string &path, std::string *errMsg = nullptr);
     /// Write the store; the write is to a temp file, then renamed over.
     bool save(const std::string &path, std::string *errMsg = nullptr) const;
+    /// load() and save() of the file's text, which a worker process is
+    /// handed (docs/WorkerProcess.md sec 23).
+    bool loadText(const std::string &text, std::string *errMsg = nullptr);
+    std::string toText() const;
 
     /** Grant lookup, frozen precedence: among grants matching (principal,
      * permission) with target equal to the query or "*", any explicit deny

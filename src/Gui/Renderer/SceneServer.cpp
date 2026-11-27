@@ -3006,7 +3006,12 @@ public:
         }
     };
     Io *io = nullptr;                              ///< guarded by mutex
-    std::shared_ptr<tcp::acceptor> acceptor;       ///< guarded by mutex
+    /// The listeners: one on every interface, or one per loopback family
+    /// (SceneServer.h, setListenAddress). Guarded by mutex.
+    std::vector<std::shared_ptr<tcp::acceptor>> acceptors;
+    /// Where the next start() listens, as set; empty for the default.
+    /// Guarded by mutex.
+    std::string listenAt;
 
     static boost::beast::websocket::stream_base::timeout wsTimeouts()
     {
@@ -3571,44 +3576,117 @@ public:
                               [s]() { Http{s}(); });
     }
 
+    /// SceneServer.h, setListenAddress: the address as set, else
+    /// FC_SERVE_BIND, else loopback; the two names of each kind folded
+    /// into one. Called with mutex held.
+    std::string resolvedListenAddress() const
+    {
+        std::string at = listenAt;
+        if (at.empty()) {
+            if (const char *env = std::getenv("FC_SERVE_BIND"))
+                at = env;
+        }
+        if (at.empty() || at == "localhost" || at == "loopback")
+            return "loopback";
+        if (at == "*" || at == "any" || at == "::")
+            return "any";
+        return at;
+    }
+
+    /// One listener on an endpoint; dual = a v6 socket that takes v4
+    /// too. Null if it could not be had.
+    std::shared_ptr<tcp::acceptor> listenOn(const tcp::endpoint &ep, bool dual)
+    {
+        auto acc = std::make_shared<tcp::acceptor>(io->ctx);
+        boost::system::error_code ec;
+        acc->open(ep.protocol(), ec);
+        if (!ec && ep.protocol() == tcp::v6())
+            acc->set_option(boost::asio::ip::v6_only(!dual), ec);
+        if (!ec)
+            acc->set_option(boost::asio::socket_base::reuse_address(true), ec);
+        if (!ec)
+            acc->bind(ep, ec);
+        if (!ec)
+            acc->listen(4, ec);
+        if (ec) {
+            acc->close(ec);
+            return nullptr;
+        }
+        return acc;
+    }
+
     bool start(int port)
     {
         std::lock_guard<std::mutex> guard(mutex);
         if (!io)
             io = new Io;
-        auto acc = std::make_shared<tcp::acceptor>(io->ctx);
-        boost::system::error_code ec;
-        // One dual-stack v6 listener takes v4 too (sec 7.4); a host
-        // without IPv6 falls back to the v4 listener it always had.
-        acc->open(tcp::v6(), ec);
-        bool dual = !ec;
-        if (dual) {
-            acc->set_option(boost::asio::ip::v6_only(false), ec);
-            if (ec) {
-                acc->close(ec);
-                dual = false;
+        namespace ip = boost::asio::ip;
+        const std::string at = resolvedListenAddress();
+        std::vector<std::shared_ptr<tcp::acceptor>> made;
+        if (at == "any") {
+            // One dual-stack v6 listener takes v4 too (sec 7.4); a host
+            // without IPv6 falls back to the v4 listener it always had.
+            if (auto acc = listenOn(tcp::endpoint(tcp::v6(), uint16_t(port)), true))
+                made.push_back(acc);
+            else if (auto acc4 = listenOn(tcp::endpoint(tcp::v4(), uint16_t(port)), false))
+                made.push_back(acc4);
+        }
+        else if (at == "loopback") {
+            // Not one dual-stack socket on ::1: that takes no v4 peer, and
+            // 127.0.0.1 is what most clients dial. The v4 one is the one
+            // that must be had; ::1 beside it on the same port where the
+            // host has IPv6, for a client that resolves localhost to it.
+            auto acc4 = listenOn(tcp::endpoint(ip::address_v4::loopback(), uint16_t(port)),
+                                 false);
+            if (acc4) {
+                made.push_back(acc4);
+                boost::system::error_code ec;
+                const uint16_t bound = acc4->local_endpoint(ec).port();
+                if (!ec) {
+                    if (auto acc6 = listenOn(tcp::endpoint(ip::address_v6::loopback(), bound),
+                                             false))
+                        made.push_back(acc6);
+                }
             }
         }
-        if (!dual) {
-            acc->open(tcp::v4(), ec);
-            if (ec)
-                return false;
+        else {
+            boost::system::error_code ec;
+            const ip::address addr = ip::make_address(at, ec);
+            if (!ec) {
+                if (auto acc = listenOn(tcp::endpoint(addr, uint16_t(port)), false))
+                    made.push_back(acc);
+            }
         }
-        acc->set_option(boost::asio::socket_base::reuse_address(true), ec);
-        acc->bind(tcp::endpoint(dual ? tcp::v6() : tcp::v4(), uint16_t(port)), ec);
-        if (!ec)
-            acc->listen(4, ec);
-        if (ec)
+        if (made.empty())
             return false;
-        acceptor = acc;
-        doAccept(acc);
+        acceptors = made;
+        for (const auto &acc : made)
+            doAccept(acc);
         return true;
     }
 
     bool listening()
     {
         std::lock_guard<std::mutex> guard(mutex);
-        return acceptor && acceptor->is_open();
+        for (const auto &acc : acceptors) {
+            if (acc && acc->is_open())
+                return true;
+        }
+        return false;
+    }
+
+    bool reachableFromNetwork()
+    {
+        std::lock_guard<std::mutex> guard(mutex);
+        for (const auto &acc : acceptors) {
+            boost::system::error_code ec;
+            if (!acc || !acc->is_open())
+                continue;
+            const auto addr = acc->local_endpoint(ec).address();
+            if (!ec && !addr.is_loopback())
+                return true;
+        }
+        return false;
     }
 
     /// Close the listener: no new connection is accepted, and a later
@@ -3617,18 +3695,19 @@ public:
     /// port free. The connection half of a stop is closeAll().
     void closeListener()
     {
-        std::shared_ptr<tcp::acceptor> acc;
+        std::vector<std::shared_ptr<tcp::acceptor>> accs;
         {
             std::lock_guard<std::mutex> guard(mutex);
-            acc = std::move(acceptor);
+            accs.swap(acceptors);
             started = false;
         }
-        if (!acc)
+        if (accs.empty())
             return;
         std::promise<void> done;
-        boost::asio::post(io->ctx, [acc, &done]() {
+        boost::asio::post(io->ctx, [accs, &done]() {
             boost::system::error_code ec;
-            acc->close(ec);
+            for (const auto &acc : accs)
+                acc->close(ec);
             done.set_value();
         });
         done.get_future().wait();
@@ -4366,6 +4445,25 @@ bool SceneStreamServer::start(int port)
 bool SceneStreamServer::running() const
 {
     return pimpl && pimpl->listening();
+}
+
+void SceneStreamServer::setListenAddress(const std::string &address)
+{
+    Private *p = ensure();
+    std::lock_guard<std::mutex> guard(p->mutex);
+    p->listenAt = address;
+}
+
+std::string SceneStreamServer::listenAddress() const
+{
+    Private *p = const_cast<SceneStreamServer *>(this)->ensure();
+    std::lock_guard<std::mutex> guard(p->mutex);
+    return p->resolvedListenAddress();
+}
+
+bool SceneStreamServer::reachableFromNetwork() const
+{
+    return pimpl && pimpl->reachableFromNetwork();
 }
 
 void SceneStreamServer::stop()

@@ -99,14 +99,16 @@ TopoDS_Face FaceMakerCheese::validateFace(const TopoDS_Face& face)
 
 bool FaceMakerCheese::Wire_Compare::operator() (const TopoDS_Wire& w1, const TopoDS_Wire& w2)
 {
+    // From the geometry: a shown sketch's edges carry polygons, which would
+    // make the order the GUI's own
     Bnd_Box box1, box2;
     if (!w1.IsNull()) {
-        BRepBndLib::Add(w1, box1);
+        BRepBndLib::Add(w1, box1, false);
         box1.SetGap(0.0);
     }
 
     if (!w2.IsNull()) {
-        BRepBndLib::Add(w2, box2);
+        BRepBndLib::Add(w2, box2, false);
         box2.SetGap(0.0);
     }
 

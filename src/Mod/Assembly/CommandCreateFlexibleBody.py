@@ -307,7 +307,9 @@ class TaskFlexibleBody(QtCore.QObject):
                 "Assembly",
                 "How many times its bending is drawn over a run's frames, 1 as it is.\n"
                 "Automatic: what shows it, its largest a tenth of the part's size, or as\n"
-                "it is where that is a twentieth or more",
+                "it is where that is a twentieth or more, or where the run presses it on\n"
+                "something. Scaled, it is drawn held at its joint and where it is\n"
+                "pressed, its bending between them scaled",
             )
         )
         self.scaleBox.valueChanged.connect(self.onScale)

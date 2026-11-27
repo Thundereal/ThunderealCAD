@@ -24,6 +24,7 @@
 #ifndef APP_PROPERTYPYTHONOBJECT_H
 #define APP_PROPERTYPYTHONOBJECT_H
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <CXX/Objects.hxx>
@@ -73,6 +74,16 @@ public:
     void Paste(const Property &from) override;
 
     std::string toString() const;
+
+    /** Told of each Python object a restore could not make -- its class not
+     * imported, or the import raising -- with the property, the class as
+     * `module.class` and the error. A worker's copy is not worked on where
+     * one was (docs/WorkerProcess.md sec 72). One observer, empty for none
+     */
+    using RestoreFailed = std::function<void(const PropertyPythonObject&, const std::string& cls,
+                                             const std::string& error)>;
+    static void setRestoreFailed(RestoreFailed observer);
+
     /** What `container`'s Python objects save as, each by its name: the state
      * a proxy keeps outside the property system (dumps(), __getstate__() or
      * its __dict__), which no change of a property records. Empty where it

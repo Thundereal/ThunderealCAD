@@ -409,6 +409,28 @@ public:
     bool start(int port);
     bool running() const;
 
+    /// Where the next start() listens:
+    ///   "loopback" (also "localhost") -- this machine only, 127.0.0.1
+    ///       and ::1. The default: a test, a script, a viewer on the same
+    ///       machine or a tunnel's local end needs no more, and a socket
+    ///       on every interface is open to the network and makes a
+    ///       desktop firewall ask about it;
+    ///   "any" (also "*") -- every interface, one dual-stack socket that
+    ///       takes v4 too: what a share another machine opens needs
+    ///       (ShareDocument, the LAN and own doors);
+    ///   an address -- that one only ("0.0.0.0" every v4 interface,
+    ///       "::" the same as "any").
+    /// Empty means the default: FC_SERVE_BIND when set, else "loopback".
+    /// A running listener keeps the address it started with; stop() and
+    /// start() again to move it.
+    void setListenAddress(const std::string &address);
+    /// What the next start() listens on, resolved: "loopback", "any" or
+    /// the address given.
+    std::string listenAddress() const;
+    /// Whether the running listener takes connections from other machines
+    /// (it is bound to more than the loopback addresses).
+    bool reachableFromNetwork() const;
+
     /// Stop the listener and disconnect every client. Served groups
     /// keep their state — a later start() serves them again — but no
     /// connection survives and no new one is accepted. The desktop

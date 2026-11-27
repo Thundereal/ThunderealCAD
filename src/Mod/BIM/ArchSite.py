@@ -1008,10 +1008,12 @@ class _Site(ArchIFC.IfcProduct):
 
         self.computeAreas(obj)
 
-        if FreeCAD.GuiUp:
-            vobj = obj.ViewObject
-            if vobj.Proxy is not None:
-                vobj.Proxy.updateDisplaymodeTerrainSwitches(vobj)
+        # Not under GuiUp: a worker's view object takes the call, done again
+        # to the view provider where the result is put in (docs/WorkerProcess.md
+        # sec 73); with no view provider ViewObject is None
+        vobj = obj.ViewObject
+        if vobj and vobj.Proxy is not None:
+            vobj.Proxy.updateDisplaymodeTerrainSwitches(vobj)
 
     def onBeforeChange(self, obj, prop):
         ArchComponent.Component.onBeforeChange(self, obj, prop)

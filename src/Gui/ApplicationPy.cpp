@@ -211,6 +211,7 @@ static PyObject *sServeSetClientSelection(PyObject *self, PyObject *args);
 static PyObject *sServeSetDevices(PyObject *self, PyObject *args);
 static PyObject *sServeSetGrants(PyObject *self, PyObject *args);
 static PyObject *sServeStop(PyObject *self, PyObject *args);
+static PyObject *sServeAddress(PyObject *self, PyObject *args);
 static PyObject *sServeUploads(PyObject *self, PyObject *args);
 static PyObject *sSetLiveImport(PyObject *self, PyObject *args);
 static PyObject *sUndoConfig(PyObject *self, PyObject *args);
@@ -540,6 +541,16 @@ PyMethodDef Application::Methods[] = {
    "\n"
    "Stop the scene stream server: close the listener and disconnect\n"
    "every client. Serving a document again restarts it."},
+  {"serveAddress",            (PyCFunction) sServeAddress, METH_VARARGS,
+   "serveAddress(address=None) -> (str, bool)\n"
+   "\n"
+   "Where the scene stream server listens. With an address, it is where\n"
+   "the next start listens: 'loopback' (this machine only, 127.0.0.1\n"
+   "and ::1), 'any' (every interface, what another machine needs), an\n"
+   "address, or '' for the default -- FC_SERVE_BIND, else 'loopback'.\n"
+   "A running server keeps where it listens until serveStop(). Returns\n"
+   "where the next start listens, and whether the running listener is\n"
+   "reachable from other machines."},
   {"updateLocale",            (PyCFunction) Application::sUpdateLocale, METH_VARARGS,
    "updateLocale() -> None\n"
    "\n"
@@ -1849,6 +1860,20 @@ static PyObject* sServeStop(PyObject * /*self*/, PyObject *args)
         return nullptr;
     Render::SceneStreamServer::instance().stop();
     Py_Return;
+}
+
+static PyObject* sServeAddress(PyObject * /*self*/, PyObject *args)
+{
+    const char *address = nullptr;
+    if (!PyArg_ParseTuple(args, "|z", &address))
+        return nullptr;
+    auto &server = Render::SceneStreamServer::instance();
+    if (address)
+        server.setListenAddress(address);
+    Py::Tuple res(2);
+    res.setItem(0, Py::String(server.listenAddress()));
+    res.setItem(1, Py::Boolean(server.reachableFromNetwork()));
+    return Py::new_reference_to(res);
 }
 
 PyObject* Application::sUpdateGui(PyObject * /*self*/, PyObject *args)

@@ -130,11 +130,16 @@ int main( int argc, char ** argv )
     }
 
     // Run phase ===========================================================
+    int exitCode = 0;
     try {
         Application::runApplication();
     }
     catch (const Base::SystemExitException &e) {
-        exit(e.getExitCode());
+        // sys.exit() -- the test runner's own end among them -- ends the way
+        // a script does: what is still open closes, and each document takes
+        // its transient folder with it. exit() here left them in the user
+        // cache (docs/WorkerProcess.md sec 50).
+        exitCode = e.getExitCode();
     }
     catch (const Base::Exception& e) {
         e.ReportException();
@@ -160,6 +165,6 @@ int main( int argc, char ** argv )
 
     Console().Log(FREECAD_APP_NAME " completely terminated\n");
 
-    return 0;
+    return exitCode;
 }
 

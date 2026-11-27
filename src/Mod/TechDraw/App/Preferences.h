@@ -110,6 +110,7 @@ public:
     static bool SectionUsePreviousCut();
 
     static bool storeProjectedGeometry();
+    static bool makeInline();
 
     static int lineStandard();
     static void setLineStandard(int index);

@@ -30,6 +30,7 @@
 
 #include "Cosmetic.h"
 #include "Geometry.h"
+#include "ReferenceNameMatch.h"
 
 
 namespace TechDraw {
@@ -135,8 +136,25 @@ public:
     //! from CosmeticExtension::addCenterLinesToGeom, where the geometry the
     //! centre line is built from finally exists.  Each says whether it changed
     //! anything.
+    //! fixByName() repoints only where the element's geometry agrees
+    //! (DrawViewPart::repointByName()); one found by its name alone is left,
+    //! and kept for the user's edit (whyNameMoved()).
     bool fixByName(const TechDraw::DrawViewPart* partFeat);
     bool updateSavedNames(const TechDraw::DrawViewPart* partFeat);
+    //! The references whose name another element carries now and whose
+    //! saved geometry neither has. Indexed through faces, then edges, then
+    //! points (allReferences()).
+    std::vector<ReferenceNameMatch> findByName(const TechDraw::DrawViewPart* partFeat) const;
+    //! the edit's: those taken by name, whatever their geometry. Returns them.
+    std::vector<ReferenceNameMatch> repointByName(const TechDraw::DrawViewPart* partFeat);
+    //! why the last fixByName() left a reference where it was, or empty
+    std::string whyNameMoved() const;
+    //! faces, then edges, then points, as findByName() indexes them
+    std::vector<std::string> allReferences() const;
+    //! reference `index` of allReferences() put on `subName`, its name and
+    //! geometry recorded from it
+    bool replaceReference(const TechDraw::DrawViewPart* partFeat, int index,
+                          const std::string& subName);
 
     void dump(const char* title);
     void setShifts(const double h, const double v);
@@ -165,6 +183,14 @@ public:
     std::vector<std::string> m_faceNames;
     std::vector<std::string> m_edgeNames;
     std::vector<std::string> m_vertNames;
+    //! what each of those elements was (DrawViewPart::geometrySignature()),
+    //! in the same order: a name is taken only where the element carrying it
+    //! is this. Empty in a document written before it was kept.
+    std::vector<std::string> m_faceGeometry;
+    std::vector<std::string> m_edgeGeometry;
+    std::vector<std::string> m_vertGeometry;
+    //! what the last fixByName() found by name alone and left, for the edit
+    std::vector<ReferenceNameMatch> m_nameOnly;
     int m_type;  // CLTYPE enum
     int m_mode;  // CLMODE enum
     double m_hShift;

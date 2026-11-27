@@ -359,6 +359,19 @@ void PropertyLinkBase::updateElementReferences(DocumentObject *feature, bool rev
     std::vector<PropertyLinkBase*> props;
     props.reserve(it->second.size());
     props.insert(props.end(),it->second.begin(),it->second.end());
+    // In an order of their own, not their addresses': one reference's update
+    // may name an element another's then reads by a name derived from it (a
+    // wire's from its edges'), and a set of pointers ordered them otherwise
+    // from one run, or one process, to the next (docs/WorkerProcess.md sec
+    // 20: a binder's wire named by a worker in one run of three)
+    auto key = [](const PropertyLinkBase* prop) {
+        auto owner = dynamic_cast<const DocumentObject*>(prop->getContainer());
+        return std::make_tuple(owner ? 0 : 1, owner ? owner->getID() : 0L,
+                               std::string(prop->getName() ? prop->getName() : ""));
+    };
+    std::sort(props.begin(), props.end(), [&key](const PropertyLinkBase* a, const PropertyLinkBase* b) {
+        return key(a) < key(b);
+    });
     for(auto prop : props) {
         if(prop->getContainer()) {
             try {

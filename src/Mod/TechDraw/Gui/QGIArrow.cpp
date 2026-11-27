@@ -55,6 +55,25 @@ QGIArrow::QGIArrow() :
     setFlag(QGraphicsItem::ItemIsMovable, false);
 }
 
+//! The outline stroked and the head filled, as one area. QGIPrimPath's shape
+//! appends the path to its stroke, and where the two wind the opposite ways
+//! they cancel: a filled head pointing one way had holes in it -- a third of
+//! its inside, and two thirds once the dimension added its line through it --
+//! and the face under the dimension took the mouse there. Hovering a
+//! dimension's arrows flickered between it and the face, and a click picked
+//! either (the reporter, 2026-11-26: "only happens for arrows"). A real union
+//! has no holes; a head is a few points, so it costs nothing.
+QPainterPath QGIArrow::shape() const
+{
+    if (m_shapePath.isEmpty()) {
+        QPen pen;
+        pen.setWidthF(m_strokeWidth);
+        QPainterPath outline = shapeFromPath(m_path, pen, false);
+        m_shapePath = m_fillSelect != Qt::NoBrush ? outline.united(m_path) : outline;
+    }
+    return m_shapePath;
+}
+
 void QGIArrow::draw() {
     QPainterPath path;
     if (m_style == ArrowType::FILLED_ARROW) {

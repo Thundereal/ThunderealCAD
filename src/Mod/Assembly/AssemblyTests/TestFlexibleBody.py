@@ -241,7 +241,10 @@ class TestFlexibleBody(unittest.TestCase):
     def test_cantilever_deformation(self):
         """The cantilever sags: its end, made of its mode shapes and the
         run's coordinates, where the beam's is, q L^4 / 8 E I; at its hold,
-        nothing"""
+        nothing. Drawn scaled up, its bending is scaled, not the pose of its
+        hold in its floating frame: the hold drawn where it is, the end sagging
+        the scale times the beam's (before, at x20 the hold drawn 2.5 times the
+        sag down off it, the end 2.2 times it: shifted, not bent)"""
         rod, flexible, results = self.cantilever(6)
         # The hold's six, the six modes, the twelve residual modes of the
         # inertia loads
@@ -254,8 +257,12 @@ class TestFlexibleBody(unittest.TestCase):
         import numpy as np
 
         automatic = shape.scale
+        # Its bending's largest, what is drawn scaled: drawn twice as it is,
+        # against drawn as it is
         largest = max(
-            float(np.max(np.linalg.norm(shape.pointsAt(t, 1.0) - shape.rest, axis=1)))
+            float(
+                np.max(np.linalg.norm(shape.pointsAt(t, 2.0) - shape.pointsAt(t, 1.0), axis=1))
+            )
             for t in results["Times"]
         )
         self.assertAlmostEqual(automatic * largest, 10.0, delta=0.01)
@@ -290,6 +297,17 @@ class TestFlexibleBody(unittest.TestCase):
         sag = q * length**4 / (8 * e * side**4 / 12) * 1e3  # mm
         self.assertAlmostEqual(at(100).z, -sag, delta=0.03 * sag)
         self.assertLess(abs(at(0).z), 0.01 * sag)
+        # Drawn x20: the hold where it is, the end 20 sags down
+        points = shape.pointsAt(results["Times"][-1], 20.0)
+        drawn = {}
+        for x in (0, 100):
+            drawn[x] = at(x).z
+        print(
+            "a cantilever drawn x20: its hold %.4g mm, its end %.4g, for the beam's sag %.4g"
+            % (drawn[0], drawn[100], sag)
+        )
+        self.assertAlmostEqual(drawn[100], -20 * sag, delta=0.03 * 20 * sag)
+        self.assertLess(abs(drawn[0]), 0.01 * sag)
 
     def test_cantilever_stress(self):
         """The cantilever's stress, each mode's weighed by the run's
@@ -676,6 +694,33 @@ class TestFlexibleBody(unittest.TestCase):
         # On the bar still a millisecond and more after, pressing lightly
         self.assertGreater(sum(1 for f in after if f > 0), len(after) // 2)
         self.assertLess(max(after), 0.1 * blow)
+        # Drawn x20 where it presses, about its hinge and where it presses
+        # both: the strip drawn on the bar as it is on it, not through it
+        # (before, scaled about its hinge alone, 0.45 mm into it)
+        import numpy as np
+
+        shape = FlexibleBodies.Deformation(body, results)
+        self.assertTrue(shape.valid)
+        # Pressed on something, drawn as it is unless given a scale
+        self.assertEqual(shape.scale, 1.0)
+        last = max(k for k, f in enumerate(forces) if f > 0)
+        self.assembly.updateForFrame(last)
+        pose = strip.Placement
+
+        def into(scale):
+            # How far into the bar its surface is drawn, mm: the most, less
+            # than 0 drawn off it
+            points = shape.pointsAt(times[last], scale)
+            most = -np.inf
+            for p in points:
+                q = pose.multVec(App.Vector(*p))
+                if abs(q.x - 130) < 6:
+                    most = max(most, 5.0 - np.hypot(q.x - 130, q.z + 15))
+            return most
+
+        drawn, real = into(20.0), into(1.0)
+        print("bent onto the bar drawn x20: %.4g mm into it, as it is %.4g" % (drawn, real))
+        self.assertLess(abs(drawn - real), 0.05)
 
     def stripOnBars(self, formula, end, step, bars=True, gap=0.05, rise=1.0, lower=False):
         """A strip 200 x 20 x 2 hinged at an end to a grounded mount, its
@@ -1176,6 +1221,35 @@ class TestFlexibleBody(unittest.TestCase):
             most=50.5,
         )
 
+    def test_torus_on_plate_at_any_turn(self):
+        """test_torus_on_plate's flexible torus turned a little more than
+        once, its steps then at other places round it: the force as even. By
+        one turn it was (on Linux; 49.31 N for one step at 279.5 deg on
+        Windows); by 1.0007 turns 49.56 and 49.64 N for one step each, by
+        1.0238 turns 49.20, at 37 places in twelve such runs. Three things
+        in FlexibleContact::towardsTrue(), where the torus touches along its
+        outer equator, a row of its mesh's edges: a point sent back and
+        forth across an edge was left where the step met the edge, not at
+        the edge's farthest (alongEdge()); one that came to the edge's end
+        stayed on that vertex with the farthest on a face round it
+        (LocalSurface's pastCorner()); and a point on its own face was
+        dropped for that step when it gained 1 to 8% over one and a half
+        times what a face stands out of its triangles, which the
+        triangle's slope adds to"""
+        for turn in (1.0007, 1.0042, 1.0238):
+            mean = self.roundTurned(
+                "a flexible torus on a plate, %g turns" % turn,
+                55,
+                -10,
+                torus=True,
+                arm=13.0,
+                within=0.005,
+                most=50.5,
+                turns=turn,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+
     def test_torus_on_roller(self):
         """Two curved faces, one of no round (D4b way 1 step 7, the
         catch-all): test_torus_on_plate's rigid torus on a rigid roller R 5
@@ -1366,6 +1440,34 @@ class TestFlexibleBody(unittest.TestCase):
             self.assertGreater(mean, 45.5)
             self.renew()
 
+    def test_torus_on_pin_at_any_angle(self):
+        """test_torus_on_pin's rigid torus on its rigid pin with the pin a
+        few hundredths of a degree further round: the force as even. At 20
+        deg it was; at 20.156 it was 48.05 N for one step of the turn's 351
+        (and 49.38 at 20 deg itself by Windows' arithmetic), at 20.403 51.88,
+        in eleven of forty angles 0.013 deg apart. One of Bullet's points,
+        new that step and an edge of the torus's mesh away along its inner
+        equator, came to that edge at its end and stayed on the corner, 0.75
+        mm short and 47.2 um deep for 50: alongEdge() took the end's own
+        height for the point beyond it, its bend then the slope over its
+        step, and stepped back out of the edge each time"""
+        for at in (20.052, 20.156, 20.403, 20.481):
+            mean = self.roundTurned(
+                "a rigid torus on a rigid pin at %g deg" % at,
+                20,
+                -8,
+                roller=True,
+                inside=True,
+                torus=True,
+                rigidRod=True,
+                rollerAt=at,
+                arm=7.0,
+                within=0.002,
+                most=50.5,
+            )
+            self.assertGreater(mean, 49.9)
+            self.renew()
+
     def test_torus_lying_flat(self):
         """A line along a curve: test_torus_on_plate's torus lying flat on a
         plate, 0.05 mm into it, turned about its axis upright -- it touches
@@ -1432,6 +1534,120 @@ class TestFlexibleBody(unittest.TestCase):
         )
         self.assertLess(abs(ball - 392.58), 0.01 * 392.58)
 
+    def tiltTurned(self, name, rod=False, far=0.05, flexible=False, pressure=2.5):
+        """A block 40 x 10 x 4 lying on a plate, or a rod R 5 x 40 along it,
+        turned one revolution in 0.1 s about a vertical hinge at its end: its
+        underside 0.05 mm into the plate there and 'far' mm at its other end
+        (tilted by that, none: touching). A pressure over the area, 'pressure'
+        N/mm^3. Returns the mean force over the turn, and checks it within a
+        thousandth of its mean"""
+        import CommandCreateContact
+
+        mount = self.box("Mount", (10, 10, 10), (-20, -20, 10))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedMount")
+        JointObject.GroundedJoint(ground, mount)
+        plate = self.box("Plate", (120, 120, 5), (-60, -60, -5 + 0.05))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedPlate")
+        JointObject.GroundedJoint(ground, plate)
+        # Turned up about its underside's near end
+        lift = App.Placement(
+            App.Vector(),
+            App.Rotation(App.Vector(0, 1, 0), -math.degrees(math.atan2(0.05 - far, 40.0))),
+        )
+        if rod:
+            part = self.assembly.newObject("Part::Cylinder", "Rod")
+            part.Radius = 5
+            part.Height = 40
+            part.Placement = lift.multiply(plc(0, 0, 5, App.Vector(0, 1, 0), 90))
+        else:
+            part = self.box("Block", (40, 10, 4), (0, -5, 0))
+            part.Placement = lift.multiply(part.Placement)
+        self.doc.recompute()
+        end = next(
+            "Face%d" % (i + 1)
+            for i, f in enumerate(part.Shape.Faces)
+            if f.Surface.__class__.__name__ == "Plane" and abs(f.CenterOfMass.x) < 0.1
+        )
+        hinge = self.joints.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(hinge, JointObject.JointTypes.index("Revolute"))
+        hinge.Detach1 = True
+        hinge.Detach2 = True
+        hinge.Reference1 = (mount, ["Face1"])
+        hinge.Reference2 = (part, [end])
+        at = plc(0, 0, 2)
+        hinge.Placement1 = mount.Placement.inverse().multiply(at)
+        hinge.Placement2 = part.Placement.inverse().multiply(at)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        contact = CommandCreateContact.newContactSet(self.assembly, [part], [plate])
+        contact.StiffnessFrom = "Pressure"
+        contact.Stiffness = pressure
+        contact.Exponent = 1.0
+        sim = self.study(0.1, 2e-4)
+        sim.GravityEnabled = False
+        sim.Elements = [contact]
+        motion = sim.newObject("Assembly::Motion", "Motion")
+        motion.Joint = hinge
+        motion.MotionType = "Angular"
+        motion.Control = "Position"
+        motion.Formula = "%r*(time/0.1)*(time/0.1)*(3 - 2*time/0.1)" % (2 * math.pi)
+        if flexible:
+            body = FlexibleBodies.makeFlexibleBody(self.assembly, part)
+            body.MeshSize = 4.0
+            FlexibleBodies.prepare(body)
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        results = self.assembly.getSimulationResults()
+        values = [
+            c["Values"] for c in results["Channels"] if c["Quantity"] == "ContactNormalForce"
+        ][0]
+        turning = [v.Length * 1e-3 for t, v in zip(results["Times"], values) if t >= 0.03]
+        mean = sum(turning) / len(turning)
+        print(
+            "%s: over the turn %.4g N, from %.4g to %.4g" % (name, mean, min(turning), max(turning))
+        )
+        self.assertLess(max(turning) - min(turning), 0.001 * mean)
+        return mean
+
+    def test_pressure_tilted(self):
+        """A pressure over the area where the depth changes over it (D4b way
+        2 step 4), 2.5 N/mm^3: the patch's force the pressure integrated, the
+        depth linear between its points (PressureSpread). A rigid block 40 x
+        10 tilted from 0.05 mm into a plate at one end to touching at the
+        other, k b L d / 2, 25 N; a rigid rod R 5 x 40 so tilted, k 4/3
+        sqrt(2 R) L d^1.5 / 2.5, 1.886 N -- both pressed as one point at
+        their springs' mean, 50.28 and 4.707. And a flexible block lying
+        level 0.05 mm in, held at its end by the hinge: it bends up off the
+        plate, a beam on an elastic layer, Euler and Bernoulli's 31.9 N for
+        the 50 of the rigid one; at its points' mean, 37.84. The rigid block's
+        patch on the faces' true outlines (D4b way 2 step 5), within a
+        thousandth: level 50 (before, 50.25, the envelope's corners), tilted
+        to none 25 (25.13), past none by 0.05 mm at its far end 12.5 (12.61),
+        by 0.15 6.25 (12.62, a disc of the parts' sizes)"""
+        block = self.tiltTurned("a pressure on a block tilted to none", far=0.0)
+        self.assertLess(abs(block - 25.0), 0.001 * 25.0)
+        self.renew()
+        # Lying level, k A d, its area the faces' true outline's, not the
+        # envelope's; tilted past none, pressed only where it is in -- its
+        # far corners beyond collision detection's margin, the overlap the
+        # faces' outlines' cut where the depth is none: k b (L x) d / 2 over
+        # the x of L it is in, half its length clear 0.05 mm, three quarters
+        # 0.15
+        level = self.tiltTurned("a pressure on a block lying level", far=0.05)
+        self.assertLess(abs(level - 50.0), 0.001 * 50.0)
+        self.renew()
+        past = self.tiltTurned("a pressure on a block tilted past none", far=-0.05)
+        self.assertLess(abs(past - 12.5), 0.001 * 12.5)
+        self.renew()
+        far = self.tiltTurned("a pressure on a block tilted further past", far=-0.15)
+        self.assertLess(abs(far - 6.25), 0.001 * 6.25)
+        self.renew()
+        rod = self.tiltTurned("a pressure on a rod tilted to none", rod=True, far=0.0)
+        self.assertLess(abs(rod - 1.886), 0.01 * 1.886)
+        self.renew()
+        bent = self.tiltTurned("a pressure on a flexible block", flexible=True)
+        self.assertLess(abs(bent - 31.9), 0.03 * 31.9)
+
     def test_pressure_on_a_cone_and_a_flexible_round(self):
         """A pressure over the area on a round whose radius changes along
         its line, and on a flexible part (D4b way 2). The rigid cone of
@@ -1442,7 +1658,12 @@ class TestFlexibleBody(unittest.TestCase):
         which ran it from 42.5 to 45.0. The flexible rod: its curvature its
         faces' true surface's (FlexibleContact::curvatureOf()), the mesh's own
         reading it as a ball at times -- from 1.2 to 60 N; now within a
-        hundredth, under the rigid rod's 47.14 by its give"""
+        hundredth, under the rigid rod's 47.14 by its give. Held at its end
+        by the hinge, it bends off the plate, its tip 9 um up: a beam on the
+        line's layer, c (d0 - w)^1.5 per length, Euler and Bernoulli's 42.14
+        N. Its depth along the line its points' at its eighths, linear
+        between (D4b way 2 step 4); its springs' mean at its two ends, 41.22,
+        and linear between them alone, 39.27"""
         half = math.atan2(1.0, 40.0)
         root = (2.0 / 3.0) * (5.0**1.5 - 4.0**1.5) / (5.0 - 4.0)
         cone = 25.0 * 4.0 / 3.0 * 0.05**1.5 * math.sqrt(2.0) * root * 40.0 / math.cos(half) ** 1.5
@@ -1462,6 +1683,7 @@ class TestFlexibleBody(unittest.TestCase):
             "a pressure on a flexible round", 55, -10, pressure=25.0, within=0.01
         )
         self.assertLess(flexible, 47.14)
+        self.assertLess(abs(flexible - 42.14), 0.02 * 42.14)
 
     def test_round_in_bore(self):
         """A flexible part's round in a rigid bore (D4b step 18):
@@ -1515,6 +1737,7 @@ class TestFlexibleBody(unittest.TestCase):
         ring=False,
         inside=False,
         flat=False,
+        turns=1.0,
     ):
         """test_round_anywhere's rod turned on a plate 'length' long from x =
         'start', or on a roller R 5 along it that long: the force within a
@@ -1547,7 +1770,7 @@ class TestFlexibleBody(unittest.TestCase):
         a hollow face of no round, curved in round the ring and out across
         the tube. pressure: the
         contact's law a pressure over the area (D4b way 2), N/mm^3. Returns
-        the mean force over the turn"""
+        the mean force over the turn. turns: how many turns it is turned by"""
         import CommandCreateContact
 
         # Lying flat, the mount over the torus's hole
@@ -1718,7 +1941,7 @@ class TestFlexibleBody(unittest.TestCase):
         motion.Joint = hinge
         motion.MotionType = "Angular"
         motion.Control = "Position"
-        motion.Formula = "%r*(time/0.1)*(time/0.1)*(3 - 2*time/0.1)" % (2 * math.pi)
+        motion.Formula = "%r*(time/0.1)*(time/0.1)*(3 - 2*time/0.1)" % (2 * math.pi * turns)
         if not rigidRod:
             body = FlexibleBodies.makeFlexibleBody(self.assembly, rod)
             body.MeshSize = 4.0

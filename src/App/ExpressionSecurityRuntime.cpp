@@ -32,6 +32,8 @@
 #include <Base/Interpreter.h>
 #include <Base/PyObjectBase.h>
 
+#include <nlohmann/json.hpp>
+
 #include "Application.h"
 #include "SandboxParams.h"
 #include "Document.h"
@@ -299,7 +301,78 @@ Runtime::Runtime()
 
 bool Runtime::enforced() const
 {
+    if (_adopted)
+        return adoptedEnforce;
     return SandboxParams::getEnforce();
+}
+
+std::string Runtime::exportState()
+{
+    using json = nlohmann::json;
+    std::lock_guard<std::recursive_mutex> guard(mutex);
+    ensureLoaded();
+    json state;
+    state["enforce"] = enforced();
+    json process = json::object();
+    for (const auto &entry : processOverrides)
+        process[entry.first] = decisionName(entry.second);
+    state["process"] = std::move(process);
+    json session = json::object();
+    for (const auto &entry : sessionAnswers)
+        session[entry.first] = decisionName(entry.second);
+    state["session"] = std::move(session);
+    state["store"] = _store.toText();
+    return state.dump();
+}
+
+bool Runtime::adoptState(const std::string &text, std::string *errMsg)
+{
+    using json = nlohmann::json;
+    const auto decision = [](const std::string &name) {
+        return name == "allow" ? Decision::Allow
+            : name == "prompt" ? Decision::Prompt : Decision::Deny;
+    };
+    json state = json::parse(text, nullptr, false);
+    if (!state.is_object()) {
+        if (errMsg)
+            *errMsg = "the permission state is not JSON";
+        return false;
+    }
+    GrantStore store;
+    if (!store.loadText(state.value("store", std::string("{}")), errMsg))
+        return false;
+    {
+        std::lock_guard<std::recursive_mutex> guard(mutex);
+        _adopted = true;
+        loaded = true;
+        adoptedEnforce = state.value("enforce", true);
+        _store = std::move(store);
+        processOverrides.clear();
+        if (auto it = state.find("process"); it != state.end() && it->is_object()) {
+            for (auto &entry : it->items())
+                processOverrides[entry.key()] = decision(entry.value().get<std::string>());
+        }
+        sessionAnswers.clear();
+        if (auto it = state.find("session"); it != state.end() && it->is_object()) {
+            for (auto &entry : it->items())
+                sessionAnswers[entry.key()] = decision(entry.value().get<std::string>());
+        }
+        onceAnswers.clear();
+    }
+    signalGrantsChanged();
+    return true;
+}
+
+bool Runtime::adopted() const
+{
+    std::lock_guard<std::recursive_mutex> guard(mutex);
+    return _adopted;
+}
+
+std::size_t Runtime::refusals() const
+{
+    std::lock_guard<std::recursive_mutex> guard(mutex);
+    return _refusals;
 }
 
 static std::string securityDir()
@@ -309,7 +382,7 @@ static std::string securityDir()
 
 void Runtime::ensureLoaded()
 {
-    if (loaded)
+    if (loaded || _adopted)
         return;
     loaded = true;
     std::string path = policyFile.empty()
@@ -330,8 +403,8 @@ GrantStore &Runtime::store()
 bool Runtime::saveStore(std::string *errMsg)
 {
     std::lock_guard<std::recursive_mutex> guard(mutex);
-    if (!policyFile.empty())
-        return true;  // --policy files are input only
+    if (!policyFile.empty() || _adopted)
+        return true;  // --policy files are input only, and so is a worker's state
     ensureLoaded();
     Base::FileInfo dir(securityDir());
     if (!dir.exists() && !dir.createDirectory()) {
@@ -345,6 +418,8 @@ bool Runtime::saveStore(std::string *errMsg)
 void Runtime::setPolicyFile(const std::string &path)
 {
     std::lock_guard<std::recursive_mutex> guard(mutex);
+    if (_adopted)
+        return;  // a worker decides by the state it was handed
     policyFile = path;
     loaded = false;
     _store.clear();
@@ -514,11 +589,15 @@ void Runtime::check(Permission perm, const std::string &target)
     bool pendingChanged = false;
     {
         std::lock_guard<std::recursive_mutex> guard(mutex);
-        if (promptable)
+        ++_refusals;
+        // A worker's refusal is done again where its state came from,
+        // which records it and asks (adoptState)
+        if (promptable && !_adopted)
             pendingChanged = addPending(principal, perm, target, docName, objName);
-        audit(principal, perm, target,
-                promptable ? Decision::Prompt : Decision::Deny,
-                scopeContext(top));
+        if (!_adopted)
+            audit(principal, perm, target,
+                    promptable ? Decision::Prompt : Decision::Deny,
+                    scopeContext(top));
     }
     if (pendingChanged)
         signalPendingChanged();

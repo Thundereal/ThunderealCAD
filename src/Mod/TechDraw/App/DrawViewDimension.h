@@ -172,6 +172,16 @@ enum DimensionType {
     virtual ReferenceVector getEffectiveReferences() const;
     bool goodReferenceGeometry() const { return m_referencesCorrect; }
 
+    //! A 2D reference whose saved name another element carries now
+    using NameMatch = ReferenceNameMatch;
+    //! Every 2D reference whose saved name is carried by another element now
+    std::vector<NameMatch> findByName() const;
+    //! Repoint each reference findByName() lists, whatever its geometry: what
+    //! the user's edit of the dimension does, and tells them. A recompute
+    //! repoints only those whose geometry agrees (fixByName()). Returns the
+    //! references moved.
+    std::vector<NameMatch> repointByName();
+
 protected:
     void handleChangedPropertyType(Base::XMLReader &, const char * , App::Property * ) override;
     void Restore(Base::XMLReader& reader) override;
@@ -224,19 +234,32 @@ protected:
     //! reference can be found again by name after the numbering moves
     void updateSavedNames();
     //! the first rung of the ladder: repoint any 2D reference whose stored
-    //! name is carried by a different element now.  Returns true if it
-    //! repointed anything.  Stateless -- it does nothing while the view has
-    //! not projected, and is simply asked again next time (sec 3.7).
+    //! name is carried by a different element now that has the reference's
+    //! saved geometry.  A name alone is not enough in a recompute: the
+    //! element carrying it may be another kind of curve altogether.  Returns
+    //! true if it repointed anything.  Stateless -- it does nothing while the
+    //! view has not projected, and is simply asked again next time (sec 3.7).
     bool fixByName();
+    //! after the ladder: why a reference is left on an element that is not
+    //! what it was made on while its name is another element's -- the
+    //! repoint that is the user's to make -- or empty
+    std::string whyNameMoved() const;
+    //! whether the element `subName` of `dvp` has the geometry saved for
+    //! 2D reference `iRef`; false when that can not be told
+    bool hasSavedGeometry(int iRef, DrawViewPart* dvp, const std::string& subName) const;
     bool migrateSavedGeometryFrame();
     bool compareSavedGeometry();
     bool fixExactMatch();
     void handleNoExactMatch();
+    /// Saved entries left null, filled from what their references name now
+    /// (docs/WorkerProcess.md sec 54); true if one was
+    bool fillNullSavedGeometry();
     std::string recoverChangedEdge2d(int iReference);
     std::string recoverChangedEdge3d(int iReference);
     std::string recoverChangedVertex2d(int iReference);
     std::string recoverChangedVertex3d(int iReference);
     void replaceReferenceSubElement2d(int iRef, std::string &newSubelement);
+    void repointReferences(const std::vector<std::pair<int, std::string>>& fixes, bool is3d);
     void replaceReferenceSubElement3d(int iRef, std::string &newSubelement);
 
     std::vector<Part::TopoShape> getEdges(const Part::TopoShape& inShape);

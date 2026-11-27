@@ -2,6 +2,13 @@
 
 #include "PreCompiled.h"
 
+#include <cstring>
+#include <vector>
+
+#include "DocumentObject.h"
+#include "Expression.h"
+#include "GeoFeature.h"
+#include "PropertyExpressionEngine.h"
 #include "WriteScope.h"
 
 namespace App
@@ -73,6 +80,72 @@ unsigned writeEffectsOf(unsigned causes, const WriteTraits& t)
         fx |= WriteEffect::Key;
     }
     return fx;
+}
+
+std::set<DocumentObject*> writeReaches(const DocumentObject& obj, const Property& prop)
+{
+    auto self = const_cast<DocumentObject*>(&obj);
+    const char* name = prop.getName();
+    const bool relay = name && prop.getContainer() == &obj
+        && (std::strcmp(name, "_GroupTouched") == 0 || std::strcmp(name, "HiddenChildren") == 0);
+    if (&prop != &obj.Visibility && &prop != &obj.TreeRank && &prop != &obj.ViewObject
+        && !relay) {
+        std::set<DocumentObject*> reached = obj.getInListEx(true);
+        reached.insert(self);
+        return reached;
+    }
+    std::set<DocumentObject*> readers;
+    if (relay) {
+        // The shape gather (Part::Feature's) walks a group's children and
+        // skips the hidden ones, unless the group keeps a shape of its own
+        auto geo = freecad_cast<const GeoFeature*>(&obj);
+        if (!geo || !geo->getPropertyOfGeometry()) {
+            readers.insert(self);
+        }
+    }
+    std::vector<DocumentObject*> candidates = obj.getInList();
+    candidates.push_back(self);
+    std::vector<Property*> props;
+    for (auto o : candidates) {
+        if (!o || readers.count(o)) {
+            continue;
+        }
+        if (&prop == &obj.Visibility && o->getPropertyByName("Proxy")) {
+            readers.insert(o);
+            continue;
+        }
+        props.clear();
+        o->getPropertyList(props);
+        bool reads = false;
+        for (auto p : props) {
+            auto exprs = dynamic_cast<PropertyExpressionContainer*>(p);
+            if (!exprs || !name) {
+                continue;
+            }
+            for (auto& [path, expr] : exprs->getExpressions()) {
+                if (!expr) {
+                    continue;
+                }
+                auto deps = expr->getDeps(Expression::DepAll);
+                auto it = deps.find(self);
+                if (it != deps.end() && it->second.count(name)) {
+                    reads = true;
+                    break;
+                }
+            }
+            if (reads) {
+                break;
+            }
+        }
+        if (reads) {
+            readers.insert(o);
+        }
+    }
+    std::set<DocumentObject*> reached = readers;
+    for (auto o : readers) {
+        o->getInListEx(reached, true);
+    }
+    return reached;
 }
 
 }  // namespace App

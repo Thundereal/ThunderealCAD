@@ -27,9 +27,13 @@
 #ifndef _PreComp_
 #include <algorithm>
 #include <cassert>
+#include <cerrno>
+#include <chrono>
 #include <codecvt>
 #include <cstring>
 #include <locale>
+#include <mutex>
+#include <thread>
 #if defined(FC_OS_LINUX) || defined(FC_OS_CYGWIN) || defined(FC_OS_MACOSX) || defined(FC_OS_BSD)
 #include <dirent.h>
 #include <unistd.h>
@@ -42,6 +46,7 @@
 #endif
 
 #include "FileInfo.h"
+#include "Console.h"
 #include "Exception.h"
 #include "Stream.h"
 
@@ -592,13 +597,248 @@ TimeInfo FileInfo::lastRead() const
     return ti;
 }
 
+// --------------------------------------------------------------------------
+// A refusal for a moment (docs/WorkerProcess.md sec 47)
+
+namespace
+{
+
+struct Retry
+{
+    std::mutex lock;
+    double limit = 10.0;   ///< the most one operation waits
+    double first = 1.0;    ///< what it waits before any hold was seen
+    double longest = 0;    ///< the longest hold that cleared
+    long retried = 0;
+    long recovered = 0;
+    long failed = 0;
+    std::function<int(const char*)> fault;
+
+    double budget() const
+    {
+        return std::min(limit, std::max(first, 4.0 * longest));
+    }
+};
+
+Retry& retry()
+{
+    static Retry r;
+    return r;
+}
+
+#if defined(FC_OS_WIN32)
+using NativeError = DWORD;
+#else
+using NativeError = int;
+#endif
+
+/// The error a fault of the test hook stands for
+NativeError faultError(int fault, bool directory)
+{
+#if defined(FC_OS_WIN32)
+    (void)directory;
+    return fault == 1 ? ERROR_SHARING_VIOLATION : ERROR_INVALID_NAME;
+#else
+    (void)directory;
+    return fault == 1 ? EBUSY : EINVAL;
+#endif
+}
+
+/// Something has the file open: it may let go. On Windows a file another
+/// process opened without sharing its deletion, or a directory a file
+/// under which is open -- unless the file is read-only, which no wait
+/// changes -- or one still listing a file deleted while something held it.
+/// Elsewhere a busy file; a directory not empty there stays so, nothing
+/// being pending
+bool momentary(NativeError code, bool directory, const std::wstring& name)
+{
+#if defined(FC_OS_WIN32)
+    switch (code) {
+        case ERROR_SHARING_VIOLATION:
+        case ERROR_LOCK_VIOLATION:
+        case ERROR_USER_MAPPED_FILE:
+            return true;
+        case ERROR_DIR_NOT_EMPTY:
+            return directory;
+        case ERROR_ACCESS_DENIED: {
+            const DWORD attributes = ::GetFileAttributesW(name.c_str());
+            return attributes == INVALID_FILE_ATTRIBUTES
+                || (attributes & FILE_ATTRIBUTE_READONLY) == 0;
+        }
+        default:
+            return false;
+    }
+#else
+    (void)name;
+    (void)directory;
+    return code == EBUSY || code == ETXTBSY;
+#endif
+}
+
+void setErrno(NativeError code)
+{
+#if defined(FC_OS_WIN32)
+    switch (code) {
+        case ERROR_ACCESS_DENIED:
+        case ERROR_SHARING_VIOLATION:
+        case ERROR_LOCK_VIOLATION:
+            errno = EACCES;
+            break;
+        case ERROR_FILE_NOT_FOUND:
+        case ERROR_PATH_NOT_FOUND:
+            errno = ENOENT;
+            break;
+        case ERROR_DIR_NOT_EMPTY:
+            errno = ENOTEMPTY;
+            break;
+        default:
+            errno = EIO;
+    }
+#else
+    errno = code;
+#endif
+}
+
+/** Run `op`, which returns 0 or the error it met, and again while it is
+ * refused for a moment, up to the budget; the waits double from 2 ms to
+ * 100 ms. False, errno set, when it did not go through
+ */
+bool attempt(const char* what, const std::string& path, const std::wstring& wide,
+             bool directory, const std::function<NativeError()>& op)
+{
+    Retry& r = retry();
+    std::function<int(const char*)> fault;
+    double budget = 0;
+    {
+        std::lock_guard<std::mutex> guard(r.lock);
+        fault = r.fault;
+        budget = r.budget();
+    }
+    auto run = [&]() -> NativeError {
+        if (fault) {
+            if (int f = fault(what)) {
+                return faultError(f, directory);
+            }
+        }
+        return op();
+    };
+    NativeError code = run();
+    if (!code) {
+        return true;
+    }
+    if (!momentary(code, directory, wide) || budget <= 0) {
+        setErrno(code);
+        return false;
+    }
+    using Clock = std::chrono::steady_clock;
+    const auto start = Clock::now();
+    auto elapsed = [&]() {
+        return std::chrono::duration<double>(Clock::now() - start).count();
+    };
+    double wait = 0.002;
+    int tries = 1;
+    while (elapsed() < budget) {
+        std::this_thread::sleep_for(
+            std::chrono::duration<double>(std::min(wait, std::max(0.0, budget - elapsed()))));
+        wait = std::min(wait * 2, 0.1);
+        code = run();
+        ++tries;
+        if (!code) {
+            const double held = elapsed();
+            {
+                std::lock_guard<std::mutex> guard(r.lock);
+                ++r.retried;
+                ++r.recovered;
+                r.longest = std::max(r.longest, held);
+            }
+            Base::Console().Log("%s of '%s' went through after %d tries, %.0f ms\n", what,
+                                path.c_str(), tries, held * 1000.0);
+            return true;
+        }
+        // A delete refused for a moment and then not finding its file: the
+        // file went while it waited -- deleted after all, by the one that
+        // held it (a file pending deletion refuses the next open), not a
+        // refusal (docs/WorkerProcess.md sec 72)
+#if defined(FC_OS_WIN32)
+        const bool gone = code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND;
+#else
+        const bool gone = code == ENOENT;
+#endif
+        if (gone && std::strcmp(what, "delete") == 0) {
+            {
+                std::lock_guard<std::mutex> guard(r.lock);
+                ++r.retried;
+                ++r.recovered;
+            }
+            Base::Console().Log("%s of '%s': gone after %d tries, %.0f ms\n", what,
+                                path.c_str(), tries, elapsed() * 1000.0);
+            return true;
+        }
+        if (!momentary(code, directory, wide)) {
+            break;
+        }
+    }
+    {
+        std::lock_guard<std::mutex> guard(r.lock);
+        ++r.retried;
+        ++r.failed;
+    }
+    setErrno(code);
+    std::clog << what << " of '" << path << "' still refused after " << tries << " tries, "
+              << static_cast<int>(elapsed() * 1000.0) << " ms: " << strerror(errno) << " ("
+              << errno << ")" << std::endl;
+    return false;
+}
+
+}  // namespace
+
+FileInfo::RetryStats FileInfo::retryStats()
+{
+    Retry& r = retry();
+    std::lock_guard<std::mutex> guard(r.lock);
+    RetryStats stats;
+    stats.retried = r.retried;
+    stats.recovered = r.recovered;
+    stats.failed = r.failed;
+    stats.longest = r.longest;
+    stats.budget = r.budget();
+    return stats;
+}
+
+void FileInfo::setRetryLimit(double seconds)
+{
+    Retry& r = retry();
+    std::lock_guard<std::mutex> guard(r.lock);
+    r.limit = std::max(0.0, seconds);
+}
+
+double FileInfo::retryLimit()
+{
+    Retry& r = retry();
+    std::lock_guard<std::mutex> guard(r.lock);
+    return r.limit;
+}
+
+void FileInfo::setRetryFault(std::function<int(const char* operation)> fault)
+{
+    Retry& r = retry();
+    std::lock_guard<std::mutex> guard(r.lock);
+    r.fault = std::move(fault);
+    r.longest = 0;
+    r.retried = r.recovered = r.failed = 0;
+}
+
 bool FileInfo::deleteFile() const
 {
 #if defined(FC_OS_WIN32)
     std::wstring wstr = toStdWString();
-    return ::_wremove(wstr.c_str()) == 0;
+    return attempt("delete", FileName, wstr, false, [&]() -> NativeError {
+        return ::DeleteFileW(wstr.c_str()) ? 0 : ::GetLastError();
+    });
 #elif defined(FC_OS_LINUX) || defined(FC_OS_CYGWIN) || defined(FC_OS_MACOSX) || defined(FC_OS_BSD)
-    return (::remove(FileName.c_str()) == 0);
+    return attempt("delete", FileName, std::wstring(), false, [&]() -> NativeError {
+        return ::remove(FileName.c_str()) == 0 ? 0 : errno;
+    });
 #else
 #error "FileInfo::deleteFile() not implemented for this platform!"
 #endif
@@ -607,12 +847,23 @@ bool FileInfo::deleteFile() const
 bool FileInfo::renameFile(const char* NewName)
 {
     bool res {};
+    const bool directory = isDir();
 #if defined(FC_OS_WIN32)
     std::wstring oldname = toStdWString();
     std::wstring newname = toLongPath(ConvertToWideString(NewName));
-    res = ::_wrename(oldname.c_str(), newname.c_str()) == 0;
+    // As rename() does elsewhere: a file there already is replaced, where
+    // _wrename() refuses it (errno 13), and what was renamed over a file
+    // -- a store written whole beside itself -- was never updated
+    res = attempt("rename", FileName, oldname, directory, [&]() -> NativeError {
+        return ::MoveFileExW(oldname.c_str(), newname.c_str(),
+                             MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)
+            ? 0
+            : ::GetLastError();
+    });
 #elif defined(FC_OS_LINUX) || defined(FC_OS_CYGWIN) || defined(FC_OS_MACOSX) || defined(FC_OS_BSD)
-    res = ::rename(FileName.c_str(), NewName) == 0;
+    res = attempt("rename", FileName, std::wstring(), directory, [&]() -> NativeError {
+        return ::rename(FileName.c_str(), NewName) == 0 ? 0 : errno;
+    });
 #else
 #error "FileInfo::renameFile() not implemented for this platform!"
 #endif
@@ -680,9 +931,13 @@ bool FileInfo::deleteDirectory() const
     }
 #if defined(FC_OS_WIN32)
     std::wstring wstr = toStdWString();
-    return _wrmdir(wstr.c_str()) == 0;
+    return attempt("delete", FileName, wstr, true, [&]() -> NativeError {
+        return ::RemoveDirectoryW(wstr.c_str()) ? 0 : ::GetLastError();
+    });
 #elif defined(FC_OS_LINUX) || defined(FC_OS_CYGWIN) || defined(FC_OS_MACOSX) || defined(FC_OS_BSD)
-    return rmdir(FileName.c_str()) == 0;
+    return attempt("delete", FileName, std::wstring(), true, [&]() -> NativeError {
+        return rmdir(FileName.c_str()) == 0 ? 0 : errno;
+    });
 #else
 #error "FileInfo::rmdir() not implemented for this platform!"
 #endif

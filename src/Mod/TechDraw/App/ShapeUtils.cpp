@@ -168,7 +168,9 @@ gp_Pnt ShapeUtils::findCentroid(const TopoDS_Shape& shape)
 {
     Bnd_Box tBounds;
     tBounds.SetGap(0.0);
-    BRepBndLib::AddOptimal(shape, tBounds, true, false);
+    // From the geometry, never a shown shape's mesh: the view's centre must
+    // not depend on what was displayed
+    BRepBndLib::AddOptimal(shape, tBounds, false, false);
 
     Standard_Real xMin, yMin, zMin, xMax, yMax, zMax;
     tBounds.Get(xMin, yMin, zMin, xMax, yMax, zMax);
@@ -198,7 +200,7 @@ gp_Pnt ShapeUtils::findCentroid(const TopoDS_Shape& shape, const gp_Ax2& viewAxi
 
     Bnd_Box tBounds;
     tBounds.SetGap(0.0);
-    BRepBndLib::AddOptimal(builder.Shape(), tBounds, true, false);
+    BRepBndLib::AddOptimal(builder.Shape(), tBounds, false, false);
 
     Standard_Real xMin, yMin, zMin, xMax, yMax, zMax;
     tBounds.Get(xMin, yMin, zMin, xMax, yMax, zMax);
@@ -236,7 +238,7 @@ gp_Pnt ShapeUtils::findCentroidXY(const TopoDS_Shape& shape, const gp_Ax2& coord
 
     Bnd_Box tBounds;
     tBounds.SetGap(0.0);
-    BRepBndLib::AddOptimal(builder.Shape(), tBounds, true, false);
+    BRepBndLib::AddOptimal(builder.Shape(), tBounds, false, false);
 
     Standard_Real xMin, yMin, zMin, xMax, yMax, zMax;
     tBounds.Get(xMin, yMin, zMin, xMax, yMax, zMax);

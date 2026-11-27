@@ -285,12 +285,74 @@ MappedName MappedName::dehashElementName(const StringHasherRef & hasher) const
 }
 
 
+namespace {
+thread_local const App::StringHasher* nameOrderHasher = nullptr;
+
+/// The number after a leading '#', and where its digits end
+bool leadingSpelling(const MappedName& name, std::int64_t& spelled, size_t& end)
+{
+    spelled = 0;
+    end = 1;
+    while (end < name.size() && end <= 16 && std::isxdigit(static_cast<unsigned char>(name[end]))) {
+        const char c = name[end];
+        spelled = spelled * 16
+            + (c <= '9' ? c - '0' : (c >= 'a' ? c - 'a' + 10 : c - 'A' + 10));
+        ++end;
+    }
+    return end > 1;
+}
+}  // namespace
+
+ElementNameOrder::ElementNameOrder(const App::StringHasher* hasher)
+    : _outer(nameOrderHasher)
+{
+    nameOrderHasher = hasher && hasher->getContentIds() ? hasher : nullptr;
+}
+
+ElementNameOrder::~ElementNameOrder()
+{
+    nameOrderHasher = _outer;
+}
+
+const App::StringHasher* ElementNameOrder::current()
+{
+    return nameOrderHasher;
+}
+
 bool ElementNameComp::operator()(const MappedName &a, const MappedName &b) const
 {
     size_t size = std::min(a.size(),b.size());
     if(!size)
         return a.size()<b.size();
     size_t i=0;
+    if(b[0] == '#' && a[0] == '#' && nameOrderHasher) {
+        // Spelled by digests: by the age of the strings spelled
+        // (docs/StringTableContentIds.md); the same string, by the rest
+        std::int64_t sa = 0;
+        std::int64_t sb = 0;
+        size_t ea = 0;
+        size_t eb = 0;
+        if (leadingSpelling(a, sa, ea) && leadingSpelling(b, sb, eb)) {
+            if (sa != sb) {
+                const App::StringIDRef ra = nameOrderHasher->getIDBySpelling(sa);
+                const App::StringIDRef rb = nameOrderHasher->getIDBySpelling(sb);
+                if (ra && rb && ra.value() != rb.value()) {
+                    return ra.value() < rb.value();
+                }
+            }
+            else {
+                for (size_t k = ea; k < size; ++k) {
+                    if (a[k] < b[k]) {
+                        return true;
+                    }
+                    if (a[k] > b[k]) {
+                        return false;
+                    }
+                }
+                return a.size() < b.size();
+            }
+        }
+    }
     if(b[0] == '#') {
         if(a[0]!='#')
             return true;

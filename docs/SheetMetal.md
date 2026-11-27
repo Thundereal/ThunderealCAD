@@ -617,6 +617,26 @@ Here it is the container, with its tool bars tied to it:
 solid active or a sheet feature in edit, so the first base wall needs a way in: a `Sheet Metal`
 submenu of the Part Design menu always holds Base Wall; the full tool bar comes as above.
 
+**Asked for by the user (2026-11-26).** The ruling stands: nothing shows a context's tool bars
+until something asks. The user can now ask directly. The **Part Design Extensions** tool bar is
+always shown. It holds:
+- the **Design Generators** drop-down (involute gear, sprocket, shaft wizard, each only if its
+  command is there);
+- a **toggle** for each tool context registered for the workbench: Sheet Metal, Surface and PMI
+  today.
+
+The same toggles are in **Part Design > Extensions**.
+- A toggle is checked whenever its tool bars are offered, for any reason.
+- Clicking it pins the tool bars on, beside the active key and the edit; clicking again takes the
+  pin away. While a key or an edit still asks, they stay.
+- A click makes nothing. The context's first command makes what it needs.
+- The pin is kept per workbench in the user's preferences
+  (`BaseApp/Preferences/ToolContext/Pinned/<workbench>`), so it lasts across sessions.
+- The toggles come from `Gui::ToolContext`'s registry. A workbench says only where to put them
+  (`ToolContext::hostToggles`), and each context gives its toggle a text and an icon
+  (`Spec::menuText`, `Spec::icon`). So a module that registers a context gets a toggle with no
+  change to PartDesign.
+
 The mechanism is general (`Gui::ToolContext`). A module registers a context: its tool bars, the
 workbenches that take them, the view's active-object key that holds them (`pdsurface`,
 `pdsheetmetal`), and the kind of object it is for. The kind is what the module registers its types

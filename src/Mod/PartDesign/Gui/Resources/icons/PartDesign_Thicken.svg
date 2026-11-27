@@ -1,11 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <title>PartDesign_Thicken</title>
-  <!-- a curved surface, and the slab it is made into -->
-  <path d="M6 40 C 18 22, 46 22, 58 40 L 58 50 C 46 32, 18 32, 6 50 Z"
-        fill="#73d216" stroke="#172a04" stroke-width="2" stroke-linejoin="round"/>
-  <path d="M6 40 C 18 22, 46 22, 58 40" fill="none" stroke="#fce94f" stroke-width="3"/>
-  <path d="M32 8 L 32 22" stroke="#204a87" stroke-width="3"/>
-  <path d="M26 16 L 32 24 L 38 16 Z" fill="#3465a4" stroke="#204a87" stroke-width="1.5"
-        stroke-linejoin="round"/>
+  <!-- drawn as the other features are: the solid added in yellow, over
+       the outline of what it is made from (a curved surface), as Pad
+       draws its sketch -->
+  <defs>
+    <linearGradient id="front" x1="0" y1="24" x2="0" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fce94f"/>
+      <stop offset="1" stop-color="#c4a000"/>
+    </linearGradient>
+    <linearGradient id="side" x1="38" y1="0" x2="58" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c4a000"/>
+      <stop offset="1" stop-color="#edd400"/>
+    </linearGradient>
+  </defs>
+  <!-- the surface -->
+  <g transform="translate(-1,-10) scale(1.08) translate(0,20)" fill="none"
+     stroke-linejoin="round" stroke-linecap="round">
+    <path d="M4 36 C 10 22, 30 22, 38 38 L 58 29 C 52.4 17.8, 40.9 14.4, 32.5 18.4 L 12.5 27.4"
+          stroke="#2e3436" stroke-width="5"/>
+    <path d="M4 36 C 10 22, 30 22, 38 38 L 58 29 C 52.4 17.8, 40.9 14.4, 32.5 18.4 L 12.5 27.4"
+          stroke="#d3d7cf" stroke-width="2"/>
+  </g>
+  <!-- the solid: its top, its end, then the front section over both -->
+  <g transform="translate(-1,-10) scale(1.08)" stroke="#302b00" stroke-width="2"
+     stroke-linejoin="round">
+    <path d="M12.5 27.4 C 20.9 23.4, 32.4 26.8, 38 38 L 58 29 C 52.4 17.8, 40.9 14.4, 32.5 18.4 Z"
+          fill="#fce94f"/>
+    <path d="M38 38 L 58 29 L 58 37 L 38 46 Z" fill="url(#side)"/>
+    <path d="M4 36 C 10 22, 30 22, 38 38 L 38 46 C 31 31, 11 31, 4 44 Z" fill="url(#front)"/>
+  </g>
 </svg>

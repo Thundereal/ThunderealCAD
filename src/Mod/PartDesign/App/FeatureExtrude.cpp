@@ -901,9 +901,17 @@ void FeatureExtrude::syncUpToShape(const App::PropertyLinkSub &face, App::Proper
     std::vector<std::string> subs = face.getSubValues();
     // UpToFace on a whole object of several faces has always meant its first
     // face (getUpToFace() takes it), where UpToShape means them all
-    if (isWholeObject(subs) && !isSingleFaceObject(obj))
-        subs = {"Face1"};
-    shape.setValue(obj, subs);
+    if (isWholeObject(subs)) {
+        shape.setValue(obj, isSingleFaceObject(obj) ? subs : std::vector<std::string> {"Face1"});
+        return;
+    }
+    // With the mapped names: a face that is gone is "?Face5" here and only
+    // its mapped name says what it was. Copied without, the mirror was left
+    // a name with no history -- and as the mirror is the one the panel edits,
+    // the panel found nothing again by name (pd-refound-references.py).
+    auto shadows = face.getShadowSubs();
+    shape.setValues(std::vector<App::DocumentObject*>(subs.size(), obj), std::move(subs),
+                    std::move(shadows));
 }
 
 void FeatureExtrude::syncUpToFace(const App::PropertyLinkSubList &shape,
@@ -911,7 +919,9 @@ void FeatureExtrude::syncUpToFace(const App::PropertyLinkSubList &shape,
                                   App::PropertyEnumeration &type)
 {
     if (isSingleUpToFace(shape)) {
-        face.setValue(shape.getValues().front(), shape.getSubValues());
+        // with the mapped names, as syncUpToShape() copies them
+        auto shadows = shape.getShadowSubs();
+        face.setValue(shape.getValues().front(), shape.getSubValues(), std::move(shadows));
         if (strcmp(type.getValueAsString(), "UpToShape") == 0)
             type.setValue("UpToFace");
         return;

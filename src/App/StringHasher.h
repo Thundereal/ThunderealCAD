@@ -25,10 +25,12 @@
 
 #include <FCConfig.h>
 
+#include <array>
 #include <bitset>
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -123,7 +125,8 @@ public:
     StringID(long id, QByteArray data, const Flags& flags = Flag::None)
         : _id(id),
           _data(std::move(data)),
-          _flags(flags)
+          _flags(flags),
+          _spelled(id)
     {}
 
     /// Constructs an empty StringID
@@ -147,6 +150,27 @@ public:
     }
 
     /// Returns all related StringIDs that used to encode this StringID
+    /// 128 bits of its content: what says two strings are one, in any table
+    /// and under any id (docs/StringTableContentIds.md sec 3.1). Made when
+    /// the string is put in a table; all zero before
+    using Digest = std::array<std::uint8_t, 16>;
+    const Digest& digest() const
+    {
+        return _digest;
+    }
+    /// The digest as 32 lowercase hex characters
+    std::string digestText() const;
+    /** The number a name spells it by (`#<hex>`): its id in a table of
+     * counted ids, a prefix of its digest in one that spells digests
+     * (StringHasher::setContentIds(), docs/StringTableContentIds.md sec
+     * 3.2) -- the same for one content in every such table. Set when the
+     * string is put in a table.
+     */
+    std::int64_t spelled() const
+    {
+        return _spelled;
+    }
+
     const QVector<StringIDRef>& relatedIDs() const
     {
         return _sids;
@@ -215,7 +239,9 @@ public:
 
     /// Light weight structure of holding a string ID and associated index
     struct IndexID {
-        long id;
+        /// The number spelled: a table's id in an older table, a prefix of
+        /// the digest in one that spells digests (spelled())
+        std::int64_t id;
         int index;
 
         explicit operator bool() const
@@ -323,6 +349,8 @@ private:
     StringHasher* _hasher = nullptr;
     mutable Flags _flags;
     mutable QVector<StringIDRef> _sids;
+    Digest _digest {};
+    std::int64_t _spelled = 0;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -543,6 +571,12 @@ public:
         return 0;
     }
 
+    /// The number names spell it by (StringID::spelled()), 0 for none
+    std::int64_t spelled() const
+    {
+        return _sid ? _sid->spelled() : 0;
+    }
+
     QVector<StringIDRef> relatedIDs() const
     {
         if (_sid) {
@@ -646,6 +680,8 @@ private:
 /// If the string is longer than a given threshold, instead of storing the string, its SHA1 hash is
 /// stored (and the original string discarded). This allows an upper threshold on the length of a
 /// stored string, while still effectively guaranteeing uniqueness in the table.
+class StringIDLease;
+
 class AppExport StringHasher: public Base::Persistence, public Base::Handled {
 
     TYPESYSTEM_HEADER_WITH_OVERRIDE();// NOLINT
@@ -738,9 +774,36 @@ public:
      * @param id: string ID with index
      * @return Return a shared pointer to the internally stored StringID.
      */
+    /** The string a name spells by `spelled` (StringID::spelled()) -- what
+     * a number read from a name's text is looked up by; getID(long) takes a
+     * table's own id, as saved lists of ids hold it. The same in a table of
+     * counted ids.
+     */
+    StringIDRef getIDBySpelling(std::int64_t spelled, int index = 0) const;
+
+    /** Whether new strings are spelled by their digests
+     * (docs/StringTableContentIds.md): the table's, saved with it. A new
+     * table takes Preferences/Document ContentStringIds (on); one restored
+     * without it counts ids, as every table did before.
+     */
+    void setContentIds(bool enable);
+    bool getContentIds() const;
+    /// The contested spellings and their owners' digests (sec 3.2)
+    std::map<std::int64_t, StringID::Digest> spellingRegistry() const;
+    /// Take in another table's contested spellings (a worker's copy, its
+    /// client's): before setContentIds(), which spells by them
+    void takeRegistry(const std::map<std::int64_t, StringID::Digest>& registry);
+    /// The registry as text, `<hex spelling>:<hex digest>` apart by spaces,
+    /// and read back from it
+    static std::string registryToText(const std::map<std::int64_t, StringID::Digest>& registry);
+    static std::map<std::int64_t, StringID::Digest> registryFromText(const std::string& text);
+    /// For tests: the bits of the first spelling level, 0 for 32
+    static void setSpellingBitsForTesting(int bits);
+
+    /// The string an id read from a name's text spells (getIDBySpelling())
     StringIDRef getID(const StringID::IndexID& id) const
     {
-        return getID(id.id, id.index);
+        return getIDBySpelling(id.id, id.index);
     }
 
     std::map<long,StringIDRef> getIDMap() const;
@@ -849,6 +912,60 @@ public:
      * before it in `rows` is skipped as well. Returns how many came in.
      */
     std::size_t insertRows(const std::vector<Row>& rows, std::size_t* conflicts = nullptr);
+    /** Take in the strings another process gave from ids this table leased
+     * it (docs/WorkerProcess.md sec 15), under those ids: all of `rows`, in
+     * id order, or none. Refused, nothing changed, when a row's id is held
+     * with another string; when, in a table of counted ids, its string is
+     * held here under another id -- one element name would then be spelled
+     * two ways, and names are compared as text (a table that spells digests
+     * takes the id as another id of the string it holds: aliases()); or
+     * when it refers to an id neither held nor in `rows`. A row held as it
+     * is is left alone. `why`, when refused, says which; `taken`, how many
+     * came in.
+     */
+    bool takeRows(const std::vector<Row>& rows, std::string* why = nullptr,
+                  std::size_t* taken = nullptr);
+    /** The groups of ids whose strings are one content (equal digests,
+     * docs/StringTableContentIds.md sec 6), each in id order, the groups by
+     * their first id: one element name spelled two ways wherever both are
+     * used. Empty when every content has one id.
+     */
+    std::vector<std::vector<long>> duplicates() const;
+    /** The other ids of the strings held once, each with the id its string
+     * is held under, which is lower (docs/StringTableContentIds.md sec 15):
+     * in a table that spells digests, a row coming in (insertRows(),
+     * takeRows(), merge()) whose content is held already under another id
+     * adds no entry -- its id reads as the one here (getID(), hasID()),
+     * and is given as a row of its own (rows(), rowsOf()). The entry takes
+     * the lower id of the two. A save writes the entry alone; compact()
+     * lets go the other ids nothing kept uses.
+     */
+    std::map<long, long> aliases() const;
+
+    /// The lowest id takeRows() put in below an id held already, since the
+    /// last call; 0 for none. What the log, which writes the rows past the
+    /// highest it wrote, has to look back to (sec 15).
+    long takeLowTaken();
+    /// The rows of `ids` and of every id they refer to, in id order: what a
+    /// value naming `ids` needs of this table. An id not held is left out.
+    std::vector<Row> rowsOf(const std::vector<long>& ids) const;
+    /// `rows` as bytes, for another process of this machine to read back
+    /// with readRows(): their count, then each
+    static void writeRows(std::ostream& out, const std::vector<Row>& rows);
+    /// What writeRows() wrote; false when it does not read, no part longer
+    /// than `most` bytes
+    static bool readRows(std::istream& in, std::vector<Row>& rows, std::uint64_t most);
+    /** Ids this table will not give, for another process to give its own
+     * strings (docs/WorkerProcess.md sec 15): the `count` after lastID(),
+     * which moves past them, so they are never handed out here, nor after
+     * a save and a restore. Returns the first; 0 when they would run past
+     * what an id holds.
+     */
+    long reserveBlock(long count);
+    /// New strings take their ids from `lease`, not after the highest held:
+    /// a worker's, ids its pool's table reserved (sec 15). Null to stop.
+    void setLease(std::shared_ptr<StringIDLease> lease);
+    std::shared_ptr<StringIDLease> lease() const;
     /// Whether `id` is held.
     bool hasID(long id) const;
     /// The ids a save marked, with the persistent ones, in order: what a
@@ -961,6 +1078,17 @@ public:
 
 protected:
     StringID* insert(const StringIDRef& sid);
+    /// insert(), or, in a table that spells digests holding the content
+    /// already, the id taken as another id of the entry here (aliases())
+    StringID* insertOrAlias(const StringIDRef& sid);
+    /// `d` as a row under `id`
+    static Row rowOf(const StringID& d, long id);
+    /// Whether `d` is the string `row` gives, the ids it names read here
+    bool isRow(const StringID& d, const Row& row, const std::set<long>* coming = nullptr) const;
+    /// The spelling of a new string of `digest` (docs/StringTableContentIds.md sec 3.2)
+    std::int64_t spellingOf(const StringID::Digest& digest);
+    /// The id a new string gets: the lease's, or the one after the highest
+    long nextID();
     StringIDRef importOne(const StringIDRef& foreign, ImportMemo& memo, bool take);
     /// `said`, when given, is what the string says here in place of its
     /// own text: an element's name as this file numbers it (RestoreMinted).
@@ -1008,6 +1136,39 @@ public:
 
 private:
     StringIDCollector* _outer;
+};
+
+/** The ids a worker gives its new strings (docs/WorkerProcess.md sec 15):
+ * ranges its pool's table reserved (StringHasher::reserveBlock()), so a
+ * string comes back to that table under the id it was given here, and no
+ * id read in later from that table meets one given here. Shared by every
+ * table of the worker's copy, and outlives a copy reopened.
+ */
+class AppExport StringIDLease
+{
+public:
+    /// The next id, and one past the last of the range in use
+    long next {0};
+    long end {0};
+    /// How many ranges were taken
+    int ranges {0};
+    /// Asked for another range when this one runs out: sets `first` and
+    /// `count`, false when there is none
+    std::function<bool(long& first, long& count)> more;
+
+    /// The range in use was let go for being below an id the table took
+    /// in since (drop()): what `more` is asked for then is not for want of
+    /// ids
+    bool stale {false};
+    /// How many ranges were let go so
+    int dropped {0};
+
+    /// Use [first, first + count) from now on
+    void add(long first, long count);
+    /// Let go what is left of the range in use: the next id is of another
+    void drop();
+    /// The next id; throws Base::RuntimeError when none is left to give
+    long take();
 };
 
 }// namespace App

@@ -42,6 +42,7 @@ of the objects or the 3D view.
 import importlib
 import math
 import os
+import sys
 
 import FreeCAD as App
 from draftutils import params
@@ -66,6 +67,13 @@ def get_3d_view():
     Gui::View3DInventor
         The Active 3D View or `None`.
     """
+    # A worker process's FreeCADGui stands in for the GUI's: its active view
+    # is the asking process's, as the job says, so that what reads the
+    # camera -- get_normal -- reads it there as here (docs/WorkerProcess.md
+    # sec 73)
+    active = getattr(sys.modules.get("FreeCADGui"), "worker_active_view", None)
+    if active is not None:
+        return active()
     if not App.GuiUp:
         return None
 

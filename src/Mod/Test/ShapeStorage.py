@@ -886,6 +886,56 @@ class ShapeRefCases(ShapeTestCase):
         self.assertFalse(recovered.isNull())
         self.assertAlmostEqual(recovered.Volume, 10 * 20 * 30, places=6)
 
+    def testAKeptAnalysisWritesWhatAWalkWrites(self):
+        """A save takes the last save's analysis of a shape that has not
+        changed -- what it borrows, what it offers the files after it --
+        instead of walking the shape again (docs/WorkerProcess.md sec 55).
+        What it writes is what a walk writes: a borrower kept beside its
+        source, both unchanged while a third object changes, comes out as
+        the same bytes as a save that walks every shape."""
+        import os
+
+        pref = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/Part")
+        self.addCleanup(pref.RemBool, "KeepSaveAnalysis")
+        doc = self.newDocument()
+        source = doc.addObject("Part::Feature", "Source")
+        borrower = doc.addObject("Part::Feature", "Borrower")
+        other = doc.addObject("Part::Feature", "Other")
+        solid = Part.makeBox(10, 20, 30)
+        source.Shape = solid
+        borrower.Shape = Part.Compound([solid, Part.makeSphere(3)])
+        other.Shape = Part.makeCylinder(2, 5)
+        doc.recompute()
+        pref.SetBool("KeepSaveAnalysis", True)
+        project = self.directoryPath()
+        doc.saveAs(project)
+        self.assertIn(b"Files 1", self.blobBytes(project, "Borrower.Shape.brp"))
+
+        other.Shape = Part.makeCylinder(3, 5)
+        doc.recompute()
+        work = Part.saveAnalysisWork()
+        doc.save()
+        after = Part.saveAnalysisWork()
+        # the two unchanged took what was kept, the changed one was walked
+        self.assertEqual(after["kept"] - work["kept"], 2, (work, after))
+        self.assertEqual(after["walked"] - work["walked"], 1, (work, after))
+        kept = {n: self.blobBytes(project, n) for n in self.blobNames(project)}
+
+        pref.SetBool("KeepSaveAnalysis", False)
+        walkedProject = self.directoryPath("walked_dir")
+        doc.saveAs(walkedProject)
+        walked = {n: self.blobBytes(walkedProject, n) for n in self.blobNames(walkedProject)}
+        shapes = [n for n in kept if n.endswith(".brp")]
+        self.assertEqual(sorted(shapes), ["Borrower.Shape.brp", "Other.Shape.brp", "Source.Shape.brp"])
+        for name in shapes:
+            self.assertEqual(kept[name], walked.get(name), name)
+        FreeCAD.closeDocument(doc.Name)
+
+        reopened = self.openDocument(project)
+        back = reopened.getObject("Borrower").Shape
+        self.assertAlmostEqual(back.Volume, 10 * 20 * 30 + 4.0 / 3 * 3.141592653589793 * 27, places=6)
+        self.assertTrue(back.Solids[0].isPartner(reopened.getObject("Source").Shape.Solids[0]))
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -1033,6 +1083,44 @@ class ShapeCongruenceCases(ShapeTestCase):
                 self.assertAlmostEqual(shape.Volume, volumes[i], delta=abs(volumes[i]) * 1e-9,
                                        msg=name)
                 self.assertLess((self.centre(shape) - centres[i]).Length, 1e-8, name)
+        finally:
+            group.SetBool("DedupCongruentShapes", previous)
+
+    def testASaveOfSavedShapesComputesNoInvariants(self):
+        """A shape compared against keeps what was computed of it too, not
+        only the shape asking (docs/WorkerProcess.md sec 22): First and Second
+        have the same vertices, so the same key, and Second is compared
+        against First at every save. Saved again unchanged, no key, length,
+        area or volume is computed; an edit computes only its own shape's."""
+        group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        previous = group.GetBool("DedupCongruentShapes", True)
+        group.SetBool("DedupCongruentShapes", True)
+        try:
+            doc = self.newDocument("CongWork")
+            first, second, third, other = self.congruentDocument(doc)
+            project = self.directoryPath("CongWork_dir")
+            before = Part.congruenceWork()
+            doc.saveAs(project)
+            after = Part.congruenceWork()
+            self.assertGreater(after["lengths"] - before["lengths"], 0,
+                               "the first save compares Second against First")
+
+            def computed():
+                now = Part.congruenceWork()
+                return {k: now[k] - after[k] for k in now}
+
+            doc.save()
+            self.assertEqual(computed(), {"keys": 0, "lengths": 0, "areas": 0, "volumes": 0})
+            self.assertEqual(len(self.blobNames(project)), 3)
+
+            # An edit: the edited shape's own, nothing of the others.
+            after = Part.congruenceWork()
+            other.Shape = Part.makeBox(10, 20, 32)
+            doc.save()
+            work = computed()
+            self.assertEqual(work["keys"], 1, work)
+            self.assertEqual(work["lengths"], 0, work)
+            self.assertEqual(len(self.blobNames(project)), 3)
         finally:
             group.SetBool("DedupCongruentShapes", previous)
 

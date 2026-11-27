@@ -44,8 +44,8 @@
 
 using namespace TechDraw;
 
-const double Preferences::DefaultFontSizeInMM = 5.0;
-const double Preferences::DefaultArrowSize = 3.5;
+const double Preferences::DefaultFontSizeInMM = 2.5;
+const double Preferences::DefaultArrowSize = 1.5;
 
 //! Returns the TechDraw preference group
 Base::Reference<ParameterGrp> Preferences::getPreferenceGroup(const char* Name)
@@ -427,6 +427,15 @@ bool Preferences::SectionUsePreviousCut()
 bool Preferences::storeProjectedGeometry()
 {
     return getPreferenceGroup("General")->GetBool("StoreProjectedGeometry", TechDraw::TechDrawParams::defaultStoreProjectedGeometry());
+}
+
+//! Whether a view makes its projection, faces and cuts in its execute(), on
+//! the thread that recomputes it, instead of in threads that end after it --
+//! where the GUI is up; without it a view always makes them inline
+//! (DrawView::makesInline). Off by default. See docs/WorkerProcess.md sec 39.
+bool Preferences::makeInline()
+{
+    return getPreferenceGroup("General")->GetBool("MakeInline", false);
 }
 
 //! an index into the list of available line standards/version found in LineGroupDirectory

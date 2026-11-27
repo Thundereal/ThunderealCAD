@@ -35,9 +35,13 @@ script="$dir/strip-nonascii.py"
 # which exists nowhere. The hook then still reported SKIPPED and the
 # fix looked like it had not worked.
 root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# The sibling repos (coin, occt) carry no env of their own; the fork layout
+# keeps them beside fcad, so its env is the next candidate for them.
 for py in ${STRIP_NONASCII_PYTHON:-} \
         "$root/.conda/freecad/bin/python" \
         "$root/.conda/freecad/python.exe" \
+        "$root/../fcad/.conda/freecad/bin/python" \
+        "$root/../fcad/.conda/freecad/python.exe" \
         python3 python "py -3"; do
     [ -n "$py" ] || continue
     if $py -c "import sys" >/dev/null 2>&1; then

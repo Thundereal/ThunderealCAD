@@ -109,6 +109,7 @@
 #include <boost/iostreams/device/array.hpp>
 #include <boost/iostreams/stream.hpp>
 
+#include <App/Animation.h>
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
@@ -138,6 +139,9 @@
 #include <Gui/TaskElementColors.h>
 #include <Gui/Inventor/SoFCRenderMaterial.h>
 #include <Gui/Inventor/SoFCShapeInfo.h>
+#include <Gui/Inventor/SoFCSwitch.h>
+#include <Inventor/SoPath.h>
+#include <Inventor/actions/SoGetBoundingBoxAction.h>
 #include <Gui/Inventor/SoFCVertexCache.h>
 #include <Gui/InventorBase.h>
 #include <Gui/BitmapFactory.h>
@@ -150,6 +154,7 @@
 #include <Gui/Renderer/Renderer.h>
 #include <Gui/Renderer/MeshSimplify.h>
 #include <Gui/Renderer/MeshSource.h>
+#include <Mod/Part/App/MeshService.h>
 #include <Mod/Part/App/ShapeDiff.h>
 #include <Mod/Part/App/Tools.h>
 
@@ -175,6 +180,67 @@ namespace bio = boost::iostreams;
 
 PROPERTY_SOURCE(PartGui::ViewProviderPartExt, Gui::ViewProviderGeometryObject)
 
+namespace {
+/// Whether a view builds vp's visual: shown, shown by a link
+/// (forceUpdate), or shown by a view on its own -- the rule of
+/// SoFCCoordinate3::hiddenHere (docs/WorkerProcess.md sec 16)
+bool drawn(PartGui::ViewProviderPartExt& vp)
+{
+    if (vp.Visibility.getValue() || vp.isUpdateForced()) {
+        return true;
+    }
+    SoSwitch* node = vp.getModeSwitch();
+    return node && node->isOfType(SoFCSwitch::getClassTypeId())
+        && SoFCSwitch::isPerViewShown(static_cast<SoFCSwitch*>(node));
+}
+
+/// Whether a view draws `obj`: what the Animation's showAt() puts back of a
+/// frame, the rest held back until it is read. Only a Part view is asked:
+/// any other object is drawn, as far as this goes
+bool animationDrawnHere(const App::DocumentObject& obj)
+{
+    if (!Gui::Application::Instance) {
+        return true;
+    }
+    auto vp = freecad_cast<PartGui::ViewProviderPartExt*>(
+        Gui::Application::Instance->getViewProvider(&obj));
+    return !vp || drawn(*vp);
+}
+
+/// How this view meshes `obj` (docs/WorkerProcess.md sec 14): the
+/// deviation and the angle updateVisual() uses, for a worker making a frame
+/// of the Animation to mesh its shape so. Not a hidden object no view
+/// builds (SoFCCoordinate3::hiddenHere, docs/WorkerProcess.md sec 16): its
+/// frame carries the shape alone, and one shown later is meshed here
+std::string animationDisplayHint(const App::DocumentObject& obj)
+{
+    if (!Gui::Application::Instance) {
+        return {};
+    }
+    auto vp = freecad_cast<PartGui::ViewProviderPartExt*>(
+        Gui::Application::Instance->getViewProvider(&obj));
+    if (!vp) {
+        return {};
+    }
+    if (!drawn(*vp)) {
+        return {};
+    }
+    const bool over = PartGui::PartParams::getOverrideTessellation();
+    const double deviation =
+        std::max(over ? PartGui::PartParams::getMeshDeviation() : vp->Deviation.getValue(),
+                 PartGui::PartParams::getMinimumDeviation());
+    const double angular = std::max(over ? PartGui::PartParams::getMeshAngularDeflection()
+                                         : vp->AngularDeflection.getValue(),
+                                    PartGui::PartParams::getMinimumAngularDeflection());
+    char text[80];
+    std::snprintf(text, sizeof(text), "mesh %.17g %.17g", deviation, angular);
+    return text;
+}
+[[maybe_unused]] const bool hintsAnimation =
+    (App::Animation::displayHint = animationDisplayHint,
+     App::Animation::drawnHere = animationDrawnHere, true);
+}  // namespace
+
 namespace PartGui {
 
 namespace {
@@ -197,7 +263,7 @@ public:
         // node, which is what makes calling it from inside a bounding-
         // box traversal free. It cost 25 minutes of pegged CPU on the
         // 17058-solid MiSTer assembly, against 8, when it did not.
-        if (vp && vp->VisualTouched && !vp->VisualDeferred) {
+        if (vp && vp->VisualTouched && !vp->VisualDeferred && !hiddenHere(action)) {
             // Named under the level debug flag: this on-demand build
             // runs inside whatever traversal asked for the bbox, and
             // the 1.8s giant rebuilds attributed to "the drain" turned
@@ -210,6 +276,27 @@ public:
             vp->updateVisual();
         }
         SoCoordinate3::getBoundingBox(action);
+    }
+
+    /** This traversal came through the object's own root, whose display
+     * mode switch shows nothing to it: the box it asks for has no use for
+     * the visual. This node stands before the switch, so without this a
+     * hidden object was built at every bounds traversal after its shape
+     * changed -- each hidden feature of a chain meshed at every recompute,
+     * and a worker told to mesh them all for a frame of the Animation
+     * (docs/WorkerProcess.md sec 16). What may still show a hidden object
+     * builds it: a link (through a root of its own, and forceUpdate()),
+     * a switch override above, a view showing it on its own.
+     */
+    bool hiddenHere(SoAction* action) const
+    {
+        SoSwitch* sw = vp->getModeSwitch();
+        if (drawn(*vp) || !sw || sw->whichChild.getValue() != SO_SWITCH_NONE
+            || SoFCSwitch::testTraverseState(SoFCSwitch::TraverseOverride)) {
+            return false;
+        }
+        const SoPath* path = action->getCurPath();
+        return path && path->getLength() >= 2 && path->getNodeFromTail(1) == vp->getRoot();
     }
 
     ViewProviderPartExt *vp = nullptr;
@@ -6766,8 +6853,10 @@ void ViewProviderPartExt::runDeferredVisualSlice()
                 // and then runs finishRestoring on each, which builds
                 // it. The chess set's 15 shapes were all submitted that
                 // way and none of them built by the drain
-                // (docs/DocumentLoad.md sec 18.7).
-                if (vp && vp->VisualDeferred && vp->VisualTouched)
+                // (docs/DocumentLoad.md sec 18.7). Nor one no view draws:
+                // the drain leaves it unbuilt (docs/WorkerProcess.md sec
+                // 18).
+                if (vp && vp->VisualDeferred && vp->VisualTouched && drawn(*vp))
                     vps.push_back(vp);
             }
             std::vector<PreMeshItem> items;
@@ -6952,7 +7041,15 @@ void ViewProviderPartExt::runDeferredVisualSlice()
                 // Something may have built it in the meantime -- counted
                 // only when this slice is what built it, or the line would
                 // report work it never did.
-                if (vp->VisualTouched) {
+                //
+                // Nor one no view draws now: it was parked when its view
+                // still counted as shown -- the restore parks a visual
+                // before the view's own Visibility is read back -- and it
+                // stays touched, built when it is shown, as an eager load
+                // leaves it. Building it here meshed 133 hidden features
+                // of scanner.FCStd at every open (docs/WorkerProcess.md
+                // sec 18).
+                if (vp->VisualTouched && drawn(*vp)) {
                     // Read ahead of the ask: a claim that ends after this
                     // is one the ask may have missed.
                     const std::uint64_t ended = preMeshEnded();
@@ -7120,9 +7217,10 @@ bool faceProjectionFrame(const TopoDS_Face &face, SbVec4f out[3])
     float radius = 0.0f;
     float kind = 0.0f;
     try {
-        // Restricted to the face, so a cone's radius below is measured
-        // over the part of it this face actually is.
-        BRepAdaptor_Surface adapt(face);
+        // Unrestricted: a restricted adaptor makes the face's UV bounds
+        // from every pcurve, which only a cone's radius below needs (the
+        // part of the cone this face is); the cone takes them itself.
+        BRepAdaptor_Surface adapt(face, false);
         switch (adapt.GetType()) {
         case GeomAbs_Plane: {
             // Held, as the cylinder and the cone are: Plane() returns by
@@ -7157,8 +7255,9 @@ bool faceProjectionFrame(const TopoDS_Face &face, SbVec4f out[3])
             // period is fitted to. A cone's is not constant, so the
             // pattern stretches a little toward the wide end -- which is
             // what a knurl rolled onto a taper actually does.
-            const double v = 0.5 * (adapt.FirstVParameter()
-                                    + adapt.LastVParameter());
+            double umin, umax, vmin, vmax;
+            BRepTools::UVBounds(face, umin, umax, vmin, vmax);
+            const double v = 0.5 * (vmin + vmax);
             radius = float(std::fabs(cone.RefRadius()
                                      + v * std::sin(cone.SemiAngle())));
             kind = 2.0f;
@@ -8095,7 +8194,9 @@ bool ViewProviderPartExt::captureVisualFill(const TopoDS_Shape &cShape,
                 meshParams.InParallel = Standard_True;
                 meshParams.AllowQualityDecrease = Standard_True;
 
-                BRepMesh_IncrementalMesh(cShape, meshParams);
+                // Here, or in a helper when Workers/MeshInWorker says so
+                // (Part::meshShape, docs/WorkerProcess.md sec 65)
+                Part::meshShape(cShape, meshParams, "a shape a view shows");
 #else
                 BRepMesh_IncrementalMesh(cShape, deflection, Standard_False, AngDeflectionRads, Standard_True);
 #endif

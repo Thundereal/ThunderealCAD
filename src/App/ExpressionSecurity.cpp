@@ -33,6 +33,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <Base/FileInfo.h>
+
 #include "ExpressionSecurity.h"
 
 using json = nlohmann::json;
@@ -557,9 +559,19 @@ bool GrantStore::load(const std::string &path, std::string *errMsg)
         // A missing store is an empty store.
         return true;
     }
+    std::ostringstream text;
+    text << in.rdbuf();
+    return loadText(text.str(), errMsg);
+}
+
+bool GrantStore::loadText(const std::string &text, std::string *errMsg)
+{
+    _grants.clear();
+    _defaults.clear();
+
     json root;
     try {
-        in >> root;
+        root = json::parse(text);
     } catch (const std::exception &e) {
         if (errMsg)
             *errMsg = e.what();
@@ -625,6 +637,35 @@ bool GrantStore::load(const std::string &path, std::string *errMsg)
 
 bool GrantStore::save(const std::string &path, std::string *errMsg) const
 {
+    const std::string text = toText();
+    const std::string tmp = path + ".tmp";
+    {
+        std::ofstream out(tmp.c_str(), std::ios::binary | std::ios::trunc);
+        if (!out) {
+            if (errMsg)
+                *errMsg = "cannot write " + tmp;
+            return false;
+        }
+        out << text;
+        if (!out) {
+            if (errMsg)
+                *errMsg = "write failed for " + tmp;
+            return false;
+        }
+    }
+    // FileInfo's rename replaces the file there on Windows too, where
+    // std::rename() refuses to: grants.json was never updated there
+    if (!Base::FileInfo(tmp).renameFile(path.c_str())) {
+        if (errMsg)
+            *errMsg = "cannot rename " + tmp + " over " + path;
+        std::remove(tmp.c_str());
+        return false;
+    }
+    return true;
+}
+
+std::string GrantStore::toText() const
+{
     json root;
     root["version"] = 1;
     json defaults = json::object();
@@ -647,29 +688,7 @@ bool GrantStore::save(const std::string &path, std::string *errMsg) const
         grants.push_back(std::move(g));
     }
     root["grants"] = std::move(grants);
-
-    const std::string tmp = path + ".tmp";
-    {
-        std::ofstream out(tmp.c_str(), std::ios::binary | std::ios::trunc);
-        if (!out) {
-            if (errMsg)
-                *errMsg = "cannot write " + tmp;
-            return false;
-        }
-        out << root.dump(2) << '\n';
-        if (!out) {
-            if (errMsg)
-                *errMsg = "write failed for " + tmp;
-            return false;
-        }
-    }
-    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
-        if (errMsg)
-            *errMsg = "cannot rename " + tmp + " over " + path;
-        std::remove(tmp.c_str());
-        return false;
-    }
-    return true;
+    return root.dump(2) + '\n';
 }
 
 std::optional<Decision> GrantStore::lookupGrant(const std::string &principal,

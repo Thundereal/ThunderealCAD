@@ -287,6 +287,17 @@ order:
 2. **Shadow block** — variance shadow map (EVSM moments) of the scene
    light + separable blur; glass-caster tint map + blur; up to 10
    bulb-shadow tiles (4×4 VSM atlas, cached until casters change).
+   A translucent part casts into the tint map, not the moments
+   (2026-11-25): it lets (1 - opacity) x mix(white, its colour, opacity)
+   of the light through, one face of it a crossing, depth-tested against
+   the opaque casters so one behind them casts nothing; the near map
+   (`ViewShadowNear`) keeps the nearest translucent or glass caster's
+   light depth, and a receiver -- mesh, ground or water surface -- takes
+   the tint only behind it: a translucent part does not shade itself,
+   nor a part in front of it. The bulb tiles have the same pair, an
+   atlas each tile for tile (`ViewBulbTint*`, `ViewBulbNear*`), and a
+   section plane's cut-away part tints nothing (the clipped tint
+   program) (tests/gui/translucent-shadows.py).
 3. **AO block** — depth+normal prepass (non-MSAA RGBA16F), GTAO depth
    MIP pyramid, AO generation + denoise into R8.
 4. **Media depth intervals** — front/back depth pairs per volumetric
@@ -728,9 +739,9 @@ configuration turns the group off and on again.
 | group | targets | at 1080p | wanted by |
 |---|---|---|---|
 | `EffectVolumetric` | raymarch + history pair, water/cloud/fire intervals | ~166MB | `Render_Volumetric` |
-| `EffectShadow` | moments + depth, blur ping, glass tint pair | ~117MB | a scene light *and* `Render_Shadow` |
+| `EffectShadow` | moments + depth, blur ping, tint pair, near map + depth | ~117MB + the near map | a scene light *and* `Render_Shadow` |
 | `EffectSSAO` | depth+normal prepass, AO chain, glass interval | ~98MB | AO / cavity / volumetric / water / debug views / glass seen |
-| `EffectBulbShadow` | the 2048^2 bulb tile atlas | ~50MB | a light-source body (allocate only) |
+| `EffectBulbShadow` | the 2048^2 bulb tile atlas, its tint and near atlases | ~50MB + ~66MB | a light-source body (allocate only) |
 | `EffectReflection` | mirrored-camera re-render | viewport | ground reflection or planar water |
 | `EffectBloom` | quarter-res halo + blur ping | viewport/16 | `Render_Bloom` |
 

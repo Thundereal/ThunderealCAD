@@ -263,7 +263,17 @@ PyMOD_INIT_FUNC(PartDesignGui)
     sheetMetal.applies = [](const App::DocumentObject* obj) {
         return Part::BodyBase::typeKind(obj->getTypeId()) == "SheetMetal";
     };
+    sheetMetal.menuText = "Sheet Metal";
+    sheetMetal.icon = "PartDesign_SheetMetalBaseWall";
     Gui::ToolContext::add(std::move(sheetMetal));
+
+    // A toggle for each context registered for PartDesign -- Sheet Metal,
+    // Surface, PMI, and whatever registers one later -- on the Part Design
+    // Extensions tool bar and in Part Design > Extensions: the tool bars
+    // shown until taken away, a way of asking for them beside an active
+    // group and an edit (docs/SheetMetal.md sec 8.1)
+    Gui::ToolContext::hostToggles("PartDesignWorkbench", "Part Design Extensions",
+                                  "&Part Design", "Extensions");
 
     PyMOD_Return(mod);
 }

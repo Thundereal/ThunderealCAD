@@ -1761,6 +1761,15 @@ public:
      * and bends (docs/SheetMetal.md sec 12).
      */
     long nextObjectCount(const DocumentObject& obj, int kind, long floor) const;
+    /** The numbers `obj` gave so far, which nextGeoId() and
+     * nextObjectCount() count on from: its last geometry id as kind -1, and
+     * the last of each kind it counts. A worker's recompute is given them, to
+     * give the numbers this process would, and this process takes the ones it
+     * gave (docs/WorkerProcess.md sec 36).
+     */
+    std::vector<std::pair<int, long>> givenNumbers(const DocumentObject& obj) const;
+    /// The count `kind` of `obj` (-1 its geometry ids) raised to `last`; none goes down
+    void noteGivenNumber(const DocumentObject& obj, int kind, long last) const;
     /// Returns a name of the form prefix_number. d specifies the number of digits.
     std::string getStandardObjectName(const char *Name, int d) const;
     /// Returns a list of document's objects including the dependencies
@@ -1807,6 +1816,15 @@ public:
      * MigrationPending); nothing otherwise. Returns the number recomputed.
      */
     static int recomputeMigration(App::DocumentObject *obj);
+    /** Spell the names of a document that counts its string ids by the
+     * strings' digests from here on (docs/StringTableContentIds.md sec 12):
+     * its table switched, and every object whose shape names elements with
+     * it marked for the migration recompute that makes the names again.
+     * What the migration prompt does when the user accepts it. Returns the
+     * number of objects marked; 0, and nothing done, for a table already
+     * spelling digests.
+     */
+    int spellNamesByContent();
     /// Recompute only one feature
     bool recomputeFeature(DocumentObject* Feat,bool recursive=false);
     /// get the text of the error of a specified object
@@ -1973,6 +1991,16 @@ public:
      * Origin its axes and planes -- must wait for the log to supply them.
      */
     bool isReplaying() const;
+    /** A worker's copy moved to a newer version through the log's rows
+     * (WorkerPool, docs/WorkerProcess.md sec 58): _moveAlongLog() with
+     * isMovingAlongLog() true while it runs. Each value it restores is one
+     * the document had, checked when it was made, as with an undo: a value's
+     * own check on setting -- a shape's BRepCheck, its fix -- is not run
+     * again. Not a replay (isReplaying): a value the log lacks still refuses
+     * the move, and the worker opens the version whole.
+     */
+    bool moveAlongLogQuietly(int64_t fromHead, int64_t toSeq, TransactionLog* through);
+    bool isMovingAlongLog() const;
     /** Another copy's rows or state are being written into this document
      * (a fork's import, a linked set: docs/TransactionLogJournal.md sec 30.13,
      * 37.10): what they make, they say, and nothing is to be made on the
@@ -2126,6 +2154,8 @@ public:
     friend class DocumentObject;
     friend class Transaction;
     friend class TransactionDocumentObject;
+    /// takes versions of the log for its workers (docs/WorkerProcess.md)
+    friend class WorkerPool;
 
     /// Destruction
     ~Document() override;
@@ -2390,6 +2420,8 @@ protected:
         const std::vector<App::DocumentObject*> &objs = std::vector<App::DocumentObject*>());
 
     std::string getTransientDirectoryName(const std::string& uuid, const std::string& filename) const;
+    /// TransientDir set as bookkeeping, which a pinned version allows
+    void setTransientDir(const std::string& dir);
 
     /** Open a new command Undo/Redo, an UTF-8 name can be specified
      *

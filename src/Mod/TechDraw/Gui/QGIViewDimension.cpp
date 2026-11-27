@@ -196,6 +196,8 @@ void QGIDatumLabel::mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event)
 
 void QGIDatumLabel::hoverEnterEvent(QGraphicsSceneHoverEvent* event)
 {
+    // the dimension named in the status bar (QGIView::preselectItem())
+    QGIView::preselectItem(this, event->scenePos());
     Q_EMIT hover(true);
     setPrettyPre();
     QGraphicsItem::hoverEnterEvent(event);
@@ -203,6 +205,7 @@ void QGIDatumLabel::hoverEnterEvent(QGraphicsSceneHoverEvent* event)
 
 void QGIDatumLabel::hoverLeaveEvent(QGraphicsSceneHoverEvent* event)
 {
+    QGIView::unpreselectItem(this);
     Q_EMIT hover(false);
     if (!isSelected()) {
         setPrettyNormal();
@@ -2766,14 +2769,18 @@ QPainterPath QGIViewDimension::shape() const
     // most of the outline (docs/HandsOnQueue.md entry 148). A press on its
     // lines and arrows selects it (mousePressEvent), and hovering them
     // lights it.
+    //
+    // United, not appended: appended, a part that winds the other way from the
+    // one it overlaps cancels it -- the line through an arrow head left a hole
+    // in the head, where the face under the dimension took the mouse and the
+    // highlight flickered between the two (QGIArrow::shape()).
     QPainterPath path;
-    path.setFillRule(Qt::WindingFill);
     for (QGraphicsItem* item : {static_cast<QGraphicsItem*>(datumLabel),
                                 static_cast<QGraphicsItem*>(dimLines),
                                 static_cast<QGraphicsItem*>(aHead1),
                                 static_cast<QGraphicsItem*>(aHead2)}) {
         if (item && item->isVisible()) {
-            path.addPath(mapFromItem(item, item->shape()));
+            path = path.united(mapFromItem(item, item->shape()));
         }
     }
     return path;

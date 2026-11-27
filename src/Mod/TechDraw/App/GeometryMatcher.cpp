@@ -29,6 +29,8 @@
 #endif
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepLProp_CLProps.hxx>
 #include <BRep_Tool.hxx>
 #include <gp_Circ.hxx>
@@ -48,6 +50,27 @@
 
 using namespace TechDraw;
 using DU = DrawUtil;
+
+namespace {
+bool liesOn(const TopoDS_Edge& edge, const gp_Pnt& point)
+{
+    BRepExtrema_DistShapeShape dist(edge, BRepBuilderAPI_MakeVertex(point));
+    return dist.IsDone() && dist.NbSolution() > 0 && dist.Value() < EWTOLERANCE;
+}
+
+bool alongLiesOn(const TopoDS_Edge& from, const TopoDS_Edge& onto)
+{
+    BRepAdaptor_Curve curve(from);
+    const double first = curve.FirstParameter();
+    const double last = curve.LastParameter();
+    for (double at : {0.25, 0.5, 0.75}) {
+        if (!liesOn(onto, curve.Value(first + at * (last - first)))) {
+            return false;
+        }
+    }
+    return true;
+}
+}  // namespace
 
 // a set of routines for comparing geometry for equality.
 
@@ -161,7 +184,9 @@ bool GeometryMatcher::compareLines(TopoDS_Edge &edge1, TopoDS_Edge &edge2)
         //exact match
         return true;
     }
-    return false;
+    // the same segment the other way: a projection may run an edge either way,
+    // and OCCT 8's runs some of 7.7's backwards (docs/WorkerProcess.md sec 46)
+    return start1.IsEqual(end2, EWTOLERANCE) && end1.IsEqual(start2, EWTOLERANCE);
 }
 
 bool GeometryMatcher::compareCircles(TopoDS_Edge &edge1, TopoDS_Edge &edge2)
@@ -216,7 +241,10 @@ bool GeometryMatcher::compareEllipses(TopoDS_Edge &edge1, TopoDS_Edge &edge2)
     return false;
  }
 
-// for our purposes, only lines or circles masquerading as bsplines are of interest
+// two B-splines are the same edge when their ends are, either way, and points
+// along each lie on the other.  Not by recognising each as a line or a circle:
+// a projected edge is often a trimmed piece of a longer B-spline, whose poles
+// say nothing of the piece (docs/WorkerProcess.md sec 46)
 bool GeometryMatcher::compareBSplines(TopoDS_Edge &edge1, TopoDS_Edge &edge2)
 {
 //    Base::Console().Message("GM::compareBSplines()\n");
@@ -225,36 +253,13 @@ bool GeometryMatcher::compareBSplines(TopoDS_Edge &edge1, TopoDS_Edge &edge2)
         Base::Console().Message("GM::compareBSplines - an input edge is null\n");
         return false;
     }
-
-    if (GeometryUtils::isLine(edge1) && GeometryUtils::isLine(edge2)) {
-        return compareEndPoints(edge1, edge2);
-    }
-
-    // deal with bsplines as circles
-    BRepAdaptor_Curve adapt1(edge1);
-    BRepAdaptor_Curve adapt2(edge2);
-    bool isArc1(false);
-    bool isArc2(false);
-    TopoDS_Edge circleEdge1;
-    TopoDS_Edge circleEdge2;
     try {
-        circleEdge1 = GeometryUtils::asCircle(edge1, isArc1);
-        circleEdge2 = GeometryUtils::asCircle(edge2, isArc2);
+        return compareEndPoints(edge1, edge2, false) && alongLiesOn(edge1, edge2)
+            && alongLiesOn(edge2, edge1);
     }
-    catch (Base::RuntimeError&) {
-        Base::Console().Error("GeometryMatcher failed to make circles from splines\n");
+    catch (Standard_Failure&) {
         return false;
     }
-    if (!isArc1 && !isArc2) {
-        // full circles
-        return compareCircles(circleEdge1, circleEdge2);
-    }
-    if (isArc1 && isArc2) {
-        // circular arcs
-        return compareCircleArcs(circleEdge1, circleEdge2);
-    }
-
-    return false;
 }
 
 // this is a weak comparison.  we should also check center & radius?
@@ -270,15 +275,40 @@ bool GeometryMatcher::compareEllipseArcs(TopoDS_Edge &edge1, TopoDS_Edge &edge2)
 
 // this is where we would try to match a bspline against a line or a circle.
 // not sure how successful this would be.  For now, we just say it doesn't match
+// A line or a circle written as a B-spline is the same edge as the line or the
+// circle: OCCT 8's projection writes as B-splines some of what 7.7's wrote as
+// lines, and a reference saved then must still find it (docs/WorkerProcess.md
+// sec 46).  Told by the points, not by recognising the B-spline: a projected
+// edge is often a trimmed piece of a longer one, whose poles say nothing of
+// the piece.  The same end points, either way, and points along each lying on
+// the other -- which tells the two halves of a circle apart.
+
 bool GeometryMatcher::compareDifferent(TopoDS_Edge &edge1, TopoDS_Edge &edge2)
 {
 //    Base::Console().Message("GM::compareDifferent()\n");
     BRepAdaptor_Curve adapt1(edge1);
     BRepAdaptor_Curve adapt2(edge2);
-    return false;
+    const bool spline1 = adapt1.GetType() == GeomAbs_BSplineCurve;
+    const bool spline2 = adapt2.GetType() == GeomAbs_BSplineCurve;
+    if (spline1 == spline2) {
+        // neither is written otherwise (a line is not a circle), or both are,
+        // which compareBSplines takes
+        return false;
+    }
+    const GeomAbs_CurveType plain = spline1 ? adapt2.GetType() : adapt1.GetType();
+    if (plain != GeomAbs_Line && plain != GeomAbs_Circle && plain != GeomAbs_Ellipse) {
+        return false;
+    }
+    try {
+        return compareEndPoints(edge1, edge2, false) && alongLiesOn(edge1, edge2)
+            && alongLiesOn(edge2, edge1);
+    }
+    catch (Standard_Failure&) {
+        return false;
+    }
 }
 
-bool GeometryMatcher::compareEndPoints(TopoDS_Edge &edge1, TopoDS_Edge &edge2)
+bool GeometryMatcher::compareEndPoints(TopoDS_Edge &edge1, TopoDS_Edge &edge2, bool middle)
 {
     // how does the edge that was NOT null in compareEdges become null here?
     if (edge1.IsNull() || edge2.IsNull()) {
@@ -301,10 +331,18 @@ bool GeometryMatcher::compareEndPoints(TopoDS_Edge &edge1, TopoDS_Edge &edge2)
     props2.SetParameter(pLast2);
     auto end2 = DU::toVector3d(props2.Value());
 
-    if (begin1.IsEqual(begin2, EWTOLERANCE) &&
-        end1.IsEqual(end2, EWTOLERANCE)) {
-        //exact match
+    // the end points either way -- a projection may run an edge backwards
+    // (docs/WorkerProcess.md sec 46) -- and the middle: the two halves of a
+    // circle have each other's ends, the other way round
+    const bool forward = begin1.IsEqual(begin2, EWTOLERANCE) && end1.IsEqual(end2, EWTOLERANCE);
+    const bool backward = begin1.IsEqual(end2, EWTOLERANCE) && end1.IsEqual(begin2, EWTOLERANCE);
+    if (!forward && !backward) {
+        return false;
+    }
+    if (!middle) {
         return true;
     }
-    return false;
+    props1.SetParameter((pFirst1 + pLast1) / 2.0);
+    props2.SetParameter((pFirst2 + pLast2) / 2.0);
+    return DU::toVector3d(props1.Value()).IsEqual(DU::toVector3d(props2.Value()), EWTOLERANCE);
 }

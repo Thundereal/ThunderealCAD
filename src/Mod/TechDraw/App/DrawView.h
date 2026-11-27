@@ -142,6 +142,16 @@ public:
     App::DocumentObjectExecReturn* recompute() override;
     //@}
 
+    /** Whether a view makes what it would make on worker threads -- its
+     * projection, faces, section or detail cut -- in its execute() instead,
+     * on the thread that recomputes it, done when the recompute returns.
+     * Always without the GUI: a console process (a script, a worker process)
+     * runs no event loop to deliver the threads' end, so nothing was ever
+     * made there. With the GUI, Preferences::makeInline(). See
+     * docs/WorkerProcess.md sec 39.
+     */
+    static bool makesInline();
+
     void translateLabel(std::string context, std::string baseName, std::string uniqueName);
 
 protected:

@@ -402,7 +402,7 @@ Params = [
         title = "Label font",
         doc = "Font of view labels, and the font new dimensions, balloons and\n"
               "annotations start with."),
-    ParamFloat('LabelSize', 5.0, subpath='Labels',
+    ParamFloat('LabelSize', 2.5, subpath='Labels',
         title = "Label size",
         doc = "Text size of view labels in mm, and the size new annotations start\n"
               "with."),
@@ -630,11 +630,11 @@ Params = [
 
     # --- The five of Dimensions whose default was a constant elsewhere, or a
     # character outside ASCII: it is written here by its number.
-    ParamFloat('ArrowSize', 3.5, subpath='Dimensions',
+    ParamFloat('ArrowSize', 1.5, subpath='Dimensions',
         title = "Arrow size",
         doc = "Size in mm of dimension arrowheads. Applies to dimensions created\n"
               "afterwards; each dimension has its own Arrow Size property."),
-    ParamFloat('FontSize', 5.0, subpath='Dimensions',
+    ParamFloat('FontSize', 2.5, subpath='Dimensions',
         title = "Dimension font size",
         doc = "Text size in mm of dimensions and of other annotation text that\n"
               "follows it. Applies to dimensions created afterwards."),

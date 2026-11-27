@@ -42,6 +42,7 @@ class DocumentObject;
 namespace TechDrawGui
 {
 class ViewProviderHatch;
+class TaskReferenceList;
 
 class TaskHatch : public QWidget
 {
@@ -92,9 +93,16 @@ private:
     double m_saveScale;
     App::Color m_saveColor;
     std::vector<std::string> m_saveSubs;
+    std::vector<std::string> m_saveNames;
+    std::vector<std::string> m_saveGeometry;
     double m_saveRotation;
     Base::Vector3d m_saveOffset;
 
+    /// The faces listed, with Reattach; what was found by name alone taken
+    /// once the panel is up (the reporter, 2026-11-26)
+    void addReferences();
+    void takeByName();
+    TaskReferenceList* m_refs = nullptr;
 };
 
 class TaskDlgHatch : public Gui::TaskView::TaskDialog

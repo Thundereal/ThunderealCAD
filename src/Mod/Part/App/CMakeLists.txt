@@ -589,10 +589,14 @@ SET(Part_SRCS
     edgecluster.h
     modelRefine.cpp
     modelRefine.h
+    MeshService.cpp
+    MeshService.h
     MeshTwin.cpp
     MeshTwin.h
     Tools.cpp
     Tools.h
+    GeometryCheck.cpp
+    GeometryCheck.h
     encodeFilename.h
     OCCError.h
     FT2FC.cpp

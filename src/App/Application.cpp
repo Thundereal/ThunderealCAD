@@ -52,6 +52,7 @@
 #include <functional>
 #include <thread>
 
+#include <atomic>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
@@ -59,6 +60,7 @@
 #include <QFileInfo>
 #include <QProcessEnvironment>
 #include <QStandardPaths>
+#include <QThreadPool>
 #include <LibraryVersions.h>
 
 #include <App/ElementAppearancePy.h>
@@ -94,7 +96,11 @@
 
 #include "Annotation.h"
 #include "Application.h"
+#include "ServiceWorkers.h"
+#include "WorkerPool.h"
+#include "ShuttingDown.h"
 #include "BrandText.h"
+#include "CacheSweep.h"
 #include "ComplexGeoData.h"
 #include "Document.h"
 #include "FileHistory.h"
@@ -2179,8 +2185,43 @@ void Application::cleanupUnits()
     }
 }
 
+namespace
+{
+std::atomic<bool> shuttingDown {false};
+}
+
+bool App::isShuttingDown()
+{
+    return shuttingDown.load(std::memory_order_relaxed);
+}
+
 void Application::destruct()
 {
+    // What the shared thread pool still runs -- TechDraw's projections and
+    // cuts, a recovery file being written -- reads the parameters, writes to
+    // the console and may call the interpreter, all let go of below: a
+    // script that ended while a view's hidden lines were being found had
+    // the process die in ParameterGrp::GetGroup(). It is waited for. What
+    // is queued and not begun ends at once (isShuttingDown()); what runs
+    // cannot be stopped, a projection being one call into OpenCASCADE. Not
+    // for ever: a task that waits for this thread would never be done.
+    // With a QCoreApplication -- the GUI -- Qt waited for the pool and
+    // deleted it as that went, and there is none left to ask for: only the
+    // console, which has no QCoreApplication, gets here with work in it.
+    shuttingDown = true;
+    // The service helpers ended before what they hold of this process goes
+    // (in the GUI they were at aboutToQuit)
+    ServiceWorkers::stop();
+    // And the worker standing for a pool (docs/WorkerProcess.md sec 69)
+    WorkerPool::stopStandby();
+    constexpr int mostSeconds = 120;
+    QThreadPool* pool = QThreadPool::globalInstance();
+    if (pool && !pool->waitForDone(mostSeconds * 1000)) {
+        Base::Console().Warning("Application: tasks of the thread pool still ran after %d s "
+                                "at exit, and are not waited for\n",
+                                mostSeconds);
+    }
+
     if (mConfig["RunMode"] != "Cmd") {
         // saving system parameter
         Base::Console().Log("Saving system parameter...\n");
@@ -2411,7 +2452,7 @@ void printBacktrace(size_t skip=0, const char* reason=nullptr, bool fault=false)
 #endif
 }
 
-#if defined(FC_OS_LINUX) && defined(HAVE_BACKTRACE_SYMBOLS)
+#if (defined(FC_OS_LINUX) || defined(FC_OS_MACOSX)) && defined(HAVE_BACKTRACE_SYMBOLS)
 // The frames, first and with nothing that allocates: write(), backtrace()
 // (primed at install, its one allocation done) and backtrace_symbols_fd().
 // printBacktrace() builds a log entry, fopen()s the file, demangles and
@@ -2443,7 +2484,7 @@ void writeRawBacktrace(const char* what)
 
 void segmentation_fault_handler(int sig)
 {
-#if defined(FC_OS_LINUX)
+#if defined(FC_OS_LINUX) || defined(FC_OS_MACOSX)
     // Default the disposition first: this handler ends in abort(), which
     // raises SIGABRT, and a handler still installed for it would recurse
     // instead of dumping.
@@ -2452,6 +2493,9 @@ void segmentation_fault_handler(int sig)
     switch (sig) {
         case SIGABRT:
             what = "Program received signal SIGABRT, Abnormal termination.";
+            break;
+        case SIGBUS:
+            what = "Program received signal SIGBUS, Bus error.";
             break;
         case SIGTRAP:
             // What a failed assertion in a vendored engine looks like:
@@ -2467,7 +2511,12 @@ void segmentation_fault_handler(int sig)
     writeRawBacktrace(what);
 #endif
     printBacktrace(2, what);
-#if defined(FC_DEBUG)
+#if defined(FC_OS_MACOSX)
+    // Dies of the signal, at its default now: the system's crash report,
+    // and the dialog a user knows, as before this handler was installed
+    // here (docs/WorkerProcess.md sec 35)
+    raise(sig);
+#elif defined(FC_DEBUG)
     abort();
 #else
     _exit(1);
@@ -2515,7 +2564,7 @@ void segmentation_fault_handler(int sig)
             printBacktrace(2, "Unknown error occurred...");
             break;
     }
-#endif // FC_OS_LINUX
+#endif // FC_OS_LINUX || FC_OS_MACOSX
 }
 
 void unhandled_exception_handler()
@@ -2583,8 +2632,9 @@ void Application::init(int argc, char ** argv)
         std::signal(SIGABRT,segmentation_fault_handler);
         std::set_terminate(unhandled_exception_handler);
            ::set_unexpected(unexpection_error_handler);
-#elif defined(FC_OS_LINUX)
+#elif defined(FC_OS_LINUX) || defined(FC_OS_MACOSX)
         std::signal(SIGSEGV,segmentation_fault_handler);
+        std::signal(SIGBUS,segmentation_fault_handler);
         // Not just SIGSEGV: an assertion inside a vendored engine ends the
         // process without touching memory it may not. bgfx traps
         // (bx::debugBreak) and the C library's assert() aborts, and neither
@@ -3468,6 +3518,12 @@ void Application::initConfig(int argc, char ** argv)
         mConfig["AppTempPath"] = tmpPath + "/";
     }
 
+    // The most a rename or a delete waits for something that has its file
+    // open for a moment -- a file monitor, an antivirus, a slow share
+    // (docs/WorkerProcess.md sec 47)
+    Base::FileInfo::setRetryLimit(_pcUserParamMngr->GetGroup("BaseApp/Preferences/General")
+                                      ->GetFloat("FileRetrySeconds", 10.0));
+
 
     // capture python variables
     SaveEnv("PYTHONPATH");
@@ -3617,6 +3673,10 @@ void Application::initApplication()
 
     // seed randomizer
     srand(time(nullptr));
+
+    // What killed or crashed processes left in the user cache that holds
+    // nothing to recover (docs/WorkerProcess.md sec 49)
+    CacheSweep::start();
 }
 
 std::list<std::string> Application::getCmdLineFiles()

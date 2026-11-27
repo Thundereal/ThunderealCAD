@@ -64,6 +64,8 @@ namespace Solver
 class Session;
 struct BodyPose;
 struct SimulationSpec;
+struct BodyState;
+struct Wrench;
 struct Trajectory;
 }
 
@@ -134,6 +136,28 @@ public:
     // recompute meanwhile finds the assembly as it was. 0 once it started,
     // else generateSimulation()'s code. A run going is cancelled first.
     int startSimulation(App::DocumentObject* sim);
+    // The same with loads on parts from outside the mechanism through the
+    // run (Solver::OutsideLoads, docs/FluidSimulation.md sec 12.9): the
+    // parts are found among the simulation's bodies here, -1 where one is
+    // not of them. Not owned; it outlives the run, finishSimulation()
+    // included.
+    class PartLoads
+    {
+    public:
+        virtual ~PartLoads() = default;
+        virtual std::vector<App::DocumentObject*> parts() const = 0;
+        // As OutsideLoads's, the states and the loads in parts()'s order
+        virtual double longestPiece() const
+        {
+            return 0.0;
+        }
+        virtual bool piece(double time,
+                           double length,
+                           const std::vector<Solver::BodyState>& states,
+                           std::vector<Solver::Wrench>& loads,
+                           std::string& why) = 0;
+    };
+    int startSimulation(App::DocumentObject* sim, PartLoads* outside);
     struct SimulationProgress
     {
         bool running = false;  // started and not done

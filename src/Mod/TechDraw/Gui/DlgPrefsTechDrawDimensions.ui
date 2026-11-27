@@ -67,7 +67,7 @@
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
           </property>
           <property name="value">
-           <double>5.000000000000000</double>
+           <double>1.500000000000000</double>
           </property>
           <property name="prefEntry" stdset="0">
            <cstring>ArrowSize</cstring>
@@ -248,7 +248,7 @@
            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
           </property>
           <property name="value">
-           <double>4.000000000000000</double>
+           <double>2.500000000000000</double>
           </property>
           <property name="prefEntry" stdset="0">
            <cstring>FontSize</cstring>

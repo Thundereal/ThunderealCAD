@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <atomic>
 # include <charconv>
 # include <memory>
 # include <mutex>
@@ -33,6 +34,13 @@
 # include <Bnd_Box.hxx>
 # include <BRepBndLib.hxx>
 # include <BRepBuilderAPI_Copy.hxx>
+# include <BRepMesh_IncrementalMesh.hxx>
+# include <IMeshTools_Parameters.hxx>
+# include <Poly_Triangulation.hxx>
+# include <Poly_TriangulationParameters.hxx>
+# include <TopExp_Explorer.hxx>
+# include <BRep_Tool.hxx>
+# include <Precision.hxx>
 # include <BRepBuilderAPI_Transform.hxx>
 # include <BRepTools.hxx>
 # include <BRep_Builder.hxx>
@@ -53,6 +61,8 @@
 # include <TopoDS_Iterator.hxx>
 #endif // _PreComp_
 
+#include <App/Animation.h>
+#include <App/RecomputeHook.h>
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentParams.h>
@@ -531,6 +541,11 @@ const ParsedShape* parseBlob(App::FileBlobManager& manager,
  * a closed document's address is reused by the next one, and the stale table
  * then answers with TShape addresses that have since been freed and reissued.
  */
+/// Part.saveAnalysisWork(): shapes walked by a save, and shapes that took the
+/// analysis the last save kept (docs/WorkerProcess.md sec 55)
+std::atomic<long> analysisWalked {0};
+std::atomic<long> analysisKept {0};
+
 ShapeOwnerTable* saveOwnerTable(uint64_t generation)
 {
     static uint64_t built = 0;
@@ -733,24 +748,62 @@ void PropertyPartShape::makeBlob(Base::Writer& writer) const
     // serialization -- walking TShapes and mapping pointers
     // (docs/SharedShapeStorage.md sec 11.7).
     const TopoDS_Shape root = shapeForSave(writer);
-    ShapeRefSet refs;
+    auto made = std::make_shared<ShapeRefSet>();
     // Before build(), which is what fills the geometry tables.
-    TopoShape::applyStorageOptions(refs, true);
-    refs.setOwners(owners);
+    TopoShape::applyStorageOptions(*made, true);
+    made->setOwners(owners);
     // Rides on the same table, and is off wherever that is: a geometry entry
     // names a file, and the table is what says which files there are.
     const bool geometry = owners && App::DocumentParams::getDedupCrossFileGeometry();
-    refs.setGeometrySharing(geometry);
+    made->setGeometrySharing(geometry);
     // Below a face the association *is* the identity of a geometry object, so
     // this is sound only while that object can be named across files: off
     // wherever the geometry is not shared, whatever the setting says.
     // And not an edge or a vertex under a stable write: the lender leaves out
     // the 2D curves its own faces do not use, and the borrower's faces are
     // exactly the ones that use them. A face keeps its own (sec 23.12).
-    const int belowFace = refs.IsStableBytes() ? PartParams::getBorrowBelowFace() & 1
-                                               : PartParams::getBorrowBelowFace();
-    refs.setSubFaceBorrowing(geometry ? belowFace : 0);
-    refs.build(root);
+    const int belowFace = made->IsStableBytes() ? PartParams::getBorrowBelowFace() & 1
+                                                : PartParams::getBorrowBelowFace();
+    made->setSubFaceBorrowing(geometry ? belowFace : 0);
+
+    // The last save's analysis, where nothing it was made of has changed: the
+    // shape, the options, the files it borrowed from, which this save has
+    // written again before it -- the walk was 0.30 s of each snapshot of
+    // scanner with no shape changed (docs/WorkerProcess.md sec 55). Only with
+    // its file still held, so that what is done with it is publish() and
+    // plan(), never a write. It keeps what it borrowed: where an object
+    // before it changed and now holds what it holds, a walk would borrow
+    // that too, which only shares more; the file is the same either way.
+    const std::string options = std::to_string(App::DocumentParams::getDedupShapePCurves())
+        + std::to_string(made->IsStableBytes()) + std::to_string(geometry)
+        + std::to_string(geometry ? belowFace : 0);
+    const bool keeps = owners
+        && App::GetApplication()
+               .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Mod/Part")
+               ->GetBool("KeepSaveAnalysis", true);
+    std::shared_ptr<ShapeRefSet> used;
+    if (keeps && _blob && _analysis && _analysisOptions == options && !root.IsNull()
+            && _analysisFor.IsEqual(root) && _analysis->rebind(owners, _analysisSources)
+            && _analysis->plan() == _blobPlan) {
+        used = _analysis;
+        ++analysisKept;
+    }
+    else {
+        made->build(root);
+        ++analysisWalked;
+        used = made;
+        if (keeps) {
+            _analysis = made;
+            _analysisFor = root;
+            _analysisOptions = options;
+            _analysisSources = made->borrowedHashes();
+        }
+        else {
+            _analysis.reset();
+            _analysisFor.Nullify();
+        }
+    }
+    ShapeRefSet& refs = *used;
     const std::string plan = refs.plan();
 
     // *** A shape that is another file's whole root is not borrowed, it is
@@ -787,10 +840,12 @@ void PropertyPartShape::makeBlob(Base::Writer& writer) const
         // (docs/TransactionLogJournal.md sec 38.11).
         if (!_congruentFor.IsEqual(root)) {
             _congruentFor = root;
-            _congruentInvariants = CongruenceIndex::Invariants();
+            _congruentInvariants.reset();
             _congruentMatch = CongruenceIndex::Match();
         }
-        if (congruent->find(root, match, &_congruentInvariants, &_congruentMatch)) {
+        if (!_congruentInvariants)
+            _congruentInvariants = std::make_shared<CongruenceIndex::Invariants>();
+        if (congruent->find(root, match, _congruentInvariants.get(), &_congruentMatch)) {
             _congruentMatch = match;
             if (App::FileBlobHandle shared = manager.find(owners->file(match.slot).hash)) {
                 _blob = shared;
@@ -826,7 +881,7 @@ void PropertyPartShape::makeBlob(Base::Writer& writer) const
         // needs is a file that reads back as this shape, and borrowing is
         // internal to the file.
         if (congruent)
-            congruent->add(root, file);
+            congruent->add(root, file, _congruentInvariants);
     }
 }
 
@@ -872,13 +927,24 @@ void PropertyPartShape::noteBlob(Base::Writer& writer) const
     blobManager().noteReferenced(_blob, referrer);
 }
 
+std::pair<long, long> PropertyPartShape::saveAnalysisWork()
+{
+    return {analysisWalked.load(), analysisKept.load()};
+}
+
 void PropertyPartShape::dropBlob(const TopoDS_Shape& next)
 {
     // Nor the old shape held for its invariants (sec 38.11).
     if (!_congruentFor.IsNull() && !_congruentFor.IsPartner(next)) {
         _congruentFor.Nullify();
-        _congruentInvariants = CongruenceIndex::Invariants();
+        _congruentInvariants.reset();
         _congruentMatch = CongruenceIndex::Match();
+    }
+    // And the last save's analysis of it (sec 55 of docs/WorkerProcess.md)
+    if (!_analysisFor.IsNull() && !_analysisFor.IsPartner(next)) {
+        _analysisFor.Nullify();
+        _analysis.reset();
+        _analysisSources.clear();
     }
     if (!_blob)
         return;
@@ -1097,6 +1163,16 @@ void PropertyPartShape::validateShape(App::DocumentObject *obj)
     // pattern (docs/TransactionLogJournal.md sec 27.64) -- and a fix() would make
     // the value put back other than the one recorded.
     if (obj->getDocument()->isPerformingTransaction())
+        return;
+    // The same of a worker's copy moved along the log to a newer version: the
+    // values are those the document had. It ran a BRepCheck of every shape a
+    // recompute here had made, most of a 3.9 s move (docs/WorkerProcess.md
+    // sec 58)
+    if (obj->getDocument()->isMovingAlongLog())
+        return;
+    // The same of a worker's result put in: checked, and fixed, where it was
+    // made, its InvalidShape put in with it (docs/WorkerProcess.md sec 19)
+    if (App::RecomputeHook::puttingIn())
         return;
     if (auto feat = Base::freecad_dynamic_cast<Part::Feature>(obj)) {
         if (_Shape.isNull()) {
@@ -1615,12 +1691,33 @@ void PropertyPartShape::Save (Base::Writer &writer) const
     //See SaveDocFile(), RestoreDocFile()
     writer.Stream() << writer.ind() << "<Part";
     auto owner = dynamic_cast<App::DocumentObject*>(getContainer());
+    // The index and whether the table goes with the value, as beforeSave()
+    // of this save settled them. A capture for the transaction log or a
+    // worker's result is no save, and beforeSave() last ran for whichever
+    // save or export came before: an export numbers the tables afresh, the
+    // document's first, as new -- and a capture after it wrote "index 0,
+    // the table with it" for a shape on the document's table. Put in, that
+    // value restored the table it carried, the strings marked where it was
+    // written, into the document's: every other string gone, every name of
+    // the document spelling ids its table no longer had
+    // (docs/StringTableContentIds.md sec 14). Settled here for a capture:
+    // the document's table is named, a table of the shape's own goes with
+    // it.
+    int hasherIndex = _HasherIndex;
+    bool saveHasher = _SaveHasher;
+    if (owner && App::capturingDocument()) {
+        hasherIndex = 0;
+        saveHasher = _Shape.Hasher.get() != owner->getDocument()->getStringHasher().get();
+    }
     if(owner && !_Shape.isNull()
              && _Shape.getElementMapSize()>0
              && !_Shape.Hasher.isNull()) {
-        writer.Stream() << " HasherIndex=\"" << _HasherIndex << '"';
-        if(_SaveHasher)
+        writer.Stream() << " HasherIndex=\"" << hasherIndex << '"';
+        if(saveHasher)
             writer.Stream() << " SaveHasher=\"1\"";
+    }
+    else {
+        saveHasher = false;
     }
     std::string version;
     // If exporting, do not export mapped element name, but still make a mark
@@ -1691,7 +1788,7 @@ void PropertyPartShape::Save (Base::Writer &writer) const
         writer.endCharStream() << '\n' << writer.ind() << "</Part>\n";
     }
 
-    if(_SaveHasher) {
+    if(saveHasher) {
         if(!toXML && writer.getFileVersion()>1)
             _Shape.Hasher->setPersistenceFileName(getFileName(".Table").c_str());
         else
@@ -1795,7 +1892,19 @@ void PropertyPartShape::Restore(Base::XMLReader &reader)
 
     reader.readEndElement("Part");
 
-    if(owner && hasher_idx>=0) {
+    if(owner && hasher_idx>=0 && App::restoringValue()) {
+        // A value of the log or a worker (docs/StringTableContentIds.md sec
+        // 14): its index is the save's that wrote it, not this document's
+        // numbering. The document's table, or the one it carries, read into
+        // a table of its own -- never into one the document has, which its
+        // restore clears first
+        if(save_hasher) {
+            _Shape.Hasher = new App::StringHasher;
+            _Shape.Hasher->Restore(reader);
+        }
+        else
+            _Shape.Hasher = owner->getDocument()->getStringHasher();
+    } else if(owner && hasher_idx>=0) {
         _Shape.Hasher = owner->getDocument()->getStringHasher(hasher_idx);
         if(save_hasher)
             _Shape.Hasher->Restore(reader);
@@ -2494,3 +2603,98 @@ void PropertyShapeCache::slotChanged(const App::DocumentObject &, const App::Pro
     }
 }
 
+
+// --------------------------------------------------------------------------
+// A worker's frame meshed as the view that shows it meshes
+// (docs/WorkerProcess.md sec 14)
+
+namespace Part
+{
+void setBinaryWithTriangles(bool on);  // TopoShape.cpp
+}
+
+namespace
+{
+
+/// `hint` is what PartGui's view says of the object: "mesh <deviation>
+/// <angular degrees>", each as the view uses it. The deflection is the
+/// view's (ViewProviderPartExt::updateVisual): of the shape's box, as
+/// it stands, so the view finds a mesh at least as fine as it asks for
+bool captureMeshed(const App::Property& prop, const std::string& hint,
+                   const App::CaptureConfig& config, App::CapturedValue& out)
+{
+    auto shapeProp = dynamic_cast<const PropertyPartShape*>(&prop);
+    if (!shapeProp) {
+        return false;
+    }
+    std::istringstream in(hint);
+    std::string kind;
+    double deviation = 0;
+    double angular = 0;
+    in >> kind >> deviation >> angular;
+    if (kind != "mesh" || !(deviation > 0) || !(angular > 0)) {
+        return false;
+    }
+    const TopoDS_Shape shape = shapeProp->getShape().getShape();
+    if (shape.IsNull()) {
+        return false;
+    }
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box, Standard_False);
+    box.SetGap(0.0);
+    if (box.IsVoid()) {
+        return false;
+    }
+    double x0, y0, z0, x1, y1, z1;
+    box.Get(x0, y0, z0, x1, y1, z1);
+    double deflection =
+        std::max(Precision::Confusion(), ((x1 - x0) + (y1 - y0) + (z1 - z0)) / 300.0 * deviation);
+    if (deflection < gp::Resolution()) {
+        deflection = Precision::Confusion();
+    }
+    deflection = std::min(deflection, 20.0);
+    try {
+        IMeshTools_Parameters params;
+        params.Deflection = deflection;
+        params.Relative = Standard_False;
+        params.Angle = std::max(Precision::Angular(), angular / 180.0 * M_PI);
+        params.InParallel = Standard_True;
+        params.AllowQualityDecrease = Standard_True;
+        BRepMesh_IncrementalMesh mesh(shape, params);
+        (void)mesh;
+        // A file keeps a triangulation's deflection, not the one it was
+        // built at, which is what the view's mesher -- and OCCT's own,
+        // with quality decrease allowed -- compares the ask with, within a
+        // tenth: the measured one, far finer, would have it meshed again
+        for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+            TopLoc_Location loc;
+            const Handle(Poly_Triangulation) tri =
+                BRep_Tool::Triangulation(TopoDS::Face(ex.Current()), loc);
+            if (tri.IsNull()) {
+                continue;
+            }
+            const Handle(Poly_TriangulationParameters)& built = tri->Parameters();
+            if (!built.IsNull() && built->HasDeflection()) {
+                tri->Deflection(built->Deflection());
+            }
+        }
+    }
+    catch (Standard_Failure& e) {
+        FC_LOG("a frame's mesh for " << prop.getFullName() << ": " << e.GetMessageString());
+        return false;
+    }
+    Part::setBinaryWithTriangles(true);
+    try {
+        out = App::captureValue(config, prop);
+    }
+    catch (...) {
+        Part::setBinaryWithTriangles(false);
+        throw;
+    }
+    Part::setBinaryWithTriangles(false);
+    return out.ok;
+}
+
+[[maybe_unused]] const bool capturesMeshed = (App::Animation::captureForDisplay = captureMeshed, true);
+
+}  // namespace

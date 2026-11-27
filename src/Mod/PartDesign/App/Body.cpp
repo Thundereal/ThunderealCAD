@@ -483,6 +483,15 @@ void Body::insertObject(App::DocumentObject* feature, App::DocumentObject* targe
 
     if (auto sheet = feature->getExtensionByType<SheetMetalExtension>(true))
         takeSheetRule(this, sheet);
+
+    // What asks for a solid body (BodyBase::requireSolidBody: PMI's
+    // annotation set) switches the grouping on, as sheet metal does: a body
+    // restored from a file older than AddSolidBody keeps it off, and with it
+    // off syncSolidBodies() takes every solid body away -- the annotation set
+    // came in and its body never got the solid body it refers to (the
+    // reporter, 2026-11-26, opening a legacy file).
+    if (!AddSolidBody.getValue() && Part::BodyBase::needsSolidBody(feature->getTypeId()))
+        AddSolidBody.setValue(true);
 }
 
 void Body::setTip(App::DocumentObject *feature)

@@ -70,11 +70,14 @@
 typedef boost::iterator_range<const char*> CharRange;
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/split.hpp>
 
 #include <App/Application.h>
 #include <App/AppearanceUpdater.h>
 #include <App/Document.h>
 #include <App/FeaturePythonPyImp.h>
+#include <App/PropertyPythonObject.h>
 #include <App/GeoFeatureGroupExtension.h>
 #include <App/Link.h>
 #include <App/OriginFeature.h>
@@ -468,7 +471,58 @@ App::DocumentObjectExecReturn *Feature::recompute()
     }
     if (holding)
         releaseHeldReferences();
+    if (ret == App::DocumentObject::StdReturn && testStatus(App::MigrationPending))
+        keepMigratedNames();
     return ret;
+}
+
+namespace {
+/// "<table>.<naming>.<kernel>.<map format>": whether `a` and `b` differ in
+/// the naming and the kernel alone
+bool sameButNaming(const std::string &a, const std::string &b)
+{
+    std::vector<std::string> fa, fb;
+    boost::split(fa, a, boost::is_any_of("."));
+    boost::split(fb, b, boost::is_any_of("."));
+    if (fa.size() < 4 || fa.size() != fb.size() || fa[0] != fb[0])
+        return false;
+    return std::equal(fa.begin() + 3, fa.end(), fb.begin() + 3);
+}
+}
+
+void Feature::keepMigratedNames()
+{
+    // An object the file asked to make again for names of an older naming
+    // or kernel, whose recompute kept its shape: a plain feature, a detached
+    // binder. Nothing here makes those names again, and they read as they
+    // were written, so the shape takes this build's version. Saved with the
+    // old one, every open after asked again for the recompute, and every
+    // worker made it again (docs/WorkerProcess.md sec 60). Not a map of
+    // another format, which the names would be read against, and not a
+    // Python feature whose class did not load: its own recompute may make
+    // the names again where the class is.
+    if (auto proxy = Base::freecad_dynamic_cast<App::PropertyPythonObject>(
+                getPropertyByName("Proxy"))) {
+        Base::PyGILStateLocker lock;
+        if (proxy->getValue().isNone())
+            return;
+    }
+    std::vector<App::Property*> props;
+    getPropertyList(props);
+    for (auto prop : props) {
+        auto shape = Base::freecad_dynamic_cast<PropertyPartShape>(prop);
+        if (!shape || isBaseShapeVersion(shape))
+            continue;
+        const std::string restored = shape->getElementMapVersion(true);
+        const std::string current = shape->getElementMapVersion(false);
+        if (restored.empty() || restored == current || !sameButNaming(restored, current))
+            continue;
+        FC_LOG(getFullName() << '.' << shape->getName() << " keeps its names: "
+                             << restored << " -> " << current);
+        shape->resetElementMapVersion();
+        if (shape == getPropertyOfGeometry())
+            _ElementMapVersion.setValue(current);
+    }
 }
 
 void Feature::releaseHeldReferences()

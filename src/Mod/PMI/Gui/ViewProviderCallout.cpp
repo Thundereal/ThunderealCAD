@@ -583,6 +583,8 @@ void ViewProviderCallout::refresh()
         _drawing.setColor(c.r, c.g, c.b);
     }
     _drawing.setLineWidth(float(LineWidth.getValue()));
+    // A copy: getShape() gives a TopoShape by value, and a reference into
+    // it dangles past this statement (MSVC drew nothing through it)
     const TopoDS_Shape shape = callout->Presentation.getShape().getShape();
     const std::vector<Base::Vector3d>& at = callout->UprightAt.getValues();
     // What stays, then each part that turns; a shape not so made (a file's

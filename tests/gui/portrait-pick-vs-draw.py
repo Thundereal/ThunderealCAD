@@ -28,6 +28,7 @@ projection and a pick where the cube is drawn agree with that frame.
 """
 import colorsys
 import os
+import time
 import traceback
 
 import FreeCAD
@@ -201,12 +202,30 @@ def check_fit(view, tag):
           abs(scale - want) <= 0.02 * want, "%.3f" % scale)
 
 
+def still(view):
+    """Wait for the camera to come to rest: viewFront() animates it, and
+    a sweep begun while it moves picks with a camera the frame and the
+    projections, read later, no longer have (off by up to 8 px)."""
+    last, same = None, 0
+    for _ in range(300):
+        settle()
+        FreeCADGui.updateGui()
+        time.sleep(0.02)
+        cam = view.getCamera()
+        same = same + 1 if cam == last else 0
+        if same >= 5:
+            return True
+        last = cam
+    return False
+
+
 def measure(view, tag):
     view.viewFront()
     view.fitAll()
     settle()
     FreeCADGui.updateGui()
     settle()
+    check("%s: the camera comes to rest" % tag, still(view))
     w, h = view.getSize()
     note("%s view %dx%d aspect %.3f" % (tag, w, h, float(w) / h))
     check_fit(view, tag)

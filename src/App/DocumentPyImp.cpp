@@ -844,6 +844,15 @@ PyObject*  DocumentPy::recompute(PyObject * args)
     } PY_CATCH;
 }
 
+PyObject* DocumentPy::spellNamesByContent(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        return Py::new_reference_to(Py::Long(getDocumentPtr()->spellNamesByContent()));
+    } PY_CATCH;
+}
+
 PyObject* DocumentPy::mustExecute(PyObject* args)
 {
     if (!PyArg_ParseTuple(args, ""))

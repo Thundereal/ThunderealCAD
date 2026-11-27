@@ -124,6 +124,39 @@ PyObject* DrawViewDimensionPy::getArrowPositions(PyObject* args)
     ret.append(Py::asObject(new Base::VectorPy(new Base::Vector3d(pts.second()))));
     return Py::new_reference_to(ret);
 }
+namespace
+{
+Py::List nameMatchesToPy(const std::vector<DrawViewDimension::NameMatch>& matches)
+{
+    Py::List ret;
+    for (auto& match : matches) {
+        Py::Tuple item(4);
+        item.setItem(0, Py::Long(match.index));
+        item.setItem(1, Py::String(match.was));
+        item.setItem(2, Py::String(match.now));
+        item.setItem(3, Py::Boolean(match.sameGeometry));
+        ret.append(item);
+    }
+    return ret;
+}
+}  // namespace
+
+PyObject* DrawViewDimensionPy::findByName(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    return Py::new_reference_to(nameMatchesToPy(getDrawViewDimensionPtr()->findByName()));
+}
+
+PyObject* DrawViewDimensionPy::repointByName(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    return Py::new_reference_to(nameMatchesToPy(getDrawViewDimensionPtr()->repointByName()));
+}
+
 PyObject *DrawViewDimensionPy::getCustomAttributes(const char* /*attr*/) const
 {
     return nullptr;

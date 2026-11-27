@@ -102,6 +102,8 @@ PyMOD_INIT_FUNC(PMIGui)
     pmi.applies = [](const App::DocumentObject* obj) {
         return Part::BodyBase::typeKind(obj->getTypeId()) == "Annotation";
     };
+    pmi.menuText = "PMI";
+    pmi.icon = "PMI_Workbench";
     Gui::ToolContext::add(std::move(pmi));
 
     PyObject* mod = PMIGui::initModule();

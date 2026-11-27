@@ -55,6 +55,7 @@ from parttests.TopoShapeListTest import TopoShapeListTest
 from parttests.FilletCornerTest import FilletCornerTest
 from parttests.OffsetFixLevelTest import OffsetFixLevelTest
 from parttests.FilletFixLevelTest import FilletFixLevelTest
+from parttests.MeshServiceTest import MeshServiceTest
 
 #---------------------------------------------------------------------------
 # define the test cases to test the FreeCAD Part module

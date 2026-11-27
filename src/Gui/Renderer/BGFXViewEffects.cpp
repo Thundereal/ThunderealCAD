@@ -650,6 +650,18 @@ void BGFXView::submitWaterSurface(const Render::DrawCall &draw,
     bgfx::setUniform(u_shadowMatrix, shadowMtx);
     bgfx::setTexture(5, s_texShadow,
                      waterShadow ? shadowTex : sceneCopyTex);
+    // What glass and translucent casters let through, and the nearest
+    // of them: a tank's walls dim the water the light reaches through
+    // them. White where there is no map: no tint, and the near test
+    // never passes.
+    if (bgfx::isValid(s_texShadowTint))
+        bgfx::setTexture(8, s_texShadowTint,
+                         waterShadow && bgfx::isValid(shadowTintTex)
+                             ? shadowTintTex : m_whiteTex);
+    if (bgfx::isValid(s_texShadowNear))
+        bgfx::setTexture(9, s_texShadowNear,
+                         waterShadow && bgfx::isValid(shadowNearTex)
+                             ? shadowNearTex : m_whiteTex);
     // Front-segment volumetric target (raymarch output 1, or its
     // temporal-accumulation history): the media stretch between the
     // eye and the water entry, composited by this pass itself so

@@ -17,7 +17,12 @@ the screen.
 
 That is why it has to be judged by the SCREEN: the view's own surface
 (grabFramebuffer, the engine's capture) is right the whole time. The test
-reads the main window's pixels off the screen.
+reads the main window's pixels off the screen -- when the screen shows the
+window: each read first finds the menu bar there as the window draws it.
+On a desktop not on display (gui-test.cmd's hidden one, its default) a
+window has nothing composed to read, and Windows hands out the pixels of the
+desktop that is on display, the user's; the test says SKIP there instead of
+judging them (GT_DESKTOP=screen runs it).
 
 Claims, on a document with a box, the main window 1400 x 900 and in front:
   - to start from, the 3D view is not black on the screen (the screen can
@@ -78,12 +83,40 @@ def surfaces():
     return res
 
 
+class NotShown(Exception):
+    pass
+
+
+def shows_the_window(mw, shot, scale):
+    """Whether the screen shows the main window: its menu bar there as the
+    window draws it. On a desktop not on display (gui-test.cmd's hidden one,
+    by default) there is nothing composed to read, and Windows hands out the
+    pixels of the desktop that IS on display, someone else's screen."""
+    bar = mw.menuBar()
+    if bar is None or not bar.isVisible() or bar.width() < 40:
+        return True
+    own = bar.grab().toImage()
+    at = bar.mapTo(mw, QtCore.QPoint(0, 0))
+    differ = count = 0
+    y = bar.height() // 2
+    for x in range(4, bar.width() - 4, 3):
+        p = shot.pixel(int((at.x() + x) * scale), int((at.y() + y) * scale))
+        q = own.pixel(x, y)
+        count += 1
+        if sum(abs(((p >> s) & 255) - ((q >> s) & 255)) for s in (0, 8, 16)) > 60:
+            differ += 1
+    return differ <= count // 10
+
+
 def on_screen(tag):
     """Per 3D view: its place, and the share of it that is black ON THE SCREEN.
-    Returns (texts, the blackest share, how many views)."""
+    Returns (texts, the blackest share, how many views); raises NotShown when
+    the screen does not show the window."""
     mw = FreeCADGui.getMainWindow()
     shot = mw.screen().grabWindow(int(mw.winId())).toImage()
     scale = shot.width() / float(max(mw.width(), 1))
+    if not shows_the_window(mw, shot, scale):
+        raise NotShown()
     texts = []
     worst = 0.0
     views_seen = surfaces()
@@ -177,6 +210,9 @@ def run():
                 settle(0.3)
                 mw.resize(1400, 900)
                 settle(0.6)
+    except NotShown:
+        note("SKIP the screen does not show the main window (a desktop not on display: "
+             "GT_DESKTOP=screen shows it), what is on it is not the views'")
     except Exception:
         note("FAIL the test ran | " + traceback.format_exc().replace("\n", " | "))
     finally:

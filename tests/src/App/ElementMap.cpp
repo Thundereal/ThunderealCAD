@@ -618,7 +618,11 @@ TEST_F(ElementMapTest, translationIsSharedWhileItLives)
     // Sec 27.76 item 2, 27.77: a map of one table taken into another comes
     // out with the other's ids, and one copy serves every taker while it
     // lives.
+    // Counted ids, which differ between the tables: a name translated reads
+    // otherwise (spelled by digests it reads the same, the strings being one)
     Base::Reference<App::StringHasher> other(new App::StringHasher);
+    other->setContentIds(false);
+    _hasher->setContentIds(false);
     for (const char* s : {"one", "two", "three"}) {
         _hasher->getID(s);
     }

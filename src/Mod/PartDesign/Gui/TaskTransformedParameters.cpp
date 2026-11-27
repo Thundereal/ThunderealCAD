@@ -111,6 +111,7 @@ std::vector<Part::TopoShape> originalsInFrame(const PartDesign::Transformed* pat
             continue;
         }
         if (auto feature = Base::freecad_dynamic_cast<Part::Feature>(obj)) {
+            // a copy: a reference into getShape()'s TopoShape dangles
             const TopoDS_Shape shape = feature->Shape.getShape().getShape();
             if (!shape.IsNull())
                 shapes.emplace_back(shape.Moved(TopLoc_Location(placementInv.Multiplied(offset))));

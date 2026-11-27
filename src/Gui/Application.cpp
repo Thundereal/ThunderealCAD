@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <sstream>
 # include <boost/interprocess/sync/file_lock.hpp>
 # include <Inventor/errors/SoDebugError.h>
 # include <Inventor/errors/SoError.h>
@@ -97,6 +98,9 @@
 #include <Quarter/Quarter.h>
 
 #include "Application.h"
+#include "WorkerRecomputeGui.h"
+#include <App/WorkerRecompute.h>
+#include "WorkerExportGui.h"
 #include "GeneralParams.h"
 #include "AutoSaver.h"
 #include "AxisOriginPy.h"
@@ -527,6 +531,26 @@ void Application::initStyleParameterManager()
 Application::Application(bool GUIenabled)
 {
     //App::GetApplication().Attach(this);
+    // What each object's recompute takes, from the start: an edit's
+    // recompute expected to be long goes to a worker (docs/WorkerProcess.md
+    // sec 28)
+    App::WorkerRecompute::trackTimes();
+    // The active 3D view, for a worker's execute that reads it: Draft's
+    // get_normal turns a plane's normal toward the camera (docs/WorkerProcess.md
+    // sec 73). What gui_utils.get_3d_view() would find: the main window's
+    // active window, where it is a 3D view
+    App::WorkerRecompute::setViewState([]() -> std::string {
+        auto mw = getMainWindow();
+        auto view = mw ? qobject_cast<View3DInventor*>(mw->activeWindow()) : nullptr;
+        if (!view || !view->getViewer()) {
+            return {};
+        }
+        const SbVec3f d = view->getViewer()->getViewDirection();
+        std::ostringstream s;
+        s.precision(17);
+        s << "{\"direction\": [" << d[0] << ", " << d[1] << ", " << d[2] << "]}";
+        return s.str();
+    });
     // obj.ViewObject asked for before a progressive load has made it: what
     // the load parked is made now (App/ViewObjectRequest.h)
     App::setViewObjectRequest([](const App::DocumentObject &obj) {
@@ -628,8 +652,23 @@ Application::Application(bool GUIenabled)
                 QMessageBox::Yes|QMessageBox::No, QMessageBox::Yes);
             if(res != QMessageBox::Yes)
                 return;
+            // The names made again anyway: a document counting its string
+            // ids spells digests from here on, unless Preferences/Document
+            // ContentStringIdsForOldFiles says not to
+            // (docs/StringTableContentIds.md sec 12)
+            if (App::GetApplication()
+                    .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Document")
+                    ->GetBool("ContentStringIdsForOldFiles", true)) {
+                for (auto doc : docs)
+                    doc->spellNamesByContent();
+            }
+            auto dependent = App::Document::getDependentDocuments(docs,true);
+            // One document: made by a worker while the window stays free,
+            // where the user asked for it (docs/WorkerProcess.md sec 19)
+            if (dependent.size() == 1 && recomputeByWorkers(*dependent.front()))
+                return;
             bool hasError = false;
-            for(auto doc : App::Document::getDependentDocuments(docs,true)) {
+            for(auto doc : dependent) {
                 try {
                     doc->recompute({},false,&hasError);
                 } catch (Base::Exception &e) {
@@ -1108,6 +1147,20 @@ void Application::exportTo(const char* FileName, const char* DocName, const char
 
             std::string code = str.str();
             // the original file name is required
+
+            // Written by a worker from the design as it is now, the window
+            // free meanwhile (docs/WorkerProcess.md sec 24); it tells when
+            // it is done, and adds the file to the recent ones then
+            App::Document* doc = App::GetApplication().getDocument(DocName);
+            std::vector<App::DocumentObject*> objs;
+            for (auto obj : sel) {
+                if (std::find(objs.begin(), objs.end(), obj) == objs.end()) {
+                    objs.push_back(obj);
+                }
+            }
+            if (doc && exportByWorkers(*doc, objs, Module, File.filePath(), code)) {
+                return;
+            }
 
             Gui::Command::runCommand(Gui::Command::App, code.c_str());
 
@@ -3845,17 +3898,19 @@ void Application::runApplication(void)
             }
         }
 
-        // Qt can't handle exceptions thrown from event handlers, so we need
-        // to manually rethrow SystemExitExceptions.
-        if (mainApp.caughtException.get())
-            THROWM(Base::SystemExitException, *mainApp.caughtException.get())
-
         // close the lock file, in case of a crash we can see the existing lock file
         // on the next restart and try to repair the documents, if needed.
+        // Before a sys.exit() is thrown on, which it was not: each ended
+        // session's lock stayed in the cache (docs/WorkerProcess.md sec 51).
         if (flock.get())
             flock->unlock();
         lock.close();
         fi.deleteFile();
+
+        // Qt can't handle exceptions thrown from event handlers, so we need
+        // to manually rethrow SystemExitExceptions.
+        if (mainApp.caughtException.get())
+            THROWM(Base::SystemExitException, *mainApp.caughtException.get())
     }
     catch (const Base::SystemExitException&) {
         Base::Console().Message("System exit\n");

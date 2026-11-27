@@ -4535,27 +4535,24 @@ void ViewProviderPartExt::finishAppearance()
     }
     bindAppearance();
     if(adopted) {
-        // What is drawn is made of what was taken, and what was made from
-        // this object and taken before it is made again: the view providers
-        // of a document are not read in the order of what they show. Asked
-        // for by name, since this is inside the read, where nothing is made
-        // otherwise -- and nothing was: a cut read from an older file was
-        // drawn in one colour, an import's faces from upstream's in the first.
+        // What is drawn is made of what was taken. Asked for by name, since
+        // this is inside the read, where nothing is made otherwise -- and
+        // nothing was: a cut read from an older file was drawn in one
+        // colour, an import's faces from upstream's in the first.
         feat->updateAppearance(nullptr, false, true);
         _AdoptedObjects.emplace(feat);
         settleAdoptedWhenRead();
-        // and when a progressive load has made the rest, which the App's
-        // word that the document is read comes before
+        // What was made from this object and taken before it is made again
+        // once the document is read, every object so taken in one pass,
+        // what the others are made from first (settleAdopted()): the view
+        // providers of a document are not read in the order of what they
+        // show. Here, with each object read, it gathered and sorted the
+        // object's whole in-list every time -- an older file of 18199
+        // objects did not open in 18 minutes (smoke corpus 2026-11-27,
+        // finding B2) where it had opened in 11 s. The pass waits for a
+        // progressive load to have made the rest, which the App's word that
+        // the document is read comes before.
         settleAdopted(*feat->getDocument());
-        std::set<App::DocumentObject*> inset;
-        feat->getInListEx(inset, true);
-        std::vector<App::DocumentObject*> objs(inset.begin(), inset.end());
-        for(auto obj : App::Document::getDependencyList(objs, App::Document::DepSort)) {
-            if(!inset.count(obj) || !_AdoptedObjects.count(App::DocumentObjectT(obj)))
-                continue;
-            if(auto other = Base::freecad_dynamic_cast<Part::Feature>(obj))
-                other->updateAppearance(nullptr, false, true);
-        }
     }
     mirrorAppearance();
 }

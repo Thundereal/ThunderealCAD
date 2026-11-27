@@ -156,10 +156,10 @@ struct WriteReport
  * point and its graphic, tessellated; and its saved views (P5). A writer
  * then writes them; STEP's writes them AP242 (Import::WriterStep).
  */
-PMIExport WriteReport write(const Import::PostExport& info);
+WriteReport write(const Import::PostExport& info);
 
 /// Run write() at the end of every export (ExportOCAF2::addPostExport)
-PMIExport void registerExport();
+void registerExport();
 
 /// A fit's fundamental deviations, in the order of OCCT's
 /// XCAFDimTolObjects_DimensionFormVariance (its first, None, ""); a hole's,

@@ -1659,21 +1659,27 @@ item's layer keeps the number of its assignment in the file as the part's item l
 ordinal; `StepLayer`'s third entry), and the writer adds an item to the assignment of that
 number written already, hidden by it when that one is hidden.
 
-**PMI is a module of the OCCT fork's** (the standing rule of 2026-11-27). It calls the fork's
-GD&T extensions of XCAF by their C++ names, so where the OCCT libraries are upstream's it does
-not load -- and needs not: none of what it reads is there. The core modules load all the same:
-Import reaches what it needs of the fork through C functions looked up at run time
-(`Part/App/OCCTFork.h`: `setOCCTGDTPresentationColor`, `addOCCTItemLayer`,
-`getOCCTItemLayers`, `occtCitedDocumentsGUID`, `occtAttributeMeasuresGUID`), reads and writes
-a file's shapes, and says once that its GD&T is not read. The fork says it has the extensions
-by `XCAFDoc_DimTolTool_PMI` (TKXCAF, a version, 1): without it the workbench is not added
-(InitGui.py, one log line), Import does not try to load PMI (`occtPMIVersion()`), and
-TestPMIApp is one skip saying why. TechDrawGui still links PMI for a callout's frame, so it
-does not load there either; this module exports `PMI_CalloutLayout` (`Callout.h`) for it to
-look up instead, and the link goes with that change on main. An exported fork function keeps
-its signature: a new parameter is a new overload beside the old one (`SetPlaceholder`'s
-`theShared`). Checked with conda-forge's occt 8.0.1: Import loads and round-trips NIST
-CTC-01's shapes, and PMI is the one binary importing what only the fork exports.
+**PMI's STEP exchange is the OCCT fork's; the rest of PMI is not** (the standing rule of
+2026-11-27, reworded the same day). What reads and writes the GD&T of STEP files
+(`StepImport.cpp`, `StepExport.cpp`) calls the fork's GD&T extensions of XCAF by their C++
+names, and is the module PMIStep of its own, which PMI loads only where the fork says it has
+them, by `XCAFDoc_DimTolTool_PMI` (TKXCAF, a version, 1; `Part::occtPMIVersion()`). Everything
+else of PMI -- making and editing annotations, their display, the checks, TechDraw's model
+annotations -- imports nothing the fork alone exports, so the workbench loads and works where
+the OCCT libraries are upstream's. There, the GD&T of a STEP file is not read, and Import says
+so once (`ImportOCAF2::runPostImport`); an export of a part with annotations writes its shapes
+and says, set by set, that its PMI is not written; `PMI.stepExchange()` is `(False, why)`, and
+TestStep's classes skip saying why (their shapes' test tests the fork's writer too). The core
+modules load all the same: Import reaches what it needs of the fork through C functions looked
+up at run time (`Part/App/OCCTFork.h`: `setOCCTGDTPresentationColor`, `addOCCTItemLayer`,
+`getOCCTItemLayers`, `occtCitedDocumentsGUID`, `occtAttributeMeasuresGUID`). This module
+exports `PMI_CalloutLayout` (`Callout.h`), a callout's frame for TechDraw to look up by name. An
+exported fork function keeps its signature: a new parameter is a new overload beside the old
+one (`SetPlaceholder`'s `theShared`). Checked with conda-forge's occt 8.0.1: of 74 binaries
+PMIStep.pyd alone imports what only the fork exports (its 38 members); PMI, PMIGui and
+TechDrawGui load; TestPMIApp runs 151, the 54 of TestStep skipping; and the GUI tests of the
+workbench, the queries, the targets and TechDraw's callouts pass as they do on the fork
+(`tests/gui/pmi-step.py` says it skips).
 
 The NIST set the suites run on here is NIST's February 2026 update (SFA's
 `Release/NIST-PMI-STEP-Files.zip`), as `docs/Testing.md` says; with it TestPMIApp's 151 tests

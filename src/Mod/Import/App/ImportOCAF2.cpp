@@ -2668,14 +2668,15 @@ void ImportOCAF2::runPostImport(bool progressive)
         return;
     }
     if (postImports().empty()) {
-        // The PMI module calls the fork's GD&T extensions of XCAF by their C++ names: where
-        // the OCCT libraries are upstream's it does not load, and the file's GD&T is not read
+        // PMI's STEP exchange (PMIStep) calls the fork's GD&T extensions of XCAF by their C++
+        // names: where the OCCT libraries are upstream's it is not loaded, and the file's GD&T
+        // is not read
         if (Part::occtPMIVersion() < 1) {
             static bool told = false;
             if (!told) {
                 told = true;
                 FC_WARN("The file has GD&T, which is not read: the OCCT libraries lack the "
-                        "fork's GD&T extensions of XCAF the PMI module needs");
+                        "fork's GD&T extensions of XCAF PMI's STEP exchange needs");
             }
             return;
         }

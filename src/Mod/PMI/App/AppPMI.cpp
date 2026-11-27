@@ -24,7 +24,11 @@
 
 #include "PreCompiled.h"
 
+#include <App/Document.h>
 #include <App/DocumentObjectPy.h>
+#include <algorithm>
+#include <set>
+#include <string>
 #include <typeinfo>
 
 #include <Standard_Failure.hxx>
@@ -33,7 +37,9 @@
 #include <Base/Exception.h>
 #include <Base/Interpreter.h>
 #include <Base/PyObjectBase.h>
+#include <Mod/Import/App/ExportOCAF2.h>
 #include <Mod/Part/App/BodyBase.h>
+#include <Mod/Part/App/OCCTFork.h>
 
 #include "Annotation.h"
 #include "Advisor.h"
@@ -46,14 +52,14 @@
 #include "Dimension.h"
 #include "GeometricTolerance.h"
 #include "Note.h"
-#include "StepExport.h"
-#include "StepImport.h"
 #include "TolerancedFeature.h"
 #include "Hole.h"
 #include "View.h"
 
 namespace PMI
 {
+std::string& noStepExchange();
+
 class Module: public Py::ExtensionModule<Module>
 {
 public:
@@ -97,6 +103,9 @@ public:
                            "extent(callout, height) -> (xmin, ymin, xmax, ymax) of its frame "
                            "or symbol laid out at lettering height, in its own plane; None "
                            "when it draws nothing");
+        add_varargs_method("stepExchange", &Module::stepExchange,
+                           "stepExchange() -> (True, '') when the GD&T of STEP files is read "
+                           "and written, else (False, why not)");
         initialize("PMI: product and manufacturing information -- GD&T on a part");
     }
 
@@ -352,6 +361,15 @@ private:
         return res;
     }
 
+    Py::Object stepExchange(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), "")) {
+            throw Py::Exception();
+        }
+        const std::string& why = noStepExchange();
+        return Py::TupleN(Py::Boolean(why.empty()), Py::String(why));
+    }
+
     Py::Object findSet(const Py::Tuple& args)
     {
         PyObject* pypart;
@@ -368,6 +386,63 @@ private:
 PyObject* initModule()
 {
     return Base::Interpreter().addModule(new Module);
+}
+
+/// Why the GD&T of STEP files is not read and written, empty when it is
+std::string& noStepExchange()
+{
+    static std::string why;
+    return why;
+}
+
+/** The GD&T of STEP files, read after their shapes and written into an export
+ * (docs/GDandT.md sec 5.1, 5.2), is the module PMIStep's: it calls the OCCT fork's
+ * GD&T extensions of XCAF by their C++ names, and is loaded only where the fork's
+ * marker is found. Without it the rest of PMI works the same; an export of a part
+ * with GD&T says the GD&T is not written, and an import with GD&T says it is not
+ * read (ImportOCAF2::runPostImport).
+ */
+void loadStepExchange()
+{
+    std::string& why = noStepExchange();
+    if (Part::occtPMIVersion() < 1) {
+        why = "the OCCT libraries lack the fork's GD&T extensions of XCAF (TKXCAF's "
+              "XCAFDoc_DimTolTool_PMI) that PMI's STEP exchange needs";
+    }
+    else {
+        try {
+            Base::Interpreter().runString("import PMIStep");
+        }
+        catch (const Base::Exception& e) {
+            why = std::string("the module PMIStep did not load: ") + e.what();
+        }
+    }
+    if (why.empty()) {
+        return;
+    }
+    Base::Console().log("PMI: the GD&T of STEP files is not read or written -- %s\n",
+                        why.c_str());
+    Import::ExportOCAF2::addPostExport("PMI", [](const Import::PostExport& info) {
+        std::set<App::Document*> docs;
+        for (auto obj : info.objects) {
+            if (obj && obj->isAttachedToDocument()) {
+                docs.insert(obj->getDocument());
+            }
+        }
+        for (auto doc : docs) {
+            for (auto o : doc->getObjectsOfType(AnnotationSet::getClassTypeId())) {
+                auto set = static_cast<AnnotationSet*>(o);
+                auto part = set->getPart();
+                if (part && !set->Group.getValues().empty()
+                    && std::count(info.objects.begin(), info.objects.end(), part)) {
+                    // The user's, not a log's, as the GD&T written is said
+                    Base::Console().warning("PMI not written: %s of %s -- %s\n",
+                                            set->Label.getValue(), part->Label.getValue(),
+                                            noStepExchange().c_str());
+                }
+            }
+        }
+    });
 }
 }  // namespace PMI
 
@@ -397,10 +472,9 @@ PyMOD_INIT_FUNC(PMI)
     PMI::Hole                ::init();
     // clang-format on
 
-    // The GD&T of a STEP file, read after its shapes (docs/GDandT.md sec 5.1)
-    PMI::Step::registerImport();
-    // ... and written into one exported, AP242 (sec 5.2)
-    PMI::Step::registerExport();
+    // The GD&T of a STEP file, read after its shapes and written into one
+    // exported (docs/GDandT.md sec 5.1, 5.2): where the OCCT libraries are the fork's
+    PMI::loadStepExchange();
 
     // In a PartDesign Body, as its Elements group is: never solid, never its
     // tip. A body holding a set gives even a lone solid a solid body, which

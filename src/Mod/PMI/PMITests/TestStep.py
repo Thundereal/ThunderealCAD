@@ -23,8 +23,12 @@ import unittest
 import FreeCAD as App
 import Import
 import Part
-import PMI  # noqa: F401 -- registers the pass
+import PMI  # registers the passes
 from PMITests.TestModel import needs_part_design
+
+# The GD&T of STEP files is read and written where the OCCT libraries are the
+# fork's (PMIStep); the shapes' tests here test the fork's writer too
+STEP_EXCHANGE, NO_STEP_EXCHANGE = PMI.stepExchange()
 
 V = App.Vector
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -68,6 +72,7 @@ def supplemental_group(obj):
     return any(getattr(g, "SupplementalGeometry", False) for g in obj.InList)
 
 
+@unittest.skipUnless(STEP_EXCHANGE, "no GD&T of STEP files: " + NO_STEP_EXCHANGE)
 class Base(unittest.TestCase):
     def read(self, path):
         path = edition(path)

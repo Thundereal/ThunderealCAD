@@ -70,10 +70,10 @@ struct Report
     std::vector<std::string> mismatched;
 };
 
-PMIExport Report read(const Import::PostImport& info);
+Report read(const Import::PostImport& info);
 
 /// Run read() after every import (ImportOCAF2::addPostImport)
-PMIExport void registerImport();
+void registerImport();
 
 }  // namespace Step
 }  // namespace PMI

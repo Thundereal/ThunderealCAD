@@ -1780,6 +1780,48 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(slow.Result, 6)
         self.assertNotEqual(slow.MadeBy, os.getpid())
 
+    def testASuppressedFeaturesShapeIsKeptWhenPutIn(self):
+        """A suppressed PartDesign feature shows what it would make,
+        SuppressedShape, which its recompute() makes after the execute from
+        the shape the execute made. Put in from a worker, the main process
+        made it again from the shape put in -- already the base shape -- and
+        wrote nothing over the worker's (scanner.FCStd's suppressed pockets,
+        null after every worker recompute)"""
+        import Part
+        import Sketcher  # noqa: F401
+
+        body = self.doc.addObject("PartDesign::Body", "Body")
+        pad_sketch = body.newObject("Sketcher::SketchObject", "PadSketch")
+        corners = [App.Vector(0, 0, 0), App.Vector(20, 0, 0), App.Vector(20, 10, 0),
+                   App.Vector(0, 10, 0)]
+        for i in range(4):
+            pad_sketch.addGeometry(Part.LineSegment(corners[i], corners[(i + 1) % 4]))
+        pad = body.newObject("PartDesign::Pad", "Pad")
+        pad.Profile = pad_sketch
+        pad.Length = 5
+        hole = body.newObject("Sketcher::SketchObject", "HoleSketch")
+        hole.addGeometry(Part.Circle(App.Vector(10, 5, 0), App.Vector(0, 0, 1), 2))
+        pocket = body.newObject("PartDesign::Pocket", "Pocket")
+        pocket.Profile = hole
+        pocket.Type = "ThroughAll"
+        pocket.Reversed = True
+        self.doc.recompute()
+        pocket.Suppress = True
+        self.doc.recompute()
+        made_here = pocket.SuppressedShape
+        self.assertFalse(made_here.isNull(), "the suppressed pocket shows its faces here")
+        pad.Length = 6
+        info = self.byWorker()
+        self.assertEqual(info["ExecutedHereNames"], [], info)
+        self.assertGreater(info["Applied"], 0, info)
+        by_worker = pocket.SuppressedShape
+        self.assertFalse(by_worker.isNull(), "the worker's suppressed shape was lost")
+        for o in self.doc.Objects:
+            o.touch()
+        self.doc.recompute()
+        self.assertEqual(len(by_worker.Faces), len(pocket.SuppressedShape.Faces))
+        self.assertAlmostEqual(by_worker.Area, pocket.SuppressedShape.Area, places=6)
+
     def testAConsolesCopyHasNoViewObjectInAWorker(self):
         """A console session saves no views, and every obj.ViewObject there
         is None: in a worker, made from such a copy, it is None too, and an

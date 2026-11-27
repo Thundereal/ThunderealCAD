@@ -495,8 +495,16 @@ App::DocumentObjectExecReturn *Feature::recompute(void)
         FC_ERR("Failed to recompute suppressed feature " << getFullName());
     }
 
-    if(!failed)
-        updateSuppressedShape();
+    // A worker's result put in (Part::Feature::recompute() above, docs/
+    // WorkerProcess.md sec 19): the worker made the suppressed shape too and
+    // sent it with the shape, already the base shape. Made again here from
+    // that, it found no generated faces and wrote nothing over the worker's
+    // (scanner.FCStd's suppressed pockets, smoke corpus 2026-11-28). Cleared
+    // above, so it is set only where a result was put in.
+    if(!failed) {
+        if (SuppressedShape.getShape().isNull())
+            updateSuppressedShape();
+    }
     else
         Shape.setValue(getPlacedBaseShape());
     return  App::DocumentObject::StdReturn;

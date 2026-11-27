@@ -28,6 +28,8 @@ SET(Import_SRCS
     ImportOCAF.h
     ImportOCAF2.cpp
     ImportOCAF2.h
+    OCCTForkOCAF.cpp
+    OCCTForkOCAF.h
     #ImportOCAFAssembly.cpp
     #ImportOCAFAssembly.h
     ReaderGltf.cpp

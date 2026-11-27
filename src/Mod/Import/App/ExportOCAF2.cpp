@@ -75,6 +75,7 @@
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/Interface.h>
 #include <Mod/Part/App/OCCTFork.h>
+#include "OCCTForkOCAF.h"
 #include <Mod/Part/App/OCAF/ImportExportSettings.h>
 
 #include "ExportOCAF2.h"
@@ -888,7 +889,7 @@ void ExportOCAF2::setItemLayers(TDF_Label shapeL,
             }
         }
         // The fork's, looked up: without it the layers by name are all there is
-        Part::addOCCTItemLayer(target, layer);
+        Import::addOCCTItemLayer(target, layer);
     }
 }
 

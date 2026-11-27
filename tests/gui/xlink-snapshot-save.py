@@ -14,6 +14,10 @@ Claims:
     the snapshot, never saved, is given its file by a Save As first;
   - opened again, the link is to that file.
 """
+# gui-test: offscreen
+# (scripts/gui-test.cmd: the copy goes through the system clipboard, which a
+# desktop may refuse a process -- offscreen, Qt's clipboard is the process's
+# own; nothing here reads pixels)
 import glob
 import os
 import shutil
@@ -111,6 +115,12 @@ def copied():
     try:
         snaps = glob.glob(os.path.join(STATE["transient"], "Snapshot", "SnapU.*"))
         if not check("the copy wrote the snapshot", len(snaps) == 1, snaps):
+            finish()
+            return
+        data = QtWidgets.QApplication.clipboard().mimeData()
+        if data is None or not data.hasFormat("application/x-documentobject"):
+            note("SKIP: the clipboard refused the copy; run offscreen, "
+                 "where Qt's clipboard is the process's own")
             finish()
             return
         STATE["snapshot"] = snaps[0]

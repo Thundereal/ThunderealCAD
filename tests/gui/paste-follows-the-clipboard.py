@@ -28,6 +28,10 @@ writes it only if it finds it empty, leaves it empty, and says SKIP
 otherwise -- as it does where the session cannot write the clipboard at
 all.
 """
+# gui-test: offscreen
+# (scripts/gui-test.cmd: the copy goes through the system clipboard, which a
+# desktop may refuse a process -- offscreen, Qt's clipboard is the process's
+# own; nothing here reads pixels)
 import os
 import time
 import traceback

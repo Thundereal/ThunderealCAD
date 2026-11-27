@@ -17,6 +17,12 @@ rem   screen    a window on the user's screen.
 rem   offscreen QT_QPA_PLATFORM=offscreen. On Windows that platform has no
 rem             OpenGL at all -- the 3D view never draws and every render dump
 rem             times out -- so only for tests that need no pixels.
+rem A test that needs the system clipboard and no pixels says so with a line
+rem `# gui-test: offscreen` at the start of a line: unless the caller named
+rem GT_DESKTOP, it runs offscreen, where Qt's clipboard is the process's own.
+rem On a desktop the clipboard may be refused to a process (a managed box's
+rem DLP agent did, OleSetClipboard "OpenClipboard Failed"), and a copy and
+rem paste test then copies nothing.
 rem
 rem Other settings, all optional:
 rem   FC_BUILD    the build tree, build\win-relwithdebinfo-801 by default
@@ -50,6 +56,7 @@ set "OUT=%~f2"
 if not exist "%SCRIPT%" goto :no_script
 set "GT_TIMEOUT=300"
 if not "%~3"=="" set "GT_TIMEOUT=%~3"
+if not defined GT_DESKTOP findstr /b /c:"# gui-test: offscreen" "%SCRIPT%" > nul 2>&1 && set "GT_DESKTOP=offscreen"
 if not defined GT_DESKTOP set "GT_DESKTOP=hidden"
 if not defined FC_BUILD set "FC_BUILD=%REPO%\build\win-relwithdebinfo-801"
 if not defined FC_EXE set "FC_EXE=%FC_BUILD%\bin\Thundereal.exe"

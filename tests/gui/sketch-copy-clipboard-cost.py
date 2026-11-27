@@ -24,6 +24,10 @@ Claims:
 
 Scored against the tree before the change: see the commit message.
 """
+# gui-test: offscreen
+# (scripts/gui-test.cmd: the copy goes through the system clipboard, which a
+# desktop may refuse a process -- offscreen, Qt's clipboard is the process's
+# own; nothing here reads pixels)
 import os
 import time
 import traceback
@@ -83,6 +87,13 @@ def round_trip():
     FreeCADGui.Selection.addSelection(sk, ["Edge1", "Edge2", "Edge3", "Edge4"])
     settle()
     FreeCADGui.runCommand("Sketcher_CopyClipboard", 0)
+    if not QtWidgets.QApplication.clipboard().text().startswith("# Copied from sketcher."):
+        note("SKIP: the clipboard refused the copy; run offscreen, "
+             "where Qt's clipboard is the process's own")
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.ActiveDocument.resetEdit()
+        FreeCAD.closeDocument(doc.Name)
+        return False
     FreeCADGui.runCommand("Sketcher_Paste", 0)
     settle()
     doc.recompute()
@@ -102,6 +113,7 @@ def round_trip():
     FreeCADGui.Selection.clearSelection()
     FreeCADGui.ActiveDocument.resetEdit()
     FreeCAD.closeDocument(doc.Name)
+    return True
 
 
 def copy_time(count):
@@ -142,14 +154,13 @@ def run():
 
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt(
             "AutoSaveTimeout", 0)
-        round_trip()
-
-        small = copy_time(SMALL)
-        large = copy_time(LARGE)
-        ratio = large / small if small > 0 else 0.0
-        check("%d elements take less than %g times as long as %d" % (LARGE, LIMIT, SMALL),
-              0.0 < ratio < LIMIT,
-              "%.3f s and %.3f s: %.1f times" % (large, small, ratio))
+        if round_trip():
+            small = copy_time(SMALL)
+            large = copy_time(LARGE)
+            ratio = large / small if small > 0 else 0.0
+            check("%d elements take less than %g times as long as %d"
+                  % (LARGE, LIMIT, SMALL), 0.0 < ratio < LIMIT,
+                  "%.3f s and %.3f s: %.1f times" % (large, small, ratio))
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
 

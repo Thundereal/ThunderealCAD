@@ -18,6 +18,10 @@ Claims:
 
 Scored against the tree before the change: see the commit message.
 """
+# gui-test: offscreen
+# (scripts/gui-test.cmd: the copy goes through the system clipboard, which a
+# desktop may refuse a process -- offscreen, Qt's clipboard is the process's
+# own; nothing here reads pixels)
 import os
 import traceback
 
@@ -103,20 +107,24 @@ def run():
         FreeCADGui.runCommand("Sketcher_CopyClipboard", 0)
         settle()
         text = clipboard.text()
-        check("the copy puts the sketch's text on the clipboard",
-              text.startswith("# Copied from sketcher.") and text.count("LineSegment") >= LINES,
-              (len(text), text.count("LineSegment")))
+        if not text:
+            note("SKIP: the clipboard refused the copy; run offscreen, "
+                 "where Qt's clipboard is the process's own")
+        else:
+            check("the copy puts the sketch's text on the clipboard",
+                  text.startswith("# Copied from sketcher.") and text.count("LineSegment") >= LINES,
+                  (len(text), text.count("LineSegment")))
 
-        for _ in range(WARMUP):
-            FreeCADGui.runCommand("Sketcher_CopyClipboard", 0)
-        settle()
-        before = resident_mb()
-        for _ in range(COPIES):
-            FreeCADGui.runCommand("Sketcher_CopyClipboard", 0)
-        settle()
-        grown = resident_mb() - before
-        check("%d more copies grow the process by less than %g MB" % (COPIES, LIMIT_MB),
-              grown < LIMIT_MB, "%.1f MB" % grown)
+            for _ in range(WARMUP):
+                FreeCADGui.runCommand("Sketcher_CopyClipboard", 0)
+            settle()
+            before = resident_mb()
+            for _ in range(COPIES):
+                FreeCADGui.runCommand("Sketcher_CopyClipboard", 0)
+            settle()
+            grown = resident_mb() - before
+            check("%d more copies grow the process by less than %g MB" % (COPIES, LIMIT_MB),
+                  grown < LIMIT_MB, "%.1f MB" % grown)
 
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.ActiveDocument.resetEdit()

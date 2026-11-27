@@ -93,6 +93,7 @@
 #include <Base/Parameter.h>
 #include <Mod/Part/App/FeatureCompound.h>
 #include <Mod/Part/App/Interface.h>
+#include <Mod/Part/App/OCCTFork.h>
 #include <Mod/Part/App/OCAF/ImportExportSettings.h>
 
 #include "ExportOCAF2.h"
@@ -956,8 +957,9 @@ static std::vector<std::string> itemLayers(const Handle(XCAFDoc_ShapeTool)& tool
         return out;
     }
     auto add = [&](const TDF_Label& l, const std::string& element) {
+        // The fork's, looked up (Part/App/OCCTFork.h): without it, none read
         NCollection_Sequence<XCAFDoc_LayerTool::ItemLayer> layers;
-        if (!XCAFDoc_LayerTool::GetItemLayers(l, layers)) {
+        if (!Part::getOCCTItemLayers(l, layers)) {
             return;
         }
         for (const auto& layer : layers) {
@@ -2560,7 +2562,8 @@ void ImportOCAF2::applyMetadata(bool progressive)
             // Which of them are lengths (NIST STC-06's, in inches), kept in mm
             Handle(TDataStd_ExtStringList) list;
             std::map<std::string, std::string> measures;
-            if (label.FindAttribute(XCAFDoc::AttributeMeasuresGUID(), list)) {
+            const Standard_GUID* measuresGUID = Part::occtAttributeMeasuresGUID();
+            if (measuresGUID && label.FindAttribute(*measuresGUID, list)) {
                 using List = NCollection_List<TCollection_ExtendedString>;
                 for (List::Iterator it(list->List()); it.More();) {
                     std::string key = utf8(it.Value());
@@ -2601,7 +2604,8 @@ void ImportOCAF2::applyMetadata(bool progressive)
         // The documents its GD&T cites, the standards it follows (NIST FTC-10's 'ASME
         // Y14.41-2003'): written again as they were, each its fields one a line
         Handle(TDataStd_ExtStringList) documents;
-        if (label.FindAttribute(XCAFDoc::CitedDocumentsGUID(), documents)) {
+        const Standard_GUID* documentsGUID = Part::occtCitedDocumentsGUID();
+        if (documentsGUID && label.FindAttribute(*documentsGUID, documents)) {
             std::vector<std::string> values;
             using List = NCollection_List<TCollection_ExtendedString>;
             for (List::Iterator it(documents->List()); it.More(); it.Next()) {
@@ -2664,6 +2668,17 @@ void ImportOCAF2::runPostImport(bool progressive)
         return;
     }
     if (postImports().empty()) {
+        // The PMI module calls the fork's GD&T extensions of XCAF by their C++ names: where
+        // the OCCT libraries are upstream's it does not load, and the file's GD&T is not read
+        if (Part::occtPMIVersion() < 1) {
+            static bool told = false;
+            if (!told) {
+                told = true;
+                FC_WARN("The file has GD&T, which is not read: the OCCT libraries lack the "
+                        "fork's GD&T extensions of XCAF the PMI module needs");
+            }
+            return;
+        }
         try {
             Base::Interpreter().runString("import PMI");
         }

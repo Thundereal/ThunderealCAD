@@ -74,6 +74,7 @@
 #include <Base/Parameter.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/Interface.h>
+#include <Mod/Part/App/OCCTFork.h>
 #include <Mod/Part/App/OCAF/ImportExportSettings.h>
 
 #include "ExportOCAF2.h"
@@ -318,8 +319,13 @@ void ExportOCAF2::setupMetadata(TDF_Label label,
                 if (!prop->getValues().count(key)) {
                     continue;
                 }
+                // The fork's GUID, looked up (Part/App/OCCTFork.h): without it, none kept
+                const Standard_GUID* guid = Part::occtAttributeMeasuresGUID();
+                if (!guid) {
+                    break;
+                }
                 if (list.IsNull()) {
-                    list = TDataStd_ExtStringList::Set(label, XCAFDoc::AttributeMeasuresGUID());
+                    list = TDataStd_ExtStringList::Set(label, *guid);
                     list->Clear();
                 }
                 list->Append(toExtended(key));
@@ -329,9 +335,9 @@ void ExportOCAF2::setupMetadata(TDF_Label label,
     }
     if (auto prop =
             freecad_cast<App::PropertyStringList*>(obj->getPropertyByName(DocumentsProperty))) {
-        if (!prop->getValues().empty()) {
-            Handle(TDataStd_ExtStringList) list =
-                TDataStd_ExtStringList::Set(label, XCAFDoc::CitedDocumentsGUID());
+        const Standard_GUID* guid = Part::occtCitedDocumentsGUID();
+        if (guid && !prop->getValues().empty()) {
+            Handle(TDataStd_ExtStringList) list = TDataStd_ExtStringList::Set(label, *guid);
             list->Clear();
             for (auto& value : prop->getValues()) {
                 list->Append(toExtended(value));
@@ -881,7 +887,8 @@ void ExportOCAF2::setItemLayers(TDF_Label shapeL,
                 target = aShapeTool->AddSubShape(shapeL, el);
             }
         }
-        XCAFDoc_LayerTool::AddItemLayer(target, layer);
+        // The fork's, looked up: without it the layers by name are all there is
+        Part::addOCCTItemLayer(target, layer);
     }
 }
 

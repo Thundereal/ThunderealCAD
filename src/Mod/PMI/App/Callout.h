@@ -245,4 +245,16 @@ private:
 
 }  // namespace PMI
 
+/// A PMI callout's frame laid out at lettering height `fontSize`, for a client that does
+/// not link this module and looks this up by name in it once loaded (GetProcAddress, dlsym):
+/// TechDraw's balloon of a callout (QGIPMICallout). `drawing` is its strokes and fills, as
+/// edges and faces in the callout's plane; `bounds` its extent there: xmin, ymin, xmax, ymax.
+/// False, and nothing given, when `callout` is no PMI::Callout or draws nothing. Without this
+/// module (it needs the OCCT fork) there is nothing to find, and a client draws a plain
+/// balloon.
+extern "C" PMIExport bool PMI_CalloutLayout(App::DocumentObject* callout,
+                                            double fontSize,
+                                            TopoDS_Shape& drawing,
+                                            double bounds[4]);
+
 #endif  // PMI_CALLOUT_H

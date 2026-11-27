@@ -842,3 +842,26 @@ void Callout::updatePresentation()
         EquivalentText.setValue(text);
     }
 }
+
+
+bool PMI_CalloutLayout(App::DocumentObject* callout,
+                       double fontSize,
+                       TopoDS_Shape& drawing,
+                       double bounds[4])
+{
+    auto pmi = dynamic_cast<PMI::Callout*>(callout);
+    if (!pmi || !bounds) {
+        return false;
+    }
+    PMI::Drawing d;
+    pmi->layout(d, fontSize);
+    if (d.isEmpty()) {
+        return false;
+    }
+    drawing = d.shape();
+    bounds[0] = d.xmin;
+    bounds[1] = d.ymin;
+    bounds[2] = d.xmax;
+    bounds[3] = d.ymax;
+    return true;
+}

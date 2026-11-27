@@ -41,6 +41,7 @@
 #include <Mod/Part/App/PartParams.h>
 #include <Mod/Part/App/encodeFilename.h>
 #include <Mod/Part/App/Interface.h>
+#include <Mod/Part/App/OCCTFork.h>
 
 using namespace Import;
 
@@ -86,7 +87,8 @@ void WriterStep::write(Handle(TDocStd_Document) hDoc) const  // NOLINT
         App::Color color;
         color.setPackedValue(
             pmi->GetUnsigned("ExportColor", App::Color(0.1f, 0.25f, 0.6f).getPackedValue()));
-        writer.SetGDTPresentationColor(Tools::convertColor(color).GetRGB());
+        // The fork's, looked up (Part/App/OCCTFork.h): without it, OCCT's white
+        Part::setOCCTGDTPresentationColor(writer, Tools::convertColor(color).GetRGB());
     }
     // Styles carrying a visualization material (per-face ShapeAppearance,
     // see ExportOCAF2) write surface_style_rendering_with_properties

@@ -21,11 +21,25 @@ class PMIWorkbench(Gui.Workbench):
         return "PMIGui::Workbench"
 
 
-Gui.addWorkbench(PMIWorkbench())
+def _fork():
+    """Whether the OCCT libraries are the fork's, with the GD&T extensions of XCAF the PMI
+    module calls by their C++ names: where they are upstream's it does not load"""
+    import Part
 
-# Loaded with the GUI, so PartDesign offers the PMI tool bar while a Body's
-# annotation set is active, without this workbench having been opened
-try:
-    import PMIGui
-except ImportError:
-    pass
+    return Part.hasOCCTFunction("TKXCAF", "XCAFDoc_DimTolTool_PMI")
+
+
+if _fork():
+    Gui.addWorkbench(PMIWorkbench())
+
+    # Loaded with the GUI, so PartDesign offers the PMI tool bar while a Body's
+    # annotation set is active, without this workbench having been opened
+    try:
+        import PMIGui
+    except ImportError:
+        pass
+else:
+    App.Console.PrintLog(
+        "PMI: not loaded -- the OCCT libraries lack the fork's GD&T extensions of XCAF "
+        "(TKXCAF's XCAFDoc_DimTolTool_PMI) it needs\n"
+    )

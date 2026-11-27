@@ -2722,6 +2722,53 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(self.touched(), [])
         self.assertNotIn(slow.MadeBy, pids + [os.getpid()])
 
+    def testAPutInThatThrowsIsAFailure(self):
+        """A put-in that throws, not the user's abort: a std::exception out
+        of the recompute's own code between two objects (a bad_alloc, a
+        JSON error), put there by the test's Workers/PutInFault. Counted
+        Failed with what it threw, not put in; the worker's copy, ahead of
+        the document, let go; the object it stopped at left touched, for
+        the client to recompute here; the next made by another worker
+        (docs/WorkerProcess.md secs 77, 81)"""
+        first = self.counted("First", Input=2)
+        second = self.counted("Second")
+        second.setExpression("Input", "First.Result")
+        third = self.counted("Third")
+        third.setExpression("Input", "Second.Result")
+        self.doc.recompute()
+        self.assertEqual(third.Result, 16)
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetString("PutInFault", "Second")
+        self.addCleanup(group.RemString, "PutInFault")
+        before = self.pool.recomputeInfo()
+        first.Input = 3
+        info = self.byWorker()
+        self.assertEqual(info["Failed"], before["Failed"] + 1, info)
+        self.assertEqual(info["Cancelled"], before["Cancelled"], info)
+        self.assertTrue(info["Reason"].startswith("putting it in threw"), info)
+        self.assertIn("PutInFault", info["Reason"])
+        self.assertEqual(info["Applied"], before["Applied"], info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertEqual(self.pool.info()["Spoiled"], 1, self.pool.info())
+        # stopped after Second: it is left touched, and Third, not come
+        # to, as it was -- untouched, as an edit leaves what reads the
+        # object edited, and made by the next recompute through Second
+        self.assertEqual(self.touched(), ["Second"])
+        self.assertEqual(third.Result, 16)
+        pids = self.pool.info()["Pids"]
+        # the client recomputes here
+        group.RemString("PutInFault")
+        self.doc.recompute()
+        self.assertEqual((first.Result, second.Result, third.Result), (6, 12, 24))
+        self.assertEqual(self.touched(), [])
+        # and the next is a worker's again, not the one let go
+        first.Input = 4
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], before["Applied"] + 1, info)
+        self.assertEqual((first.Result, second.Result, third.Result), (8, 16, 32))
+        self.assertEqual(self.touched(), [])
+        self.assertNotIn(third.MadeBy, pids + [os.getpid()])
+
     def testADocumentThatSkipsRecomputesIsHandedOverOnlyForced(self):
         """A document that skips recomputes: not handed over unless forced,
         as its own recompute() makes nothing unless forced; forced, the

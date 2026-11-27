@@ -5435,3 +5435,37 @@ as "its worker died over it (ended by the pool)". The helpers' code was
 not changed beyond the seam: by its reading, sec 77 already ended such a
 call with why. Their case is new coverage, not a fix, and was not run
 without the seam, which the code before did not have.
+
+## 81. A put-in that throws, not stopped by the user, tested (2026-11-28)
+
+Sec 78 tested the user's abort of a put-in and left the other failure
+untested: "what `Document::recompute()` lets out is an abort, and
+anything else in it is caught there". That is true of a feature's
+`execute()`: `_recomputeFeature()` catches every exception per object.
+It is not true of the recompute's own code between two objects.
+`Document::recompute()` catches only `Base::AbortException` and
+`Base::Exception`, so a `std::exception` thrown there gets out:
+a `bad_alloc`, or a JSON error in the hook's bookkeeping. The recompute
+hook's `executed()` runs there, after `_recomputeFeature()` and outside
+its catch, and during a put-in that hook is the `Supplier`.
+
+**The fault hook.** `Workers/PutInFault`, a string the application never
+sets, names an object. The `Supplier` reads it once when it is made, and
+once that object has been put in, its `executed()` throws a
+`std::runtime_error` saying so. That is the path a real fault would take.
+
+**Tested** (TestWorkerPool `testAPutInThatThrowsIsAFailure`): First,
+Second and Third in a chain, with the fault after Second. These
+behaviours are sec 77's code, unchanged:
+- The recompute counts as `Failed`, not `Cancelled`. Its reason starts
+  "putting it in threw:" and names the fault.
+- `Applied` is unchanged and nothing is executed here.
+- The pool's `Spoiled` is 1: the worker's copy is ahead of the document,
+  so it is let go.
+- Second, where it stopped, is left touched. Third was not come to and
+  keeps its old value. It is not touched, as an edit leaves what reads
+  the object edited, and the next recompute makes it through Second.
+- The client's recompute here gives 6, 12, 24, with nothing touched.
+- The next edit is put in by a worker that is not the one let go.
+The code before has no hook, so there the test fails only because
+nothing throws. This is coverage of sec 77, not a fix.

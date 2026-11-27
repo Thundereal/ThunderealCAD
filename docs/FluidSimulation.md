@@ -2312,3 +2312,45 @@ heights, in the channel's middle:
   go there from a script (Frames.paths).
 - **The Reynolds number the panel goes by** is on the inlet's width as
   sec 14.6 has it (221 where Armaly's is 200).
+
+### 14.10 Tracers let go where the user clicks (2026-11-27)
+
+Sec 14.9's step showed what sec 14.7's tracers lack: let go at the
+inlets, they go where most of the fluid goes, and fluid that turns back
+gets few. The panel now lets more go at a click.
+
+- **Let go at a click** (a button that stays down, under the tracers'
+  box) takes the left clicks in the 3D view while it is down, by an
+  event callback on the view that is taken off again when the button
+  comes up, the box is unticked or the panel closes. A click is a line
+  of sight: from the camera through the pointer in perspective, along
+  the view's direction otherwise.
+- **With no cut shown** the tracers are let go along the line through
+  the fluid: `FluidPlayback.seedsAlong` takes the cells whose centres
+  the line passes within half a side of (or, the line running between
+  cells, within their half diagonal), one place at each cell's depth,
+  thinned evenly to 12.
+- **With a cut shown** they are let go where the line meets the cut's
+  plane (`sightOnPlane`): `seedsAbout` gives the place and one a cell
+  from it each way in the plane, those of the five that are in the
+  fluid.
+- **At the inlets only** takes the picked ones away. They are the
+  panel's, not the document's: new results start without them.
+- The paths are followed again for all the seeds at each click (some
+  100 paths of up to 6000 points: not felt).
+- **No more than 15 tracers on a path at once** (`Paths.at`'s `most`):
+  a tracer let go each 40 ticks on a path of 6000 points -- one round
+  and round behind the step -- made a solid line of 150. On a path
+  longer than 15 times 40 points they are now let go less often. This
+  changes the inlets' tracers too, where they crawl along a wall.
+
+Tests: `TestTracers.test_seeds_along_a_line_of_sight`,
+`test_seeds_at_a_place_on_a_plane`, and the cap in
+`test_the_tracers_at_a_tick`. The panel's part has no test in the suite;
+the manual's script (fluid/study/tracers/pick.py) sends the view real
+clicks of the mouse and reads what the panel did: three clicks behind
+the step each let go at 12 places, a click off the fluid at none and
+says so, a click on the cut at 5.
+
+Not done: a click picks no depth without a cut; the places are not kept;
+no way to take away one click's tracers and keep another's.

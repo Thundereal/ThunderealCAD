@@ -265,6 +265,15 @@ class TestTracers(unittest.TestCase):
         self.assertEqual(paths.at(3, 3)[0].tolist(), paths.at(0, 3)[0].tolist())
         # every tick: all of them
         self.assertEqual(len(paths.at(7, 1)[0]), 8)
+        # no more than two on a path at once: the path of five points has
+        # one let go each third tick (5 over 2, rounded up), the path of
+        # three each second
+        self.assertEqual(
+            paths.at(0, 1, 2)[0].tolist(), [[0, 0, 0], [3, 0, 0], [0, 1, 0], [0, 3, 0]]
+        )
+        self.assertEqual(paths.at(1, 1, 2)[0].tolist(), [[1, 0, 0], [4, 0, 0], [0, 2, 0]])
+        # a path short enough is as without
+        self.assertEqual(paths.at(0, 3, 2)[0].tolist(), paths.at(0, 3)[0].tolist())
 
     def test_the_paths_as_lines(self):
         import numpy
@@ -303,6 +312,69 @@ class TestTracers(unittest.TestCase):
         # the plane the other way about: nothing comes in there
         self.assertEqual(
             len(FluidPlayback.seedsAt(points, velocity, (0, 2, 0.5), (-1, 0, 0), 1.0, 10)), 0
+        )
+
+    def test_seeds_along_a_line_of_sight(self):
+        import numpy
+
+        # cells 1 mm apart: a slab from z 0.5 to 9.5, four by four across
+        points = numpy.array(
+            [[0.5 + i, 0.5 + j, 0.5 + k] for i in range(4) for j in range(4) for k in range(10)],
+            dtype=numpy.float32,
+        )
+        # looking down z through the slab's middle: tracers all the way
+        # through the fluid, evenly, the first and last cells' depths kept
+        seeds = FluidPlayback.seedsAlong(points, (2.0, 2.0, 50.0), (0, 0, -1), 1.0, 4)
+        self.assertEqual(seeds.dtype, numpy.float32)
+        self.assertEqual(seeds.tolist(), [[2, 2, 9.5], [2, 2, 6.5], [2, 2, 3.5], [2, 2, 0.5]])
+        # fewer cells than asked for: one at each
+        seeds = FluidPlayback.seedsAlong(points, (2.0, 2.0, 50.0), (0, 0, -1), 1.0, 40)
+        self.assertEqual(len(seeds), 10)
+        # the direction need not be of length one
+        seeds = FluidPlayback.seedsAlong(points, (2.0, 2.0, 50.0), (0, 0, -7), 1.0, 4)
+        self.assertEqual(seeds[0].tolist(), [2, 2, 9.5])
+        # past the fluid's side: none
+        self.assertEqual(
+            FluidPlayback.seedsAlong(points, (9.0, 2.0, 50.0), (0, 0, -1), 1.0, 4).shape, (0, 3)
+        )
+        self.assertEqual(
+            FluidPlayback.seedsAlong(points[:0], (2.0, 2.0, 50.0), (0, 0, -1), 1.0, 4).shape,
+            (0, 3),
+        )
+
+    def test_seeds_at_a_place_on_a_plane(self):
+        import numpy
+
+        points = numpy.array(
+            [[0.5 + i, 0.5 + j, 0.5 + k] for i in range(4) for j in range(4) for k in range(10)],
+            dtype=numpy.float32,
+        )
+        # where a line of sight meets a plane
+        place = FluidPlayback.sightOnPlane((2.0, 2.0, 50.0), (0, 0, -1), (0, 0, 5.0), (0, 0, 1))
+        self.assertEqual(tuple(place), (2.0, 2.0, 5.0))
+        place = FluidPlayback.sightOnPlane((0.0, 2.0, 7.0), (1, 0, -1), (0, 0, 5.0), (0, 0, -1))
+        self.assertEqual(tuple(place), (2.0, 2.0, 5.0))
+        # along the plane, or with the plane behind: nowhere
+        self.assertIsNone(
+            FluidPlayback.sightOnPlane((2.0, 2.0, 50.0), (1, 0, 0), (0, 0, 5.0), (0, 0, 1))
+        )
+        self.assertIsNone(
+            FluidPlayback.sightOnPlane((2.0, 2.0, 50.0), (0, 0, 1), (0, 0, 5.0), (0, 0, 1))
+        )
+        # the place and one a cell from it each way in the plane
+        seeds = FluidPlayback.seedsAbout(points, (2.0, 2.0, 5.0), (0, 0, 1), 1.0)
+        self.assertEqual(len(seeds), 5)
+        self.assertEqual(seeds[0].tolist(), [2, 2, 5])
+        self.assertTrue((seeds[:, 2] == 5.0).all())
+        self.assertEqual(
+            sorted(round(float(d), 5) for d in numpy.abs(seeds[1:] - seeds[0]).sum(axis=1)),
+            [1.0, 1.0, 1.0, 1.0],
+        )
+        # at the fluid's edge only those in it; off it, none
+        seeds = FluidPlayback.seedsAbout(points, (0.2, 2.0, 5.0), (0, 0, 1), 1.0)
+        self.assertEqual(len(seeds), 4)
+        self.assertEqual(
+            FluidPlayback.seedsAbout(points, (9.0, 2.0, 5.0), (0, 0, 1), 1.0).shape, (0, 3)
         )
 
     def test_the_faces_seen_from_inside(self):

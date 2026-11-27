@@ -644,6 +644,38 @@ class TaskFluidStudy:
         self.tracerBox.toggled.connect(self.onTracers)
         self.tracerBox.setVisible(False)
         layout.addWidget(self.tracerBox)
+        # more of them let go where the user clicks in the view
+        self.tracerRow = QtWidgets.QWidget()
+        row = QtWidgets.QHBoxLayout(self.tracerRow)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.tracerPick = QtWidgets.QPushButton(translate("Fluid", "Let go at a click"))
+        self.tracerPick.setObjectName("FluidTracerPick")
+        self.tracerPick.setCheckable(True)
+        self.tracerPick.setToolTip(
+            translate(
+                "Fluid",
+                "While this is down, a click in the 3D view lets tracers go there as "
+                "well: with a cut shown, at the place clicked on the cut; with none, "
+                "all the way through the fluid under the pointer.",
+            )
+        )
+        self.tracerPick.toggled.connect(self.onPick)
+        row.addWidget(self.tracerPick)
+        self.tracerClear = QtWidgets.QPushButton(translate("Fluid", "At the inlets only"))
+        self.tracerClear.setObjectName("FluidTracerClear")
+        self.tracerClear.setToolTip(translate("Fluid", "Takes away the tracers let go at a click."))
+        self.tracerClear.setEnabled(False)
+        self.tracerClear.clicked.connect(self.onClearPicked)
+        row.addWidget(self.tracerClear)
+        self.tracerRow.setVisible(False)
+        layout.addWidget(self.tracerRow)
+        self.tracerNote = QtWidgets.QLabel()
+        self.tracerNote.setWordWrap(True)
+        self.tracerNote.setVisible(False)
+        layout.addWidget(self.tracerNote)
+        self.tracerPicked = []
+        self.pickView = None
+        self.pickCallback = None
         self.tracerView = FluidPlayback.TracerView()
         self.tracerPaths = None
         self.tracerTick = 0
@@ -864,7 +896,11 @@ class TaskFluidStudy:
         self.cutBox.setVisible(bool(self.cutRanges))
         # the tracers are of these results: let go again when asked
         self.tracerPaths = None
+        self.tracerPicked = []
+        self.tracerClear.setEnabled(False)
+        self.tracerNote.setVisible(False)
         self.tracerBox.setVisible(bool(self.cutRanges))
+        self.tracerRow.setVisible(bool(self.cutRanges) and self.tracerBox.isChecked())
         if not self.cutRanges and self.tracerBox.isChecked():
             self.tracerBox.setChecked(False)
         if stale:
@@ -949,6 +985,10 @@ class TaskFluidStudy:
     # seeds in all.
     TRACER_EVERY = 40
     TRACER_SEEDS = 80
+    # no more than so many on one path at once
+    TRACER_MOST = 15
+    # and at a click with no cut shown, at so many depths through the fluid
+    TRACER_ALONG = 12
 
     def tracing(self, index):
         """Whether tracers are asked for and this frame has the fluid
@@ -982,12 +1022,17 @@ class TaskFluidStudy:
                 )
                 for inlet in inlets
             ]
+            seeds = seeds + list(self.tracerPicked)
             seeds = numpy.concatenate(seeds) if seeds else numpy.zeros((0, 3), numpy.float32)
             self.tracerPaths = self.frames.paths(last, seeds, 0.0, 6000)
             self.tracerView.showPaths(self.tracerPaths)
         return self.tracerPaths
 
     def onTracers(self, on):
+        self.tracerRow.setVisible(bool(on) and bool(self.cutRanges))
+        if not on:
+            self.tracerPick.setChecked(False)
+            self.tracerNote.setVisible(False)
         if on and self.frames is not None and self.frames.valid and self.cutRanges:
             self.tracerTick = 0
             self.tracerTimer.start()
@@ -1006,7 +1051,101 @@ class TaskFluidStudy:
         paths = self.tracers()
         self.tracerTick += 1
         low, high = self.cutRanges["Speed"]
-        self.tracerView.show(*paths.at(self.tracerTick, self.TRACER_EVERY), low, high)
+        self.tracerView.show(
+            *paths.at(self.tracerTick, self.TRACER_EVERY, self.TRACER_MOST), low, high
+        )
+
+    def stopPicking(self):
+        if self.pickView is not None and self.pickCallback is not None:
+            try:
+                from pivy import coin
+
+                self.pickView.removeEventCallbackPivy(
+                    coin.SoMouseButtonEvent.getClassTypeId(), self.pickCallback
+                )
+            except Exception:
+                pass
+        self.pickView = None
+        self.pickCallback = None
+
+    def onPick(self, on):
+        self.stopPicking()
+        if not on:
+            return
+        try:
+            from pivy import coin
+
+            view = Gui.ActiveDocument.ActiveView
+            self.pickCallback = view.addEventCallbackPivy(
+                coin.SoMouseButtonEvent.getClassTypeId(), self.onPicked
+            )
+            self.pickView = view
+        except Exception:
+            self.tracerPick.setChecked(False)
+
+    def onPicked(self, callback):
+        from pivy import coin
+
+        event = callback.getEvent()
+        if (
+            event.getButton() != coin.SoMouseButtonEvent.BUTTON1
+            or event.getState() != coin.SoButtonEvent.DOWN
+        ):
+            return
+        at = event.getPosition()
+        self.letGoAtPixel(int(at[0]), int(at[1]))
+        callback.setHandled()
+
+    def letGoAtPixel(self, x, y):
+        """Tracers let go under that place of the view, in its pixels from
+        its lower left corner; how many places they are let go at."""
+        view = self.pickView or Gui.ActiveDocument.ActiveView
+        point = view.getPoint(x, y)
+        looking = view.getViewDirection()
+        if view.getCameraType() == "Perspective":
+            origin = App.Vector(*view.getCameraNode().position.getValue())
+            looking = point - origin
+        else:
+            # from well before anything, so that no plane is behind
+            origin = point - looking * 1.0e5
+        return self.letGo(origin, looking)
+
+    def letGo(self, origin, direction):
+        """Tracers let go on the line of sight from 'origin' (mm) along
+        'direction': with a cut shown where the line meets it, the place
+        and one a cell from it each way; with none at up to TRACER_ALONG
+        depths through the fluid. How many places; 0 where there is no
+        fluid, and says so in the panel."""
+        index = self.slider.value()
+        if not self.tracing(index):
+            return 0
+        cells, _velocity, _pressure = self.frames.insideOf(self.frames.inside[-1])
+        cell = self.study.buildModel()["Resolution"] * 1000.0
+        seeds = ()
+        if self.cutting():
+            base, normal = self.cutPlane(self.frames.field(index)[0])
+            place = FluidPlayback.sightOnPlane(origin, direction, base, normal)
+            if place is not None:
+                seeds = FluidPlayback.seedsAbout(cells, place, normal, cell)
+        else:
+            seeds = FluidPlayback.seedsAlong(cells, origin, direction, cell, self.TRACER_ALONG)
+        if not len(seeds):
+            self.tracerNote.setText(translate("Fluid", "No fluid where that click was."))
+            self.tracerNote.setVisible(True)
+            return 0
+        self.tracerNote.setVisible(False)
+        self.tracerPicked.append(seeds)
+        self.tracerClear.setEnabled(True)
+        self.tracerPaths = None
+        self.tracerStep()
+        return len(seeds)
+
+    def onClearPicked(self):
+        self.tracerPicked = []
+        self.tracerClear.setEnabled(False)
+        self.tracerNote.setVisible(False)
+        self.tracerPaths = None
+        self.tracerStep()
 
     def showFields(self, index):
         """A frame of fields: the pressure on the faces the fluid touches;
@@ -1114,6 +1253,7 @@ class TaskFluidStudy:
         self.view.remove()
         self.cutView.remove()
         self.tracerTimer.stop()
+        self.stopPicking()
         self.tracerView.remove()
         self.putBack()
         for volume in self.hidden:

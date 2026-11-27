@@ -27,6 +27,9 @@ from FluidTests.TestPlayback import (
     TestColors,
     TestDoubts,
     TestSteadyDoubts,
+    TestFlowDoubts,
+    TestTracers,
+    TestCuts,
     TestFrames,
     TestMovedParts,
     TestSetUp,
@@ -39,6 +42,9 @@ True if TestStudy else False
 True if TestResults else False
 True if TestFrames else False
 True if TestDoubts else False
+True if TestFlowDoubts else False
+True if TestTracers else False
+True if TestCuts else False
 True if TestSetUp else False
 True if TestFrameView else False
 True if TestOpenFoamDamBreak else False

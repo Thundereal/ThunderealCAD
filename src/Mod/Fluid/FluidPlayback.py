@@ -258,9 +258,12 @@ class Paths:
         self.interval = interval
         # how far along its own path each point is
         self.along = numpy.zeros(len(speeds), dtype=numpy.int64)
+        # and how many points the path it is of has
+        self.length = numpy.ones(len(speeds), dtype=numpy.int64)
         for path in range(len(self)):
             first, after = int(starts[path]), int(starts[path + 1])
             self.along[first:after] = numpy.arange(after - first)
+            self.length[first:after] = after - first
 
     def __len__(self):
         return max(len(self.starts) - 1, 0)
@@ -269,11 +272,19 @@ class Paths:
         """The most points a path has."""
         return int(self.along.max()) + 1 if len(self.along) else 0
 
-    def at(self, tick, every):
+    def at(self, tick, every, most=0):
         """The tracers there are at a tick, one let go at each seed each
         'every' ticks since ever: their places (m, 3) and the fluid's speed
-        at each (m,)."""
-        there = (self.along - tick) % max(int(every), 1) == 0
+        at each (m,). With 'most', no more than so many on a path at once:
+        on a path longer than 'most' times 'every' points -- one through
+        slow fluid, or round and round -- they are let go less often, so
+        that they do not run into a line."""
+        import numpy
+
+        every = max(int(every), 1)
+        if most > 0:
+            every = numpy.maximum(every, -(-self.length // int(most)))
+        there = (self.along - tick) % every == 0
         return self.points[there], self.speeds[there]
 
     def lines(self):
@@ -905,6 +916,82 @@ def seedsAt(points, velocity, middle, direction, cell, count):
     return numpy.ascontiguousarray(
         first[numpy.linspace(0, len(first) - 1, count).round().astype(int)]
     )
+
+
+def seedsAlong(points, origin, direction, cell, count):
+    """Where to let tracers go along a line of sight, from 'origin' (mm)
+    along 'direction', through the fluid whose cells' centres are points
+    (n, 3) in mm, 'cell' their side: places on the line at the depths of
+    the cells it passes through, thinned evenly to 'count' of them, the
+    first met first. (m, 3) float32; none where the line misses the fluid."""
+    import numpy
+
+    none = numpy.zeros((0, 3), dtype=numpy.float32)
+    points = numpy.asarray(points, dtype=numpy.float64).reshape(-1, 3)
+    start = numpy.asarray(tuple(origin), dtype=numpy.float64)
+    way = numpy.asarray(tuple(direction), dtype=numpy.float64)
+    length = float(numpy.linalg.norm(way))
+    if not len(points) or not length > 0.0 or not cell > 0.0:
+        return none
+    way = way / length
+    off = points - start
+    depth = off @ way
+    aside = numpy.sqrt(numpy.maximum((off * off).sum(axis=1) - depth * depth, 0.0))
+    # the cells whose centres the line passes within half a side of, or
+    # with none so near the nearest within the cell's half diagonal
+    passed = aside <= 0.5 * cell
+    if not passed.any():
+        passed = aside <= 0.87 * cell
+    if not passed.any():
+        return none
+    layer = numpy.floor(depth[passed] / cell).astype(numpy.int64)
+    exact = numpy.array([depth[passed][layer == d].mean() for d in numpy.unique(layer)])
+    if 0 < count < len(exact):
+        exact = exact[numpy.linspace(0, len(exact) - 1, count).round().astype(int)]
+    return numpy.ascontiguousarray((start + exact[:, None] * way).astype(numpy.float32))
+
+
+def sightOnPlane(origin, direction, base, normal):
+    """Where a line of sight from 'origin' along 'direction' meets the
+    plane through 'base' across 'normal', an App.Vector; None when it goes
+    along the plane or the plane is behind."""
+    origin, direction = App.Vector(*tuple(origin)), App.Vector(*tuple(direction))
+    base, normal = App.Vector(*tuple(base)), App.Vector(*tuple(normal))
+    closing = direction.dot(normal)
+    if abs(closing) < 1.0e-12 * max(direction.Length * normal.Length, 1.0e-30):
+        return None
+    along = (base - origin).dot(normal) / closing
+    if along < 0.0:
+        return None
+    return origin + direction * along
+
+
+def seedsAbout(points, place, normal, cell):
+    """Where to let tracers go at a place (mm) on a plane across 'normal':
+    the place and one a cell's side from it each way in the plane, those
+    of them in the fluid -- within a cell's half diagonal of one of the
+    cells' centres, points (n, 3). (m, 3) float32, the place first."""
+    import numpy
+
+    none = numpy.zeros((0, 3), dtype=numpy.float32)
+    points = numpy.asarray(points, dtype=numpy.float64).reshape(-1, 3)
+    across = numpy.asarray(tuple(normal), dtype=numpy.float64)
+    length = float(numpy.linalg.norm(across))
+    if not len(points) or not length > 0.0:
+        return none
+    across = across / length
+    other = numpy.eye(3)[int(numpy.abs(across).argmin())]
+    one = numpy.cross(across, other)
+    one = one / numpy.linalg.norm(one)
+    two = numpy.cross(across, one)
+    middle = numpy.asarray(tuple(place), dtype=numpy.float64)
+    asked = [middle] + [middle + cell * step for step in (one, -one, two, -two)]
+    kept = [
+        at for at in asked if float(((points - at) ** 2).sum(axis=1).min()) <= (0.87 * cell) ** 2
+    ]
+    if not kept:
+        return none
+    return numpy.ascontiguousarray(numpy.array(kept, dtype=numpy.float32))
 
 
 def facingAway(points, triangles, looking):

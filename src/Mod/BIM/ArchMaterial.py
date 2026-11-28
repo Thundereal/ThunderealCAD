@@ -657,7 +657,9 @@ class _ArchMaterialTaskPanel:
         "opens a color picker dialog"
         icon = button.icon()
         pixel = icon.pixmap(16, 16).toImage().pixel(0, 0)
-        color = QtGui.QColorDialog.getColor(QtGui.QColor(pixel))
+        from draftutils import gui_utils
+
+        color = gui_utils.get_color(QtGui.QColor(pixel))
         if color.isValid():
             colorPix = QtGui.QPixmap(16, 16)
             colorPix.fill(color)

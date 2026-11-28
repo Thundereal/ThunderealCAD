@@ -3865,10 +3865,20 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         params = App.ParamGet(VideoParams)
         key = action.data()
         if key == "Custom":
+            # the user's choice of dialog, as every colour dialog of the
+            # program takes it (Dialog/DontUseNativeColorDialog, Shift
+            # inverting it)
+            native = not App.ParamGet("User parameter:BaseApp/Preferences/Dialog").GetBool(
+                "DontUseNativeColorDialog", True
+            )
+            if QtWidgets.QApplication.queryKeyboardModifiers() == QtCore.Qt.ShiftModifier:
+                native = not native
+            options = () if native else (QtWidgets.QColorDialog.DontUseNativeDialog,)
             color = QtWidgets.QColorDialog.getColor(
                 self.videoBackgroundColor(),
                 self.form,
                 translate("Assembly", "Video background"),
+                *options,
             )
             if not color.isValid():
                 self.videoBackgroundAction().setChecked(True)

@@ -60,6 +60,7 @@
 #include "Fw/FwWidgets.h"
 #include "Macro.h"
 #include "DockWindowManager.h"
+#include "FileDialog.h"
 #include "MainWindow.h"
 #include "MDIView.h"
 #include "Selection/SelectionObserverPython.h"
@@ -1974,6 +1975,10 @@ Reply dialogColor(const json& a)
                                    c.size() > 3 ? c[3].get<double>() : 1.0);
     }
     QColorDialog::ColorDialogOptions options(jnum<int>(a, "options", 0));
+    // the host user's choice of dialog, as every colour dialog of the
+    // program takes it: a guest asks for options, not for the native one
+    if (DialogOptions::dontUseNativeColorDialog())
+        options |= QColorDialog::DontUseNativeDialog;
     QColor v = QColorDialog::getColor(initial, getMainWindow(), jstr(a, "title"), options);
     if (!v.isValid())
         return replyOk(nullptr);

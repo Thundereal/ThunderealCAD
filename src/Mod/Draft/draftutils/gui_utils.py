@@ -59,6 +59,33 @@ if App.GuiUp:
     # from PySide import QtSvg  # for load_texture
 
 
+def get_color(initial, parent=None, title=""):
+    """QColorDialog.getColor with the user's choice of dialog.
+
+    Every colour dialog of the program takes the preference
+    Dialog/DontUseNativeColorDialog (Gui::DialogOptions in C++), Shift held
+    inverting it; a plain QColorDialog.getColor shows the platform's own
+    dialog whatever it says.
+
+    Returns
+    -------
+    QtGui.QColor
+        The colour chosen, invalid when the dialog is cancelled.
+    """
+    from PySide import QtWidgets
+
+    dont = App.ParamGet("User parameter:BaseApp/Preferences/Dialog").GetBool(
+        "DontUseNativeColorDialog", True
+    )
+    if QtWidgets.QApplication.queryKeyboardModifiers() == QtCore.Qt.ShiftModifier:
+        dont = not dont
+    if dont:
+        return QtWidgets.QColorDialog.getColor(
+            initial, parent, title, QtWidgets.QColorDialog.DontUseNativeDialog
+        )
+    return QtWidgets.QColorDialog.getColor(initial, parent, title)
+
+
 def get_3d_view():
     """Return the current 3D view.
 

@@ -13,6 +13,13 @@ import Part
 
 import TestSketcherApp
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 
 
@@ -149,7 +156,7 @@ class TestThicken(unittest.TestCase):
         binder = self.surface()
         th = self.thicken([(binder, "Face1")], 2)
         volume = th.Shape.Volume
-        path = os.path.join(tempfile.gettempdir(), "PartDesignTestThicken.FCStd")
+        path = os.path.join(_temp.folder(), "PartDesignTestThicken.FCStd")
         self.doc.saveAs(path)
         FreeCAD.closeDocument(self.doc.Name)
         self.doc = FreeCAD.openDocument(path)

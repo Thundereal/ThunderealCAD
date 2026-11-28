@@ -26,6 +26,13 @@ import unittest
 import FreeCAD
 import Part
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 FIXTURES = os.path.join(os.path.dirname(__file__), "Fixtures")
 
 # (feature, property) of every element reference in the fixtures
@@ -131,7 +138,7 @@ class TestNameEncoding(unittest.TestCase):
             ("FaceRefs_v1-1-4.FCStd", True),
         ):
             self.open(name)
-            path = os.path.join(tempfile.gettempdir(), "PartDesignTestNameEncoding.FCStd")
+            path = os.path.join(_temp.folder(), "PartDesignTestNameEncoding.FCStd")
             self.Doc.saveAs(path)
             FreeCAD.closeDocument(self.Doc.Name)
             self.Doc = FreeCAD.openDocument(path)
@@ -172,7 +179,7 @@ class TestNameEncodingAcrossDocuments(unittest.TestCase):
         return doc
 
     def save(self, doc):
-        path = os.path.join(tempfile.gettempdir(), doc.Name + ".FCStd")
+        path = os.path.join(_temp.folder(), doc.Name + ".FCStd")
         doc.saveAs(path)
         self.files.append(path)
         return path

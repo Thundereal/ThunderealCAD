@@ -32,6 +32,13 @@ import Part
 import Sketcher
 import TestSketcherApp
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 """ Test various helixes """
 
 
@@ -513,7 +520,7 @@ class TestHelix(unittest.TestCase):
         # Upstream's has no _ProfileBasedVersion and means it; this fork's has
         # one, and there the type already ruled and Outside was left over.
         helix.Outside = True
-        folder = tempfile.mkdtemp()
+        folder = _temp.mkdtemp()
         ours = os.path.join(folder, "ours.FCStd")
         self.Doc.saveAs(ours)
 

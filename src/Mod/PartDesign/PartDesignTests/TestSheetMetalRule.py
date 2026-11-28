@@ -13,6 +13,13 @@ import FreeCAD
 
 from . import SheetMetalNames
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 
 def card(gauges=(), method=None, table=None, name="Sheet test"):
     """A material with the SheetMetal model: gauges as (thickness, radius, K,
@@ -246,7 +253,7 @@ class TestSheetMetalRule(unittest.TestCase):
         rule.ShapeMaterial = card(GAUGES)
         rule.KFactor = 0.3
         self.Doc.recompute()
-        path = os.path.join(tempfile.mkdtemp(), "rule.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "rule.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

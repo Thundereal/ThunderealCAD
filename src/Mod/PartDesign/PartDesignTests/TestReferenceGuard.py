@@ -24,6 +24,13 @@ import unittest
 import FreeCAD
 import Part
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 
 class TestReferenceGuard(unittest.TestCase):
     def setUp(self):
@@ -119,7 +126,7 @@ class TestReferenceGuard(unittest.TestCase):
         self.assertEqual(told(self.Doc), said)
 
         # Act: saved and opened again
-        path = os.path.join(tempfile.mkdtemp(), "guard.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "guard.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

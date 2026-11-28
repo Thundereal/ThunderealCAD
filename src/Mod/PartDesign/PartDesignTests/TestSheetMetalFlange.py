@@ -17,6 +17,13 @@ import Part
 from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 RING = 3 * math.pi / 4
 # the rule's bend relief, a rectangle 1 wide from the wall's end to 1 past
@@ -252,7 +259,7 @@ class TestSheetMetalFlange(unittest.TestCase):
         # the miter's limits saved with the model
         limits = [e for e in flange.SheetModel["Elements"] if "Limits" in e]
         self.assertEqual(sorted(e["Name"] for e in limits), ["Bend1", "Bend2", "Wall2", "Wall3"])
-        path = os.path.join(tempfile.mkdtemp(), "miter.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "miter.FCStd")
         name = flange.Name
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
@@ -935,7 +942,7 @@ class TestSheetMetalFlange(unittest.TestCase):
         flange.ReliefWidth = 2
         self.Doc.recompute()
         volume = flange.Shape.Volume
-        path = os.path.join(tempfile.mkdtemp(), "relief.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "relief.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
@@ -1000,7 +1007,7 @@ class TestSheetMetalFlange(unittest.TestCase):
         flange = self.far()
         model = flange.SheetModel
         volume = flange.Shape.Volume
-        path = os.path.join(tempfile.mkdtemp(), "flange.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "flange.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
@@ -1180,7 +1187,7 @@ class TestSheetMetalFlange(unittest.TestCase):
         )
         flange = self.far(Profile=sketch)
         volume = flange.Shape.Volume
-        path = os.path.join(tempfile.mkdtemp(), "flange-profile.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "flange-profile.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

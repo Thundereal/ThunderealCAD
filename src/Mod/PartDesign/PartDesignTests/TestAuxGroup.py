@@ -34,6 +34,13 @@ import unittest
 
 import FreeCAD
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 
 class TestAuxGroup(unittest.TestCase):
     def setUp(self):
@@ -114,7 +121,7 @@ class TestAuxGroup(unittest.TestCase):
     def testSaveAndRestore(self):
         self.addRoleGroups()
         old = self.addGroup("Sketches001")
-        path = os.path.join(tempfile.mkdtemp(), "AuxGroup.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "AuxGroup.FCStd")
         self.doc.saveAs(path)
         name = self.doc.Name
         FreeCAD.closeDocument(name)

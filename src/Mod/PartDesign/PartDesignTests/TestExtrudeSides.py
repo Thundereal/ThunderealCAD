@@ -27,6 +27,13 @@ import FreeCAD
 from parttests.occt_fork import needsOCCTFork
 import TestSketcherApp
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 
 class TestExtrudeSides(unittest.TestCase):
     def setUp(self):
@@ -262,7 +269,7 @@ class TestExtrudeSides(unittest.TestCase):
         pad.UpToShape2 = [(box, [self.faceAt(box, 10), self.faceAt(box, 0)])]
         self.Doc.recompute()
         volume = pad.Shape.Volume
-        path = os.path.join(tempfile.gettempdir(), "PartDesignTestExtrudeSides.FCStd")
+        path = os.path.join(_temp.folder(), "PartDesignTestExtrudeSides.FCStd")
         self.Doc.saveAs(path)
         name = self.Doc.Name
         FreeCAD.closeDocument(name)

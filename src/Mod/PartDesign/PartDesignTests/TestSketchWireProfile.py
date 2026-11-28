@@ -42,13 +42,20 @@ import FreeCAD
 import Part
 import Sketcher
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 
 
 class TestSketchWireProfile(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("PartDesignTestSketchWireProfile")
-        self.dir = tempfile.mkdtemp()
+        self.dir = _temp.mkdtemp()
 
     def tearDown(self):
         FreeCAD.closeDocument(self.Doc.Name)

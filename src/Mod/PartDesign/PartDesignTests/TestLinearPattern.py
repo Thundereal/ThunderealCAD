@@ -25,6 +25,13 @@ import ArchiveMembers
 import FreeCAD
 import TestSketcherApp
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 class TestLinearPattern(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("PartDesignTestLinearPattern")
@@ -349,7 +356,7 @@ class TestLinearPattern(unittest.TestCase):
         one = box.Shape.Volume + cyl.AddSubShape.Volume
         self.assertAlmostEqual(pattern.Shape.Volume, one + cyl.AddSubShape.Volume, 6)
 
-        tmp = tempfile.gettempdir()
+        tmp = _temp.folder()
         src = os.path.join(tmp, 'PDWholeShapeFork.FCStd')
         dst = os.path.join(tmp, 'PDWholeShapeUpstream.FCStd')
         self.Doc.saveAs(src)
@@ -512,7 +519,7 @@ class TestLinearPattern(unittest.TestCase):
         pattern.SuppressedIndices = [5]
         pattern.Occurrences2 = 1  # Save an out-of-range suppression.
         self.Doc.recompute()
-        path = os.path.join(tempfile.gettempdir(), "PDSuppressionPersistence.FCStd")
+        path = os.path.join(_temp.folder(), "PDSuppressionPersistence.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

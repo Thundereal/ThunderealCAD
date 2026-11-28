@@ -33,6 +33,13 @@ from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 from .TestSheetMetalContourFlange import edgeOf
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 RIGHT = ((40, 0, 1), (40, 20, 1))
 
@@ -363,7 +370,7 @@ class TestSheetMetalNames(unittest.TestCase):
         flange = self.rightFlange()
         early = set(self.sheet(self.Early)) - set(self.sheet(self.Plate))
         before = {k: v for k, v in self.sheet(flange).items() if k not in early}
-        path = os.path.join(tempfile.mkdtemp(), "SheetMetalNames.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "SheetMetalNames.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
@@ -427,7 +434,7 @@ class TestSheetMetalNames(unittest.TestCase):
         self.Body.removeObject(flange)
         self.Doc.removeObject(flange.Name)
         self.Doc.recompute()
-        path = os.path.join(tempfile.mkdtemp(), "SheetMetalNames.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "SheetMetalNames.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

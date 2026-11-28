@@ -16,6 +16,13 @@ import Part
 from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 
 
@@ -194,7 +201,7 @@ class TestSheetMetalExtendWall(unittest.TestCase):
     def testSaveAndRestore(self):
         plate = self.plate()
         ext = self.extend(plate, [self.farEnd(plate)], Length=5)
-        path = os.path.join(tempfile.mkdtemp(), "extend.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "extend.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

@@ -22,6 +22,13 @@ import PartDesign
 from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 # a 90 deg bend's allowance at R 1, T 1, K 0.5
 BA = (1 + 0.5) * math.pi / 2
@@ -80,7 +87,7 @@ class TestSheetMetalConvert(unittest.TestCase):
 
     def stepped(self, shape):
         """shape written to STEP and read back"""
-        path = os.path.join(tempfile.mkdtemp(), "part.step")
+        path = os.path.join(_temp.mkdtemp(), "part.step")
         shape.exportStep(path)
         return Part.read(path)
 
@@ -570,7 +577,7 @@ class TestSheetMetalConvert(unittest.TestCase):
         )
         convert = self.convert(body, fixed)
         self.checkValid(convert)
-        path = os.path.join(tempfile.mkdtemp(), "convert.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "convert.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

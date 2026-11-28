@@ -33,6 +33,13 @@ import Part
 
 from . import SheetMetalNames
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 
 
@@ -255,7 +262,7 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
         model = loft.SheetModel
         owners = self.owners(loft)
         volume = loft.Shape.Volume
-        path = os.path.join(tempfile.mkdtemp(), "loft.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "loft.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
@@ -611,7 +618,7 @@ class TestSheetMetalLoftedFlange(unittest.TestCase):
         model = loft.SheetModel
         self.assertTrue(all("Rims" in e for e in self.bends(loft)))
         owners = self.owners(loft)
-        path = os.path.join(tempfile.mkdtemp(), "turned.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "turned.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

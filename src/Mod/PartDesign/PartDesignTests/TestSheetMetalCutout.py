@@ -30,6 +30,13 @@ import Part
 from . import SheetMetalNames
 from .SheetMetalFlatView import Flat, flatObject
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 RING = 3 * math.pi / 4
 STRIP = math.pi / 2 * 1.5
@@ -535,7 +542,7 @@ class TestSheetMetalCutout(unittest.TestCase):
         self.Doc.recompute()
         self.assertLess((hole(cutout) - after).Length, 1e-9)
         name = cutout.Name
-        path = os.path.join(tempfile.mkdtemp(), "wrap.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "wrap.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

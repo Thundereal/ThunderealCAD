@@ -27,6 +27,13 @@ from parttests.occt_fork import needsOCCTFork
 import math
 import TestSketcherApp
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 class TestPocket(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("PartDesignTestPocket")
@@ -323,7 +330,7 @@ class TestPocket(unittest.TestCase):
         self.Doc.recompute()
         self.assertAlmostEqual(self.Pocket.Shape.Volume, 75.0)
 
-        folder = tempfile.mkdtemp()
+        folder = _temp.mkdtemp()
         ours = os.path.join(folder, "ours.FCStd")
         theirs = os.path.join(folder, "theirs.FCStd")
         self.Doc.saveAs(ours)
@@ -391,7 +398,7 @@ class TestPocket(unittest.TestCase):
         import tempfile
 
         setup()
-        path = os.path.join(tempfile.mkdtemp(), 'PartDesignTestPocket.FCStd')
+        path = os.path.join(_temp.mkdtemp(), 'PartDesignTestPocket.FCStd')
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

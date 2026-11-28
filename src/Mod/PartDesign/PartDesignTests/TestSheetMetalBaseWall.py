@@ -15,6 +15,13 @@ import Part
 
 from . import SheetMetalNames
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 
 
@@ -362,7 +369,7 @@ class TestSheetMetalBaseWall(unittest.TestCase):
         model = wall.SheetModel
         owners = self.owners(wall)
         volume = wall.Shape.Volume
-        path = os.path.join(tempfile.mkdtemp(), "wall.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "wall.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

@@ -19,6 +19,13 @@ import Part
 from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 # the closed hem's half ring at r = 0.05: (pi / 2) (1.05^2 - 0.05^2)
 CLOSED = 0.55 * math.pi
@@ -374,7 +381,7 @@ class TestSheetMetalHem(unittest.TestCase):
         hem.ReliefWidth = 2
         self.Doc.recompute()
         volume = hem.Shape.Volume
-        path = os.path.join(tempfile.mkdtemp(), "hemrelief.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "hemrelief.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
@@ -404,7 +411,7 @@ class TestSheetMetalHem(unittest.TestCase):
         """Saved and reopened, it recomputes to the same solid"""
         hem = self.far(HemType="Open", Gap=0.5)
         volume = hem.Shape.Volume
-        path = os.path.join(tempfile.mkdtemp(), "hem.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "hem.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)

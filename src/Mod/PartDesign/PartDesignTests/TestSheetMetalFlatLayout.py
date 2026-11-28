@@ -19,6 +19,13 @@ import PartDesign
 from . import SheetMetalNames
 from .SheetMetalFlatView import Flat, flatObject
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 
 
@@ -305,7 +312,7 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
         return entities
 
     def exportDXF(self, flat):
-        path = os.path.join(tempfile.mkdtemp(), "flat.dxf")
+        path = os.path.join(_temp.mkdtemp(), "flat.dxf")
         PartDesign.exportFlat(flat.Source, path)
         return self.readDXF(path)
 
@@ -463,7 +470,7 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
         the root's attributes"""
         import xml.etree.ElementTree as ET
 
-        path = os.path.join(tempfile.mkdtemp(), "flat.svg")
+        path = os.path.join(_temp.mkdtemp(), "flat.svg")
         PartDesign.exportFlat(flat.Source, path)
         root = ET.parse(path).getroot()
         layers = {}
@@ -561,7 +568,7 @@ class TestSheetMetalFlatLayout(unittest.TestCase):
         volume = self.solid(flat).Volume
         center = self.solid(flat).CenterOfMass
         area = sheet.FlatArea.Value
-        path = os.path.join(tempfile.mkdtemp(), "flat.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "flat.FCStd")
         names = wall.Name, self.Body.Name
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)

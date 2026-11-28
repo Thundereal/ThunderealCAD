@@ -22,6 +22,13 @@ import unittest
 import FreeCAD
 import Part
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 
 
@@ -74,7 +81,7 @@ class TestEarlierPlacement(unittest.TestCase):
         self.assertEqual(pad2.State, ["Up-to-date"])
 
     def reopened(self):
-        path = os.path.join(tempfile.gettempdir(), "PartDesignTestEarlierPlacement.FCStd")
+        path = os.path.join(_temp.folder(), "PartDesignTestEarlierPlacement.FCStd")
         self.Doc.saveCopy(path)
         self.Opened = FreeCAD.openDocument(path)
         os.remove(path)

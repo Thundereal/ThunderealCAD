@@ -37,10 +37,17 @@ import zipfile
 import FreeCAD
 import TestSketcherApp
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 
 def _reload(doc, name):
     """Save doc to a temporary file, close it, and open it again."""
-    tmpdir = tempfile.mkdtemp(prefix="freecad_test_suppressed_")
+    tmpdir = _temp.mkdtemp(prefix="freecad_test_suppressed_")
     path = os.path.join(tmpdir, name)
     doc.saveAs(path)
     FreeCAD.closeDocument(doc.Name)
@@ -121,7 +128,7 @@ class TestSuppressed(unittest.TestCase):
         self._createBodyWithPadAndFillet()
         self.Fillet.Suppress = True
         self.Doc.recompute()
-        tmpdir = tempfile.mkdtemp(prefix="freecad_test_suppressed_")
+        tmpdir = _temp.mkdtemp(prefix="freecad_test_suppressed_")
         ours = os.path.join(tmpdir, "ours.FCStd")
         theirs = os.path.join(tmpdir, "theirs.FCStd")
         self.Doc.saveCopy(ours)

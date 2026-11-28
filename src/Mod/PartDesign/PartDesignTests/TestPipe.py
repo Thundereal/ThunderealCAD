@@ -31,6 +31,13 @@ import Part
 import Sketcher
 import TestSketcherApp
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 App = FreeCAD
 
 class TestPipe(unittest.TestCase):
@@ -142,7 +149,7 @@ class TestPipe(unittest.TestCase):
         self.Doc.recompute()
         self.assertNotIn('Invalid', pipe.State)
         volume = pipe.Shape.Volume
-        tmp = tempfile.mkdtemp()
+        tmp = _temp.mkdtemp()
         path = os.path.join(tmp, 'auxspine.FCStd')
         # a copy: saveAs would rename the test's document
         self.Doc.saveCopy(path)

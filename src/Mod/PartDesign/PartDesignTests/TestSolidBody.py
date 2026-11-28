@@ -38,6 +38,13 @@ import zipfile
 import ArchiveMembers
 import FreeCAD
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 App = FreeCAD
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "Fixtures")
@@ -88,7 +95,7 @@ class TestSolidBody(unittest.TestCase):
         return (body or self.Body).SolidBodies
 
     def tempFile(self, name):
-        path = os.path.join(tempfile.gettempdir(), name)
+        path = os.path.join(_temp.folder(), name)
         self.files.append(path)
         return path
 

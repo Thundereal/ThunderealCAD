@@ -33,6 +33,13 @@ import Part
 import Sketcher
 import TestSketcherApp
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 
 class TestTopologicalNamingProblem(unittest.TestCase):
     """Tests related to the Topological Naming Problem"""
@@ -2480,7 +2487,7 @@ class TestTopologicalNamingProblem(unittest.TestCase):
         self.Body = self.Doc.addObject("PartDesign::Body", "Body")
         self.create_t_sketch()
         self.assertEqual(self.Doc.Sketch.Shape.ElementMapSize, 18)
-        filename = tempfile.gettempdir() + os.sep + self.Doc.Name
+        filename = _temp.folder() + os.sep + self.Doc.Name
         # Act
         self.Doc.saveAs(filename)
         # The extension saveAs() adds is the schema's: .TStd at 5, .FCStd at 4.

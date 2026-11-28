@@ -19,6 +19,13 @@ import Part
 from . import SheetMetalNames
 from .SheetMetalFlatView import Flat, showFlat
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 BA = math.pi / 2 * 1.5
 HALF = BA / 2
@@ -362,7 +369,7 @@ class TestSheetMetalJog(unittest.TestCase):
         jog = self.jog()
         self.checkValid(jog)
         area = self.flat(jog).FlatArea.Value
-        path = os.path.join(tempfile.mkdtemp(), "jog.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "jog.FCStd")
         self.Doc.saveAs(path)
         name = jog.Name
         FreeCAD.closeDocument(self.Doc.Name)

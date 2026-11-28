@@ -32,6 +32,13 @@ import ArchiveMembers
 import FreeCAD
 import Part
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 class TestFillet(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("PartDesignTestFillet")
@@ -230,7 +237,7 @@ class TestFillet(unittest.TestCase):
         self.Doc.recompute()
         self.assertTrue(fillet.isValid())
         # the document's name kept: tearDown closes it by that
-        path = os.path.join(tempfile.mkdtemp(), 'PartDesignTestFillet.FCStd')
+        path = os.path.join(_temp.mkdtemp(), 'PartDesignTestFillet.FCStd')
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
@@ -693,7 +700,7 @@ class TestFilletCorners(unittest.TestCase):
         corners = {self.Vertex: (2.0, {e[0]: 3.0})}
         self.Fillet.Corners = corners
         volume = self.recompute()
-        path = tempfile.mkdtemp(prefix='FilletCorners')
+        path = _temp.mkdtemp(prefix='FilletCorners')
         try:
             name = os.path.join(path, 'corners.FCStd')
             self.Doc.saveAs(name)
@@ -724,7 +731,7 @@ class TestFilletCorners(unittest.TestCase):
                                self.expected({self.Vertex: (4, {top: 0.5})}), places=6)
         self.Fillet.setExpression('.Corners.%s.%s' % (self.Vertex, top), None)
         # saved and restored
-        path = tempfile.mkdtemp(prefix='FilletCorners')
+        path = _temp.mkdtemp(prefix='FilletCorners')
         try:
             name = os.path.join(path, 'depth.FCStd')
             self.Doc.saveAs(name)
@@ -770,7 +777,7 @@ class TestFilletCorners(unittest.TestCase):
         corners = {self.Vertex: (2.0, {self.Edges[0]: 3.0})}
         self.Fillet.Corners = corners
         volume = self.recompute()
-        path = tempfile.mkdtemp(prefix='FilletCorners')
+        path = _temp.mkdtemp(prefix='FilletCorners')
         try:
             name = os.path.join(path, 'corners.FCStd')
             old = os.path.join(path, 'old.FCStd')
@@ -967,7 +974,7 @@ class TestFilletGroups(unittest.TestCase):
         self.assertEqual(self.group('Edge3'), 2)
 
     def saveAndOpen(self, strip=False):
-        path = os.path.join(tempfile.mkdtemp(), 'groups.FCStd')
+        path = os.path.join(_temp.mkdtemp(), 'groups.FCStd')
         self.Doc.saveAs(path)
         name = self.Doc.Name
         if strip:

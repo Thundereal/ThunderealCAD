@@ -27,6 +27,13 @@ import FreeCAD
 import Part
 import TestSketcherApp
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 App = FreeCAD
 
 class TestHole(unittest.TestCase):
@@ -779,7 +786,7 @@ class TestHole(unittest.TestCase):
         """A copy of the document saved and opened again; with  earlier,
         as a file of before ThreadDiameter was a property."""
         import os, tempfile, zipfile
-        path = os.path.join(tempfile.gettempdir(), name + ".FCStd")
+        path = os.path.join(_temp.folder(), name + ".FCStd")
         if earlier:
             # what Python's zipfile reads
             self.Doc.BlobCompression = "Deflate"

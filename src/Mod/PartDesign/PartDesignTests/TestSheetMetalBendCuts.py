@@ -24,6 +24,13 @@ import Part
 from . import SheetMetalNames
 from .SheetMetalFlatView import Flat
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 STRIP = math.pi / 2 * 1.5
 FAR = ((0, 20, 1), (40, 20, 1))
@@ -166,7 +173,7 @@ class TestSheetMetalBendCuts(unittest.TestCase):
             if k.startswith("Edge") and n.startswith("Bend")
         )
         self.assertEqual(names, ["Bend1", "Bend1Part2", "Bend1Part3", "Bend1Part4"])
-        path = os.path.join(tempfile.mkdtemp(), "flat.dxf")
+        path = os.path.join(_temp.mkdtemp(), "flat.dxf")
         PartDesign.exportFlat(cuts, path)
         with open(path) as f:
             text = [line.strip() for line in f]

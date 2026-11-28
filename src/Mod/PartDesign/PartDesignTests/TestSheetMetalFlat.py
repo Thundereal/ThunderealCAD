@@ -24,6 +24,13 @@ import PartDesign
 
 from . import SheetMetalNames
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 V = FreeCAD.Vector
 BA = math.pi / 2 * 1.5
 VALUES = (
@@ -324,7 +331,7 @@ class TestSheetMetalFlat(unittest.TestCase):
         flat = self.flatObject(wall)
         self.show(flat)
         names = flat.Shape.ElementMapSize
-        path = os.path.join(tempfile.mkdtemp(), "flat.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "flat.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
@@ -431,7 +438,7 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertTrue(sheet.getSubObject("FlatFace1").isPartner(flat.Faces[0]))
 
     def exported(self, obj, suffix):
-        path = os.path.join(tempfile.mkdtemp(), "flat" + suffix)
+        path = os.path.join(_temp.mkdtemp(), "flat" + suffix)
         PartDesign.exportFlat(obj, path)
         return path
 
@@ -479,7 +486,7 @@ class TestSheetMetalFlat(unittest.TestCase):
         """Refused, saying why: a file neither .dxf nor .svg; a feature that
         does not lie flat; one of no sheet. Nothing written"""
         wall = self.L()
-        folder = tempfile.mkdtemp()
+        folder = _temp.mkdtemp()
         with self.assertRaisesRegex(ValueError, "dxf or .svg"):
             PartDesign.exportFlat(wall, os.path.join(folder, "flat.txt"))
         self.flatObject(wall).Root = "Wall9"
@@ -534,7 +541,7 @@ class TestSheetMetalFlat(unittest.TestCase):
         padded.newObject("PartDesign::Pad", "Pad").Profile = sketch
         self.Doc.recompute()
         for suffix in ("dxf", "svg"):
-            folder = tempfile.mkdtemp()
+            folder = _temp.mkdtemp()
             res = PartDesign.exportFlats(self.Doc, folder, suffix)
             self.assertEqual([r["Error"] for r in res], ["", ""])
             self.assertEqual(
@@ -546,7 +553,7 @@ class TestSheetMetalFlat(unittest.TestCase):
                 [r["Sheet"] for r in res],
                 [self.Body.SolidBodies[0], self.Doc.Other.SolidBodies[0]],
             )
-        folder = tempfile.mkdtemp()
+        folder = _temp.mkdtemp()
         PartDesign.exportFlats(self.Doc, folder, ".DXF")
         self.assertEqual(
             self.outlineSize(os.path.join(folder, "Body.dxf")), [15, round(19 + BA + 9, 6)]
@@ -562,7 +569,7 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.assertEqual(len(self.Body.SolidBodies), 2)
         other = self.Doc.addObject("PartDesign::Body", "Other")
         self.plate(other, "Box?Lid-" + self.Body.SolidBodies[0].Label, (5, 5))
-        folder = tempfile.mkdtemp()
+        folder = _temp.mkdtemp()
         res = PartDesign.exportFlats(self.Doc, folder, "dxf")
         a, b = (s.Label for s in self.Body.SolidBodies)
         self.assertEqual(
@@ -580,13 +587,13 @@ class TestSheetMetalFlat(unittest.TestCase):
         self.plate(self.Doc.addObject("PartDesign::Body", "Other"), "Bracket", (30, 20))
         self.flatObject(wall).Root = "Wall9"
         self.Doc.recompute()
-        folder = tempfile.mkdtemp()
+        folder = _temp.mkdtemp()
         res = PartDesign.exportFlats(self.Doc, folder, "dxf")
         self.assertEqual(res[0]["File"], "")
         self.assertIn("Wall9", res[0]["Error"])
         self.assertEqual(res[1]["Error"], "")
         self.assertEqual(os.listdir(folder), ["Bracket.dxf"])
-        empty = tempfile.mkdtemp()
+        empty = _temp.mkdtemp()
         with self.assertRaisesRegex(ValueError, "dxf or svg"):
             PartDesign.exportFlats(self.Doc, empty, "txt")
         with self.assertRaisesRegex(ValueError, "folder"):
@@ -629,7 +636,7 @@ class TestSheetMetalFlat(unittest.TestCase):
         return wall, sketch, names[0]
 
     def saved(self):
-        path = os.path.join(tempfile.mkdtemp(), "stored.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "stored.FCStd")
         self.Doc.saveAs(path)
         return path
 

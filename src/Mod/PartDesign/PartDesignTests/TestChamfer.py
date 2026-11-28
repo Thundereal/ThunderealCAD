@@ -25,6 +25,13 @@ import unittest
 
 import FreeCAD
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 class TestChamfer(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("PartDesignTestChamfer")
@@ -97,7 +104,7 @@ class TestChamfer(unittest.TestCase):
                         data = (head + text[m.end():]).encode("utf-8")
                     zout.writestr(item, data)
 
-        tmp = tempfile.mkdtemp()
+        tmp = _temp.mkdtemp()
         path = os.path.join(tmp, "chamfer.FCStd")
         old = os.path.join(tmp, "chamfer021.FCStd")
         for face in (1, 6):
@@ -276,7 +283,7 @@ class TestChamfer(unittest.TestCase):
         # is made again
         chamfer._FirstFaces = {}
         chamfer._Version = 0
-        path = os.path.join(tempfile.gettempdir(), 'PartDesignTestChamfer.FCStd')
+        path = os.path.join(_temp.folder(), 'PartDesignTestChamfer.FCStd')
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
@@ -400,7 +407,7 @@ class TestChamferGroups(unittest.TestCase):
         import re
         import tempfile
         import zipfile
-        path = os.path.join(tempfile.mkdtemp(), 'groups.FCStd')
+        path = os.path.join(_temp.mkdtemp(), 'groups.FCStd')
         self.Doc.saveAs(path)
         name = self.Doc.Name
         if strip:

@@ -26,6 +26,13 @@ import FreeCAD
 from parttests.occt_fork import needsOCCTFork
 import Part
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 App = FreeCAD
 
 class TestDraft(unittest.TestCase):
@@ -206,7 +213,7 @@ class TestDraft(unittest.TestCase):
         self.assertEqual(draft._NeutralSense, sense)
 
         # It is saved with the file ...
-        folder = tempfile.mkdtemp()
+        folder = _temp.mkdtemp()
         path = os.path.join(folder, "draft.FCStd")
         self.Doc.saveCopy(path)
         doc = FreeCAD.openDocument(path)

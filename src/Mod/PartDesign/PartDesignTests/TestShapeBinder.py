@@ -28,6 +28,13 @@ from FreeCAD import Base
 import Part
 import Sketcher
 
+from PartDesignTests.TempFolders import TempFolders
+
+# What the tests save goes into folders of this module's own, removed after
+# its tests (the temp census, 2026-11-28; TempFolders.py)
+_temp = TempFolders()
+tearDownModule = _temp.remove
+
 class TestShapeBinder(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("PartDesignTestShapeBinder")
@@ -217,7 +224,7 @@ class TestSubShapeBinder(unittest.TestCase):
             [name.split(";:X#")[0] for _, name in names],
         )
 
-        path = os.path.join(tempfile.mkdtemp(), "PartDesignTestSubShapeBinder.FCStd")
+        path = os.path.join(_temp.mkdtemp(), "PartDesignTestSubShapeBinder.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
@@ -397,7 +404,7 @@ class TestSubShapeBinder(unittest.TestCase):
         self.Doc.recompute()
         self.assertTrue(binder.isValid(), binder.getStatusString())
         name = binder.Name
-        path = os.path.join(tempfile.gettempdir(), "ShapeBinderSelfContext.FCStd")
+        path = os.path.join(_temp.folder(), "ShapeBinderSelfContext.FCStd")
         self.Doc.saveAs(path)
         docname = self.Doc.Name
         FreeCAD.closeDocument(docname)

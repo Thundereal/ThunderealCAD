@@ -153,6 +153,14 @@ public:
   static void resetPrebuiltStats();
   static const PrebuiltStats & prebuiltStats();
 
+  /** Vertices addTriangle() was handed with a point-detail index outside
+   * their face detail, counted since the last reset: the triangles of a
+   * tessellated (non-convex) polygon, whose indices are counted from the
+   * triangle's first vertex rather than the face's. Each is taken as having
+   * no point detail. For tests (FreeCADGui.renderCacheCounters()).
+   */
+  static int pointDetailsOutOfRange(bool reset = false);
+
   /** Install prebuilt content into this cache in place of the
    * per-primitive capture. Call between open() and close() exactly
    * where the traversal would have fed primitives. Returns false --

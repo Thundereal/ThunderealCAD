@@ -2531,8 +2531,8 @@ from which the mesher reaches nothing. The 1 mm cases had the point
 elsewhere by chance. `makeCase` now takes the point in a background cell
 that is the fluid's 0.45 of a cell all round its centre
 (`OpenFoamCase.theMeshersPointIsInACellClearOfTheWalls`, which fails
-without it). That cells are centred on the box's faces at all is left as
-it is: every mesh measured so far was made that way.
+without it). That cells were centred on the box's faces at all is sec
+14.13's.
 
 **What the Strouhal number follows** (sec 14.11's question; Reynolds
 100, the cylinder 10 mm, the fluid slid along on all four faces, frames
@@ -2564,7 +2564,72 @@ behind the cylinder over the run's later half):
   run's periods still differed by a quarter (0.160 over 6); it was run
   to 160 s.
 - The step's warning came for the long channel alone, at 1 mm and again
-  at 1.05 mm: another resolution did not rid it of its small cell, and
-  why that channel has one is not known. Open.
+  at 1.05 mm: another resolution did not rid it of its small cells. Why
+  it had them is sec 14.13.
 - The file is 16 bytes a cell and frame as measured above: 1.7 GB for
   640 frames of 190000 cells.
+
+### 14.13 Why a mesh had cells far thinner than the rest (2026-11-28)
+
+The long channel of sec 14.12 kept as a case (the preference `KeepCase`)
+and its cells' volumes written out: the small cells were not at the
+cylinder. They were a whole layer before the outlet, 318 cells a sixth as
+thick as the rest (0.15 mm of 1), across the full height. The same
+channel 40 mm shorter at each end had none.
+
+The background mesh started a cell and a half before the fluid's box, so
+the cells the box's flat faces cut had their centres on the faces.
+Whether the mesher takes such a cell as the fluid's then falls to the
+last digit of where its centre is. Nearly always it did not: the cell was
+left out and the next one drawn to the face, half as thick again as the
+rest (this is why a channel 3 cells deep has 2 across). At that outlet
+it did, and the cell was pressed onto the face it was centred on. The
+mesh of one cell (sec 14.12) and, most likely, sec 14.11's cell 14 times
+longer than thick were of the same cause; the last was not looked at
+again.
+
+Two ways out were tried.
+
+- **The box's faces between cells**: whole cells across the box and two
+  more about it. Every cell whole, a channel 3 deep 3 across. Four tests
+  failed on it at their 1 mm: the pipe's flow inside 2.4% off the
+  parabola (the test asks 2%), the turbulent pipe's loss 8.7% under
+  Haaland (5%), the step's turn forwards at 3.77 step heights (4.59
+  before; Armaly 5), the cylinder's swing in the first 5 s 5.4% of the
+  stream (5%). Whether it comes to the same numbers on finer cells was
+  not run. Not taken: every measured case of secs 14.4 to 14.12 would
+  be to measure again. Kept as
+  `~/.cache/fluid/f4/cell/OpenFoamCase.planes-on-faces.cpp`. What it
+  shows is how much 1 mm results follow where the grid falls: the step's
+  length by a sixth.
+- **The centres just outside the faces**, taken: whole cells across the
+  box as near the resolution as fit it, and 1.6 of them about it, in
+  three more cells than across. The cells the faces cut have their
+  centres 2 to 10% of a cell outside, at every face, whatever the box's
+  size against the resolution; the mesher leaves them out, as it nearly
+  always did. The meshes are those of before to within a tenth of a
+  cell.
+
+After: the Fluid workbench's 121 tests pass, frozen and not, none
+changed. The long channel: 72674 cells, the step 0.0625 s where even
+cells allow 0.072, no warning, 202 s for 100 s of flow where it took
+1166; its Strouhal number 0.166 (7 periods, spread 0.006), where the
+mesh with the thin layer gave 0.169.
+
+So with the inlet 8 widths before the cylinder and the faces 8 each side
+the number is in the open stream's 0.164 to 0.167 (not checked against
+the papers), on 1 mm cells. Sec 14.12's finer cells giving more is of the
+short channel and stands as measured; the long one was not run finer.
+
+A space one cell across has no cell: both its faces leave the one out.
+The study says "the fluid's space holds no cell at this resolution".
+
+Tests: `OpenFoamCase.theCellsTheBoxsFacesCutHaveTheirCentresOutside`
+(six sizes of box against the resolution);
+`theMeshersPointIsInACellClearOfTheWalls` now on this layout.
+
+Open: the wall's cells are half as thick again as the rest, and a round
+wall is cut wherever the grid falls on it; the faces between cells, with
+every case measured again, would be the cleaner mesh. The step's warning
+stays for meshes this does not reach: a small cell at a slanted or round
+wall.

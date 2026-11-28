@@ -307,7 +307,7 @@ TEST(OpenFoamCase, filesOfASteadyFlow)
     }
     const std::string& block = made.files["system/blockMeshDict"];
     EXPECT_TRUE(has(block, "(103 13 13)"));
-    EXPECT_TRUE(has(block, "(-0.0015 -0.0015 -0.0015)"));
+    EXPECT_TRUE(has(block, "(-0.0016 -0.0016 -0.0016)"));
     // each patch its own surface: eight triangles of wall, two an opening
     const auto facets = [&](const char* name) {
         const std::string& stl = made.files[std::string("constant/triSurface/") + name];
@@ -623,18 +623,17 @@ TEST(OpenFoamCase, theStepsOfASolverThatChoosesItsOwn)
 
 TEST(OpenFoamCase, theMeshersPointIsInACellClearOfTheWalls)
 {
-    // The background mesh's cells have their centres on the faces of the
-    // fluid's box. From a cell a wall cuts through the middle the mesher
-    // reaches nothing: a channel 1.5 cells deep, its point taken in such a
-    // cell, came out a mesh of one cell.
+    // From a cell a wall cuts through the middle the mesher reaches
+    // nothing: a channel 1.5 cells deep, its point taken in such a cell,
+    // came out a mesh of one cell.
     // The point was the middle one of the fluid's own lattice: the fault
     // showed when that was the last across the depth, as with an odd count
     // along the length and two across.
     for (double deep : {0.0015, 0.002, 0.003, 0.00315, 0.01}) {
         for (double cell : {0.0005, 0.001, 0.00105}) {
             for (double length : {0.1, 0.1 + cell}) {
-            if (deep < 2.0 * cell) {
-                continue;  // no cell clear of both faces
+            if (std::lround(deep / cell) < 2) {
+                continue;  // one cell across: its centre is not clear of both faces
             }
             Model model = ductModel();
             model.domain = boxSurface({0.0, 0.0, 0.0}, {length, deep, 0.01});
@@ -647,18 +646,55 @@ TEST(OpenFoamCase, theMeshersPointIsInACellClearOfTheWalls)
             Case made;
             std::string why;
             ASSERT_TRUE(makeCase(model, {}, made, why)) << why << deep << " " << cell;
+            const Vec3 box {length, deep, 0.01};
             for (std::size_t i = 0; i < 3; ++i) {
-                // the background starts a cell and a half before the box
-                const double start = model.space.min[i] - 1.5 * cell;
+                // the background's cells: whole ones across the box, 1.6
+                // of them about it, in three more than across
+                const long across = made.cells[i] - 3;
+                const double fitted = box[i] / static_cast<double>(across);
+                const double start = -1.6 * fitted;
+                const double size = (box[i] + 3.2 * fitted) / static_cast<double>(made.cells[i]);
                 const double centre =
-                    start + (std::floor((made.inside[i] - start) / cell) + 0.5) * cell;
-                EXPECT_GT(centre - 0.4 * cell, model.space.min[i]) << deep << " " << cell << i;
-                EXPECT_LT(centre + 0.4 * cell, model.space.max[i]) << deep << " " << cell << i;
+                    start + (std::floor((made.inside[i] - start) / size) + 0.5) * size;
+                EXPECT_GT(centre - 0.4 * size, 0.0) << deep << " " << cell << i;
+                EXPECT_LT(centre + 0.4 * size, box[i]) << deep << " " << cell << i;
                 // and off the cell's faces and its centre
-                EXPECT_GT(std::abs(made.inside[i] - centre), 0.1 * cell);
-                EXPECT_LT(std::abs(made.inside[i] - centre), 0.4 * cell);
+                EXPECT_GT(std::abs(made.inside[i] - centre), 0.1 * size);
+                EXPECT_LT(std::abs(made.inside[i] - centre), 0.4 * size);
             }
             }
+        }
+    }
+}
+
+TEST(OpenFoamCase, theCellsTheBoxsFacesCutHaveTheirCentresOutside)
+{
+    // not on the faces, where whether a cell is the fluid's falls to the
+    // last digit: by 2 to 10 percent of a cell, at every face, whatever
+    // the box's size against the resolution
+    for (double high : {0.01, 0.0104, 0.0106, 0.1606, 0.0021}) {
+        Model model = ductModel();
+        model.domain = boxSurface({-0.08, 0.0, -0.3 * high}, {0.15, 0.003, 0.7 * high});
+        model.domain.patches.assign(model.domain.triangles.size(), 0);
+        model.domain.patches[8] = model.domain.patches[9] = 1;
+        model.domain.patches[10] = model.domain.patches[11] = 2;
+        model.space.min = {-0.08, 0.0, -0.3 * high};
+        model.space.max = {0.15, 0.003, 0.7 * high};
+        model.monitors.clear();
+        Case made;
+        std::string why;
+        ASSERT_TRUE(makeCase(model, {}, made, why)) << why;
+        EXPECT_EQ(made.cells[0], 233);
+        EXPECT_EQ(made.cells[1], 6);
+        EXPECT_EQ(made.cells[2], std::lround(high / 0.001) + 3);
+        for (std::size_t i = 0; i < 3; ++i) {
+            const double length = model.space.max[i] - model.space.min[i];
+            const double fitted = length / static_cast<double>(made.cells[i] - 3);
+            const double size = (length + 3.2 * fitted) / static_cast<double>(made.cells[i]);
+            // the second cell's centre from each end, against the face
+            const double outside = 1.6 * fitted - 1.5 * size;
+            EXPECT_GT(outside, 0.02 * size) << high << " " << i;
+            EXPECT_LT(outside, 0.1001 * size) << high << " " << i;
         }
     }
 }

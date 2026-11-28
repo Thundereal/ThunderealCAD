@@ -353,19 +353,29 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
             return false;
         }
     }
-    // The background mesh: the fluid's box and a cell and a half about it,
-    // so that no face of the fluid lies on its side
+    // The background mesh: the fluid's box in whole cells, as near the
+    // resolution as fit it, and a little over a cell and a half about it.
+    // No face of the fluid lies on its side, and the cells the box's own
+    // faces cut have their centres just outside them: the mesher leaves
+    // those out and draws the next ones to the face, half as thick again
+    // as the rest. At a cell and a half exactly the centres were on the
+    // faces, and whether such a cell was the fluid's fell to the last
+    // digit: an outlet came out with a layer of cells a sixth as thick as
+    // the rest before it, and the solver's step followed them
+    // (docs/FluidSimulation.md sec 14.13).
     const double cell = model.resolution;
+    const double about = 1.6;
     Model around = model;
     for (std::size_t i = 0; i < 3; ++i) {
         if (!(high[i] > low[i])) {
             why = "the study has no space for the fluid: it has no size";
             return false;
         }
-        around.space.min[i] = low[i] - 1.5 * cell;
-        around.space.max[i] = high[i] + 1.5 * cell;
-        made.cells[i] =
-            std::max(std::lround((around.space.max[i] - around.space.min[i]) / cell), 1L);
+        const long across = std::max(std::lround((high[i] - low[i]) / cell), 1L);
+        const double fitted = (high[i] - low[i]) / static_cast<double>(across);
+        around.space.min[i] = low[i] - about * fitted;
+        around.space.max[i] = high[i] + about * fitted;
+        made.cells[i] = across + 3;
     }
     around.space.open = {};
     // Where the mesh is: a point of the fluid off every cell's face and
@@ -376,24 +386,26 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
         const Vec3& p = points[(points.size() / 2 + k) % points.size()];
         // in a cell of the background mesh that is the fluid's all round
         // its centre: the mesher keeps what it reaches from here, and from
-        // a cell a wall cuts through the middle it reaches nothing. The
-        // background's cells have their centres on the box's own faces.
+        // a cell a wall cuts through it may reach nothing
         Vec3 centre {};
+        Vec3 size {};
         for (std::size_t i = 0; i < 3; ++i) {
+            size[i] = (around.space.max[i] - around.space.min[i])
+                / static_cast<double>(made.cells[i]);
             centre[i] = around.space.min[i]
-                + (std::floor((p[i] - around.space.min[i]) / cell) + 0.5) * cell;
+                + (std::floor((p[i] - around.space.min[i]) / size[i]) + 0.5) * size[i];
         }
         bool clear = inside(model.domain, centre);
         for (std::size_t i = 0; i < 3 && clear; ++i) {
             for (double way : {-0.45, 0.45}) {
                 Vec3 beside = centre;
-                beside[i] += way * cell;
+                beside[i] += way * size[i];
                 clear = clear && inside(model.domain, beside);
             }
         }
-        const Vec3 moved {centre[0] + 0.137 * cell,
-                          centre[1] + 0.151 * cell,
-                          centre[2] + 0.173 * cell};
+        const Vec3 moved {centre[0] + 0.137 * size[0],
+                          centre[1] + 0.151 * size[1],
+                          centre[2] + 0.173 * size[2]};
         if (clear && inside(model.domain, moved)) {
             made.inside = moved;
             found = true;

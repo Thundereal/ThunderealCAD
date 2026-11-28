@@ -2262,16 +2262,27 @@ NIST files carry (CTC-03: 61 of them), were read as nothing and written as nothi
     line's length, a rectangle's or a circle's area), the datums a tolerance cites as NIST
     gives them ('A,B,C', a common datum 'H-J', 'none');
   - a graphic's: the area and the length of what its PMI is on;
-  - a view's: the annotations it lists (of its model geometric view: none is written in a
-    file of AP242's first edition, so neither is the property).
+  - a view's: the annotations it lists, and (since 2026-11-28) those by what they present
+    -- tolerances, dimensions, datums and their targets, others (notes, graphics alone) --
+    and what it shows of the shapes: its faces' area and the length of its curves of no face
+    (supplemental geometry). Of its model geometric view: none is written in a file of
+    AP242's first edition, so neither is the property.
   - a graphic's own measures (since 2026-11-28), of it as written: its curves' length,
     segments and the centre of their length (their segments' middles weighted by their
     lengths), its triangles' number, area and the centre of their area -- tessellated
     curves, polylines, triangulated surfaces. NIST's are so to their last digits; worked out
     against CTC-04 and STC-07 before writing them.
-  Not computed, so not written: the equivalent unicode string, a view's scale and
-  coordinates, the counts of semantic text notes, tessellated validation properties (of a
-  part's tessellated geometry: FTC-08 -e4-tg's).
+  Not computed, so not written: the equivalent unicode string (NIST's encoding of a
+  frame's symbols is its own); a view's scale and its world and camera coordinates -- a
+  10 mm cube's corners carried by the camera: its axes are the camera's, but where the cube
+  lands follows a convention the files do not show (STC-08), and the scale is 0.3395 in
+  every view of every file, CATIA's; the counts of semantic text notes; tessellated
+  validation properties (of a part's tessellated geometry: FTC-08 -e4-tg's).
+- **A view's against NIST's:** STC-08's counts by kind are NIST's, view for view; STC-07's
+  areas shown are (to 1e-4). STC-07's curve lengths are not: each of its views maps curves of
+  its own (MBD_B three sets, the others none), where FreeCAD's views show all the part's
+  supplemental geometry. STC-06's are NIST's own: its counts are of callouts its views do not
+  list (44 where the view lists 23), its areas and lengths 0.
 - **What NIST's say, against what is written** (`test_validation_properties_as_the_file_has_them`,
   every file): each property the file has is written again, but those of what is not read
   -- CTC-01's two locations and CTC-03's Linear Size.10 given no value (read as notes,

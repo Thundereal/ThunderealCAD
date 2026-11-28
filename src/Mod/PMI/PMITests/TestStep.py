@@ -77,6 +77,17 @@ GRAPHIC_MEASURES = {
 }
 VALIDATION_COMPUTED |= GRAPHIC_MEASURES
 
+# A view's: its callouts by what they present, and what it shows of the shapes
+VIEW_COUNTS = ("number of tolerance annotations", "number of dimension annotations",
+               "number of datum annotations", "number of other annotations")
+VALIDATION_COMPUTED |= set(VIEW_COUNTS) | {"visible geometry surface area",
+                                           "visible geometry curve length"}
+# The files whose views' counts by kind and areas shown are NIST's. The others' are not: STC-06
+# gives counts its own views do not list, and areas and lengths 0; STC-07's views each map
+# curves of their own, FreeCAD's all (its lengths), docs/GDandT.md sec 10.28
+VIEW_KINDS_AS_NISTS = {"nist_stc_08_asme1_ap242-e3.stp"}
+VIEW_AREAS_AS_NISTS = {"nist_stc_07_asme1_ap242-e3.stp"}
+
 # The graphic measures written that are not NIST's, by file and item: how many. NIST counts
 # the zero-length segments the writer leaves out (FTC-08 -e4-tg: 8 graphics two each; STC-06:
 # 5), and CTC-05's polyline curve lengths count a datum target's circle and a dimension's,
@@ -1999,6 +2010,18 @@ class TestNistSet(Base):
                     self.assertEqual(len(ours), len(nists), cls)
                     for x, y in zip(ours, nists):
                         self.assertLess(abs(x - y), 1e-2 * y, (cls, ours, nists))
+
+                # A view's counts by kind and the area it shows, where they are NIST's
+                def views(groups, keys):
+                    return sorted(tuple(g[2].get(k) for k in keys)
+                                  for g in groups if g[1] == "view")
+
+                if name in VIEW_KINDS_AS_NISTS:
+                    self.assertEqual(views(got, VIEW_COUNTS), views(want, VIEW_COUNTS))
+                if name in VIEW_AREAS_AS_NISTS:
+                    key = ("visible geometry surface area",)
+                    for x, y in zip(views(got, key), views(want, key)):
+                        self.assertLess(abs(x[0] - y[0]), 1e-4 * y[0], (x, y))
 
                 # A graphic's own measures: NIST's, of the graphic written as the file has it,
                 # but where the writer leaves out what NIST counts (GRAPHIC_MEASURES_NOT_NISTS)

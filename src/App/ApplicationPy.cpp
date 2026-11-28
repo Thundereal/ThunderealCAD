@@ -57,6 +57,7 @@
 #include "ExpressionSecurityRuntime.h"
 #include "FileHistory.h"
 #include "LibraryPaths.h"
+#include "TransactionLog.h"
 #include "TransactionStore.h"
 
 
@@ -82,6 +83,7 @@ static PyObject *sCloseReleasedVersions(PyObject *self, PyObject *args);
 static PyObject *sDumpSWIG(PyObject *self, PyObject *args);
 static PyObject *sMarkTransactionMeasure(PyObject *self, PyObject *args);
 static PyObject *sTransactionStoreCommits(PyObject *self, PyObject *args);
+static PyObject *sTransactionLogTestSeam(PyObject *self, PyObject *args, PyObject *kwd);
 static PyObject *sOpenFileVersion(PyObject *self, PyObject *args);
 static PyObject *sPopSaveTrigger(PyObject *self, PyObject *args);
 static PyObject *sPushSaveTrigger(PyObject *self, PyObject *args);
@@ -302,6 +304,14 @@ PyMethodDef Application::Methods[] = {
      "Every transaction the transaction logs' SQLite stores of this process have\n"
      "committed, explicit or a single statement's own; reset sets the count to zero\n"
      "after reading it. For tests: what a write costs in commits, whatever the disk."},
+    {"transactionLogTestSeam", (PyCFunction)(void (*)(void)) sTransactionLogTestSeam,
+     METH_VARARGS | METH_KEYWORDS,
+     "transactionLogTestSeam(hold=None, failCaptures=None, reset=False) -> dict\n\n"
+     "Test seams of the transaction logs' workers. hold=True: no worker runs a job\n"
+     "until hold=False; a flush that would wait for a held worker releases it and is\n"
+     "counted (flushesWhileHeld; reset zeroes it). failCaptures=n: the next n values\n"
+     "a worker writes fail as a Save that threw does. Returns held, flushesWhileHeld\n"
+     "and failCapturesLeft."},
     {"isRestoring", (PyCFunction) Application::sIsRestoring, METH_VARARGS,
      "isRestoring() -> Bool -- Test if the application is opening some document"},
     {"dumpSWIG", (PyCFunction) sDumpSWIG, METH_VARARGS,
@@ -469,6 +479,27 @@ static PyObject* sMarkTransactionMeasure(PyObject * /*self*/, PyObject *args)
         return nullptr;
     TransactionMeasure::mark(label);
     Py_Return;
+}
+
+static PyObject* sTransactionLogTestSeam(PyObject * /*self*/, PyObject *args, PyObject *kwd)
+{
+    static const std::array<const char *, 4> kwlist {"hold", "failCaptures", "reset", nullptr};
+    PyObject *hold = Py_None;
+    int failCaptures = -1;
+    PyObject *reset = Py_False;
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwd, "|OiO!", kwlist, &hold, &failCaptures,
+                                             &PyBool_Type, &reset))
+        return nullptr;
+    if (hold != Py_None)
+        transactionLogSeamHold(PyObject_IsTrue(hold) != 0);
+    if (failCaptures >= 0)
+        transactionLogSeamFailCaptures(failCaptures);
+    const TransactionLogSeam s = transactionLogSeam(Base::asBoolean(reset));
+    Py::Dict res;
+    res.setItem("held", Py::Boolean(s.held));
+    res.setItem("flushesWhileHeld", Py::Long(s.flushesWhileHeld));
+    res.setItem("failCapturesLeft", Py::Long(s.failCapturesLeft));
+    return Py::new_reference_to(res);
 }
 
 static PyObject* sTransactionStoreCommits(PyObject * /*self*/, PyObject *args)

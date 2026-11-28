@@ -24,6 +24,7 @@
 
 #ifndef _PreComp_
 # include <algorithm>
+# include <atomic>
 # include <chrono>
 # include <cstdlib>
 # include <iterator>
@@ -501,9 +502,16 @@ void TransactionLog::dropUnrecorded()
 Base::PropertySink* TransactionLog::beginSnapshot(bool compose)
 {
     resolvePending();
-    // What the worker could not write is not recorded: the queue drained,
-    // so every copy posted so far has said.
-    flush();
+    // What the worker could not write is not recorded -- as far as it has
+    // said so far. No flush: the worker's queue may hold the last version's
+    // whole write (~48.7k entities for MiSTer_binary's first snapshot), and
+    // a snapshot waited for all of it on the main thread. Nothing here needs
+    // it written: a claimed part is resolved on the worker, from _hashById,
+    // when this version is written, after everything queued before it. A
+    // value whose write fails meanwhile is claimed but not held there, and
+    // that version fails as a whole (one transaction, rolled back; its row
+    // in the chain says the error); the next snapshot, told by then, stores
+    // the value as a part (docs/TransactionLogJournal.md sec 23.3).
     dropUnrecorded();
     _misses.clear();
     _verify = DocumentParams::getTransactionLogVerify();
@@ -925,11 +933,56 @@ void TransactionLogCore::stopWorker()
         _worker.join();
 }
 
+namespace {
+// The test seams (transactionLogSeam* in TransactionLog.h).
+std::atomic<bool> SeamHold {false};
+std::atomic<int> SeamFlushesWhileHeld {0};
+std::atomic<int> SeamFailCaptures {0};
+
+/// One failure taken from the count, when there is one.
+bool seamFailCapture()
+{
+    int n = SeamFailCaptures.load();
+    while (n > 0) {
+        if (SeamFailCaptures.compare_exchange_weak(n, n - 1))
+            return true;
+    }
+    return false;
+}
+} // namespace
+
+void App::transactionLogSeamHold(bool hold)
+{
+    // A held worker looks again every 20 ms (run()), so a release needs no
+    // reach into each log's condition variable.
+    SeamHold = hold;
+}
+
+void App::transactionLogSeamFailCaptures(int count)
+{
+    SeamFailCaptures = std::max(0, count);
+}
+
+TransactionLogSeam App::transactionLogSeam(bool reset)
+{
+    TransactionLogSeam s;
+    s.held = SeamHold.load();
+    s.flushesWhileHeld = reset ? SeamFlushesWhileHeld.exchange(0) : SeamFlushesWhileHeld.load();
+    s.failCapturesLeft = SeamFailCaptures.load();
+    return s;
+}
+
 void TransactionLogCore::run()
 {
     std::unique_lock<std::mutex> lock(_mutex);
     for (;;) {
-        _wake.wait(lock, [this]() { return _stop || !_queue.empty(); });
+        // Held (a test's seam): the queue waits; the stop does not.
+        while (!(_stop || (!_queue.empty() && !SeamHold.load()))) {
+            if (SeamHold.load())
+                _wake.wait_for(lock, std::chrono::milliseconds(20));
+            else
+                _wake.wait(lock);
+        }
         if (_queue.empty()) {
             if (_stop)
                 return;
@@ -1015,6 +1068,12 @@ void TransactionLogCore::flush()
         if (Py_IsInitialized() && PyGILState_Check())
             unlocked = std::make_unique<Base::PyGILStateRelease>();
         std::unique_lock<std::mutex> lock(_mutex);
+        if (SeamHold.load() && !_queue.empty() && !_stop) {
+            // A wait for a held worker would never end: counted, released
+            ++SeamFlushesWhileHeld;
+            SeamHold = false;
+            _wake.notify_all();
+        }
         _done.wait(lock, [this]() { return (_queue.empty() || _stop) && !_running; });
     }
     releaseRetired();
@@ -3811,6 +3870,11 @@ void TransactionLog::writeValues(std::vector<ValueTask>& tasks, std::vector<LogO
         // entity of its own, held as long as the value is (sec 23.16).
         CapturedValue& cv = captured[i];
         cv = task.isCaptured ? std::move(task.captured) : captureValue(_config, *task.copy);
+        if (seamFailCapture()) {
+            // A test's fault seam: as captureValue() says a Save that threw
+            cv = CapturedValue();
+            FC_WARN("transaction value: serialise failed: a test's fault seam");
+        }
         // A shape names its file without noting it (it notes in
         // beforeSave, which a capture does not run): its contentBlob().
         if (auto referrer = task.copy ? dynamic_cast<const BlobReferrerProperty*>(task.copy.get())

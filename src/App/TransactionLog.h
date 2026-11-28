@@ -1112,6 +1112,27 @@ AppExport TrimPlan planTrim(TransactionStore& store, const LogBranch& branch,
 /// Carry `plan` out; `name` is the branch's, for the bridge row.
 AppExport void applyTrim(TransactionStore& store, TrimPlan& plan, const std::string& name);
 
+/** Test seams of the logs' workers (FreeCAD.transactionLogTestSeam()), for
+ * what a test cannot otherwise make happen on time on every box.
+ *
+ * A held worker runs no job until released: what is posted queues. A
+ * flush() that would wait for a held worker's queue releases it instead of
+ * waiting for ever, and is counted -- so a test asks "did anything wait"
+ * without a timer. A capture made to fail is the next value a worker
+ * writes failing as a Save that threw does: the value never reaches the
+ * log, and the main thread learns it at the next beginSnapshot().
+ */
+struct TransactionLogSeam
+{
+    bool held {false};
+    int flushesWhileHeld {0};
+    int failCapturesLeft {0};
+};
+AppExport void transactionLogSeamHold(bool hold);
+AppExport void transactionLogSeamFailCaptures(int count);
+/// The seams as they stand; `reset` zeroes the count of flushes.
+AppExport TransactionLogSeam transactionLogSeam(bool reset = false);
+
 } // namespace App
 
 #endif // APP_TRANSACTION_LOG_H

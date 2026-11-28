@@ -5597,6 +5597,75 @@ class TransactionBranchCases(unittest.TestCase):
         for i in range(steps + 1):
             doc.undo()
 
+    def _reopened(self, name, n):
+        doc = self.track(FreeCAD.newDocument(name))
+        for i in range(n):
+            obj = doc.addObject("App::FeatureTest", "Obj%d" % i)
+            obj.Integer = i
+        doc.recompute()
+        path = os.path.join(self.dir, name + ".FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        doc.getTransactionVersions()  # the open's own write done
+        return doc
+
+    def testASnapshotDoesNotWaitForTheLastOnesWrite(self):
+        # A snapshot waited on the main thread for the worker's whole queue
+        # -- after an open, the previous snapshot's ~48.7k entities
+        # (MiSTer_binary, 2026-11-28). It needs none of it written: what it
+        # claims the worker resolves in order when it writes this one. With
+        # the worker held, two snapshots are taken and neither waits.
+        doc = self._reopened("NoWait", 200)
+        FreeCAD.transactionLogTestSeam(hold=True, reset=True)
+        try:
+            first = doc.snapshotTransactionLog()
+            second = doc.snapshotTransactionLog()
+            seam = FreeCAD.transactionLogTestSeam()
+        finally:
+            FreeCAD.transactionLogTestSeam(hold=False)
+        self.assertGreater(first, 0)
+        self.assertGreater(second, first)
+        self.assertTrue(seam["held"], "the worker was let go before both snapshots returned")
+        self.assertEqual(seam["flushesWhileHeld"], 0, "a snapshot waited for the worker")
+        nums = [v["num"] for v in doc.getTransactionVersions()]
+        self.assertIn(first, nums)
+        self.assertIn(second, nums)
+
+    def testASnapshotClaimingAFailedWriteFailsWhole(self):
+        # Without the wait a snapshot may claim a value whose write then
+        # fails: the worker finds it claimed but not held. That version fails
+        # as a whole -- one transaction, rolled back -- and reads as not
+        # written; its row says the error; the next snapshot, told of the
+        # failure, stores the value itself and is complete.
+        doc = self._reopened("FailedWrite", 20)
+        obj = doc.getObject("Obj7")
+        held = doc.snapshotTransactionLog()   # every value now held by the log
+        self.assertIn(held, [v["num"] for v in doc.getTransactionVersions()])
+        FreeCAD.transactionLogTestSeam(hold=True, reset=True)
+        try:
+            FreeCAD.transactionLogTestSeam(failCaptures=1)
+            doc.openTransaction("set")
+            obj.Integer = 77
+            doc.commitTransaction()           # its write queued, to fail
+            failed = doc.snapshotTransactionLog()   # claims Integer: not yet told
+        finally:
+            FreeCAD.transactionLogTestSeam(hold=False, failCaptures=0)
+        self.assertGreater(failed, 0)
+        versions = doc.getTransactionVersions()
+        self.assertNotIn(failed, [v["num"] for v in versions], "a version claiming an unheld value")
+        rows = [t for t in doc.getTransactionLog() if '"error"' in (t.get("script") or "")]
+        self.assertEqual(len(rows), 1, rows)
+        self.assertIn("claimed but not held", rows[0]["script"])
+        with self.assertRaises(Exception):
+            doc.openTransactionVersion(failed, False)
+        healed = doc.snapshotTransactionLog()
+        self.assertIn(healed, [v["num"] for v in doc.getTransactionVersions()])
+        opened = self.track(doc.openTransactionVersion(healed, False))
+        self.assertEqual(opened.getObject("Obj7").Integer, 77)
+        self.assertEqual(FreeCAD.transactionLogTestSeam()["failCapturesLeft"], 0)
+
     def testAVersionIsWrittenInOneTransaction(self):
         # The first snapshot after an open stores every property value the
         # log does not hold yet, one entity each -- ~48.7k for MiSTer_binary's

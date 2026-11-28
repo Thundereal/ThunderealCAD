@@ -57,6 +57,7 @@
 #include "ExpressionSecurityRuntime.h"
 #include "FileHistory.h"
 #include "LibraryPaths.h"
+#include "TransactionStore.h"
 
 
 //using Base::GetConsole;
@@ -80,6 +81,7 @@ static PyObject *applyLibraryPathsPy(PyObject *self, PyObject *args);
 static PyObject *sCloseReleasedVersions(PyObject *self, PyObject *args);
 static PyObject *sDumpSWIG(PyObject *self, PyObject *args);
 static PyObject *sMarkTransactionMeasure(PyObject *self, PyObject *args);
+static PyObject *sTransactionStoreCommits(PyObject *self, PyObject *args);
 static PyObject *sOpenFileVersion(PyObject *self, PyObject *args);
 static PyObject *sPopSaveTrigger(PyObject *self, PyObject *args);
 static PyObject *sPushSaveTrigger(PyObject *self, PyObject *args);
@@ -295,6 +297,11 @@ PyMethodDef Application::Methods[] = {
      "stopTransactionMeasure() -- stop measuring transaction commits"},
     {"markTransactionMeasure", (PyCFunction) sMarkTransactionMeasure, METH_VARARGS,
      "markTransactionMeasure(label) -- write a marker row into the measurement CSV"},
+    {"transactionStoreCommits", (PyCFunction) sTransactionStoreCommits, METH_VARARGS,
+     "transactionStoreCommits(reset=False) -> int -- SQL transactions committed\n\n"
+     "Every transaction the transaction logs' SQLite stores of this process have\n"
+     "committed, explicit or a single statement's own; reset sets the count to zero\n"
+     "after reading it. For tests: what a write costs in commits, whatever the disk."},
     {"isRestoring", (PyCFunction) Application::sIsRestoring, METH_VARARGS,
      "isRestoring() -> Bool -- Test if the application is opening some document"},
     {"dumpSWIG", (PyCFunction) sDumpSWIG, METH_VARARGS,
@@ -462,6 +469,15 @@ static PyObject* sMarkTransactionMeasure(PyObject * /*self*/, PyObject *args)
         return nullptr;
     TransactionMeasure::mark(label);
     Py_Return;
+}
+
+static PyObject* sTransactionStoreCommits(PyObject * /*self*/, PyObject *args)
+{
+    PyObject *reset = Py_False;
+    if (!PyArg_ParseTuple(args, "|O!", &PyBool_Type, &reset))
+        return nullptr;
+    return Py::new_reference_to(
+        Py::Long(static_cast<long long>(TransactionStore::sqlCommits(Base::asBoolean(reset)))));
 }
 
 PyObject* Application::sIsRestoring(PyObject * /*self*/, PyObject *args) {

@@ -1177,6 +1177,29 @@ void TransactionLogCore::writeVersion(LogVersion& v, LogTransaction& t,
                                       const std::string& escaped, size_t nblobs, long keep,
                                       std::vector<std::pair<long, long>> strings, bool marked)
 {
+        // One SQL transaction for the whole version: its entities, the
+        // version row, its strings, the superseding, the eviction and the
+        // row in the chain commit together or not at all. Each in its own
+        // was a commit per entity -- ~48.7k for a first snapshot of 18199
+        // objects -- and a crash part way left them without the version.
+        _store->beginBatch();
+        try {
+            writeVersionBody(v, t, entries, blobs, schema, escaped, nblobs, keep,
+                             std::move(strings), marked);
+            _store->commitBatch();
+        }
+        catch (...) {
+            _store->rollbackBatch();
+            throw;
+        }
+}
+
+void TransactionLogCore::writeVersionBody(LogVersion& v, LogTransaction& t,
+                                          const TransactionLog::Captures& entries,
+                                          TransactionLog::Blobs& blobs, int schema,
+                                          const std::string& escaped, size_t nblobs, long keep,
+                                          std::vector<std::pair<long, long>> strings, bool marked)
+{
         {
             // Each XML entry is a composite (sec 23.3): its skeleton plus
             // the parts, or the bytes themselves when it was read rather

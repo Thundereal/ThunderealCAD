@@ -25,6 +25,7 @@
 #ifndef _PreComp_
 # include <algorithm>
 # include <array>
+# include <atomic>
 # include <cstdlib>
 # include <cstring>
 # include <map>
@@ -258,6 +259,17 @@ bool stepRow(sqlite3_stmt* s)
     THROWM(Base::RuntimeError, "Transaction log: " + msg);
 }
 
+/// Every SQL transaction a store's connection has committed, explicit or a
+/// statement's own, all stores of the process together (sqlite3_commit_hook).
+/// What TransactionStore::sqlCommits() answers.
+std::atomic<int64_t> SqlCommits {0};
+
+int countCommit(void*)
+{
+    SqlCommits.fetch_add(1, std::memory_order_relaxed);
+    return 0;   // let it commit
+}
+
 /** The SQLite log (docs/TransactionLogJournal.md sec 13). One database per
  * document history; every append is one SQL transaction, so atomicity
  * and crash recovery are the database's, not ours.
@@ -289,6 +301,7 @@ public:
         // A second connection to the file (sec 29.1) waits for a lock
         // instead of failing at once with SQLITE_BUSY (37.7 item 7).
         sqlite3_busy_timeout(db, 5000);
+        sqlite3_commit_hook(db, countCommit, nullptr);
         try {
             if (shared) {
                 // Its owner's layout: one read here is never migrated
@@ -389,6 +402,7 @@ public:
         try {
             for (const auto& t : Tables)
                 exec(std::string("CREATE TABLE layout.") + t.name + t.columns);
+            // at open, never inside a batch: a plain transaction
             exec("BEGIN");
             try {
                 if (from < 1) {
@@ -657,7 +671,7 @@ public:
 
     int64_t append(LogTransaction& txn, std::vector<LogOp>& ops) override
     {
-        exec("BEGIN");
+        begin();
         try {
             // A preset seq is honoured (the writer thread's caller numbers
             // ahead, TransactionLog); NULL takes the next rowid.
@@ -712,7 +726,7 @@ public:
                     sqlite3_bind_int(op, 14, o.touched);
                 step(op);
             }
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -741,7 +755,7 @@ public:
 
     void putEntity(const LogEntity& e) override
     {
-        exec("BEGIN");
+        begin();
         try {
             auto s = prepare("INSERT OR IGNORE INTO entity(hash,kind,enc,base,tier,size,data)"
                              " VALUES(?,?,?,?,?,?,?)");
@@ -763,7 +777,7 @@ public:
                 if (e.enc == "delta" && !e.base.empty())
                     insertRef(e.hash, LogRef {e.base, "base", ""}, seq++);
             }
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -802,10 +816,10 @@ public:
     void reencodeEntity(const std::string& hash, const std::string& enc,
                         const std::string& base, const std::string& data) override
     {
-        exec("BEGIN");
+        begin();
         try {
             reencodeRow(hash, enc, base, data);
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -1630,7 +1644,7 @@ public:
 
     void truncate(int64_t before) override
     {
-        exec("BEGIN");
+        begin();
         try {
             auto s = prepare("DELETE FROM op WHERE txn<?");
             sqlite3_bind_int64(s, 1, before);
@@ -1639,7 +1653,7 @@ public:
             sqlite3_bind_int64(s, 1, before);
             step(s);
             collectEntities();
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -1649,7 +1663,7 @@ public:
 
     void removeTransactions(const std::vector<int64_t>& seqs) override
     {
-        exec("BEGIN");
+        begin();
         try {
             keepSeqCounter();
             for (int64_t seq : seqs) {
@@ -1661,7 +1675,7 @@ public:
                 step(s);
             }
             collectEntities();
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -1672,7 +1686,7 @@ public:
     void replaceTransactions(const LogTransaction& txn, std::vector<LogOp>& ops,
                              const std::vector<int64_t>& seqs, bool collect) override
     {
-        exec("BEGIN");
+        begin();
         try {
             keepSeqCounter();
             for (int64_t seq : seqs) {
@@ -1731,7 +1745,7 @@ public:
             }
             if (collect)
                 collectEntities();
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -2274,7 +2288,7 @@ public:
 
     void dropTier(const std::string& tier, const std::vector<int64_t>& evict) override
     {
-        exec("BEGIN");
+        begin();
         try {
             for (int64_t num : evict) {
                 auto s = prepare("DELETE FROM version WHERE num=?");
@@ -2349,7 +2363,7 @@ public:
                 if (walk(g, roots, &gone, kept))
                     sweep(g, kept);
             }
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -2391,7 +2405,7 @@ public:
                               uint64_t maxValues) override
     {
         LogTierEviction out;
-        exec("BEGIN");
+        begin();
         try {
             HeldGraph g;
             loadGraph(g);
@@ -2489,7 +2503,7 @@ public:
             for (const auto& nb : cut)
                 g.edges[nb.first].push_back(nb.second);
             if (!read || !walk(g, roots, nullptr, held)) {
-                exec("COMMIT");
+                commit();
                 return out;
             }
             stays.resize(g.keys.size(), 0);
@@ -2533,7 +2547,7 @@ public:
             const bool overBytes = maxBytes && out.bytes > maxBytes;
             const bool overValues = maxValues && out.values > maxValues;
             if (!overBytes && !overValues) {
-                exec("COMMIT");
+                commit();
                 return out;
             }
             const uint64_t toBytes = maxBytes ? maxBytes - maxBytes / 4 : UINT64_MAX;
@@ -2603,7 +2617,7 @@ public:
             std::vector<char> kept;
             for (;;) {
                 if (!walk(g, roots, &gone, kept)) {
-                    exec("COMMIT");
+                    commit();
                     return out;
                 }
                 bool back = false;
@@ -2638,7 +2652,7 @@ public:
             out.left = onlyTheirs(kept);
             if (out.evicted)
                 sweep(g, kept);
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -2664,7 +2678,7 @@ public:
 
     void evictVersions(const std::vector<int64_t>& nums) override
     {
-        exec("BEGIN");
+        begin();
         try {
             for (int64_t num : nums) {
                 auto s = prepare("DELETE FROM version WHERE num=?");
@@ -2672,7 +2686,7 @@ public:
                 step(s);
             }
             collectEntities();
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -2840,7 +2854,7 @@ public:
 
     int64_t addVersion(LogVersion& v, const std::vector<LogManifestEntry>& manifest) override
     {
-        exec("BEGIN");
+        begin();
         try {
             v.manifest = putManifest(manifest);
             auto s = prepare("INSERT INTO version(num,uuid,branch,kind,name,seq,env,docxml_hash,"
@@ -2861,7 +2875,7 @@ public:
             bindHash(s, 11, v.manifest);
             step(s);
             v.num = sqlite3_last_insert_rowid(db);
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -3051,7 +3065,7 @@ public:
 
     bool forwardBranch(int64_t id, int64_t head, const std::vector<int64_t>& seqs) override
     {
-        exec("BEGIN");
+        begin();
         try {
             auto s = prepare("UPDATE branch SET head_seq=? WHERE id=?");
             sqlite3_bind_int64(s, 1, head);
@@ -3068,7 +3082,7 @@ public:
                 sqlite3_bind_int64(s, 2, seq);
                 step(s);
             }
-            exec("COMMIT");
+            commit();
             return found;
         }
         catch (...) {
@@ -3160,7 +3174,7 @@ public:
 
     bool releaseFile(int64_t seq) override
     {
-        exec("BEGIN");
+        begin();
         try {
             auto s = prepare("DELETE FROM heldfile WHERE (session, ord) IN"
                              " (SELECT session, ord FROM txn WHERE seq=?)");
@@ -3169,7 +3183,7 @@ public:
             const bool held = sqlite3_changes(db) > 0;
             if (held)
                 collectEntities();
-            exec("COMMIT");
+            commit();
             return held;
         }
         catch (...) {
@@ -3180,14 +3194,14 @@ public:
 
     size_t releaseOrphanFiles() override
     {
-        exec("BEGIN");
+        begin();
         try {
             exec("DELETE FROM heldfile WHERE NOT EXISTS (SELECT 1 FROM txn"
                  " WHERE txn.session=heldfile.session AND txn.ord=heldfile.ord)");
             const size_t gone = static_cast<size_t>(sqlite3_changes(db));
             if (gone)
                 collectEntities();
-            exec("COMMIT");
+            commit();
             return gone;
         }
         catch (...) {
@@ -3245,26 +3259,81 @@ private:
         }
     }
 
-    /// An error's way out of a BEGIN: after a full disk, an I/O error or
-    /// no memory SQLite has rolled back by itself, and a ROLLBACK that
-    /// throws there would replace the error that matters.
+    /// How many transactions are open: the SQL one, and a savepoint for each
+    /// begin() made inside it. Every write of the store opens its own; inside
+    /// a batch (beginBatch(), a version's write) that is a savepoint, so it
+    /// still undoes itself alone on an error and commits with the batch.
+    int depth = 0;
+
+    void begin()
+    {
+        if (depth == 0)
+            exec("BEGIN");
+        else
+            exec("SAVEPOINT s" + std::to_string(depth));
+        ++depth;
+    }
+
+    void commit()
+    {
+        --depth;
+        if (depth == 0)
+            exec("COMMIT");
+        else
+            exec("RELEASE s" + std::to_string(depth));
+    }
+
+    /// An error's way out of a begin(): after a full disk, an I/O error or
+    /// no memory SQLite has rolled back by itself -- the whole transaction,
+    /// savepoints and all -- and a ROLLBACK that throws there would replace
+    /// the error that matters.
     void rollback()
     {
         // A name made in the transaction is gone with it.
         nameIds.clear();
         nameTexts.clear();
-        if (sqlite3_get_autocommit(db) == 0)
-            sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
+        if (sqlite3_get_autocommit(db) != 0) {
+            depth = 0;   // nothing left open
+            return;
+        }
+        if (depth > 1) {
+            // the innermost savepoint, the batch around it left open
+            --depth;
+            const std::string sp = "s" + std::to_string(depth);
+            sqlite3_exec(db, ("ROLLBACK TO " + sp).c_str(), nullptr, nullptr, nullptr);
+            sqlite3_exec(db, ("RELEASE " + sp).c_str(), nullptr, nullptr, nullptr);
+            return;
+        }
+        depth = 0;
+        sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
     }
+
+public:
+    void beginBatch() override
+    {
+        begin();
+    }
+
+    void commitBatch() override
+    {
+        commit();
+    }
+
+    void rollbackBatch() override
+    {
+        rollback();
+    }
+
+private:
 
     /// A batch of statements as one SQL transaction.
     template<class F>
     void batch(F&& body)
     {
-        exec("BEGIN");
+        begin();
         try {
             body();
-            exec("COMMIT");
+            commit();
         }
         catch (...) {
             rollback();
@@ -3555,6 +3624,11 @@ private:
 };
 
 } // namespace
+
+int64_t TransactionStore::sqlCommits(bool reset)
+{
+    return reset ? SqlCommits.exchange(0) : SqlCommits.load();
+}
 
 std::unique_ptr<TransactionStore> TransactionStore::openSQLite(const std::string& path,
                                                                bool readOnly)

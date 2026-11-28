@@ -1034,6 +1034,9 @@ void LinearGizmo::draggingContinued()
     // Back past the start: the feature turns, and the value grows again
     value = reverseIfPast(value);
     value = std::clamp(value, property->minimum(), property->maximum());
+    if (valueFilter) {
+        value = valueFilter(value);
+    }
 
     property->setValue(value);
     // the arrow where the pointer is, behind its start once turned
@@ -1451,6 +1454,9 @@ void RotationGizmo::draggingContinued()
     // Back past the start: the feature turns, and the angle grows again
     value = reverseIfPast(value);
     value = clampDragAngle(value, property->minimum(), property->maximum(), period);
+    if (valueFilter) {
+        value = valueFilter(value);
+    }
 
     property->setValue(value);
     // the arc where the pointer is, behind its start once turned

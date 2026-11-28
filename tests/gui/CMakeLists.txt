@@ -360,6 +360,11 @@ fc_add_gui_test(GuiFilletDragBesideMissingEdge_tests_run fillet-drag-beside-miss
 # the pointer is measured from. A Pad at two recompute speeds, a Revolution.
 fc_add_gui_test(GuiDragMeasuresThePointer_tests_run drag-measures-the-pointer.py
                 --timeout 500)
+# Entry 191: a drag into a radius that fails holds at the last that worked,
+# quick or slow -- not back to the drag's start, one failure -- and follows
+# the pointer again when it comes back.
+fc_add_gui_test(GuiFilletDragHoldsLastWorking_tests_run fillet-drag-holds-last-working.py
+                --timeout 300)
 
 # Entry 202, the hands-on of 2026-10-21: the Group column second, the modes'
 # tool tips, group colours (automatic, picked, kept in GroupColors), a double

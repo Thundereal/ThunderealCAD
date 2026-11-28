@@ -773,10 +773,66 @@ void LinearGizmo::reverseDir()
 
 double LinearGizmo::getDragLength()
 {
-    double dragLength = dragger->translationIncrementCount.getValue()
-        * dragger->translationIncrement.getValue();
+    // the pointer on the line fixed at the drag's start; the dragger's own
+    // count only outside a drag
+    const std::optional<int> increments = pointerIncrements();
+    const int count = increments ? *increments : dragger->translationIncrementCount.getValue();
+    double dragLength = count * dragger->translationIncrement.getValue();
 
     return (dragLength - addFactor) / multFactor;
+}
+
+void LinearGizmo::startDragFrame()
+{
+    dragFrame.valid = false;
+    if (!dragger) {
+        return;
+    }
+    // The arrow's +y in world coordinates, and the world length of the
+    // dragger's unit along it; the starting point the dragger projected
+    // onto that axis as the drag began (SoLinearDragger::dragStart)
+    SbVec3f axis;
+    dragger->getLocalToWorldMatrix().multDirMatrix(SbVec3f(0.0F, 1.0F, 0.0F), axis);
+    const float unit = axis.length();
+    if (unit <= 0.0F) {
+        return;
+    }
+    dragFrame.axis = axis / unit;
+    dragFrame.unit = unit;
+    dragFrame.start = dragger->getWorldStartingPoint();
+    dragFrame.valid = true;
+}
+
+std::optional<int> LinearGizmo::pointerIncrements()
+{
+    if (!dragFrame.valid || !dragging || !dragger) {
+        return std::nullopt;
+    }
+    const SoEvent* event = dragger->getEvent();
+    if (!event) {
+        return std::nullopt;
+    }
+    // the view the pointer is in now; the line and the unit the drag's start's
+    SbLineProjector projector;
+    projector.setViewVolume(dragger->getViewVolume());
+    projector.setWorkingSpace(SbMatrix::identity());
+    projector.setLine(SbLine(dragFrame.start, dragFrame.start + dragFrame.axis));
+    const SbVec3f hit
+        = projector.project(event->getNormalizedPosition(dragger->getViewportRegion()));
+    const float along = (hit - dragFrame.start).dot(dragFrame.axis) / dragFrame.unit;
+    // the dragger's own rounding (SoLinearDragger::roundTranslation), so a
+    // drag whose writes all agree with the pointer ends where it did
+    const float increment = static_cast<float>(dragger->translationIncrement.getValue())
+        / dragger->autoScaleResult.getValue();
+    int count = 0;
+    if (increment > 0.0F && std::fabs(along) > increment / 2.0F) {
+        count = static_cast<int>(along / increment);
+        const float remainder = std::fmod(along, increment);
+        if (remainder >= increment / 2.0F) {
+            count++;
+        }
+    }
+    return count;
 }
 
 void LinearGizmo::setDragLength(double dragLength)
@@ -879,6 +935,7 @@ void LinearGizmo::setHiddenInView(bool hidden)
 void LinearGizmo::draggingStarted()
 {
     initialValue = property->value().getValue();
+    startDragFrame();
     hasDragged = false;
     dragging = true;
     dragCancelled = false;
@@ -1202,10 +1259,81 @@ void RotationGizmo::placeBelowLinearGizmo(LinearGizmo* gizmo)
 
 double RotationGizmo::getRotAngle()
 {
-    double rotAngle = dragger->rotationIncrementCount.getValue()
-        * dragger->rotationIncrement.getValue();
+    // the pointer about the axis fixed at the drag's start; the dragger's
+    // own count only outside a drag
+    const std::optional<int> increments = pointerIncrements();
+    const int count = increments ? *increments : dragger->rotationIncrementCount.getValue();
+    double rotAngle = count * dragger->rotationIncrement.getValue();
 
     return (rotAngle - addFactor) / multFactor;
+}
+
+void RotationGizmo::startDragFrame()
+{
+    dragFrame.valid = false;
+    if (!dragger) {
+        return;
+    }
+    // The dragger's centre and +z in world coordinates, and where the drag
+    // began from the axis (SoRotationDragger::dragStart put its starting
+    // point in the plane)
+    const SbMatrix toWorld = dragger->getLocalToWorldMatrix();
+    SbVec3f center;
+    toWorld.multVecMatrix(SbVec3f(0.0F, 0.0F, 0.0F), center);
+    SbVec3f axis;
+    toWorld.multDirMatrix(SbVec3f(0.0F, 0.0F, 1.0F), axis);
+    if (axis.normalize() <= 0.0F) {
+        return;
+    }
+    SbVec3f start = dragger->getWorldStartingPoint() - center;
+    start -= axis * start.dot(axis);
+    if (start.normalize() <= 0.0F) {
+        return;
+    }
+    dragFrame.center = center;
+    dragFrame.axis = axis;
+    dragFrame.start = start;
+    dragFrame.valid = true;
+}
+
+std::optional<int> RotationGizmo::pointerIncrements()
+{
+    if (!dragFrame.valid || !dragging || !dragger) {
+        return std::nullopt;
+    }
+    const SoEvent* event = dragger->getEvent();
+    if (!event) {
+        return std::nullopt;
+    }
+    // the view the pointer is in now; the plane the drag's start's
+    SbPlaneProjector projector;
+    projector.setViewVolume(dragger->getViewVolume());
+    projector.setWorkingSpace(SbMatrix::identity());
+    projector.setPlane(SbPlane(dragFrame.axis, dragFrame.center));
+    SbVec3f hit;
+    if (!projector.tryProject(event->getNormalizedPosition(dragger->getViewportRegion()), 0.0F,
+                              hit)) {
+        return std::nullopt;
+    }
+    SbVec3f now = hit - dragFrame.center;
+    now -= dragFrame.axis * now.dot(dragFrame.axis);
+    if (now.normalize() <= 0.0F) {
+        return std::nullopt;
+    }
+    // signed about the axis, as the dragger's own (its local +z)
+    const float radians = std::atan2(dragFrame.start.cross(now).dot(dragFrame.axis),
+                                     dragFrame.start.dot(now));
+    // the dragger's own rounding (SoRotationDragger::roundIncrement)
+    const auto increment = static_cast<float>(dragger->rotationIncrement.getValue());
+    int count = 0;
+    if (increment > 0.0F && std::fabs(radians) > increment / 2.0F) {
+        count = static_cast<int>(radians / increment);
+        const float remainder = std::fmod(radians, increment);
+        if (remainder >= increment / 2.0F) {
+            count++;
+        }
+    }
+    return count;
 }
 
 void RotationGizmo::setRotAngle(double angle)
@@ -1228,6 +1356,7 @@ SoRotationDraggerContainer* RotationGizmo::getDraggerContainer()
 void RotationGizmo::draggingStarted()
 {
     initialValue = property->value().getValue();
+    startDragFrame();
     lastDragOffset = 0.0;
     hasDragged = false;
     dragging = true;

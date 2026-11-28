@@ -382,6 +382,29 @@ public:
     void setColor(const std::optional<Base::Color>& color) override;
 
 private:
+    /** The pointer measured on the arrow's line as it stood at the drag's
+     * start, in world coordinates -- not in the dragger's own frame, which
+     * moves with the translation written into it. A drag writes that
+     * translation itself (the value, reversed past the start, clamped,
+     * held) and so does a value written back into the box under it
+     * (docs/HandsOnQueue.md entry 191); measured in the dragger's frame,
+     * each such write moved what the following moves were measured from,
+     * and where a drag ended turned on how long its recomputes took.
+     */
+    struct DragFrame
+    {
+        SbVec3f start;
+        SbVec3f axis;
+        /// world length of the dragger's unit along the axis
+        float unit = 0.0F;
+        bool valid = false;
+    } dragFrame;
+    void startDragFrame();
+    /// The pointer's increments from the drag's start on that line, in the
+    /// dragger's own rounding (SoLinearDragger::roundTranslation); none
+    /// without a frame
+    std::optional<int> pointerIncrements();
+
     bool preselected = false;
     SoLinearDragger* dragger = nullptr;
     SoLinearDraggerContainer* draggerContainer = nullptr;
@@ -455,6 +478,25 @@ public:
     void setPreselected(bool preselected) override;
 
 private:
+    /** The pointer measured about the axis as it stood at the drag's start,
+     * in world coordinates, as a linear handle's (LinearGizmo::dragFrame):
+     * the dragger's own frame turns with the rotation written into it, the
+     * angle reversed past the start, clamped, held, or written back under
+     * it (docs/HandsOnQueue.md entries 170, 191)
+     */
+    struct DragFrame
+    {
+        SbVec3f center;
+        SbVec3f axis;
+        /// the starting point's direction from the axis, in its plane
+        SbVec3f start;
+        bool valid = false;
+    } dragFrame;
+    void startDragFrame();
+    /// The pointer's increments from the drag's start about that axis, in
+    /// the dragger's own rounding (SoRotationDragger::roundIncrement)
+    std::optional<int> pointerIncrements();
+
     bool preselected = false;
     SoRotationDragger* dragger = nullptr;
     SoRotationDraggerContainer* draggerContainer = nullptr;

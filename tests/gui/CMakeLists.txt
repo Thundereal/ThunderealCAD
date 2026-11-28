@@ -354,6 +354,12 @@ fc_add_gui_test(GuiOnViewLabelOverGeometry_tests_run onview-label-over-geometry.
 # keeps its value beside a missing edge; a selected handle lights on hover.
 fc_add_gui_test(GuiFilletDragBesideMissingEdge_tests_run fillet-drag-beside-missing-edge.py
                 --timeout 200)
+# A handle's drag is measured on its line (or about its axis) as it stood at
+# the drag's start: a recompute failing under it, the value written back
+# (entry 191) and the turn past the start (entry 170) no longer move what
+# the pointer is measured from. A Pad at two recompute speeds, a Revolution.
+fc_add_gui_test(GuiDragMeasuresThePointer_tests_run drag-measures-the-pointer.py
+                --timeout 500)
 
 # Entry 202, the hands-on of 2026-10-21: the Group column second, the modes'
 # tool tips, group colours (automatic, picked, kept in GroupColors), a double

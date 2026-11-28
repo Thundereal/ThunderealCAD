@@ -240,10 +240,12 @@ std::string FileInfo::getTempFileName(const char* FileName, const char* Path)
     }
 
 
-    // this already creates the file -- or gives no name at all, buf left
-    // as it was: the folder missing or not writable, or every name of the
-    // prefix taken (at most 65535 per prefix and folder, and nothing cleans
-    // the folder for us)
+    // this already creates the file -- or fails, returning 0: the folder
+    // missing or not writable, or every name of the prefix taken (65535 per
+    // prefix and folder, FCT1..FCTFFFF, and nothing cleans the folder for
+    // us). On the full folder buf holds the last name it tried, an EXISTING
+    // file (error 80, ERROR_FILE_EXISTS): going on would delete that file
+    // and hand its name out
     if (GetTempFileNameW(path.c_str(), file.c_str(), 0, buf) == 0) {
         const unsigned long error = GetLastError();
         THROWM(Base::FileException,

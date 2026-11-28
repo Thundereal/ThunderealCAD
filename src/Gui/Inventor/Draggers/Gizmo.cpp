@@ -83,6 +83,7 @@
 #include "SoLinearDragger.h"
 #include "SoLinearDraggerGeometry.h"
 #include "SoRotationDragger.h"
+#include <Gui/DragInProgress.h>
 #include "SoRotationDraggerGeometry.h"
 
 using namespace Gui;
@@ -153,6 +154,22 @@ double clampDragAngle(double value, double min, double max, double period)
 void Gizmo::setDraggerPlacement(const Base::Vector3d& pos, const Base::Vector3d& dir)
 {
     setDraggerPlacement(Base::convertTo<SbVec3f>(pos), Base::convertTo<SbVec3f>(dir));
+}
+
+void Gizmo::enterDragScope()
+{
+    if (!inDragScope) {
+        inDragScope = true;
+        DragInProgress::begin();
+    }
+}
+
+void Gizmo::leaveDragScope()
+{
+    if (inDragScope) {
+        inDragScope = false;
+        DragInProgress::end();
+    }
 }
 
 double Gizmo::reverseIfPast(double value)
@@ -938,6 +955,7 @@ void LinearGizmo::draggingStarted()
     startDragFrame();
     hasDragged = false;
     dragging = true;
+    enterDragScope();
     dragCancelled = false;
     reversedInDrag = false;
     pressedOn();
@@ -953,6 +971,7 @@ void LinearGizmo::draggingFinished()
 {
     if (dragCancelled) {
         dragging = false;
+        leaveDragScope();
         // put back at the cancel already; nothing to commit or activate
         dragCancelled = false;
         if (isDelayedUpdateEnabled()) {
@@ -966,6 +985,7 @@ void LinearGizmo::draggingFinished()
         setDragLength(property->value().getValue());
     }
     dragging = false;
+    leaveDragScope();
     if (isDelayedUpdateEnabled()) {
         property->blockSignals(false);
         property->valueChanged(property->value().getValue());
@@ -1363,6 +1383,7 @@ void RotationGizmo::draggingStarted()
     lastDragOffset = 0.0;
     hasDragged = false;
     dragging = true;
+    enterDragScope();
     dragCancelled = false;
     reversedInDrag = false;
     pressedOn();
@@ -1378,6 +1399,7 @@ void RotationGizmo::draggingFinished()
 {
     if (dragCancelled) {
         dragging = false;
+        leaveDragScope();
         dragCancelled = false;
         if (isDelayedUpdateEnabled()) {
             property->blockSignals(false);
@@ -1390,6 +1412,7 @@ void RotationGizmo::draggingFinished()
         setRotAngle(property->value().getValue());
     }
     dragging = false;
+    leaveDragScope();
     if (isDelayedUpdateEnabled()) {
         property->blockSignals(false);
         property->valueChanged(property->value().getValue());

@@ -85,6 +85,7 @@ public:
         // forgets it
         *alive = false;
         dropTip();
+        leaveDragScope();
     }
     virtual SoInteractionKit* initDragger() = 0;
     virtual void uninitDragger() = 0;
@@ -305,6 +306,14 @@ protected:
 
     DragCallback dragCallback;
     ValueFilter valueFilter;
+    /** The drag's scope (Gui::DragInProgress): entered as a drag begins,
+     * left once as it ends or the handle goes while dragged. What must not
+     * move the view under the pointer -- the Report view's pop -- waits
+     * for it to end.
+     */
+    void enterDragScope();
+    void leaveDragScope();
+    bool inDragScope = false;
     bool dragging = false;
     bool dragCancelled = false;
     void notifyDrag(DragEvent event)

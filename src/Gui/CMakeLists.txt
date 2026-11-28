@@ -763,6 +763,7 @@ SET(Dock_Windows_CPP_SRCS
     DockWindow.cpp
     PropertyView.cpp
     ReportView.cpp
+    DragInProgress.cpp
     TransactionLogView.cpp
     AnimationTimeline.cpp
     PieMenu.cpp
@@ -781,6 +782,7 @@ SET(Dock_Windows_HPP_SRCS
     DockWindow.h
     PropertyView.h
     ReportView.h
+    DragInProgress.h
     TransactionLogView.h
     AnimationTimeline.h
     ControlRow.h

@@ -365,6 +365,12 @@ fc_add_gui_test(GuiDragMeasuresThePointer_tests_run drag-measures-the-pointer.py
 # the pointer again when it comes back.
 fc_add_gui_test(GuiFilletDragHoldsLastWorking_tests_run fillet-drag-holds-last-working.py
                 --timeout 300)
+# Entry 143 (the stop-sign cursor is a failing drag's signal): a recompute
+# failing under a handle's drag writes to the Report view but does not pop it
+# -- the pop took room from the 3D view and moved the model under the
+# pointer; it comes after the release if the error stands.
+fc_add_gui_test(GuiDragKeepsTheView_tests_run drag-keeps-the-view.py
+                --timeout 500)
 
 # Entry 202, the hands-on of 2026-10-21: the Group column second, the modes'
 # tool tips, group colours (automatic, picked, kept in GroupColors), a double

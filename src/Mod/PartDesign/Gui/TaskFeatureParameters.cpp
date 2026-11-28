@@ -40,6 +40,7 @@
 #include <Gui/Application.h>
 #include <Gui/CommandT.h>
 #include <Gui/Document.h>
+#include <Gui/DragInProgress.h>
 #include <Gui/Inventor/Draggers/Gizmo.h>
 #include <Gui/MainWindow.h>
 #include <Gui/OnViewValue.h>
@@ -359,8 +360,12 @@ void TaskFeatureParameters::recomputeFeature(bool delay)
         // inside the drag's step (the user, 2026-10-19). Failed for what
         // the drag changes: a dress-up with a missing edge stays in error
         // while every drag of a working edge works (the user, 2026-10-20)
-        if (App::DocumentObject* obj = vp ? vp->getObject() : nullptr)
+        if (App::DocumentObject* obj = vp ? vp->getObject() : nullptr) {
             Gui::OnViewValueSet::featureRecomputed(obj->getDocument(), isDragFailing());
+            // whether a Report view pop held through a drag is let go: the
+            // feature still in error once the drag has ended
+            Gui::DragInProgress::recomputed(obj->isError());
+        }
     }
 }
 

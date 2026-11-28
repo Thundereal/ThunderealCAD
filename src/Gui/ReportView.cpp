@@ -46,6 +46,7 @@
 #include <App/Color.h>
 
 #include "ReportView.h"
+#include "DragInProgress.h"
 #include "GeneralParams.h"
 #include "OverlayManager.h"
 #include "Action.h"
@@ -343,6 +344,21 @@ ReportOutputObserver::ReportOutputObserver(ReportOutput *report)
 
 void ReportOutputObserver::showReportView()
 {
+    // While a handle is dragged the dock is not raised or shown: it takes
+    // room from the 3D view, and the model would move under a pointer that
+    // has not -- the text is written all the same, the stop-sign cursor
+    // says a recompute is failing (docs/HandsOnQueue.md entry 143), and the
+    // pop comes once the drag has ended if the edited object is still in
+    // error (Gui::DragInProgress)
+    if (DragInProgress::active()) {
+        auto view = reportView;
+        DragInProgress::holdPop([view]() {
+            if (view) {
+                DockWindowManager::instance()->activate(view);
+            }
+        });
+        return;
+    }
     // get the QDockWidget parent of the report view
     DockWindowManager::instance()->activate(reportView);
 }

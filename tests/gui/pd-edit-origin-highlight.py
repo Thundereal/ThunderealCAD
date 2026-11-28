@@ -61,7 +61,7 @@ def view():
 def to_window(x, y):
     width, height = view().getSize()
     w = view().graphicsView()
-    local = QtCore.QPoint(int(x), int(height - y))
+    local = QtCore.QPoint(int(x), int(height - 1 - y))
     g = w.viewport().mapToGlobal(local) if hasattr(w, "viewport") else w.mapToGlobal(local)
     return mw().mapFromGlobal(g)
 

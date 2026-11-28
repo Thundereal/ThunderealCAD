@@ -11,6 +11,10 @@ Claims:
   - one Std_Undo takes both back;
   - unchecked: A's box takes their length and keeps its own look.
 """
+# gui-test: offscreen
+# (scripts/gui-test.cmd: the copy goes through the system clipboard, which a
+# desktop may refuse a process -- offscreen, Qt's clipboard is the process's
+# own; nothing here reads pixels)
 import os
 import traceback
 
@@ -107,6 +111,12 @@ def build():
         FreeCADGui.Selection.clearSelection()
         FreeCADGui.Selection.addSelection(theirs)
         FreeCADGui.runCommand("Std_Copy")
+        data = QtWidgets.QApplication.clipboard().mimeData()
+        if data is None or not data.hasFormat("application/x-documentobject"):
+            note("SKIP: the clipboard refused the copy; run offscreen, "
+                 "where Qt's clipboard is the process's own")
+            finish()
+            return
         paste(a, False, taken)
     except Exception:
         note("ABORT build:\n" + traceback.format_exc())

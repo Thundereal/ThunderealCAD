@@ -4892,6 +4892,27 @@ what the views test's "made here" half met under load. The views test
 also waits for its animated `viewBottom()` to arrive before the
 recompute that reads the camera, rather than a fixed pump.
 
+**A console's copy has no view object (2026-11-28).** The console's
+sweep found one fault left on main once the guest's boot no longer
+counted: Draft's WorkingPlaneProxy, `if obj.ViewObject:` and then
+`ViewObject.DisplaySize`, the size of its plane. A console session
+writes no GuiDocument.xml and has no `obj.ViewObject` -- None, and the
+plane 1 -- while the worker gave every object of the copy a stand-in,
+true, whose DisplaySize was a fake: the object taken back to be made
+here. A copy that was read with no saved views at all now gives its
+objects no view object (`freecad.worker_gui.load_views` notes it,
+`view_object()` answers None), so an execute takes the asking
+console's path; a copy with saved views is as before.
+`TestWorkerPool`'s `testAConsolesCopyHasNoViewObjectInAWorker`; the
+sweep 52 swept, 0 faults, with a Pyodide runtime in the profile and
+without.
+
+A limit kept, not fixed: the recorder is the recompute thread's, so an
+addon's execute that starts a `threading.Thread` of its own and uses the
+FreeCADGui stand-in from it is not recorded -- the old process-wide
+recorder charged such a use to the object executing. No addon known to
+do it.
+
 ## 74. What reading the worker code over found (2026-11-26)
 
 The worker code read whole, for faults rather than for a feature: the pool,
@@ -5286,3 +5307,507 @@ Tests, on the mini: `TestWorkerPool` 97 OK with the runtime
 pass with it; the new GUI test 9 of 9. The worker with the final build:
 footprint 124 MB, V8's heap 17.7 MiB. Not run here: the Windows code
 (the TLS callback and the test's Windows half).
+
+## 79. A split takes the workers that can run now (2026-11-28)
+
+The coordinator, choosing between three ways (A below; the reporter may
+overrule it): "a split must never be slower than the unsplit recompute,
+and grow()'s memory rule stays whole".
+
+**What went wrong.** `WorkerRecompute::start()` asked `splitParts()` for
+as many parts as the pool's LIMIT allowed (`info().limit`, 2 by
+default). Whether a second worker would really run the second part was
+another rule: `WorkerPool::Private::grow()` starts one only once every
+worker has made a job, so what one holds is known, and only while the
+memory left holds one more like the biggest (sec 42). When grow() would
+not start one -- no worker standing, so the one submit() starts has made
+nothing; another worker busy with another job; too little memory, as on
+an 8 GB box -- the first part went to the one worker, the second waited
+in the queue, and dispatch() handed it to the same worker when the first
+was done. The halves ran one after the other, slower than the recompute
+whole (two hand-overs and a merge), and `Split` still counted 1. It is
+what dwin's Windows run of `testARecomputeIsSplitOverTwoWorkers` saw
+(both halves `MadeBy` one pid), and the mini showed it with the standing
+worker stopped: one pid throughout, the second job queued 2 s, no grow.
+
+**Now.** `WorkerPool::sideBySide()` says how many jobs submitted now
+would run side by side, and the split is asked at that moment, not from
+a cached count. It counts:
+- the workers not busy and not leaving, less the jobs already queued for
+  them;
+- one more where grow() would start it. That test is grow()'s own: the
+  rule is now `Private::roomForAnother()` (limit, each worker has made a
+  job, the memory test), which grow() calls too. For a client taking
+  results as they come (`consuming()`), grow() waits until a client had
+  to wait, so in that state the extra worker is not counted.
+With no worker at all it is 1, the one submit() starts. `splitParts()` is
+handed that count in place of the limit, so with one worker that can run,
+the recompute is not split; it runs whole on that worker, as it would
+unsplit. `recomputeInfo()["SplitWorkers"]` is the count the last split
+was given, and `info()["SideBySide"]` is the live answer.
+
+**Split counts what ran side by side.** Counting only the workers that
+can run makes that true by construction, with one gap: a worker grow()
+starts for a part may come up later than the first part's worker is
+free. So `apply()` looks at the parts that came in, each one's time from
+being handed to a worker to its result being read (`Result::queued`,
+`returned`). If none overlaps another, the parts ran one after another:
+`Split` is taken back down and the log says so. A part that was dropped
+or failed has no times, and then nothing is taken back.
+
+**Tests** (TestWorkerPool):
+- `testASplitWithNoWorkerStandingIsNotSplit`: the pool stopped, then an
+  edit that would split. `SplitWorkers` 1, `Split` unchanged, one job,
+  both halves `MadeBy` one worker. Before the change it split by the
+  limit: both halves made by the one new worker, one after the other,
+  and `Split` counted 1.
+- `testASplitTakesOnlyTheWorkersFreeNow`: two workers split as before
+  (`SplitWorkers` 2, two pids). Then one of them is busy with a 6 s
+  `test.sleep`, `SideBySide` is 1, and the next edit runs whole on the
+  free one while the other is still busy. Before the change it split,
+  the second half waiting for the first half's worker.
+- `testARecomputeIsSplitOverThreeWorkers` now reads as the pool grows:
+  with one worker standing the first split has two parts (the pool grows
+  to two), the next three (it grows to three), and the third is the one
+  timed. Before, the first had three parts with two workers, one part
+  waiting.
+
+**Not done: growing the pool for a split before any footprint is known**
+(B). It would split the first recompute too, starting a worker on an
+estimate -- the document's own process, or a setting -- with its boot
+seconds counted against the split's saving. grow()'s rule exists so that
+a worker that does not fit is not started on a small box, and the
+coordinator kept it. It is a measured follow-up, only if parallelism in
+the first recompute after the pool starts is asked for.
+
+## 80. A message too big to go, tested (2026-11-28)
+
+Sec 77 made `message()` give nothing for a message past four bytes'
+worth of length, and `send()` fail on nothing. It left this untested,
+since 4 GiB is half the mini's memory. Testing it showed the
+refusal was right but what came after was not.
+
+**A job too big to send killed workers.** `sendJob()` sent the header
+and, when `send()` failed, `kill()`ed the worker. The job went back to
+the queue ("the death may not be the job's", sec 34), the next worker
+was killed for it too, and it failed as "its worker died over it
+(ended by the pool)", with `Died` set. It looked like a crash that never
+happened, and cost two workers. Now `sendJob()` builds the message
+before it marks anything sent. When it cannot, the job fails with
+"the job is H + B bytes, more than a message carries; not sent to a
+worker", `Died` false. The worker was never told it and is handed the
+next job (`dispatch()`). A security state that went with the refused
+header is not counted as told.
+
+**A result too big to send ended the worker.** The worker's loop left on
+a failed `send()`, so the worker exited and the pool read a death, with
+the same two deaths and the same "died over it". Now a result that will
+not fit is answered as a failure saying so ("its result is H + B bytes,
+more than a message carries"), with no output, and the worker goes on.
+The helpers already did this (sec 77, "the reply is ...").
+
+**The seam.** `WorkerPool::messageMost()` is the limit everywhere:
+`message()` in the pool and in the workers, and the helpers' `tooBig()`
+and `message()` (ServiceWorkers.cpp). The environment variable
+`FC_WORKER_MESSAGE_MOST` lowers it and can never raise it. It is read on
+each call, since a test sets it after the start, and the workers and
+helpers it starts inherit it. A worker or helper started before it was
+set keeps the old limit, so the tests turn off the standing worker
+(`Workers/Standby`) and end the pool's workers, or let the helpers end
+idle, before they measure. `WorkerPool::tooBig()` gives the reason.
+
+**Tests:**
+- TestWorkerPool `testAJobTooBigToSendFailsAndKeepsItsWorker`: limit
+  64 KiB, a 128 KiB `test.echo`. It fails with the reason, not
+  `Died`, and the next job is made by the same pid with nothing
+  spawned.
+- TestWorkerPool `testAResultTooBigToSendFailsAndKeepsItsWorker`: the
+  same for a `test.big` answering 128 KiB. A 1 KiB one after it is Done,
+  by the same pid.
+- MeshServiceTest `testAMessageTooBigForAHelperIsMeshedHere`. A box's
+  4.5 KB request past a 2000 byte limit is not given to a helper. A fine
+  sphere's 220 KB reply past 64 KiB, its request 1 KB, is said instead
+  of sent. Each is meshed here (`FellBack` + 1) to the digest a mesh
+  made here has, with `Died` unchanged, and the helper that refused the
+  reply meshes the next shape.
+With the seam but without the two fixes, both TestWorkerPool cases fail
+as "its worker died over it (ended by the pool)". The helpers' code was
+not changed beyond the seam: by its reading, sec 77 already ended such a
+call with why. Their case is new coverage, not a fix, and was not run
+without the seam, which the code before did not have.
+
+## 81. A put-in that throws, not stopped by the user, tested (2026-11-28)
+
+Sec 78 tested the user's abort of a put-in and left the other failure
+untested: "what `Document::recompute()` lets out is an abort, and
+anything else in it is caught there". That is true of a feature's
+`execute()`: `_recomputeFeature()` catches every exception per object.
+It is not true of the recompute's own code between two objects.
+`Document::recompute()` catches only `Base::AbortException` and
+`Base::Exception`, so a `std::exception` thrown there gets out:
+a `bad_alloc`, or a JSON error in the hook's bookkeeping. The recompute
+hook's `executed()` runs there, after `_recomputeFeature()` and outside
+its catch, and during a put-in that hook is the `Supplier`.
+
+**The fault hook.** `Workers/PutInFault`, a string the application never
+sets, names an object. The `Supplier` reads it once when it is made, and
+once that object has been put in, its `executed()` throws a
+`std::runtime_error` saying so. That is the path a real fault would take.
+
+**Tested** (TestWorkerPool `testAPutInThatThrowsIsAFailure`): First,
+Second and Third in a chain, with the fault after Second. These
+behaviours are sec 77's code, unchanged:
+- The recompute counts as `Failed`, not `Cancelled`. Its reason starts
+  "putting it in threw:" and names the fault.
+- `Applied` is unchanged and nothing is executed here.
+- The pool's `Spoiled` is 1: the worker's copy is ahead of the document,
+  so it is let go.
+- Second, where it stopped, is left touched. Third was not come to and
+  keeps its old value. It is not touched, as an edit leaves what reads
+  the object edited, and the next recompute makes it through Second.
+- The client's recompute here gives 6, 12, 24, with nothing touched.
+- The next edit is put in by a worker that is not the one let go.
+The code before has no hook, so there the test fails only because
+nothing throws. This is coverage of sec 77, not a fix.
+
+## 82. Linux threads have the handler's stack too (2026-11-28)
+
+Sec 77 gave each thread a worker starts its own alternate signal stack on
+macOS, by interposing `pthread_create()` through dyld's `__interpose`
+section. Sec 78 did the same for Windows with a TLS callback that keeps
+stack back. Linux was left out, and
+`testAThreadAWorkerStartsHasTheCrashHandlersStack` skipped there.
+
+**How.** ELF has no interpose section, but it does not need one. A call
+binds to the first definition in the process's global search order. That
+order is the executable, then what it links breadth-first, and libc comes
+after FreeCADApp, which `ThunderealCmd` and `Thundereal` link. So
+WorkerCrash.cpp defines `pthread_create` itself on Linux, exported, and
+every library's call reaches it: OCCT's thread pool, Qt's, Python's. It
+finds the system's with `dlsym(RTLD_NEXT, "pthread_create")`, once.
+Outside a worker, where `install()` never ran, it passes the call
+straight on. In a worker it starts the thread through the same `started()`
+as macOS: a 256 KiB stack is `mmap`ed, made the thread's with
+`sigaltstack()`, and dropped by a cleanup handler however the thread ends.
+
+The test reads the stack a new thread has through ctypes. Linux's
+`stack_t` has `ss_flags` before `ss_size` and `SS_DISABLE` 2, where macOS
+has them the other way round and 4, so `_threadAltStack()` lays the
+struct out for each.
+
+**On Linux** (dell's box, the side branch at 058f76f136, OCCT
+9a93f1b0fb). The build is clean: gcc takes the `noexcept` against glibc's
+declaration, and `--no-undefined` is fine. `nm -D` shows libFreeCADApp
+exporting `T pthread_create`. TestWorkerPool ran 110 with nothing skipped:
+the thread test runs there now, and passes. ExpressionSecurity* 29/29.
+
+**Who binds to it** (`LD_DEBUG=bindings`). In `ThunderealCmd`, these
+libraries' `pthread_create` binds to libFreeCADApp's: libpython,
+libQt6Core, glib, libgomp, libv8, sqlite, zstd, IlmThread, openjp2, webp,
+lzma, crypto and libFreeCADBase. libFreeCADApp's own lookup (`RTLD_NEXT`)
+goes to libc. OCCT's TKernel made no call to it in that run, so its
+binding was not seen; it resolves in the same global scope.
+
+**Where it does nothing.** In a FreeCAD imported into a Python of its own
+(`import FreeCAD` from a plain interpreter), every library binds to libc.
+FreeCADApp arrives there by `dlopen`, local to the import, so it is not
+in the global scope ahead of libc. That costs nothing, since a worker is
+always `ThunderealCmd`. But a FreeCAD imported that way has no handler's
+stack on its threads.
+
+## 83. A split weighs the start of a worker it would wait for (2026-11-28)
+
+The coordinator, on dwin's Windows run of sec 79: two split tests missed
+their wall-clock bound of 3.5 s by 1 and 10 ms. Asked: does the decision
+weigh a worker that is not yet standing against what the split saves?
+It did not. `sideBySide()` counted the worker grow() would start as one
+more that could run, at no cost. That worker runs nothing before it is
+up, so a part handed to it waits for its start. Where the start
+is long, a split saving 1.5 s could save nothing, and the rule of sec 79
+was that a split is never slower than the recompute whole.
+
+**Not what dwin's 1.4 s was.** The `Times.Start` in those runs is not a
+worker's start. It is the recompute's own setup in
+`WorkerRecompute::start()`: `pool->start()`, which takes the copy or moves
+the workers along the log, then the split's planning and the submits. It
+is paid unsplit as well. The tests' bound counted it, and that bound was
+measured from before the recompute was asked for.
+
+**Now.**
+- `WorkerPool::standingFree()` counts the workers free now. A free worker
+  is one that has opened a copy once (`copyDir` set) and is idle. A
+  worker still starting is not counted, since what is left of its start
+  is not known. A worker moving to a newer copy is counted: an edit sends
+  that move as the recompute is asked for, which is why `ready` was the
+  wrong test.
+- `startsAnother()` is grow()'s rule (sec 79): one more would be started.
+- `sideBySide()` is the two together, as before.
+- The split first asks `splitParts()` for parts over both. If that needs
+  the worker yet to start (more parts than are standing), the split is
+  kept only when its saving, less `Info::startSeconds`, still clears
+  `Workers/SplitSeconds`. `startSeconds` is the pool's measured average
+  from a worker's start to its copy open. Otherwise the split is asked
+  again over the standing workers alone, and the log says why.
+- An unmeasured start (no worker of the pool has started) is not
+  counted.
+- `recomputeInfo()["SplitStartWeighed"]` is the start weighed, 0 when
+  none was.
+
+**Tests.** The split tests claim the split's speed, so their workers now
+stand first. `splitChains()` ends with `standing(2)`. The three-worker
+test calls `standing(3)`, which goes round with 1.5 s `test.sleep` jobs
+until that many distinct pids have made one. The new
+`testASplitThatWouldWaitForAWorkersStartIsWeighed` runs in three steps:
+- Two standing: the split's `SplitSaving` is read, with
+  `SplitStartWeighed` 0.
+- The pool is stopped and one worker made to stand again, so its
+  `StartSeconds` is known. With `SplitSeconds` set between saving less
+  start and saving, the recompute is not split: `SplitWorkers` 1,
+  `SplitStartWeighed` > 0, one job.
+- With it set below saving less start, it splits and the pool grows for
+  it, on two pids.
+
+## 84. A removed property goes with the values (2026-11-28)
+
+The smoke corpus, 2026-11-27: worker recomputes of several documents
+(servant, pipe, and others) were taken back as unfit, each with
+"`<obj>._BaseShape1` was removed by the recompute". Part keeps a replaced
+shape, as a dynamic `_BaseShape<N>`, for as long as a reference is
+missing from the new one. Its reconcile, on `signalRecomputed`, lets it
+go once the recompute has found the element again. Any removed dynamic
+property that is saved marked the result spoiled: this process cannot be
+given a removal by values, and the job was made here instead.
+
+**Now.** The removal goes with the values:
+- One removed while an object executes belongs to that object's entry.
+  Where the entry is put in, the property is removed before its values.
+  One removed and added again by the same execute() (a type changed) is
+  then added as the worker added it, from the added list.
+- One removed once no object was executing (the reconcile) goes in a
+  list after the entries. It is removed here once the put-in's recompute
+  is over, only if everything was put in. If this process executed an
+  object itself, what refers to what here is its own, and its reconcile
+  decides.
+- One already gone here is the same as removed. This process's own
+  reconcile may have let it go first.
+- One that names a property this process has as static, or an object it
+  does not have, is a warning. For an entry's removal, that object is
+  executed here.
+- A value written before the removal is not sent. The property is gone,
+  and its address may be the next property's.
+- One removed by an object made here (`entry.here`) is not sent. That
+  object's execute() runs here and removes it itself.
+
+The result's format is `FCWRCP03`: each entry ends with its removals
+(object, name), and the after-recompute list follows the entries.
+
+Objects made or removed by a recompute still spoil the result. Those are
+a separate change to the protocol.
+
+**What it lets through, on the corpus (2026-11-28).** Four documents
+whose worker recompute was unfit now apply: the dollhouse (kukolnyj_dom) and pipe with
+0 twin differences, and the sideboard (servant_1) and the shelf
+(etazherka_2) with differences that exist without this change.
+
+The put-in is faithful. Asked after its job, the worker's own copy holds
+what this process holds after the put-in. The differences are the
+worker's recompute against this process's (the corpus loop's twin, from
+a fresh open, `docs/SmokeTesting.md` sec 2.2):
+- The shelf: Pocket006 and Binder end with `_BaseShape1` and
+  `_BaseShape2`, the references on 2, where this process alone makes
+  only `_BaseShape1`. The worker replaces their shape twice while a
+  referrer is missing, and the orphaned generation is dropped at the
+  next save. The saved file then names the generation 2 instead of 1,
+  with its references consistent. It is not an automatic rename: no
+  "rename dynamic property" in either log. Why the worker replaces it
+  twice is still open. The sideboard's Import011/014 and Pocket042 are
+  the same. Two ExternalGeo differences are a signed zero in an arc's
+  axis, `(0, -0, -1)` against `(-0, 0, -1)`.
+- The sideboard is not idempotent: a second recompute of everything,
+  with or without a worker, makes Sketch015 Invalid ("redundant
+  constraint 75"), leaves five Imports Touched and moves sketch geometry.
+  Headless, one worker recompute equals one of this process's. In the
+  GUI the open's migration makes each side two passes: two by the worker
+  leave Sketch015 clean, two here leave it Invalid. A user who
+  recomputes the migrated file was shown the Invalid when the job was
+  unfit, and is not now. Which side is right is not known, since the
+  Invalid on a second pass is itself the defect.
+- The Invalid is the Sketcher's, not a worker's. A solved sketch re-solved
+  from its own solution moves about 1e-5: Sketch001's Edge59, an arc at
+  (-16, 1536.84) of radius 6.84211, is Sketch015's external geometry
+  entry 16. Moved that much, Sketch015's constraint 75, Tangent(32:1,
+  29:0), is redundant. The same Invalid follows a save and reopen of the
+  first pass's result, so it is in the file, not in memory.
+- Headless, a worker's two passes execute what this process's two do
+  (341 objects, then 335, Sketch001 in each), from the same Sketch001,
+  and end in the same Invalid. The GUI's clean two worker passes are
+  still open: what differs is the GUI's two passes, the open's migration
+  and the forced one, not how a worker computes.
+
+**Tests.** `testWhatAnExecuteRemovedIsRemovedWhereItIsPutIn`: a Python
+feature (`_Dropping`) removes Scratch and makes Retyped again as a
+string. It is put in, not made here, and a second edit is put in too.
+`testARetainedShapeLetGoIsLetGoWhereItIsPutIn`: a cut whose notch's
+floor is referred to, the notch moved off and back. Both were unfit on
+the build before the change. The second was unfit on the 2026-11-26
+stage as well.
+
+## 85. A worker spells names as the document does (2026-11-28)
+
+An old file counts its string ids until its user accepts the migration
+recompute. Accepting switches its table to spelling digests
+(`Document::spellNamesByContent()`, docs/StringTableContentIds.md sec
+12), in `Gui/Application.cpp` just before `recomputeByWorkers()`. The
+worker's copy may have been taken before that, and nothing in the log
+says the table switched, so it went on counting. The element maps it
+made, and that were put in, were spelt with counted ids where this
+process spells digests.
+
+Not what scanner.FCStd's 93 counted-looking names of 2026-11-27 were.
+Those are its dimensions' SavedNames, and they are old element names
+written by this process during the put-in, not the worker's spelling
+(sec 86). On scanner-migrate.FCStd, with this change, the worker's copy
+spelt digests after its job.
+
+**Now.** The job's inputs carry `contentIds`, whether this process's
+table spells digests. A worker whose copy counts is switched the same
+way, `spellNamesByContent()` on the copy, before its recompute. That
+marks for a recompute the same objects this process marked, which are
+in the job already.
+
+**Test.** `testAWorkerSpellsNamesAsTheDocumentDoes`: a cut saved
+counting, reopened, and the worker's copy made to stand by a first job.
+Then `spellNamesByContent()`, and a second job put in. The cut's element
+map is what this process makes of it itself. Before, the worker's map
+had `;:G#7;` where this process's had `;:G#7fd5ff7b;`. It failed on the
+2026-11-26 stage too.
+
+## 86. A dimension's saved names are the worker's where it is put in (2026-11-28)
+
+scanner-migrate.FCStd (scanner.FCStd without its addon objects), with
+the migration made by a worker: 19 of its dimensions' SavedNames after
+the put-in differed from this process's own recompute. Dimension063
+held `#184e1;:H8bd,E;:H8be,E;HLR:VH:0`, where the worker's copy and this
+process's recompute held `#87bb4e2e;...`. Both tables give `0x184e1` to
+the same string, `#184c3;:M;CHF;:H877:7,E`, an element of the old
+projection. The worker's `#87bb4e2e` is another string (`0x1ff18`).
+
+A document observer showed the order of writes. The worker's SavedNames
+went in, then References2D. Putting in References2D ran
+`DrawViewDimension::onChanged()` here, which made SavedGeometry and
+SavedNames again from the view (`updateSavedGeometry()`,
+`updateSavedNames()`). The view here was still the projection before the
+change, since its own result is put in after its dimensions
+(`DrawViewPart`, `RecomputeHook::puttingIn()`, installed once the put-in
+is over). So the dimension recorded the old element its new reference
+number fell on.
+
+**Now.** The handler makes nothing again while a worker's result is put
+in, as it already did for an undo (`RecomputeHook::puttingIn()`). What
+the worker's execute() saved comes with the references, and what it did
+not change is kept.
+
+**Same shape, not changed:** `DrawHatch` and `DrawGeomHatch` make their
+SavedNames/SavedGeometry from their view in `onChanged(Source)`, with
+the undo exemption only. A put-in of a hatch's Source before its view's
+result would record the old projection's faces. What a user would see,
+if it bit: a hatch whose face the worker found again under a new number
+is saved with the name and geometry of whatever face that number was
+before. The next recompute's search by name (`fixByName()`) would move
+it to that face, or warn that its name moved. Only a hatch whose Source
+the worker re-points is reached: an unchanged Source is not put in. `CenterLine` names are
+made in the view's own geometry build, which `DrawViewPart` defers to
+after the put-in. Sketcher's `onChanged(Geometry/Constraints)` reacts to
+a put-in too, but reads no other object.
+
+**Tests.** `testADimensionsNamesAreTheWorkersWherePutIn`: a dimension on
+a projection group's view, saved with its names blank, the sources
+swapped so the projection numbers its elements otherwise, and recomputed
+by a worker. Its SavedNames are the worker's, which an edit of its
+references outside a put-in records from the view as it is now.
+`testADimensionsNamesTheWorkerKeptAreKeptWherePutIn`: the same with the
+names the file recorded. Before, both had names of another source
+(`:H491` against `:H492`), and both failed on the 2026-11-26 stage too.
+
+
+## 87. The shape generations a worker kept are the only ones where put in (2026-11-28)
+
+The shelf file of the smoke corpus (etazherka_2): after a worker's
+migration recompute, Pocket006 held `_BaseShape1` and `_BaseShape2`, the
+references on 2, where this process alone makes only `_BaseShape1`.
+Traced in both processes from their start (an observer loaded as a user
+Mod): the worker writes Pocket006's shape once in its execute() and keeps
+one generation, `_BaseShape1`. This process, putting that in, wrote the
+shape twice and made `_BaseShape1` and then `_BaseShape2` of its own.
+After the job the worker's copy held both as well. Its own pass ended with
+one, so the second came by this process's rows, which a worker takes
+after a put-in. That is inferred, not traced.
+
+A Part feature holds the references into it over its recompute. The
+shape put in is only noted (`_heldShapeChange`), and
+`releaseHeldReferences()`, once the recompute is over, re-resolves them
+and reconciles the generations, materializing what a missing reference
+needs. That runs after the values are in, when `puttingIn()` is false,
+and it made generations that also came as values.
+
+**Now.** `RecomputeHook::isPutIn(obj)` says whether the recompute of
+`obj` now under way was put in from another process's values (the
+supplier's answer for it). `releaseHeldReferences()` and
+`onChanged(Shape)` do not reconcile then. The generations and
+`_BaseShapeRefs` are the worker's, as values. The references are still
+re-resolved here (`updateElementReference()`).
+
+**Test.** `testAGenerationAWorkerKeptIsTheOnlyOneWherePutIn`: a PartDesign
+pocket with a sketch attached to its floor, made through-all by a worker.
+Pocket006 holds `_BaseShape1` and `_BaseShapeRefs`, the references on 1,
+and a recompute here that brings the floor back lets it go as before.
+Before, `_BaseShape1` and `_BaseShape2`; the same on the 2026-11-26 stage.
+
+## 88. What else derives while a result is put in, measured (2026-11-28)
+
+The dimension (sec 86) and the shape generations (sec 87) were each a
+class's own derivation run by a value being put in, and writing over, or
+beside, what the worker had sent. A grep over src/App, src/Mod/Part/App
+and TechDraw for handlers of that shape gave four that write outputs or
+other objects. Each was measured with a test that makes one change by a
+worker, and the same change to a copy of the document recomputed by this
+process alone, and compares the values named:
+- `GeoFeature::onChanged(Shape)` -> `updateElementReference()`, the
+  referrers' links re-resolved: a cut whose notch moves, a link to every
+  face (four renumbered, two gone). Equal.
+- `SubShapeBinder::onChanged(Support)` -> `update()`: a binder on the
+  cut's Face6, which becomes Face11. Support and Shape are equal.
+- `FilletBase::onChanged(Edges/Base)` -> `syncEdgeLink()`: a fillet on
+  the cut, one edge gone (`?Edge1`). Edges, EdgeLinks and Shape are
+  equal.
+- `DrawHatch::onChanged(Source)`: not reached. In the scene of the
+  dimension test (sec 86) the hatch is re-pointed by neither process: its
+  Source stays Face0, with the same SavedNames, also when this process
+  recomputes alone. So the put-in case cannot show there.
+
+Why the first three are equal is a reading, not measured: they derive
+from the referenced object's own shape, which is already put in when its
+referrers are re-resolved. The dimension read another object, a view
+whose result was put in after it.
+
+**The rule, for any handler that derives a value while values are set**
+(no general put-in flag; the coordinator's decision of 2026-11-28 on
+this evidence):
+- One that derives from its own object's values is safe while a result is
+  put in. It reads what was just put in.
+- One that reads ANOTHER object, which may be put in after it, is the
+  dimension's case. It derives nothing while `RecomputeHook::puttingIn()`.
+- One that makes again what also arrives as a value is the generations'
+  case. It skips that while `RecomputeHook::isPutIn(obj)`, and the value
+  put in stands.
+
+A new handler is judged by these three. The hatch (`DrawHatch`,
+`DrawGeomHatch`) is of the second kind by reading, and untested for the
+put-in.
+
+**Tests.** `testAReferenceReResolvedIsTheWorkersWherePutIn`,
+`testABindersShapeIsTheWorkersWherePutIn`,
+`testAFilletsEdgeLinksAreTheWorkersWherePutIn` and
+`testAHatchsFaceIsTheWorkersWherePutIn`, through
+`byWorkerAndAlone()`. The first two also claim that the change
+re-resolved something, so the comparison is not of two unchanged values.

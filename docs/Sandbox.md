@@ -10175,6 +10175,35 @@ trailing separator, `weakly_canonical` so a file being SAVED to
 normalizes before it exists), so an answer is keyed to the FILE rather
 than to whichever spelling reached the primitive.
 
+**A grant is stored in the same form (2026-11-27).**  The check
+normalized, but `Runtime::grant` kept the path as typed, so a grant made
+through a link never matched the check it answered.  On macOS `/var` is
+a link to `/private/var` and every `mkdtemp` path is under it, which is
+how `SandboxHostFiles` a/b found it.  Now `hostTarget` puts every
+`fs.read` / `fs.write` / `host.exec` target through `normalizeHostPath`
+in `grant`, `revoke`, `clearPending`, `resolve` and `addProcessGrant`.
+Resolving at grant time is the point, not only a convenience: the grant
+names the file the link pointed at when the user answered, and a link
+repointed afterwards does not take the grant to its new file.  A file not
+there yet resolves through its deepest existing parent.  Letter case:
+`realpath` keeps the case it was given, so on macOS the existing part
+of a path takes the spelling the volume stores (`F_GETPATH`, kept for a
+file only when it names the same directory and name, since a hard link
+could answer with another name).  On Windows `weakly_canonical` already
+gets the existing part from `GetFinalPathNameByHandle`, which resolves
+junctions and 8.3 names and gives the stored case.  The one form not
+covered: on a case-folding volume, a path none of whose tail exists yet
+compares by the case it was typed in, until the file is there.  The user
+still sees the path as it was typed, picked or asked for: the runtime
+keeps that spelling (`shownTarget`), pending rows and active grants carry
+it as `shown`, and the permissions panel shows it, with the stored form
+as the tooltip and in what its answers name.  `revoke` also takes the
+as-typed spelling, for a `grants.json` entry written before this.
+`ExpressionSecurityRuntimeTest.aPathGrantAndItsCheckCompareOneSpelling`
+makes its own link (a junction on Windows), grants through it, checks
+the real path, repoints the link, and checks a case spelling where the
+volume says it is the same file; it fails on the code before.
+
 **Consent stays a capability, as S1 ruled.**  `Gui::FileDialog` blesses
 what it returns while a scope is active: `checkDocumentXML` is the one
 post-accept funnel of `getSaveFileName`, `getOpenFileName` and

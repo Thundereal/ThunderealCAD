@@ -159,7 +159,8 @@ private:
 struct AppExport PendingRequest {
     std::string principal;
     Permission permission = Permission::DocReadSelf;
-    std::string target;
+    std::string target;        // hostTarget form: what a grant must name
+    std::string shown;         // the target as it was asked for, for display
     std::string documentName;  // owner document at the time of the check
     std::string objectName;    // owner object at the time of the check
     std::string firstUtc;
@@ -256,10 +257,21 @@ public:
      * recording. Precedence: process overrides (--grant), once answers,
      * session answers, persisted store, store defaults, catalog. For
      * HostImport the target falls back through its dotted ancestors
-     * ("a.b.c" -> "a.b" -> "a") before "*".
+     * ("a.b.c" -> "a.b" -> "a") before "*".  A host path target may
+     * be given in any spelling (hostTarget).
      */
     Decision resolve(const std::string &principal, Permission perm,
             const std::string &target);
+
+    /** The spelling to SHOW for a stored target: the path as it was
+     * last typed, picked or asked for, when that differs from the
+     * stored form (/var/... for /private/var/... on macOS, a link's own
+     * name); the stored target otherwise.  The panel shows this and
+     * keeps the stored form for its answers.
+     */
+    std::string shownTarget(const std::string &target) const;
+    /// Remember `asked` as the shown spelling of the stored `target`.
+    void noteSpelling(const std::string &target, const std::string &asked);
 
     // --- grant management (Python API, panel, headless flags) ---
 
@@ -281,7 +293,8 @@ public:
     struct ActiveGrant {
         std::string principal;
         Permission permission = Permission::DocReadSelf;
-        std::string target;
+        std::string target;   // hostTarget form: what revoke takes
+        std::string shown;    // the target as it was typed or picked
         bool allow = false;
         std::string scope;    // "once" | "session" | "always"
         std::string granted;  // UTC, persisted grants only
@@ -369,6 +382,9 @@ private:
     bool addPending(const std::string &principal, Permission perm,
             const std::string &target, const std::string &docName,
             const std::string &objName);
+    /// resolve() for a target already in hostTarget form.
+    Decision resolveStored(const std::string &principal, Permission perm,
+            const std::string &target);
 
     mutable std::recursive_mutex mutex;
     GrantStore _store;
@@ -386,6 +402,10 @@ private:
     std::map<std::string, Decision> processOverrides;
 
     std::vector<PendingRequest> pending;
+
+    // stored host path target -> the spelling it was last asked for by,
+    // where the two differ (shownTarget)
+    std::map<std::string, std::string> spellings;
 
     // document principal cache, invalidated via application signals
     std::map<const App::Document *, std::string> docPrincipals;

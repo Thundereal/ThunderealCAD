@@ -146,10 +146,11 @@ PyObject *pendingFunc(PyObject *, PyObject *args)
     PyObject *list = PyList_New(0);
     for (const auto &r : reqs) {
         PyObject *d = Py_BuildValue(
-                "{s:s, s:s, s:s, s:s, s:s, s:s, s:i}",
+                "{s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:i}",
                 "principal", r.principal.c_str(),
                 "permission", Sec::permissionName(r.permission),
                 "target", r.target.c_str(),
+                "shown", r.shown.c_str(),
                 "document", r.documentName.c_str(),
                 "object", r.objectName.c_str(),
                 "first", r.firstUtc.c_str(),

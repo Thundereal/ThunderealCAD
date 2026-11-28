@@ -48,6 +48,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import unittest
 import zipfile
 
@@ -1110,7 +1111,8 @@ class ShapeCongruenceCases(ShapeTestCase):
                 return {k: now[k] - after[k] for k in now}
 
             doc.save()
-            self.assertEqual(computed(), {"keys": 0, "lengths": 0, "areas": 0, "volumes": 0})
+            self.assertEqual(computed(),
+                             {"keys": 0, "lengths": 0, "areas": 0, "volumes": 0, "refused": 0})
             self.assertEqual(len(self.blobNames(project)), 3)
 
             # An edit: the edited shape's own, nothing of the others.
@@ -1271,6 +1273,90 @@ class ShapeCongruenceCases(ShapeTestCase):
             "an approximation was stored in place of the shape it approximates",
         )
         self.assertIn("Part::GeomBSplineSurface", kinds("Second"))
+
+    def costlyFace(self, knots=1500):
+        """A face whose integration crosses some 3000 knot spans: its surface's
+        and its two long boundary curves'. pipe.FCStd's fillet crosses 15000,
+        and took 50 s for its area and as much again for its volume."""
+        degree = 3
+        uknots = [0.0, 1.0]
+        umults = [degree + 1] * 2
+        vknots = [i / (knots - 1.0) for i in range(knots)]
+        vmults = [degree + 1] + [1] * (knots - 2) + [degree + 1]
+        npoles = sum(vmults) - degree - 1
+        poles = [[FreeCAD.Vector(10.0 * u / 3, 40.0 * v / (npoles - 1),
+                                 0.5 * math.sin(v * 0.7) + 0.3 * u)
+                  for v in range(npoles)] for u in range(degree + 1)]
+        surface = Part.BSplineSurface()
+        surface.buildFromPolesMultsKnots(poles, umults, vmults, uknots, vknots,
+                                         False, False, degree, degree)
+        return surface.toShape()
+
+    def testATooCostlyShapeIsWrittenUnshared(self):
+        """A part too costly to integrate is written in full, not compared by
+        integrating it: the saves of pipe.FCStd and of a 531-object file took
+        minutes in the search for congruent parts, and the snapshot a
+        document's open takes, which is a save, as long (smoke corpus
+        2026-11-27, B4)."""
+        group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        previous = group.GetBool("DedupCongruentShapes", True)
+        group.SetBool("DedupCongruentShapes", True)
+        try:
+            doc = self.newDocument("CongCostly")
+            face = self.costlyFace()
+            moved = FreeCAD.Matrix()
+            moved.rotateZ(0.4)
+            moved.move(FreeCAD.Vector(60, -20, 5))
+            first = doc.addObject("Part::Feature", "First")
+            first.Shape = face
+            second = doc.addObject("Part::Feature", "Second")
+            second.Shape = face.transformGeometry(moved)
+            doc.recompute()
+            centres = [self.centre(o.Shape) for o in (first, second)]
+            project = self.directoryPath("CongCostly_dir")
+            before = Part.congruenceWork()
+            began = time.time()
+            doc.saveAs(project)
+            took = time.time() - began
+            after = Part.congruenceWork()
+            self.assertGreater(after.get("refused", 0) - before.get("refused", 0), 0,
+                               "the costly part should be refused, not integrated")
+            self.assertEqual(after["areas"] - before["areas"], 0)
+            self.assertLess(took, 10.0, "the save integrated a part it should not have")
+            self.assertEqual(len(self.blobNames(project)), 2, "written unshared")
+            FreeCAD.closeDocument(doc.Name)
+            self.docs.remove("CongCostly")
+            doc = self.openDocument(project)
+            for name, centre in zip(("First", "Second"), centres):
+                self.assertLess((self.centre(doc.getObject(name).Shape) - centre).Length, 1e-8)
+        finally:
+            group.SetBool("DedupCongruentShapes", previous)
+
+    def testASaveOverItsBudgetLeavesTheRestToTheNext(self):
+        """Once a save has spent DedupCongruentSeconds integrating, it shares
+        nothing more; what it did integrate is kept with the shapes, so the
+        next save goes on from there and shares what this one could not."""
+        group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        previous = group.GetBool("DedupCongruentShapes", True)
+        seconds = group.GetFloat("DedupCongruentSeconds", 10.0)
+        group.SetBool("DedupCongruentShapes", True)
+        try:
+            doc = self.newDocument("CongBudget")
+            self.congruentDocument(doc)
+            project = self.directoryPath("CongBudget_dir")
+            group.SetFloat("DedupCongruentSeconds", -1.0)
+            before = Part.congruenceWork()
+            doc.saveAs(project)
+            after = Part.congruenceWork()
+            self.assertGreater(after["refused"] - before["refused"], 0)
+            self.assertEqual(len(self.blobNames(project)), 4, "nothing shared over budget")
+            group.SetFloat("DedupCongruentSeconds", seconds)
+            doc.save()
+            self.assertEqual(len(self.blobNames(project)), 3,
+                             "the next save shares what the first could not")
+        finally:
+            group.SetBool("DedupCongruentShapes", previous)
+            group.SetFloat("DedupCongruentSeconds", seconds)
 
     def testSwitchedOffNothingIsShared(self):
         plain, volumes, centres = self.savedWith(False, "CongDisabled")

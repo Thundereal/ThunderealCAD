@@ -75,6 +75,16 @@ public:
     /// "Pad (worker 2)")
     static void show(const Message& message);
 
+    /** The most a message's header, or its body, can be: 4 GiB less a
+     * byte, each length being four bytes on the wire -- or less, where
+     * the environment's FC_WORKER_MESSAGE_MOST says so: a test's seam,
+     * the size past which the refusals are tested (docs/WorkerProcess.md
+     * sec 80), only ever lower
+     */
+    static std::size_t messageMost();
+    /// Why a message of these sizes cannot go, or nothing when it can
+    static std::string tooBig(std::size_t header, std::size_t body);
+
     /// What became of a job, handed to its client once
     struct Result
     {
@@ -286,6 +296,23 @@ public:
     /// Whether it has a copy standing and workers may run on it
     bool started() const;
     JobId submit(Job job);
+    /** How many jobs submitted now would run side by side: the workers
+     * that are not busy and not leaving, less the jobs queued for them,
+     * and one more where grow() would start it for them -- under the
+     * pool's limit, every worker having made a job and the memory left
+     * fitting one more (docs/WorkerProcess.md sec 79).  With no worker
+     * at all, 1: submit() starts one.  It is the state of the moment:
+     * ask it when the jobs are made, not before.  0 for a pool not
+     * started
+     */
+    int sideBySide() const;
+    /// Of sideBySide(): the workers standing free now, less the jobs
+    /// queued for them (1 with no worker at all), and whether one more
+    /// would be started for jobs left waiting.  A worker yet to start
+    /// costs its start, Info::startSeconds, before it runs anything
+    /// (docs/WorkerProcess.md sec 83)
+    int standingFree() const;
+    bool startsAnother() const;
     /// The result of `job`, one that `writes`, was not put in, or not all
     /// of it: the worker that made it holds a copy ahead of the document,
     /// and is let go

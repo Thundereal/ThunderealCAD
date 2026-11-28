@@ -42,6 +42,7 @@ import Draft_rc
 from draftguitools import gui_base
 from draftmake import make_layer
 from draftobjects import layer
+from draftutils import gui_utils
 from draftutils import params
 from draftutils import utils
 from draftutils.translate import translate
@@ -584,7 +585,7 @@ if App.GuiUp:
                 editor.setText(str(index.data(QtCore.Qt.UserRole)))
                 if self.first:
                     c = index.data(QtCore.Qt.UserRole)
-                    color = QtWidgets.QColorDialog.getColor(
+                    color = gui_utils.get_color(
                         QtGui.QColor(int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
                     )
                     editor.setText(str(color.getRgbF()))
@@ -593,7 +594,7 @@ if App.GuiUp:
                 editor.setText(str(index.data(QtCore.Qt.UserRole)))
                 if self.first:
                     c = index.data(QtCore.Qt.UserRole)
-                    color = QtWidgets.QColorDialog.getColor(
+                    color = gui_utils.get_color(
                         QtGui.QColor(int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
                     )
                     editor.setText(str(color.getRgbF()))
@@ -604,7 +605,7 @@ if App.GuiUp:
                 editor.setText(str(index.data(QtCore.Qt.UserRole)))
                 if self.first:
                     c = index.data(QtCore.Qt.UserRole)
-                    color = QtWidgets.QColorDialog.getColor(
+                    color = gui_utils.get_color(
                         QtGui.QColor(int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
                     )
                     editor.setText(str(color.getRgbF()))

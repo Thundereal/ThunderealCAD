@@ -76,6 +76,16 @@ public:
     /// error, < 0 the recompute stops)
     virtual void executed(DocumentObject& obj, int res, double seconds);
 
+    /// Whether the recompute of `obj` now under way was made from another
+    /// process's values, put in, rather than executed here
+    virtual bool wasPutIn(const DocumentObject& obj) const;
+    /** The same asked of the hook installed for `obj`'s document: false
+     * with none. What a class does around its execute() after the values
+     * are in -- a Part feature's shape generations, made again from the
+     * shape put in -- came with them (docs/WorkerProcess.md sec 87)
+     */
+    static bool isPutIn(const DocumentObject& obj);
+
     /// The innermost hook installed for `doc` on this thread, or null
     static RecomputeHook* of(const Document& doc);
 

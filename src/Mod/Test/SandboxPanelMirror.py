@@ -36,6 +36,7 @@ import base64
 
 import json
 import os
+import sys
 import unittest
 
 import FreeCAD
@@ -761,7 +762,11 @@ class SandboxPanelMirrorTest(unittest.TestCase):
         self.assertEqual(seen["active"], pid)
         self.assertEqual(seen["root"]["model"], "QDialogModel")
         self.assertEqual(seen["root"]["qtClass"], "QMessageBox")
-        self.assertEqual(seen["root"]["state"]["q_windowTitle"], "Really")
+        # QMessageBox on macOS never stores its window title (its
+        # setWindowTitle drops it, as the platform's guidelines ask), so a
+        # mac host's mirror has none to carry; "Really" everywhere else
+        title = "" if sys.platform == "darwin" else "Really"
+        self.assertEqual(seen["root"]["state"]["q_windowTitle"], title)
         self.assertTrue(seen["root"]["state"]["q_modal"])
         self.assertEqual(seen["root"]["parent"], "IPY_MODEL_panel")
         self.assertIsNotNone(seen["label"], seen)

@@ -21,6 +21,10 @@ Claims:
     and its axes say so and are not checked by hand -- and the part keeps
     its live origin, with no second origin left over.
 """
+# gui-test: offscreen
+# (scripts/gui-test.cmd: the copy and paste go through the system clipboard,
+# which a desktop may refuse a process -- offscreen, Qt's clipboard is the
+# process's own; nothing here reads pixels)
 import os
 import traceback
 
@@ -131,6 +135,14 @@ def paste(into, how, then):
     QtCore.QTimer.singleShot(3000, then)
 
 
+def copied():
+    """The copy reached the clipboard: a desktop may refuse a process the
+    clipboard (OleSetClipboard "OpenClipboard Failed"), and then nothing is
+    pasted and every claim fails for a reason that is not the paste's"""
+    data = QtWidgets.QApplication.clipboard().mimeData()
+    return data is not None and data.hasFormat("application/x-documentobject")
+
+
 def copyFrom(doc, objs):
     FreeCAD.setActiveDocument(doc.Name)
     FreeCADGui.ActiveDocument = FreeCADGui.getDocument(doc.Name)
@@ -159,6 +171,11 @@ def build():
         STATE["before"] = obj.Integer
         STATE["count"] = len(a.Objects)
         copyFrom(b, [bobj, b.getObject(away[1].Name), b.L])
+        if not copied():
+            note("SKIP: the clipboard refused the copy (no application/x-documentobject "
+                 "after Std_Copy); run offscreen, where Qt's clipboard is the process's own")
+            finish()
+            return
         paste(a, [("LA", "assign")], assigned)
     except Exception:
         note("ABORT build:\n" + traceback.format_exc())

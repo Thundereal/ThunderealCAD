@@ -16,7 +16,12 @@ are found by picking the scene and clicked through the window. Claims:
   - on the first's again: back to it;
   - the same for a chamfer's size handle.
 
-Clicks in the 3D view: run on a real screen.
+Clicks in the 3D view: run on a real screen. A handle pixel is taken
+only where the window shows the view, and each click checks that the view
+received its press at the pixel aimed -- so a click that lands elsewhere
+fails by that name, not as a wrong selection. Room for the view on a
+small screen (the Mac mini's headless 1280x720) is the test rig's
+(scripts/gui-test-profile.py).
 """
 import os
 import time
@@ -82,15 +87,25 @@ def is_handle(x, y):
                for i in range(path.getLength()))
 
 
+def on_view(x, y):
+    """Whether the window shows the view at viewport point (x, y): not a
+    dock or a button over it"""
+    w = view().graphicsView()
+    vp = w.viewport() if hasattr(w, "viewport") else w
+    under = mw().childAt(to_window(x, y))
+    return under is not None and (under == vp or vp.isAncestorOf(under))
+
+
 def handle_pixel(center, reach=40, step=2):
-    """The handle pixel nearest `center` with the most of the handle around it"""
+    """The handle pixel nearest `center` with the most of the handle around
+    it, where the window shows the view"""
     cx, cy = center
     best = None
     for r in range(0, reach, step):
         for dx in range(-r, r + 1, step):
             for dy in (-r, r) if abs(dx) != r else range(-r, r + 1, step):
                 x, y = cx + dx, cy + dy
-                if not is_handle(x, y):
+                if not is_handle(x, y) or not on_view(x, y):
                     continue
                 score = sum(is_handle(x + i, y + j) for i in (-2, -1, 0, 1, 2)
                             for j in (-2, -1, 0, 1, 2))
@@ -104,18 +119,46 @@ def handle_pixel(center, reach=40, step=2):
 def to_window(x, y):
     width, height = view().getSize()
     w = view().graphicsView()
-    local = QtCore.QPoint(int(x), int(height - y))
+    local = QtCore.QPoint(int(x), int(height - 1 - y))
     g = w.viewport().mapToGlobal(local) if hasattr(w, "viewport") else w.mapToGlobal(local)
     return mw().mapFromGlobal(g)
 
 
-def click(x, y):
+def _pressed(userdata, node):
+    from pivy import coin
+
+    event = node.getEvent()
+    if event is not None and coin.SoMouseButtonEvent.isButtonPressEvent(
+            event, coin.SoMouseButtonEvent.BUTTON1):
+        pos = event.getPosition()
+        state["presses"].append((int(pos[0]), int(pos[1])))
+
+
+def watch_presses():
+    """An event callback at the top of the view's scene, noting where each
+    left press reaches the view"""
+    from pivy import coin
+
+    if state.get("watched") is view():
+        return
+    callback = coin.SoEventCallback()
+    callback.addEventCallback(coin.SoMouseButtonEvent.getClassTypeId(), _pressed, None)
+    view().getSceneGraph().insertChild(callback, 0)
+    state["watched"] = view()
+    state["watcher"] = callback
+
+
+def click(x, y, what=""):
+    watch_presses()
+    state["presses"] = []
     win = mw().windowHandle()
     p = to_window(x, y)
     QtTest.QTest.mouseMove(win, p)
     pump(5)
     QtTest.QTest.mousePress(win, Qt.LeftButton, Qt.NoModifier, p)
     pump(5)
+    check("%s: the view received the press at the pixel aimed, %s" % (what, (x, y)),
+          state["presses"] == [(int(x), int(y))], state["presses"])
     QtTest.QTest.mouseRelease(win, Qt.LeftButton, Qt.NoModifier, p)
     pump(60)
     # off the handle, so that the next click is not a double click on it
@@ -199,7 +242,7 @@ def try_edges(box, a, b, what):
         note("INFO %s: %s's middle at %s, a handle pixel %s" % (what, edge, center, pixel))
         if not check("%s: a handle on %s found by picking" % (what, edge), pixel is not None):
             continue
-        click(*pixel)
+        click(pixel[0], pixel[1], "%s: %s's handle" % (what, edge))
         check("%s: a click on %s's handle selects its row" % (what, edge),
               selected_rows() == [edge], selected_rows())
         check("%s: ... and the edge alone" % what, selected_edges() == [edge], selected_edges())

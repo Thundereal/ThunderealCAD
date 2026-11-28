@@ -30,6 +30,10 @@ def _sleep(doc, inputs, out):
     return {"Pid": os.getpid()}
 
 
+def _big(doc, inputs, out):
+    return {"Big": "x" * inputs.get("Bytes", 0), "Pid": os.getpid()}
+
+
 def _fail(doc, inputs, out):
     raise ValueError("asked to fail")
 
@@ -146,8 +150,10 @@ def _param(doc, inputs, out):
 
 def _threadAltStack():
     """The size of the alternate signal stack a thread started now has, 0
-    for none (macOS's stack_t; SS_DISABLE is 4 there). On Windows the room
-    its stack keeps back for the handler, its stack guarantee"""
+    for none (stack_t as each system lays it out: macOS has ss_size before
+    ss_flags and SS_DISABLE 4, Linux ss_flags first and SS_DISABLE 2). On
+    Windows the room its stack keeps back for the handler, its stack
+    guarantee"""
     import ctypes
 
     if sys.platform == "win32":
@@ -164,8 +170,17 @@ def _threadAltStack():
         thread.join()
         return got[0]
 
-    class Stack(ctypes.Structure):
-        _fields_ = [("sp", ctypes.c_void_p), ("size", ctypes.c_size_t), ("flags", ctypes.c_int)]
+    if sys.platform.startswith("linux"):
+        disable = 2
+
+        class Stack(ctypes.Structure):
+            _fields_ = [("sp", ctypes.c_void_p), ("flags", ctypes.c_int), ("size", ctypes.c_size_t)]
+
+    else:
+        disable = 4
+
+        class Stack(ctypes.Structure):
+            _fields_ = [("sp", ctypes.c_void_p), ("size", ctypes.c_size_t), ("flags", ctypes.c_int)]
 
     libc = ctypes.CDLL(None)
     got = []
@@ -173,7 +188,7 @@ def _threadAltStack():
     def look():
         stack = Stack()
         libc.sigaltstack(None, ctypes.byref(stack))
-        got.append(0 if stack.flags & 4 else stack.size)
+        got.append(0 if stack.flags & disable else stack.size)
 
     thread = threading.Thread(target=look)
     thread.start()
@@ -291,6 +306,26 @@ class _Polygon:
         return None
 
 
+class _Dropping(_Counted):
+    """A _Counted whose execute() removes a property of its own, Scratch,
+    and makes another again of another type, Retyped: an integer as added,
+    a string once executed"""
+
+    def __init__(self, obj):
+        super().__init__(obj)
+        obj.addProperty("App::PropertyInteger", "Scratch")
+        obj.addProperty("App::PropertyInteger", "Retyped")
+
+    def execute(self, obj):
+        super().execute(obj)
+        if "Scratch" in obj.PropertiesList:
+            obj.removeProperty("Scratch")
+        if obj.getTypeIdOfProperty("Retyped") != "App::PropertyString":
+            obj.removeProperty("Retyped")
+            obj.addProperty("App::PropertyString", "Retyped")
+        obj.Retyped = "made of %d" % obj.Input
+
+
 class _Crashing(_Counted):
     """A _Counted that takes its process down when its Crash is set and it
     runs in any process but the one it was made in (Home): a feature whose
@@ -350,6 +385,7 @@ for _kind, _handler in (
     ("test.echo", _echo),
     ("test.sleep", _sleep),
     ("test.fail", _fail),
+    ("test.big", _big),
     ("test.unfit", _unfit),
     ("test.dieonce", _dieOnce),
     ("test.fault", _fault),
@@ -468,14 +504,14 @@ class TestWorkerPool(unittest.TestCase):
             self.pool.poll(50)
         return condition()
 
-    @unittest.skipUnless(sys.platform in ("darwin", "win32"),
-                         "a thread is given the handler's stack on macOS and Windows only"
-                         " (secs 77, 78)")
+    @unittest.skipUnless(sys.platform in ("darwin", "win32") or sys.platform.startswith("linux"),
+                         "a thread is given the handler's stack on macOS, Linux and Windows"
+                         " only (secs 77, 78, 82)")
     def testAThreadAWorkerStartsHasTheCrashHandlersStack(self):
         """A thread a worker starts has a stack for the crash handler of its
         own -- on Windows, room kept back on its stack: one that runs out of
         stack is reported, not taken down again in the handler. A process
-        that is no worker gives none (docs/WorkerProcess.md secs 77, 78)"""
+        that is no worker gives none (docs/WorkerProcess.md secs 77, 78, 82)"""
         want = 64 * 1024 if sys.platform == "win32" else 256 * 1024
         if sys.platform == "win32":
             # what Windows keeps back of its own is not said to be none
@@ -1076,6 +1112,69 @@ class TestWorkerPool(unittest.TestCase):
         self.assertTrue(self.pool.wait(120))
         self.assertEqual(self.pool.result(job)["Status"], "Done")
 
+    def messageMost(self, most):
+        """Messages past `most` bytes refused, for this test: the seam of
+        WorkerPool::messageMost() (docs/WorkerProcess.md sec 80), which a
+        worker reads from its environment -- so no standing worker, which
+        was started before it was set, and the pool's workers ended"""
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("Standby", False)
+        self.addCleanup(group.RemBool, "Standby")
+        os.environ["FC_WORKER_MESSAGE_MOST"] = str(most)
+        self.addCleanup(os.environ.pop, "FC_WORKER_MESSAGE_MOST", None)
+        self.newWorker()
+
+    def testAJobTooBigToSendFailsAndKeepsItsWorker(self):
+        """A job past what a message carries is not sent: it fails saying
+        so, and the worker it was for is kept. Sent, the length cut short,
+        the worker read the rest as messages and was ended for it, the job
+        went to another to end that one too, and it failed as a death
+        (docs/WorkerProcess.md secs 77, 80)"""
+        self.messageMost(64 * 1024)
+        first = self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        pid = self.pool.result(first)["Output"]["Pid"]
+        spawned = self.pool.info()["Spawned"]
+        big = self.submit("test.echo", {"Text": "x" * (128 * 1024)})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(big)
+        self.assertEqual(result["Status"], "Failed", result)
+        self.assertIn("more than a message carries", result["Error"])
+        self.assertFalse(result["Died"], result)
+        # the same worker makes the next one
+        after = self.submit("test.echo", {"After": True})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(after)
+        self.assertEqual(result["Status"], "Done", result)
+        self.assertEqual(result["Output"]["Pid"], pid)
+        self.assertEqual(self.pool.info()["Spawned"], spawned)
+
+    def testAResultTooBigToSendFailsAndKeepsItsWorker(self):
+        """A worker's result past what a message carries is answered as a
+        failure saying so, and the worker goes on to the next job. Before,
+        its send failed, the worker ended, and the job went to another to
+        end that one too: a death over nothing it did (sec 80)"""
+        self.messageMost(64 * 1024)
+        first = self.submit("test.echo")
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        pid = self.pool.result(first)["Output"]["Pid"]
+        spawned = self.pool.info()["Spawned"]
+        big = self.submit("test.big", {"Bytes": 128 * 1024})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(big)
+        self.assertEqual(result["Status"], "Failed", result)
+        self.assertIn("its result is", result["Error"])
+        self.assertIn("more than a message carries", result["Error"])
+        self.assertFalse(result["Died"], result)
+        # under the size it is sent
+        small = self.submit("test.big", {"Bytes": 1024})
+        self.assertTrue(self.pool.wait(120), self.pool.info())
+        result = self.pool.result(small)
+        self.assertEqual(result["Status"], "Done", result)
+        self.assertEqual(len(result["Output"]["Big"]), 1024)
+        self.assertEqual(result["Output"]["Pid"], pid)
+        self.assertEqual(self.pool.info()["Spawned"], spawned)
+
     def testAnAddonsGuiCallsAreThereInAWorker(self):
         """An addon's module calls FreeCADGui at import: in a worker the
         registry is real and nothing raises (docs/WorkerProcess.md sec 72)"""
@@ -1637,7 +1736,25 @@ class TestWorkerRecompute(unittest.TestCase):
         # A worker that has made a job: the pool grows by one that has
         warm.Input = 1
         self.byWorker()
+        self.standing(2)
         return base, left, right, tails
+
+    def standing(self, n):
+        """`n` workers standing, each having made a job: what a split test
+        measures is the split, not a worker's start (docs/WorkerProcess.md
+        sec 83). Jobs long enough that each new worker is up in time to
+        take one. The pool grows by one at a time, once each worker has
+        made a job, so it goes round until n have"""
+        for _ in range(n + 1):
+            jobs = [self.pool.submit("test.sleep", {"Seconds": 1.5}, module=MODULE)
+                    for _ in range(n)]
+            self.assertTrue(all(j > 0 for j in jobs), self.pool.info()["Reason"])
+            self.assertTrue(self.pool.wait(120), self.pool.info())
+            pids = {self.pool.result(j)["Output"]["Pid"] for j in jobs}
+            if len(pids) == n:
+                break
+        self.assertEqual(len(pids), n, self.pool.info())
+        self.assertGreaterEqual(self.pool.info()["Workers"], n, self.pool.info())
 
     def testAClassAWorkerCannotRestoreMakesTheRecomputeUnfit(self):
         """The copy's restore could not make a Python object: the copy is
@@ -1682,6 +1799,392 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(info["ExecutedHereNames"], [], info)
         self.assertEqual(slow.Result, 6)
         self.assertNotEqual(slow.MadeBy, os.getpid())
+
+    def testASuppressedFeaturesShapeIsKeptWhenPutIn(self):
+        """A suppressed PartDesign feature shows what it would make,
+        SuppressedShape, which its recompute() makes after the execute from
+        the shape the execute made. Put in from a worker, the main process
+        made it again from the shape put in -- already the base shape -- and
+        wrote nothing over the worker's (scanner.FCStd's suppressed pockets,
+        null after every worker recompute)"""
+        import Part
+        import Sketcher  # noqa: F401
+
+        body = self.doc.addObject("PartDesign::Body", "Body")
+        pad_sketch = body.newObject("Sketcher::SketchObject", "PadSketch")
+        corners = [App.Vector(0, 0, 0), App.Vector(20, 0, 0), App.Vector(20, 10, 0),
+                   App.Vector(0, 10, 0)]
+        for i in range(4):
+            pad_sketch.addGeometry(Part.LineSegment(corners[i], corners[(i + 1) % 4]))
+        pad = body.newObject("PartDesign::Pad", "Pad")
+        pad.Profile = pad_sketch
+        pad.Length = 5
+        hole = body.newObject("Sketcher::SketchObject", "HoleSketch")
+        hole.addGeometry(Part.Circle(App.Vector(10, 5, 0), App.Vector(0, 0, 1), 2))
+        pocket = body.newObject("PartDesign::Pocket", "Pocket")
+        pocket.Profile = hole
+        pocket.Type = "ThroughAll"
+        pocket.Reversed = True
+        self.doc.recompute()
+        pocket.Suppress = True
+        self.doc.recompute()
+        made_here = pocket.SuppressedShape
+        self.assertFalse(made_here.isNull(), "the suppressed pocket shows its faces here")
+        pad.Length = 6
+        info = self.byWorker()
+        self.assertEqual(info["ExecutedHereNames"], [], info)
+        self.assertGreater(info["Applied"], 0, info)
+        by_worker = pocket.SuppressedShape
+        self.assertFalse(by_worker.isNull(), "the worker's suppressed shape was lost")
+        for o in self.doc.Objects:
+            o.touch()
+        self.doc.recompute()
+        self.assertEqual(len(by_worker.Faces), len(pocket.SuppressedShape.Faces))
+        self.assertAlmostEqual(by_worker.Area, pocket.SuppressedShape.Area, places=6)
+
+    def testWhatAnExecuteRemovedIsRemovedWhereItIsPutIn(self):
+        """A property an execute() removes is removed where its values are
+        put in, and one it adds again in its place is the one added: the
+        removal took the whole job back (docs/WorkerProcess.md sec 84)"""
+        obj = self.doc.addObject("App::FeaturePython", "Dropping")
+        _Dropping(obj)
+        obj.Input = 3
+        info = self.byWorker()
+        self.assertEqual((info["Unfit"], info["ExecutedHereNames"]), (0, []), info)
+        self.assertGreater(info["Applied"], 0, info)
+        self.assertNotEqual(obj.MadeBy, os.getpid(), "made here")
+        self.assertNotIn("Scratch", obj.PropertiesList)
+        self.assertEqual(obj.getTypeIdOfProperty("Retyped"), "App::PropertyString")
+        self.assertEqual(obj.Retyped, "made of 3")
+        self.assertEqual(self.touched(), [])
+        # The worker's copy is where this one is: the next is put in too
+        obj.Input = 4
+        info = self.byWorker()
+        self.assertEqual((info["Unfit"], info["ExecutedHereNames"]), (0, []), info)
+        self.assertEqual(obj.Retyped, "made of 4")
+
+    def testARetainedShapeLetGoIsLetGoWhereItIsPutIn(self):
+        """Part keeps a shape a reference is missing from, as _BaseShape<N>,
+        and lets it go once the recompute that finds the element again is
+        over. Let go in a worker, the removal took the whole job back (the
+        smoke corpus, 2026-11-27: servant, pipe and others, each removing
+        _BaseShape1). It is removed here as well (docs/WorkerProcess.md
+        sec 84)"""
+        import shutil
+
+        def kept(obj):
+            return sorted(p for p in obj.PropertiesList if p.startswith("_BaseShape"))
+
+        box = self.doc.addObject("Part::Box", "Box")
+        notch = self.doc.addObject("Part::Box", "Notch")
+        notch.Length = notch.Width = notch.Height = 4
+        notch.Placement.Base = App.Vector(8, 0, 0)
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base, cut.Tool = box, notch
+        ref = self.doc.addObject("App::FeaturePython", "Ref")
+        ref.addProperty("App::PropertyLinkSub", "S")
+        self.doc.recompute()
+        floor = [i for i, f in enumerate(cut.Shape.Faces)
+                 if abs(f.BoundBox.ZMin - 4) < 1e-6 and abs(f.BoundBox.ZMax - 4) < 1e-6]
+        self.assertEqual(len(floor), 1)
+        name = "Face%d" % (floor[0] + 1)
+        ref.S = (cut, [name])
+        self.doc.recompute()
+        notch.Placement.Base = App.Vector(20, 0, 0)  # the notch's floor goes
+        self.doc.recompute()
+        self.assertEqual(ref.S[1], ["?" + name])
+        # Kept for the reference: written out by a save
+        folder = tempfile.mkdtemp(prefix="retained")
+        self.addCleanup(shutil.rmtree, folder, True)
+        self.doc.saveAs(os.path.join(folder, "retained.FCStd"))
+        self.assertEqual(kept(cut), ["_BaseShape1", "_BaseShapeRefs"])
+        notch.Placement.Base = App.Vector(8, 0, 0)  # and comes back
+        info = self.byWorker()
+        self.assertEqual((info["Unfit"], info["Reason"]), (0, ""), info)
+        self.assertEqual(info["ExecutedHereNames"], [], info)
+        self.assertGreater(info["Applied"], 0, info)
+        self.assertEqual(ref.S[1], [name])
+        self.assertEqual(kept(cut), [])
+        self.assertEqual(self.touched(), [])
+
+    def testAWorkerSpellsNamesAsTheDocumentDoes(self):
+        """An old file counts its string ids until its user accepts the
+        migration recompute, which switches its table to spelling digests
+        (Document.spellNamesByContent(), docs/StringTableContentIds.md sec
+        12) just before the recompute is asked for. The worker's copy,
+        taken before, went on counting, and the names put in were spelt
+        so: 93 of scanner.FCStd's, different from what this process makes
+        (docs/WorkerProcess.md sec 85)"""
+        import shutil
+
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Document")
+        group.SetBool("ContentStringIds", False)
+        try:
+            doc = App.newDocument("Counted")
+        finally:
+            group.RemBool("ContentStringIds")
+        a = doc.addObject("Part::Box", "A")
+        b = doc.addObject("Part::Box", "B")
+        b.Placement.Base = App.Vector(5, 5, 5)
+        cut = doc.addObject("Part::Cut", "Cut")
+        cut.Base, cut.Tool = a, b
+        doc.recompute()
+        folder = tempfile.mkdtemp(prefix="counted")
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "counted.FCStd")
+        doc.saveAs(path)
+        App.closeDocument(doc.Name)
+        doc = App.openDocument(path)
+        self.addCleanup(App.closeDocument, doc.Name)
+        self.assertFalse(doc.Hasher.ContentIds)
+        pool = App.workerPool(doc)
+        # The worker's copy stands, counting, before the switch
+        doc.getObject("A").Length = 11
+        self.assertTrue(pool.recompute(), pool.recomputeInfo()["Reason"])
+        self.assertTrue(pool.waitRecompute(120), pool.recomputeInfo())
+        cut = doc.getObject("Cut")
+        self.assertGreater(pool.recomputeInfo()["Applied"], 0, pool.recomputeInfo())
+        self.assertEqual(doc.spellNamesByContent(), 1)
+        self.assertTrue(pool.recompute(), pool.recomputeInfo()["Reason"])
+        self.assertTrue(pool.waitRecompute(120), pool.recomputeInfo())
+        info = pool.recomputeInfo()
+        self.assertEqual((info["Unfit"], info["ExecutedHereNames"]), (0, []), info)
+        self.assertGreater(info["Applied"], 0, info)
+        by_worker = dict(cut.Shape.ElementMap)
+        cut.touch()
+        doc.recompute()
+        self.assertEqual(by_worker, dict(cut.Shape.ElementMap))
+
+    def testAGenerationAWorkerKeptIsTheOnlyOneWherePutIn(self):
+        """A PartDesign feature whose face a sketch is attached to, the face
+        gone in a worker's recompute: the worker keeps the shape before as
+        _BaseShape1, and that, with _BaseShapeRefs, is put in as values.
+        Putting the shape in ran this process's own reconcile as well, once
+        for each write of the shape, and the main made _BaseShape1 and
+        _BaseShape2 of its own, the references on 2 (the shelf file of the
+        smoke corpus, 2026-11-28; docs/WorkerProcess.md sec 87)"""
+        import Part
+        import Sketcher  # noqa: F401
+
+        def kept(obj):
+            return sorted(p for p in obj.PropertiesList if p.startswith("_BaseShape"))
+
+        body = self.doc.addObject("PartDesign::Body", "Body")
+        pad_sketch = body.newObject("Sketcher::SketchObject", "PadSketch")
+        corners = [App.Vector(0, 0, 0), App.Vector(20, 0, 0), App.Vector(20, 20, 0),
+                   App.Vector(0, 20, 0)]
+        for i in range(4):
+            pad_sketch.addGeometry(Part.LineSegment(corners[i], corners[(i + 1) % 4]))
+        pad = body.newObject("PartDesign::Pad", "Pad")
+        pad.Profile = pad_sketch
+        pad.Length = 10
+        hole = body.newObject("Sketcher::SketchObject", "HoleSketch")
+        hole.AttachmentSupport = [(pad, "Face6")]
+        hole.MapMode = "FlatFace"
+        hole.addGeometry(Part.Circle(App.Vector(10, 10, 0), App.Vector(0, 0, 1), 4))
+        pocket = body.newObject("PartDesign::Pocket", "Pocket")
+        pocket.Profile = hole
+        pocket.Length = 4
+        self.doc.recompute()
+        floors = [i for i, f in enumerate(pocket.Shape.Faces)
+                  if abs(f.BoundBox.ZMin - 6) < 1e-6 and abs(f.BoundBox.ZMax - 6) < 1e-6]
+        self.assertEqual(len(floors), 1, [f.BoundBox for f in pocket.Shape.Faces])
+        floor = "Face%d" % (floors[0] + 1)
+        on_floor = body.newObject("Sketcher::SketchObject", "OnFloor")
+        on_floor.AttachmentSupport = [(pocket, floor)]
+        on_floor.MapMode = "FlatFace"
+        on_floor.addGeometry(Part.Circle(App.Vector(0, 0, 0), App.Vector(0, 0, 1), 1))
+        self.doc.recompute()
+        self.assertEqual(kept(pocket), [])
+        pocket.Type = "ThroughAll"  # the floor goes
+        info = self.byWorker()
+        self.assertEqual((info["Unfit"], info["ExecutedHereNames"]), (0, []), info)
+        self.assertGreater(info["Applied"], 0, info)
+        self.assertEqual(on_floor.AttachmentSupport[0][1], ("?" + floor,))
+        self.assertEqual(kept(pocket), ["_BaseShape1", "_BaseShapeRefs"])
+        self.assertEqual(set(pocket._BaseShapeRefs.values()), {"_BaseShape1"})
+        # Outside a put-in the reconcile is as before: the floor back, the
+        # generation is let go by this process's own recompute
+        pocket.Type = "Length"
+        self.doc.recompute()
+        self.assertEqual(kept(pocket), [])
+
+    @staticmethod
+    def putInValue(obj, name):
+        """A property's value as plain data to compare: links by name"""
+        value = obj.getPropertyByName(name)
+
+        def plain(v):
+            if isinstance(v, App.DocumentObject):
+                return v.Name
+            if isinstance(v, (list, tuple)):
+                return [plain(x) for x in v]
+            if hasattr(v, "isNull") and hasattr(v, "ShapeType"):
+                if v.isNull():
+                    return "null"
+                bb = v.BoundBox
+                return [v.ShapeType, len(v.Faces), len(v.Edges), round(v.Area, 6),
+                        [round(x, 6) for x in (bb.XMin, bb.YMin, bb.ZMin, bb.XMax, bb.YMax, bb.ZMax)]]
+            if isinstance(v, float):
+                return round(v, 9)
+            return v
+
+        return plain(value)
+
+    def byWorkerAndAlone(self, change, names):
+        """`names` (object, property) after `change` is made to self.doc and
+        recomputed by a worker, and after it is made to a copy of the
+        document as it is now and recomputed by this process alone"""
+        import shutil
+
+        folder = tempfile.mkdtemp(prefix="fc-twin-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "twin.FCStd")
+        self.doc.saveAs(path)
+        alone_path = os.path.join(folder, "alone.FCStd")
+        shutil.copyfile(path, alone_path)
+        change(self.doc)
+        info = self.byWorker()
+        self.assertEqual((info["Unfit"], info["ExecutedHereNames"]), (0, []), info)
+        self.assertGreater(info["Applied"], 0, info)
+        worker = {(o, n): self.putInValue(self.doc.getObject(o), n) for o, n in names}
+        alone = App.openDocument(alone_path)
+        self.addCleanup(App.closeDocument, alone.Name)
+        change(alone)
+        alone.recompute()
+        here = {(o, n): self.putInValue(alone.getObject(o), n) for o, n in names}
+        return worker, here
+
+    def notchedCut(self):
+        """A box cut by a notch at its corner: moved to the middle of its
+        side, four of the cut's faces are numbered otherwise (Face6 becomes
+        Face11) and two are gone"""
+        box = self.doc.addObject("Part::Box", "Box")
+        box.Length = box.Width = box.Height = 10
+        tool = self.doc.addObject("Part::Box", "Tool")
+        tool.Length = tool.Width = tool.Height = 4
+        tool.Placement.Base = App.Vector(8, 0, 0)
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base, cut.Tool = box, tool
+        self.doc.recompute()
+        return cut
+
+    @staticmethod
+    def notchToMiddle(doc):
+        doc.getObject("Tool").Placement = App.Placement(App.Vector(8, 3, 3), App.Rotation())
+
+    def testAReferenceReResolvedIsTheWorkersWherePutIn(self):
+        """GeoFeature::onChanged(Shape) re-resolves the references into an
+        object, writing the referrers' links, also while a worker's result
+        is put in (docs/WorkerProcess.md sec 88)"""
+        cut = self.notchedCut()
+        ref = self.doc.addObject("App::FeaturePython", "Ref")
+        ref.addProperty("App::PropertyLinkSubList", "All")
+        faces = ["Face%d" % (i + 1) for i in range(len(cut.Shape.Faces))]
+        ref.All = [(cut, faces)]
+        self.doc.recompute()
+        worker, here = self.byWorkerAndAlone(self.notchToMiddle, [("Ref", "All")])
+        self.assertNotEqual(here[("Ref", "All")], [["Cut", faces]], "nothing re-resolved")
+        self.assertEqual(worker, here)
+
+    def testABindersShapeIsTheWorkersWherePutIn(self):
+        """SubShapeBinder::onChanged(Support) rebuilds a binder's copy from
+        what it binds, also while a worker's result is put in: its Support
+        re-resolved, Face6 to Face11 (docs/WorkerProcess.md sec 88)"""
+        cut = self.notchedCut()
+        binder = self.doc.addObject("Part::SubShapeBinder", "Binder")
+        binder.Support = [(cut, ("Face6",))]
+        self.doc.recompute()
+        names = [("Binder", "Shape"), ("Binder", "Support")]
+        worker, here = self.byWorkerAndAlone(self.notchToMiddle, names)
+        self.assertEqual(here[("Binder", "Support")], [["Cut", ["Face11"]]])
+        self.assertEqual(worker, here)
+
+    def testAFilletsEdgeLinksAreTheWorkersWherePutIn(self):
+        """FilletBase::onChanged(Edges/Base) makes EdgeLinks again from
+        Edges, also while a worker's result is put in
+        (docs/WorkerProcess.md sec 88)"""
+        import Part  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        tool = self.doc.addObject("Part::Box", "Tool")
+        tool.Length = tool.Width = tool.Height = 3
+        tool.Placement.Base = App.Vector(8, 8, 0)
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base, cut.Tool = box, tool
+        self.doc.recompute()
+        fillet = self.doc.addObject("Part::Fillet", "Fillet")
+        fillet.Base = cut
+        fillet.Edges = [(1, 1.0, 1.0), (3, 1.0, 1.0)]
+        self.doc.recompute()
+
+        def change(doc):
+            doc.getObject("Tool").Placement.Base = App.Vector(-1, -1, 0)
+
+        names = [("Fillet", "Edges"), ("Fillet", "EdgeLinks"), ("Fillet", "Shape")]
+        worker, here = self.byWorkerAndAlone(change, names)
+        self.assertEqual(worker, here)
+
+    def testAHatchsFaceIsTheWorkersWherePutIn(self):
+        """DrawHatch::onChanged(Source) records its faces' names and
+        geometry from its view, also while a worker's result is put in --
+        before the view's own result is (docs/WorkerProcess.md sec 86, 88)"""
+        import TechDraw  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        other = self.doc.addObject("Part::Box", "Other")
+        other.Length = other.Width = other.Height = 4
+        other.Placement.Base = App.Vector(40, 0, 0)
+        page = self.doc.addObject("TechDraw::DrawPage", "Page")
+        template = self.doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        template.Template = os.path.join(
+            App.getHomePath(), "Mod", "TechDraw", "TDTest", "TestTemplate.svg")
+        page.Template = template
+        group = self.doc.addObject("TechDraw::DrawProjGroup", "Group")
+        page.addView(group)
+        group.Source = [box, other]
+        view = group.addProjection("Front")
+        self.doc.recompute()
+        hatch = self.doc.addObject("TechDraw::DrawHatch", "Hatch")
+        hatch.Source = (view, ["Face0"])
+        self.doc.recompute()
+
+        def change(doc):
+            doc.getObject("Group").Source = [doc.getObject("Other"), doc.getObject("Box")]
+
+        names = [("Hatch", "Source"), ("Hatch", "SavedNames"), ("Hatch", "SavedGeometry")]
+        worker, here = self.byWorkerAndAlone(change, names)
+        self.assertEqual(worker, here)
+
+    def testAConsolesCopyHasNoViewObjectInAWorker(self):
+        """A console session saves no views, and every obj.ViewObject there
+        is None: in a worker, made from such a copy, it is None too, and an
+        execute takes the console's path. Draft's WorkingPlaneProxy sizes
+        its plane by ViewObject.DisplaySize when it has a view, 1 without:
+        the worker answered a fake for the size, a built-in object's use of
+        a view this process has not got (docs/WorkerProcess.md sec 73)"""
+        import Draft
+
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetBool("NoteGuiUp", True)
+        self.addCleanup(group.RemBool, "NoteGuiUp")
+        App.setActiveDocument(self.doc.Name)
+        wp = Draft.make_workingplaneproxy(App.Placement())
+        self.assertIsNone(wp.ViewObject)
+        self.doc.recompute()
+        self.assertAlmostEqual(wp.Shape.Area, 1.0)
+        # What this process makes of it, moved: the measure of the worker's
+        wp.Placement = App.Placement(App.Vector(5, 0, 0), App.Rotation())
+        self.doc.recompute()
+        here = wp.Shape.BoundBox
+        wp.Placement = App.Placement(App.Vector(7, 0, 0), App.Rotation())
+        info = self.byWorker()
+        self.assertEqual(info["Faked"], [], info)
+        self.assertEqual(info["ExecutedHereNames"], [], info)
+        self.assertGreater(info["Applied"], 0, info)
+        self.assertAlmostEqual(wp.Shape.Area, 1.0)
+        self.assertAlmostEqual(wp.Shape.BoundBox.XMin, here.XMin + 2.0)
+        self.assertAlmostEqual(wp.Shape.BoundBox.XLength, here.XLength)
 
     def testAGuestsBootDoesNotAskAStandInForGuiUp(self):
         """A guest booted again inside a job -- after a budget stopped one
@@ -1739,6 +2242,128 @@ class TestWorkerRecompute(unittest.TestCase):
         # less than both one after the other
         self.assertLess(info["WorkerSeconds"], 2.0 + 1.0, info)
         self.assertLess(took, 2.0 + 1.5, info)
+
+    def testASplitWithNoWorkerStandingIsNotSplit(self):
+        """With no worker standing, a recompute that would save by a split
+        is not split: one worker can run now, and the split made by the
+        pool's limit ran its halves one after the other on that one -- the
+        second waiting for the first's worker, slower than whole, and
+        counted as a split (docs/WorkerProcess.md sec 79)"""
+        base, left, right, tails = self.splitChains()
+        split = self.pool.recomputeInfo()["Split"]
+        self.pool.stop("no worker standing")
+        base.Input = 2
+        info = self.byWorker()
+        self.assertEqual(info["SplitWorkers"], 1, info)
+        self.assertEqual(info["Split"], split, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertEqual((left.Result, right.Result), (8, 8))
+        self.assertEqual([t.Result for t in tails], [16, 16])
+        # one job, made by one worker, not here
+        self.assertEqual(left.MadeBy, right.MadeBy)
+        self.assertNotEqual(left.MadeBy, os.getpid())
+
+    def testASplitTakesOnlyTheWorkersFreeNow(self):
+        """Two workers, one of them busy with another job: the recompute
+        runs whole on the free one, not split into a half for each and
+        the second half left waiting for the busy worker or for the
+        first half's (docs/WorkerProcess.md sec 79).  The two of them
+        free, it splits as before"""
+        base, left, right, tails = self.splitChains()
+        base.Input = 2
+        info = self.byWorker()
+        self.assertEqual(info["Split"], 1, info)
+        self.assertEqual(info["SplitWorkers"], 2, info)
+        self.assertNotEqual(left.MadeBy, right.MadeBy)
+        split = info["Split"]
+        busy = self.pool.submit("test.sleep", {"Seconds": 6.0}, module=MODULE)
+        self.assertGreater(busy, 0, self.pool.info()["Reason"])
+        deadline = time.time() + 30
+        while self.pool.info()["Busy"] < 1 and time.time() < deadline:
+            self.pool.poll(20)
+        sleeping = time.time()
+        pool = self.pool.info()
+        self.assertEqual((pool["Workers"], pool["Busy"]), (2, 1), pool)
+        self.assertEqual(pool["SideBySide"], 1, pool)
+        base.Input = 3
+        info = self.byWorker()
+        self.assertEqual(info["SplitWorkers"], 1, info)
+        self.assertEqual(info["Split"], split, info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertEqual((left.Result, right.Result), (12, 12))
+        self.assertEqual([t.Result for t in tails], [24, 24])
+        self.assertEqual(left.MadeBy, right.MadeBy)
+        self.assertNotEqual(left.MadeBy, os.getpid())
+        # made whole, in less than the 6 s the other worker was busy for:
+        # not waiting for it
+        self.assertLess(time.time() - sleeping, 6.0, info)
+        self.assertTrue(self.pool.wait(30), self.pool.info())
+
+    def testASplitThatWouldWaitForAWorkersStartIsWeighed(self):
+        """A split whose second part needs a worker not yet standing is
+        made only when what it saves, less the start the pool has measured
+        for its workers, still clears Workers/SplitSeconds: that worker
+        runs nothing before it is up, and a split must not be slower than
+        the recompute whole (docs/WorkerProcess.md sec 83).
+
+        Both ways are tried with a start given (Workers/WeighStartSeconds, a
+        test's) rather than the one this box measured: a loaded box's later
+        starts ran past a margin read from its first, and the verdict
+        flipped (dwin, the runtime profile, "Split 1 != 2"). That the split
+        weighs the measured start when none is given is checked last."""
+        base, left, right, tails = self.splitChains()
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        # what the split saves, measured with two standing
+        base.Input = 2
+        info = self.byWorker()
+        self.assertEqual((info["Split"], info["SplitWorkers"]), (1, 2), info)
+        self.assertEqual(info["SplitStartWeighed"], 0.0, info)
+        saving = info["SplitSaving"]
+        split = info["Split"]
+
+        def one_standing(value):
+            # one worker standing, room for another, whose start is measured:
+            # the whole recompute of `value`, no split, on the one started
+            self.pool.stop("one worker standing")
+            group.SetFloat("SplitSeconds", 1e6)
+            base.Input = value
+            self.byWorker()
+            self.assertGreater(self.pool.info()["StartSeconds"], 0.0, self.pool.info())
+
+        self.addCleanup(group.RemFloat, "SplitSeconds")
+        self.addCleanup(group.RemFloat, "WeighStartSeconds")
+        one_standing(3)
+        # a start given: a share of the saving, so both ways below hold by a
+        # margin of the saving's own size, whatever this box's starts take
+        start = saving * 0.3
+        group.SetFloat("WeighStartSeconds", start)
+        # it saves enough to split, not enough to pay a worker's start
+        group.SetFloat("SplitSeconds", saving - start / 2)
+        base.Input = 4
+        info = self.byWorker()
+        self.assertEqual(info["SplitWorkers"], 1, info)
+        self.assertEqual(info["Split"], split, info)
+        self.assertAlmostEqual(info["SplitStartWeighed"], start, places=6, msg=info)
+        self.assertEqual(left.MadeBy, right.MadeBy)
+        self.assertEqual((left.Result, right.Result), (16, 16))
+        # it saves enough to pay it: split, the pool growing for it
+        group.SetFloat("SplitSeconds", max(0.05, (saving - start) / 2))
+        base.Input = 5
+        info = self.byWorker()
+        self.assertEqual(info["SplitWorkers"], 2, info)
+        self.assertEqual(info["Split"], split + 1, info)
+        self.assertNotEqual(left.MadeBy, right.MadeBy)
+        self.assertEqual((left.Result, right.Result), (20, 20))
+        # none given: the start weighed is the one the pool measured (the
+        # verdict not asserted -- it is this box's)
+        group.RemFloat("WeighStartSeconds")
+        one_standing(6)
+        measured = self.pool.info()["StartSeconds"]
+        group.SetFloat("SplitSeconds", 0.05)
+        base.Input = 7
+        info = self.byWorker()
+        self.assertAlmostEqual(info["SplitStartWeighed"], measured, places=6, msg=info)
+        self.assertEqual((left.Result, right.Result), (28, 28))
 
     def testAHalfAnEditDropsIsNotMadeHere(self):
         """An edit of Right while both halves are with their workers drops
@@ -1841,8 +2466,11 @@ class TestWorkerRecompute(unittest.TestCase):
     def testARecomputeIsSplitOverThreeWorkers(self):
         """Three branches of 2 s each under what all read, three workers
         allowed: three parts, each branch by a worker of its own, put in as
-        one recompute (docs/WorkerProcess.md sec 44). The first such
-        recompute grows the pool; the second is timed"""
+        one recompute (docs/WorkerProcess.md sec 44). Three workers stand
+        first: a recompute is split into as many parts as can run side by
+        side (sec 79), and one that would wait for a worker to start is
+        weighed against its start (sec 83) -- what is timed here is the
+        split"""
         group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
         group.SetInt("Workers", 3)
         group.SetFloat("SplitSeconds", 1.0)
@@ -1858,20 +2486,18 @@ class TestWorkerRecompute(unittest.TestCase):
         self.doc.recompute()
         warm.Input = 1
         self.byWorker()
-        base.Input = 2
-        info = self.byWorker()
-        self.assertEqual(info["Split"], 1, info)
-        self.assertEqual(len(info["SplitObjects"]), 3, info)
-        base.Input = 3
+        self.standing(3)
+        base.Input = 4
         began = time.time()
         info = self.byWorker()
         took = time.time() - began
-        self.assertEqual(info["Split"], 2, info)
+        self.assertEqual(info["Split"], 1, info)
+        self.assertEqual(info["SplitWorkers"], 3, info)
         self.assertEqual(len(info["SplitObjects"]), 3, info)
         self.assertGreaterEqual(info["SplitSaving"], 3.5, info)
         self.assertEqual(info["ExecutedHere"], 0, info)
         self.assertEqual(self.touched(), [])
-        self.assertEqual([b.Result for b in branches], [12, 12, 12])
+        self.assertEqual([b.Result for b in branches], [16, 16, 16])
         made = [b.MadeBy for b in branches]
         self.assertNotIn(os.getpid(), made)
         self.assertEqual(len(set(made)), 3, made)
@@ -2047,6 +2673,84 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertNotEqual(dim.References2D[0][1], ("Vertex0", "Edge1"))
         self.assertAlmostEqual(dim.getRawValue(), 10.0)
         self.assertEqual(self.touched(), [])
+
+    def dimensionRenumbered(self, names):
+        """A dimension on a view whose projection numbers its elements
+        otherwise once its sources swap, saved with `names` as its
+        SavedNames (None: as recorded), reopened, and recomputed by a
+        worker. The dimension, and its SavedNames before the worker"""
+        import shutil
+
+        import TechDraw  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        other = self.doc.addObject("Part::Box", "Other")
+        other.Length = other.Width = other.Height = 4
+        other.Placement.Base = App.Vector(40, 0, 0)
+        page = self.doc.addObject("TechDraw::DrawPage", "Page")
+        template = self.doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        template.Template = os.path.join(
+            App.getHomePath(), "Mod", "TechDraw", "TDTest", "TestTemplate.svg")
+        page.Template = template
+        group = self.doc.addObject("TechDraw::DrawProjGroup", "Group")
+        page.addView(group)
+        group.Source = [box, other]
+        view = group.addProjection("Front")
+        self.doc.recompute()
+        dim = self.doc.addObject("TechDraw::DrawViewDimension", "Dim")
+        dim.Type = "DistanceX"
+        dim.References2D = [(view, ("Vertex0", "Edge1"))]
+        page.addView(dim)
+        self.doc.recompute()
+        self.assertAlmostEqual(dim.getRawValue(), 10.0)
+        if names is not None:
+            dim.SavedNames = names
+        path = os.path.join(tempfile.mkdtemp(prefix="fc-dimnames-"), "dims.FCStd")
+        self.addCleanup(shutil.rmtree, os.path.dirname(path), True)
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.pool = App.workerPool(self.doc)
+        dim = self.doc.getObject("Dim")
+        before = list(dim.SavedNames)
+        self.doc.getObject("Group").Source = [self.doc.getObject("Other"),
+                                              self.doc.getObject("Box")]
+        info = self.byWorker()
+        self.assertEqual((info["Applied"], info["ExecutedHere"]), (1, 0), info)
+        self.assertNotEqual(dim.References2D[0][1], ("Vertex0", "Edge1"))
+        return dim, before
+
+    @staticmethod
+    def namesDerived(dim):
+        """What the dimension records of its references from its view as it
+        is now: an edit of them outside a put-in"""
+        dim.References2D = [(o, tuple(s)) for o, s in dim.References2D]
+        return list(dim.SavedNames)
+
+    def testADimensionsNamesAreTheWorkersWherePutIn(self):
+        """The names a dimension records of its references are what the
+        worker made. Its References2D put in, this process's
+        DrawViewDimension::onChanged() made them again from the view --
+        before the view's own result was in, so from the projection before
+        the change: scanner.FCStd's migrated dimensions recorded names of
+        elements of the old projection (19 of its SavedNames, 2026-11-28;
+        docs/WorkerProcess.md sec 86)"""
+        dim, before = self.dimensionRenumbered(["", ""])
+        put_in = list(dim.SavedNames)
+        self.assertTrue(all(put_in), put_in)
+        # An edit outside a put-in still records them from the view
+        dim.SavedNames = ["junk", "junk"]
+        self.assertEqual(self.namesDerived(dim), put_in)
+
+    def testADimensionsNamesTheWorkerKeptAreKeptWherePutIn(self):
+        """The same with the names the file recorded: the worker finds the
+        references again by them, and what it leaves of them is what this
+        process keeps, nothing made again from the view before its result
+        is in (docs/WorkerProcess.md sec 86)"""
+        dim, before = self.dimensionRenumbered(None)
+        self.assertTrue(all(before), before)
+        put_in = list(dim.SavedNames)
+        self.assertEqual(self.namesDerived(dim), put_in)
 
     def polygonSketch(self):
         """A sketch projecting the face of a _Polygon, made here"""
@@ -2559,6 +3263,53 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual((slow.Result, tail.Result), (14, 28))
         self.assertEqual(self.touched(), [])
         self.assertNotIn(slow.MadeBy, pids + [os.getpid()])
+
+    def testAPutInThatThrowsIsAFailure(self):
+        """A put-in that throws, not the user's abort: a std::exception out
+        of the recompute's own code between two objects (a bad_alloc, a
+        JSON error), put there by the test's Workers/PutInFault. Counted
+        Failed with what it threw, not put in; the worker's copy, ahead of
+        the document, let go; the object it stopped at left touched, for
+        the client to recompute here; the next made by another worker
+        (docs/WorkerProcess.md secs 77, 81)"""
+        first = self.counted("First", Input=2)
+        second = self.counted("Second")
+        second.setExpression("Input", "First.Result")
+        third = self.counted("Third")
+        third.setExpression("Input", "Second.Result")
+        self.doc.recompute()
+        self.assertEqual(third.Result, 16)
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+        group.SetString("PutInFault", "Second")
+        self.addCleanup(group.RemString, "PutInFault")
+        before = self.pool.recomputeInfo()
+        first.Input = 3
+        info = self.byWorker()
+        self.assertEqual(info["Failed"], before["Failed"] + 1, info)
+        self.assertEqual(info["Cancelled"], before["Cancelled"], info)
+        self.assertTrue(info["Reason"].startswith("putting it in threw"), info)
+        self.assertIn("PutInFault", info["Reason"])
+        self.assertEqual(info["Applied"], before["Applied"], info)
+        self.assertEqual(info["ExecutedHere"], 0, info)
+        self.assertEqual(self.pool.info()["Spoiled"], 1, self.pool.info())
+        # stopped after Second: it is left touched, and Third, not come
+        # to, as it was -- untouched, as an edit leaves what reads the
+        # object edited, and made by the next recompute through Second
+        self.assertEqual(self.touched(), ["Second"])
+        self.assertEqual(third.Result, 16)
+        pids = self.pool.info()["Pids"]
+        # the client recomputes here
+        group.RemString("PutInFault")
+        self.doc.recompute()
+        self.assertEqual((first.Result, second.Result, third.Result), (6, 12, 24))
+        self.assertEqual(self.touched(), [])
+        # and the next is a worker's again, not the one let go
+        first.Input = 4
+        info = self.byWorker()
+        self.assertEqual(info["Applied"], before["Applied"] + 1, info)
+        self.assertEqual((first.Result, second.Result, third.Result), (8, 16, 32))
+        self.assertEqual(self.touched(), [])
+        self.assertNotIn(third.MadeBy, pids + [os.getpid()])
 
     def testADocumentThatSkipsRecomputesIsHandedOverOnlyForced(self):
         """A document that skips recomputes: not handed over unless forced,

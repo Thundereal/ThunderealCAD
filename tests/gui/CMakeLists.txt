@@ -1378,6 +1378,13 @@ fc_add_gui_test(GuiReopenVisualBuilds_tests_run
                 reopen-visual-builds.py
                 --timeout 240)
 
+# A document opened hidden by code -- CAM's tool-bit shapes, from a
+# temporary copy -- is not asked about its migration; one opened with a
+# view still is (SandboxPanelMirror.test_cam_op_panel sat in the question).
+fc_add_gui_test(GuiMigrationPromptHidden_tests_run
+                migration-prompt-hidden.py
+                --timeout 120)
+
 # A progressive load (ProgressiveLoad, view providers built after the App
 # load) builds the Gui state an eager load does: per view provider, per
 # scene path to every selection root, a pick grid and the backend's frame,
@@ -1438,6 +1445,23 @@ fc_add_gui_test(GuiOlderLooksOpenTime_tests_run
 fc_add_gui_test(GuiLinkSelectableRestore_tests_run
                 link-selectable-restore.py
                 --timeout 240)
+
+# Selectable on a link, or on what it links: the original keeps its picks
+# under a link set false, a link follows its target's false (and is picked
+# with OverrideSelectability), and a link's setSelectable no longer writes
+# the linked object's own SoFCSelection nodes (notes, 2026-11-28, beside B1).
+fc_add_gui_test(GuiLinkSelectableShared_tests_run
+                link-selectable-shared.py
+                --timeout 400)
+
+# The colour dialogs of Draft's and BIM's layer managers and of a BIM
+# material's task panel take Dialog/DontUseNativeColorDialog: Qt's own
+# dialog, seen and answered, when it is true; the platform's asked for
+# when it is false (recorded, never opened). Before, a plain getColor
+# showed macOS's native panel, which no test can answer.
+fc_add_gui_test(GuiColourDialogPreference_tests_run
+                colour-dialog-preference.py
+                --timeout 300)
 
 # An instanced Part object draws a uniform face colour list at the
 # transparency the list says: the uniform branch took the colour's alpha,

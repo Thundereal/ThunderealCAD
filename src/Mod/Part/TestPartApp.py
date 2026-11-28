@@ -47,6 +47,7 @@ from parttests.ShapeListTest import ShapeListTest
 from parttests.CurveOnSurfaceTest import CurveOnSurfaceTest
 from parttests.GeometrySaveTest import GeometrySaveTest
 from parttests.ShapeContentsSaveTest import ShapeContentsSaveTest
+from parttests.MigrationVersionTest import MigrationVersionTest
 from parttests.DeferredShapeUndoTest import DeferredShapeUndoTest
 from parttests.ShapeDiffTest import ShapeDiffTest, ShapeAtAStateTest, KeptShapesTest
 from parttests.ShapeDiffTest import ShapeMaterialTest

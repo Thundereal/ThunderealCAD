@@ -84,6 +84,7 @@ set(Part_tests
     parttests/CurveOnSurfaceTest.py
     parttests/GeometrySaveTest.py
     parttests/ShapeContentsSaveTest.py
+    parttests/MigrationVersionTest.py
     parttests/DeferredShapeUndoTest.py
     parttests/ShapeDiffTest.py
     parttests/TopoShapeListTest.py

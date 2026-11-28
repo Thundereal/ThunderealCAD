@@ -364,7 +364,17 @@ class SandboxSelectionTest(unittest.TestCase):
                 w.reject()
 
         QtCore.QTimer.singleShot(30, poll)
-        self.guest("fcx_selprobe.%s" % call, session=True)
+        # The actions answer Qt's own dialogs (QFileDialog's name field), so
+        # the call gets Qt's own: a native one -- the system's file dialog
+        # on Windows and macOS -- has no widgets to answer through, and
+        # its QFileDialog carries no fileNameEdit. Restored after
+        attr = QtCore.Qt.ApplicationAttribute.AA_DontUseNativeDialogs
+        was = QtCore.QCoreApplication.testAttribute(attr)
+        QtCore.QCoreApplication.setAttribute(attr, True)
+        try:
+            self.guest("fcx_selprobe.%s" % call, session=True)
+        finally:
+            QtCore.QCoreApplication.setAttribute(attr, was)
         self.settle()
         sys.stderr.write("SandboxSelection: %s %.3f s\n" % (call, time.perf_counter() - t0))
         return outcome
@@ -372,10 +382,15 @@ class SandboxSelectionTest(unittest.TestCase):
     def test_c_dialogs(self):
         from PySide import QtGui, QtWidgets
 
+        # A QMessageBox on macOS never stores its window title (its
+        # setWindowTitle drops it, as the platform's guidelines ask)
+        def box_title(title):
+            return "" if sys.platform == "darwin" else title
+
         # QMessageBox.question: the host clicks Yes
         def yes(w):
             self.assertIsInstance(w, QtWidgets.QMessageBox)
-            self.assertEqual(w.windowTitle(), "Probe")
+            self.assertEqual(w.windowTitle(), box_title("Probe"))
             self.assertEqual(w.text(), "Yes or no?")
             w.button(QtWidgets.QMessageBox.StandardButton.Yes).click()
 
@@ -386,7 +401,7 @@ class SandboxSelectionTest(unittest.TestCase):
         # an instance: title, icon, buttons, the Save clicked
         def save(w):
             self.assertIsInstance(w, QtWidgets.QMessageBox)
-            self.assertEqual(w.windowTitle(), "Probe box")
+            self.assertEqual(w.windowTitle(), box_title("Probe box"))
             self.assertEqual(w.icon(), QtWidgets.QMessageBox.Icon.Warning)
             self.assertEqual(w.text(), "an instance")
             self.assertEqual(w.defaultButton(),

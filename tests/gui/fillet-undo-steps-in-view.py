@@ -235,7 +235,7 @@ def pick_arrow(center, reach=70, step=2):
 def to_window(x, y):
     width, height = view().getSize()
     w = viewer_widget()
-    local = QtCore.QPoint(int(x), int(height - y))
+    local = QtCore.QPoint(int(x), int(height - 1 - y))
     g = w.viewport().mapToGlobal(local) if hasattr(w, "viewport") else w.mapToGlobal(local)
     return mw().mapFromGlobal(g)
 

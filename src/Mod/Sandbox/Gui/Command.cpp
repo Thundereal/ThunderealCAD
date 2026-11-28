@@ -468,7 +468,10 @@ void CmdSandboxDocThreadWithDialog::activated(int)
     QObject::connect(dt, SIGNAL(finished()), dt, SLOT(deleteLater()));
     dt->start();
     //QFileDialog::getOpenFileName();
-    QColorDialog::getColor(Qt::white,Gui::getMainWindow());
+    QColorDialog::getColor(Qt::white, Gui::getMainWindow(), QString(),
+                           Gui::DialogOptions::dontUseNativeColorDialog()
+                               ? QColorDialog::ColorDialogOptions(QColorDialog::DontUseNativeDialog)
+                               : QColorDialog::ColorDialogOptions());
 }
 
 // -------------------------------------------------------------------------------

@@ -50,6 +50,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -390,17 +391,55 @@ std::uint32_t get32(const char* p)
 /// bytes on the wire
 constexpr std::size_t MessageMost = 0xffffffffu;
 
+}  // namespace
+
+std::size_t WorkerPool::messageMost()
+{
+    // A test's seam (docs/WorkerProcess.md sec 80): 4 GiB is half of the
+    // memory of the smallest box these run on, so the refusals are tested
+    // at a size it sets.  Only ever lower; read each time, as a test sets
+    // it after the start, and the workers and helpers it starts inherit it
+    if (const char* most = std::getenv("FC_WORKER_MESSAGE_MOST")) {
+        char* end = nullptr;
+        const unsigned long long n = std::strtoull(most, &end, 10);
+        if (end != most && n > 0 && n < MessageMost) {
+            return static_cast<std::size_t>(n);
+        }
+    }
+    return MessageMost;
+}
+
+std::string WorkerPool::tooBig(std::size_t header, std::size_t body)
+{
+    const std::size_t most = messageMost();
+    if (header <= most && body <= most) {
+        return {};
+    }
+    return std::to_string(header) + " + " + std::to_string(body)
+        + " bytes, more than a message carries";
+}
+
+namespace
+{
+
 /// A message, or nothing for one that does not fit: a length narrowed to
 /// four bytes would have the other end read the rest of it as messages
-/// (docs/WorkerProcess.md sec 77). send() fails on nothing.
-QByteArray message(const json& header, const std::string& body = std::string())
+/// (docs/WorkerProcess.md sec 77). send() fails on nothing.  `why`, when
+/// given, takes the reason and nothing is logged: the caller tells it
+QByteArray message(const json& header, const std::string& body = std::string(),
+                   std::string* why = nullptr)
 {
     // Text that is not UTF-8 -- a console line with a path in the system's
     // encoding -- is sent with the bytes replaced, not thrown over
     const std::string text = header.dump(-1, ' ', false, json::error_handler_t::replace);
-    if (text.size() > MessageMost || body.size() > MessageMost) {
-        FC_ERR("a message of " << text.size() << " + " << body.size()
-                               << " bytes is more than a message carries; not sent");
+    std::string big = WorkerPool::tooBig(text.size(), body.size());
+    if (!big.empty()) {
+        if (why) {
+            *why = std::move(big);
+        }
+        else {
+            FC_ERR("a message of " << big << "; not sent");
+        }
         return {};
     }
     QByteArray out;
@@ -457,12 +496,11 @@ bool saysTooMuch(const std::string& buffer)
 /// Out now: with an event loop a socket writes when the loop next runs,
 /// and a job waited for inside an evaluation would wait for a worker
 /// never told it
-bool send(QLocalSocket& socket, const json& header)
+bool send(QLocalSocket& socket, const QByteArray& bytes)
 {
     if (socket.state() != QLocalSocket::ConnectedState) {
         return false;
     }
-    QByteArray bytes = message(header);
     if (bytes.isEmpty() || socket.write(bytes) != bytes.size()) {
         return false;
     }
@@ -484,6 +522,11 @@ bool send(QLocalSocket& socket, const json& header)
         }
     }
     return true;
+}
+
+bool send(QLocalSocket& socket, const json& header)
+{
+    return send(socket, message(header));
 }
 
 /// What send() left with the socket, out before it is closed
@@ -1329,6 +1372,16 @@ struct WorkerPool::Private
     /// Cancelled; true if one is made there now
     bool keepPinned(const std::string& was, std::vector<std::pair<std::function<void(Result&)>, Result>>& told);
     void grow();
+    /// grow()'s rule for whether another worker may start, the demand
+    /// aside: under the limit, each worker having made a job -- so what
+    /// one holds is known -- and the memory left fitting one more
+    bool roomForAnother() const;
+    /// grow()'s demand side for a client taking results as they come:
+    /// another worker only once it had to wait for one
+    bool consuming() const
+    {
+        return now() - lastClaim < 2.0;
+    }
     void deliver(JobId id, Result& result);
     /// What the job's workers said, into its result
     static void takeMessages(Entry& entry, Result& result)
@@ -2900,8 +2953,31 @@ void WorkerPool::Private::sendJob(Proc& proc, JobId id)
     // before the job does: a job it runs is never decided by an answer
     // this process no longer gives
     std::string security = ExpressionSecurity::Runtime::instance().exportState();
-    if (security != proc.security) {
+    const bool told = security != proc.security;
+    if (told) {
         header["security"] = security;
+    }
+    // One too big to go fails here, its worker not told it and kept for
+    // the next: sent, it would have ended the worker, and the job gone to
+    // another to end that too, a death over nothing it did (sec 80)
+    std::string why;
+    const QByteArray bytes = message(header, std::string(), &why);
+    if (bytes.isEmpty()) {
+        ++failed;
+        Result result;
+        result.id = id;
+        result.kind = it->second.job.kind;
+        result.tag = it->second.job.tag;
+        result.status = Result::Status::Failed;
+        result.error = "the job is " + why + "; not sent to a worker";
+        FC_LOG(doc.getName() << ": " << result.error);
+        takeMessages(it->second, result);
+        deliver(id, result);
+        changedNotice();
+        dispatch(proc);
+        return;
+    }
+    if (told) {
         proc.security = std::move(security);
     }
     it->second.running = true;
@@ -2914,7 +2990,7 @@ void WorkerPool::Private::sendJob(Proc& proc, JobId id)
     proc.began = it->second.sentAt;
     proc.idleSince = 0;
     proc.keptOpen = false;
-    if (!send(*proc.socket, header)) {
+    if (!send(*proc.socket, bytes)) {
         kill(proc);
     }
 }
@@ -3091,45 +3167,50 @@ void WorkerPool::Private::checkStalled()
     }
 }
 
-void WorkerPool::Private::grow()
+bool WorkerPool::Private::roomForAnother() const
 {
-    if (copy.empty() || static_cast<int>(procs.size()) >= limit || queue.empty()) {
-        return;
+    if (copy.empty() || static_cast<int>(procs.size()) >= limit) {
+        return false;
     }
     // One at a time, and once each has done a job: then what one holds is
     // known, and the memory left says whether another fits
     std::size_t biggest = 0;
     for (auto& proc : procs) {
         if (!proc->made || proc->quitting) {
-            return;
+            return false;
         }
         biggest = std::max(biggest, proc->resident);
     }
     if (!biggest) {
-        return;
-    }
-    // With a client taking the results as they come, another worker only
-    // when it had to wait for one or do one itself; with none, when there
-    // are more jobs, running and queued, than workers -- a recompute split
-    // in two has one running and one waiting (docs/WorkerProcess.md sec 42)
-    const bool consuming = now() - lastClaim < 2.0;
-    std::size_t running = 0;
-    for (auto& proc : procs) {
-        running += proc->job ? 1 : 0;
-    }
-    if (consuming ? !starved : queue.size() + running <= procs.size()) {
-        return;
+        return false;
     }
     const std::size_t total = totalMemory();
     const std::size_t reserve = std::max<std::size_t>(std::size_t(1) << 30, total / 7);
     const std::size_t available = availableMemory();
     const std::size_t need = biggest + biggest / 4;
     if (available) {
-        if (available < reserve + need) {
-            return;
-        }
+        return available >= reserve + need;
     }
-    else if (total && (procs.size() + 1) * biggest > total / 2) {
+    return !total || (procs.size() + 1) * biggest <= total / 2;
+}
+
+void WorkerPool::Private::grow()
+{
+    if (copy.empty() || queue.empty()) {
+        return;
+    }
+    // With a client taking the results as they come, another worker only
+    // when it had to wait for one or do one itself; with none, when there
+    // are more jobs, running and queued, than workers -- a recompute split
+    // in two has one running and one waiting (docs/WorkerProcess.md sec 42)
+    std::size_t running = 0;
+    for (auto& proc : procs) {
+        running += proc->job ? 1 : 0;
+    }
+    if (consuming() ? !starved : queue.size() + running <= procs.size()) {
+        return;
+    }
+    if (!roomForAnother()) {
         return;
     }
     starved = false;
@@ -3371,6 +3452,46 @@ bool WorkerPool::start()
 bool WorkerPool::started() const
 {
     return !d->copy.empty();
+}
+
+int WorkerPool::standingFree() const
+{
+    if (d->copy.empty()) {
+        return 0;
+    }
+    if (d->procs.empty()) {
+        return 1;
+    }
+    // Free for a job now: up -- it has opened a copy once, so a move to a
+    // newer one, which an edit sends it as the recompute is asked for, is
+    // all it has to do first -- and idle. One still starting is not
+    // counted on: what is left of its start is not known (sec 83). One
+    // told to go is not either
+    int free = 0;
+    for (auto& proc : d->procs) {
+        if (!proc->copyDir.empty() && !proc->job && !proc->quitting && !proc->over) {
+            ++free;
+        }
+    }
+    free = std::max(0, free - static_cast<int>(d->queue.size()));
+    return std::clamp(free, 1, std::max(1, d->limit));
+}
+
+bool WorkerPool::startsAnother() const
+{
+    // The one grow() would start for jobs left waiting.  For a client
+    // taking results as they come, grow() waits until it had to wait, so
+    // that one is not counted on
+    return !d->copy.empty() && !d->procs.empty() && (!d->consuming() || d->starved)
+        && d->roomForAnother();
+}
+
+int WorkerPool::sideBySide() const
+{
+    if (d->copy.empty()) {
+        return 0;
+    }
+    return std::min(standingFree() + (startsAnother() ? 1 : 0), std::max(1, d->limit));
 }
 
 WorkerPool::JobId WorkerPool::submit(Job job)
@@ -4599,7 +4720,18 @@ int WorkerPool::serve()
         relay->flush();  // what other threads said, before the result
         lastJob = header.value("job", JobId(0));
         setUpSince = false;
-        if (!send(socket, answer)) {
+        // A result too big to go is answered as a failure saying so: not
+        // sent, the worker would end and its job go to another (sec 80)
+        std::string why;
+        QByteArray bytes = message(answer, std::string(), &why);
+        if (bytes.isEmpty()) {
+            answer["ok"] = false;
+            answer["unfit"] = false;
+            answer["output"] = json::object();
+            answer["error"] = "its result is " + why;
+            bytes = message(answer);
+        }
+        if (!send(socket, bytes)) {
             break;
         }
     }
@@ -4931,6 +5063,7 @@ public:
         dict.setItem("Stalled", Py::Long(i.stalled));
         dict.setItem("Spoiled", Py::Long(i.spoiled));
         dict.setItem("Busy", Py::Long(i.busy));
+        dict.setItem("SideBySide", Py::Long(p.sideBySide()));
         dict.setItem("Queued", Py::Long(static_cast<unsigned long>(i.queued)));
         dict.setItem("Resident", Py::Long(static_cast<unsigned long>(i.resident)));
         dict.setItem("Done", Py::Long(i.done));
@@ -5121,6 +5254,8 @@ public:
         dict.setItem("Risky", risky);
         dict.setItem("HandedOver", Py::Long(i.handedOver));
         dict.setItem("Split", Py::Long(i.split));
+        dict.setItem("SplitWorkers", Py::Long(i.splitWorkers));
+        dict.setItem("SplitStartWeighed", Py::Float(i.splitStartWeighed));
         dict.setItem("SplitSaving", Py::Float(i.splitSaving));
         Py::Tuple parts(i.splitObjects.size());
         for (std::size_t k = 0; k < i.splitObjects.size(); ++k) {

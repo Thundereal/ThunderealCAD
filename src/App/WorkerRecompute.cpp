@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <stdexcept>
 #include <deque>
 #include <fstream>
 #include <functional>
@@ -157,6 +158,19 @@ void RecomputeHook::executing(DocumentObject&)
 void RecomputeHook::executed(DocumentObject&, int, double)
 {}
 
+bool RecomputeHook::wasPutIn(const DocumentObject& obj) const
+{
+    (void)obj;
+    return false;
+}
+
+bool RecomputeHook::isPutIn(const DocumentObject& obj)
+{
+    auto doc = obj.getDocument();
+    auto hook = doc ? of(*doc) : nullptr;
+    return hook && hook->wasPutIn(obj);
+}
+
 RecomputeHook* RecomputeHook::of(const Document& doc)
 {
     for (auto hook = innermost; hook; hook = hook->_outer) {
@@ -262,9 +276,11 @@ bool notSaved(const Property& prop)
 /// properties it added (object, name, type, group, doc, attributes, read
 /// only, hidden), and each object it executed, in order: its name, whether it came out, its error,
 /// its seconds, the one whose execute() ran it (its place plus one, 0 for
-/// none; sec 46), and what its execute() wrote -- each value's object and
-/// property by name, its fragment and its attachments
-const char RecomputeMagic[8] = {'F', 'C', 'W', 'R', 'C', 'P', '0', '2'};
+/// none; sec 46), what its execute() wrote -- each value's object and
+/// property by name, its fragment and its attachments -- and the dynamic
+/// properties it removed (object, name); last, those removed once no object
+/// was executing (docs/WorkerProcess.md sec 84)
+const char RecomputeMagic[8] = {'F', 'C', 'W', 'R', 'C', 'P', '0', '3'};
 
 /** Made here, never from a worker's values: an object whose result is not
  * all in its properties (DocumentObject::resultInProperties), which values
@@ -404,6 +420,9 @@ public:
         /// What it did to views, in order (JSON each), done again to the
         /// view providers where it is put in (sec 73)
         std::vector<std::string> views;
+        /// The dynamic properties it removed, object and name: removed
+        /// where it is put in, before its values
+        std::vector<std::pair<std::string, std::string>> removed;
     };
 
     /// The one recording, for noteFaked(): the recompute's thread's. What
@@ -459,12 +478,35 @@ public:
                     added.emplace_back(obj, prop.getName());
                 }
             }));
+        // One removed goes with the entry that removed it, or after them all
+        // when the recompute's end removed it (Part's retained generations,
+        // let go once nothing refers to them): the other process removes it
+        // as well. Written before, its value is not sent -- the property is
+        // gone, and its address may be the next one's
         conns.emplace_back(GetApplication().signalRemoveDynamicProperty.connect(
             [this](const Property& prop) {
                 auto obj = freecad_cast<DocumentObject*>(prop.getContainer());
-                if (obj && obj->getDocument() == &this->doc && spoiled.empty()
-                    && !notSaved(prop)) {
-                    spoiled = prop.getFullName() + " was removed by the recompute";
+                if (!obj || obj->getDocument() != &this->doc || !obj->getNameInDocument()
+                    || !prop.getName()) {
+                    return;
+                }
+                if (seen.erase(&prop)) {
+                    for (auto& entry : entries) {
+                        auto& w = entry.writes;
+                        w.erase(std::remove_if(w.begin(), w.end(),
+                                               [&prop](const auto& p) { return p.second == &prop; }),
+                                w.end());
+                    }
+                }
+                if (notSaved(prop)) {
+                    return;
+                }
+                std::pair<std::string, std::string> key(obj->getNameInDocument(), prop.getName());
+                if (running.empty()) {
+                    removedAfter.push_back(std::move(key));
+                }
+                else if (!entries[running.back()].here) {
+                    entries[running.back()].removed.push_back(std::move(key));
                 }
             }));
     }
@@ -574,6 +616,9 @@ public:
     std::set<const Property*> seen;
     std::string spoiled;
     std::vector<std::pair<DocumentObject*, std::string>> added;
+    /// The dynamic properties removed once no object was executing, object
+    /// and name: removed where it is put in, once its recompute is over
+    std::vector<std::pair<std::string, std::string>> removedAfter;
     long left = 0;  ///< objects left for the other process to make
     std::function<void(const std::string&)> at;
     /// What the other process does not execute, each with its error
@@ -659,6 +704,18 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
             if (hint.is_string()) {
                 display[name] = hint.get<std::string>();
             }
+        }
+    }
+    // The asking process's table spelling digests where the copy's counts
+    // ids: an old file whose migration its user accepted, switched just
+    // before the recompute was asked for -- nothing in the log says so. The
+    // copy switched too, its names are spelt as the asking process would
+    // spell them (docs/WorkerProcess.md sec 85)
+    auto spelling = inputs.find("contentIds");
+    if (spelling != inputs.end() && spelling->is_boolean() && spelling->get<bool>()) {
+        auto hasher = doc->getStringHasher();
+        if (hasher && !hasher->getContentIds()) {
+            doc->spellNamesByContent();
         }
     }
     // What the asking process has to recompute: an object it marked to be
@@ -981,6 +1038,16 @@ WorkerPool::Reply makeRecompute(const WorkerPool::Request& request)
                     putBytes(s, a.bytes);
                 }
             }
+            putSize(s, entry.removed.size());
+            for (auto& [object, name] : entry.removed) {
+                putBytes(s, object);
+                putBytes(s, name);
+            }
+        }
+        putSize(s, recorder.removedAfter.size());
+        for (auto& [object, name] : recorder.removedAfter) {
+            putBytes(s, object);
+            putBytes(s, name);
         }
         bytes = static_cast<std::size_t>(s.tellp());
         return bool(s);
@@ -1137,6 +1204,8 @@ public:
         /// outer one is put in rather than executed (docs/WorkerProcess.md
         /// sec 46)
         std::vector<std::string> inner;
+        /// The dynamic properties its execute() removed, object and name
+        std::vector<std::pair<std::string, std::string>> removed;
     };
     struct Added
     {
@@ -1151,6 +1220,10 @@ public:
     explicit Supplier(Document& doc)
         : RecomputeHook(doc)
         , doc(doc)
+        // A test's fault (docs/WorkerProcess.md sec 81): read once, here
+        , fault(GetApplication()
+                    .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+                    ->GetASCII("PutInFault", ""))
     {}
 
     /// Read a worker's file; false, `why` set, when it does not read
@@ -1258,13 +1331,81 @@ public:
                 }
                 v.value.ok = true;
             }
+            if (!readRemoved(in, most, entry.removed)) {
+                why = "its properties do not read";
+                return false;
+            }
             read.emplace_back(name, std::move(entry));
+        }
+        if (!readRemoved(in, most, removedAfter)) {
+            why = "its properties do not read";
+            return false;
         }
         for (auto& [object, entry] : read) {
             entries[object].push_back(std::move(entry));
             ++count;
         }
         return true;
+    }
+
+    static bool readRemoved(std::istream& in,
+                            std::uint64_t most,
+                            std::vector<std::pair<std::string, std::string>>& removed)
+    {
+        std::uint64_t n = 0;
+        if (!getSize(in, n) || n > most) {
+            return false;
+        }
+        removed.resize(n);
+        for (auto& [object, name] : removed) {
+            if (!getBytes(in, object, most) || !getBytes(in, name, most)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Remove what a worker's recompute removed, `object` `name`: one
+    /// already gone is the same -- this process's own recompute may have let
+    /// it go. False if it names what is not a dynamic property here
+    bool remove(const std::string& object, const std::string& name)
+    {
+        auto owner = doc.getObject(object.c_str());
+        if (!owner) {
+            return false;
+        }
+        if (owner->getDynamicPropertyByName(name.c_str())) {
+            owner->removeDynamicProperty(name.c_str());
+            ++propertiesRemoved;
+            return true;
+        }
+        return !owner->getPropertyByName(name.c_str());
+    }
+
+    /// Once the recompute is over: what the worker's removed once no object
+    /// was executing -- Part's retained generations, let go by its
+    /// reconcile when nothing refers to them any more. The worker's end
+    /// state only where all was put in: with an object executed here, what
+    /// refers to what is this process's own, and its reconcile decides.
+    /// Each that is not here is a warning, the values in already
+    void removeAfter()
+    {
+        if (executedHere) {
+            if (!removedAfter.empty()) {
+                FC_LOG(doc.getName() << ": " << removedAfter.size()
+                                     << " properties a worker's recompute removed left to this "
+                                        "process, which executed some itself");
+            }
+            removedAfter.clear();
+            return;
+        }
+        for (auto& [object, name] : removedAfter) {
+            if (!remove(object, name)) {
+                FC_WARN(doc.getName() << ": a worker's recompute removed " << object << "."
+                                      << name << ", which is not a dynamic property here");
+            }
+        }
+        removedAfter.clear();
     }
 
     /// Before the recompute: its strings under their ids, or else read by
@@ -1322,6 +1463,8 @@ public:
         for (auto& [key, a] : other.added) {
             added.emplace(key, a);
         }
+        removedAfter.insert(removedAfter.end(), other.removedAfter.begin(),
+                            other.removedAfter.end());
         bytes += other.bytes;
         seconds = std::max(seconds, other.seconds);
     }
@@ -1339,6 +1482,16 @@ public:
         auto it = answered.find(&obj);
         const bool supplied = it != answered.end() && it->second.first;
         times()[&doc].seconds[obj.getID()] = supplied ? it->second.second.seconds : took;
+        // Workers/PutInFault, a test's: once the object it names is put in,
+        // what a put-in that is not the user's abort meets -- a
+        // std::exception out of the recompute's own code, between two
+        // objects, where Document::recompute() catches only an abort and
+        // Base::Exception (a bad_alloc, a JSON error).  Never set by the
+        // application
+        if (supplied && !fault.empty() && fault == obj.getNameInDocument()) {
+            throw std::runtime_error("a fault put in by Workers/PutInFault after "
+                                     + fault);
+        }
     }
 
     bool make(DocumentObject& obj, Made& made) override
@@ -1408,6 +1561,16 @@ public:
         try {
             PuttingIn checked;
             RestoreBatch batch;
+            // What its execute() removed there, before what it wrote: a
+            // property removed and added again is written as the one added
+            for (auto& [object, name] : entry.removed) {
+                if (!remove(object, name)) {
+                    FC_WARN(doc.getName() << ": a worker's recompute removed " << object << "."
+                                          << name << ", which is not a dynamic property here");
+                    noteHere(obj);
+                    return false;  // executed here, which removes it as it does
+                }
+            }
             for (auto& v : entry.values) {
                 auto owner = doc.getObject(v.object.c_str());
                 auto prop = owner ? owner->getPropertyByName(v.prop.c_str()) : nullptr;
@@ -1476,6 +1639,12 @@ public:
     /// What make() said of each object in its current recompute
     std::map<const DocumentObject*, std::pair<bool, Made>> answered;
 
+    bool wasPutIn(const DocumentObject& obj) const override
+    {
+        auto it = answered.find(&obj);
+        return it != answered.end() && it->second.first;
+    }
+
     void noteHere(const DocumentObject& obj)
     {
         FC_LOG(obj.getFullName() << ": not made by the worker, executed here");
@@ -1502,6 +1671,9 @@ public:
     std::unordered_map<std::string, std::deque<Entry>> entries;
     std::map<std::string, Added> added;  ///< by object.property
     long propertiesAdded = 0;
+    /// What the worker's recompute removed once no object was executing
+    std::vector<std::pair<std::string, std::string>> removedAfter;
+    long propertiesRemoved = 0;
     std::vector<StringHasher::Row> rows;
     bool byId = false;
     bool takenById = false;
@@ -1519,6 +1691,8 @@ public:
     /// Made from the worker's values, by name: what the worker holds as
     /// they were put in (docs/WorkerProcess.md sec 29)
     std::set<std::string> fromWorker;
+    /// Workers/PutInFault: the object after whose put-in it throws, a test's
+    const std::string fault;
     long madeByType = 0;  ///< executed here by their type (madeHere())
     /// A split one's joins, sent to no worker: made here (sec 59)
     std::set<std::string> joined;
@@ -1877,6 +2051,29 @@ void apply(State& s)
             last = &p;
         }
     }
+    // Side by side, as it was split for (sec 79): parts that came in and
+    // ran one after another -- the worker counted on did not come up in
+    // time, and the first part's took the next -- are not a split
+    if (s.parts.size() > 1) {
+        std::vector<std::pair<double, double>> ran;
+        for (auto& p : s.parts) {
+            if (!p.file.empty()) {
+                ran.emplace_back(p.queued, p.queued + p.returned);
+            }
+        }
+        std::sort(ran.begin(), ran.end());
+        bool together = ran.size() < 2;  // a part dropped or failed: not known
+        double end = ran.empty() ? 0 : ran[0].second;
+        for (std::size_t k = 1; k < ran.size() && !together; ++k) {
+            together = ran[k].first < end;
+            end = std::max(end, ran[k].second);
+        }
+        if (!together && s.info.split > 0) {
+            --s.info.split;
+            FC_LOG(s.doc.getName() << ": a recompute split over " << s.parts.size()
+                                   << " workers ran one part after another: not counted");
+        }
+    }
     WorkerRecompute::Info::Times times;
     times.start = s.startSeconds;
     if (last) {
@@ -1942,6 +2139,7 @@ void apply(State& s)
         Base::FlagToggler<bool> applying(s.applying, false);
         try {
             s.doc.recompute(objs, s.forced);
+            supplier->removeAfter();
         }
         catch (Base::AbortException& e) {
             aborted = true;
@@ -2956,6 +3154,8 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         refused[crashed] = why;
     }
     const std::string name = doc.getName();
+    auto hasher = doc.getStringHasher();
+    const bool contentIds = hasher && hasher->getContentIds();
     // One job of `part`: what it recomputes, what of it is touched here,
     // how the view meshes it, the numbers each gave so far (sec 36)
     auto jobOf = [&](const std::set<DocumentObject*>& part, std::vector<std::string>& names,
@@ -3000,6 +3200,7 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
                            {"touched", touchedHere},
                            {"display", meshes ? display : json::object()},
                            {"tables", s.tables},
+                           {"contentIds", contentIds},
                            {"refused", refused},
                            {"numbers", numbers},
                            {"view", view}}
@@ -3008,14 +3209,48 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
         return job;
     };
     // Parts where more workers save enough (secs 42, 44): one, the longest
-    // chain of what it reaches and all after it; the others, the rest
+    // chain of what it reaches and all after it; the others, the rest.  As
+    // many parts as can run side by side NOW, not as the pool's limit
+    // allows (sec 79): a part with no worker to run it waits for the
+    // first part's worker, the halves run one after the other, and the
+    // split is slower than the recompute whole
+    const int standing = pool->standingFree();
+    const bool another = pool->startsAnother();
     const double least = GetApplication()
                              .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
                              ->GetFloat("SplitSeconds", 2.0);
+    int sideBySide = std::min(standing + (another ? 1 : 0), std::max(1, pool->info().limit));
     double saving = 0;
     std::set<DocumentObject*> joined;
-    const std::vector<std::set<DocumentObject*>> parts =
-        splitParts(doc, all, pool->info().limit, least, saving, joined, s.risky);
+    std::vector<std::set<DocumentObject*>> parts =
+        splitParts(doc, all, sideBySide, least, saving, joined, s.risky);
+    // A part that needs a worker not yet standing waits for its start
+    // before it runs anything (sec 83): that worker is counted only when
+    // what the split saves, less the start the pool has measured, still
+    // clears SplitSeconds.  Not measured -- no worker of this pool has
+    // started -- it is not counted
+    s.info.splitStartWeighed = 0;
+    if (another && static_cast<int>(parts.size()) > standing) {
+        double start = pool->info().startSeconds;
+        // Workers/WeighStartSeconds, a test's: the start weighed in place of
+        // the one measured, so that a test's verdict does not turn on how
+        // long a worker took to start on the box it runs on (a loaded one's
+        // later starts ran past a margin read from an earlier one)
+        const double given = GetApplication()
+                                 .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+                                 ->GetFloat("WeighStartSeconds", 0.0);
+        if (given > 0) {
+            start = given;
+        }
+        s.info.splitStartWeighed = start;
+        if (start <= 0 || saving - start < least) {
+            FC_LOG(doc.getName() << ": a split saving " << saving << " s not made over a worker "
+                                 << "to be started, which takes " << start << " s");
+            sideBySide = standing;
+            parts = splitParts(doc, all, sideBySide, least, saving, joined, s.risky);
+        }
+    }
+    s.info.splitWorkers = sideBySide;
     std::vector<std::string> names;
     std::vector<State::Part> made;
     if (parts.size() > 1) {

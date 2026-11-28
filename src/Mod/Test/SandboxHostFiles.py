@@ -60,6 +60,16 @@ import unittest
 import FreeCAD
 
 PARAMS = "User parameter:BaseApp/Preferences/Expression/Sandbox"
+
+
+def names(pending, path):
+    """Whether a pending row is about `path`.  The row's target is the
+    stored form, links resolved (/var/... is /private/var/... on macOS,
+    and every mkdtemp path is under it), and `shown` is the spelling it
+    was asked for by: a test that looked for its own spelling in the
+    target alone would never find the row, and its "nothing pending"
+    would hold whatever was pending."""
+    return os.path.realpath(path) in pending["target"] or path in pending.get("shown", "")
 RECENT_FILES = "User parameter:BaseApp/Preferences/RecentFiles"
 
 # A host command that THROWS while it runs through the guest's
@@ -329,7 +339,18 @@ class SandboxHostFilesTest(unittest.TestCase):
                 w.reject()
 
         QtCore.QTimer.singleShot(30, poll)
-        self.activate(task, read=False)
+        # The action answers Qt's own dialog (QFileDialog's name field), so
+        # the task gets Qt's own: a native one -- the NSSavePanel and
+        # NSOpenPanel on macOS -- is no QWidget, nothing here can answer
+        # it, and the run waits in it until the gate is killed.  Restored
+        # after, whatever happened.
+        attr = QtCore.Qt.ApplicationAttribute.AA_DontUseNativeDialogs
+        was = QtCore.QCoreApplication.testAttribute(attr)
+        QtCore.QCoreApplication.setAttribute(attr, True)
+        try:
+            self.activate(task, read=False)
+        finally:
+            QtCore.QCoreApplication.setAttribute(attr, was)
         if not read:
             # The read-back evaluates under self.owner, and a case that
             # closed its document has no live owner left: the evaluation
@@ -438,7 +459,7 @@ class SandboxHostFilesTest(unittest.TestCase):
         pend = [
             p
             for p in self.Sec.pending()
-            if p["permission"] == "host.exec" and self.macro in p["target"]
+            if p["permission"] == "host.exec" and names(p, self.macro)
         ]
         self.assertFalse(pend, "an answered deny still queued a question: %r" % pend)
 
@@ -502,7 +523,7 @@ class SandboxHostFilesTest(unittest.TestCase):
             [
                 p
                 for p in self.Sec.pending()
-                if p["permission"] == "fs.read" and self.target in p["target"]
+                if p["permission"] == "fs.read" and names(p, self.target)
             ],
             "a blessed path still asked for fs.read",
         )

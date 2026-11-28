@@ -3402,6 +3402,71 @@ inside the call from the call's start and the rest from its return, in
 one list. It dates them all from the return now; this run's list is not
 quoted.
 
+### 18.19 The pre-mesh in the drain's order, and a test's shared shapes (2026-11-28)
+
+`tests/gui/hold-per-document.py` failed its sequences 3 and 4 every time
+on the mini: 7 of 9. It failed with `Workers/MeshInWorker` on and off, as
+on Windows (docs/WorkerProcess.md sec 71). Two things were wrong, and
+the test had hidden the second behind the first.
+
+**The test's documents shared their shapes.** Every file's i-th solid
+was `prism(990, 30.0 + 0.01 * i, 10)`, so Small's 20 were New's first 20
+and Old's first 20. Identical geometry read into two documents is held
+once, as one TShape: New's `B0` and Small's `C0` are `isSame()`. The
+pre-mesh keys its claims by TShape, and a shape already claimed is
+covered by that claim. So Small's 20 submitted items made no claim.
+Small's visuals waited for New's meshes and were filled in as those
+landed, whatever the order. A temporary trace showed it: 80 claims
+handed out for New, none for Small, with the drain submitting 20 for
+Small. The fixture now gives each file its own radii (`RADIUS`: 30, 31,
+32, each + 0.01 i).
+
+**The pre-mesh ignored the order.** Sec 18.15's open item, "the workers
+do not know the order". `PartGui/PreMesh.cpp` handed claims out from
+one first-come queue, within a window of 50000 faces and edges. New, 80
+solids of 992 faces, has more than the window. A later opened document's
+claims came in behind the rest of an earlier one's, and its visuals
+stalled on them. With the fixture fixed, the
+coordinator's choice (2026-11-28): hand the claims out in the drain's
+order.
+- Each claim knows its document (`PreMeshItem::document`). The claims
+  wait in one queue per document.
+- `dispatch()` takes the next claim from the first document of the
+  order that has one, so the document behind gets one only when the
+  front one has none left to hand out.
+- The order is the visual drain's own sort, now `drainOrder()` in
+  ViewProviderExt.cpp: the active view's document first, then the later
+  opened. The active document is listed even with no visuals left, for
+  its refinements.
+- It is asked at each hand-out (`setPreMeshOrder`), so a view made the
+  active one mid-load re-orders what has not gone yet.
+- A document the order does not name goes after, in the order its first
+  claim came. A queue left empty goes.
+- A document closed mid-load drops its claims no worker has, with those
+  waiting behind an out claim for a shared face (`dropPreMeshClaims`,
+  from the delete observer). One that is out ends as it comes back.
+
+**Measured**, three runs of each on the mini (8 threads):
+
+| | sequence 3: Small (active, later opened) filled in by | New by | sequence 4: New (active) by | Small by | checks |
+|---|---|---|---|---|---|
+| shared fixture (before) | not read; New built 11 to 21 meanwhile | not read | 2.8 to 4.5 s | 1.4 to 2.2 s, first | 7 of 9 |
+| own shapes, one queue | 5.5 to 5.6 s, after New | 4.6 s | 4.5 s | 5.7 to 5.8 s | 8 of 9 (3 fails) |
+| own shapes, the drain's order | 1.85 to 1.97 s | 5.6 to 5.7 s | 4.56 to 4.61 s | 5.6 to 5.9 s | 9 of 9 |
+
+In sequence 3 New built 0 visuals while Small filled in. In sequence 4
+Small built 0 or 1 while New did.
+
+**Not changed, and failing on the code before this as after it.**
+`tests/gui/close-during-view-provider-drain.py` fails "no close raised a
+box" with a `QDialog`. `tests/gui/drain-turn-grows.py` fails "the visual
+drain takes longer turns where the frame is dear": 8 to 9 slices and
+0.35 to 0.39 s against 16 to 17 and 0.23 s. Both were run twice
+without the change and once with it, with the same results. These are
+separate items. `drain-waits-for-premesh`, `close-during-visual-drain`,
+`reopen-visual-builds`, `reopen-claimed-child-pick`,
+`progressive-load-diff` and `part-tessellation-reload` pass with it.
+
 ## 19. Progressive load against eager (2026-09-29)
 
 ProgressiveLoad (sec 13, default on since `d53ba63848`) builds a restored

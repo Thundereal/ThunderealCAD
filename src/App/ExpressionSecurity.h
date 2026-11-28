@@ -176,6 +176,21 @@ AppExport bool isGrantable(PrincipalClass pclass, Permission perm);
  */
 AppExport std::string normalizeHostPath(const std::string &path);
 
+/// fs.read, fs.write and host.exec: the permissions whose target is a
+/// host path.
+AppExport bool isHostPathPermission(Permission perm);
+
+/** A target in the form the runtime stores and looks up: for a host
+ * path permission, normalizeHostPath of it ("*" and "" unchanged);
+ * every other target as given.  Grants, revokes, pending clears and
+ * lookups all pass through it, so a grant and the check it answers
+ * compare one spelling.  Resolving at GRANT time matters as much as at
+ * check time: a grant names the file a link pointed at when the user
+ * answered, and a link repointed afterwards does not carry the grant to
+ * its new file.
+ */
+AppExport std::string hostTarget(Permission perm, const std::string &target);
+
 /** The picker-blessed paths (S1, docs/Sandbox.md 7.13): a path the
  * host's own file dialog returned while a guest scope was active is a
  * capability -- the user chose that file in the guest's nested modal --

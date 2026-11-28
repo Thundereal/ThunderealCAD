@@ -585,7 +585,18 @@ class SandboxSessionDocTest(unittest.TestCase):
                 QtCore.QTimer.singleShot(30, poll)
 
         QtCore.QTimer.singleShot(30, poll)
-        self.activate(task, read=False)
+        # The action answers Qt's own dialog (QFileDialog's name field), so
+        # the task gets Qt's own: a native one -- the NSSavePanel and
+        # NSOpenPanel on macOS -- is no QWidget, nothing here can answer
+        # it, and the run waits in it until the gate is killed.  Restored
+        # after, whatever happened.
+        attr = QtCore.Qt.ApplicationAttribute.AA_DontUseNativeDialogs
+        was = QtCore.QCoreApplication.testAttribute(attr)
+        QtCore.QCoreApplication.setAttribute(attr, True)
+        try:
+            self.activate(task, read=False)
+        finally:
+            QtCore.QCoreApplication.setAttribute(attr, was)
         sys.stderr.write("SandboxSessionDoc: %s %.3f s\n" % (task, time.perf_counter() - t0))
         got = self.outcome(task, " (dialog drive: %s)" % outcome)
         return outcome, got
@@ -612,9 +623,14 @@ class SandboxSessionDocTest(unittest.TestCase):
 
         outcome, got = self.drive("saveas_picked", name_it)
         self.assertEqual(outcome, ["ok"])
-        self.assertEqual(got, [picked, picked])
+        # In Qt's spelling, '/' between the parts on every system: what
+        # the dialog returns, and so what host code asking it gets too --
+        # the guest is told the same. Not normcase: a wrong letter case
+        # would be a wrong answer
+        qt = picked.replace(os.sep, "/")
+        self.assertEqual(got, [qt, qt])
         self.assertTrue(os.path.isfile(picked))
-        self.assertEqual(self.doc.FileName, picked)
+        self.assertEqual(self.doc.FileName, qt)
         # saveAs to a path the guest made up: refused, nothing written
         madeup = os.path.join(self.tmp, "madeup.FCStd")
         self.param(madeup=madeup)
@@ -622,7 +638,7 @@ class SandboxSessionDocTest(unittest.TestCase):
         self.assertIn("PermissionError", got)
         self.assertIn("file dialog", got)
         self.assertFalse(os.path.exists(madeup))
-        self.assertEqual(self.doc.FileName, picked)
+        self.assertEqual(self.doc.FileName, qt)
 
 
     # ---- 8. Gui.doCommand in the guest (S2) -----------------------------

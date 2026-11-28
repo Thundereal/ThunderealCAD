@@ -2276,8 +2276,11 @@ NIST files carry (CTC-03: 61 of them), were read as nothing and written as nothi
   frame's symbols is its own); a view's scale and its world and camera coordinates -- a
   10 mm cube's corners carried by the camera: its axes are the camera's, but where the cube
   lands follows a convention the files do not show (STC-08), and the scale is 0.3395 in
-  every view of every file, CATIA's; the counts of semantic text notes; tessellated
-  validation properties (of a part's tessellated geometry: FTC-08 -e4-tg's).
+  every view of every file, CATIA's; tessellated validation properties (of a part's
+  tessellated geometry: FTC-08 -e4-tg's).
+- **A part's semantic texts counted** (since 2026-11-28): the notes' words written, of the
+  part, presented by a graphic (the text or the shape aspect it is of: 'on PMI'), else on
+  geometry. STC-08's, the one file with them, are NIST's: 3, all on PMI.
 - **A view's against NIST's:** STC-08's counts by kind are NIST's, view for view; STC-07's
   areas shown are (to 1e-4). STC-07's curve lengths are not: each of its views maps curves of
   its own (MBD_B three sets, the others none), where FreeCAD's views show all the part's

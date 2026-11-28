@@ -77,6 +77,12 @@ GRAPHIC_MEASURES = {
 }
 VALIDATION_COMPUTED |= GRAPHIC_MEASURES
 
+# A part's semantic texts (notes' words): of the part, presented (on PMI), else on geometry
+SEMANTIC_TEXT_COUNTS = ("number of semantic text notes", "number of semantic text notes on part",
+                        "number of semantic text notes on PMI",
+                        "number of semantic text notes on geometry")
+VALIDATION_COMPUTED |= set(SEMANTIC_TEXT_COUNTS)
+
 # A view's: its callouts by what they present, and what it shows of the shapes
 VIEW_COUNTS = ("number of tolerance annotations", "number of dimension annotations",
                "number of datum annotations", "number of other annotations")
@@ -2010,6 +2016,13 @@ class TestNistSet(Base):
                     self.assertEqual(len(ours), len(nists), cls)
                     for x, y in zip(ours, nists):
                         self.assertLess(abs(x - y), 1e-2 * y, (cls, ours, nists))
+
+                # A part's semantic texts counted: NIST's (STC-08's)
+                def texts(groups):
+                    return sorted(tuple(g[2].get(k) for k in SEMANTIC_TEXT_COUNTS)
+                                  for g in groups if set(SEMANTIC_TEXT_COUNTS) & set(g[2]))
+
+                self.assertEqual(texts(got), texts(want))
 
                 # A view's counts by kind and the area it shows, where they are NIST's
                 def views(groups, keys):

@@ -113,6 +113,8 @@ include_directories(BEFORE SYSTEM
 
 foreach (exe ${TestExecutables})
     add_executable(${exe})
+    # FC_TEST_TEMP_GUARD: what the tests leave in the temporary folders
+    target_sources(${exe} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/TempGuard.cpp)
 endforeach()
 
 add_subdirectory(lib)

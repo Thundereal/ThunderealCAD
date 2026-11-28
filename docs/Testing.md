@@ -816,6 +816,35 @@ link dies on `CVT1100: duplicate resource`. Listing the `.manifest` as a
 The Linux run had none of these, which was the point: they were the first
 thing this suite had ever said about the Windows file layer.
 
+### What a run leaves in the temporary folders (the temp guard)
+
+A test that makes a temporary file or folder removes it; a run that does not
+is found by the temp guard, in report mode for now (2026-11-28; it fails a
+run only once the three platforms have run it with an empty list).
+
+- Python (`TestApp.TestText`, so `FreeCADCmd -t ...`): `FC_TEST_TEMP_GUARD=report`
+  lists every entry new in FreeCAD's temporary path and the system's after
+  the run (`TEMP GUARD left: <path>`); `=fail` also fails the run naming them.
+- C++ (every gtest executable, `tests/src/TempGuard.cpp`): the same variable
+  gives each test process a folder of its own, `fc-guard-<pid>` in the
+  temporary folder it was given, with TMPDIR (TEMP and TMP on Windows) and
+  FREECAD_USER_TEMP pointed there before any test runs; what is left in it is
+  listed with the tests that ran, and an empty one is removed. A folder per
+  process because ctest runs each test as a process of its own, several at
+  once.
+- GUI (`scripts/gui-test.sh`, `scripts/gui-test.cmd`): always. Each run has
+  its own system temporary folder, `<out>/.iso/tmp` (`<out>\tmp` on
+  Windows), beside FreeCAD's own under its user home, and the launcher
+  prints `gui-test: temp guard: N left ...` and the entries after the run.
+  The verdict does not change.
+
+Run it against temporary folders of the run's own -- TMPDIR (TEMP on
+Windows) and FREECAD_USER_TEMP pointed at an empty folder -- since what the
+system or another process writes in a shared one is counted too:
+
+    R=$(mktemp -d ~/fc-guard-run.XXXX)
+    TMPDIR=$R/ FREECAD_USER_TEMP=$R FC_TEST_TEMP_GUARD=report ./bin/FreeCADCmd -t 0
+
 ## 2. Why ctest says 522 and the binaries add up to 1389
 
 Both numbers are right; they count different things.

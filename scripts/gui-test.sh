@@ -114,7 +114,13 @@ mkdir -p "$ISO/cache" "$ISO/config" "$ISO/data"
 # run like the rest.
 rm -rf "$ISO/home"
 mkdir -p "$ISO/home"
-HOME_ENV=(FREECAD_USER_HOME="$ISO/home")
+# The system's temporary folder too, the run's own: what the test leaves
+# there is listed after the run (the temp guard, below) rather than lost in
+# the shared one, where a run's leftovers used to pile up unseen (8 Start
+# page thumbnails a launch, 2026-11-28).
+rm -rf "$ISO/tmp"
+mkdir -p "$ISO/tmp"
+HOME_ENV=(FREECAD_USER_HOME="$ISO/home" TMPDIR="$ISO/tmp")
 # What a browser test's driver wrote in an earlier run: appended to, so a
 # second run read the first's phases and sampled the host at the wrong times.
 rm -f "$OUT/phases.txt"
@@ -215,6 +221,15 @@ status=$?
 echo "---- $RESULT"
 cat "$RESULT"
 echo "---- exit status $status"
+
+# The temp guard: what the run left in its temporary folders, FreeCAD's
+# own and the system's. It reports, and does not change the verdict.
+temp_left() {
+    find "$ISO/tmp" "$ISO/home/temp" -mindepth 1 -maxdepth 1 2>/dev/null
+}
+left=$(temp_left | wc -l | tr -d ' ')
+echo "gui-test: temp guard: $left left in the run's temporary folders"
+temp_left | head -n 20 | sed 's|^|gui-test: temp left: |'
 
 if ! grep -q "^DONE$" "$RESULT"; then
     if [ "$status" = 124 ] || [ "$status" = 137 ]; then

@@ -91,6 +91,13 @@ set "GT_RESULT=%OUT%\result.txt"
 set "GT_SCRIPT=%SCRIPT%"
 set "GT_PROFILE=%~dp0gui-test-profile.py"
 set "FREECAD_USER_HOME=%OUT%\home"
+rem The system's temporary folder too, the run's own: what the test leaves
+rem there is listed after the run (the temp guard, below) rather than lost in
+rem the shared one (8 Start page thumbnails a launch, 2026-11-28).
+if exist "%OUT%\tmp" rmdir /s /q "%OUT%\tmp"
+mkdir "%OUT%\tmp"
+set "TEMP=%OUT%\tmp"
+set "TMP=%OUT%\tmp"
 set "FC_MCP_PORT=0"
 set "QT_QPA_PLATFORM="
 if /i "%GT_DESKTOP%"=="offscreen" set "QT_QPA_PLATFORM=offscreen"
@@ -127,6 +134,16 @@ if not defined FC_PYTHON (
 )
 "%FC_PYTHON%" "%~dp0gui-test-checks.py" "%OUT%" %RC%
 :checked
+
+rem The temp guard: what the run left in its temporary folders, the system's
+rem and FreeCAD's own. It reports, and does not change the verdict.
+set "LEFT=0"
+for /f %%n in ('dir /b /a "%OUT%\tmp" 2^>nul ^| find /c /v ""') do set "LEFT=%%n"
+set "LEFTOWN=0"
+for /f %%n in ('dir /b /a "%OUT%\home\temp" 2^>nul ^| find /c /v ""') do set "LEFTOWN=%%n"
+echo gui-test: temp guard: %LEFT% left in the run's temporary folder, %LEFTOWN% in FreeCAD's own
+for /f "delims=" %%f in ('dir /b /a "%OUT%\tmp" 2^>nul') do echo gui-test: temp left: %OUT%\tmp\%%f
+for /f "delims=" %%f in ('dir /b /a "%OUT%\home\temp" 2^>nul') do echo gui-test: temp left: %OUT%\home\temp\%%f
 
 if not exist "%GT_RESULT%" goto :no_result
 type "%GT_RESULT%"

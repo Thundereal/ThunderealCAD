@@ -204,6 +204,10 @@ def norm(value, depth=0):
         return ("vector", num(value.x), num(value.y), num(value.z))
     if isinstance(value, FreeCAD.Rotation):
         return ("rotation",) + tuple(num(x) for x in value.Q)
+    if isinstance(value, FreeCAD.Matrix):
+        # By its entries, as every float here: -0 and -4.3e-19 are one
+        # (the sideboard's Cache_Sketch, 2026-11-28)
+        return ("matrix",) + tuple(num(x) for x in value.A)
     if isinstance(value, FreeCAD.Units.Quantity):
         return ("quantity", num(value.Value), str(value.Unit))
     if isinstance(value, (list, tuple)):
@@ -303,10 +307,14 @@ def snapshot(doc, views=True):
             except Exception:  # pylint: disable=broad-except
                 census.append("?")
             census.append(getattr(vp, "DisplayMode", None))
+            # Not known, whether the view cannot say or there is no view:
+            # the twin's two documents are not the same document, and only
+            # one of them may be the active view's (scanner: 600 "?" against
+            # null, 2026-11-28)
             try:
                 census.append(view.getObjectVisibility(o) if view else None)
             except Exception:  # pylint: disable=broad-except
-                census.append("?")
+                census.append(None)
             row["census"] = census
             if views:
                 row["view"] = props(vp)
@@ -365,6 +373,32 @@ def touch_all(doc):
             pass
 
 
+def open_doc(path, workers=True):
+    """The document at `path` opened and settled, with what it opened
+    besides; None if it did not open. `workers` False: a migration it asks
+    for is made by this process, not handed to a worker"""
+    group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Workers")
+    had = "RecomputeCommand" in group.GetBools()
+    was = group.GetBool("RecomputeCommand", True)
+    if not workers:
+        group.SetBool("RecomputeCommand", False)
+    try:
+        before = set(FreeCAD.listDocuments())
+        FreeCADGui.open(path)
+        opened = [d for n, d in FreeCAD.listDocuments().items() if n not in before]
+        mine = [d for d in opened if os.path.normpath(d.FileName) == os.path.normpath(path)]
+        if not mine:
+            return None, opened
+        settle(mine[0], "the open")
+        pump(1.0)
+        return mine[0], opened
+    finally:
+        if had:
+            group.SetBool("RecomputeCommand", was)
+        else:
+            group.RemBool("RecomputeCommand")
+
+
 # --- the loop ---------------------------------------------------------------
 
 def run():
@@ -396,24 +430,19 @@ def run():
         note("INFO document %s (%d bytes)" % (SOURCE, os.path.getsize(SOURCE)))
 
         phase("open")
-        before = set(FreeCAD.listDocuments())
-        FreeCADGui.open(path)
-        opened = [d for n, d in FreeCAD.listDocuments().items() if n not in before]
-        mine = [d for d in opened if os.path.normpath(d.FileName) == os.path.normpath(path)]
-        if not mine:
+        doc, opened = open_doc(path)
+        if not doc:
             finding("open", "the document did not open", sorted(FreeCAD.listDocuments()))
             return
-        doc = mine[0]
         if len(opened) > 1:
             note("INFO it opened others too: %s" % sorted(d.Name for d in opened if d is not doc))
-        settle(doc, "the open")
-        pump(1.0)
         note("INFO %d objects, schema %s" % (len(doc.Objects), doc.getProgramVersion()
                                              if hasattr(doc, "getProgramVersion") else "?"))
         broken = sorted(o.Name for o in doc.Objects if "Invalid" in o.State or "Error" in o.State)
         if broken:
             finding("log", "objects in error after the open", broken[:30])
 
+        by_worker = None
         if os.environ.get("GT_SMOKE_SKIP_TWIN") != "1":
             phase("worker")
             touch_all(doc)
@@ -432,32 +461,52 @@ def run():
                 # A worker that put nothing in has no twin: what it would be
                 # compared with is the document as opened, not recomputed
                 # (604 differences on a document whose worker was unfit)
-                twin = not (info["Failed"] or info["Unfit"]) and info["Applied"] > 0
-                by_worker = snapshot(doc, views=False) if twin else None
-
-                phase("here")
-                touch_all(doc)
-                doc.recompute()
-                settle(doc, "the recompute here")
-                if twin:
-                    here = snapshot(doc, views=False)
-                    note("INFO objects: %d after the worker, %d after here" % (len(by_worker), len(here)))
-                    n = compare("twin", by_worker, here, "worker", "here",
-                                keys=("type", "state", "props", "census"))
-                    note("INFO worker against here: %d differences" % n)
+                if not (info["Failed"] or info["Unfit"]) and info["Applied"] > 0:
+                    by_worker = snapshot(doc, views=False)
                 else:
                     note("INFO worker against here: not compared, the worker put nothing in")
+                # Its twin is this process's recompute of the document as
+                # opened, not a recompute on top of the worker's: that is a
+                # second recompute, which the sideboard file does not survive
+                # unchanged with or without a worker -- its 33 differences
+                # were one recompute against two (2026-11-28). The second is
+                # the idempotence check's, below
+                phase("reopen for here")
+                FreeCAD.closeDocument(doc.Name)
+                doc = None
+                pump(0.5)
+                doc, _ = open_doc(path, workers=False)
+                if not doc:
+                    finding("open", "the document did not open again for the twin")
+                    return
             else:
                 note("INFO not recomputed by a worker: %s" % pool.recomputeInfo()["Reason"])
-                phase("here")
-                touch_all(doc)
-                doc.recompute()
-                settle(doc, "the recompute here")
-        else:
-            phase("here")
-            touch_all(doc)
-            doc.recompute()
-            settle(doc, "the recompute here")
+
+        phase("here")
+        touch_all(doc)
+        doc.recompute()
+        settle(doc, "the recompute here")
+        once = snapshot(doc, views=False)
+        if by_worker is not None:
+            note("INFO objects: %d after the worker, %d after here" % (len(by_worker), len(once)))
+            n = compare("twin", by_worker, once, "worker", "here",
+                        keys=("type", "state", "props", "census"))
+            note("INFO worker against here: %d differences" % n)
+
+        # A second recompute of everything changes nothing in a document
+        # that is made from its inputs alone. One that does is reported as
+        # that, apart from the worker's twin: what a user who recomputes
+        # twice is given
+        phase("again")
+        touch_all(doc)
+        doc.recompute()
+        settle(doc, "the second recompute here")
+        twice = snapshot(doc, views=False)
+        n = compare("idempotent", once, twice, "once", "twice",
+                    keys=("type", "state", "props", "census"))
+        if n:
+            finding("idempotent", "not idempotent: a second recompute changed %d things" % n)
+        note("INFO once against twice: %d differences" % n)
 
         phase("save")
         saved = os.path.join(work, "saved-" + os.path.basename(path))

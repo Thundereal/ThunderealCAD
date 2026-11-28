@@ -73,7 +73,16 @@ its own to find something.
 6. **Twins agree.** The same scenario two ways, compared:
    - the engine and Legacy (pictures, within a tolerance);
    - a worker and the main process (shapes, properties, the visibility
-     census of `docs/WorkerProcess.md` sec 73);
+     census of `docs/WorkerProcess.md` sec 73). The main process's side is
+     the document opened again and recomputed once, its migration made by
+     the main process, not a recompute on top of the worker's result. That
+     would be a second recompute, which a document need not survive
+     unchanged: the sideboard file's 33 differences of 2026-11-28 were one
+     recompute against two;
+   - one recompute against two (`idempotent`): everything recomputed again
+     must change nothing. A document that does not survive it is reported
+     as "not idempotent", apart from the worker's twin, since a user who
+     recomputes twice is given that;
    - saved and reopened against the live document (every property, the
      pictures);
    - Cancel, and undo to the start, against the state before (every property

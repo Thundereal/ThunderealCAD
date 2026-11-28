@@ -240,8 +240,18 @@ std::string FileInfo::getTempFileName(const char* FileName, const char* Path)
     }
 
 
-    // this already creates the file
-    GetTempFileNameW(path.c_str(), file.c_str(), 0, buf);
+    // this already creates the file -- or gives no name at all, buf left
+    // as it was: the folder missing or not writable, or every name of the
+    // prefix taken (at most 65535 per prefix and folder, and nothing cleans
+    // the folder for us)
+    if (GetTempFileNameW(path.c_str(), file.c_str(), 0, buf) == 0) {
+        const unsigned long error = GetLastError();
+        THROWM(Base::FileException,
+               ("No temporary file name: GetTempFileNameW failed, error "
+                + std::to_string(error))
+                   .c_str(),
+               ConvertFromWideString(path).c_str())
+    }
     DeleteFileW(buf);
 
     return std::string(ConvertFromWideString(std::wstring(buf)));
@@ -272,14 +282,21 @@ std::string FileInfo::getTempFileName(const char* FileName, const char* Path)
 
     /* coverity[secure_temp] mkstemp uses 0600 as the mode and is safe */
     int id = mkstemp(vec.data());
-    if (id > -1) {
-        FILE* file = fdopen(id, "w");
-        fclose(file);
-        vec.pop_back();  // remove '\0'
-        std::string str(vec.begin(), vec.end());
-        buf.swap(str);
-        unlink(buf.c_str());
+    if (id < 0) {
+        // not the template handed back as a name: one fixed name for every
+        // caller
+        const int error = errno;
+        THROWM(Base::FileException,
+               (std::string("No temporary file name: mkstemp failed: ") + std::strerror(error))
+                   .c_str(),
+               buf.c_str())
     }
+    FILE* file = fdopen(id, "w");
+    fclose(file);
+    vec.pop_back();  // remove '\0'
+    std::string str(vec.begin(), vec.end());
+    buf.swap(str);
+    unlink(buf.c_str());
     return buf;
 #endif
 }

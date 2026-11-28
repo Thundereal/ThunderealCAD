@@ -83,6 +83,39 @@ version drift rather than anything wrong with the branch:
   `HAVE_PCL_OPENNURBS`, which stays off because conda-forge builds PCL without that
   module.
 
+### The OCCT fork and upstream OCCT: what is promised
+
+The user, 2026-11-27, verbatim: "I think we need to clarify the policy with
+upstream occt. I only want our fork occt abi compatible with upstream. That's
+all. I don't want to deal with results difference between the two.
+ThunderealCAD shall work with both with reduced functionality and possibly
+incorrect or even crash in some modeling calls when using upstream".
+
+The rules, as worked out with the user from that:
+
+a. **A binary built against the fork must LOAD on upstream's OCCT libraries.**
+   An unresolved fork-only symbol, or an exported signature the fork changed,
+   is a defect.
+b. **A fork-only OCCT function is reached through an `extern "C"` shim and a
+   run-time lookup, never by its C++ name.** The lookups live in one place,
+   `src/Mod/Part/App/OCCTFork.h` / `OCCTFork.cpp` (`lookUpOCCT`, through
+   `dlsym` or `GetProcAddress`; Python sees it as `Part.hasOCCTFunction`), each
+   behind a typed wrapper that says what it does without the fork.
+   `src/Mod/Import/App/ReaderStep.cpp` is a user of it.
+c. **An exported fork function keeps its signature**: a new parameter is a new
+   overload beside the old one.
+d. **Only PMI's STEP exchange may be fork-only.** It is a library of its own,
+   `PMIStep` (`src/Mod/PMI/App/CMakeLists.txt`), which PMI loads only where
+   the fork's marker is found (`src/Mod/PMI/App/AppPMI.cpp`); on upstream it
+   is off with a stated reason (the user: "yes, pmi step exchange off entirely
+   for upstream occt for now"). The PMI workbench itself loads on upstream.
+e. **Not goals:** equal results on the two; a green test suite on upstream;
+   upstream-only fallbacks or test guards. A wrong result or a crash in a
+   modeling call on upstream is accepted and not assigned.
+
+How the fork's ABI against upstream is checked: the occt repository's
+`tests/fork/abi/`.
+
 ## Primary stack: conda (Qt 6.10 + PySide6)
 
 ### Why

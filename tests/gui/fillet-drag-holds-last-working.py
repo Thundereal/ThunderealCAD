@@ -28,6 +28,12 @@ half second). Claims, each way:
   - the whole drag is one undo step;
 and slowly, once held, the pointer brought back toward the start: the
 radius follows it again, below the held one.
+
+Escape with the button still down, once held (the Windows hang reported
+with the fillet drag was on an Escape): the drag is cancelled -- the radius
+back to the drag's start, no undo step, the fillet still in edit and valid
+-- and the moves and the release after it end the test in good time rather
+than hang it.
 """
 import os
 import time
@@ -141,11 +147,13 @@ class Failures:
             self.count += 1
 
 
-def drag_away(fillet, wait_turns, back=False):
+def drag_away(fillet, wait_turns, back=False, escape=False):
     """The fillet's arrow dragged away from its edge in 20 moves, a move
     every `wait_turns` hundredths of a second; with `back`, then 10 moves
-    back toward the start. Returns (failures, radius held before coming
-    back, radius after, undo steps)"""
+    back toward the start; with `escape`, then Escape pressed with the
+    button down and five moves further out before the release. Returns
+    (failures, radius held before coming back, radius after, undo steps,
+    seconds from the Escape to the release's end)"""
     doc = fillet.Document
     box = doc.getObject("Box")
     edge = box.Shape.getElement("Edge1")
@@ -181,6 +189,15 @@ def drag_away(fillet, wait_turns, back=False):
             pump(wait_turns)
         pump(60)
         held = fillet.Radius.Value
+        escaped = None
+        if escape:
+            t0 = time.time()
+            QtTest.QTest.keyClick(win, Qt.Key_Escape)
+            pump(30)
+            for i in range(21, 26):
+                q = QtCore.QPoint(int(p.x() + unit[0] * i / 20), int(p.y() - unit[1] * i / 20))
+                QtTest.QTest.mouseMove(win, q)
+                pump(wait_turns)
         if back:
             # toward the start again, to a third of the way out
             for i in range(19, 6, -1):
@@ -190,9 +207,12 @@ def drag_away(fillet, wait_turns, back=False):
             pump(60)
         QtTest.QTest.mouseRelease(win, Qt.LeftButton, Qt.NoModifier, q)
         pump(150)
+        if escape:
+            escaped = time.time() - t0
     finally:
         FreeCAD.removeDocumentObserver(failures)
-    return failures.count, held, fillet.Radius.Value, len(doc.UndoNames) - undo_before
+    return (failures.count, held, fillet.Radius.Value, len(doc.UndoNames) - undo_before,
+            escaped)
 
 
 def run():
@@ -210,7 +230,7 @@ def run():
         FreeCADGui.SendMsgToActiveView("ViewFit")
         FreeCADGui.activeDocument().activeView().viewIsometric()
         pump()
-        for what, wait_turns in (("quickly", 5), ("slowly", 50)):
+        for what, wait_turns in (("quickly", 5), ("slowly", 50), ("Escape", 5)):
             fillet = body.newObject("PartDesign::Fillet", "Fillet")
             fillet.Base = (box, ["Edge1"])
             fillet.Radius = START
@@ -218,9 +238,22 @@ def run():
             gdoc = FreeCADGui.getDocument(DOC)
             gdoc.setEdit(fillet, 0)
             pump(80)
-            got = drag_away(fillet, wait_turns, back=(what == "slowly"))
-            if got is not None:
-                failed, held, after, steps = got
+            got = drag_away(fillet, wait_turns, back=(what == "slowly"),
+                            escape=(what == "Escape"))
+            if got is not None and what == "Escape":
+                failed, held, after, steps, escaped = got
+                note("INFO Escape: %d failed recompute(s), held %g, after %g, %d undo step(s),"
+                     " %.2f s from the Escape to the release's end" % (failed, held, after,
+                                                                      steps, escaped))
+                check("Escape: held before it, past the drag's start", held > START + 1e-6, held)
+                check("Escape: the radius back to the drag's start", abs(after - START) < 1e-6,
+                      (held, after))
+                check("Escape: no undo step", steps == 0, steps)
+                check("Escape: still in edit", gdoc.getInEdit() is not None, gdoc.getInEdit())
+                check("Escape: the fillet valid", fillet.isValid(), fillet.State)
+                check("Escape: no hang, the release done in good time", escaped < 10, escaped)
+            elif got is not None:
+                failed, held, after, steps, _ = got
                 note("INFO %s: %d failed recompute(s), held %g, after %g, %d undo step(s)"
                      % (what, failed, held, after, steps))
                 check("%s: the drag went past what works, a recompute failed" % what,

@@ -85,6 +85,7 @@
 #include "WorkbenchManager.h"
 #include "WorkbenchManipulatorPython.h"
 #include "Inventor/MarkerBitmaps.h"
+#include "Inventor/SoFCVertexCache.h"
 #include "Language/Translator.h"
 
 FC_LOG_LEVEL_INIT("Gui", true, true)
@@ -186,6 +187,7 @@ static PyObject *sCyclesRenderTest(PyObject *self, PyObject *args, PyObject *kwd
 static PyObject *sGetIconContext(PyObject *self, PyObject *args);
 static PyObject *sEditDocuments(PyObject *self, PyObject *args);
 static PyObject *sGetIconNames(PyObject *self, PyObject *args);
+static PyObject *sRenderCacheCounters(PyObject *self, PyObject *args, PyObject *kwd);
 static PyObject *sIsBuildingVisuals(PyObject *self, PyObject *args);
 static PyObject *sIsLiveImport(PyObject *self, PyObject *args);
 static PyObject *sListConfigBackups(PyObject *self, PyObject *args);
@@ -302,6 +304,15 @@ PyMethodDef Application::Methods[] = {
   {"getIconNames",                 (PyCFunction) sGetIconNames, METH_VARARGS,
    "getIconNames() -> List[string]\n\n"
    "Get all cached icon names in the system"},
+  {"renderCacheCounters",     (PyCFunction) sRenderCacheCounters, METH_VARARGS | METH_KEYWORDS,
+   "renderCacheCounters(reset=False) -> dict\n"
+   "\n"
+   "Counters the render cache keeps for tests, since the last reset:\n"
+   "pointDetailsOutOfRange, the vertices handed to the vertex cache with a\n"
+   "point-detail index outside their face (a tessellated polygon's triangles),\n"
+   "each taken as having no point detail.\n"
+   "\n"
+   "reset: set the counters to zero after reading them."},
   {"getMainWindow",           (PyCFunction) Application::sGetMainWindow, METH_VARARGS,
    "getMainWindow() -> QMainWindow\n"
    "\n"
@@ -2460,6 +2471,19 @@ static PyObject* sGetIconNames(PyObject * /*self*/, PyObject *args)
     Py::List res;
     for (auto &name : BitmapFactory().pixmapNames())
         res.append(Py::String(name.toUtf8().constData()));
+    return Py::new_reference_to(res);
+}
+
+static PyObject* sRenderCacheCounters(PyObject * /*self*/, PyObject *args, PyObject *kwd)
+{
+    static const std::array<const char *, 2> kwlist {"reset", nullptr};
+    PyObject *reset = Py_False;
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwd, "|O!", kwlist, &PyBool_Type, &reset))
+        return nullptr;
+
+    Py::Dict res;
+    res.setItem("pointDetailsOutOfRange",
+                Py::Long(SoFCVertexCache::pointDetailsOutOfRange(Base::asBoolean(reset))));
     return Py::new_reference_to(res);
 }
 

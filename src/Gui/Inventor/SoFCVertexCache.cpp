@@ -1202,6 +1202,18 @@ SoFCVertexCache::prebuiltStats()
   return PrebuiltStatsCounters;
 }
 
+// addTriangle() below; main thread only, like every capture
+static int PointDetailOutOfRange = 0;
+
+int
+SoFCVertexCache::pointDetailsOutOfRange(bool reset)
+{
+  const int n = PointDetailOutOfRange;
+  if (reset)
+    PointDetailOutOfRange = 0;
+  return n;
+}
+
 std::shared_ptr<const SoFCVertexCache::PrebuiltContent>
 SoFCVertexCache::takePrebuilt(const SoNode * node, bool * stale)
 {
@@ -2137,14 +2149,26 @@ SoFCVertexCache::addTriangle(const SoPrimitiveVertex * v0,
 
     if (d && d->isOfType(SoFaceDetail::getClassTypeId()) && pointdetailidx) {
       fd = static_cast<const SoFaceDetail *>(d);
-      assert(pointdetailidx[i] < fd->getNumPoints());
-      const SoPointDetail * pd = static_cast<const SoPointDetail *>(
-        fd->getPoint(pointdetailidx[i])
-       );
-
-      int tidx  = v.texcoordidx = pd->getTextureCoordIndex();
-      if (PRIVATE(this)->tmp->numbumpcoords) {
-        v.bumpcoord = PRIVATE(this)->tmp->bumpcoords[SbClamp(tidx, 0, PRIVATE(this)->tmp->numbumpcoords-1)];
+      // The index is the vertex's place counted from the triangle's first
+      // vertex (SoFCRenderCacheManagerP::addTriangle), which is its place
+      // in the face only when that first vertex is the face's first: so
+      // for strips, fans, quads and convex polygons. The triangles a
+      // tessellated (non-convex) polygon is cut into start anywhere, and
+      // an index can come out past either end of the face's points --
+      // getPoint() then hands back whatever lies beside its array (an
+      // access violation in getTextureCoordIndex(), 2026-11-28). Such a
+      // vertex has no point detail of its own here: it keeps the texture
+      // coordinates it carries (texcoordidx -1), never a read outside.
+      const int pidx = pointdetailidx[i];
+      if (pidx < 0 || pidx >= fd->getNumPoints()) {
+        ++PointDetailOutOfRange;
+      }
+      else {
+        const SoPointDetail * pd = static_cast<const SoPointDetail *>(fd->getPoint(pidx));
+        int tidx  = v.texcoordidx = pd->getTextureCoordIndex();
+        if (PRIVATE(this)->tmp->numbumpcoords) {
+          v.bumpcoord = PRIVATE(this)->tmp->bumpcoords[SbClamp(tidx, 0, PRIVATE(this)->tmp->numbumpcoords-1)];
+        }
       }
     }
 

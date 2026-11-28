@@ -3173,7 +3173,12 @@ SoFCRenderCacheManagerP::addTriangle(void * userdata, SoCallbackAction *action,
   SoFCRenderCacheManagerP *self = reinterpret_cast<SoFCRenderCacheManagerP*>(userdata);
   if (!self->vcache) return;
 
-  assert(v0 < v1 && v0 < v2);
+  // The three come from one array of the shape's vertices, so their places
+  // relative to v0 are whole steps. They are the vertices' places in the face
+  // only when v0 is the face's first vertex -- strips, fans, quads, convex
+  // polygons. A tessellated polygon's triangles start anywhere, v1 or v2 may
+  // come before v0, and the index is then outside the face; the vertex cache
+  // takes such a vertex as having no point detail (SoFCVertexCache::addTriangle).
   assert(((const char*)v1- (const char*)v0) % sizeof(SoPrimitiveVertex) == 0);
   assert(((const char*)v2- (const char*)v0) % sizeof(SoPrimitiveVertex) == 0);
 

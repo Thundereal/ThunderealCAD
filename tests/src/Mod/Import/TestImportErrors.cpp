@@ -48,6 +48,13 @@ protected:
             "        raise AssertionError('left a document open: %s' % sorted(made))\n");
     }
 
+    static void TearDownTestSuite()
+    {
+        // the suite's folder, made in SetUpTestSuite: left behind every run
+        // until 2026-11-28 (the temp census)
+        Base::Interpreter().runString("import shutil; shutil.rmtree(_ie_tmp, True)");
+    }
+
     static void expectRaises(const char* call, const char* kind)
     {
         std::string code = "_ie_raises(lambda: ";

@@ -37,6 +37,7 @@
 #endif
 
 #include <Inventor/annex/FXViz/nodes/SoShadowStyle.h>
+#include <unordered_set>
 
 #include <App/Animation.h>
 #include <App/AutoTransaction.h>
@@ -405,10 +406,9 @@ void ViewProviderDocumentObject::onChanged(const App::Property* prop)
         }
         // The nodes are made selectable -- SoFCSelection's defaults are
         // what setSelectable(true) sets -- so a restore that reads true has
-        // nothing to undo, and the search is no small thing: a link's root
-        // holds what it links, shared, and every path through it is
-        // listed, once per link (an assembly of 187 KB spun for twenty
-        // minutes in its open, smoke corpus 2026-11-27, finding B1)
+        // nothing to undo (an assembly of 187 KB spun for twenty minutes in
+        // its open on the search this skipped, smoke corpus 2026-11-27,
+        // finding B1; setSelectable() no longer lists paths either)
         if(prop == &Selectable && !(Selectable.getValue() && isRestoring()))
             setSelectable(Selectable.getValue());
     }
@@ -1217,28 +1217,52 @@ App::Document *ViewProviderDocumentObject::getOwnerDocument() const {
 
 void ViewProviderDocumentObject::setSelectable(bool selectable)
 {
-    SoSearchAction sa;
-    sa.setInterest(SoSearchAction::ALL);
-    sa.setSearchingAll(true);
-    sa.setType(Gui::SoFCSelection::getClassTypeId());
-    sa.apply(pcRoot);
-
-    SoPathList & pathList = sa.getPaths();
-
-    for (int i=0;i<pathList.getLength();i++) {
-        SoFCSelection *selNode = dynamic_cast<SoFCSelection*>(pathList[i]->getTail());
-        if (selectable) {
-            if (selNode) {
+    // This view's own SoFCSelection nodes, and no other object's. The
+    // scene below the root holds other objects' scenes too -- a link's
+    // snapshot holds what it links, shared; a group holds its children's
+    // roots -- and their nodes are theirs: written from here, a link's
+    // false switched the linked object's nodes off with it, and a link's
+    // true switched an unselectable target's back on, the last writer
+    // winning. A selection root below this one that renders another
+    // object (its ViewProvider's, or the one a link snapshot stands in
+    // for) is where that object's scene starts, and the walk stops there.
+    // Picking is not this walk's: the root's selectionStyle says it, and a
+    // link follows its target's by design (LinkInfo::getSnapshot). Each
+    // node is visited once -- a shared node lies on many paths, and a
+    // search listing every path through nested links is what spun an
+    // assembly's open for twenty minutes (smoke corpus 2026-11-27, B1).
+    auto obj = getObject();
+    std::unordered_set<SoNode*> seen;
+    std::vector<SoNode*> pending{pcRoot};
+    while (!pending.empty()) {
+        SoNode *node = pending.back();
+        pending.pop_back();
+        if (!node || !seen.insert(node).second)
+            continue;
+        if (node != pcRoot && node->isOfType(SoFCSelectionRoot::getClassTypeId())) {
+            const char *docName = nullptr;
+            const char *objName = nullptr;
+            if (static_cast<SoFCSelectionRoot*>(node)->getRenderedObject(docName, objName)
+                    && !(obj && obj->isAttachedToDocument()
+                         && strcmp(objName, obj->getNameInDocument()) == 0
+                         && strcmp(docName, obj->getDocument()->getName()) == 0))
+                continue;
+        }
+        if (node->isOfType(SoFCSelection::getClassTypeId())) {
+            auto selNode = static_cast<SoFCSelection*>(node);
+            if (selectable) {
                 selNode->selectionMode = SoFCSelection::SEL_ON;
                 selNode->highlightMode = SoFCSelection::AUTO;
             }
-        }
-        else {
-            if (selNode) {
+            else {
                 selNode->selectionMode = SoFCSelection::SEL_OFF;
                 selNode->highlightMode = SoFCSelection::OFF;
                 selNode->selected = SoFCSelection::NOTSELECTED;
             }
+        }
+        if (auto children = node->getChildren()) {
+            for (int i = children->getLength() - 1; i >= 0; --i)
+                pending.push_back((*children)[i]);
         }
     }
 }

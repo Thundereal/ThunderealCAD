@@ -1446,6 +1446,14 @@ fc_add_gui_test(GuiLinkSelectableRestore_tests_run
                 link-selectable-restore.py
                 --timeout 240)
 
+# Selectable on a link, or on what it links: the original keeps its picks
+# under a link set false, a link follows its target's false (and is picked
+# with OverrideSelectability), and a link's setSelectable no longer writes
+# the linked object's own SoFCSelection nodes (notes, 2026-11-28, beside B1).
+fc_add_gui_test(GuiLinkSelectableShared_tests_run
+                link-selectable-shared.py
+                --timeout 400)
+
 # An instanced Part object draws a uniform face colour list at the
 # transparency the list says: the uniform branch took the colour's alpha,
 # an opacity, for the transparency, so an opaque list drew invisible

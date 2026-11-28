@@ -374,8 +374,27 @@ bool steadyCase(const Model& model, const CaseOptions& options, Case& made, std:
     const auto points = sampled(model.domain, cell);
     for (std::size_t k = 0; k < points.size() && !found; ++k) {
         const Vec3& p = points[(points.size() / 2 + k) % points.size()];
-        const Vec3 moved {p[0] + 0.137 * cell, p[1] + 0.151 * cell, p[2] + 0.173 * cell};
-        if (inside(model.domain, moved)) {
+        // in a cell of the background mesh that is the fluid's all round
+        // its centre: the mesher keeps what it reaches from here, and from
+        // a cell a wall cuts through the middle it reaches nothing. The
+        // background's cells have their centres on the box's own faces.
+        Vec3 centre {};
+        for (std::size_t i = 0; i < 3; ++i) {
+            centre[i] = around.space.min[i]
+                + (std::floor((p[i] - around.space.min[i]) / cell) + 0.5) * cell;
+        }
+        bool clear = inside(model.domain, centre);
+        for (std::size_t i = 0; i < 3 && clear; ++i) {
+            for (double way : {-0.45, 0.45}) {
+                Vec3 beside = centre;
+                beside[i] += way * cell;
+                clear = clear && inside(model.domain, beside);
+            }
+        }
+        const Vec3 moved {centre[0] + 0.137 * cell,
+                          centre[1] + 0.151 * cell,
+                          centre[2] + 0.173 * cell};
+        if (clear && inside(model.domain, moved)) {
             made.inside = moved;
             found = true;
         }

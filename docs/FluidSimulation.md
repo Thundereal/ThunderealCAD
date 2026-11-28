@@ -2503,8 +2503,8 @@ fluid of the frame, and no more than the frames are apart.
   console) says when the step, the middle one of the run's later half,
   is under a quarter of the other: "some cell of the mesh is far smaller
   or thinner than the rest, and the run took some N times as long for
-  it". The results are not worse for it; the advice is another
-  resolution, a little finer or coarser.
+  it". The results are not worse for it. It gives no advice: the one
+  remedy tried, another resolution, did not help (below).
 
 The quarter is a choice, between the two cases there are: the test's
 run takes 0.057 s where 0.067 would do (0.85), and sec 14.11's channel
@@ -2519,3 +2519,52 @@ file's size); `OpenFoamCase.theStepsOfASolverThatChoosesItsOwn`;
 `TestFlowDoubts.test_steps_held_by_one_cell_are_said`; the shedding test
 checks the steps kept, that nothing is said of them, and the file under
 20 bytes a cell and frame (26 before).
+
+**Found by the runs below, and fixed**: a channel 1.5 mm deep at cells of
+0.5 mm, and one 3.15 deep at 1.05, failed in the solver with no pressure
+to refer to -- the mesh was one cell. The background mesh starts a cell
+and a half before the fluid's box, so its cells have their centres on the
+box's faces; the point the mesher is told is the fluid's was the middle
+one of the fluid's own lattice pushed a little, and when that was the
+last across the depth it lay in a cell the wall cuts through the middle,
+from which the mesher reaches nothing. The 1 mm cases had the point
+elsewhere by chance. `makeCase` now takes the point in a background cell
+that is the fluid's 0.45 of a cell all round its centre
+(`OpenFoamCase.theMeshersPointIsInACellClearOfTheWalls`, which fails
+without it). That cells are centred on the box's faces at all is left as
+it is: every mesh measured so far was made that way.
+
+**What the Strouhal number follows** (sec 14.11's question; Reynolds
+100, the cylinder 10 mm, the fluid slid along on all four faces, frames
+0.25 s apart, the number from the swing across the stream two widths
+behind the cylinder over the run's later half):
+
+| Channel high | Before, behind the cylinder | Cells | Count | Strouhal number (periods, their spread) | Run | Step taken, even cells' | File |
+|---|---|---|---|---|---|---|---|
+| 80 mm | 40, 110 mm | 1 mm | 23404 | 0.179 (8, 0.001) | 139 s for 100 s | 0.05, 0.068 s | 156 MB |
+| 160 | 40, 110 | 1 | 47244 | 0.174 (8, 0.003) | 146 s | 0.05, 0.069 | 289 MB |
+| 320 | 40, 110 | 1 | 94924 | 0.174 (8, 0.003) | 246 s | 0.05, 0.069 | 527 MB |
+| 160 | 80, 150 | 1 | 73002 | 0.169 (8, 0.007) | 1166 s | 0.0051, 0.073: warned | 388 MB |
+| 160 | 80, 150 | 1.05 | 67182 | 0.170 (7, 0.004) | 529 s | 0.011, 0.077: warned | 362 MB |
+| 80 | 40, 110 | 0.5 | 94472 | 0.182 (13, 0.002) | 651 s for 160 s | 0.028, 0.034 | 773 MB |
+| 160 | 40, 110 | 0.5 | 190152 | 0.178 (13, 0.004) | 1520 s for 160 s | 0.028, 0.035 | 1702 MB |
+
+- The channel's faces: 0.005 between 80 and 160 high, nothing more at
+  320.
+- The inlet's distance: 0.005 less with it 8 widths before the cylinder
+  than with it 4.
+- The cells: finer ones do not bring the number down. At 0.5 mm it is
+  0.003 to 0.004 more than at 1 mm, in both channels. So the coarse
+  cells are not why it stands over the open stream's 0.164 to 0.167
+  (still not checked against the papers); what is left of the gap, some
+  0.005 to 0.01 with a far inlet and far faces, is not accounted for.
+  Not tried: an inlet and an outlet farther still, cells finer than
+  0.5 mm, more than one pressure correction a step, a shorter step.
+- A run of fine cells from rest sheds later: at 100 s the wide fine
+  run's periods still differed by a quarter (0.160 over 6); it was run
+  to 160 s.
+- The step's warning came for the long channel alone, at 1 mm and again
+  at 1.05 mm: another resolution did not rid it of its small cell, and
+  why that channel has one is not known. Open.
+- The file is 16 bytes a cell and frame as measured above: 1.7 GB for
+  640 frames of 190000 cells.

@@ -1242,8 +1242,7 @@ def stepDoubts(results):
             "The solver took steps of {:.2g} s, where cells all of the study's "
             "resolution would let it take {:.2g} s: some cell of the mesh is far "
             "smaller or thinner than the rest, and the run took some {:.0f} times "
-            "as long for it. The results are not worse for it. Another resolution, "
-            "a little finer or coarser, often meshes without such a cell.",
+            "as long for it. The results are not worse for it.",
         ).format(held[0], held[1], held[1] / held[0])
     ]
 

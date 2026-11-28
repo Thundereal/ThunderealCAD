@@ -377,6 +377,19 @@ public:
     /// Fill the after ref of an op left pending by append().
     virtual void resolveAfter(int64_t txn, int idx, const std::string& hash) = 0;
 
+    /** One transaction around many writes: every write between beginBatch()
+     * and commitBatch() commits with it (each still undoing itself alone on
+     * an error), and rollbackBatch() undoes them all. A version's write is
+     * one (TransactionLogCore::writeVersion): ~48.7k entities of a first
+     * snapshot were as many commits, each a locked write and, every 1 MB of
+     * WAL, a checkpoint (MiSTer_binary, 2026-11-28); and a version half
+     * written must read as not written. Batches nest. The default does
+     * nothing: a store without transactions writes as it goes.
+     */
+    virtual void beginBatch() {}
+    virtual void commitBatch() {}
+    virtual void rollbackBatch() {}
+
     virtual bool hasEntity(const std::string& hash) = 0;
     /// Store an entity with its refs; a hash already present is left as it is.
     virtual void putEntity(const LogEntity& entity) = 0;
@@ -686,6 +699,12 @@ public:
      */
     virtual LogTierEviction evictTier(const std::string& tier, uint64_t bytes,
                                       uint64_t values) = 0;
+
+    /// The SQL transactions every SQLite store of the process has committed,
+    /// explicit or a single statement's own; `reset` sets the count to zero
+    /// after reading it. For tests (FreeCAD.transactionStoreCommits()): what
+    /// a version's write costs in commits, whatever the box's disk.
+    static int64_t sqlCommits(bool reset = false);
 
     /// Open or create the SQLite log at `path` (WAL, synchronous=NORMAL).
     /// `readOnly` reads a file as it is -- the embedded copy a guard reads

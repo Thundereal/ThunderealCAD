@@ -5597,6 +5597,37 @@ class TransactionBranchCases(unittest.TestCase):
         for i in range(steps + 1):
             doc.undo()
 
+    def testAVersionIsWrittenInOneTransaction(self):
+        # The first snapshot after an open stores every property value the
+        # log does not hold yet, one entity each -- ~48.7k for MiSTer_binary's
+        # 18199 objects (2026-11-28). Each was its own SQL transaction: a
+        # locked write each and a WAL checkpoint every 1 MB, and a version
+        # half written after a crash. Now the version is one transaction, so
+        # its commits do not grow with the document.
+        n = 400
+        doc = self.track(FreeCAD.newDocument("OneTransaction"))
+        for i in range(n):
+            obj = doc.addObject("App::FeatureTest", "Obj%d" % i)
+            obj.Integer = i
+            obj.String = "value %d" % i
+        doc.recompute()
+        path = os.path.join(self.dir, "onetransaction.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        before = len(doc.getTransactionVersions())  # waits for the open's own write
+        FreeCAD.transactionStoreCommits(True)
+        num = doc.snapshotTransactionLog()
+        self.assertGreater(num, 0)
+        versions = doc.getTransactionVersions()  # waits for the snapshot's write
+        commits = FreeCAD.transactionStoreCommits()
+        self.assertEqual(len(versions), before + 1)
+        self.assertIn(num, [v["num"] for v in versions])
+        # One for the version; a handful is room for a statement of its own
+        # outside it (a meta row) -- never one per object or per value.
+        self.assertLessEqual(commits, 5, "a version's write took %d commits for %d objects"
+                             % (commits, n))
+
     def testASquashStartsWhereItsRowsDo(self):
         # Sec 16.7, 31.13: a version taken at no row -- the file as found --
         # is behind a history only while its rows reach back to it. After a

@@ -794,6 +794,11 @@ public:
                       TransactionLog::Blobs& blobs, int schema, const std::string& escaped,
                       size_t nblobs, long keep, std::vector<std::pair<long, long>> strings,
                       bool marked);
+    /// writeVersion()'s writes, inside the one store transaction it opens.
+    void writeVersionBody(LogVersion& v, LogTransaction& t,
+                          const TransactionLog::Captures& entries, TransactionLog::Blobs& blobs,
+                          int schema, const std::string& escaped, size_t nblobs, long keep,
+                          std::vector<std::pair<long, long>> strings, bool marked);
     /// `text` as the body of a JSON string.
     static std::string escapeJson(const std::string& text);
     /// The ids a version recorded with no marks keeps: every one the file's

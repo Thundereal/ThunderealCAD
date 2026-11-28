@@ -219,3 +219,27 @@ class MeshServiceTest(unittest.TestCase):
         self.assertEqual(after["Worker"], info["Worker"] + 1, after)
         self.assertEqual(after["Spawned"], info["Spawned"], after)
         self.assertEqual(after["Pids"], pids)
+
+    def testAHelpersMeetingSocketGoesOnceItIsMet(self):
+        # The socket a helper is met at is a file in the temporary folder on
+        # macOS and Linux (a named pipe on Windows, nothing to find). It goes
+        # as soon as the helper is met and known, so a crash or a kill later
+        # leaves none -- and the connection made through it outlives it: every
+        # call below is answered over a connection whose server has closed.
+        import glob
+        import os
+        import tempfile
+
+        mine = os.path.join(tempfile.gettempdir(), "thundereal-service-%d-*" % os.getpid())
+        self.assertTrue(Part.meshShape(Part.makeBox(1, 2, 3), 0.1, 0.5, "worker"))
+        met = Part.meshServiceInfo()
+        self.assertGreaterEqual(met["Helpers"], 1, met)
+        self.assertEqual(glob.glob(mine), [], met)
+        for i in range(4):
+            self.assertTrue(Part.meshShape(Part.makeCylinder(2, 3 + i), 0.1, 0.5, "worker"))
+        after = Part.meshServiceInfo()
+        self.assertEqual(after["Worker"], met["Worker"] + 4, after)
+        self.assertEqual(after["Died"], met["Died"], after)
+        # the helpers that answered the first call are still the ones running
+        self.assertTrue(set(met["Pids"]) <= set(after["Pids"]), (met["Pids"], after["Pids"]))
+        self.assertEqual(glob.glob(mine), [], after)

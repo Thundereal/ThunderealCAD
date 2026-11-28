@@ -31,11 +31,13 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <thread>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -44,6 +46,12 @@
 #include <QStringList>
 #include <QThread>
 #include <QTimer>
+
+#ifndef FC_OS_WIN32
+#include <cerrno>
+#include <csignal>
+#include <unistd.h>
+#endif
 
 #include <nlohmann/json.hpp>
 #include <xercesc/framework/MemBufFormatTarget.hpp>
@@ -616,6 +624,13 @@ private:
             why = "no directory could be made for the helpers in " + Application::getTempPath();
             return false;
         }
+        // Once a process: what processes that are gone left of their own
+        static std::once_flag swept;
+        std::call_once(swept, [] {
+            if (int n = ServiceWorkers::removeStaleSockets(QDir::tempPath().toStdString())) {
+                FC_LOG("removed " << n << " socket(s) left by processes that are gone");
+            }
+        });
         std::string token = randomToken();
         int number = 0;
         {
@@ -684,6 +699,13 @@ private:
             why = "the helper did not say who it is";
             return false;
         }
+        // Met and known: the server has done its work. Its socket's file
+        // goes with it (Qt unlinks it on close), so a crash or a kill from
+        // here on leaves none in the temporary folder. The accepted
+        // connection is the helper's, parentless (above), and outlives it;
+        // on Windows the server is a named pipe, the same
+        h.server->close();
+        h.server.reset();
         std::lock_guard<std::mutex> lock(m);
         me.pid = static_cast<long>(h.process->processId());
         return true;
@@ -947,6 +969,50 @@ void ServiceWorkers::init()
 void ServiceWorkers::stop()
 {
     Service::instance().stop();
+}
+
+int ServiceWorkers::removeStaleSockets(const std::string& directory, int limit)
+{
+#ifdef FC_OS_WIN32
+    (void)directory;
+    (void)limit;
+    return 0;
+#else
+    namespace fs = std::filesystem;
+    // As start() names them: thundereal-service-<pid>-<number>-<8 hex>
+    static const std::regex name(R"(^thundereal-service-([0-9]{1,10})-[0-9]+-[0-9a-f]{8}$)");
+    const long own = static_cast<long>(::getpid());
+    int looked = 0;
+    int removed = 0;
+    std::error_code ec;
+    fs::directory_iterator it(fs::u8path(directory), ec);
+    for (; !ec && it != fs::directory_iterator(); it.increment(ec)) {
+        const std::string file = it->path().filename().string();
+        std::smatch m;
+        if (!std::regex_match(file, m, name)) {
+            continue;
+        }
+        if (++looked > limit) {
+            break;
+        }
+        const long pid = std::stol(m[1].str());
+        if (pid <= 0 || pid == own) {
+            continue;
+        }
+        // Alive, or not ours to ask (EPERM: another user's, alive): kept
+        if (::kill(static_cast<pid_t>(pid), 0) == 0 || errno != ESRCH) {
+            continue;
+        }
+        std::error_code what;
+        if (!it->is_socket(what) || it->is_symlink(what)) {
+            continue;
+        }
+        if (fs::remove(it->path(), what)) {
+            ++removed;
+        }
+    }
+    return removed;
+#endif
 }
 
 int ServiceWorkers::serve()

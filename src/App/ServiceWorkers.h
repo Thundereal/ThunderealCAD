@@ -104,6 +104,15 @@ public:
     static void stop();
     /// The helper's loop (FreeCAD._serveService()): its exit code
     static int serve();
+    /** The sockets helpers were met at, left in \a directory by processes
+     * that are gone (a crash, a kill: nothing ran to close them), removed.
+     * Only sockets named as start() names them, only of pids not alive and
+     * not this process's, and no more than \a limit such names looked at.
+     * The first start() sweeps the temporary folder so; on Windows the
+     * server is a named pipe, which leaves nothing, and this does nothing.
+     * Returns how many were removed.
+     */
+    static int removeStaleSockets(const std::string& directory, int limit = 200);
 };
 
 }  // namespace App

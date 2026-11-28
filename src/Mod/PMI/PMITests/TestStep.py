@@ -75,9 +75,9 @@ VALIDATION_COMPUTED = {
 VALIDATION_LOST = {
     # Its four dimensions given no value, read as notes: its two locations' properties
     "nist_ctc_01_asme1_ap242-e1.stp": {("pmi validation property", "pmi"): 2},
-    # Linear Size.10, given no value, read as a note, and datum F, which no frame cites, not
-    # read (sec 10.28): their properties, and the size's graphic's
-    "nist_ctc_03_asme1_ap242-e2.stp": {("pmi validation property", "pmi"): 2,
+    # Linear Size.10, given no value, read as a note (sec 10.28): its property, and its
+    # graphic's
+    "nist_ctc_03_asme1_ap242-e2.stp": {("pmi validation property", "pmi"): 1,
                                        ("pmi validation property", "graphic"): 1},
 }
 
@@ -1140,10 +1140,14 @@ class TestNistSet(Base):
                 self.assertEqual([(t.Characteristic, t.ImportedGraphicName, t.Condition,
                                    t.ImportedGraphic.isNull()) for t in of_all],
                                  [("ProfileOfSurface", general, "Ok", False)] * whole)
-        # A placeholder to a PMI not read, or read with no graphic, takes no graphic away:
-        # CTC-03's datum feature 6, which no tolerance cites, stays a graphic alone (dwin, p9)
+        # A placeholder to a PMI not read, or read with no graphic, takes no graphic away
+        # (dwin, p9). CTC-03's datum feature 6, which no tolerance cites, was one: a graphic
+        # alone. Its datum, F, is read now, on its faces, the graphic its own
         doc = self.read(os.path.join(nist, "nist_ctc_03_asme1_ap242-e2.stp"))
-        self.assertIn("Simple Datum.6", [n.Label for n in objects(doc, "Note")])
+        self.assertNotIn("Simple Datum.6", [n.Label for n in objects(doc, "Note")])
+        f = [d for d in objects(doc, "Datum") if d.Letter == "F"]
+        self.assertEqual([(d.ImportedGraphicName, d.ImportedGraphic.isNull(), d.Condition)
+                          for d in f], [("Simple Datum.6", False, "Ok")])
 
     def test_a_placeholder_is_of_the_graphic_of_its_name(self):
         """STC-07 presents 32 radii by one graphic, '32X R', named 'Linear

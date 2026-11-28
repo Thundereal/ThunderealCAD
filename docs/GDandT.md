@@ -2270,8 +2270,8 @@ NIST files carry (CTC-03: 61 of them), were read as nothing and written as nothi
 - **What NIST's say, against what is written** (`test_validation_properties_as_the_file_has_them`,
   every file): each property the file has is written again, but those of what is not read
   -- CTC-01's two locations and CTC-03's Linear Size.10 given no value (read as notes,
-  sec 10.9), CTC-03's datum F, which no frame cites, not read at all -- and a view's where
-  no model geometric view is written. A part's counts are those of the file written, and
+  sec 10.9) -- and a view's where no model geometric view is written. (CTC-03's datum F,
+  which no frame cites, was not read at all either: read since, below.) A part's counts are those of the file written, and
   NIST's own are not always theirs: STC-10 gives 19 locations, its file has 2; CTC-05 gives
   10 views, its file has 2 cameras. The datums cited are NIST's in every file. The
   attribute counts are NIST's, but for what is not read whole: CTC-04's edge attribute, and
@@ -2281,10 +2281,14 @@ NIST files carry (CTC-03: 61 of them), were read as nothing and written as nothi
   NIST uses square inches beside millimetres within one file (CTC-03), which the test reads
   by each value's unit; STC-06 gives every area as 0; FTC-06's locations, FTC-07's,
   STC-07's and FTC-08 -e4-tg's differ, not yet explained.
-- **Open, found by it:** a datum no frame cites is not read (CTC-03's F: OCCT's reader makes
-  a datum label for each time a frame cites one); NIST's view properties are of a
-  characterized draughting model where FreeCAD writes a plain one, so they are written of
-  the model geometric view.
+- **Found by it, fixed (2026-11-28):** a datum no frame cites was not read -- OCCT's reader
+  made a datum label only for each time a frame read cites one. CTC-03's F, a datum feature
+  on two faces with its graphic and its validation property, was a graphic alone, a note.
+  `ReadGDTs` now reads, after the tolerances, each DATUM nothing has read, of no tolerance
+  (one whose feature has targets is left to the frames citing them). F is a datum on its
+  faces holding its graphic, and its property is written again.
+- **Open, found by it:** NIST's view properties are of a characterized draughting model
+  where FreeCAD writes a plain one, so they are written of the model geometric view.
 
 ### 10.29 P4: a page follows its PMI views' cameras (2026-11-28)
 

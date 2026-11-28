@@ -3231,7 +3231,17 @@ bool WorkerRecompute::start(Document& doc, const std::vector<DocumentObject*>& o
     // started -- it is not counted
     s.info.splitStartWeighed = 0;
     if (another && static_cast<int>(parts.size()) > standing) {
-        const double start = pool->info().startSeconds;
+        double start = pool->info().startSeconds;
+        // Workers/WeighStartSeconds, a test's: the start weighed in place of
+        // the one measured, so that a test's verdict does not turn on how
+        // long a worker took to start on the box it runs on (a loaded one's
+        // later starts ran past a margin read from an earlier one)
+        const double given = GetApplication()
+                                 .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Workers")
+                                 ->GetFloat("WeighStartSeconds", 0.0);
+        if (given > 0) {
+            start = given;
+        }
         s.info.splitStartWeighed = start;
         if (start <= 0 || saving - start < least) {
             FC_LOG(doc.getName() << ": a split saving " << saving << " s not made over a worker "

@@ -2157,8 +2157,15 @@ class TestWorkerRecompute(unittest.TestCase):
         made only when what it saves, less the start the pool has measured
         for its workers, still clears Workers/SplitSeconds: that worker
         runs nothing before it is up, and a split must not be slower than
-        the recompute whole (docs/WorkerProcess.md sec 83)"""
+        the recompute whole (docs/WorkerProcess.md sec 83).
+
+        Both ways are tried with a start given (Workers/WeighStartSeconds, a
+        test's) rather than the one this box measured: a loaded box's later
+        starts ran past a margin read from its first, and the verdict
+        flipped (dwin, the runtime profile, "Split 1 != 2"). That the split
+        weighs the measured start when none is given is checked last."""
         base, left, right, tails = self.splitChains()
+        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
         # what the split saves, measured with two standing
         base.Input = 2
         info = self.byWorker()
@@ -2166,21 +2173,30 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(info["SplitStartWeighed"], 0.0, info)
         saving = info["SplitSaving"]
         split = info["Split"]
-        # one worker standing, room for another, whose start is known
-        self.pool.stop("one worker standing")
-        base.Input = 3
-        self.byWorker()  # whole, on the one the stop left none of: started
-        start = self.pool.info()["StartSeconds"]
-        self.assertGreater(start, 0.0, self.pool.info())
-        self.assertGreater(saving - start, 0.2, "a worker's start too long here to weigh both ways")
-        group = App.ParamGet("User parameter:BaseApp/Preferences/Workers")
+
+        def one_standing(value):
+            # one worker standing, room for another, whose start is measured:
+            # the whole recompute of `value`, no split, on the one started
+            self.pool.stop("one worker standing")
+            group.SetFloat("SplitSeconds", 1e6)
+            base.Input = value
+            self.byWorker()
+            self.assertGreater(self.pool.info()["StartSeconds"], 0.0, self.pool.info())
+
+        self.addCleanup(group.RemFloat, "SplitSeconds")
+        self.addCleanup(group.RemFloat, "WeighStartSeconds")
+        one_standing(3)
+        # a start given: a share of the saving, so both ways below hold by a
+        # margin of the saving's own size, whatever this box's starts take
+        start = saving * 0.3
+        group.SetFloat("WeighStartSeconds", start)
         # it saves enough to split, not enough to pay a worker's start
         group.SetFloat("SplitSeconds", saving - start / 2)
         base.Input = 4
         info = self.byWorker()
         self.assertEqual(info["SplitWorkers"], 1, info)
         self.assertEqual(info["Split"], split, info)
-        self.assertGreater(info["SplitStartWeighed"], 0.0, info)
+        self.assertAlmostEqual(info["SplitStartWeighed"], start, places=6, msg=info)
         self.assertEqual(left.MadeBy, right.MadeBy)
         self.assertEqual((left.Result, right.Result), (16, 16))
         # it saves enough to pay it: split, the pool growing for it
@@ -2191,6 +2207,16 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertEqual(info["Split"], split + 1, info)
         self.assertNotEqual(left.MadeBy, right.MadeBy)
         self.assertEqual((left.Result, right.Result), (20, 20))
+        # none given: the start weighed is the one the pool measured (the
+        # verdict not asserted -- it is this box's)
+        group.RemFloat("WeighStartSeconds")
+        one_standing(6)
+        measured = self.pool.info()["StartSeconds"]
+        group.SetFloat("SplitSeconds", 0.05)
+        base.Input = 7
+        info = self.byWorker()
+        self.assertAlmostEqual(info["SplitStartWeighed"], measured, places=6, msg=info)
+        self.assertEqual((left.Result, right.Result), (28, 28))
 
     def testAHalfAnEditDropsIsNotMadeHere(self):
         """An edit of Right while both halves are with their workers drops

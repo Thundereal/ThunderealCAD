@@ -4119,8 +4119,14 @@ void ViewProviderSketch::updateColor(void)
 
 float ViewProviderSketch::getEditZDir() const
 {
+    Gui::ViewerContext* viewer = editViewer();
+    if (!viewer) {
+        // No view to be seen from -- the edit's viewer goes first as the
+        // edit ends (unsetEditViewer): the side last seen from
+        return edit && edit->baseZDir != 0.0f ? edit->baseZDir : 1.0f;
+    }
     SbVec3f pnt, dir;
-    editViewer()->getNearPlane(pnt, dir);
+    viewer->getNearPlane(pnt, dir);
     auto transform = getEditingPlacement();
     Base::Vector3d v0, v1;
     transform.multVec(Base::Vector3d(0,0,0), v0);
@@ -10523,6 +10529,10 @@ void ViewProviderSketch::setEditViewer(Gui::ViewerContext* viewer, int ModNum)
         }
     }
     edit->viewer = viewer;
+    // Listening again where unsetEditViewer() stopped it, when the edit
+    // moves to another view; on entering the edit, already attached
+    // (setEdit) and this changes nothing
+    this->attachSelectionToCurrent();
 
     // The window moved to a screen with another scale (upstream
     // 37b4560893): every size initParams() derives is stale, so take the
@@ -10580,6 +10590,16 @@ void ViewProviderSketch::unsetEditViewer(Gui::ViewerContext* viewer)
         viewer->setSelectionEnabled(true);
         QObject::disconnect(edit->dprConnection);
         edit->viewer = nullptr;
+        // Deaf from here, as the edit's view goes: what the selection
+        // tells would be shown in a view there no longer is. The edit ends
+        // after this (unsetEdit), and in between it changes the toolbars;
+        // one shown or hidden under the pointer takes Qt's Enter, the
+        // overlay's filter drops the preselection on that, and the edit
+        // read its absent viewer (getEditZDir) -- a crash on leaving a
+        // sketch. A view joined to the session leaves by leaveEditing()
+        // and does not come here; the edit moved to another view
+        // (Document::cloneView) listens again in setEditViewer().
+        this->detachSelection();
     }
 
     detachViewer();

@@ -1234,6 +1234,13 @@ fc_add_gui_test(GuiSketchDragAutoConstraint_tests_run
 fc_add_gui_test(GuiSketchUndoDuringDrag_tests_run
                 sketch-undo-during-drag.py
                 --timeout 300)
+# Leaving a sketch's edit, a preselection standing and a toolbar the leaving
+# shows taking the pointer's Enter: the overlay drops the preselection into
+# an edit whose view had already gone (getEditZDir), a SIGSEGV. A second view
+# joined to the edit and closed leaves the first one listening.
+fc_add_gui_test(GuiSketchLeaveEditToolbarEnter_tests_run
+                sketch-leave-edit-toolbar-enter.py
+                --timeout 300)
 
 # What a box selection in a sketch edit leaves behind: construction lines
 # still drawn as such (upstream 9bff63e38d), and no context menu from the

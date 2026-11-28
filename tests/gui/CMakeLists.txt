@@ -1463,6 +1463,15 @@ fc_add_gui_test(GuiColourDialogPreference_tests_run
                 colour-dialog-preference.py
                 --timeout 300)
 
+# A non-convex face through the render cache: the triangles Coin's
+# tesselator cuts it into are numbered from their own first vertex, so a
+# vertex's number can lie outside its face; the vertex cache read the
+# point detail there anyway (an access violation by chance, Assembly
+# TestGuiCommands 2026-11-28). Counted, and taken as no point detail.
+fc_add_gui_test(GuiRenderCacheTessellatedFace_tests_run
+                render-cache-tessellated-face.py
+                --timeout 300)
+
 # An instanced Part object draws a uniform face colour list at the
 # transparency the list says: the uniform branch took the colour's alpha,
 # an opacity, for the transparency, so an opaque list drew invisible

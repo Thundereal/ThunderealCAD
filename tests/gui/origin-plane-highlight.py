@@ -239,13 +239,71 @@ def find_plane():
     FreeCADGui.Selection.clearSelection()
     move(5, 5)
     STATE["rest"] = dump("0-rest")
+    box = img_box()
+    note("INFO the plane drawn at rest: %s in %s; picked %s" % (
+        box.getRect() if box is not None else None, STATE.get("border"),
+        picked_box().getRect()))
+    # not blind: no outline found, nothing to sample along
+    if not check("the plane's outline is found in the picture at rest",
+                 box is not None and box.width() >= 8 and box.height() >= 8,
+                 box.getRect() if box is not None else None):
+        STEPS[:] = []
 
 
-def img_box():
-    """The plane's corner in image coordinates (y down), from its picks"""
+def picked_box():
+    """Where the plane was picked, in image coordinates (y down)"""
     x0, y0, x1, y1 = STATE["bbox"]
     h = STATE["rest"].height()
     return QtCore.QRect(QtCore.QPoint(x0, h - 1 - y1), QtCore.QPoint(x1, h - 1 - y0))
+
+
+def drawn_box():
+    """The plane's corner as drawn at rest, image coordinates (y down), or
+    None. Its picks fall short of it where an origin axis lies along it --
+    from the top the X axis on the bottom side, the Y axis on the left --
+    by about the pick radius (9 and 10 px on the Mac mini's short view,
+    past the sides' +-5 sampling). So the box is the plane's own border:
+    the colour most drawn near the picks that is not the ground, and of
+    its pixels the outermost rows and columns that run most of the way
+    across -- an axis going on past the plane adds a row or column of a
+    few pixels only."""
+    img = STATE["rest"]
+    near = picked_box().adjusted(-12, -12, 12, 12).intersected(img.rect())
+    ground = QtGui.QColor(img.pixel(near.left(), near.top()))
+    counts = {}
+    for y in range(near.top(), near.bottom() + 1):
+        for x in range(near.left(), near.right() + 1):
+            c = QtGui.QColor(img.pixel(x, y))
+            rgb = (c.red(), c.green(), c.blue())
+            if max(rgb) - min(rgb) < 80 or near_colour(img.pixel(x, y), (
+                    ground.red(), ground.green(), ground.blue())):
+                continue
+            counts[rgb] = counts.get(rgb, 0) + 1
+    if not counts:
+        return None
+    border = max(counts, key=counts.get)
+    rows, cols = {}, {}
+    for y in range(near.top(), near.bottom() + 1):
+        for x in range(near.left(), near.right() + 1):
+            if near_colour(img.pixel(x, y), border):
+                rows[y] = rows.get(y, 0) + 1
+                cols[x] = cols.get(x, 0) + 1
+    if not rows:
+        return None
+    full_rows = [y for y, n in rows.items() if n >= 0.6 * max(rows.values())]
+    full_cols = [x for x, n in cols.items() if n >= 0.6 * max(cols.values())]
+    box = QtCore.QRect(QtCore.QPoint(min(full_cols), min(full_rows)),
+                       QtCore.QPoint(max(full_cols), max(full_rows)))
+    STATE["border"] = border
+    return box
+
+
+def img_box():
+    """The plane's corner in image coordinates (y down): as drawn at rest
+    (drawn_box()), found once"""
+    if "box" not in STATE:
+        STATE["box"] = drawn_box()
+    return STATE["box"]
 
 
 def hover_edge():

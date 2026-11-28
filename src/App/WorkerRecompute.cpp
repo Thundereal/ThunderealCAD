@@ -158,6 +158,19 @@ void RecomputeHook::executing(DocumentObject&)
 void RecomputeHook::executed(DocumentObject&, int, double)
 {}
 
+bool RecomputeHook::wasPutIn(const DocumentObject& obj) const
+{
+    (void)obj;
+    return false;
+}
+
+bool RecomputeHook::isPutIn(const DocumentObject& obj)
+{
+    auto doc = obj.getDocument();
+    auto hook = doc ? of(*doc) : nullptr;
+    return hook && hook->wasPutIn(obj);
+}
+
 RecomputeHook* RecomputeHook::of(const Document& doc)
 {
     for (auto hook = innermost; hook; hook = hook->_outer) {
@@ -1625,6 +1638,12 @@ public:
 
     /// What make() said of each object in its current recompute
     std::map<const DocumentObject*, std::pair<bool, Made>> answered;
+
+    bool wasPutIn(const DocumentObject& obj) const override
+    {
+        auto it = answered.find(&obj);
+        return it != answered.end() && it->second.first;
+    }
 
     void noteHere(const DocumentObject& obj)
     {

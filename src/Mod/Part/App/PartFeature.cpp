@@ -82,6 +82,7 @@ typedef boost::iterator_range<const char*> CharRange;
 #include <App/Link.h>
 #include <App/OriginFeature.h>
 #include <App/Placement.h>
+#include <App/RecomputeHook.h>
 #include <App/Transactions.h>
 #include <Base/Console.h>
 #include <App/ElementNamingUtils.h>
@@ -535,7 +536,12 @@ void Feature::releaseHeldReferences()
             && !getDocument()->testStatus(App::Document::Restoring)
             && !getDocument()->isPerformingTransaction()) {
         updateElementReference();
-        reconcileShapeVersions(/*materialize*/true);
+        // A worker's result put in brings the generations it kept, and
+        // _BaseShapeRefs, as values: made here as well, they were a
+        // second set beside them (docs/WorkerProcess.md sec 87). Held over
+        // the recompute, the shape is released after the values are in
+        if (!App::RecomputeHook::puttingIn() && !App::RecomputeHook::isPutIn(*this))
+            reconcileShapeVersions(/*materialize*/true);
     }
 }
 
@@ -2193,7 +2199,8 @@ void Feature::onChanged(const App::Property* prop)
             && !_holdingReferences
             && getDocument()
             && !getDocument()->testStatus(App::Document::Restoring)
-            && !getDocument()->isPerformingTransaction())
+            && !getDocument()->isPerformingTransaction()
+            && !App::RecomputeHook::puttingIn())
         reconcileShapeVersions(/*materialize*/true);
 
     onAppearanceChanged(prop);

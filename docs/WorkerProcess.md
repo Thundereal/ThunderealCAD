@@ -5710,7 +5710,12 @@ not change is kept.
 **Same shape, not changed:** `DrawHatch` and `DrawGeomHatch` make their
 SavedNames/SavedGeometry from their view in `onChanged(Source)`, with
 the undo exemption only. A put-in of a hatch's Source before its view's
-result would record the old projection's faces. `CenterLine` names are
+result would record the old projection's faces. What a user would see,
+if it bit: a hatch whose face the worker found again under a new number
+is saved with the name and geometry of whatever face that number was
+before. The next recompute's search by name (`fixByName()`) would move
+it to that face, or warn that its name moved. Only a hatch whose Source
+the worker re-points is reached: an unchanged Source is not put in. `CenterLine` names are
 made in the view's own geometry build, which `DrawViewPart` defers to
 after the put-in. Sketcher's `onChanged(Geometry/Constraints)` reacts to
 a put-in too, but reads no other object.
@@ -5724,3 +5729,36 @@ references outside a put-in records from the view as it is now.
 names the file recorded. Before, both had names of another source
 (`:H491` against `:H492`), and both failed on the 2026-11-26 stage too.
 
+
+## 87. The shape generations a worker kept are the only ones where put in (2026-11-28)
+
+The shelf file of the smoke corpus (etazherka_2): after a worker's
+migration recompute, Pocket006 held `_BaseShape1` and `_BaseShape2`, the
+references on 2, where this process alone makes only `_BaseShape1`.
+Traced in both processes from their start (an observer loaded as a user
+Mod): the worker writes Pocket006's shape once in its execute() and keeps
+one generation, `_BaseShape1`. This process, putting that in, wrote the
+shape twice and made `_BaseShape1` and then `_BaseShape2` of its own.
+After the job the worker's copy held both as well. Its own pass ended with
+one, so the second came by this process's rows, which a worker takes
+after a put-in. That is inferred, not traced.
+
+A Part feature holds the references into it over its recompute. The
+shape put in is only noted (`_heldShapeChange`), and
+`releaseHeldReferences()`, once the recompute is over, re-resolves them
+and reconciles the generations, materializing what a missing reference
+needs. That runs after the values are in, when `puttingIn()` is false,
+and it made generations that also came as values.
+
+**Now.** `RecomputeHook::isPutIn(obj)` says whether the recompute of
+`obj` now under way was put in from another process's values (the
+supplier's answer for it). `releaseHeldReferences()` and
+`onChanged(Shape)` do not reconcile then. The generations and
+`_BaseShapeRefs` are the worker's, as values. The references are still
+re-resolved here (`updateElementReference()`).
+
+**Test.** `testAGenerationAWorkerKeptIsTheOnlyOneWherePutIn`: a PartDesign
+pocket with a sketch attached to its floor, made through-all by a worker.
+Pocket006 holds `_BaseShape1` and `_BaseShapeRefs`, the references on 1,
+and a recompute here that brings the floor back lets it go as before.
+Before, `_BaseShape1` and `_BaseShape2`; the same on the 2026-11-26 stage.

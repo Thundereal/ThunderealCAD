@@ -1955,6 +1955,60 @@ class TestWorkerRecompute(unittest.TestCase):
         doc.recompute()
         self.assertEqual(by_worker, dict(cut.Shape.ElementMap))
 
+    def testAGenerationAWorkerKeptIsTheOnlyOneWherePutIn(self):
+        """A PartDesign feature whose face a sketch is attached to, the face
+        gone in a worker's recompute: the worker keeps the shape before as
+        _BaseShape1, and that, with _BaseShapeRefs, is put in as values.
+        Putting the shape in ran this process's own reconcile as well, once
+        for each write of the shape, and the main made _BaseShape1 and
+        _BaseShape2 of its own, the references on 2 (the shelf file of the
+        smoke corpus, 2026-11-28; docs/WorkerProcess.md sec 87)"""
+        import Part
+        import Sketcher  # noqa: F401
+
+        def kept(obj):
+            return sorted(p for p in obj.PropertiesList if p.startswith("_BaseShape"))
+
+        body = self.doc.addObject("PartDesign::Body", "Body")
+        pad_sketch = body.newObject("Sketcher::SketchObject", "PadSketch")
+        corners = [App.Vector(0, 0, 0), App.Vector(20, 0, 0), App.Vector(20, 20, 0),
+                   App.Vector(0, 20, 0)]
+        for i in range(4):
+            pad_sketch.addGeometry(Part.LineSegment(corners[i], corners[(i + 1) % 4]))
+        pad = body.newObject("PartDesign::Pad", "Pad")
+        pad.Profile = pad_sketch
+        pad.Length = 10
+        hole = body.newObject("Sketcher::SketchObject", "HoleSketch")
+        hole.AttachmentSupport = [(pad, "Face6")]
+        hole.MapMode = "FlatFace"
+        hole.addGeometry(Part.Circle(App.Vector(10, 10, 0), App.Vector(0, 0, 1), 4))
+        pocket = body.newObject("PartDesign::Pocket", "Pocket")
+        pocket.Profile = hole
+        pocket.Length = 4
+        self.doc.recompute()
+        floors = [i for i, f in enumerate(pocket.Shape.Faces)
+                  if abs(f.BoundBox.ZMin - 6) < 1e-6 and abs(f.BoundBox.ZMax - 6) < 1e-6]
+        self.assertEqual(len(floors), 1, [f.BoundBox for f in pocket.Shape.Faces])
+        floor = "Face%d" % (floors[0] + 1)
+        on_floor = body.newObject("Sketcher::SketchObject", "OnFloor")
+        on_floor.AttachmentSupport = [(pocket, floor)]
+        on_floor.MapMode = "FlatFace"
+        on_floor.addGeometry(Part.Circle(App.Vector(0, 0, 0), App.Vector(0, 0, 1), 1))
+        self.doc.recompute()
+        self.assertEqual(kept(pocket), [])
+        pocket.Type = "ThroughAll"  # the floor goes
+        info = self.byWorker()
+        self.assertEqual((info["Unfit"], info["ExecutedHereNames"]), (0, []), info)
+        self.assertGreater(info["Applied"], 0, info)
+        self.assertEqual(on_floor.AttachmentSupport[0][1], ("?" + floor,))
+        self.assertEqual(kept(pocket), ["_BaseShape1", "_BaseShapeRefs"])
+        self.assertEqual(set(pocket._BaseShapeRefs.values()), {"_BaseShape1"})
+        # Outside a put-in the reconcile is as before: the floor back, the
+        # generation is let go by this process's own recompute
+        pocket.Type = "Length"
+        self.doc.recompute()
+        self.assertEqual(kept(pocket), [])
+
     def testAConsolesCopyHasNoViewObjectInAWorker(self):
         """A console session saves no views, and every obj.ViewObject there
         is None: in a worker, made from such a copy, it is None too, and an

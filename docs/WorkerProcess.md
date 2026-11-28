@@ -5790,6 +5790,21 @@ from the referenced object's own shape, which is already put in when its
 referrers are re-resolved. The dimension read another object, a view
 whose result was put in after it.
 
+**The rule, for any handler that derives a value while values are set**
+(no general put-in flag; the coordinator's decision of 2026-11-28 on
+this evidence):
+- One that derives from its own object's values is safe while a result is
+  put in. It reads what was just put in.
+- One that reads ANOTHER object, which may be put in after it, is the
+  dimension's case. It derives nothing while `RecomputeHook::puttingIn()`.
+- One that makes again what also arrives as a value is the generations'
+  case. It skips that while `RecomputeHook::isPutIn(obj)`, and the value
+  put in stands.
+
+A new handler is judged by these three. The hatch (`DrawHatch`,
+`DrawGeomHatch`) is of the second kind by reading, and untested for the
+put-in.
+
 **Tests.** `testAReferenceReResolvedIsTheWorkersWherePutIn`,
 `testABindersShapeIsTheWorkersWherePutIn`,
 `testAFilletsEdgeLinksAreTheWorkersWherePutIn` and

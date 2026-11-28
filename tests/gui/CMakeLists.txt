@@ -354,6 +354,11 @@ fc_add_gui_test(GuiOnViewLabelOverGeometry_tests_run onview-label-over-geometry.
 # keeps its value beside a missing edge; a selected handle lights on hover.
 fc_add_gui_test(GuiFilletDragBesideMissingEdge_tests_run fillet-drag-beside-missing-edge.py
                 --timeout 200)
+# Entry 191: a drag into a radius that fails holds at the last that worked,
+# quick or slow -- not back to the drag's start, one failure -- and follows
+# the pointer again when it comes back.
+fc_add_gui_test(GuiFilletDragHoldsLastWorking_tests_run fillet-drag-holds-last-working.py
+                --timeout 300)
 
 # Entry 202, the hands-on of 2026-10-21: the Group column second, the modes'
 # tool tips, group colours (automatic, picked, kept in GroupColors), a double

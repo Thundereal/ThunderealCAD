@@ -397,6 +397,15 @@ void OnViewValueSet::dragRecomputed(bool failed)
     else if (!atGood) {
         Base::Console().Log("On-view drag: %s failed, back to %g\n",
                             box->text().toUtf8().constData(), dragGood);
+        // and held there while the pointer stays on the side that failed:
+        // its further moves write nothing, so fail no more -- "the value
+        // and the handle stay at the last working one until the mouse
+        // reaches a working value again", the note-taker's reading of
+        // entry 191 (the user's own words: back to the last working value,
+        // the whole drag one transaction)
+        if (dragHandle) {
+            dragHoldSide = box->rawValue() > dragGood ? 1 : -1;
+        }
         box->setValue(dragGood);
         // still settling: the write back's own recompute comes next
         return;
@@ -405,6 +414,21 @@ void OnViewValueSet::dragRecomputed(bool failed)
         dragSettling = false;
         dragBox = nullptr;
     }
+}
+
+double OnViewValueSet::heldDragValue(Gizmo* handle, double value)
+{
+    if (handle != dragHandle || dragHoldSide == 0) {
+        return value;
+    }
+    // still past the last working value, on the side that failed: held
+    if ((value - dragGood) * dragHoldSide > 0.0) {
+        return dragGood;
+    }
+    // back to it or behind it: the drag follows the pointer again, and a
+    // value that fails further on is a new excursion
+    dragHoldSide = 0;
+    return value;
 }
 
 bool OnViewValueSet::viewerMenuButton(ViewerContext* viewer, std::array<int, 3>& place)
@@ -543,6 +567,11 @@ void OnViewValueSet::setupHandle(int index, Gizmo* handle)
         }
         self->highlight();
     });
+    // Past a value that failed, the drag is held at the last that worked
+    // (entry 191; heldDragValue())
+    handle->setValueFilter([self = QPointer<OnViewValueSet>(this), handle](double value) {
+        return self ? self->heldDragValue(handle, value) : value;
+    });
     // A drag is one undo step (entry 136)
     handle->setDragCallback([self = QPointer<OnViewValueSet>(this), index, handle](
                                 Gizmo::DragEvent event) {
@@ -584,6 +613,7 @@ void OnViewValueSet::setupHandle(int index, Gizmo* handle)
                 self->dragBox = index < self->count() ? self->entries[index]->box : nullptr;
                 self->dragGood = self->dragBox ? self->dragBox->rawValue() : 0.0;
                 self->dragSettling = false;
+                self->dragHoldSide = 0;
                 Q_EMIT self->stepBegun();
                 break;
             case Gizmo::DragEvent::Moved:

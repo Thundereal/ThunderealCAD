@@ -348,6 +348,9 @@ private:
                        const QString& text);
     /// featureRecomputed() for this set's drag
     void dragRecomputed(bool failed);
+    /// What the drag of \a handle writes for \a value: the last working
+    /// value while the pointer is past one that failed (dragHoldSide)
+    double heldDragValue(Gizmo* handle, double value);
     /// The view, or null once it is gone: a panel can outlive its view -- a
     /// closed document takes its views before the panel's deferred delete
     ViewerContext* liveView() const;
@@ -409,6 +412,11 @@ private:
     QPointer<QuantitySpinBox> dragBox;
     double dragGood = 0.0;
     bool dragSettling = false;
+    /** The side of dragGood a value failed on in this drag, +1 above, -1
+     * below, 0 none: the drag is held at dragGood while the pointer stays
+     * on that side, and follows again once it comes back (heldDragValue())
+     */
+    int dragHoldSide = 0;
     /// The value whose handle the pointer is over, -1 for none: its handles
     /// and its group's lit as a shape under the pointer is (entry 144)
     int preselected = -1;

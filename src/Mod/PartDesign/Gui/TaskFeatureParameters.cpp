@@ -335,7 +335,16 @@ void TaskFeatureParameters::recomputeFeature(bool delay)
         auto feat = Base::freecad_dynamic_cast<PartDesign::Feature>(vp->getObject());
         if (feat && feat->isRecomputePaused())
             interval /= 3;
-        updateViewTimer->start(interval);
+        // A handle's drag (a held step, the left button down) recomputes at
+        // least once an interval: the timer running is left to fire, not
+        // started again by each move. Otherwise a quick drag recomputed only
+        // once the pointer stopped, and a value failing there went back to
+        // the last that recomputed -- the drag's start (entry 191; the Mac
+        // mini's quick drags)
+        const bool dragging = heldSteps > 0
+            && (QApplication::mouseButtons() & Qt::LeftButton);
+        if (!(dragging && updateViewTimer->isActive()))
+            updateViewTimer->start(interval);
     } else {
         {
             Gui::WaitCursor cursor;

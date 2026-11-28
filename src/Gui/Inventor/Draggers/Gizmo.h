@@ -220,6 +220,17 @@ public:
     {
         return dragging && !dragCancelled;
     }
+    /** What a drag writes, given the value the pointer gives (in the box's
+     * range, after a reverse): what \a filter returns is written and the
+     * handle drawn at it. OnViewValueSet holds a drag at its last working
+     * value with it while the pointer is past one that failed
+     * (docs/HandsOnQueue.md entry 191).
+     */
+    using ValueFilter = std::function<double(double)>;
+    void setValueFilter(ValueFilter filter)
+    {
+        valueFilter = std::move(filter);
+    }
     /// The value back to where the drag began; the rest of the drag changes
     /// nothing
     virtual void cancelDrag() {}
@@ -293,6 +304,7 @@ protected:
     void dropViewHint();
 
     DragCallback dragCallback;
+    ValueFilter valueFilter;
     bool dragging = false;
     bool dragCancelled = false;
     void notifyDrag(DragEvent event)

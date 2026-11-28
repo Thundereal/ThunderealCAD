@@ -13,7 +13,9 @@ Now the entry is read into memory (ProjectFile::readInputFileDirect).
 Three documents saved with thumbnails, the recent files list naming them,
 the Start page open; the list rewritten twice so the model reloads. Claims:
 the thumbnails are read (each row's image is a PNG), and the temporary
-paths hold no more "file??????" entries after the reloads than before.
+paths hold no new entry after the reloads: none at all in FreeCAD's own
+temporary path, none named as getTempFileName() names them in the
+system's ("fileXXXXXX"; on Windows "FCT<hex>.tmp").
 """
 import os
 import re
@@ -28,7 +30,10 @@ from PySide import QtCore, QtWidgets
 
 OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
-NAME = re.compile(r"^file[A-Za-z0-9]{6}$")
+# Base::FileInfo::getTempFileName()'s names: mkstemp's "fileXXXXXX", and on
+# Windows GetTempFileNameW's, the prefix "FCTempFile" cut to three letters and
+# a hex number ("FCT1A2B.tmp")
+NAME = re.compile(r"^(file[A-Za-z0-9]{6}|FCT[0-9A-Fa-f]{1,4}\.tmp)$")
 
 state = {"done": False}
 
@@ -60,10 +65,15 @@ def temp_roots():
 
 
 def temp_files():
+    """The entries of the temporary roots: every one in FreeCAD's own
+    temporary path (the test's home, nothing else writes there), and in the
+    system's -- shared with whatever else runs -- those named as
+    getTempFileName() names them"""
+    own = os.path.realpath(FreeCAD.getTempPath())
     found = set()
     for root in temp_roots():
         for entry in os.listdir(root):
-            if NAME.match(entry):
+            if root == own or NAME.match(entry):
                 found.add(os.path.join(root, entry))
     return found
 
@@ -99,7 +109,7 @@ def run():
         FreeCADGui.runCommand("Start_Start", 0)
         pump(100)
         before = temp_files()
-        note("INFO the temporary roots %s; %d \"file??????\" entries before the reloads"
+        note("INFO the temporary roots %s; %d entries counted before the reloads"
              % (temp_roots(), len(before)))
         for _ in range(2):
             # rewritten as a save or an open rewrites it: the model reloads

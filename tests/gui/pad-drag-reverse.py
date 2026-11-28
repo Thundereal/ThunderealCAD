@@ -232,7 +232,13 @@ def run():
               and pad.AddSubShape.BoundBox.ZMax < 1e-3, pad.AddSubShape.BoundBox)
         check("... the arrow now points down", (arrow_way() or 0) < 0, arrow_way())
 
-        # back up, from the reversed pad's arrow
+        # back up, from the reversed pad's arrow -- the view fitted to the
+        # pad first: on a short view (the Mac mini's, 300 high with the
+        # panel open) the reversed arrow stood below its bottom edge, its
+        # one pixel in view under the view's tab bar, where a press does not
+        # reach the view
+        view().fitAll()
+        pump(40)
         bottom = FreeCAD.Vector(5, 5, -pad.Length.Value)
         arrow2 = pick_arrow(vp(bottom))
         note("INFO the arrow at %s" % (arrow2,))

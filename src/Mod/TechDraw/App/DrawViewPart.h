@@ -207,11 +207,37 @@ public:
     //! keep beside the name: a vertex's point, an edge's ends and middle, a
     //! face's area and centre of area, in the view's unscaled, unrotated
     //! frame. Empty where there is no such element.
+    //!
+    //! That frame is centred on the view's sources (getOriginalCentroid()),
+    //! and the centre moves with anything in the view: so each signature
+    //! ends with the centre it was taken under, " @ x y z" -- read by
+    //! signatureMatches() to compare in a frame the centring does not move,
+    //! and unseen by an older build's sameSignature(), whose reading stops
+    //! at the '@' with the numbers it always read. An untagged signature
+    //! (written before) is compared as it always was.
     std::string geometrySignature(const std::string& subName) const;
     static std::vector<std::string> geometrySignaturesOf(const App::DocumentObject* obj,
                                                          const std::vector<std::string>& subNames);
-    //! whether two signatures describe the same element; false if either is empty
+    //! whether two signatures describe the same element in the frame they
+    //! were written in (a tag is not read); false if either is empty
     static bool sameSignature(const std::string& a, const std::string& b);
+    //! whether `saved` describes the element whose signature taken now is
+    //! `now`: a tagged `saved` moved by how far this view's centring origin
+    //! has moved since it was written; an untagged one as sameSignature()
+    bool signatureMatches(const std::string& now, const std::string& saved) const;
+    //! `signature` without its tag; `centre` set to the tag's centre, if any
+    static std::string untagSignature(const std::string& signature,
+                                      Base::Vector3d* centre = nullptr,
+                                      bool* tagged = nullptr);
+    //! whether `fresh` says what `stored` says of the same elements, entry by
+    //! entry: equal, equal but for a tag, or the same geometry under another
+    //! centre. Rewriting one with the other records a tag or a centre, not a
+    //! change: the caller writes it without touching its object
+    bool sameSaved(const std::vector<std::string>& fresh,
+                   const std::vector<std::string>& stored) const;
+    //! how far a value taken under the centring origin `writtenUnder` lies
+    //! from where the same geometry is taken now, in the signatures' frame
+    Base::Vector3d centringShift(const Base::Vector3d& writtenUnder) const;
     //! What to save of a set of references: `fresh`, read from the elements
     //! they name now, over `saved`. A saved entry stays where the fresh one is
     //! empty -- the view has not projected, or the element has no name -- and

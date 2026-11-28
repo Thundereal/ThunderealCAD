@@ -51,6 +51,7 @@
 # include <Geom_Plane.hxx>
 # include <Geom2d_Curve.hxx>
 # include <Geom2dAPI_ProjectPointOnCurve.hxx>
+# include <Precision.hxx>
 # include <TopExp.hxx>
 # include <TopExp_Explorer.hxx>
 # include <TopoDS_Edge.hxx>
@@ -67,6 +68,7 @@
 #include <Base/Console.h>
 #include <Base/Parameter.h>
 #include <Base/Quantity.h>
+#include <Base/Matrix.h>
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
 
@@ -247,6 +249,11 @@ DrawViewDimension::DrawViewDimension()
     ADD_PROPERTY_TYPE(SavedNames, () ,"References",(App::PropertyType)(App::Prop_None),
                       "Names of the projected elements the 2D references point at");
     SavedNames.setStatus(App::Property::Hidden, true);
+    ADD_PROPERTY_TYPE(SavedGeometryCentres, (), "References", (App::PropertyType)(App::Prop_None),
+                      "The centre of the view's sources each saved geometry entry was taken under");
+    SavedGeometryCentres.setStatus(App::Property::Hidden, true);
+    SavedGeometryCentres.setStatus(App::Property::Output, true);
+    SavedGeometryCentres.setStatus(App::Property::NoModify, true);
     ADD_PROPERTY_TYPE(Source, (nullptr), "PMI", App::Prop_None,
                       "The PMI dimension of the 3D model shown: its tolerance, basic flag and "
                       "decimals are the 3D one's, edited here or there");
@@ -1743,6 +1750,7 @@ void DrawViewDimension::repointReferences(const std::vector<std::pair<int, std::
         return;
     }
     const std::vector<TopoShape> oldGeometry = SavedGeometry.getValues();
+    const std::vector<std::string> oldCentres = savedCentres();
     const std::vector<std::string> oldNames = SavedNames.getValues();
     ReferenceVector refs = is3d ? getReferences3d() : getReferences2d();
     std::vector<bool> fixed(refs.size(), false);
@@ -1762,12 +1770,17 @@ void DrawViewDimension::repointReferences(const std::vector<std::pair<int, std::
     const bool effective = is3d || References3D.getValues().empty();
     std::vector<TopoShape> geometry = SavedGeometry.getValues();
     if (effective && geometry.size() == refs.size() && oldGeometry.size() == refs.size()) {
+        // the entries not repointed keep what they were, and the centre
+        // they were taken under; the repointed ones were taken now
+        std::vector<std::string> centres = savedCentres();
         for (size_t i = 0; i < refs.size(); i++) {
             if (!fixed.at(i)) {
                 geometry.at(i) = oldGeometry.at(i);
+                centres.at(i) = i < oldCentres.size() ? oldCentres.at(i) : std::string();
             }
         }
         SavedGeometry.setValues(geometry);
+        setSavedCentres(centres);
     }
     std::vector<std::string> names = SavedNames.getValues();
     if (!is3d && names.size() == refs.size() && oldNames.size() == refs.size()) {
@@ -1907,6 +1920,8 @@ void DrawViewDimension::updateSavedGeometry()
     }
     std::vector<TopoShape> newGeometry;
     const std::vector<TopoShape> oldGeometry = SavedGeometry.getValues();
+    const std::vector<std::string> oldCentres = savedCentres();
+    std::vector<std::string> centres;
     //need to clean up old geometry objects here?
 
     size_t iOldGeom(0);
@@ -1917,19 +1932,26 @@ void DrawViewDimension::updateSavedGeometry()
         }
         if (entry.isValid()) {
             newGeometry.push_back(entry.asCanonicalTopoShape());
+            // taken now: under the view's centre of now
+            centres.push_back(centreEntryFor(newGeometry.back()));
         } else {
         // use old geometry entry? null shape? have to put something in the vector
         // so SavedGeometry and references stay in sync.
             if (iOldGeom < oldGeometry.size()) {
                 newGeometry.push_back(oldGeometry.at(iOldGeom));
+                // kept: with the centre it was taken under, if known
+                centres.push_back(iOldGeom < oldCentres.size() ? oldCentres.at(iOldGeom)
+                                                               : std::string());
             } else {
                 newGeometry.push_back(Part::TopoShape());
+                centres.emplace_back();
             }
         }
         iOldGeom++;
     }
     if (!newGeometry.empty()) {
         SavedGeometry.setValues(newGeometry);
+        setSavedCentres(centres);
     }
 }
 
@@ -2009,7 +2031,7 @@ bool DrawViewDimension::hasSavedGeometry(int iRef, DrawViewPart* dvp,
     if (!References3D.getValues().empty() || !dvp) {
         return false;
     }
-    const std::vector<TopoShape> saved = SavedGeometry.getValues();
+    const std::vector<TopoShape> saved = savedGeometryHere();
     if (saved.size() != getReferences2d().size() || iRef < 0 || iRef >= int(saved.size())
         || saved.at(iRef).isNull()) {
         return false;
@@ -2164,7 +2186,8 @@ bool DrawViewDimension::migrateSavedGeometryFrame()
 bool DrawViewDimension::compareSavedGeometry()
 {
 //    Base::Console().Message("DVD::compareSavedGeometry() - isRestoring: %d\n", isRestoring());
-    const std::vector<TopoShape> savedGeometry = SavedGeometry.getValues();
+    // each entry in the frame of now, where its centre is known
+    const std::vector<TopoShape> savedGeometry = savedGeometryHere();
     if (savedGeometry.empty()) {
         // no saved geometry, so we have nothing to compare, so we don't know if there has been a change
         // this should return false, since something != nothing
@@ -2198,6 +2221,9 @@ bool DrawViewDimension::compareSavedGeometry()
         }
     }
 
+    // matched: an entry that had no centre is in the frame of now, and is
+    // given its centre
+    tagMatchedCentres();
     //free the reference geometry?
     return true;
 }
@@ -2281,6 +2307,7 @@ bool DrawViewDimension::fillNullSavedGeometry()
     if (saved.empty()) {
         return false;
     }
+    std::vector<std::size_t> filledAt;
     bool filled = false;
     std::size_t index = 0;
     for (auto& entry : getEffectiveReferences()) {
@@ -2294,15 +2321,124 @@ bool DrawViewDimension::fillNullSavedGeometry()
             TopoShape now = entry.asCanonicalTopoShape();
             if (!now.isNull()) {
                 saved[index] = now;
+                filledAt.push_back(index);
                 filled = true;
             }
         }
         ++index;
     }
     if (filled) {
+        std::vector<std::string> centres = savedCentres();
         SavedGeometry.setValues(saved);
+        centres.resize(saved.size());
+        for (std::size_t at : filledAt) {
+            centres.at(at) = centreEntryFor(saved.at(at));
+        }
+        setSavedCentres(centres);
     }
     return filled;
+}
+
+namespace
+{
+//! what a saved shape is, short: its kind and its box -- enough to tell an
+//! entry rewritten without its centre from the one the centre was taken for
+std::string shapeFingerprint(const Part::TopoShape& shape)
+{
+    if (shape.isNull()) {
+        return {};
+    }
+    const Base::BoundBox3d box = shape.getBoundBox();
+    std::ostringstream out;
+    out.precision(9);
+    out << int(shape.getShape().ShapeType()) << ' ' << box.MinX << ' ' << box.MinY << ' '
+        << box.MinZ << ' ' << box.MaxX << ' ' << box.MaxY << ' ' << box.MaxZ;
+    return out.str();
+}
+
+//! a centre entry's centre, if its fingerprint is `shape`'s
+bool centreOf(const std::string& entry, const Part::TopoShape& shape, Base::Vector3d& centre)
+{
+    const auto bar = entry.find(" | ");
+    if (bar == std::string::npos || entry.substr(bar + 3) != shapeFingerprint(shape)) {
+        return false;
+    }
+    std::istringstream in(entry.substr(0, bar));
+    double x {}, y {}, z {};
+    if (!(in >> x >> y >> z)) {
+        return false;
+    }
+    centre = Base::Vector3d(x, y, z);
+    return true;
+}
+}  // namespace
+
+std::string DrawViewDimension::centreEntryFor(const Part::TopoShape& shape) const
+{
+    auto dvp = getViewPart();
+    if (!dvp || !References3D.getValues().empty() || shape.isNull()) {
+        return {};
+    }
+    const Base::Vector3d c = dvp->getOriginalCentroid();
+    std::ostringstream out;
+    out.precision(10);
+    out << c.x << ' ' << c.y << ' ' << c.z << " | " << shapeFingerprint(shape);
+    return out.str();
+}
+
+std::vector<std::string> DrawViewDimension::savedCentres() const
+{
+    std::vector<std::string> centres = SavedGeometryCentres.getValues();
+    centres.resize(SavedGeometry.getValues().size());
+    return centres;
+}
+
+void DrawViewDimension::setSavedCentres(const std::vector<std::string>& entries)
+{
+    if (entries != SavedGeometryCentres.getValues()) {
+        // Output and NoModify (the constructor): bookkeeping, not a change
+        SavedGeometryCentres.setValues(entries);
+    }
+}
+
+std::vector<Part::TopoShape> DrawViewDimension::savedGeometryHere() const
+{
+    std::vector<Part::TopoShape> saved = SavedGeometry.getValues();
+    auto dvp = getViewPart();
+    if (!dvp || !References3D.getValues().empty()) {
+        return saved;
+    }
+    const std::vector<std::string> centres = savedCentres();
+    for (size_t i = 0; i < saved.size(); i++) {
+        Base::Vector3d writtenUnder;
+        if (saved.at(i).isNull() || !centreOf(centres.at(i), saved.at(i), writtenUnder)) {
+            // no centre known: as it stands, in the frame of now
+            continue;
+        }
+        const Base::Vector3d shift = dvp->centringShift(writtenUnder);
+        if (shift.Length() < Precision::Confusion()) {
+            continue;
+        }
+        Base::Matrix4D move;
+        move.move(shift);
+        Part::TopoShape moved = saved.at(i);
+        moved.move(move);
+        saved.at(i) = moved;
+    }
+    return saved;
+}
+
+void DrawViewDimension::tagMatchedCentres()
+{
+    const std::vector<Part::TopoShape> saved = SavedGeometry.getValues();
+    std::vector<std::string> centres = savedCentres();
+    for (size_t i = 0; i < saved.size(); i++) {
+        Base::Vector3d known;
+        if (!centreOf(centres.at(i), saved.at(i), known)) {
+            centres.at(i) = centreEntryFor(saved.at(i));
+        }
+    }
+    setSavedCentres(centres);
 }
 
 // deal with situation where the current geometry does not match the saved geometry,
@@ -2323,7 +2459,7 @@ std::string DrawViewDimension::recoverChangedEdge2d(int iReference)
 {
 //    Base::Console().Message("DVD::recoverChangedEdge2d(ref: %d)\n", iReference);
     double scale = getViewPart()->getScale();
-    std::vector<Part::TopoShape> savedAll = SavedGeometry.getValues();
+    std::vector<Part::TopoShape> savedAll = savedGeometryHere();
     if (iReference < 0 || iReference >= int(savedAll.size())) {
         return {};
     }
@@ -2353,12 +2489,12 @@ std::string DrawViewDimension::recoverChangedVertex2d(int iReference)
 {
 //    Base::Console().Message("DVD::recoverChangedVertex2d(%d)\n", iReference);
     double scale = getViewPart()->getScale();
-    std::vector<Part::TopoShape> savedAll = SavedGeometry.getValues();
+    std::vector<Part::TopoShape> savedAll = savedGeometryHere();
     if (savedAll.empty() ||
         iReference >= int(savedAll.size())) {
             return std::string();
         }
-    Part::TopoShape savedGeometryItem = SavedGeometry.getValues().at(iReference);
+    Part::TopoShape savedGeometryItem = savedAll.at(iReference);
     std::vector<TechDraw::VertexPtr> gVertexAll = getViewPart()->getVertexGeometry();
     int iVertex = 0;
     for (auto& vert : gVertexAll) {

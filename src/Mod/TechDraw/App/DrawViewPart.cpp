@@ -1518,7 +1518,102 @@ std::string DrawViewPart::geometrySignature(const std::string& subName) const
     catch (const Standard_Failure&) {
         return {};
     }
+    // the centre the numbers were taken under (geometrySignature() in the
+    // header): an older build reads the numbers and stops here
+    const Base::Vector3d centre = getOriginalCentroid();
+    out << " @ " << centre.x << ' ' << centre.y << ' ' << centre.z;
     return out.str();
+}
+
+std::string DrawViewPart::untagSignature(const std::string& signature, Base::Vector3d* centre,
+                                         bool* tagged)
+{
+    if (tagged) {
+        *tagged = false;
+    }
+    const auto at = signature.find(" @ ");
+    if (at == std::string::npos) {
+        return signature;
+    }
+    std::istringstream in(signature.substr(at + 3));
+    double x {}, y {}, z {};
+    if (in >> x >> y >> z) {
+        if (centre) {
+            *centre = Base::Vector3d(x, y, z);
+        }
+        if (tagged) {
+            *tagged = true;
+        }
+    }
+    return signature.substr(0, at);
+}
+
+Base::Vector3d DrawViewPart::centringShift(const Base::Vector3d& writtenUnder) const
+{
+    // a signature's point is projectPoint(p - c) in the unscaled, unrotated
+    // frame: the same p taken under another centre differs by the centres'
+    // projections
+    Base::Vector3d shift = projectPoint(writtenUnder) - projectPoint(getOriginalCentroid());
+    shift.z = 0.0;
+    return shift;
+}
+
+bool DrawViewPart::sameSaved(const std::vector<std::string>& fresh,
+                             const std::vector<std::string>& stored) const
+{
+    if (fresh.size() != stored.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < fresh.size(); i++) {
+        const std::string& a = fresh.at(i);
+        const std::string& b = stored.at(i);
+        if (a == b || untagSignature(a) == untagSignature(b)) {
+            continue;
+        }
+        if (a.empty() || b.empty() || !signatureMatches(a, b)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool DrawViewPart::signatureMatches(const std::string& now, const std::string& saved) const
+{
+    Base::Vector3d writtenUnder;
+    bool tagged = false;
+    const std::string value = untagSignature(saved, &writtenUnder, &tagged);
+    const std::string current = untagSignature(now);
+    if (!tagged || value.empty()) {
+        // written before signatures carried their centre: as it always was,
+        // in the frame of now -- not tried in any other (a match in a frame
+        // it was not written in would be a coincidence)
+        return sameSignature(current, value);
+    }
+    // the saved value moved into the frame `now` was taken in
+    const Base::Vector3d shift = centringShift(writtenUnder);
+    std::istringstream in(value.substr(1));
+    std::vector<double> numbers;
+    double number {};
+    while (in >> number) {
+        numbers.push_back(number);
+    }
+    // a face's first number is its area; the rest are points, three at a time
+    const size_t first = value[0] == 'F' ? 1 : 0;
+    if (numbers.size() < first || (numbers.size() - first) % 3 != 0) {
+        return false;
+    }
+    std::ostringstream moved;
+    moved.precision(10);
+    moved << value[0];
+    for (size_t i = 0; i < numbers.size(); i++) {
+        double v = numbers.at(i);
+        if (i >= first) {
+            const size_t axis = (i - first) % 3;
+            v += axis == 0 ? shift.x : axis == 1 ? shift.y : shift.z;
+        }
+        moved << ' ' << v;
+    }
+    return sameSignature(current, moved.str());
 }
 
 std::vector<std::string> DrawViewPart::geometrySignaturesOf(const App::DocumentObject* obj,
@@ -1640,7 +1735,7 @@ DrawViewPart::repointByName(const App::DocumentObject* obj,
         std::string found;
         for (size_t i = 0; i < count; i++) {
             std::string candidate = DrawUtil::makeGeomName(kind, int(i));
-            if (sameSignature(dvp->geometrySignature(candidate), signature)) {
+            if (dvp->signatureMatches(dvp->geometrySignature(candidate), signature)) {
                 if (!found.empty()) {
                     return std::string();
                 }
@@ -1664,17 +1759,17 @@ DrawViewPart::repointByName(const App::DocumentObject* obj,
         };
 
         if (!byName.empty() && byName != current) {
-            if (sameSignature(dvp->geometrySignature(byName), signature)) {
+            if (dvp->signatureMatches(dvp->geometrySignature(byName), signature)) {
                 take(byName);
                 continue;
             }
-            if (sameSignature(dvp->geometrySignature(current), signature)) {
+            if (dvp->signatureMatches(dvp->geometrySignature(current), signature)) {
                 // the geometry says it is where it was; its name has moved on
                 continue;
             }
         }
         else if (byName == current || signature.empty()
-                 || sameSignature(dvp->geometrySignature(current), signature)) {
+                 || dvp->signatureMatches(dvp->geometrySignature(current), signature)) {
             // where its name is, or nothing to tell otherwise by
             continue;
         }

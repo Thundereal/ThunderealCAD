@@ -29,6 +29,16 @@ half second). Claims, each way:
 and slowly, once held, the pointer brought back toward the start: the
 radius follows it again, below the held one.
 
+Each drag first rests on a radius that works until one recompute of it is
+seen to work (up to 4 s, a FAIL by name if none comes): the throttle
+recomputes a drag once an interval (EditRecomputeWait), so on a box where a
+recompute takes longer than the interval a quick drag's first recompute may
+already be past what works. The last working value is then the drag's start
+-- that is the user's rule as written ("the last working value"): a value
+never recomputed is not known to work. A guarantee beyond it (recomputing
+values the pointer only passed, or searching back from the failure) is the
+user's to ask for; do not "fix" it here.
+
 Escape with the button still down, once held (the Windows hang reported
 with the fillet drag was on an Escape): the drag is cancelled -- the radius
 back to the drag's start, no undo step, the fillet still in edit and valid
@@ -136,14 +146,20 @@ def to_window(x, y):
 
 
 class Failures:
-    """The fillet's recomputes that failed, as they happen"""
+    """The fillet's recomputes that failed, and those that worked, as they
+    happen"""
 
     def __init__(self, name):
         self.name = name
         self.count = 0
+        self.worked = 0
 
     def slotRecomputedObject(self, obj):
-        if obj.Name == self.name and not obj.isValid():
+        if obj.Name != self.name:
+            return
+        if obj.isValid():
+            self.worked += 1
+        else:
             self.count += 1
 
 
@@ -183,10 +199,20 @@ def drag_away(fillet, wait_turns, back=False, escape=False):
         QtTest.QTest.mousePress(win, Qt.LeftButton, Qt.NoModifier, p)
         pump(5)
         q = p
+        warmed = None
         for i in range(1, 21):
             q = QtCore.QPoint(int(p.x() + unit[0] * i / 20), int(p.y() - unit[1] * i / 20))
             QtTest.QTest.mouseMove(win, q)
             pump(wait_turns)
+            if i == 1:
+                # still a radius that works: one recompute of the drag that
+                # works, waited for, before the rest goes past what works --
+                # the hold goes back to the last value known to work, and a
+                # drag whose first recompute fails has none but its start
+                end = time.monotonic() + 4.0
+                while failures.worked < 1 and time.monotonic() < end:
+                    pump(2)
+                warmed = failures.worked >= 1
         pump(60)
         held = fillet.Radius.Value
         escaped = None
@@ -212,7 +238,7 @@ def drag_away(fillet, wait_turns, back=False, escape=False):
     finally:
         FreeCAD.removeDocumentObserver(failures)
     return (failures.count, held, fillet.Radius.Value, len(doc.UndoNames) - undo_before,
-            escaped)
+            escaped, warmed)
 
 
 def run():
@@ -241,7 +267,9 @@ def run():
             got = drag_away(fillet, wait_turns, back=(what == "slowly"),
                             escape=(what == "Escape"))
             if got is not None and what == "Escape":
-                failed, held, after, steps, escaped = got
+                failed, held, after, steps, escaped, warmed = got
+                check("%s: a recompute in the drag worked before it went past what works "
+                      "(waited for, up to 4 s)" % what, bool(warmed), warmed)
                 note("INFO Escape: %d failed recompute(s), held %g, after %g, %d undo step(s),"
                      " %.2f s from the Escape to the release's end" % (failed, held, after,
                                                                       steps, escaped))
@@ -253,7 +281,9 @@ def run():
                 check("Escape: the fillet valid", fillet.isValid(), fillet.State)
                 check("Escape: no hang, the release done in good time", escaped < 10, escaped)
             elif got is not None:
-                failed, held, after, steps, _ = got
+                failed, held, after, steps, _, warmed = got
+                check("%s: a recompute in the drag worked before it went past what works "
+                      "(waited for, up to 4 s)" % what, bool(warmed), warmed)
                 note("INFO %s: %d failed recompute(s), held %g, after %g, %d undo step(s)"
                      % (what, failed, held, after, steps))
                 check("%s: the drag went past what works, a recompute failed" % what,

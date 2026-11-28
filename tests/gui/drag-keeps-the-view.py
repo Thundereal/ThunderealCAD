@@ -191,6 +191,17 @@ class Failures:
         if obj.Name == self.name and not obj.isValid():
             self.count += 1
 
+    def rest(self, before, seconds=4.0):
+        """The pointer still on a failing value: wait for a recompute of it
+        to fail. The throttle recomputes a drag once an interval
+        (EditRecomputeWait), not at each value, and a box whose moves pass
+        the failing value inside one interval never recomputed it (Windows,
+        2026-11-28): the test rests until one is seen, not assumes it"""
+        end = time.monotonic() + seconds
+        while self.count <= before and time.monotonic() < end:
+            pump(2)
+        return self.count > before
+
 
 def pad_leg(how):
     doc = FreeCAD.newDocument(DOC)
@@ -223,6 +234,7 @@ def pad_leg(how):
     win = mw().windowHandle()
     places = []
     at_failure = None
+    rested = None
     try:
         p = to_window(*arrow)
         QtTest.QTest.mouseMove(win, p)
@@ -237,6 +249,9 @@ def pad_leg(how):
             before = failures.count
             QtTest.QTest.mouseMove(win, q)
             pump(8)
+            if k == 10 and failures.count == before:
+                # at the failing zero (5 - 0.5 * 10): rest for its recompute
+                rested = failures.rest(before)
             places.append(view_place())
             if at_failure is None and failures.count > before:
                 cursor = QtWidgets.QApplication.overrideCursor()
@@ -253,7 +268,8 @@ def pad_leg(how):
         FreeCAD.removeDocumentObserver(failures)
     note("INFO %s: the view's size and place %s; at the failing move %s; ended Reversed %s %s"
          % (what, sorted(set(places)), at_failure, pad.Reversed, pad.Length))
-    check("%s: a recompute failed in the drag" % what, failures.count >= 1, failures.count)
+    check("%s: a recompute failed in the drag (rested at the failing zero up to 4 s)" % what,
+          failures.count >= 1, (failures.count, rested))
     check("%s: the view's size and place the same at every move" % what,
           len(set(places)) == 1, sorted(set(places)))
     check("%s: the error written in the Report view" % what,
@@ -339,15 +355,27 @@ def fillet_leg():
     pump(5)
     q = p
     places.append(view_place())
-    for k in range(1, 7):
-        q = to_window(arrow[0] + dx / length * 2 * k, arrow[1] + dy / length * 2 * k)
-        QtTest.QTest.mouseMove(win, q)
-        pump(20)
+    failures = Failures("Fillet")
+    FreeCAD.addDocumentObserver(failures)
+    try:
+        for k in range(1, 7):
+            q = to_window(arrow[0] + dx / length * 2 * k, arrow[1] + dy / length * 2 * k)
+            QtTest.QTest.mouseMove(win, q)
+            pump(20)
+            places.append(view_place())
+            up_in_drag = up_in_drag or report_up()
+        # in error throughout: a recompute in the drag fails, which is what
+        # would pop the Report view -- rested for, not assumed (Failures.rest)
+        rested = failures.count > 0 or failures.rest(0)
         places.append(view_place())
         up_in_drag = up_in_drag or report_up()
-    pump(60)
-    QtTest.QTest.mouseRelease(win, Qt.LeftButton, Qt.NoModifier, q)
-    pump(250)
+        pump(60)
+        QtTest.QTest.mouseRelease(win, Qt.LeftButton, Qt.NoModifier, q)
+        pump(250)
+    finally:
+        FreeCAD.removeDocumentObserver(failures)
+    check("%s: a recompute failed in the drag (rested for it up to 4 s)" % what, rested,
+          failures.count)
     note("INFO %s: radius after %s; the view %s; the Report view up in the drag %s, after %s"
          % (what, fillet.Radius, sorted(set(places)), up_in_drag, report_up()))
     check("%s: the Report view not popped in the drag" % what, not up_in_drag)

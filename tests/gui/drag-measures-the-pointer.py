@@ -23,7 +23,12 @@ the arrow's axis it should be over, through the view as it is at that
 move: the task panel grows when the recompute fails and the view with it,
 and a pixel aimed at the start would be over another point of the model by
 then. Claims, each speed:
-  - the drag crosses a value whose recompute fails;
+  - a recompute of the failing value is observed: at the crossing the
+    pointer rests until one fails, up to 4 s, and the claim FAILs by name if
+    none comes. The throttle recomputes a drag once an interval
+    (EditRecomputeWait), not at each value; a box whose moves pass the
+    failing value inside one interval never recomputed it (Windows,
+    2026-11-28), and the claims below would then test nothing;
   - the move after the crossing does not jump out past the pointer
     (before: it wrote 7.0 or 7.5, the pad jumping out the old way for a
     moment, where the pointer said 0.5 the new way) -- it may still be at
@@ -73,6 +78,18 @@ def pump(turns=30):
         QtWidgets.QApplication.processEvents()
         QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
         time.sleep(0.01)
+
+
+def rest_for_failure(watch, seconds=4.0):
+    """At the failing value, the pointer still: wait for a recompute of it
+    to fail. The throttle recomputes a drag once an interval
+    (EditRecomputeWait), not at each value, and a box whose moves pass the
+    failing value inside one interval never recomputes it -- so the test
+    rests there until one is seen, rather than assume it came"""
+    end = time.monotonic() + seconds
+    while watch.failed < 1 and time.monotonic() < end:
+        pump(2)
+    return watch.failed >= 1
 
 
 def mw():
@@ -192,6 +209,7 @@ def one_speed(sides):
         pump(5)
         q = p
         crossed = None
+        rested = None
         for k in range(1, MOVES + 1):
             # aimed through the view as it is now
             x, y = view().getPointOnViewport(FreeCAD.Vector(5, 5, z0 - STEP * k))
@@ -201,6 +219,7 @@ def one_speed(sides):
             want = START - STEP * k
             if crossed is None and want <= 0.0:
                 crossed = k
+                rested = rest_for_failure(watch)
             if crossed is not None and k == crossed + 1:
                 # The move after the failing one: the pad may still be at the
                 # last working value it went back to (entry 191), its turn
@@ -226,8 +245,8 @@ def one_speed(sides):
         FreeCAD.removeDocumentObserver(watch)
     note("INFO %s: ended Reversed %s, Length %.3f; %d failed recompute(s)"
          % (what, pad.Reversed, pad.Length.Value, Watch.failed))
-    check("%s: the drag crossed a value whose recompute failed" % what, Watch.failed >= 1,
-          Watch.failed)
+    check("%s: a failing recompute observed at the crossing (rested for it up to 4 s)" % what,
+          bool(rested), (rested, Watch.failed))
     check("%s: the move after the crossing did not jump out past the pointer" % what,
           not jumped, jumped)
     check("%s: from the next move on every move wrote the value the pointer is at" % what,
@@ -323,6 +342,7 @@ def one_rotation():
         pump(5)
         q = p
         crossed = None
+        rested = None
         for k in range(1, 19):
             a = start + toward * math.radians(5 * k)
             cx, cy = view().getPointOnViewport(FreeCAD.Vector(0, 0, 0))
@@ -332,6 +352,7 @@ def one_rotation():
             want = 60.0 - 5 * k
             if crossed is None and want <= 0.0:
                 crossed = k
+                rested = rest_for_failure(watch)
             if crossed is not None and k == crossed + 1:
                 got = -rev.Angle.Value if rev.Reversed else rev.Angle.Value
                 if abs(got) > abs(want) + 0.51:
@@ -351,8 +372,8 @@ def one_rotation():
         FreeCAD.removeDocumentObserver(watch)
     note("INFO %s: ended Reversed %s, Angle %.2f; %d failed recompute(s)"
          % (what, rev.Reversed, rev.Angle.Value, Watch.failed))
-    check("%s: the drag crossed a value whose recompute failed" % what, Watch.failed >= 1,
-          Watch.failed)
+    check("%s: a failing recompute observed at the crossing (rested for it up to 4 s)" % what,
+          bool(rested), (rested, Watch.failed))
     check("%s: the move after the crossing did not jump out past the pointer" % what,
           not jumped, jumped)
     check("%s: from the next move on every move wrote the angle the pointer is at" % what,

@@ -1454,6 +1454,15 @@ fc_add_gui_test(GuiLinkSelectableShared_tests_run
                 link-selectable-shared.py
                 --timeout 400)
 
+# The colour dialogs of Draft's and BIM's layer managers and of a BIM
+# material's task panel take Dialog/DontUseNativeColorDialog: Qt's own
+# dialog, seen and answered, when it is true; the platform's asked for
+# when it is false (recorded, never opened). Before, a plain getColor
+# showed macOS's native panel, which no test can answer.
+fc_add_gui_test(GuiColourDialogPreference_tests_run
+                colour-dialog-preference.py
+                --timeout 300)
+
 # An instanced Part object draws a uniform face colour list at the
 # transparency the list says: the uniform branch took the colour's alpha,
 # an opacity, for the transparency, so an opaque list drew invisible

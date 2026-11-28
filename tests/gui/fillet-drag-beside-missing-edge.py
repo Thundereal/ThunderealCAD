@@ -15,8 +15,9 @@ reference is missing. In edit. Claims:
     selected one back;
   - a click on it, the pointer staying on it: the selected colour; off and
     on again: the hover's;
-  - a drag of it toward its edge: after the release the radius is the
-    dragged one (not 2 again), the top edge still the only failed one, and
+  - a drag of it toward its edge, until the radius is down to 1 (pixels
+    are not millimetres: a fixed 30 px ran past the least radius on a short
+    view): after the release the radius is the dragged one (not 2 again), the top edge still the only failed one, and
     the result holds the bottom edge's fillet;
   - a drag cancelled by Esc with the button still down: the radius back, the
     arrow staying where the drag began while the pointer goes on, not shown
@@ -43,6 +44,8 @@ OUT = os.environ["GT_OUT"]
 RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
 DOC = "FilletDragBesideMissing"
 RADIUS = 2.0
+# where the drag toward the edge stops: a radius well inside what works
+TARGET = 1.0
 
 state = {"done": False}
 
@@ -290,17 +293,27 @@ def run():
         p = to_window(*arrow)
         dx, dy = edgeAt[0] - arrow[0], edgeAt[1] - arrow[1]
         length = max(1.0, (dx * dx + dy * dy) ** 0.5)
-        steps = 30.0 / length
-        offset = (dx * steps, dy * steps)
+        # Toward the edge 2 px at a time until the radius is down to TARGET:
+        # how much radius a pixel is depends on the view's scale and on the
+        # arrow's slant, and a fixed 30 px -- 2 -> 0.5 on a tall view -- ran
+        # past the least radius on the Mac mini's short one
+        unit = (dx * 2.0 / length, dy * 2.0 / length)
         QtTest.QTest.mouseMove(win, p)
         pump(5)
         QtTest.QTest.mousePress(win, Qt.LeftButton, Qt.NoModifier, p)
         pump(5)
         q = p
-        for i in range(1, 11):
-            q = QtCore.QPoint(int(p.x() + offset[0] * i / 10), int(p.y() - offset[1] * i / 10))
+        for i in range(1, 61):
+            q = QtCore.QPoint(int(p.x() + unit[0] * i), int(p.y() - unit[1] * i))
             QtTest.QTest.mouseMove(win, q)
             pump(5)
+            if fillet.Radius.Value <= TARGET:
+                break
+        # the way the drag went, in viewport units: the cancelled drag below
+        # goes half of it the other way, and on
+        offset = (q.x() - p.x(), -(q.y() - p.y()))
+        note("INFO the drag toward the edge: %s px, the radius %g"
+             % (offset, fillet.Radius.Value))
         # the value written as the drag's moves come in: waited for, not a
         # fixed pause (one run read 2 still, then 0.6 after the release)
         for _ in range(30):

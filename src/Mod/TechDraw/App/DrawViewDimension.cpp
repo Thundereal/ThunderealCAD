@@ -63,6 +63,7 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/PropertyUnits.h>
+#include <App/RecomputeHook.h>
 #include <Base/Console.h>
 #include <Base/Parameter.h>
 #include <Base/Quantity.h>
@@ -338,8 +339,12 @@ void DrawViewDimension::onChanged(const App::Property* prop)
     // an undo or redo puts what was saved of the references back itself: saving
     // it again from the references it restores would throw that away -- a
     // Cancel of the edit that took a reference by its name left the file's
-    // name recorded over with the element it was left on
-    const bool undoing = getDocument() && getDocument()->isPerformingTransaction();
+    // name recorded over with the element it was left on.  So does a worker's
+    // result put in: what its execute() saved comes with the references, and
+    // the view here is not yet the one it measured -- its own result is put in
+    // after (docs/WorkerProcess.md sec 86)
+    const bool undoing = (getDocument() && getDocument()->isPerformingTransaction())
+        || App::RecomputeHook::puttingIn();
     if (prop == &References2D) {
         if (!undoing) {
             updateSavedGeometry();

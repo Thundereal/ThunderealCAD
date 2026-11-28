@@ -5658,13 +5658,16 @@ An old file counts its string ids until its user accepts the migration
 recompute. Accepting switches its table to spelling digests
 (`Document::spellNamesByContent()`, docs/StringTableContentIds.md sec
 12), in `Gui/Application.cpp` just before `recomputeByWorkers()`. The
-worker's copy was taken before that, and nothing in the log says the
-table switched, so it went on counting. The names it made, and that were
-put in, were spelt with counted ids: 93 of scanner.FCStd's in the GUI
-run of 2026-11-27, where this process makes digests. A later recompute
-here spelt them again, and a save in that state reopened attached. It is
-not a wrong reference, but the two processes disagreed on every name the
-migration made.
+worker's copy may have been taken before that, and nothing in the log
+says the table switched, so it went on counting. The element maps it
+made, and that were put in, were spelt with counted ids where this
+process spells digests.
+
+Not what scanner.FCStd's 93 counted-looking names of 2026-11-27 were.
+Those are its dimensions' SavedNames, and they are old element names
+written by this process during the put-in, not the worker's spelling
+(sec 86). On scanner-migrate.FCStd, with this change, the worker's copy
+spelt digests after its job.
 
 **Now.** The job's inputs carry `contentIds`, whether this process's
 table spells digests. A worker whose copy counts is switched the same
@@ -5678,3 +5681,46 @@ Then `spellNamesByContent()`, and a second job put in. The cut's element
 map is what this process makes of it itself. Before, the worker's map
 had `;:G#7;` where this process's had `;:G#7fd5ff7b;`. It failed on the
 2026-11-26 stage too.
+
+## 86. A dimension's saved names are the worker's where it is put in (2026-11-28)
+
+scanner-migrate.FCStd (scanner.FCStd without its addon objects), with
+the migration made by a worker: 19 of its dimensions' SavedNames after
+the put-in differed from this process's own recompute. Dimension063
+held `#184e1;:H8bd,E;:H8be,E;HLR:VH:0`, where the worker's copy and this
+process's recompute held `#87bb4e2e;...`. Both tables give `0x184e1` to
+the same string, `#184c3;:M;CHF;:H877:7,E`, an element of the old
+projection. The worker's `#87bb4e2e` is another string (`0x1ff18`).
+
+A document observer showed the order of writes. The worker's SavedNames
+went in, then References2D. Putting in References2D ran
+`DrawViewDimension::onChanged()` here, which made SavedGeometry and
+SavedNames again from the view (`updateSavedGeometry()`,
+`updateSavedNames()`). The view here was still the projection before the
+change, since its own result is put in after its dimensions
+(`DrawViewPart`, `RecomputeHook::puttingIn()`, installed once the put-in
+is over). So the dimension recorded the old element its new reference
+number fell on.
+
+**Now.** The handler makes nothing again while a worker's result is put
+in, as it already did for an undo (`RecomputeHook::puttingIn()`). What
+the worker's execute() saved comes with the references, and what it did
+not change is kept.
+
+**Same shape, not changed:** `DrawHatch` and `DrawGeomHatch` make their
+SavedNames/SavedGeometry from their view in `onChanged(Source)`, with
+the undo exemption only. A put-in of a hatch's Source before its view's
+result would record the old projection's faces. `CenterLine` names are
+made in the view's own geometry build, which `DrawViewPart` defers to
+after the put-in. Sketcher's `onChanged(Geometry/Constraints)` reacts to
+a put-in too, but reads no other object.
+
+**Tests.** `testADimensionsNamesAreTheWorkersWherePutIn`: a dimension on
+a projection group's view, saved with its names blank, the sources
+swapped so the projection numbers its elements otherwise, and recomputed
+by a worker. Its SavedNames are the worker's, which an edit of its
+references outside a put-in records from the view as it is now.
+`testADimensionsNamesTheWorkerKeptAreKeptWherePutIn`: the same with the
+names the file recorded. Before, both had names of another source
+(`:H491` against `:H492`), and both failed on the 2026-11-26 stage too.
+

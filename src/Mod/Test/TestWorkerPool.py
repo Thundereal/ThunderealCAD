@@ -2447,6 +2447,84 @@ class TestWorkerRecompute(unittest.TestCase):
         self.assertAlmostEqual(dim.getRawValue(), 10.0)
         self.assertEqual(self.touched(), [])
 
+    def dimensionRenumbered(self, names):
+        """A dimension on a view whose projection numbers its elements
+        otherwise once its sources swap, saved with `names` as its
+        SavedNames (None: as recorded), reopened, and recomputed by a
+        worker. The dimension, and its SavedNames before the worker"""
+        import shutil
+
+        import TechDraw  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        other = self.doc.addObject("Part::Box", "Other")
+        other.Length = other.Width = other.Height = 4
+        other.Placement.Base = App.Vector(40, 0, 0)
+        page = self.doc.addObject("TechDraw::DrawPage", "Page")
+        template = self.doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        template.Template = os.path.join(
+            App.getHomePath(), "Mod", "TechDraw", "TDTest", "TestTemplate.svg")
+        page.Template = template
+        group = self.doc.addObject("TechDraw::DrawProjGroup", "Group")
+        page.addView(group)
+        group.Source = [box, other]
+        view = group.addProjection("Front")
+        self.doc.recompute()
+        dim = self.doc.addObject("TechDraw::DrawViewDimension", "Dim")
+        dim.Type = "DistanceX"
+        dim.References2D = [(view, ("Vertex0", "Edge1"))]
+        page.addView(dim)
+        self.doc.recompute()
+        self.assertAlmostEqual(dim.getRawValue(), 10.0)
+        if names is not None:
+            dim.SavedNames = names
+        path = os.path.join(tempfile.mkdtemp(prefix="fc-dimnames-"), "dims.FCStd")
+        self.addCleanup(shutil.rmtree, os.path.dirname(path), True)
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        self.pool = App.workerPool(self.doc)
+        dim = self.doc.getObject("Dim")
+        before = list(dim.SavedNames)
+        self.doc.getObject("Group").Source = [self.doc.getObject("Other"),
+                                              self.doc.getObject("Box")]
+        info = self.byWorker()
+        self.assertEqual((info["Applied"], info["ExecutedHere"]), (1, 0), info)
+        self.assertNotEqual(dim.References2D[0][1], ("Vertex0", "Edge1"))
+        return dim, before
+
+    @staticmethod
+    def namesDerived(dim):
+        """What the dimension records of its references from its view as it
+        is now: an edit of them outside a put-in"""
+        dim.References2D = [(o, tuple(s)) for o, s in dim.References2D]
+        return list(dim.SavedNames)
+
+    def testADimensionsNamesAreTheWorkersWherePutIn(self):
+        """The names a dimension records of its references are what the
+        worker made. Its References2D put in, this process's
+        DrawViewDimension::onChanged() made them again from the view --
+        before the view's own result was in, so from the projection before
+        the change: scanner.FCStd's migrated dimensions recorded names of
+        elements of the old projection (19 of its SavedNames, 2026-11-28;
+        docs/WorkerProcess.md sec 86)"""
+        dim, before = self.dimensionRenumbered(["", ""])
+        put_in = list(dim.SavedNames)
+        self.assertTrue(all(put_in), put_in)
+        # An edit outside a put-in still records them from the view
+        dim.SavedNames = ["junk", "junk"]
+        self.assertEqual(self.namesDerived(dim), put_in)
+
+    def testADimensionsNamesTheWorkerKeptAreKeptWherePutIn(self):
+        """The same with the names the file recorded: the worker finds the
+        references again by them, and what it leaves of them is what this
+        process keeps, nothing made again from the view before its result
+        is in (docs/WorkerProcess.md sec 86)"""
+        dim, before = self.dimensionRenumbered(None)
+        self.assertTrue(all(before), before)
+        put_in = list(dim.SavedNames)
+        self.assertEqual(self.namesDerived(dim), put_in)
+
     def polygonSketch(self):
         """A sketch projecting the face of a _Polygon, made here"""
         import Sketcher  # noqa: F401

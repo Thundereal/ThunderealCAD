@@ -2264,9 +2264,14 @@ NIST files carry (CTC-03: 61 of them), were read as nothing and written as nothi
   - a graphic's: the area and the length of what its PMI is on;
   - a view's: the annotations it lists (of its model geometric view: none is written in a
     file of AP242's first edition, so neither is the property).
-  Not computed, so not written: the equivalent unicode string, a graphic's own measures
-  (tessellated curve length, segments, facets, polyline length), a view's scale and
-  coordinates, the counts of semantic text notes, tessellated validation properties.
+  - a graphic's own measures (since 2026-11-28), of it as written: its curves' length,
+    segments and the centre of their length (their segments' middles weighted by their
+    lengths), its triangles' number, area and the centre of their area -- tessellated
+    curves, polylines, triangulated surfaces. NIST's are so to their last digits; worked out
+    against CTC-04 and STC-07 before writing them.
+  Not computed, so not written: the equivalent unicode string, a view's scale and
+  coordinates, the counts of semantic text notes, tessellated validation properties (of a
+  part's tessellated geometry: FTC-08 -e4-tg's).
 - **What NIST's say, against what is written** (`test_validation_properties_as_the_file_has_them`,
   every file): each property the file has is written again, but those of what is not read
   -- CTC-01's two locations and CTC-03's Linear Size.10 given no value (read as notes,
@@ -2308,6 +2313,23 @@ NIST files carry (CTC-03: 61 of them), were read as nothing and written as nothi
   `ReadGDTs` now reads, after the tolerances, each DATUM nothing has read, of no tolerance
   (one whose feature has targets is left to the frames citing them). F is a datum on its
   faces holding its graphic, and its property is written again.
+- **A graphic's measures against NIST's** (the same test): every one NIST gives is written,
+  and equal to NIST's (lengths to 1e-4, points to 1e-4 of their size) in CTC-04, FTC-07,
+  STC-07 and STC-10, but:
+  - FTC-08 -e4-tg's 8 graphics and STC-06's 5 have two zero-length segments each, which
+    NIST counts and the writer leaves out (their lengths and centres are NIST's);
+  - CTC-05's 'polyline curve length' is NIST's for 12 of its 20 graphics: NIST counts a
+    datum target's circle and a dimension's with the polylines, some of a frame's diameter
+    signs and not others, and three frames come out shorter than their polylines alone. The
+    writer counts the polylines, as the name says.
+  Found on the way, fixed:
+  - a graphic of no association, read alone, had no unit: STC-07's 'Geometrical Tolerance.1'
+    (a file in inches) was read in millimetres, 25.4 times too small. It takes the unit of the
+    draughting model that lists it now;
+  - CTC-05's graphic properties are of each callout's annotation occurrence, not of the
+    callout: none was kept. Each is the callout's now (each has one);
+  - NIST writes a graphic's count of facets 0 where it has none (FTC-08 -e4-tg's 60), so the
+    writer gives a count of none; a length of nothing it leaves out.
 - **Open, found by it:** NIST's view properties are of a characterized draughting model
   where FreeCAD writes a plain one, so they are written of the model geometric view.
 

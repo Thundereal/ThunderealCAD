@@ -68,6 +68,25 @@ VALIDATION_COMPUTED = {
     "number of datum targets",
     "affected area", "affected curve length", "datum references",
 }
+# A graphic's own measures, of it as written (of a graphic only: a part's tessellated
+# geometry's, FTC-08 -e4-tg's 'tessellated validation property', are not computed)
+GRAPHIC_MEASURES = {
+    "tessellated curve length", "polyline curve length", "number of segments",
+    "tessellated curve centre point", "polyline centre point", "number of facets",
+    "tessellated surface area", "tessellated surface centre point",
+}
+VALIDATION_COMPUTED |= GRAPHIC_MEASURES
+
+# The graphic measures written that are not NIST's, by file and item: how many. NIST counts
+# the zero-length segments the writer leaves out (FTC-08 -e4-tg: 8 graphics two each; STC-06:
+# 5), and CTC-05's polyline curve lengths count a datum target's circle and a dimension's,
+# some of a frame's and not others, three frames short of their polylines: 8 of them, and so
+# their centres (docs/GDandT.md sec 10.28)
+GRAPHIC_MEASURES_NOT_NISTS = {
+    "nist_ftc_08_asme1_ap242-e4-tg.stp": {"number of segments": 8},
+    "nist_stc_06_asme1_ap242-e3.stp": {"number of segments": 5},
+    "nist_ctc_05_asme1_ap242-e1.stp": {"polyline curve length": 8, "polyline centre point": 8},
+}
 
 
 # What each NIST file's validation properties are of that is not read (docs/GDandT.md sec
@@ -87,8 +106,13 @@ VALIDATION_WRITTEN_AS = {
     # edges they are linked to. Three are read alone, on those, and written so; the first is the
     # radius's it is linked to too, which holds it: of the radius's face, an area alone
     "nist_stc_07_asme1_ap242-e3.stp": [
-        (("pmi validation property", "graphic", ("affected area", "affected curve length")),
-         ("affected area",), 1),
+        (("pmi validation property", "graphic",
+          ("affected area", "affected curve length", "number of facets", "number of segments",
+           "tessellated curve centre point", "tessellated curve length",
+           "tessellated surface area", "tessellated surface centre point")),
+         ("affected area", "number of facets", "number of segments",
+          "tessellated curve centre point", "tessellated curve length",
+          "tessellated surface area", "tessellated surface centre point"), 1),
     ],
 }
 
@@ -162,11 +186,27 @@ def validation_groups(path):
         items = {}
         for r in reps[k]:
             listed = re.search(r"\(([^()]*)\)", ents[r])
+            # A point's coordinates are in the unit of its group's lengths, else its
+            # representation's: NIST's FTC-07 gives its graphics' in millimetres, its
+            # representations' unit inches
+            at_scale = None
+            for i in re.findall(r"#(\d+)", listed.group(1) if listed else ""):
+                u = re.search(r"LENGTH_MEASURE\(\s*[-+0-9.E]+\s*\)\s*,\s*#(\d+)", ents[i])
+                if u:
+                    at_scale = step_unit(ents, u.group(1))
+            for u in re.findall(r"#(\d+)", ents[re.findall(r"#(\d+)", ents[r])[-1]]):
+                if at_scale is None and "LENGTH_UNIT" in ents.get(u, ""):
+                    at_scale = step_unit(ents, u)
+            at_scale = 1.0 if at_scale is None else at_scale
             for i in re.findall(r"#(\d+)", listed.group(1) if listed else ""):
                 item = ents[i]
                 name = re.search(r"'([^']*)'", item).group(1)
                 number = re.search(r"(?:MEASURE\(|',)\s*([-+0-9.E]+)\s*\)", item)
-                if item.startswith("DESCRIPTIVE"):
+                if item.startswith("CARTESIAN_POINT"):
+                    at = item[item.index("(", item.index("'", item.index("'") + 1)):]
+                    items[name] = tuple(float(x) * at_scale for x in
+                                        re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", at))[:3]
+                elif item.startswith("DESCRIPTIVE"):
                     items[name] = re.findall(r"'([^']*)'", item)[1]
                 elif number and "MEASURE(" in item and "NUMERIC_MEASURE" not in item:
                     u = re.search(r"MEASURE\(\s*[-+0-9.E]+\s*\)\s*,\s*#(\d+)", item)
@@ -1905,10 +1945,13 @@ class TestNistSet(Base):
 
                 # Which: each the file has, but those of what is not read (sec 10.9) and a
                 # view's where no model geometric view is written (AP242's first edition)
+                def computed(g):
+                    return tuple(sorted(n for n in g[2] if n in VALIDATION_COMPUTED
+                                        and (n not in GRAPHIC_MEASURES or g[1] == "graphic")))
+
                 def which(groups):
                     return collections.Counter(
-                        (g[0], g[1], tuple(sorted(n for n in g[2] if n in VALIDATION_COMPUTED)))
-                        for g in groups if set(g[2]) & VALIDATION_COMPUTED)
+                        (g[0], g[1], computed(g)) for g in groups if computed(g))
 
                 expected = which(want)
                 for key, items, n in VALIDATION_WRITTEN_AS.get(name, ()):
@@ -1956,6 +1999,26 @@ class TestNistSet(Base):
                     self.assertEqual(len(ours), len(nists), cls)
                     for x, y in zip(ours, nists):
                         self.assertLess(abs(x - y), 1e-2 * y, (cls, ours, nists))
+
+                # A graphic's own measures: NIST's, of the graphic written as the file has it,
+                # but where the writer leaves out what NIST counts (GRAPHIC_MEASURES_NOT_NISTS)
+                def close(x, y):
+                    x = x if isinstance(x, tuple) else (x,)
+                    y = y if isinstance(y, tuple) else (y,)
+                    size = max(1.0, max(abs(c) for c in y))
+                    return len(x) == len(y) and all(abs(a - b) <= 1e-4 * size for a, b in zip(x, y))
+
+                for item in sorted(GRAPHIC_MEASURES):
+                    ours = [g[2][item] for g in got if g[1] == "graphic" and item in g[2]]
+                    left = [g[2][item] for g in want if g[1] == "graphic" and item in g[2]]
+                    self.assertEqual(len(ours), len(left), item)
+                    for x in ours:
+                        hit = [j for j, y in enumerate(left) if close(x, y)]
+                        if hit:
+                            del left[hit[0]]
+                    self.assertEqual(len(left),
+                                     GRAPHIC_MEASURES_NOT_NISTS.get(name, {}).get(item, 0),
+                                     (item, left[:3]))
 
     def test_view_supplemental_geometry_as_the_file_has_it(self):
         """The supplemental geometry each saved view shows -- a 'supplemental

@@ -2451,3 +2451,71 @@ by); the cells' centres kept once; what the step is, shown as it runs;
 going on from a kept run; turbulence through time; the tracers' lines
 drawn; the fluid's spin as a colour for the cut; rotating parts (the
 rest of F4).
+
+### 14.12 A flow through time: the file, and the solver's step (2026-11-28)
+
+Two of sec 14.11's open items.
+
+**What a frame keeps.** The mesh does not move through a run, and the
+file had its cells' centres with every frame, and the points and
+triangles of the faces the pressure is drawn on. Now `ArchiveWriter`
+writes each when it changes and not again while it is the same:
+
+- the fluid inside is `inside` (seven numbers a cell: centre, velocity,
+  pressure) in the first frame that has a mesh, and `flow` (four:
+  velocity, pressure) in the frames after it whose centres are the same;
+- a frame whose points and triangles are those last written has neither,
+  and is listed in the index's `sameFaces`.
+
+`ArchiveReader::frame` gives every frame whole as before: nothing above
+the archive changed, and a file written before reads as it did. A file
+written now is not read by a build before this one (its later frames
+would come out empty); the schema's number was not raised, the format
+being unreleased.
+
+Measured on the test's case (23404 cells, 16 frames and the start's):
+
+| In the file | Before | Now |
+|---|---|---|
+| the fluid inside, a frame | 0.40 MB | 0.29 MB |
+| points and triangles, a frame | 0.22 MB | none after the first |
+| pressure on the faces, a frame | 0.09 MB | 0.09 MB |
+| the file | 11.6 MB | 6.5 MB |
+
+44% less, not the 43% of the plain numbers alone: the centres of a
+regular mesh deflate well and were a quarter of the fluid inside, and the
+faces were more than expected -- a thin slice has as many faces drawn as
+cells. What is left barely deflates: 16 bytes a cell and frame. A million
+cells are 12 MB a frame still; fewer frames, or a part of the space, is
+what would cut that. Open.
+
+**The solver's step.** The solver chooses its step so that no cell is
+crossed in less than one, and the smallest cell sets it for all. The
+backend now reads the steps from the solver's log as it grows
+(`OpenFoam::readSteps`, `stepAt`) and each frame carries two numbers
+(`Frame::step`, `stepOfEvenCells`; the index's `steps`, `Steps` in
+`getResults()`): the step taken at the frame, and the step cells all of
+the study's resolution would allow -- the resolution over the fastest
+fluid of the frame, and no more than the frames are apart.
+
+- The panel shows the step beside the time of the frame played.
+- `FluidPlayback.stepDoubts` (with the panel's other warnings, and on the
+  console) says when the step, the middle one of the run's later half,
+  is under a quarter of the other: "some cell of the mesh is far smaller
+  or thinner than the rest, and the run took some N times as long for
+  it". The results are not worse for it; the advice is another
+  resolution, a little finer or coarser.
+
+The quarter is a choice, between the two cases there are: the test's
+run takes 0.057 s where 0.067 would do (0.85), and sec 14.11's channel
+240 high took 0.0053 where 0.058 would do (0.09). The warning comes with
+the results, after the run: nothing stops or warns a run while it is
+slow. Open, with what would end the cause -- the mesher leaving such a
+cell where its grid falls badly on a round wall.
+
+Tests: `FluidArchive.theCellsCentresAreKeptOnceForTheFramesThatShareThem`
+(frames read out of order, a mesh and faces that change mid-run, the
+file's size); `OpenFoamCase.theStepsOfASolverThatChoosesItsOwn`;
+`TestFlowDoubts.test_steps_held_by_one_cell_are_said`; the shedding test
+checks the steps kept, that nothing is said of them, and the file under
+20 bytes a cell and frame (26 before).

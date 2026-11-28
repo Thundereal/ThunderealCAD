@@ -91,6 +91,13 @@ struct Frame
     // the first cell at a wall is from it in the wall's own units (y+), the
     // least, the most and the mean over the walls. Zeros when not known.
     std::array<double, 3> wallUnits {};
+    // Of a flow through time: the step the solver was taking at the frame,
+    // s, and the step its cells would let it take were they all of the
+    // model's resolution -- one crossed by the fastest fluid of the frame,
+    // and no longer than the frames are apart. Zeros when not known. A step
+    // far under the other is of a cell far smaller than the rest.
+    double step = 0.0;
+    double stepOfEvenCells = 0.0;
     // Where the walls the fluid moves are: one per such wall, in the
     // model's order (freeWalls).
     std::vector<Motion> bodies;

@@ -83,6 +83,9 @@ struct ResultsIndex
     std::vector<ArchivedOpening> openings;  // the inlets, then the outlets
     std::vector<double> flows;  // frames x openings x 2, as openings.npy
     std::vector<std::size_t> inside;  // the frames that have the fluid inside
+    // The frames whose points and triangles the file does not repeat: they
+    // are those of the last frame before them that is not listed here.
+    std::vector<std::size_t> sameFaces;
     // Of a steady flow with its eddies modelled: the model's name
     // ("KOmegaSST"; none of a laminar flow), and how far the first cell at
     // a wall is from it in the wall's own units (y+), the least, the most
@@ -92,6 +95,10 @@ struct ResultsIndex
     // (Solver::reynolds); 0 in results made before it was kept.
     double reynolds = 0.0;
     std::array<double, 3> wallUnits {};
+    // Of a flow through time: two a frame, the step the solver was taking
+    // and the step cells all of the model's resolution would let it take,
+    // s (Solver::Frame); none when the solver did not say.
+    std::vector<double> steps;
     // The fluid's energy as the run went, J; none from a solver that keeps
     // no account of it, or in results made before it was kept.
     std::vector<Solver::Energy> energy;
@@ -136,7 +143,8 @@ struct ArchivedFrame
     std::vector<std::int32_t> triangles;
     std::vector<float> values;  // a frame of fields: the pressure a point, Pa
     // the fluid inside, when the frame has it: seven a cell, its centre, mm,
-    // its velocity, m/s, and its pressure, Pa
+    // its velocity, m/s, and its pressure, Pa. In the file the centres are
+    // kept once for the frames that share them.
     std::vector<float> inside;
     // the moved walls, in the index's order; the translation in mm
     std::vector<Solver::Motion> bodies;

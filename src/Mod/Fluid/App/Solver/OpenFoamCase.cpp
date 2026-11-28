@@ -1052,3 +1052,44 @@ double Fluid::Solver::OpenFoam::lastTimeOf(const std::string& log)
         return -1.0;
     }
 }
+
+std::size_t Fluid::Solver::OpenFoam::readSteps(const std::string& text,
+                                               double& step,
+                                               std::vector<std::pair<double, double>>& steps)
+{
+    std::size_t from = 0;
+    while (true) {
+        const std::size_t end = text.find('\n', from);
+        if (end == std::string::npos) {
+            return from;
+        }
+        const std::string line = text.substr(from, end - from);
+        from = end + 1;
+        try {
+            if (line.starts_with("deltaT = ")) {
+                step = std::stod(line.substr(9));
+            }
+            else if (line.starts_with("Time = ") && step > 0.0) {
+                steps.emplace_back(std::stod(line.substr(7)), step);
+            }
+        }
+        catch (const std::exception&) {
+        }
+    }
+}
+
+double Fluid::Solver::OpenFoam::stepAt(const std::vector<std::pair<double, double>>& steps,
+                                       double time)
+{
+    // in the order they were taken
+    const auto after = std::ranges::lower_bound(steps, time, {}, [](const auto& taken) {
+        return taken.first;
+    });
+    if (after == steps.end()) {
+        return steps.empty() ? 0.0 : steps.back().second;
+    }
+    if (after != steps.begin() && time - (after - 1)->first < after->first - time) {
+        return (after - 1)->second;
+    }
+    return after->second;
+}

@@ -117,4 +117,16 @@ FluidExport const std::vector<double>* rowAt(const std::vector<std::vector<doubl
 // Negative when there is none.
 FluidExport double lastTimeOf(const std::string& log);
 
+// The steps of a solver that chooses its own, from a stretch of its log
+// ("deltaT = ..." and then "Time = ..."): each time and the step that led
+// to it, added to 'steps'. Only whole lines are taken; what is returned is
+// how much of the text they were, for the next stretch to start from.
+// 'step' carries the last step read from one stretch to the next.
+FluidExport std::size_t readSteps(const std::string& text,
+                                  double& step,
+                                  std::vector<std::pair<double, double>>& steps);
+
+// The step that led to the time nearest 'time'; 0 when there are none.
+FluidExport double stepAt(const std::vector<std::pair<double, double>>& steps, double time);
+
 }  // namespace Fluid::Solver::OpenFoam

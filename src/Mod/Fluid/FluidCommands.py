@@ -894,7 +894,10 @@ class TaskFluidStudy:
             self.doubt.setVisible(False)
             return
         valid = self.frames.valid
-        found = FluidPlayback.doubts(self.study.getResults()) if valid else []
+        results = self.study.getResults() if valid else {}
+        found = FluidPlayback.doubts(results) if valid else []
+        # of a flow through time: the solver's step at each frame
+        self.steps = results.get("Steps") or []
         self.doubt.setText("\n\n".join(found))
         self.doubt.setVisible(bool(found))
         for sentence in found:
@@ -980,7 +983,12 @@ class TaskFluidStudy:
         if self.frames.steady:
             self.time.setText(translate("Fluid", "step {:.0f}").format(self.frames.times[index]))
         else:
-            self.time.setText("{:.4g} s".format(self.frames.times[index]))
+            text = "{:.4g} s".format(self.frames.times[index])
+            if index < len(self.steps) and self.steps[index][0] > 0.0:
+                text += translate("Fluid", ", the solver's step {:.2g} s").format(
+                    self.steps[index][0]
+                )
+            self.time.setText(text)
         rows = [
             (label, "{:.6g} {}".format(value, unit))
             for label, _kind, value, unit in self.frames.monitorsAt(index)

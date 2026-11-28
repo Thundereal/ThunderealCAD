@@ -154,6 +154,24 @@ class TestFlowDoubts(unittest.TestCase):
         # a run through time is not asked
         self.assertEqual(FluidPlayback.doubts({"Steady": False, "Reynolds": 1.0e6}), [])
 
+    def test_steps_held_by_one_cell_are_said(self):
+        # steps as long as the cells allow, or nearly: nothing
+        even = {"Steady": False, "Steps": [(0.0, 0.0)] + [(0.057, 0.067)] * 20}
+        self.assertEqual(FluidPlayback.doubts(even), [])
+        self.assertEqual(FluidPlayback.stepHeld(even), (0.057, 0.067))
+        # nor of results that kept no steps
+        self.assertEqual(FluidPlayback.doubts({"Steady": False, "Steps": []}), [])
+        self.assertIsNone(FluidPlayback.stepHeld({"Steady": False}))
+        # short steps at the start, from rest, are not the run's
+        started = {"Steady": False, "Steps": [(0.005, 0.5)] * 5 + [(0.057, 0.067)] * 20}
+        self.assertEqual(FluidPlayback.doubts(started), [])
+        # a tenth of what the cells allow: a cell far smaller than the rest
+        held = {"Steady": False, "Steps": [(0.0, 0.0)] + [(0.0053, 0.058)] * 20}
+        (found,) = FluidPlayback.doubts(held)
+        self.assertIn("0.0053", found)
+        self.assertIn("0.058", found)
+        self.assertIn("11 times", found)
+
     def test_a_fast_flow_taken_as_in_layers_says_so(self):
         (found,) = FluidPlayback.doubts(self.results(Reynolds=100000.0))
         self.assertIn("100000", found)

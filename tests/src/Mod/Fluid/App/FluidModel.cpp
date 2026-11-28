@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 
 #include <Base/Exception.h>
@@ -751,6 +752,96 @@ TEST(FluidArchive, aFieldOnFacesAndTheOpenings)
         EXPECT_TRUE(reader.frame(0).values.empty());
         EXPECT_TRUE(reader.index().inside.empty());
     }
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST(FluidArchive, theCellsCentresAreKeptOnceForTheFramesThatShareThem)
+{
+    const std::string path = Base::FileInfo::getTempFileName("FluidArchive");
+    Fluid::ResultsIndex index;
+    index.backend = "OpenFOAM";
+    index.kind = ResultKind::Fields;
+    const std::size_t cells = 2000;
+    // numbers that do not deflate, the same for the same seed
+    auto noise = [](std::uint32_t seed) {
+        seed = (seed ^ 61U) ^ (seed >> 16U);
+        seed *= 9U;
+        seed ^= seed >> 4U;
+        seed *= 0x27d4eb2dU;
+        seed ^= seed >> 15U;
+        return static_cast<double>(seed & 0xffffffU) / 0x1000000;
+    };
+    auto frameAt = [&](int k) {
+        Frame frame;
+        frame.time = 0.5 * k;
+        frame.points = {{0.0, 0.0, 0.0}, {0.001, 0.0, 0.0}, {0.0, 0.001, 0.0}};
+        if (k == 3) {
+            frame.points[2] = {0.0, 0.002, 0.0};  // the faces moved, for one frame
+        }
+        frame.triangles.push_back({0, 1, 2});
+        frame.values = {1.0, 2.0, 3.0 + k};
+        if (k == 0) {
+            return frame;  // the start's has nothing inside
+        }
+        for (std::size_t c = 0; c < cells; ++c) {
+            // the mesh of frames 1 to 3, and another from frame 4 on
+            const std::uint32_t mesh = k >= 4 ? 500000U : 0U;
+            const auto at = static_cast<std::uint32_t>(c * 8);
+            frame.centres.push_back({noise(mesh + at), noise(mesh + at + 1), noise(mesh + at + 2)});
+            const std::uint32_t now = 1000000U * k + at;
+            frame.velocities.push_back({noise(now + 3), noise(now + 4), noise(now + 5)});
+            frame.pressures.push_back(noise(now + 6));
+        }
+        frame.step = 0.05 + 0.001 * k;
+        frame.stepOfEvenCells = 0.06;
+        return frame;
+    };
+    {
+        Fluid::ArchiveWriter writer(path);
+        for (int k = 0; k < 6; ++k) {
+            writer.frame(frameAt(k));
+        }
+        writer.close(index);
+    }
+    {
+        const Fluid::ArchiveReader reader(path);
+        const auto& read = reader.index();
+        EXPECT_EQ(read.inside, (std::vector<std::size_t> {1, 2, 3, 4, 5}));
+        // read out of order: every frame is whole, with its own centres
+        for (int k : {5, 2, 1, 3, 4, 2}) {
+            const Frame given = frameAt(k);
+            const Fluid::ArchivedFrame frame = reader.frame(k);
+            ASSERT_EQ(frame.inside.size(), cells * 7) << k;
+            for (std::size_t c : {std::size_t {0}, std::size_t {7}, cells - 1}) {
+                EXPECT_EQ(frame.inside[c * 7], static_cast<float>(given.centres[c][0] * 1000.0));
+                EXPECT_EQ(frame.inside[c * 7 + 2], static_cast<float>(given.centres[c][2] * 1000.0));
+                EXPECT_EQ(frame.inside[c * 7 + 4], static_cast<float>(given.velocities[c][1]));
+                EXPECT_EQ(frame.inside[c * 7 + 6], static_cast<float>(given.pressures[c]));
+            }
+        }
+        EXPECT_TRUE(reader.frame(0).inside.empty());
+        // the faces are in the file when they changed, and every frame has
+        // them: 1 and 2 the start's, 3 its own, 4 its own again, 5 that
+        EXPECT_EQ(read.sameFaces, (std::vector<std::size_t> {1, 2, 5}));
+        for (int k = 0; k < 6; ++k) {
+            const Fluid::ArchivedFrame frame = reader.frame(k);
+            EXPECT_EQ(frame.points,
+                      (std::vector<float> {0.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F,
+                                           0.0F, k == 3 ? 2.0F : 1.0F, 0.0F})) << k;
+            EXPECT_EQ(frame.triangles, (std::vector<std::int32_t> {0, 1, 2})) << k;
+            EXPECT_EQ(frame.values, (std::vector<float> {1.0F, 2.0F, 3.0F + k})) << k;
+        }
+        // the steps the solver took, two a frame
+        ASSERT_EQ(read.steps.size(), 12U);
+        EXPECT_EQ(read.steps[0], 0.0);
+        EXPECT_DOUBLE_EQ(read.steps[2], 0.051);
+        EXPECT_EQ(read.steps[3], 0.06);
+    }
+    // two meshes whole, seven numbers a cell, and three frames of four:
+    // 26 numbers a cell where 35 were, and the numbers here do not deflate
+    const auto size = Base::FileInfo(path).size();
+    EXPECT_LT(size, cells * 4 * 29U);
+    EXPECT_GT(size, cells * 4 * 22U);
     Base::FileInfo(path).deleteFile();
 }
 

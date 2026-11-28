@@ -585,3 +585,38 @@ TEST(OpenFoamCase, theFluidInsideReadBack)
     EXPECT_FALSE(readInside("0.001 0.002 0.003 0.5\n", frame));
     EXPECT_FALSE(readInside("", frame));
 }
+
+TEST(OpenFoamCase, theStepsOfASolverThatChoosesItsOwn)
+{
+    const std::string log = "Courant Number mean: 0.09 max: 0.37\n"
+                            "deltaT = 0.012\n"
+                            "Time = 0.012\n"
+                            "\n"
+                            "PIMPLE: iteration 1\n"
+                            "deltaT = 0.0144\n"
+                            "Time = 0.0264\n"
+                            "ExecutionTime = 1 s\n"
+                            "deltaT = 0.0173\n"
+                            "Time = 0.04";  // a line not yet whole
+    double step = 0.0;
+    std::vector<std::pair<double, double>> steps;
+    // read in two stretches, the first cut inside a line
+    const std::size_t cut = log.find("Time = 0.0264") + 6;
+    std::size_t read = readSteps(log.substr(0, cut), step, steps);
+    EXPECT_EQ(read, log.find("Time = 0.0264"));
+    ASSERT_EQ(steps.size(), 1U);
+    EXPECT_EQ(step, 0.0144);
+    read += readSteps(log.substr(read), step, steps);
+    EXPECT_EQ(read, log.find("Time = 0.04"));
+    ASSERT_EQ(steps.size(), 2U);
+    EXPECT_EQ(steps[0], (std::pair<double, double> {0.012, 0.012}));
+    EXPECT_EQ(steps[1], (std::pair<double, double> {0.0264, 0.0144}));
+    EXPECT_EQ(step, 0.0173);
+
+    // the step that led to the time nearest a frame's
+    EXPECT_EQ(stepAt(steps, 0.0), 0.012);
+    EXPECT_EQ(stepAt(steps, 0.013), 0.012);
+    EXPECT_EQ(stepAt(steps, 0.025), 0.0144);
+    EXPECT_EQ(stepAt(steps, 5.0), 0.0144);
+    EXPECT_EQ(stepAt({}, 1.0), 0.0);
+}

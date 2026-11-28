@@ -7,6 +7,8 @@
 # cylinder's width over the stream's speed and the time between two eddies
 # of one side: 0.164 to 0.165 in a stream without walls, Williamson 1989).
 
+import os
+
 import FreeCAD as App
 import Part
 
@@ -165,6 +167,20 @@ class Shedding:
         self.assertGreater(strouhal, 0.16)
         self.assertLess(strouhal, 0.20)
 
+        # the solver's steps are kept with the frames: as long as cells of
+        # 1 mm and the fastest fluid allow, or nearly, and nothing is said
+        steps = results["Steps"]
+        self.assertEqual(len(steps), 129)
+        self.assertEqual(steps[0], (0.0, 0.0))
+        taken, even = FluidPlayback.stepHeld(results)
+        self.assertGreater(taken, 0.5 * even)
+        self.assertLessEqual(taken, 0.5 + 1.0e-9)
+        self.assertEqual(FluidPlayback.doubts(results), [])
+        # the cells' centres are in the file once, not with every frame:
+        # four numbers a cell and frame, where seven were 28 bytes
+        cells = len(frames.insideOf(128)[0])
+        self.assertLess(os.path.getsize(study.Results), 20 * cells * 128)
+
         # tracers let go before the cylinder and carried from frame to
         # frame are swept to both sides of its wake
         seeds = [[-2.0 * WIDTH, 1.5, z] for z in (-3.0, -1.0, 1.0, 3.0)]
@@ -176,7 +192,6 @@ class Shedding:
         self.assertLess(behind[:, 2].min(), -0.5 * WIDTH)
 
         # kept with the document
-        import os
         import tempfile
 
         cells = len(frames.insideOf(64)[0])

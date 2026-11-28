@@ -590,6 +590,7 @@ private:
                 if (!takeInside(frame, times[i].second.filename().string()) && !finished) {
                     return;  // the cells are not written yet
                 }
+                takeStep(frame);
             }
             else if (finished && i + 1 == ready) {
                 takeInside(frame, {});
@@ -626,6 +627,26 @@ private:
             return true;
         }
         return false;
+    }
+
+    // The step the solver was taking at a frame of a flow through time,
+    // from its log, and the step cells all of the model's resolution would
+    // let it take.
+    void takeStep(Frame& frame)
+    {
+        std::ifstream in(folder / "log.pimpleFoam", std::ios::binary);
+        in.seekg(static_cast<std::streamoff>(logRead));
+        const std::string text {std::istreambuf_iterator<char>(in),
+                                std::istreambuf_iterator<char>()};
+        logRead += OpenFoam::readSteps(text, lastStep, steps);
+        frame.step = OpenFoam::stepAt(steps, frame.time);
+        double fastest = 0.0;
+        for (const auto& v : frame.velocities) {
+            fastest = std::max(fastest, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+        }
+        if (frame.step > 0.0 && fastest > 0.0) {
+            frame.stepOfEvenCells = std::min(model.resolution / fastest, model.outputInterval);
+        }
     }
 
     // As many processes as the mesh is worth: a share of the cores, and no
@@ -743,6 +764,10 @@ private:
     bool keep = false;
     std::set<std::string> emitted;
     std::size_t sampled = 0;
+    // a flow through time: how far its log is read, and its steps so far
+    std::size_t logRead = 0;
+    double lastStep = 0.0;
+    std::vector<std::pair<double, double>> steps;
 };
 }  // namespace
 

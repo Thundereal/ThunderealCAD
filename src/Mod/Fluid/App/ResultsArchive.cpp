@@ -196,6 +196,15 @@ struct ArchiveWriter::Private
     std::size_t openings = 0;  // a frame, as the first frame has them
     std::vector<std::size_t> inside;  // the frames written with the fluid inside
     std::array<double, 3> wallUnits {};  // the last frame's that had them
+    // the cells' centres as last written whole: a frame of the same is
+    // written without them
+    std::vector<float> centres;
+    // and the points and triangles, with the frames that left them out
+    std::vector<float> points;
+    std::vector<std::int32_t> triangles;
+    std::vector<std::size_t> sameFaces;
+    std::vector<double> steps;  // two a frame
+    bool stepped = false;       // some frame had a step
     bool sampled = false;
 };
 
@@ -223,20 +232,37 @@ void ArchiveWriter::frame(const Solver::Frame& frame)
             points.push_back(static_cast<float>(v * 1000.0));
         }
     }
-    d->zip->putNextEntry(frameName(at, "points"));
-    writeNpy(*d->zip, "<f4", {frame.points.size(), 3}, points.data(), points.size() * sizeof(float));
-    if (!frame.triangles.empty()) {
-        std::vector<std::int32_t> triangles;
-        triangles.reserve(frame.triangles.size() * 3);
-        for (const auto& t : frame.triangles) {
-            triangles.insert(triangles.end(), t.begin(), t.end());
-        }
+    std::vector<std::int32_t> triangles;
+    triangles.reserve(frame.triangles.size() * 3);
+    for (const auto& t : frame.triangles) {
+        triangles.insert(triangles.end(), t.begin(), t.end());
+    }
+    // the faces a flow is drawn on stay where they are: written with the
+    // first frame of them, and not again while they are the same
+    const bool same = at > 0 && !triangles.empty() && points == d->points
+        && triangles == d->triangles;
+    if (same) {
+        d->sameFaces.push_back(at);
+    }
+    else {
+        d->zip->putNextEntry(frameName(at, "points"));
+        writeNpy(*d->zip,
+                 "<f4",
+                 {frame.points.size(), 3},
+                 points.data(),
+                 points.size() * sizeof(float));
+    }
+    if (!same && !triangles.empty()) {
         d->zip->putNextEntry(frameName(at, "triangles"));
         writeNpy(*d->zip,
                  "<i4",
                  {frame.triangles.size(), 3},
                  triangles.data(),
                  triangles.size() * sizeof(std::int32_t));
+    }
+    if (!same) {
+        d->points = std::move(points);
+        d->triangles = std::move(triangles);
     }
     if (!frame.values.empty()) {
         const std::vector<float> values(frame.values.begin(), frame.values.end());
@@ -245,25 +271,40 @@ void ArchiveWriter::frame(const Solver::Frame& frame)
     }
     if (!frame.centres.empty() && frame.velocities.size() == frame.centres.size()
         && frame.pressures.size() == frame.centres.size()) {
+        // a mesh does not move through a run: the cells' centres are
+        // written with the first frame of them ("inside", seven a cell),
+        // and the frames after it keep what changes ("flow", four a cell)
+        const std::size_t cells = frame.centres.size();
+        std::vector<float> centres;
+        centres.reserve(cells * 3);
+        for (const auto& centre : frame.centres) {
+            for (double v : centre) {
+                centres.push_back(static_cast<float>(v * 1000.0));
+            }
+        }
+        const bool shared = centres == d->centres;
+        const std::size_t width = shared ? 4 : 7;
         std::vector<float> inside;
-        inside.reserve(frame.centres.size() * 7);
-        for (std::size_t c = 0; c < frame.centres.size(); ++c) {
-            for (double v : frame.centres[c]) {
-                inside.push_back(static_cast<float>(v * 1000.0));
+        inside.reserve(cells * width);
+        for (std::size_t c = 0; c < cells; ++c) {
+            if (!shared) {
+                inside.insert(inside.end(), centres.begin() + c * 3, centres.begin() + c * 3 + 3);
             }
             for (double v : frame.velocities[c]) {
                 inside.push_back(static_cast<float>(v));
             }
             inside.push_back(static_cast<float>(frame.pressures[c]));
         }
-        d->zip->putNextEntry(frameName(at, "inside"));
-        writeNpy(*d->zip,
-                 "<f4",
-                 {frame.centres.size(), 7},
-                 inside.data(),
-                 inside.size() * sizeof(float));
+        d->zip->putNextEntry(frameName(at, shared ? "flow" : "inside"));
+        writeNpy(*d->zip, "<f4", {cells, width}, inside.data(), inside.size() * sizeof(float));
         d->inside.push_back(at);
+        if (!shared) {
+            d->centres = std::move(centres);
+        }
     }
+    d->steps.push_back(frame.step);
+    d->steps.push_back(frame.stepOfEvenCells);
+    d->stepped = d->stepped || frame.step > 0.0;
     if (frame.wallUnits[1] > 0.0) {
         d->wallUnits = frame.wallUnits;
     }
@@ -373,6 +414,9 @@ void ArchiveWriter::close(ResultsIndex index)
     if (!d->inside.empty()) {
         out["inside"] = d->inside;
     }
+    if (!d->sameFaces.empty()) {
+        out["sameFaces"] = d->sameFaces;
+    }
     if (!index.turbulence.empty()) {
         out["turbulence"] = index.turbulence;
     }
@@ -382,6 +426,9 @@ void ArchiveWriter::close(ResultsIndex index)
     index.wallUnits = d->wallUnits;
     if (index.wallUnits[1] > 0.0) {
         out["wallUnits"] = index.wallUnits;
+    }
+    if (d->stepped) {
+        out["steps"] = d->steps;
     }
 
     d->zip->setLevel(6);
@@ -433,6 +480,16 @@ struct ArchiveReader::Private
 {
     std::unique_ptr<zipios::ZipFile> zip;
     ResultsIndex index;
+    // the cells' centres last read, three a cell, and the frame they were
+    // written with: the frames after it share them
+    std::vector<float> centres;
+    std::size_t centresOf = std::numeric_limits<std::size_t>::max();
+
+    std::vector<float> insideOf(std::size_t at, std::vector<std::size_t>& shape) const
+    {
+        std::unique_ptr<std::istream> in(zip->getInputStream(frameName(at, "inside")));
+        return in ? readNpy<float>(*in, "<f4", shape) : std::vector<float>();
+    }
 };
 
 ArchiveReader::ArchiveReader(const std::string& path)
@@ -465,6 +522,7 @@ ArchiveReader::ArchiveReader(const std::string& path)
         d->index.signature = std::stoull(index.value("signature", std::string("0")));
         d->index.spacing = index.value("spacing", 0.0);
         d->index.inside = index.value("inside", std::vector<std::size_t>());
+        d->index.sameFaces = index.value("sameFaces", std::vector<std::size_t>());
         for (const auto& monitor : index.at("monitors")) {
             d->index.monitors.push_back(
                 {monitor.value("source", std::string()),
@@ -507,6 +565,10 @@ ArchiveReader::ArchiveReader(const std::string& path)
         d->index.turbulence = index.value("turbulence", std::string());
         d->index.reynolds = index.value("reynolds", 0.0);
         d->index.wallUnits = index.value("wallUnits", std::array<double, 3> {});
+        d->index.steps = index.value("steps", std::vector<double>());
+        if (!d->index.steps.empty() && d->index.steps.size() != d->index.times.size() * 2) {
+            THROWM(Base::RuntimeError, "the fluid results' steps do not match its frames");
+        }
         if (index.contains("openings")) {
             for (const auto& opening : index.at("openings")) {
                 d->index.openings.push_back({opening.value("source", std::string()),
@@ -575,13 +637,20 @@ ArchivedFrame ArchiveReader::frame(std::size_t at) const
     frame.bodies = bodies(at);
     try {
         std::vector<std::size_t> shape;
-        std::unique_ptr<std::istream> in(d->zip->getInputStream(frameName(at, "points")));
+        // its points and triangles are its own, or those of the last frame
+        // before it that has its own
+        std::size_t faces = at;
+        while (faces > 0 && std::ranges::binary_search(d->index.sameFaces, faces)) {
+            --faces;
+        }
+        std::unique_ptr<std::istream> in(d->zip->getInputStream(frameName(faces, "points")));
         if (!in) {
             THROWM(Base::RuntimeError, "a frame of the fluid results is missing");
         }
         frame.points = readNpy<float>(*in, "<f4", shape);
         if (d->index.kind != Solver::ResultKind::Particles) {
-            std::unique_ptr<std::istream> tin(d->zip->getInputStream(frameName(at, "triangles")));
+            std::unique_ptr<std::istream> tin(
+                d->zip->getInputStream(frameName(faces, "triangles")));
             if (tin) {
                 frame.triangles = readNpy<std::int32_t>(*tin, "<i4", shape);
             }
@@ -592,9 +661,42 @@ ArchivedFrame ArchiveReader::frame(std::size_t at) const
                 frame.values = readNpy<float>(*vin, "<f4", shape);
             }
             if (std::ranges::find(d->index.inside, at) != d->index.inside.end()) {
-                std::unique_ptr<std::istream> in7(d->zip->getInputStream(frameName(at, "inside")));
-                if (in7) {
-                    frame.inside = readNpy<float>(*in7, "<f4", shape);
+                frame.inside = d->insideOf(at, shape);
+                std::unique_ptr<std::istream> in4(d->zip->getInputStream(frameName(at, "flow")));
+                if (frame.inside.empty() && in4) {
+                    // what changed, of cells whose centres an earlier frame has
+                    const std::vector<float> flow = readNpy<float>(*in4, "<f4", shape);
+                    auto whole = std::ranges::lower_bound(d->index.inside, at);
+                    while (whole != d->index.inside.begin()) {
+                        --whole;
+                        if (*whole == d->centresOf) {
+                            break;
+                        }
+                        const std::vector<float> kept = d->insideOf(*whole, shape);
+                        if (!kept.empty()) {
+                            d->centres.clear();
+                            for (std::size_t k = 0; k + 6 < kept.size(); k += 7) {
+                                d->centres.insert(d->centres.end(),
+                                                  kept.begin() + k,
+                                                  kept.begin() + k + 3);
+                            }
+                            d->centresOf = *whole;
+                            break;
+                        }
+                    }
+                    if (d->centres.size() / 3 != flow.size() / 4 || d->centres.empty()) {
+                        THROWM(Base::RuntimeError,
+                               "a frame of the fluid results has no centres of its cells");
+                    }
+                    frame.inside.reserve(flow.size() / 4 * 7);
+                    for (std::size_t c = 0; c < flow.size() / 4; ++c) {
+                        frame.inside.insert(frame.inside.end(),
+                                            d->centres.begin() + c * 3,
+                                            d->centres.begin() + c * 3 + 3);
+                        frame.inside.insert(frame.inside.end(),
+                                            flow.begin() + c * 4,
+                                            flow.begin() + c * 4 + 4);
+                    }
                 }
             }
         }

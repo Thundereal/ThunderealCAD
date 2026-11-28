@@ -301,6 +301,11 @@ PyObject* StudyPy::getResults(PyObject* args) const
         ret.setItem("Turbulence",
                     Py::String(index.turbulence.empty() ? "Laminar" : index.turbulence));
         ret.setItem("Reynolds", Py::Float(index.reynolds));
+        Py::List steps;
+        for (std::size_t k = 0; k + 1 < index.steps.size(); k += 2) {
+            steps.append(Py::TupleN(Py::Float(index.steps[k]), Py::Float(index.steps[k + 1])));
+        }
+        ret.setItem("Steps", steps);
         if (index.wallUnits[1] > 0.0) {
             Py::Tuple units(3);
             for (std::size_t k = 0; k < 3; ++k) {

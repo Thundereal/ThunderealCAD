@@ -1210,6 +1210,44 @@ def flowDoubts(results):
     return found
 
 
+# A flow through time is slowed by its smallest cell: said when the solver's
+# steps are under a quarter of what cells all of the study's resolution would
+# let it take. In the one case measured (docs/FluidSimulation.md sec 14.12)
+# a cell 14 times longer than thick left the steps a tenth as long.
+STEP_HELD_UNDER = 0.25
+
+
+def stepHeld(results):
+    """Of a flow through time: the step the solver took and the step cells
+    all of the study's resolution would have let it take, s, each the
+    middle one of the run's later half. None when the solver did not say."""
+    steps = [pair for pair in (results.get("Steps") or []) if pair[0] > 0.0 and pair[1] > 0.0]
+    steps = steps[len(steps) // 2 :]
+    if not steps:
+        return None
+    taken = sorted(pair[0] for pair in steps)[len(steps) // 2]
+    even = sorted(pair[1] for pair in steps)[len(steps) // 2]
+    return taken, even
+
+
+def stepDoubts(results):
+    """What the steps of a flow through time say of its mesh: a sentence
+    for the user when some cell held them far under the rest's."""
+    held = stepHeld(results)
+    if held is None or held[0] >= STEP_HELD_UNDER * held[1]:
+        return []
+    return [
+        translate(
+            "Fluid",
+            "The solver took steps of {:.2g} s, where cells all of the study's "
+            "resolution would let it take {:.2g} s: some cell of the mesh is far "
+            "smaller or thinner than the rest, and the run took some {:.0f} times "
+            "as long for it. The results are not worse for it. Another resolution, "
+            "a little finer or coarser, often meshes without such a cell.",
+        ).format(held[0], held[1], held[1] / held[0])
+    ]
+
+
 def doubts(results):
     """What a run's own account of its energy has against its results, each
     a sentence for the user; none when it has nothing, or kept no account.
@@ -1229,6 +1267,7 @@ def doubts(results):
             ).format(times[-1])
         )
     found.extend(flowDoubts(results))
+    found.extend(stepDoubts(results))
     energy = results.get("Energy")
     if not energy or not energy["Judged"]:
         return found

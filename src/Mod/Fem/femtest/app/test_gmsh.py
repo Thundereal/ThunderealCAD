@@ -77,6 +77,8 @@ class TestGMSHBase(unittest.TestCase):
 
     # ********************************************************************************************
     def setUp(self):
+        # a solver's or mesher's working folder made in the run: removed after it
+        testtools.remove_new_fem_work_dirs(self)
         self.document = FreeCAD.newDocument(self.__class__.__name__)
 
     # ********************************************************************************************

@@ -42,6 +42,8 @@ class TestCcxTools(unittest.TestCase):
 
     # ********************************************************************************************
     def setUp(self):
+        # a solver's or mesher's working folder made in the run: removed after it
+        testtools.remove_new_fem_work_dirs(self)
         # setUp is executed before every test
 
         # new document
@@ -79,7 +81,7 @@ class TestCcxTools(unittest.TestCase):
         setup(self.document, "ccxtools", test_mode=True)
         base_name = get_namefromdef("test_")
         res_obj_name = "CCX_EigenMode_1_Results"
-        analysis_dir = testtools.get_fem_test_tmp_dir(self.pre_dir_name + base_name)
+        analysis_dir = testtools.get_fem_test_tmp_dir_for(self, self.pre_dir_name + base_name)
 
         # test input file writing
         fea = self.input_file_writing_test(
@@ -103,7 +105,7 @@ class TestCcxTools(unittest.TestCase):
         setup(self.document, "ccxtools", test_mode=True)
         base_name = get_namefromdef("test_")
         res_obj_name = "CCX_Results"
-        analysis_dir = testtools.get_fem_test_tmp_dir(self.pre_dir_name + base_name)
+        analysis_dir = testtools.get_fem_test_tmp_dir_for(self, self.pre_dir_name + base_name)
 
         # test input file writing
         fea = self.input_file_writing_test(
@@ -346,7 +348,7 @@ class TestCcxTools(unittest.TestCase):
         fcc_print(f"\n--------------- Start of FEM ccxtools {base_name} test---------------")
 
         if analysis_dir is None:
-            analysis_dir = testtools.get_fem_test_tmp_dir(self.pre_dir_name + base_name)
+            analysis_dir = testtools.get_fem_test_tmp_dir_for(self, self.pre_dir_name + base_name)
         analysis = self.document.Analysis
         solver_object = self.document.CalculiXCcxTools
         fea = ccxtools.FemToolsCcx(analysis, solver_object, test_mode=True)

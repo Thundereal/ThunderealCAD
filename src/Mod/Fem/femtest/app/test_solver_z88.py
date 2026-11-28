@@ -104,7 +104,7 @@ class TestSolverZ88(unittest.TestCase):
         fcc_print(f"\n------------- Start of FEM Z88 tests for {base_name} -------")
 
         # get analysis working directory and save FreeCAD file
-        working_dir = testtools.get_fem_test_tmp_dir("solver_z88_" + base_name)
+        working_dir = testtools.get_fem_test_tmp_dir_for(self, "solver_z88_" + base_name)
         save_fc_file = join(working_dir, base_name + ".FCStd")
         fcc_print(f"Save FreeCAD file to {save_fc_file} ...")
         self.document.saveAs(save_fc_file)

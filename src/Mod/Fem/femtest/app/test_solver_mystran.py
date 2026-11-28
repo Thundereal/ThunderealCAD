@@ -121,7 +121,7 @@ class TestSolverMystran(unittest.TestCase):
         self.document.recompute()
 
         # get analysis working directory and save FreeCAD file
-        working_dir = testtools.get_fem_test_tmp_dir(self.pre_dir_name + base_name)
+        working_dir = testtools.get_fem_test_tmp_dir_for(self, self.pre_dir_name + base_name)
         save_fc_file = join(working_dir, base_name + ".FCStd")
         # fcc_print("Save FreeCAD file to {} ...".format(save_fc_file))
         self.document.saveAs(save_fc_file)

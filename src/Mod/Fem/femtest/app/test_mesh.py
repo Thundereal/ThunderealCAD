@@ -146,7 +146,9 @@ class TestMeshCommon(unittest.TestCase):
         tetra10.addNode(9, 3, 9, 10)
         tetra10.addVolume([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
-        unv_file = join(testtools.get_fem_test_tmp_dir("mesh_common_unv_save"), "tetra10_mesh.unv")
+        unv_file = join(
+            testtools.get_fem_test_tmp_dir_for(self, "mesh_common_unv_save"), "tetra10_mesh.unv"
+        )
         tetra10.write(unv_file)
         newmesh = Fem.read(unv_file)
         expected = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
@@ -172,7 +174,9 @@ class TestMeshCommon(unittest.TestCase):
         )
         seg2.addEdge([1, 2])
 
-        inp_file = join(testtools.get_fem_test_tmp_dir("mesh_common_inp_preci"), "seg2_mesh.inp")
+        inp_file = join(
+            testtools.get_fem_test_tmp_dir_for(self, "mesh_common_inp_preci"), "seg2_mesh.inp"
+        )
         seg2.writeABAQUS(inp_file, 1, False)
 
         read_file = open(inp_file)
@@ -271,7 +275,9 @@ class TestMeshEleTetra10(unittest.TestCase):
     def get_file_paths(self, file_extension):
         testfile = self.base_testfile + file_extension
         outfile = join(
-            testtools.get_fem_test_tmp_dir("mesh_elements_" + self.elem + "_" + file_extension),
+            testtools.get_fem_test_tmp_dir_for(
+                self, "mesh_elements_" + self.elem + "_" + file_extension
+            ),
             self.elem + "_mesh." + file_extension,
         )
 
@@ -620,7 +626,7 @@ class TestMeshGroups(unittest.TestCase):
         mesh.addEdge(2, 3)
         mesh.addEdge(3, 4)
 
-        testfile = join(testtools.get_fem_test_tmp_dir(), "group_mesh.vtu")
+        testfile = join(testtools.get_fem_test_tmp_dir_for(self), "group_mesh.vtu")
 
         elements_to_be_added = [2, 3]
         group_id = mesh.addGroup("mynodegroup", "Edge")

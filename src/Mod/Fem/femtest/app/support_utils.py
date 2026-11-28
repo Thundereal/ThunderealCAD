@@ -55,6 +55,51 @@ def get_fem_test_tmp_dir(dirname=None):
     return temp_dir
 
 
+def get_fem_test_tmp_dir_for(test, dirname=None):
+    """get_fem_test_tmp_dir() for a test case: the folder is removed after
+    the test (an addCleanup, so after tearDown has closed its documents),
+    and the FEM_unittests folder itself once nothing else is in it. They
+    were left in the temporary folder after every run, 13.9 MB (the temp
+    census, 2026-11-28)."""
+    temp_dir = get_fem_test_tmp_dir(dirname)
+
+    def remove():
+        import shutil
+
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        try:
+            os.rmdir(os.path.dirname(temp_dir))
+        except OSError:
+            pass  # another test's folder still in it
+
+    test.addCleanup(remove)
+    return temp_dir
+
+
+def remove_new_fem_work_dirs(test):
+    """The working folders a solver's or a mesher's tool makes for its object
+    in the temporary folder (femtools.objecttools.ObjectTools, "fem_*"):
+    nothing removes them, so a test that runs such a tool removes the ones
+    made while it ran, after it (an addCleanup)."""
+    import shutil
+
+    temp = tempfile.gettempdir()
+
+    def fem_dirs():
+        try:
+            return {n for n in os.listdir(temp) if n.startswith("fem_")}
+        except OSError:
+            return set()
+
+    before = fem_dirs()
+
+    def remove():
+        for name in fem_dirs() - before:
+            shutil.rmtree(join(temp, name), ignore_errors=True)
+
+    test.addCleanup(remove)
+
+
 def get_unit_test_tmp_dir(temp_dir, unittestdir):
     testdir = join(temp_dir, unittestdir)
     if not os.path.exists(testdir):

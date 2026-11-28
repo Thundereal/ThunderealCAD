@@ -112,12 +112,29 @@ class TempGuard:
     def check(self, result):
         if not self.mode:
             return
+        # A document still open keeps its transient folder until it closes,
+        # which at the latest the shutdown does: not left behind, counted
+        # apart
+        open_dirs = set()
+        for doc in FreeCAD.listDocuments().values():
+            try:
+                open_dirs.add(os.path.realpath(doc.TransientDir))
+            except Exception:
+                pass
         left = []
+        still_open = 0
         for root, names in self.before.items():
             for name in sorted(set(os.listdir(root)) - names):
-                left.append(os.path.join(root, name))
+                path = os.path.join(root, name)
+                if os.path.realpath(path) in open_dirs:
+                    still_open += 1
+                else:
+                    left.append(path)
         print("TEMP GUARD (%s): %d new entries in %s" % (
             self.mode, len(left), ", ".join(self.before)))
+        if still_open:
+            print("TEMP GUARD: %d more, transient folders of documents still open"
+                  " -- removed when they close" % still_open)
         for path in left:
             print("TEMP GUARD left: %s" % path)
         if left and self.mode == "fail":

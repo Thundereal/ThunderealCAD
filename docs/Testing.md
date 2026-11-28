@@ -825,6 +825,9 @@ run only once the three platforms have run it with an empty list).
 - Python (`TestApp.TestText`, so `FreeCADCmd -t ...`): `FC_TEST_TEMP_GUARD=report`
   lists every entry new in FreeCAD's temporary path and the system's after
   the run (`TEMP GUARD left: <path>`); `=fail` also fails the run naming them.
+  A transient folder of a document still open at the end is not counted --
+  the document removes it when it closes, the shutdown at the latest -- but
+  the number is printed apart (`TEMP GUARD: N more, ...`).
 - C++ (every gtest executable, `tests/src/TempGuard.cpp`): the same variable
   gives each test process a folder of its own, `fc-guard-<pid>` in the
   temporary folder it was given, with TMPDIR (TEMP and TMP on Windows) and

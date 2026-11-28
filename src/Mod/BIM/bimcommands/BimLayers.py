@@ -535,6 +535,8 @@ if FreeCAD.GuiUp:
             return editor
 
         def setEditorData(self, editor, index):
+            from draftutils import gui_utils
+
             if index.column() == 0:  # Layer on/off
                 editor.setChecked(index.data())
             elif index.column() == 1:  # Layer name
@@ -547,7 +549,7 @@ if FreeCAD.GuiUp:
                 editor.setText(str(index.data(QtCore.Qt.UserRole)))
                 if self.first:
                     c = index.data(QtCore.Qt.UserRole)
-                    color = QtGui.QColorDialog.getColor(
+                    color = gui_utils.get_color(
                         QtGui.QColor(int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
                     )
                     editor.setText(str(color.getRgbF()))
@@ -556,7 +558,7 @@ if FreeCAD.GuiUp:
                 editor.setText(str(index.data(QtCore.Qt.UserRole)))
                 if self.first:
                     c = index.data(QtCore.Qt.UserRole)
-                    color = QtGui.QColorDialog.getColor(
+                    color = gui_utils.get_color(
                         QtGui.QColor(int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
                     )
                     editor.setText(str(color.getRgbF()))
@@ -567,7 +569,7 @@ if FreeCAD.GuiUp:
                 editor.setText(str(index.data(QtCore.Qt.UserRole)))
                 if self.first:
                     c = index.data(QtCore.Qt.UserRole)
-                    color = QtGui.QColorDialog.getColor(
+                    color = gui_utils.get_color(
                         QtGui.QColor(int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
                     )
                     editor.setText(str(color.getRgbF()))

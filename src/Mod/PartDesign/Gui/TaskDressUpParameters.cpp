@@ -63,6 +63,7 @@
 #include <Gui/BitmapFactory.h>
 #include <Gui/Document.h>
 #include <Gui/Command.h>
+#include <Gui/FileDialog.h>
 #include <Gui/Inventor/Draggers/GizmoStyleParameters.h>
 #include <Gui/MainWindow.h>
 #include <Gui/ViewParams.h>
@@ -1447,9 +1448,15 @@ void TaskDressUpParameters::addGroupColorActions(QMenu& menu, int group)
 void TaskDressUpParameters::pickGroupColor(int group)
 {
     const Base::Color current = groupColor(group);
+    // the user's choice of dialog, as every colour dialog of the program
+    // takes it (Gui::DialogOptions)
+    QColorDialog::ColorDialogOptions options;
+    if (Gui::DialogOptions::dontUseNativeColorDialog())
+        options |= QColorDialog::DontUseNativeDialog;
     QColor color = QColorDialog::getColor(QColor::fromRgbF(current.r, current.g, current.b),
                                           Gui::getMainWindow(),
-                                          tr("The colour of group %1").arg(group));
+                                          tr("The colour of group %1").arg(group),
+                                          options);
     if (color.isValid()) {
         setupTransaction(tr("group %1 colour").arg(group));
         setGroupColor(group, color);

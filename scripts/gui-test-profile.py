@@ -11,6 +11,14 @@ they all move.
     depth to read back: getRenderStats() answers geometryPixels -1 for it.
     A test about multisampling sets the value itself, which is after this.
 
+  - Dialog/DontUseNativeColorDialog = true. A colour dialog the platform
+    draws (macOS's NSColorPanel) is no QColorDialog a test can find and
+    answer: its modal loop never returns (fillet-groups-and-preview-menu
+    hung on the Mac mini, finding no dialog). Every colour dialog of the
+    program takes this preference, so a test drives the same Qt dialog on
+    every platform. It is also the setting's default; said here so a
+    changed default does not move the tests.
+
   - FONTCONFIG_FILE is taken out of the environment. scripts/gui-test.sh
     states FreeCAD's font with it, and Qt has read it by now; a browser a test
     starts is not FreeCAD and keeps the box's own fonts.
@@ -38,6 +46,10 @@ os.environ.pop("FONTCONFIG_FILE", None)
 _view = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
 if "AntiAliasing" not in _view.GetInts():
     _view.SetInt("AntiAliasing", 0)
+
+_dialog = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Dialog")
+if "DontUseNativeColorDialog" not in _dialog.GetBools():
+    _dialog.SetBool("DontUseNativeColorDialog", True)
 
 
 # the view's minimum, MDIView::minimumSizeHint()

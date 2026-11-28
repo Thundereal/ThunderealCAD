@@ -37,6 +37,7 @@
 
 #include <App/Application.h>
 #include <App/Document.h>
+#include <App/RecomputeHook.h>
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
 #include <Base/Parameter.h>
@@ -88,8 +89,11 @@ void DrawHatch::onChanged(const App::Property* prop)
             // the faces chosen anew: nothing is left for the user to settle
             m_nameOnly.clear();
         }
-        // an undo or redo puts what was saved of the faces back itself
-        if (!getDocument() || !getDocument()->isPerformingTransaction()) {
+        // an undo or redo puts what was saved of the faces back itself; so
+        // does a worker's result put in -- the view it reads, another object,
+        // may be put in after this (docs/WorkerProcess.md sec 88)
+        if ((!getDocument() || !getDocument()->isPerformingTransaction())
+            && !App::RecomputeHook::puttingIn()) {
             updateSavedNames();
         }
     }
@@ -111,7 +115,19 @@ void DrawHatch::updateSavedNames()
         SavedNames.setValues(names);
     }
     if (geometry != SavedGeometry.getValues()) {
-        SavedGeometry.setValues(geometry);
+        auto view = dynamic_cast<DrawViewPart*>(Source.getValue());
+        if (view && view->sameSaved(geometry, SavedGeometry.getValues())) {
+            // a centre recorded beside values that say the same: not a
+            // change of this hatch's, nothing to recompute or to save for
+            Base::ObjectStatusLocker<App::Property::Status, App::Property> quiet(
+                App::Property::Output, &SavedGeometry);
+            Base::ObjectStatusLocker<App::Property::Status, App::Property> unmarked(
+                App::Property::NoModify, &SavedGeometry);
+            SavedGeometry.setValues(geometry);
+        }
+        else {
+            SavedGeometry.setValues(geometry);
+        }
     }
 }
 

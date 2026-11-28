@@ -2156,6 +2156,49 @@ class TestWorkerRecompute(unittest.TestCase):
         worker, here = self.byWorkerAndAlone(change, names)
         self.assertEqual(worker, here)
 
+    def testAHatchFollowsAnUnchangedFaceWherePutIn(self):
+        """A hatch re-pointed by its face's geometry when the view's centre
+        moves (TDTest.ReferenceCentreTest, case A) is the worker's where its
+        result is put in. DrawHatch::onChanged(Source) reads its view, another
+        object, so it derives nothing while a result is put in (sec 88); the
+        names, the geometry and its centre tag arrive as the worker made them.
+        Unlike testAHatchsFaceIsTheWorkersWherePutIn, the hatch is re-pointed
+        here, so the comparison is not of two unchanged values"""
+        import TechDraw  # noqa: F401
+
+        small = self.doc.addObject("Part::Box", "Small")
+        small.Length = small.Width = 10
+        small.Height = 5
+        big = self.doc.addObject("Part::Box", "Big")
+        big.Length = big.Width = 20
+        big.Height = 5
+        big.Placement.Base = App.Vector(40, 0, 0)
+        page = self.doc.addObject("TechDraw::DrawPage", "Page")
+        template = self.doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        template.Template = os.path.join(
+            App.getHomePath(), "Mod", "TechDraw", "TDTest", "TestTemplate.svg")
+        page.Template = template
+        view = self.doc.addObject("TechDraw::DrawViewPart", "View")
+        page.addView(view)
+        view.Source = [small, big]
+        view.Direction = App.Vector(0, 0, 1)
+        self.doc.recompute()
+        hatch = self.doc.addObject("TechDraw::DrawHatch", "Hatch")
+        hatch.Source = (view, ["Face1"])  # by area: the small box's face
+        self.doc.recompute()
+        self.assertIn(" @ ", hatch.SavedGeometry[0])
+
+        def change(doc):
+            big = doc.getObject("Big")
+            big.Length = big.Width = 5
+
+        names = [("Hatch", "Source"), ("Hatch", "SavedNames"), ("Hatch", "SavedGeometry")]
+        worker, here = self.byWorkerAndAlone(change, names)
+        self.assertEqual(worker, here)
+        self.assertEqual(list(self.doc.getObject("Hatch").Source[1]), ["Face0"],
+                         "re-pointed by the worker")
+        self.assertIn(" @ ", self.doc.getObject("Hatch").SavedGeometry[0])
+
     def testAConsolesCopyHasNoViewObjectInAWorker(self):
         """A console session saves no views, and every obj.ViewObject there
         is None: in a worker, made from such a copy, it is None too, and an

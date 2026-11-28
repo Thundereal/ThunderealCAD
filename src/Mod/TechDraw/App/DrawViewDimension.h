@@ -95,6 +95,13 @@ enum DimensionType {
     //! was last known good, one entry per entry of SavedGeometry.  Empty for a
     //! 3D reference, and empty in a document written before names existed.
     App::PropertyStringList         SavedNames;
+    //! the centre of the view's sources each SavedGeometry entry of a 2D
+    //! reference was taken under, "x y z | fingerprint" -- the fingerprint
+    //! the entry's own shape, so that an entry SavedGeometry no longer holds
+    //! (rewritten by a build that keeps no centres) is not read with it.
+    //! Missing or not matching: the entry is compared as it stands, in the
+    //! frame of now. Bookkeeping: changing it alone touches nothing.
+    App::PropertyStringList         SavedGeometryCentres;
 
     //! The PMI::Dimension of the 3D model it shows (docs/GDandT.md sec 9 item
     //! 4): linked, its tolerance, basic flag and decimals are the 3D one's,
@@ -254,6 +261,19 @@ protected:
     /// Saved entries left null, filled from what their references name now
     /// (docs/WorkerProcess.md sec 54); true if one was
     bool fillNullSavedGeometry();
+    //! SavedGeometry with each entry whose centre is known moved into the
+    //! view's frame of now: what a comparison reads
+    std::vector<Part::TopoShape> savedGeometryHere() const;
+    //! the centre entry for `shape`, taken in the frame of now; empty when
+    //! there is no view or the references are 3D
+    std::string centreEntryFor(const Part::TopoShape& shape) const;
+    //! SavedGeometryCentres as `entries`, not touching the object
+    void setSavedCentres(const std::vector<std::string>& entries);
+    //! the centres stored, one per SavedGeometry entry ("" where none)
+    std::vector<std::string> savedCentres() const;
+    //! the untagged entries, which have just matched in the frame of now,
+    //! given the centre of now
+    void tagMatchedCentres();
     std::string recoverChangedEdge2d(int iReference);
     std::string recoverChangedEdge3d(int iReference);
     std::string recoverChangedVertex2d(int iReference);

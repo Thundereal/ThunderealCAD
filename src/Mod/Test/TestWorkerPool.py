@@ -2009,6 +2009,153 @@ class TestWorkerRecompute(unittest.TestCase):
         self.doc.recompute()
         self.assertEqual(kept(pocket), [])
 
+    @staticmethod
+    def putInValue(obj, name):
+        """A property's value as plain data to compare: links by name"""
+        value = obj.getPropertyByName(name)
+
+        def plain(v):
+            if isinstance(v, App.DocumentObject):
+                return v.Name
+            if isinstance(v, (list, tuple)):
+                return [plain(x) for x in v]
+            if hasattr(v, "isNull") and hasattr(v, "ShapeType"):
+                if v.isNull():
+                    return "null"
+                bb = v.BoundBox
+                return [v.ShapeType, len(v.Faces), len(v.Edges), round(v.Area, 6),
+                        [round(x, 6) for x in (bb.XMin, bb.YMin, bb.ZMin, bb.XMax, bb.YMax, bb.ZMax)]]
+            if isinstance(v, float):
+                return round(v, 9)
+            return v
+
+        return plain(value)
+
+    def byWorkerAndAlone(self, change, names):
+        """`names` (object, property) after `change` is made to self.doc and
+        recomputed by a worker, and after it is made to a copy of the
+        document as it is now and recomputed by this process alone"""
+        import shutil
+
+        folder = tempfile.mkdtemp(prefix="fc-twin-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "twin.FCStd")
+        self.doc.saveAs(path)
+        alone_path = os.path.join(folder, "alone.FCStd")
+        shutil.copyfile(path, alone_path)
+        change(self.doc)
+        info = self.byWorker()
+        self.assertEqual((info["Unfit"], info["ExecutedHereNames"]), (0, []), info)
+        self.assertGreater(info["Applied"], 0, info)
+        worker = {(o, n): self.putInValue(self.doc.getObject(o), n) for o, n in names}
+        alone = App.openDocument(alone_path)
+        self.addCleanup(App.closeDocument, alone.Name)
+        change(alone)
+        alone.recompute()
+        here = {(o, n): self.putInValue(alone.getObject(o), n) for o, n in names}
+        return worker, here
+
+    def notchedCut(self):
+        """A box cut by a notch at its corner: moved to the middle of its
+        side, four of the cut's faces are numbered otherwise (Face6 becomes
+        Face11) and two are gone"""
+        box = self.doc.addObject("Part::Box", "Box")
+        box.Length = box.Width = box.Height = 10
+        tool = self.doc.addObject("Part::Box", "Tool")
+        tool.Length = tool.Width = tool.Height = 4
+        tool.Placement.Base = App.Vector(8, 0, 0)
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base, cut.Tool = box, tool
+        self.doc.recompute()
+        return cut
+
+    @staticmethod
+    def notchToMiddle(doc):
+        doc.getObject("Tool").Placement = App.Placement(App.Vector(8, 3, 3), App.Rotation())
+
+    def testAReferenceReResolvedIsTheWorkersWherePutIn(self):
+        """GeoFeature::onChanged(Shape) re-resolves the references into an
+        object, writing the referrers' links, also while a worker's result
+        is put in (docs/WorkerProcess.md sec 88)"""
+        cut = self.notchedCut()
+        ref = self.doc.addObject("App::FeaturePython", "Ref")
+        ref.addProperty("App::PropertyLinkSubList", "All")
+        faces = ["Face%d" % (i + 1) for i in range(len(cut.Shape.Faces))]
+        ref.All = [(cut, faces)]
+        self.doc.recompute()
+        worker, here = self.byWorkerAndAlone(self.notchToMiddle, [("Ref", "All")])
+        self.assertNotEqual(here[("Ref", "All")], [["Cut", faces]], "nothing re-resolved")
+        self.assertEqual(worker, here)
+
+    def testABindersShapeIsTheWorkersWherePutIn(self):
+        """SubShapeBinder::onChanged(Support) rebuilds a binder's copy from
+        what it binds, also while a worker's result is put in: its Support
+        re-resolved, Face6 to Face11 (docs/WorkerProcess.md sec 88)"""
+        cut = self.notchedCut()
+        binder = self.doc.addObject("Part::SubShapeBinder", "Binder")
+        binder.Support = [(cut, ("Face6",))]
+        self.doc.recompute()
+        names = [("Binder", "Shape"), ("Binder", "Support")]
+        worker, here = self.byWorkerAndAlone(self.notchToMiddle, names)
+        self.assertEqual(here[("Binder", "Support")], [["Cut", ["Face11"]]])
+        self.assertEqual(worker, here)
+
+    def testAFilletsEdgeLinksAreTheWorkersWherePutIn(self):
+        """FilletBase::onChanged(Edges/Base) makes EdgeLinks again from
+        Edges, also while a worker's result is put in
+        (docs/WorkerProcess.md sec 88)"""
+        import Part  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        tool = self.doc.addObject("Part::Box", "Tool")
+        tool.Length = tool.Width = tool.Height = 3
+        tool.Placement.Base = App.Vector(8, 8, 0)
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base, cut.Tool = box, tool
+        self.doc.recompute()
+        fillet = self.doc.addObject("Part::Fillet", "Fillet")
+        fillet.Base = cut
+        fillet.Edges = [(1, 1.0, 1.0), (3, 1.0, 1.0)]
+        self.doc.recompute()
+
+        def change(doc):
+            doc.getObject("Tool").Placement.Base = App.Vector(-1, -1, 0)
+
+        names = [("Fillet", "Edges"), ("Fillet", "EdgeLinks"), ("Fillet", "Shape")]
+        worker, here = self.byWorkerAndAlone(change, names)
+        self.assertEqual(worker, here)
+
+    def testAHatchsFaceIsTheWorkersWherePutIn(self):
+        """DrawHatch::onChanged(Source) records its faces' names and
+        geometry from its view, also while a worker's result is put in --
+        before the view's own result is (docs/WorkerProcess.md sec 86, 88)"""
+        import TechDraw  # noqa: F401
+
+        box = self.doc.addObject("Part::Box", "Box")
+        other = self.doc.addObject("Part::Box", "Other")
+        other.Length = other.Width = other.Height = 4
+        other.Placement.Base = App.Vector(40, 0, 0)
+        page = self.doc.addObject("TechDraw::DrawPage", "Page")
+        template = self.doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        template.Template = os.path.join(
+            App.getHomePath(), "Mod", "TechDraw", "TDTest", "TestTemplate.svg")
+        page.Template = template
+        group = self.doc.addObject("TechDraw::DrawProjGroup", "Group")
+        page.addView(group)
+        group.Source = [box, other]
+        view = group.addProjection("Front")
+        self.doc.recompute()
+        hatch = self.doc.addObject("TechDraw::DrawHatch", "Hatch")
+        hatch.Source = (view, ["Face0"])
+        self.doc.recompute()
+
+        def change(doc):
+            doc.getObject("Group").Source = [doc.getObject("Other"), doc.getObject("Box")]
+
+        names = [("Hatch", "Source"), ("Hatch", "SavedNames"), ("Hatch", "SavedGeometry")]
+        worker, here = self.byWorkerAndAlone(change, names)
+        self.assertEqual(worker, here)
+
     def testAConsolesCopyHasNoViewObjectInAWorker(self):
         """A console session saves no views, and every obj.ViewObject there
         is None: in a worker, made from such a copy, it is None too, and an

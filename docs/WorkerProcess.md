@@ -5762,3 +5762,37 @@ pocket with a sketch attached to its floor, made through-all by a worker.
 Pocket006 holds `_BaseShape1` and `_BaseShapeRefs`, the references on 1,
 and a recompute here that brings the floor back lets it go as before.
 Before, `_BaseShape1` and `_BaseShape2`; the same on the 2026-11-26 stage.
+
+## 88. What else derives while a result is put in, measured (2026-11-28)
+
+The dimension (sec 86) and the shape generations (sec 87) were each a
+class's own derivation run by a value being put in, and writing over, or
+beside, what the worker had sent. A grep over src/App, src/Mod/Part/App
+and TechDraw for handlers of that shape gave four that write outputs or
+other objects. Each was measured with a test that makes one change by a
+worker, and the same change to a copy of the document recomputed by this
+process alone, and compares the values named:
+- `GeoFeature::onChanged(Shape)` -> `updateElementReference()`, the
+  referrers' links re-resolved: a cut whose notch moves, a link to every
+  face (four renumbered, two gone). Equal.
+- `SubShapeBinder::onChanged(Support)` -> `update()`: a binder on the
+  cut's Face6, which becomes Face11. Support and Shape are equal.
+- `FilletBase::onChanged(Edges/Base)` -> `syncEdgeLink()`: a fillet on
+  the cut, one edge gone (`?Edge1`). Edges, EdgeLinks and Shape are
+  equal.
+- `DrawHatch::onChanged(Source)`: not reached. In the scene of the
+  dimension test (sec 86) the hatch is re-pointed by neither process: its
+  Source stays Face0, with the same SavedNames, also when this process
+  recomputes alone. So the put-in case cannot show there.
+
+Why the first three are equal is a reading, not measured: they derive
+from the referenced object's own shape, which is already put in when its
+referrers are re-resolved. The dimension read another object, a view
+whose result was put in after it.
+
+**Tests.** `testAReferenceReResolvedIsTheWorkersWherePutIn`,
+`testABindersShapeIsTheWorkersWherePutIn`,
+`testAFilletsEdgeLinksAreTheWorkersWherePutIn` and
+`testAHatchsFaceIsTheWorkersWherePutIn`, through
+`byWorkerAndAlone()`. The first two also claim that the change
+re-resolved something, so the comparison is not of two unchanged values.

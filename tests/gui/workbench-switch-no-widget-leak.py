@@ -195,7 +195,8 @@ def from_open_menu():
         bar = FreeCADGui.getMainWindow().menuBar()
         # Each menu's name read as it is fetched: on the Mac mini's PySide 6.11.1
         # a wrapper QAction.menu() gave reads as deleted once menu() is called
-        # again, the menu itself alive on the bar
+        # again, the menu itself alive on the bar. PySide 6.11.2 (Windows,
+        # 2026-11-28) does not: the old script ran 8/0 there, so it is 6.11.1's
         named = [(a, a.menu().objectName()) for a in bar.actions()
                  if a.menu() is not None and a.isVisible()]
         action, name = ([(a, n) for a, n in named if n == "&View"] or named)[0]

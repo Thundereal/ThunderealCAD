@@ -31,8 +31,12 @@ RESULT = os.environ.get("GT_RESULT", os.path.join(OUT, "result.txt"))
 CYCLES = 5
 LIMIT = 30
 state = {"done": False, "phase": 0, "cycle": 0, "counts": [], "doc": None, "sk": None,
-         "wb": None}
+         "wb": None, "legs": set()}
 PHASES = ("a switch to Sketcher and back", "a sketch's edit")
+# Every leg, in order. One that an exception keeps from finishing -- its own, or
+# one before it, which ends the script -- is a FAIL by name in finish(), not
+# lost behind the one ABORT line: on the Mac mini the last leg had never run.
+LEGS = PHASES + ("an addon's menu on the bar", "a switch with a menu of the bar open")
 
 
 def note(msg):
@@ -120,6 +124,7 @@ def counted():
         owned, hidden = menus_owned_and_shown()
         check("and every menu the menu bar owns is one it shows", not hidden,
               "%d owned, %d not shown: %s" % (owned, len(hidden), hidden[:8]))
+        state["legs"].add(PHASES[state["phase"]])
         state["phase"] += 1
         state["cycle"] = 0
         state["counts"] = []
@@ -175,6 +180,7 @@ def addon_menu_check():
             bar.removeAction(menu.menuAction())
             menu.deleteLater()
         state["addon"] = None
+        state["legs"].add(LEGS[2])
         QtCore.QTimer.singleShot(300, from_open_menu)
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
@@ -187,10 +193,14 @@ def addon_menu_check():
 def from_open_menu():
     try:
         bar = FreeCADGui.getMainWindow().menuBar()
-        menus = [a.menu() for a in bar.actions() if a.menu() is not None and a.isVisible()]
-        view = [m for m in menus if m.objectName() == "&View"] or menus
-        view[0].popup(bar.mapToGlobal(QtCore.QPoint(10, bar.height())))
-        QtCore.QTimer.singleShot(300, lambda: from_open_menu_switch(view[0].objectName()))
+        # Each menu's name read as it is fetched: on the Mac mini's PySide 6.11.1
+        # a wrapper QAction.menu() gave reads as deleted once menu() is called
+        # again, the menu itself alive on the bar
+        named = [(a, a.menu().objectName()) for a in bar.actions()
+                 if a.menu() is not None and a.isVisible()]
+        action, name = ([(a, n) for a, n in named if n == "&View"] or named)[0]
+        action.menu().popup(bar.mapToGlobal(QtCore.QPoint(10, bar.height())))
+        QtCore.QTimer.singleShot(300, lambda: from_open_menu_switch(name))
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
         finish()
@@ -232,6 +242,7 @@ def from_open_menu_check():
             slot.metaObject().className() if slot is not None else None,
             "the native bar" if slot is not None and ptr(slot) == ptr(mw.menuBar())
             else "not the bar -- the custom title bar's spacer"))
+        state["legs"].add(LEGS[3])
     except Exception:
         note("ABORT:\n" + traceback.format_exc())
     finish()
@@ -241,6 +252,9 @@ def finish():
     if state["done"]:
         return
     state["done"] = True
+    for leg in LEGS:
+        if leg not in state["legs"]:
+            note("FAIL %s: not run to its end -- an exception in it or before it" % leg)
     for name in list(FreeCAD.listDocuments().keys()):
         FreeCAD.closeDocument(name)
     note("DONE")

@@ -6935,8 +6935,13 @@ private:
                 }
             }
             else {
+                // No backup kept: the old one goes, before the new one takes
+                // its name -- a folder as applyStandard() takes one away
                 try {
-                    fi.deleteFile();
+                    if (fi.isDir())
+                        fi.deleteDirectoryRecursive();
+                    else
+                        fi.deleteFile();
                 }
                 catch (...) {
                     Base::Console().Warning("Cannot remove backup file: %s\n", fi.fileName().c_str());
@@ -6950,19 +6955,10 @@ private:
             THROWM(Base::FileException,
                 "Save interrupted: Cannot rename temporary file to project file", tmp);
         }
-
-        if (numberOfFiles <= 0) {
-            try {
-                if (fi.isDir())
-                    fi.deleteDirectoryRecursive();
-                else
-                    fi.deleteFile();
-            }
-            catch (...) {
-                Base::Console().Warning("Cannot remove backup file: %s\n", fi.fileName().c_str());
-                backupManagementError = true;
-           }
-        }
+        // Nothing after this rename may touch fi: it is the file just saved.
+        // A second "no backup" deletion here (6a0a2ad81a, 2026-07-27) took
+        // it away -- every save with backups off reported success and left
+        // no file.
 
         if (backupManagementError) {
             THROWM(Base::FileException, "Warning: Save complete, but error while managing backup history.", fi);

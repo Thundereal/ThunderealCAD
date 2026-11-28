@@ -22,6 +22,7 @@
 # ***************************************************************************/
 
 import FreeCAD, os, unittest, tempfile
+import shutil
 import math
 
 # ---------------------------------------------------------------------------
@@ -3616,6 +3617,108 @@ class ElementAppearanceCases(unittest.TestCase):
             ea.keys()
         except ReferenceError:
             pass
+
+
+class SaveBackupPolicyCases(unittest.TestCase):
+    """A save keeps the file it writes, whatever the backup settings.
+
+    With "Create backup files" off and the default .FCBak naming, every save
+    wrote the project and then deleted it (BackupPolicy::applyTimeStamp, a
+    second "no backup" deletion after the rename, from 6a0a2ad81a of
+    2026-07-27): the save reported success and there was no file; the next
+    save failed. Each setting below: saveAs to a new path, then two saves
+    over it -- the file there after each, opening with the value last saved,
+    and the backups the setting asks for (none when off, one when on)."""
+
+    def setUp(self):
+        self.param = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        kept = {}
+        for name, default in (("CreateBackupFiles", True), ("UseFCBakExtension", True)):
+            kept[name] = self.param.GetBool(name, default)
+        count = self.param.GetInt("CountBackupFiles", 1)
+
+        def restore():
+            for name, value in kept.items():
+                self.param.SetBool(name, value)
+            self.param.SetInt("CountBackupFiles", count)
+
+        self.addCleanup(restore)
+        self.param.SetInt("CountBackupFiles", 1)
+        self.dir = tempfile.mkdtemp(prefix="fc-backups-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.docs = []
+        self.addCleanup(self.closeAll)
+
+    def closeAll(self):
+        for name in self.docs:
+            if name in FreeCAD.listDocuments():
+                FreeCAD.closeDocument(name)
+
+    def valueIn(self, path):
+        """The test object's value in the file at `path`, opened from a copy"""
+        copy = os.path.join(self.dir, "opened-%d.FCStd" % len(self.docs))
+        if os.path.isdir(path):
+            shutil.copytree(path, copy)
+        else:
+            shutil.copyfile(path, copy)
+        doc = FreeCAD.openDocument(copy)
+        self.docs.append(doc.Name)
+        value = doc.getObject("Obj").Integer
+        FreeCAD.closeDocument(doc.Name)
+        return value
+
+    def backups(self, path):
+        folder, name = os.path.split(path)
+        stem = os.path.splitext(name)[0]
+        return sorted(f for f in os.listdir(folder)
+                      if f != name and (f.startswith(stem + ".") and f.endswith(".FCBak")
+                                        or (f.startswith(name) and f[len(name):].isdigit())))
+
+    def check(self, create, fcbak):
+        self.param.SetBool("CreateBackupFiles", create)
+        self.param.SetBool("UseFCBakExtension", fcbak)
+        what = "backups %s, %s naming" % ("on" if create else "off",
+                                          ".FCBak" if fcbak else "numbered")
+        doc = FreeCAD.newDocument("Backups")
+        self.docs.append(doc.Name)
+        obj = doc.addObject("App::FeatureTest", "Obj")
+        path = os.path.join(self.dir, "%s-%s.FCStd" % (create, fcbak))
+        for i, save in enumerate((lambda: doc.saveAs(path), doc.save, doc.save)):
+            obj.Integer = 10 + i
+            doc.recompute()
+            save()
+            self.assertTrue(os.path.isfile(path), "%s: save %d left no file" % (what, i + 1))
+            self.assertEqual(self.valueIn(path), 10 + i, "%s: save %d" % (what, i + 1))
+        self.assertEqual(len(self.backups(path)), 1 if create else 0,
+                         "%s: %s" % (what, self.backups(path)))
+
+    def testBackupsOffFCBakNaming(self):
+        self.check(False, True)
+
+    def testBackupsOffNumberedNaming(self):
+        self.check(False, False)
+
+    def testBackupsOnFCBakNaming(self):
+        self.check(True, True)
+
+    def testBackupsOnNumberedNaming(self):
+        self.check(True, False)
+
+    def testAFolderProjectWithBackupsOff(self):
+        self.param.SetBool("CreateBackupFiles", False)
+        self.param.SetBool("UseFCBakExtension", True)
+        doc = FreeCAD.newDocument("BackupsFolder")
+        self.docs.append(doc.Name)
+        obj = doc.addObject("App::FeatureTest", "Obj")
+        path = os.path.join(self.dir, "folder")
+        os.makedirs(path)
+        for i, save in enumerate((lambda: doc.saveAs(path), doc.save, doc.save)):
+            obj.Integer = 20 + i
+            doc.recompute()
+            save()
+            self.assertTrue(os.path.isfile(os.path.join(path, "Document.xml")),
+                            "save %d: %s" % (i + 1, os.listdir(self.dir)))
+            self.assertEqual(self.valueIn(path), 20 + i, "save %d" % (i + 1))
 
 
 class TransactionBranchCases(unittest.TestCase):

@@ -177,7 +177,17 @@ def edit_colour_cell(dialog, column):
     pump(100)
     QtTest.QTest.mouseDClick(tree.viewport(), Qt.LeftButton, Qt.NoModifier, rect.center())
     pump(200)
-    editor = QtWidgets.QApplication.focusWidget()
+    # the cell's editor, found in the view: not the focus widget, which on a
+    # display with no window manager (Linux's Xvfb) is nothing once the
+    # colour dialog has closed over a dialog that is not modal (dell)
+    editors = [w for w in tree.viewport().findChildren(QtWidgets.QLineEdit) if w.isVisible()]
+    editor = editors[0] if editors else None
+    focus = QtWidgets.QApplication.focusWidget()
+    active = QtWidgets.QApplication.activeWindow()
+    note("INFO after the colour dialog: the focus %s, the active window %s, the editor's %s" % (
+        focus.metaObject().className() if focus else None,
+        active.metaObject().className() if active else None,
+        "it" if focus is not None and focus is editor else "not it"))
     note("INFO the cell's editor: %s, text %r" % (
         editor.metaObject().className() if editor else None,
         editor.text() if isinstance(editor, QtWidgets.QLineEdit) else None))

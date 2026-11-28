@@ -22,6 +22,29 @@
 # ***************************************************************************/
 
 import FreeCAD, os, unittest, tempfile
+import shutil
+
+
+# What the tests below used to save straight into the system's temporary
+# folder -- CreateTest.FCStd, SaveRestoreTests.FCStd, Test2.FCStd and a dozen
+# more, left there after every run -- goes into one folder of this module's
+# own, made on first use and removed with everything in it once the module's
+# tests are done (tearDownModule, after every test's documents are closed).
+_temp_folder = None
+
+
+def _tempdir():
+    global _temp_folder
+    if _temp_folder is None:
+        _temp_folder = tempfile.mkdtemp(prefix="fc-doctest-")
+    return _temp_folder
+
+
+def tearDownModule():
+    global _temp_folder
+    if _temp_folder is not None:
+        shutil.rmtree(_temp_folder, ignore_errors=True)
+        _temp_folder = None
 import math
 
 # ---------------------------------------------------------------------------
@@ -133,7 +156,7 @@ class DocumentBasicCases(unittest.TestCase):
 
     def saveAndRestore(self):
         # saving and restoring
-        SaveName = tempfile.gettempdir() + os.sep + "CreateTest.FCStd"
+        SaveName = _tempdir() + os.sep + "CreateTest.FCStd"
         self.Doc.saveAs(SaveName)
         FreeCAD.closeDocument("CreateTest")
         self.Doc = FreeCAD.open(SaveName)
@@ -287,7 +310,7 @@ class DocumentBasicCases(unittest.TestCase):
         self.Doc.openTransaction("Add")
         obj = self.Doc.addObject("App::FeatureTest", "Label")
         self.Doc.abortTransaction()
-        TempPath = tempfile.gettempdir()
+        TempPath = _tempdir()
         SaveName = TempPath + os.sep + "SaveRestoreTests.FCStd"
         self.Doc.saveAs(SaveName)
 
@@ -452,7 +475,7 @@ class DocumentBasicCases(unittest.TestCase):
         obj.Rot.Axis = (3, 2, 1)
 
         # saving and restoring
-        SaveName = tempfile.gettempdir() + os.sep + "CreateTest.FCStd"
+        SaveName = _tempdir() + os.sep + "CreateTest.FCStd"
         self.Doc.saveAs(SaveName)
         FreeCAD.closeDocument("CreateTest")
         self.Doc = FreeCAD.open(SaveName)
@@ -699,7 +722,7 @@ class DocumentBasicCases(unittest.TestCase):
             list_of_types.append(obj.getTypeOfProperty("String" + str(i)))
 
         # saving and restoring
-        SaveName = tempfile.gettempdir() + os.sep + "CreateTest.FCStd"
+        SaveName = _tempdir() + os.sep + "CreateTest.FCStd"
         self.Doc.saveAs(SaveName)
         FreeCAD.closeDocument("CreateTest")
         self.Doc = FreeCAD.open(SaveName)
@@ -773,7 +796,7 @@ class DocumentBasicCases(unittest.TestCase):
         link.addProperty("App::PropertyFloat", "Test")
         link.LinkedObject = test
         # saving and restoring
-        SaveName = tempfile.gettempdir() + os.sep + "CreateTest.FCStd"
+        SaveName = _tempdir() + os.sep + "CreateTest.FCStd"
         self.Doc.saveAs(SaveName)
         FreeCAD.closeDocument("CreateTest")
         self.Doc = FreeCAD.open(SaveName)
@@ -831,7 +854,7 @@ class DocumentSaveRestoreCases(unittest.TestCase):
         L1 = self.Doc.addObject("App::FeatureTest", "Label_1")
         L2 = self.Doc.addObject("App::FeatureTest", "Label_2")
         L3 = self.Doc.addObject("App::FeatureTest", "Label_3")
-        self.TempPath = tempfile.gettempdir()
+        self.TempPath = _tempdir()
         FreeCAD.Console.PrintLog("  Using temp path: " + self.TempPath + "\n")
 
     def testSaveAndRestore(self):
@@ -1195,7 +1218,7 @@ class DocumentRecomputeCases(unittest.TestCase):
         self.L2.Link = self.L3
         self.Doc.recompute()
         self.L2.Frozen = True
-        path = os.path.join(tempfile.gettempdir(), "FreezeTest.FCStd")
+        path = os.path.join(_tempdir(), "FreezeTest.FCStd")
         self.Doc.saveAs(path)
         with zipfile.ZipFile(path) as zf:
             xml = zf.read("Document.xml").decode("utf-8")
@@ -1557,7 +1580,7 @@ class UndoRedoCases(unittest.TestCase):
             self.skipTest("no FreeCADCmd beside this build")
         import shutil
 
-        script = os.path.join(tempfile.gettempdir(), "FreeCADTestEndedFromAScript.py")
+        script = os.path.join(_tempdir(), "FreeCADTestEndedFromAScript.py")
         with open(script, "w") as f:
             f.write(
                 "import os\n"
@@ -1773,6 +1796,7 @@ class BoundTransactionCases(unittest.TestCase):
         a, objA = self.make("BoundLastA")
         c, objC = self.make("BoundLastC")
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
         a.saveAs(os.path.join(d, "boundlasta.FCStd"))
         copy = c.addObject("App::FeaturePython", "Copy")
         _IntegerCopy(copy)
@@ -2209,7 +2233,7 @@ class DocumentPlatformCases(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("PlatformTests")
         self.Doc.addObject("App::FeatureTest", "Test")
-        self.TempPath = tempfile.gettempdir()
+        self.TempPath = _tempdir()
         self.DocName = self.TempPath + os.sep + "PlatformTests.FCStd"
 
     def testFloatList(self):
@@ -2301,7 +2325,7 @@ class DocumentFileIncludeCases(unittest.TestCase):
         self.Filename = self.L1.File
 
         self.Doc.openTransaction("Transaction1")
-        self.TempPath = tempfile.gettempdir()
+        self.TempPath = _tempdir()
         # creating a file in the Transient directory of the document
         file = open(self.Doc.getTempFileName("test"), "w")
         file.write("test No1")
@@ -2424,7 +2448,7 @@ class DocumentPropertyCases(unittest.TestCase):
         props = self.Obj.supportedProperties()
         for i in props:
             self.Obj.addProperty(i, i.replace(":", "_"))
-        tempPath = tempfile.gettempdir()
+        tempPath = _tempdir()
         tempFile = tempPath + os.sep + "PropertyTests.FCStd"
         self.Doc.saveAs(tempFile)
         FreeCAD.closeDocument("PropertyTests")
@@ -2501,7 +2525,7 @@ class DocumentVarSetCases(unittest.TestCase):
         varSet.addProperty("App::PropertyInteger", "Count", "Variables")
         varSet.Count = 3
         group.addObject(varSet)
-        path = os.path.join(tempfile.gettempdir(), "VarSetTests.FCStd")
+        path = os.path.join(_tempdir(), "VarSetTests.FCStd")
         self.Doc.saveAs(path)
         FreeCAD.closeDocument(self.Doc.Name)
         self.Doc = FreeCAD.openDocument(path)
@@ -2600,7 +2624,7 @@ class DocumentExpressionCases(unittest.TestCase):
         self.Doc.recompute()
         obj.ExpressionEngine
 
-        TempPath = tempfile.gettempdir()
+        TempPath = _tempdir()
         SaveName = TempPath + os.sep + "ExpressionTests.FCStd"
         self.Doc.saveAs(SaveName)
         FreeCAD.closeDocument(self.Doc.Name)
@@ -2841,7 +2865,7 @@ class DocumentObserverCases(unittest.TestCase):
         FreeCAD.addDocumentObserver(self.Obs)
 
     def testSave(self):
-        TempPath = tempfile.gettempdir()
+        TempPath = _tempdir()
         SaveName = TempPath + os.sep + "SaveRestoreTests.FCStd"
         self.Doc1 = FreeCAD.newDocument("Observer1")
         self.Doc1.saveAs(SaveName)
@@ -3628,6 +3652,8 @@ class TransactionBranchCases(unittest.TestCase):
         self.mode = self.param.GetInt("TransactionLog", 2)
         self.param.SetInt("TransactionLog", 2)  # embedded
         self.dir = tempfile.mkdtemp(prefix="fc-branches-")
+        # after tearDown, which closes the documents saved in it
+        self.addCleanup(shutil.rmtree, self.dir, True)
         self.docs = []
 
     def tearDown(self):
@@ -15158,6 +15184,7 @@ class XLinkIntoUnsavedCases(unittest.TestCase):
 
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="fc-xunsaved-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
         for sub in ("part", "src", "dst"):
             os.makedirs(os.path.join(self.dir, sub))
         part = FreeCAD.newDocument("XUnsavedPart")
@@ -15242,6 +15269,7 @@ class LibraryPathCases(unittest.TestCase):
         import shutil
 
         self.dir = tempfile.mkdtemp(prefix="fc-libpaths-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
         self.lib = os.path.join(self.dir, "lib")
         os.makedirs(os.path.join(self.lib, "f"))
         part = FreeCAD.newDocument("PyLibPart")

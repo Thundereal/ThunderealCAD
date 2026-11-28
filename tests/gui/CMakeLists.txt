@@ -2961,3 +2961,8 @@ fc_add_gui_test(GuiTaskViewNoRestyle_tests_run task-view-no-restyle.py --timeout
 # menus of the last switch are deleted, not only taken out (SmokeTesting step 1).
 fc_add_gui_test(GuiWorkbenchSwitchNoWidgetLeak_tests_run workbench-switch-no-widget-leak.py
                 --timeout 300)
+# The Start page reads a recent file's thumbnail into memory: it used to
+# extract it to a temporary file and leave it there, one per recent file each
+# time the list was loaded (253,820 of them in one /tmp).
+fc_add_gui_test(GuiStartThumbnailsLeaveNoTemp_tests_run start-thumbnails-leave-no-temp.py
+                --timeout 300)

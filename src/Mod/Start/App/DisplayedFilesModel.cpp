@@ -28,6 +28,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QStringList>
+#include <sstream>
 #endif
 
 #include <Base/Console.h>
@@ -91,12 +92,13 @@ QByteArray loadFCStdThumbnail(const std::string& pathToFCStdFile)
     App::ProjectFile proj(pathToFCStdFile);
     if (proj.loadDocument()) {
         try {
-            std::string thumbnailFile = proj.extractInputFile("thumbnails/Thumbnail.png");
-            if (!thumbnailFile.empty()) {
-                auto inputFile = QFile(QString::fromStdString(thumbnailFile));
-                inputFile.open(QIODevice::OpenModeFlag::ReadOnly);
-                return inputFile.readAll();
-            }
+            // Read into memory: extractInputFile() writes the entry to a new
+            // temporary file the caller owns, and one PNG was left behind per
+            // recent file each time the list was loaded
+            std::ostringstream str(std::ios::out | std::ios::binary);
+            proj.readInputFileDirect("thumbnails/Thumbnail.png", str);
+            const std::string data = str.str();
+            return QByteArray(data.data(), static_cast<qsizetype>(data.size()));
         }
         catch (...) {
         }

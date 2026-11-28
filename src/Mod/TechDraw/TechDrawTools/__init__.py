@@ -39,7 +39,7 @@ from .CommandVertexCreations import CommandVertexCreationGroup
 from .CommandHoleShaftFit import CommandHoleShaftFit
 from .CommandFillTemplateFields import CommandFillTemplateFields
 from .CommandImportModelAnnotations import CommandImportModelAnnotations
-from .CommandPageFromPMIViews import CommandPageFromPMIViews
+from .CommandPageFromPMIViews import CommandPageFromPMIViews, CommandSyncPMIViews
 from .TaskShareView import TaskShareView
 from .TaskMoveView import TaskMoveView
 from .TaskHoleShaftFit import TaskHoleShaftFit

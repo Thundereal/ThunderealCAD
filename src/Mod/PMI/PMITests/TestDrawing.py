@@ -456,6 +456,104 @@ class TestImportModelAnnotations(unittest.TestCase):
         self.doc.recompute()
         self.assertAlmostEqual(dims[0].getRawValue(), 6.0, places=6)
 
+    def test_a_page_follows_its_pmi_views_cameras(self):
+        """A page from the top and the front PMI views, their cameras changed
+        after: the top turned a quarter about itself, the front made the
+        right. Each drawing view is out of sync, says what would change, and
+        synced looks as its camera does, with what it shows imported again
+        -- the dimension placed anew, the datum on the line it sits on now.
+        The page's scale stays; synced again, nothing changes"""
+        pset = self.doc.getObject("PMI")
+
+        def pmi_view(name, standard):
+            v = self.doc.addObject("PMI::View", name)
+            pset.addObject(v)
+            v.Standard = standard
+            return v
+
+        top, front = pmi_view("TopView", "Top"), pmi_view("FrontView", "Front")
+        for name in ("Flatness", "Position", "HoleSize"):
+            self.doc.getObject(name).Views = [top]
+        self.doc.getObject("DatumA").Views = [front]
+        self.doc.recompute()
+        page, views = TechDrawPMI.pageFromViews([top, front])
+        dt, df = views
+        self.assertEqual(TechDrawPMI.pmiViews([page]), views)
+        self.assertEqual([TechDrawPMI.outOfSync(v) for v in views], [[], []])
+        self.assertEqual(TechDrawPMI.syncViews([page]), ([], []))
+
+        def on():
+            return {v.Name: sorted(c.Source.Name for c in self.doc.Objects
+                                   if c.isDerivedFrom("TechDraw::DrawPMICallout")
+                                   and c.SourceView == v)
+                    for v in views}
+
+        shown = on()
+        scale = page.Scale
+        top.Camera = App.Placement(top.Camera.Base,
+                                   top.Camera.Rotation.multiply(App.Rotation(V(0, 0, 1), 90)))
+        front.Standard = "Right"
+        self.doc.recompute()
+        self.assertEqual(sorted(p for _o, p, _v in TechDrawPMI.outOfSync(dt)), ["XDirection"])
+        self.assertEqual(sorted(p for _o, p, _v in TechDrawPMI.outOfSync(df)),
+                         ["Direction", "XDirection"])
+        synced, left = TechDrawPMI.syncViews([page])
+        self.assertEqual((synced, left), ([dt, df], []))
+        self.assertTrue(dt.Direction.isEqual(V(0, 0, 1), 1e-9), dt.Direction)
+        self.assertTrue(dt.XDirection.isEqual(V(0, 1, 0), 1e-9), dt.XDirection)
+        self.assertTrue(df.Direction.isEqual(V(1, 0, 0), 1e-9), df.Direction)
+        self.assertEqual(page.Scale, scale)
+        self.assertEqual(on(), shown)
+        # The datum on the bottom line, seen from the right as from the front
+        datum = [c for c in self.doc.Objects if c.isDerivedFrom("TechDraw::DrawPMICallout")
+                 and c.SourceView == df][0]
+        self.assertAlmostEqual(datum.OriginY.Value, -5.0, places=6)
+        # The hole's diameter, measured on the turned view, placed on the sheet
+        dims = [d for d in self.doc.Objects if d.isDerivedFrom("TechDraw::DrawViewDimension")]
+        self.assertEqual([(d.Source.Name, d.References2D[0][0]) for d in dims],
+                         [("HoleSize", dt)])
+        self.doc.recompute()
+        self.assertAlmostEqual(dims[0].getRawValue(), 6.0, places=6)
+        bounds, _others = TechDrawPMI._sheet(dt)
+        # On paper from the view's middle, as the bounds are
+        x, y = dims[0].X.Value, dims[0].Y.Value
+        self.assertTrue(bounds[0] <= x <= bounds[2] and bounds[1] <= y <= bounds[3],
+                        (x, y, bounds))
+        self.assertEqual([TechDrawPMI.outOfSync(v) for v in views], [[], []])
+        self.assertEqual(TechDrawPMI.syncViews([page]), ([], []))
+
+    def test_a_section_follows_its_cut(self):
+        """A section from a clipped PMI view follows its clipping plane moved;
+        a view whose kind its PMI view no longer is -- a plain one clipped
+        now, a section unclipped -- cannot follow, and says why"""
+        pset = self.doc.getObject("PMI")
+        cut = self.doc.addObject("PMI::View", "CutView")
+        pset.addObject(cut)
+        cut.Standard = "Top"
+        cut.Clip = True
+        cut.ClipPlane = App.Placement(V(20, 10, 5), App.Rotation())
+        plain = self.doc.addObject("PMI::View", "PlainView")
+        pset.addObject(plain)
+        plain.Standard = "Front"
+        self.doc.recompute()
+        page, views = TechDrawPMI.pageFromViews([cut, plain])
+        sec, dp = views
+        cut.ClipPlane = App.Placement(V(20, 10, 3), App.Rotation())
+        self.doc.recompute()
+        self.assertEqual([p for _o, p, _v in TechDrawPMI.outOfSync(sec)], ["SectionOrigin"])
+        self.assertEqual(TechDrawPMI.syncViews([sec]), ([sec], []))
+        self.assertAlmostEqual(sec.SectionOrigin.z, 8.0, places=9)
+        box = sec.getCutPieces().BoundBox
+        self.assertAlmostEqual(box.ZMax, 8.0, places=6)
+        cut.Clip = False
+        plain.Clip = True
+        plain.ClipPlane = App.Placement(V(20, 10, 5), App.Rotation(V(1, 0, 0), -90))
+        self.doc.recompute()
+        synced, left = TechDrawPMI.syncViews([page])
+        self.assertEqual(synced, [])
+        self.assertEqual({v.Name for v, _why in left}, {sec.Name, dp.Name})
+        self.assertTrue(all(isinstance(why, str) and why for _v, why in left), left)
+
     def test_a_view_not_projected_imports_nothing(self):
         view = self.doc.addObject("TechDraw::DrawViewPart", "Unseen")
         self.page.addView(view)

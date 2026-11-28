@@ -85,6 +85,15 @@ PyObject* DrawViewPartPy::getProjectionShape(PyObject *args)
     return Py::new_reference_to(Part::shape2pyshape(dvp->getProjectionShape()));
 }
 
+PyObject* DrawViewPartPy::waitingForResult(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+
+    return Py::new_reference_to(Py::Boolean(getDrawViewPartPtr()->waitingForResult()));
+}
+
 PyObject* DrawViewPartPy::getEdgeNames(PyObject *args)
 {
     if (!PyArg_ParseTuple(args, "")) {

@@ -28,6 +28,13 @@ carrying the element map that came with the source features.  Null until the
 projection has run.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="waitingForResult">
+      <Documentation>
+        <UserDocu>waitingForResult() - True while the View's hidden line removal or its
+faces are being worked out on a thread: getEdgeNames and getEdgeByIndex still give the
+projection before.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="getEdgeNames">
       <Documentation>
         <UserDocu>getEdgeNames() - one tuple (name, sourceName, sourceIndex) per projected

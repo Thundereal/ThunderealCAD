@@ -678,11 +678,14 @@ def _moved(c):
             or abs(c.Y.Value - c.OriginY.Value - at[1]) > 1e-6)
 
 
-def importAnnotations(view, every=False):
+def importAnnotations(view, every=False, replace=False):
     """Import or refresh the PMI callouts and dimensions of \\a view's source;
-    with \\a every, those whose plane is not the view's too. Returns (made,
-    updated, removed), or None when the view has no projection yet (nothing
-    changes then: run it once the view is computed)"""
+    with \\a every, those whose plane is not the view's too. With \\a replace
+    -- the view looking another way than when they were placed -- the
+    dimensions kept are placed again as new ones are (the callouts no one
+    moved always are). Returns (made, updated, removed), or None when the
+    view has no projection yet (nothing changes then: run it once the view
+    is computed)"""
     names = view.getEdgeNames()
     if not names:
         return None
@@ -841,8 +844,11 @@ def importAnnotations(view, every=False):
                 d.References2D = [(view, sub) for sub in subs]
             updated.append(d)
             keepdims.add(d.Name)
+            if replace:
+                # Where it stood says nothing of where it goes now
+                dimplans.append((dim, kind, subs, wanted, size, d))
         else:
-            dimplans.append((dim, kind, subs, wanted, size))
+            dimplans.append((dim, kind, subs, wanted, size, None))
         # Its extension lines, where what it measures puts them: its
         # dimension line moves out past the frames instead. The same for one
         # made before, for a frame to stand where it stood then
@@ -896,9 +902,12 @@ def importAnnotations(view, every=False):
             page.addView(c)
         made.append(c)
         keep.add(c.Name)
-    for dim, kind, subs, wanted, size in dimplans:
+    for dim, kind, subs, wanted, size, d in dimplans:
         x, y = _place_dimension(view, subs, kind, wanted, size, boxes, segments, bounds, scale)
         boxes.append((x - size[0] / 2, y - size[1] / 2, x + size[0] / 2, y + size[1] / 2))
+        if d is not None:
+            d.X, d.Y = x, y
+            continue
         d = view.Document.addObject("TechDraw::DrawViewDimension", "Dimension")
         d.Type = kind
         d.MeasureType = "Projected"
@@ -1003,6 +1012,31 @@ def _base_direction(normal, to_doc):
     return d, normal.cross(d).normalize()
 
 
+def _plan(pv):
+    """How a drawing view draws the PMI view \\a pv: {"pview", "objs", "dir",
+    "x", "size"}, and "section": (the base view's plan, the cut's normal, a
+    point on it) when it is clipped square to its camera, "askew" when it is
+    clipped otherwise. None when it shows no part"""
+    objs = _shown(pv)
+    if not objs:
+        return None
+    rot, to_doc = _camera(pv)
+    z = rot.multVec(App.Vector(0, 0, 1))
+    x = rot.multVec(App.Vector(1, 0, 0))
+    plan = {"pview": pv, "objs": objs, "dir": z, "x": x, "size": _extent(objs, rot)}
+    if pv.Clip:
+        normal = to_doc.Rotation.multiply(pv.ClipPlane.Rotation).multVec(App.Vector(0, 0, 1))
+        if abs(normal.dot(z)) >= PARALLEL:
+            bd, bx = _base_direction(normal, to_doc)
+            brot = App.Rotation(bx, bd.cross(bx), bd, "ZXY")
+            base = {"pview": None, "objs": objs, "dir": bd, "x": bx,
+                    "size": _extent(objs, brot), "label": pv.Label + " base"}
+            plan["section"] = (base, normal, to_doc.multVec(pv.ClipPlane.Base))
+        else:
+            plan["askew"] = True
+    return plan
+
+
 def pageFromViews(pviews, page=None, annotate=True):
     """A TechDraw page drawing \\a pviews, PMI views: for each, a part view
     looking as its camera does at what it shows, its name as caption (its
@@ -1015,28 +1049,15 @@ def pageFromViews(pviews, page=None, annotate=True):
     the projections are back. Returns (page, [the views drawing them])."""
     plans = []
     for pv in pviews:
-        objs = _shown(pv)
-        if not objs:
+        plan = _plan(pv)
+        if plan is None:
             App.Console.PrintWarning("Page from PMI views: %s shows no part; left out\n"
                                      % pv.Label)
             continue
-        rot, to_doc = _camera(pv)
-        z = rot.multVec(App.Vector(0, 0, 1))
-        x = rot.multVec(App.Vector(1, 0, 0))
-        plan = {"pview": pv, "objs": objs, "dir": z, "x": x, "size": _extent(objs, rot)}
-        if pv.Clip:
-            normal = to_doc.Rotation.multiply(pv.ClipPlane.Rotation).multVec(
-                App.Vector(0, 0, 1))
-            if abs(normal.dot(z)) >= PARALLEL:
-                bd, bx = _base_direction(normal, to_doc)
-                brot = App.Rotation(bx, bd.cross(bx), bd, "ZXY")
-                base = {"pview": None, "objs": objs, "dir": bd, "x": bx,
-                        "size": _extent(objs, brot), "label": pv.Label + " base"}
-                plan["section"] = (base, normal, to_doc.multVec(pv.ClipPlane.Base))
-            else:
-                App.Console.PrintWarning(
-                    "Page from PMI views: %s is clipped askew to its camera, which a "
-                    "section cannot show; drawn whole\n" % pv.Label)
+        if plan.get("askew"):
+            App.Console.PrintWarning(
+                "Page from PMI views: %s is clipped askew to its camera, which a "
+                "section cannot show; drawn whole\n" % pv.Label)
         plans.append(plan)
         if "section" in plan:
             # Under it, as a view from above sits over the front one
@@ -1124,3 +1145,99 @@ def pageFromViews(pviews, page=None, annotate=True):
             # the command imports each once it is
             importAnnotations(dv)
     return page, views
+
+
+# A page's views following their PMI views' cameras changed later
+
+
+def pmiViews(objs):
+    """The drawing views among \\a objs drawn from a PMI view (their
+    `PMIView`), a page standing for those on it"""
+    out = []
+    for o in objs:
+        views = o.Views if o.isDerivedFrom("TechDraw::DrawPage") else [o]
+        for v in views:
+            if getattr(v, "PMIView", None) is not None and v not in out:
+                out.append(v)
+    return out
+
+
+def _differs(a, b):
+    return not App.Vector(a).isEqual(App.Vector(b), 1e-9)
+
+
+def _changes(dv, plan):
+    """What \\a dv, drawing \\a plan's PMI view, would have set to look as
+    it does now: [(object, property, value)]"""
+    out = []
+    if set(dv.Source) != set(plan["objs"]):
+        out.append((dv, "Source", plan["objs"]))
+    for prop, key in (("Direction", "dir"), ("XDirection", "x")):
+        if _differs(getattr(dv, prop), plan[key]):
+            out.append((dv, prop, plan[key]))
+    if "section" in plan:
+        base, normal, origin = plan["section"]
+        bv = dv.BaseView
+        if set(bv.Source) != set(base["objs"]):
+            out.append((bv, "Source", base["objs"]))
+        for prop, key in (("Direction", "dir"), ("XDirection", "x")):
+            if _differs(getattr(bv, prop), base[key]):
+                out.append((bv, prop, base[key]))
+        if _differs(dv.SectionNormal, normal):
+            out.append((dv, "SectionNormal", normal))
+        if _differs(dv.SectionOrigin, origin):
+            out.append((dv, "SectionOrigin", origin))
+    return out
+
+
+def _unsyncable(dv, plan):
+    """Why \\a dv cannot be made to draw \\a plan's PMI view as it is now,
+    or None"""
+    if plan is None:
+        return "its PMI view shows no part"
+    section = dv.isDerivedFrom("TechDraw::DrawViewSection")
+    if "section" in plan and not section:
+        return "its PMI view is clipped now, a section, which this view is not"
+    if section and "section" not in plan:
+        return "its PMI view is not clipped square to its camera now, and this view is a section"
+    return None
+
+
+def outOfSync(dv):
+    """Whether \\a dv, drawn from a PMI view, no longer looks as its camera
+    does or at what it shows: what would change, [(object, property, value)]
+    -- empty when nothing -- or a str saying why it cannot follow"""
+    plan = _plan(dv.PMIView)
+    why = _unsyncable(dv, plan)
+    return why if why else _changes(dv, plan)
+
+
+def syncViews(views, annotate=True):
+    """Make each drawing view of \\a views (a page standing for those on it)
+    drawn from a PMI view look again as that one's camera does, at what it
+    shows -- its direction, its x direction, its source, a section's cut and
+    its base view -- and, with \\a annotate, import its annotations again, the
+    dimensions and the callouts no one moved placed anew. Headless a view
+    projects in place; in the GUI the command imports them once the
+    projections are back. The page's scale and the views' places stay.
+    Returns (synced, [(view, why) for those that cannot follow])"""
+    synced, left = [], []
+    for dv in pmiViews(views):
+        got = outOfSync(dv)
+        if isinstance(got, str):
+            App.Console.PrintWarning("Sync PMI views: %s cannot follow: %s; make its page "
+                                     "again\n" % (dv.Label, got))
+            left.append((dv, got))
+            continue
+        if not got:
+            continue
+        for obj, prop, value in got:
+            setattr(obj, prop, value)
+        synced.append(dv)
+    if synced:
+        synced[0].Document.recompute()
+        if annotate:
+            for dv in synced:
+                importAnnotations(dv, replace=True)
+            synced[0].Document.recompute()
+    return synced, left

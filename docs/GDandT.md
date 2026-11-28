@@ -1466,7 +1466,7 @@ In the GUI (`tests/gui/pmi-techdraw-page-from-views.py`), the command's page wit
 views gets every view's annotations 0.5 s after the command, and the vg render draws them.
 
 Open:
-- the page does not follow a PMI view's camera changed later;
+- the page does not follow a PMI view's camera changed later (done since: sec 10.29);
 - leaders may cross lines;
 - detail and complex sections headless.
 
@@ -2285,6 +2285,38 @@ NIST files carry (CTC-03: 61 of them), were read as nothing and written as nothi
   a datum label for each time a frame cites one); NIST's view properties are of a
   characterized draughting model where FreeCAD writes a plain one, so they are written of
   the model geometric view.
+
+### 10.29 P4: a page follows its PMI views' cameras (2026-11-28)
+
+A page from PMI views (10.22) drew each view as its camera was when the page was made; a
+camera turned later, a clipping plane moved, left the drawing behind.
+
+- **TechDraw_SyncPMIViews** (Page menu, after Page From PMI Views): the selected drawing
+  views made from PMI views, or those on the selected pages, look again as their PMI views do
+  now -- direction, x direction, what they show (`Source`), a section's cut (`SectionNormal`,
+  `SectionOrigin`) and its base view -- and their annotations are imported again. The page's
+  scale and the views' places stay. `TechDrawPMI.outOfSync(view)` says what would change (or
+  why it cannot), `syncViews(views)` does it.
+- **Placed again.** A camera turned, where a dimension stood says nothing of where it goes:
+  `importAnnotations(view, replace=True)` places the dimensions kept as new ones are. The
+  callouts no one moved always are; one moved keeps its offset from its feature, as before.
+- **Cannot follow, and says so:** a plain view whose PMI view is clipped square to its camera
+  now (it would be a section), a section whose PMI view is not any more, a PMI view showing no
+  part. Make the page again for those.
+- **In the GUI** a view projects again on its thread and, until it is back, still names the
+  edges it had: `DrawViewPart.waitingForResult()` (new) tells, and the command imports each
+  view's annotations once it is false.
+
+Tests: `PMITests.TestDrawing` `test_a_page_follows_its_pmi_views_cameras` (the plan turned a
+quarter, the elevation made the right: each out of sync by what changed, synced as its camera
+is, the datum on the bottom line from the right, the hole's diameter 6 on the turned plan,
+on the sheet; again nothing) and `test_a_section_follows_its_cut` (the plane moved down 2, the
+cut at z 8; a plain view clipped and a section unclipped left, each with why);
+`tests/gui/pmi-techdraw-page-from-views.py`: the command on the page, the flatness's leader
+end on a long edge across before and upright after, 0.5 s after the command.
+
+Not done: the page's scale is not fitted again, so a view turned to show a longer side may
+outgrow its place; nothing tells the user a page is out of sync but running the command.
 
 ## 11. Decisions (made 2026-11-19)
 

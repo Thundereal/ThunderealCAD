@@ -84,10 +84,18 @@ private:
     bool had = false;
 };
 
+/// The process's scratch folder: a test's runtimes, wheels and packages go
+/// in a folder of their own under it. Removed when a suite of these tests is
+/// done (ExpressionPyodideTest::TearDownTestSuite) -- it was left behind,
+/// 16 MB a run (the temp census, 2026-11-28).
+fs::path scratchBase()
+{
+    return fs::temp_directory_path() / ("fc-pyodide-test-" + std::to_string(getpid()));
+}
+
 fs::path scratchDir(const std::string& name)
 {
-    fs::path base = fs::temp_directory_path() / ("fc-pyodide-test-" + std::to_string(getpid()));
-    fs::path dir = base / name;
+    fs::path dir = scratchBase() / name;
     std::error_code ec;
     fs::remove_all(dir, ec);
     fs::create_directories(dir);
@@ -116,6 +124,11 @@ void fakeRuntime(const fs::path& dir, const std::string& version)
 class ExpressionPyodideTest: public ::testing::Test
 {
 protected:
+    static void TearDownTestSuite()
+    {
+        std::error_code ec;
+        fs::remove_all(scratchBase(), ec);
+    }
     void SetUp() override
     {
         tests::initApplication();

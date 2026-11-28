@@ -11,6 +11,14 @@ reverse on drag beyond". A 10 x 10 sketch, a pad of 5 mm up. In edit:
   - a drag past the start cancelled with Escape: Reversed and the length
     as before it;
   - still in edit, the pad valid.
+
+Each arrow is pressed where a user could press it: a pixel the 3D view
+itself takes, not one a widget over the view covers. The on-view value set's
+menu button stands at the top middle of the view, and after the view is
+fitted the arrow can reach up under it; Coin's pick sees through the button,
+so the arrow was once pressed on it -- on Windows a press there opened the
+edit's menu and the script waited on it for ever. And no scripted press may
+wait on a menu: one that opens a popup is a FAIL by name, the popup closed.
 """
 import os
 import time
@@ -72,6 +80,65 @@ def real_key(widget, k):
     pump(10)
 
 
+def view_takes(x, y):
+    """Whether a press at viewport pixel (x, y) reaches the 3D view: the
+    widget under it is the view's own, no widget over it"""
+    w = viewer_widget()
+    port = w.viewport() if hasattr(w, "viewport") else w
+    width, height = view().getSize()
+    g = port.mapToGlobal(QtCore.QPoint(int(x), int(height - 1 - y)))
+    import shiboken6
+
+    ours = {shiboken6.getCppPointer(port)[0], shiboken6.getCppPointer(w)[0]}
+    under = QtWidgets.QApplication.widgetAt(g)
+    if under is not None and shiboken6.getCppPointer(under)[0] in ours:
+        return True
+    # the view's GL surface, inside the view; anything else -- the on-view
+    # labels, the menu button, a dock -- stands over it
+    if under is None or under.metaObject().className() != "QOpenGLWidget":
+        return False
+    while under is not None:
+        if shiboken6.getCppPointer(under)[0] in ours:
+            return True
+        under = under.parentWidget()
+    return False
+
+
+def menu_button_box():
+    """The on-view menu button's box in the main window's pixels, or None"""
+    for b in mw().findChildren(QtWidgets.QWidget, "OnViewMenuButton"):
+        if b.isVisible():
+            tl = mw().mapFromGlobal(b.mapToGlobal(QtCore.QPoint(0, 0)))
+            return (tl.x(), tl.y(), b.width(), b.height())
+    return None
+
+
+class PopupWatch:
+    """While a scripted press is held: a popup that opens (a menu the press
+    opened) is noted and closed, so nothing waits on it"""
+
+    def __init__(self, what):
+        self.what = what
+        self.seen = []
+        self.timer = QtCore.QTimer()
+        self.timer.setInterval(50)
+        self.timer.timeout.connect(self.look)
+        self.timer.start()
+
+    def look(self):
+        popup = QtWidgets.QApplication.activePopupWidget()
+        if popup is not None:
+            self.seen.append(popup.metaObject().className())
+            popup.close()
+
+    def stop(self):
+        self.timer.stop()
+        self.look()
+        if self.seen:
+            check("%s: the press opened no popup" % self.what, False, self.seen)
+        return not self.seen
+
+
 def field_text(node, name):
     value = node.getField(name).get()
     return value.getString() if hasattr(value, "getString") else str(value)
@@ -107,6 +174,8 @@ def pick_arrow(center, reach=80, step=2):
     region = viewer.getSoRenderManager().getViewportRegion()
 
     def kind(x, y):
+        if not view_takes(x, y):
+            return False
         action = coin.SoRayPickAction(region)
         action.setPoint(coin.SbVec2s(int(x), int(y)))
         action.setRadius(1)
@@ -146,11 +215,22 @@ def vp(v):
     return (x, y)
 
 
-def drag(start, end, escape=False, steps=20):
+def drag(start, end, escape=False, steps=20, what="the drag"):
     """From viewport pixel `start` to `end`; Escape before letting go"""
     win = mw().windowHandle()
     p = to_window(*start)
     q = to_window(*end)
+    note("INFO %s: pressed at viewport %s (window %s), the view takes it %s; view %s;"
+         " the menu button at %s" % (what, start, (p.x(), p.y()), view_takes(*start),
+                                     view().getSize(), menu_button_box()))
+    watch = PopupWatch(what)
+    try:
+        drag_moves(win, p, q, escape, steps)
+    finally:
+        watch.stop()
+
+
+def drag_moves(win, p, q, escape, steps):
     QtTest.QTest.mouseMove(win, p)
     pump(5)
     QtTest.QTest.mousePress(win, Qt.LeftButton, Qt.NoModifier, p)
@@ -166,13 +246,17 @@ def drag(start, end, escape=False, steps=20):
     pump(100)
 
 
-def click(at):
+def click(at, what="the click"):
     win = mw().windowHandle()
     p = to_window(*at)
-    QtTest.QTest.mouseMove(win, p)
-    pump(5)
-    QtTest.QTest.mouseClick(win, Qt.LeftButton, Qt.NoModifier, p)
-    pump(80)
+    watch = PopupWatch(what)
+    try:
+        QtTest.QTest.mouseMove(win, p)
+        pump(5)
+        QtTest.QTest.mouseClick(win, Qt.LeftButton, Qt.NoModifier, p)
+        pump(80)
+    finally:
+        watch.stop()
 
 
 def run():
@@ -210,14 +294,14 @@ def run():
         if not check("the length arrow is found", arrow is not None):
             return
 
-        click(arrow)
+        click(arrow, "a plain click on the arrow")
         check("a plain click on the arrow: no flip", not pad.Reversed and
               abs(pad.Length.Value - 5) < 1e-6, (pad.Reversed, pad.Length))
 
         # 10 mm down along the arrow: 5 mm past the start
         a, b = vp(FreeCAD.Vector(5, 5, 5)), vp(FreeCAD.Vector(5, 5, -5))
         end = (arrow[0] + b[0] - a[0], arrow[1] + b[1] - a[1])
-        drag(arrow, end)
+        drag(arrow, end, what="the drag down")
         note("INFO after the drag down: Reversed %s, Length %s, arrow z %s"
              % (pad.Reversed, pad.Length, arrow_way()))
         check("dragged 5 mm past the start: the pad is reversed", bool(pad.Reversed),
@@ -245,7 +329,7 @@ def run():
         if check("the reversed arrow is found", arrow2 is not None):
             a, b = vp(FreeCAD.Vector(5, 5, -5)), vp(FreeCAD.Vector(5, 5, 5))
             end = (arrow2[0] + b[0] - a[0], arrow2[1] + b[1] - a[1])
-            drag(arrow2, end)
+            drag(arrow2, end, what="the drag up")
             note("INFO after the drag up: Reversed %s, Length %s" % (pad.Reversed, pad.Length))
             check("dragged back past the start: Reversed off again", not pad.Reversed,
                   pad.Reversed)
@@ -260,7 +344,7 @@ def run():
             a = vp(FreeCAD.Vector(5, 5, sign * length))
             b = vp(FreeCAD.Vector(5, 5, -sign * (length + 4)))
             end = (arrow3[0] + b[0] - a[0], arrow3[1] + b[1] - a[1])
-            drag(arrow3, end, escape=True)
+            drag(arrow3, end, escape=True, what="the cancelled drag")
             note("INFO after the cancelled drag: Reversed %s, Length %s" % (pad.Reversed, pad.Length))
             check("a drag past the start cancelled with Escape: as before it",
                   bool(pad.Reversed) == reversed_ and abs(pad.Length.Value - length) < 1e-6,

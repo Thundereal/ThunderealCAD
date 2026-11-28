@@ -5632,6 +5632,17 @@ a fresh open, `docs/SmokeTesting.md` sec 2.2):
   recomputes the migrated file was shown the Invalid when the job was
   unfit, and is not now. Which side is right is not known, since the
   Invalid on a second pass is itself the defect.
+- The Invalid is the Sketcher's, not a worker's. A solved sketch re-solved
+  from its own solution moves about 1e-5: Sketch001's Edge59, an arc at
+  (-16, 1536.84) of radius 6.84211, is Sketch015's external geometry
+  entry 16. Moved that much, Sketch015's constraint 75, Tangent(32:1,
+  29:0), is redundant. The same Invalid follows a save and reopen of the
+  first pass's result, so it is in the file, not in memory.
+- Headless, a worker's two passes execute what this process's two do
+  (341 objects, then 335, Sketch001 in each), from the same Sketch001,
+  and end in the same Invalid. The GUI's clean two worker passes are
+  still open: what differs is the GUI's two passes, the open's migration
+  and the forced one, not how a worker computes.
 
 **Tests.** `testWhatAnExecuteRemovedIsRemovedWhereItIsPutIn`: a Python
 feature (`_Dropping`) removes Scratch and makes Retyped again as a

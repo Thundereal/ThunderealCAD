@@ -31,7 +31,9 @@ they all move.
     and if the area is still short, the bottom docks are made as low as
     they go, and hidden as a last resort. A run whose area holds the view
     -- Windows' 860x594 view, Linux's 1280x1024 Xvfb -- is left exactly as
-    it is; each run says on stderr (the test's log) what was done.
+    it is; each run says what was found and done as a console message
+    ("gui-test-profile: ..."), in the test's run.log and as a Msg line in
+    FreeCAD.log -- not on stderr, which FreeCAD.log records as an error.
 
 Only what is not stored yet is set. scripts/gui-test.sh starts every run
 from a fresh profile, so that is what a test sees unless a --user-cfg is
@@ -57,8 +59,6 @@ VIEW_LEAST = (400, 300)
 
 
 def _room_for_the_view():
-    import sys
-
     try:
         import FreeCADGui
         from PySide import QtCore, QtWidgets
@@ -79,7 +79,7 @@ def _room_for_the_view():
 
     said = "central area %dx%d" % (central.width(), central.height())
     if not short():
-        sys.stderr.write("gui-test-profile: %s holds the view: nothing done\n" % said)
+        FreeCAD.Console.PrintMessage("gui-test-profile: %s holds the view: nothing done\n" % said)
         return
     done = []
     if not mw.isMaximized():
@@ -100,8 +100,9 @@ def _room_for_the_view():
         done.append("bottom docks hidden (%s): %dx%d"
                     % (", ".join(d.objectName() for d in bottom),
                        central.width(), central.height()))
-    sys.stderr.write("gui-test-profile: %s, short of %dx%d; %s\n"
-                     % (said, VIEW_LEAST[0], VIEW_LEAST[1], "; ".join(done) or "nothing to do"))
+    FreeCAD.Console.PrintMessage(
+        "gui-test-profile: %s, short of %dx%d; %s\n"
+        % (said, VIEW_LEAST[0], VIEW_LEAST[1], "; ".join(done) or "nothing to do"))
 
 
 _room_for_the_view()

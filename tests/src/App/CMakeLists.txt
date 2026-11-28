@@ -28,6 +28,7 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/Metadata.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/ParamRegistry.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Property.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/ServiceSockets.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/PartGroupMode.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/PropertyStep.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/ProxyImport.cpp

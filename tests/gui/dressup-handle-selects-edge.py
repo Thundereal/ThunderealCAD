@@ -16,13 +16,12 @@ are found by picking the scene and clicked through the window. Claims:
   - on the first's again: back to it;
   - the same for a chamfer's size handle.
 
-Clicks in the 3D view: run on a real screen. On a small one (the Mac
-mini's headless 1280x720) the main window opens smaller than the view,
-whose edges then lie under the docks: the Python console and report docks
-are hidden and the window maximized before the box is fitted, a handle
-pixel is taken only where the window shows the view, and each click
-checks that the view received its press at the pixel aimed -- so a click
-that lands elsewhere fails by that name, not as a wrong selection.
+Clicks in the 3D view: run on a real screen. A handle pixel is taken
+only where the window shows the view, and each click checks that the view
+received its press at the pixel aimed -- so a click that lands elsewhere
+fails by that name, not as a wrong selection. Room for the view on a
+small screen (the Mac mini's headless 1280x720) is the test rig's
+(scripts/gui-test-profile.py).
 """
 import os
 import time
@@ -253,13 +252,6 @@ def run():
     try:
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt(
             "AutoSaveTimeout", 0)
-        # room for the view on a small screen: the docks below it hidden,
-        # the window as large as the screen allows
-        for dock in mw().findChildren(QtWidgets.QDockWidget):
-            if dock.objectName() in ("Python console", "Report view"):
-                dock.hide()
-        mw().showMaximized()
-        pump(60)
         mw().activateWindow()
 
         doc, body, box = make("F")

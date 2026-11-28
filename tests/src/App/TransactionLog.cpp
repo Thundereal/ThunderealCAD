@@ -118,6 +118,20 @@ protected:
         App::GetApplication().closeDocument(_docName.c_str());
         App::DocumentParams::setTransactionLog(_mode);
         App::DocumentParams::setTransactionLogCoalesceSeconds(_coalesce);
+        // A case that saves over a file it saved before leaves the old one as
+        // a backup beside it, txnlog-<name>.<stamp>.FCBak, in the temporary
+        // folder: removed here, this file's own names only (the temp census,
+        // 2026-11-28). The saves keep their backups as a user's do --
+        // turning them off is not this fixture's to do.
+        std::error_code ec;
+        const std::filesystem::path temp(Base::FileInfo::getTempPath());
+        for (const auto& entry : std::filesystem::directory_iterator(temp, ec)) {
+            const std::string name = entry.path().filename().string();
+            if (name.rfind("txnlog-", 0) == 0 && entry.path().extension() == ".FCBak") {
+                std::error_code gone;
+                std::filesystem::remove(entry.path(), gone);
+            }
+        }
     }
 
     App::Document* doc() { return _doc; }

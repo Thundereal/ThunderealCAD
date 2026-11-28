@@ -360,9 +360,13 @@ def run():
             if check("the arrow is found for its tool tip", arrow is not None):
                 win = mw().windowHandle()
                 p = to_window(*arrow)
-                QtTest.QTest.mouseMove(win, p)
+                # onto the arrow's pixel from beside it, and resting there: a
+                # pixel on from it is off a thin arrow (the Mac mini's short
+                # view), where the handle is not under the pointer and asks
+                # for no tip
+                QtTest.QTest.mouseMove(win, QtCore.QPoint(p.x() - 3, p.y()))
                 pump(10)
-                QtTest.QTest.mouseMove(win, QtCore.QPoint(p.x() + 1, p.y()))
+                QtTest.QTest.mouseMove(win, p)
                 pump(120)
                 lines = tip_lines()
                 want = "Length %g mm" % pad.Length.Value
@@ -379,10 +383,13 @@ def run():
                       (tip, QtWidgets.QToolTip.isVisible()))
                 if tip is not None:
                     at = tip.mapToGlobal(QtCore.QPoint(0, 0))
-                    pointer = mw().windowHandle().mapToGlobal(QtCore.QPoint(p.x() + 1, p.y()))
+                    pointer = mw().windowHandle().mapToGlobal(p)
                     off = (at.x() - pointer.x(), at.y() - pointer.y())
                     check("and stands beside the pointer",
                           -40 <= off[0] <= 40 and -60 <= off[1] <= 40, off)
+                # a move: off the arrow the way it came and straight back onto
+                # its pixel, where it rests again
+                QtTest.QTest.mouseMove(win, QtCore.QPoint(p.x() - 3, p.y()))
                 QtTest.QTest.mouseMove(win, p)
                 # hideText() lets the tip go after a short fade (Qt: 300 ms)
                 pump(45)

@@ -2892,6 +2892,28 @@ Step::Report Step::read(const Import::PostImport& info)
                     o->ImportedWith.setValue(c);
                 }
             }
+            // Its graphic's validation properties go with the graphic
+            if (auto from = freecad_cast<App::PropertyStringList*>(
+                    note->getPropertyByName("StepValidationItems"))) {
+                auto to = freecad_cast<App::PropertyStringList*>(
+                    c->getPropertyByName("StepValidationItems"));
+                if (!to) {
+                    to = freecad_cast<App::PropertyStringList*>(c->addDynamicProperty(
+                        "App::PropertyStringList", "StepValidationItems", "STEP",
+                        "The validation properties the STEP file gave it, written again "
+                        "computed of what is written: each what it is of ('presentation' its "
+                        "graphic), its name and its items' names, '|'-separated"));
+                }
+                if (to) {
+                    auto values = to->getValues();
+                    for (auto& v : from->getValues()) {
+                        if (v.rfind("presentation|", 0) == 0) {
+                            values.push_back(v);
+                        }
+                    }
+                    to->setValues(values);
+                }
+            }
             gone.push_back(note);
         }
         for (auto note : gone) {

@@ -75,20 +75,20 @@ VALIDATION_COMPUTED = {
 VALIDATION_LOST = {
     # Its four dimensions given no value, read as notes: its two locations' properties
     "nist_ctc_01_asme1_ap242-e1.stp": {("pmi validation property", "pmi"): 2},
-    # Linear Size.10, given no value, read as a note (sec 10.28): its property, and its
-    # graphic's
-    "nist_ctc_03_asme1_ap242-e2.stp": {("pmi validation property", "pmi"): 1,
-                                       ("pmi validation property", "graphic"): 1},
+    # Linear Size.10, given no value, read as a note (sec 10.28): its property. Its graphic's is
+    # the note's, written
+    "nist_ctc_03_asme1_ap242-e2.stp": {("pmi validation property", "pmi"): 1},
 }
 
 # NIST's validation properties written with fewer items, those computed of nothing: what they
 # were, what they are written as, how many
 VALIDATION_WRITTEN_AS = {
-    # Its four directed locations' graphics give a curve length their locations do not: the
-    # locations are of faces, no edge
+    # Its four oriented dimensions' graphics give the area and the length of the face and the
+    # edges they are linked to. Three are read alone, on those, and written so; the first is the
+    # radius's it is linked to too, which holds it: of the radius's face, an area alone
     "nist_stc_07_asme1_ap242-e3.stp": [
         (("pmi validation property", "graphic", ("affected area", "affected curve length")),
-         ("affected area",), 4),
+         ("affected area",), 1),
     ],
 }
 
@@ -106,11 +106,16 @@ VALIDATION_ATTRIBUTES = {
     "nist_ftc_07_asme1_ap242-e2.stp": {"measure value user attributes": 3},
 }
 
-# The files whose PMI's affected areas are NIST's, by what the properties are of: the others'
-# are not (STC-06's are all 0; FTC-06's locations', FTC-07's, STC-07's and FTC-08 -e4-tg's
-# differ, docs/GDandT.md sec 10.28)
+# The files whose PMI's affected areas are NIST's, by what the properties are of. The others'
+# are NIST's own counting (docs/GDandT.md sec 10.28): STC-06's are all 0; FTC-06's three
+# locations' are of a group of five faces their graphics are linked to as well, of which they
+# are between two; FTC-07's '2X' location's counts its face once a hole; STC-07's 31 radii
+# a placeholder links to the '32X R' are each given that graphic's, and one location's face
+# is 590 mm^2 to NIST, 637 to OCCT
 VALIDATION_AREAS = {
     "nist_ctc_02_asme1_ap242-e2.stp": ("pmi", "graphic"),
+    "nist_ftc_07_asme1_ap242-e2.stp": ("graphic",),
+    "nist_ftc_08_asme1_ap242-e4-tg.stp": ("graphic",),
     "nist_stc_08_asme1_ap242-e3.stp": ("pmi", "graphic"),
     "nist_stc_10_asme1_ap242-e2.stp": ("pmi",),
 }

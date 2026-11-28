@@ -2277,10 +2277,31 @@ NIST files carry (CTC-03: 61 of them), were read as nothing and written as nothi
   attribute counts are NIST's, but for what is not read whole: CTC-04's edge attribute, and
   six reals given two or three times under one name, kept once each (XCAF's named data);
   CTC-05's two integers, read as reals; FTC-07's measures other than lengths, read as reals.
-  The affected areas are NIST's to 1% in CTC-02, STC-08 and STC-10. Not in the others:
-  NIST uses square inches beside millimetres within one file (CTC-03), which the test reads
-  by each value's unit; STC-06 gives every area as 0; FTC-06's locations, FTC-07's,
-  STC-07's and FTC-08 -e4-tg's differ, not yet explained.
+  The affected areas are NIST's to 1% in CTC-02, STC-08 and STC-10, and the graphics' in
+  FTC-07 and FTC-08 -e4-tg (since 2026-11-28, below). NIST uses square inches beside
+  millimetres within one file (CTC-03), which the test reads by each value's unit. What is
+  left is NIST's own counting, each case traced to the file:
+  - STC-06 gives every area as 0;
+  - FTC-06's three locations: their graphics are linked as well to a composite of five faces
+    ('multiple elements'), of which the location is between two; NIST gives the five's area,
+    FreeCAD the two's;
+  - FTC-07's 'Oriented Linear Dimension.4', from a face to two holes' edges ('2X'): NIST
+    gives the face's area twice;
+  - STC-07's 31 radii only a placeholder links to the '32X R': NIST gives each that graphic's
+    area, FreeCAD each its own face's; and one of its four directed locations is between a
+    face NIST measures 590 mm^2 and OCCT 637.
+- **Found by the areas, fixed (2026-11-28):**
+  - a graphic alone linked to its geometry by several associations, a shape aspect each, was
+    on the first one's: FTC-08 -e4-tg's every hole on one of its two half faces, half NIST's
+    area. It is on all of them now (`ReadGDTs`);
+  - a graphic's validation property was kept on what its first association names, which may
+    be a datum feature's face: FTC-07's Text.2 and .3, each on a face of datum A's feature,
+    had theirs kept on the datum and written of its two faces. A graphic read alone keeps its
+    own now; else the PMI its presentation link names, then what its other associations name
+    (`ReadValidationItems`). STC-07's oriented dimensions, graphics alone linked to a radius,
+    keep theirs and are written with the length NIST gives too, and CTC-03's Linear Size.10's
+    graphic's is written; the '32X R', a graphic alone the import gives the radius that holds
+    it, gives it its property as well.
 - **Found by it, fixed (2026-11-28):** a datum no frame cites was not read -- OCCT's reader
   made a datum label only for each time a frame read cites one. CTC-03's F, a datum feature
   on two faces with its graphic and its validation property, was a graphic alone, a note.
